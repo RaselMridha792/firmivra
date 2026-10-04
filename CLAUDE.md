@@ -20,12 +20,22 @@ Firmivra is one multi-tenant platform shared by many businesses. Each business (
 
 - `docs/SYSTEM-DESIGN.md`: architecture, isolation, roles and permissions, data model, AWS layout.
 - `docs/PROJECT-DRAFT-v2.md`: scope, the 62 screens, security requirements, API outline, acceptance criteria.
+- `docs/AUTH-DESIGN.md`: Cognito pools, sign-in flow, cookies, guards (see "Authentication" below).
 - `docs/SCRUM-PLAN.md`: team, process, sprints, Definition of Ready and Done.
 - `docs/mockups/{begin-online,client-portal,super-admin}/`: Octavia's mockups. Screens must match them.
 - `docs/specs/`: Octavia's written instructions (.docx) for each area.
 - `docs/tasks/<NAME>.md`: each developer's ticket plan (on their onboarding branch).
 
 Naming: the design docs say tenant / `tenant_id`. In code the tenant is the `Business` model, the field is `businessId` and the column is `business_id`.
+
+## Authentication
+
+The decided design is in `docs/AUTH-DESIGN.md`. Read it before touching sign-in, sessions, guards or roles. In short:
+
+- AWS Cognito with three user pools: staff, clients, Super Admin. Cognito says only who the person is; firm and role come from our database (`Membership`, `ClientAccount`, `PlatformAdmin`) on every request, never from token claims or Cognito groups.
+- Our own sign-in screens call our API; the API talks to Cognito and sets the tokens as `HttpOnly` cookies. No Cognito Hosted UI and no tokens in browser JavaScript.
+- Sign-in, sign-up and password reset never reveal whether an account exists.
+- Locally: `AUTH_MODE=local` and `POST /api/v1/dev/token`; the same guards run. `AUTH_MODE=local` is refused outside `NODE_ENV=development`.
 
 ## Repo layout
 
