@@ -1,0 +1,16 @@
+# LF everywhere, so scripts, Docker init files and git hooks work on Windows, macOS and Linux.
+* text=auto eol=lf
+
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.docx binary
+*.woff binary
+*.woff2 binary
