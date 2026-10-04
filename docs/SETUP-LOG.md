@@ -59,10 +59,10 @@ git 2.55.0, node 22.23.2, pnpm 10.32.1, Docker 29.8.0, gh 2.101.0 (scopes includ
 
 ## Public repo safety (Oct 5, Rasel: the repo stays public)
 
-- Secret scanning and push protection: on (since Oct 4); checked again Oct 5. Dependabot alerts and security updates: on. Not enabled: non-provider patterns and validity checks.
+- Secret scanning and push protection: on (since Oct 4); checked again Oct 5. Dependabot alerts and security updates: on. Non-provider patterns: requested via the API on Oct 5; GitHub accepted the call but the setting stays `disabled` (probably not offered for repos owned by a personal account). Validity checks: off.
 - `.gitignore` covers `.env` and every `.env.*` except `.env.example`, key files (`*.pem`, `*.key`, `*.p12`, `*.pfx`), and local data that may hold real client information: database dumps and backups (`*.dump`, `*.backup`, `*.bak`, `*.sql.gz`, `*.sql.zip`) and the folders `/dumps/`, `/exports/`, `/backups/`, `/client-data/`, `/tmp/`. Checked with `git check-ignore`; no tracked file is affected.
 - Local services keep their data in Docker volumes, outside the repo. Only synthetic data is allowed in code, tests, seeds and fixtures (CLAUDE.md rule 9).
-- **Rule for Step 7:** the GitHub OIDC deploy role can only be assumed from the `main` branch and the `prod` environment of `RaselMridha792/firmivra`. Trust policy `sub` values: `repo:RaselMridha792/firmivra:ref:refs/heads/main` and `repo:RaselMridha792/firmivra:environment:prod`. Note: when a job declares `environment: dev`, GitHub sets `sub` to `...:environment:dev` instead of the branch, so the dev deploy job either runs without an environment or the trust adds `environment:dev` (which GitHub already limits to `main`). Decide in Step 8.
+- **Rule for Steps 7 and 8 (Rasel, Oct 5):** the GitHub OIDC deploy role trusts only `repo:RaselMridha792/firmivra:environment:dev` and `repo:RaselMridha792/firmivra:environment:prod` (no branch-based `sub`). Every deploy job declares its environment, and GitHub limits the environments: `dev` deploys only from `main`, `prod` only from `v*` tags with Rasel's approval (both set up in Step 2).
 
 ## Step 4: docs and conventions (done, PR #1)
 
@@ -141,6 +141,17 @@ Console menu names change from time to time; pick the closest match.
 - Cognito sends forgot-password codes itself; branded SES email needs a Cognito custom email sender (Lambda + KMS key, Step 7) or our own reset codes.
 - Schema: done in 6.3 (`users.email` not unique; `client_accounts` unique on business and email).
 
+## Database rules tightened (Oct 5, before the first push of Step 6)
+
+Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can touch, triggers decide how a row may change (triggers also apply to the table owner and superusers):
+
+- Support access grants: platform scope can only insert a request (no approver, no expiry, not revoked) and cannot update it; only business scope can approve, and only with `granted_by_user_id` = an ACTIVE OWNER of that firm and `expires_at` in the next 72 hours. An approval cannot be changed; revocation is one-way; a declined request cannot be approved; the app cannot delete grants.
+- Users: only platform scope or the person themself (user scope) can update a user row (USING and WITH CHECK). In user scope, `id`, `cognito_sub`, `pool` and `email` cannot change.
+- Businesses: only platform scope can change `status`, `slug` or `id`; a firm can still edit its other fields.
+- Pooled connections: every scope is set with `set_config(..., true)` inside a transaction (`forBusiness`, `forUser`, `forPlatform` via a batch transaction per query; `withScope` via an interactive transaction). A test with a one-connection pool shows the next query on the same connection has no scope and sees no rows, also after a failed transaction.
+- Coverage test now also fails if any table in `public` lacks a grant for `firmivra_app`, and pins the limits: no UPDATE or DELETE on `audit_logs`, no DELETE on `support_access_grants`, no access to `_prisma_migrations`.
+- db tests: 37 (isolation 11, policies 17, pooling 4, coverage 5). Each new rule was checked by breaking it on purpose: dropping the business trigger, revoking a grant, and switching `set_config` to session-wide each made the matching tests fail.
+
 ## Notes for Step 7 (from Step 6)
 
 - CloudFront: on `admin.`, `app.` and `portal.dev.firmivra.com`, send `/api/*` to the API target group and everything else to the web target group. Health checks: API `/api/v1/health`, web `/healthz`.
@@ -151,4 +162,5 @@ Console menu names change from time to time; pick the closest match.
 ## Still open from the plan
 
 - Who has the GoDaddy login for firmivra.com (Octavia?)
+- Secret scanning non-provider patterns: check in the browser under Settings, Advanced Security (or Code security) whether "Scan for non-provider patterns" is offered for this repo; if not, it needs an organization-owned repo.
 - LVP's own Terms and Privacy, approved calculators and formulas, mockups for appointments, My Services, notification center and service workspaces.
