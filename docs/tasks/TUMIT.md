@@ -22,6 +22,9 @@ You are a backend developer. You own the NestJS API modules for **identity and a
 **Branches and PRs**
 
 - Create every branch from the latest `main`: `git checkout main && git pull && git checkout -b tumit/FIR-<ticket>-short-name`. Example: `tumit/FIR-31-firm-application-api`.
+- **Every morning, and before opening a PR**, bring your branch up to date with `main`: `git fetch origin && git rebase origin/main`, run `pnpm install && pnpm test`, then `git push --force-with-lease`. Only ever force-push your own branch, never `main`. If the rebase conflicts and you are unsure, stop and ask Rasel.
+- One branch per ticket, short-lived (1 to 3 days). When Rasel merges your PR, the branch is deleted; start the next ticket from a fresh `main`. There is no `develop` branch: `main` is the shared branch and every merge deploys to dev.firmivra.com.
+- Need something from another developer's unmerged branch? Don't build on it; wait until it is merged into `main`, or agree with Rasel to merge it first.
 - Placeholder ids in this file (like `FIR-S1-T2`) become real GitHub issue numbers when Rasel creates the issues.
 - Open a pull request from your branch into `main`. Never push to `main`. Only Rasel merges (squash merge).
 - CI must be green: lint, type check, unit tests, build (and e2e tests where the pipeline runs them).
@@ -44,10 +47,22 @@ You are a backend developer. You own the NestJS API modules for **identity and a
 
 **Security**
 
-- Nobody gets AWS access. Run locally with Docker (PostgreSQL, LocalStack for S3, SES and SNS) and the Cognito local setup in the README.
+- Nobody gets AWS access. Run locally with Docker (PostgreSQL, s3mock for S3, Mailpit for email, SMS written to the API log) and the Cognito local setup in the README.
 - Never log passwords, codes, tokens, SSNs or EINs. Use the logger's redaction.
 - Rate-limit public endpoints (applications, sign-up, codes, password reset, public intake).
 - Responses never reveal whether an email or account exists.
+
+## 2a. Authentication design (decided, read first)
+
+The full design is in `docs/AUTH-DESIGN.md`. The short version you must follow:
+
+- **AWS Cognito**, three user pools: staff (app.firmivra.com), clients (portal), Super Admin (admin). MFA required for staff and Super Admin, optional for clients.
+- **Cognito only says who the person is.** Firm and role come from our database (`Membership`, `ClientAccount`, `PlatformAdmin`) on every request, never from Cognito groups or token claims. No pre-token-generation Lambda.
+- **Our own screens, our own API.** No Cognito Hosted UI. The API calls Cognito (`AdminInitiateAuth` with the app client secret) and sets tokens as `HttpOnly` cookies. The browser never handles raw tokens.
+- **Cognito usernames are UUIDs.** Clients get one Cognito user per firm (same email at two firms = two accounts); the API finds the user via `ClientAccount (businessId, email)`.
+- **Errors never reveal whether an account exists.** Sign-in, sign-up and forgot password give the same response either way.
+- **Locally** you use `AUTH_MODE=local` and `POST /api/v1/dev/token`; the same guards run.
+- Rasel builds the pools (CDK) and the base `AuthGuard`, `TenantGuard` and `@Roles()` in Sprint 0. You build the flows on top.
 
 ## 3. Repo map (expected layout; follow the README if it differs)
 
@@ -78,7 +93,7 @@ Ticket ids are placeholders: `FIR-S<sprint>-T<number>`. All endpoints are **prop
 | Sprint | Dates | Your tickets |
 | --- | --- | --- |
 | 0 | Oct 5 to Oct 16 | S0-T1 field lists for schema, S0-T2 role and permission matrix, S0-T3 OpenAPI spec |
-| 1 | Oct 19 to Oct 30 | S1-T1 Cognito pools and role claims, S1-T2 firm application API, S1-T3 approve and activate flow, S1-T4 invite emails |
+| 1 | Oct 19 to Oct 30 | S1-T1 Sign-in, MFA, session and /me, S1-T2 firm application API, S1-T3 approve and activate flow, S1-T4 invite emails |
 | 2 | Nov 2 to Nov 13 | S2-T1 role-based access on every endpoint, S2-T2 team invite API, S2-T3 client self sign-up with firm approval, S2-T4 portal password reset, S2-T5 legal documents setting |
 | 3 | Nov 16 to Nov 27 | S3-T1 audit log API and viewer, S3-T2 support access, S3-T3 notification center API |
 | 4 | Nov 30 to Dec 11 | S4-T1 lead to client conversion, S4-T2 notification service (SES, SNS), S4-T3 external links configuration |
@@ -120,9 +135,9 @@ No running app yet. Deliver documents to Rasel by **Oct 9** so the schema is rea
 
 Goal: a firm applies, Super Admin approves it, the firm owner activates and logs in.
 
-**FIR-S1-T1 Cognito pools and role claims**
-- Build: integration with the user pools Rasel creates (super admin pool; firm and client pool or app clients as Rasel's design says). Pre-token-generation logic or API lookup that puts `role` and `businessId` in the claims. `GET /api/v1/me`.
-- Acceptance: a token without a business cannot call tenant endpoints; role from the token matches the membership in the database; a suspended firm's users get 403 with a clear code.
+**FIR-S1-T1 Sign-in, MFA, session and `/me`**
+- Build (per `docs/AUTH-DESIGN.md`): `POST /api/v1/auth/sign-in`, `POST /api/v1/auth/mfa`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/sign-out` for staff, and the same under `/api/v1/admin/auth/*` for Super Admin; MFA setup (TOTP) at first sign-in; cookies `fv_access`, `fv_id`, `fv_refresh`; firm picker data when a user has more than one membership; `GET /api/v1/me` returning user, businesses, current business and role from the database.
+- Acceptance: a session without a membership in the business cannot call its endpoints (404); role always comes from the database, and a removed member loses access within 60 seconds; a suspended firm's users get 403 with a clear code.
 - Dependencies: Cognito pools from Rasel (`infra`), users and membership tables (`schema`).
 
 **FIR-S1-T2 Firm application API**
@@ -137,7 +152,7 @@ Goal: a firm applies, Super Admin approves it, the firm owner activates and logs
 - Consumed by: Nahid (S1-N4), Fahad (S1-F2).
 
 **FIR-S1-T4 Invite emails through SES**
-- Build: email templates (owner activation, staff invite, request info, decline) sent through SES (LocalStack locally). Templates use Firmivra branding.
+- Build: email templates (owner activation, staff invite, request info, decline) sent through SES (Mailpit locally). Templates use Firmivra branding.
 - Acceptance: emails are sent after the transaction commits; failures are retried and logged; no token appears in logs.
 - Dependencies: SES setup and verified domain from Rasel (`infra`).
 
