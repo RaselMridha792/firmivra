@@ -1,0 +1,4 @@
+{
+  "extends": "@firmivra/config-typescript/nextjs.json",
+  "include": ["src"]
+}

@@ -2,11 +2,11 @@
 
 One multi-tenant platform where any business signs up under its own name, runs its own team, and gives each client a private, branded portal. Every business sees only its own data. The first business is LVP Accounting & Taxes (beta: Jan 8, 2027).
 
-| App | Production | Dev |
-| --- | --- | --- |
-| Super Admin console | `admin.firmivra.com` | `admin.dev.firmivra.com` |
-| Firm workspace | `app.firmivra.com` | `app.dev.firmivra.com` |
-| Client portal | `portal.firmivra.com/{firm}` | `portal.dev.firmivra.com/lvp` |
+| App                 | Production                   | Dev                           |
+| ------------------- | ---------------------------- | ----------------------------- |
+| Super Admin console | `admin.firmivra.com`         | `admin.dev.firmivra.com`      |
+| Firm workspace      | `app.firmivra.com`           | `app.dev.firmivra.com`        |
+| Client portal       | `portal.firmivra.com/{firm}` | `portal.dev.firmivra.com/lvp` |
 
 ## Stack
 
@@ -24,7 +24,36 @@ infra/           AWS CDK (owned by Rasel)
 docs/            design, plan, mockups and specs
 ```
 
-The monorepo is being scaffolded in Sprint 0 (Oct 5 to Oct 16, 2026). Local setup instructions are added here as each part lands.
+The monorepo is being scaffolded in Sprint 0 (Oct 5 to Oct 16, 2026).
+
+## Local setup
+
+You need Node.js 22.22.1 or newer (`.nvmrc`), pnpm 10 (`corepack enable` or `npm install -g pnpm`) and Docker Desktop. Nobody needs AWS access to work locally.
+
+```bash
+cp .env.example .env     # PowerShell: Copy-Item .env.example .env
+docker compose up -d     # Postgres, s3mock, Mailpit
+docker compose ps        # wait until all three show "healthy"
+pnpm install
+pnpm lint && pnpm typecheck
+```
+
+`pnpm db:migrate`, `pnpm db:seed` and `pnpm dev` start working as Sprint 0 adds the database, API and web app.
+
+If PowerShell blocks `pnpm` because of the script execution policy, use `pnpm.cmd`.
+
+| Service       | Where                                                                            | Stands in for |
+| ------------- | -------------------------------------------------------------------------------- | ------------- |
+| PostgreSQL 16 | `localhost:5432`, database `firmivra`, owner `firmivra`, app role `firmivra_app` | RDS           |
+| s3mock        | `http://localhost:9090` (path-style), bucket `firmivra-docs-local`               | S3            |
+| Mailpit       | inbox at `http://localhost:8025`, SMTP `localhost:1025`                          | SES           |
+| API log       | SMS text is written to the API log (`SMS_MODE=log`)                              | SNS SMS       |
+| `.env` key    | `LOCAL_KMS_KEY` encrypts sensitive fields (`KMS_MODE=local`)                     | KMS           |
+
+Notes:
+
+- The database init script (`docker/postgres/init/`) runs only when the volume is first created. To start over, run `docker compose down -v` (this deletes all local data).
+- s3mock accepts pre-signed URLs without checking expiry or signature. Test link expiry against AWS, not locally.
 
 ## Docs
 

@@ -1,7 +1,7 @@
 ---
 name: Schema or infra request
 about: Ask Rasel for a database (Prisma) or AWS change
-title: ""
+title: ''
 labels: []
 assignees: [RaselMridha792]
 ---
@@ -18,8 +18,8 @@ assignees: [RaselMridha792]
 ## Schema change (if `schema`)
 
 | Model | Field | Type | Nullable | Default | Unique / index | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-|  |  |  |  |  |  |  |
+| ----- | ----- | ---- | -------- | ------- | -------------- | ----- |
+|       |       |      |          |         |                |       |
 
 - Relations:
 - Tenant data (needs `businessId` and row-level security)? yes / no

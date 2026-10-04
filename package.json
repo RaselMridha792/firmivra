@@ -1,0 +1,37 @@
+{
+  "name": "firmivra",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:migrate": "pnpm --filter @firmivra/db db:migrate",
+    "db:seed": "pnpm --filter @firmivra/db db:seed",
+    "db:studio": "pnpm --filter @firmivra/db db:studio",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@firmivra/config-eslint": "workspace:*",
+    "eslint": "catalog:",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.9",
+    "turbo": "^2.11.7",
+    "typescript": "catalog:"
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs,ts,tsx}": [
+      "eslint --fix --no-warn-ignored",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css}": "prettier --write"
+  }
+}

@@ -9,8 +9,8 @@ Closes #
 <!-- UI changes: the mockup from docs/mockups next to your result, at desktop width and at 375 px. Delete this section if there is no UI. -->
 
 | Mockup | Result |
-| --- | --- |
-|  |  |
+| ------ | ------ |
+|        |        |
 
 ## How to test
 

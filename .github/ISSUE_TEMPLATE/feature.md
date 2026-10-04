@@ -1,7 +1,7 @@
 ---
 name: Feature
 about: A user story for one ticket
-title: "FIR-<id> "
+title: 'FIR-<id> '
 labels: []
 assignees: []
 ---

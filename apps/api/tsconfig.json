@@ -1,0 +1,4 @@
+{
+  "extends": "@firmivra/config-typescript/nestjs.json",
+  "include": ["src"]
+}
