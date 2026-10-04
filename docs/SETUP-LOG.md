@@ -33,6 +33,7 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | Oct 5 | Local AWS stand-ins | No LocalStack (it now needs a paid token for commercial use). s3mock for S3, Mailpit for email, SMS to the API log, a local key from `.env` instead of KMS | LocalStack (S3, SES, SNS, KMS) |
 | Oct 5 | Lint and TypeScript | ESLint 10 (ESLint 9 is end of life) with `@eslint-react`; TypeScript 5.9.3 (typescript-eslint supports below 6.1) | — |
 | Oct 5 | Dev infrastructure (Step 7) | No NAT gateway: Fargate tasks in public subnets, inbound only from the ALB. 1 task each for api and web at 0.25 vCPU / 0.5 GB, **Fargate Spot**, x86, running 24/7. RDS PostgreSQL db.t4g.micro single-AZ. Cognito Plus tier (compromised-credential checks). Tags `project=firmivra`, `env=dev` on everything. `cdk diff` shown and approved before every deploy. Prod stays on-demand | NAT gateway, private subnets |
+| Oct 5 | Audit helper | `AuditService.log(action, entity, metadata)` everywhere, as in CLAUDE.md | — |
 | Oct 5 | Authentication | `docs/AUTH-DESIGN.md` (decided Oct 4): Cognito, three pools, roles from the database, our own screens, `HttpOnly` cookies | — |
 
 Team on GitHub: Fahad `Sefat-Ullah-Fahad`, Tumit `tumit-h-r-75`, Ibrahim `BFIbrahim`, Nahid `asratulhasannahid`. Octavia is not a collaborator.
@@ -94,6 +95,8 @@ Later: SMS toll-free number $2 a month once approved. Not in dev: WAF, GuardDuty
 
 Oct 5, Tumit's branch: `bfb1c83` adds `docs/AUTH-DESIGN.md`; `a582d02` updates `docs/tasks/TUMIT.md` with Rasel's new version (auth design section, rebase routine, s3mock and Mailpit), keeping Tumit's own "Local setup notes" (`11a2ee0`).
 
+Oct 5, all four branches: LocalStack replaced with s3mock, Mailpit and a local key; `AuditService.log(action, entity, metadata)` instead of `AuditService.record()`. Commits: Fahad `af5790d`, Nahid `1b7fb19`, Tumit `31eda21`, Ibrahim `a36da5b`.
+
 ## Left for Rasel
 
 - [ ] Board: switch "View 1" to Board layout and save (the API cannot change the layout).
@@ -120,10 +123,8 @@ Console menu names change from time to time; pick the closest match.
 - `fv_refresh` path `/api/v1/auth/refresh` is not sent to the portal or admin refresh routes.
 - Cognito sends forgot-password codes itself; branded SES email needs a Cognito custom email sender (Lambda + KMS key, Step 7) or our own reset codes.
 - Schema (6.3): `User.email` not unique (one Cognito user per firm for clients); `ClientAccount` lookup by business and email.
-- CLAUDE.md says `AuditService.log`, TUMIT.md says `AuditService.record()`; pick one.
 
 ## Still open from the plan
 
 - Who has the GoDaddy login for firmivra.com (Octavia?)
-- Fahad's, Nahid's and Ibrahim's task docs (on their branches) still mention LocalStack (1, 1 and 2 places).
 - LVP's own Terms and Privacy, approved calculators and formulas, mockups for appointments, My Services, notification center and service workspaces.
