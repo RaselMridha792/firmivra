@@ -40,12 +40,12 @@ You are a backend developer. You own the NestJS API modules for **client work**:
 - Portal endpoints (`/api/v1/portal/...`) are scoped to the business **and** the signed-in client. A client never reads another client's data, even in the same firm.
 - Row-level security is on. Use the repo's Prisma helper that sets the tenant for the transaction. No raw SQL that bypasses it.
 - Every new endpoint gets a **tenant isolation e2e test** (business A cannot read, list, change or download anything of business B; client X cannot reach client Y). Return 404 so existence does not leak.
-- Write an **audit log** entry (Tumit's `AuditService.record()`) for every action on client data: create, update, upload, download, share, status change, submit, payment.
+- Write an **audit log** entry (`AuditService.log(action, entity, metadata)`) for every action on client data: create, update, upload, download, share, status change, submit, payment.
 - Things clients must never see: internal staff notes, reviewer comments, internal tasks, unshared documents.
 
 **Security**
 
-- Nobody gets AWS access. Run locally with Docker (PostgreSQL, LocalStack for S3 and KMS) and Stripe test mode with the Stripe CLI for webhooks.
+- Nobody gets AWS access. Run locally with Docker (PostgreSQL, s3mock for S3, Mailpit for email, a local key from `.env` instead of KMS) and Stripe test mode with the Stripe CLI for webhooks.
 - Files: S3 key prefixes per business; encrypt with the business's KMS key; short-lived pre-signed URLs; never public or guessable URLs.
 - Never log SSNs, EINs, bank or card data, or intake answers. Store sensitive intake fields encrypted.
 - Money: integer cents, never floats. Paid status changes only from a verified Stripe webhook.
@@ -233,7 +233,7 @@ Write unit tests and an e2e test with a tenant isolation case. Record audit even
 
 ```
 Read CLAUDE.md and docs/tasks/IBRAHIM.md. Ticket FIR-S3-I1.
-Implement pre-signed upload and download with the S3 and KMS clients already configured for LocalStack.
+Implement pre-signed upload and download with the S3 client pointed at s3mock locally (`S3_ENDPOINT`, path-style) and the encryption adapter using the local key from `.env` instead of KMS.
 Use the business's key prefix and KMS key; never return a public URL. Enforce the upload gate (NO_OPEN_SERVICE).
 Add tests: wrong MIME, too large, other business's document id, expired URL, and a successful upload.
 ```
