@@ -1,6 +1,6 @@
 # @firmivra/config-typescript
 
-Shared TypeScript presets. All of them extend the strict root `tsconfig.base.json`.
+Shared TypeScript presets. All of them extend `strict.json` (the strict options, also used by the root `tsconfig.base.json`).
 
 | Preset        | For                                                                      |
 | ------------- | ------------------------------------------------------------------------ |

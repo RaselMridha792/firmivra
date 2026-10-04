@@ -44,7 +44,7 @@ If PowerShell blocks `pnpm` because of the script execution policy, use `pnpm.cm
 
 | Service       | Where                                                                            | Stands in for |
 | ------------- | -------------------------------------------------------------------------------- | ------------- |
-| PostgreSQL 16 | `localhost:5432`, database `firmivra`, owner `firmivra`, app role `firmivra_app` | RDS           |
+| PostgreSQL 16 | `localhost:5433`, database `firmivra`, owner `firmivra`, app role `firmivra_app` | RDS           |
 | s3mock        | `http://localhost:9090` (path-style), bucket `firmivra-docs-local`               | S3            |
 | Mailpit       | inbox at `http://localhost:8025`, SMTP `localhost:1025`                          | SES           |
 | API log       | SMS text is written to the API log (`SMS_MODE=log`)                              | SNS SMS       |

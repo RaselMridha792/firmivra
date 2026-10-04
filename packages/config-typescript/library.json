@@ -4,9 +4,8 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "sourceMap": true,
-    "removeComments": true
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
   }
 }

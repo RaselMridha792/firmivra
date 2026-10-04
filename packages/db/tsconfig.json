@@ -1,4 +1,7 @@
 {
-  "extends": "@firmivra/config-typescript/base.json",
-  "include": ["src"]
+  "extends": "@firmivra/config-typescript/library.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src", "prisma", "test", "prisma.config.ts", "vitest.config.ts"]
 }

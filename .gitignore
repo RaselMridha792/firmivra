@@ -15,6 +15,9 @@ storybook-static/
 *.tsbuildinfo
 next-env.d.ts
 
+# Generated code
+packages/db/src/generated/
+
 # AWS CDK (cdk.context.json stays committed)
 cdk.out/
 

@@ -1,0 +1,70 @@
+import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import pg from 'pg';
+
+/**
+ * Test helpers. Tests run against `<database>_test` next to the dev database, so they never
+ * touch dev data. Import from '@firmivra/db/testing' in test setup only.
+ */
+
+const DB_PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url));
+
+function withDatabaseName(url: string, name: string): string {
+  const u = new URL(url);
+  u.pathname = `/${name}`;
+  return u.toString();
+}
+
+function databaseName(url: string): string {
+  return new URL(url).pathname.replace(/^\//, '');
+}
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not set (copy .env.example to .env)`);
+  return value;
+}
+
+/** Owner and app connection strings for the test database. */
+export function testDatabaseUrls(): { owner: string; app: string } {
+  const owner = required('DATABASE_URL');
+  const app = required('DATABASE_URL_APP');
+  const name = databaseName(owner).endsWith('_test')
+    ? databaseName(owner)
+    : `${databaseName(owner)}_test`;
+  return { owner: withDatabaseName(owner, name), app: withDatabaseName(app, name) };
+}
+
+/**
+ * Creates the test database if needed, applies all migrations and empties every table.
+ * Needs an owner role that can create databases (local Docker and CI Postgres are superusers).
+ */
+export async function prepareTestDatabase(): Promise<{ owner: string; app: string }> {
+  const urls = testDatabaseUrls();
+  const name = databaseName(urls.owner);
+
+  const admin = new pg.Client({ connectionString: withDatabaseName(urls.owner, 'postgres') });
+  await admin.connect();
+  try {
+    const exists = await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [name]);
+    if (exists.rowCount === 0) await admin.query(`CREATE DATABASE "${name.replace(/"/g, '')}"`);
+  } finally {
+    await admin.end();
+  }
+
+  execSync('pnpm exec prisma migrate deploy', {
+    cwd: DB_PACKAGE_DIR,
+    env: { ...process.env, DATABASE_URL: urls.owner },
+    stdio: 'pipe',
+  });
+
+  const owner = new pg.Client({ connectionString: urls.owner });
+  await owner.connect();
+  try {
+    await owner.query(`TRUNCATE businesses, users, memberships, client_accounts, platform_admins,
+      support_access_grants, audit_logs, firm_applications CASCADE`);
+  } finally {
+    await owner.end();
+  }
+  return urls;
+}

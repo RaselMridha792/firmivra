@@ -1,0 +1,221 @@
+// Firmivra database schema. Owner: Rasel. Developers request changes with a `schema` issue.
+// Row-level security, the app role and the email checks live in the SQL migrations (see README).
+// Tenant tables carry business_id; the app can only see rows of the business set by forBusiness().
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  runtime                = "nodejs"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BusinessStatus {
+  PENDING_SETUP
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+/// Which Cognito user pool the identity belongs to (docs/AUTH-DESIGN.md).
+enum IdentityPool {
+  STAFF
+  CLIENT
+  ADMIN
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  STAFF
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  DEACTIVATED
+}
+
+enum ClientAccountStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  DECLINED
+  DISABLED
+}
+
+enum ClientAccountType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum PlatformRole {
+  SUPER_ADMIN
+}
+
+enum FirmApplicationStatus {
+  PENDING_REVIEW
+  INFO_REQUESTED
+  APPROVED
+  DECLINED
+}
+
+/// A firm on Firmivra (the tenant).
+model Business {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  name       String
+  legalName  String?        @map("legal_name")
+  slug       String         @unique
+  status     BusinessStatus @default(PENDING_SETUP)
+  termsUrl   String?        @map("terms_url")
+  privacyUrl String?        @map("privacy_url")
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships         Membership[]
+  clientAccounts      ClientAccount[]
+  supportAccessGrants SupportAccessGrant[]
+  auditLogs           AuditLog[]
+  firmApplication     FirmApplication?
+
+  @@map("businesses")
+}
+
+/// A person who signs in. One row per Cognito user: staff have one user across firms,
+/// clients have one user per firm (docs/AUTH-DESIGN.md), so email is not unique.
+model User {
+  id         String       @id @default(uuid(7)) @db.Uuid
+  cognitoSub String       @unique @map("cognito_sub")
+  pool       IdentityPool
+  email      String
+  name       String
+  phone      String?
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships   Membership[]
+  clientAccount ClientAccount?
+  platformAdmin PlatformAdmin?
+
+  @@index([email])
+  @@map("users")
+}
+
+/// A staff user's role in one business.
+model Membership {
+  id         String           @id @default(uuid(7)) @db.Uuid
+  businessId String           @map("business_id") @db.Uuid
+  userId     String           @map("user_id") @db.Uuid
+  role       MembershipRole
+  status     MembershipStatus @default(INVITED)
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+/// A client's portal account at one firm. The API finds the Cognito user by (businessId, email).
+model ClientAccount {
+  id               String              @id @default(uuid(7)) @db.Uuid
+  businessId       String              @map("business_id") @db.Uuid
+  userId           String              @unique @map("user_id") @db.Uuid
+  email            String
+  accountType      ClientAccountType   @default(INDIVIDUAL) @map("account_type")
+  status           ClientAccountStatus @default(PENDING_APPROVAL)
+  emailVerifiedAt  DateTime?           @map("email_verified_at") @db.Timestamptz(3)
+  phoneVerifiedAt  DateTime?           @map("phone_verified_at") @db.Timestamptz(3)
+  approvedAt       DateTime?           @map("approved_at") @db.Timestamptz(3)
+  approvedByUserId String?             @map("approved_by_user_id") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@unique([businessId, email])
+  @@index([businessId, status])
+  @@map("client_accounts")
+}
+
+/// A Firmivra team member with platform rights (Super Admin).
+model PlatformAdmin {
+  userId    String       @id @map("user_id") @db.Uuid
+  role      PlatformRole @default(SUPER_ADMIN)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("platform_admins")
+}
+
+/// Owner-approved, time-limited access for a Super Admin to one business (Tumit, Sprint 3).
+model SupportAccessGrant {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  adminUserId     String    @map("admin_user_id") @db.Uuid
+  grantedByUserId String?   @map("granted_by_user_id") @db.Uuid
+  reason          String
+  expiresAt       DateTime? @map("expires_at") @db.Timestamptz(3)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@map("support_access_grants")
+}
+
+/// Append-only. business_id is null for platform events. The app role cannot update or delete rows.
+model AuditLog {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  businessId  String?  @map("business_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  metadata    Json?
+  ip          String?
+  userAgent   String?  @map("user_agent")
+  requestId   String?  @map("request_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // Restrict: a business delete must never turn its audit rows into platform rows.
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, createdAt])
+  @@map("audit_logs")
+}
+
+/// A firm's application to join Firmivra. Platform data: only Super Admin sees it.
+/// Full field list comes from Tumit's FIR-S0-T1; the complete form is kept in `data` until then.
+model FirmApplication {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  status           FirmApplicationStatus @default(PENDING_REVIEW)
+  legalName        String                @map("legal_name")
+  dbaName          String?               @map("dba_name")
+  contactName      String                @map("contact_name")
+  contactEmail     String                @map("contact_email")
+  contactPhone     String?               @map("contact_phone")
+  data             Json
+  internalNotes    String?               @map("internal_notes")
+  decisionReason   String?               @map("decision_reason")
+  reviewedByUserId String?               @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?             @map("reviewed_at") @db.Timestamptz(3)
+  businessId       String?               @unique @map("business_id") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business? @relation(fields: [businessId], references: [id])
+
+  @@index([status, createdAt])
+  @@map("firm_applications")
+}

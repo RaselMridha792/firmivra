@@ -5,17 +5,30 @@
   "globalDependencies": ["tsconfig.base.json"],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "generate"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", "storybook-static/**"]
     },
     "dev": {
+      "dependsOn": ["^build", "generate"],
       "cache": false,
       "persistent": true
     },
-    "lint": {},
-    "typecheck": {},
+    "lint": {
+      "dependsOn": ["^build", "generate"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build", "generate"]
+    },
     "test": {
-      "outputs": ["coverage/**"]
+      "dependsOn": ["^build", "generate"],
+      "outputs": ["coverage/**"],
+      "cache": false
+    },
+    "generate": {
+      "inputs": ["prisma/schema.prisma"],
+      "outputs": ["src/generated/**"]
     }
-  }
+  },
+  "globalEnv": ["NODE_ENV"],
+  "globalPassThroughEnv": ["DATABASE_URL", "DATABASE_URL_APP"]
 }
