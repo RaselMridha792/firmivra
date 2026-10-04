@@ -89,6 +89,12 @@ Ticket ids are placeholders: `FIR-S<sprint>-T<number>`. All endpoints are **prop
 
 No running app yet. Deliver documents to Rasel by **Oct 9** so the schema is ready for Sprint 1.
 
+**Local setup notes**
+
+- Use Node.js 22 (see `.nvmrc`) and pnpm.
+- In Windows PowerShell, use `npm.cmd` or `pnpm.cmd` if the script execution policy blocks the `.ps1` launcher.
+- Run `pnpm install`, `pnpm test` and `pnpm dev` once the Sprint 0 scaffold adds `package.json` and the workspace files.
+
 **FIR-S0-T1 Field lists for the schema**
 - For each feature, list the fields, types, required flags, relations and indexes, and send them to Rasel (issue labelled `schema`):
   - Firm application (practice type, legal name, DBA, entity type, EIN, contact, website, address, primary admin, credentials and uploads, services, team size, client volume, referral source, requested start date, agreement accepted at, status, internal notes, history).
