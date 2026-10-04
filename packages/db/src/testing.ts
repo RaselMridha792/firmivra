@@ -25,13 +25,14 @@ function required(name: string): string {
   return value;
 }
 
-/** Owner and app connection strings for the test database. */
-export function testDatabaseUrls(): { owner: string; app: string } {
+/**
+ * Owner and app connection strings for a test database named `<database>_<suffix>`.
+ * Each package's tests use their own suffix so parallel test runs never share data.
+ */
+export function testDatabaseUrls(suffix = 'test'): { owner: string; app: string } {
   const owner = required('DATABASE_URL');
   const app = required('DATABASE_URL_APP');
-  const name = databaseName(owner).endsWith('_test')
-    ? databaseName(owner)
-    : `${databaseName(owner)}_test`;
+  const name = `${databaseName(owner)}_${suffix}`;
   return { owner: withDatabaseName(owner, name), app: withDatabaseName(app, name) };
 }
 
@@ -39,8 +40,10 @@ export function testDatabaseUrls(): { owner: string; app: string } {
  * Creates the test database if needed, applies all migrations and empties every table.
  * Needs an owner role that can create databases (local Docker and CI Postgres are superusers).
  */
-export async function prepareTestDatabase(): Promise<{ owner: string; app: string }> {
-  const urls = testDatabaseUrls();
+export async function prepareTestDatabase(
+  suffix = 'test',
+): Promise<{ owner: string; app: string }> {
+  const urls = testDatabaseUrls(suffix);
   const name = databaseName(urls.owner);
 
   const admin = new pg.Client({ connectionString: withDatabaseName(urls.owner, 'postgres') });

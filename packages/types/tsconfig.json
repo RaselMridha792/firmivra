@@ -1,4 +1,7 @@
 {
-  "extends": "@firmivra/config-typescript/base.json",
-  "include": ["src"]
+  "extends": "@firmivra/config-typescript/library.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src", "test"]
 }

@@ -1,0 +1,72 @@
+import { randomUUID } from 'node:crypto';
+import { type DynamicModule, Module } from '@nestjs/common';
+
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { LoggerModule } from 'nestjs-pino';
+import { AuditModule } from './audit/audit.service.js';
+import { AuthGuard } from './auth/auth.guard.js';
+import { AuthModule } from './auth/auth.module.js';
+import { RolesGuard } from './auth/roles.guard.js';
+import { TenantGuard } from './auth/tenant.guard.js';
+import { BusinessModule } from './business/business.controller.js';
+import { ConfigModule } from './config/config.module.js';
+import type { Env } from './config/env.js';
+import { DatabaseModule } from './database/database.module.js';
+import { DevModule } from './dev/dev.controller.js';
+import { HealthModule } from './health/health.controller.js';
+import { MeModule } from './me/me.controller.js';
+
+/** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
+function prettyTransport(env: Env) {
+  if (env.NODE_ENV !== 'development') return undefined;
+  try {
+    import.meta.resolve('pino-pretty');
+    return { target: 'pino-pretty', options: { singleLine: true } };
+  } catch {
+    return undefined;
+  }
+}
+
+@Module({})
+export class AppModule {
+  static forRoot(env: Env): DynamicModule {
+    return {
+      module: AppModule,
+      imports: [
+        ConfigModule.forRoot(env),
+        LoggerModule.forRoot({
+          pinoHttp: {
+            level: env.LOG_LEVEL,
+            genReqId: (req) => (req as { id?: string }).id ?? randomUUID(),
+            // Never log credentials, codes or cookies.
+            redact: {
+              paths: [
+                'req.headers.authorization',
+                'req.headers.cookie',
+                'res.headers["set-cookie"]',
+              ],
+              remove: true,
+            },
+            transport: prettyTransport(env),
+          },
+        }),
+        ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+        DatabaseModule,
+        AuthModule,
+        AuditModule,
+        HealthModule,
+        MeModule,
+        BusinessModule,
+        ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
+      ],
+      // Run in this order on every request. Each skips @Public() routes.
+      providers: [
+        { provide: APP_GUARD, useClass: ThrottlerGuard },
+        { provide: APP_GUARD, useClass: AuthGuard },
+        { provide: APP_GUARD, useClass: TenantGuard },
+        { provide: APP_GUARD, useClass: RolesGuard },
+      ],
+    };
+  }
+}

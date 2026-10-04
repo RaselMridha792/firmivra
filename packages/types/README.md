@@ -1,5 +1,7 @@
 # @firmivra/types
 
-Shared TypeScript types and zod schemas for API contracts.
+Shared API contracts: zod schemas and the TypeScript types inferred from them, plus a typed `fetch` client.
 
-Placeholder: set up in Sprint 0 Step 6.5. Owner: shared; pairs agree changes.
+- The API validates request bodies with these schemas (`ZodValidationPipe`).
+- The web app calls the API through `createApiClient`, which parses every response with the same schemas.
+- A frontend/backend pair agrees a change here first, in its own small PR, before building on it.
