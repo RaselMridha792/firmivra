@@ -1,7 +1,7 @@
 ---
 name: Bug
 about: Something does not work as expected
-title: ""
+title: ''
 labels: [bug]
 assignees: []
 ---

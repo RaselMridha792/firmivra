@@ -6,11 +6,11 @@ Read this file at the start of every session. It applies to everyone working in 
 
 Firmivra is one multi-tenant platform shared by many businesses. Each business (tenant) sees only its own data.
 
-| App | Host | Who uses it |
-| --- | --- | --- |
-| Super Admin console | `admin.firmivra.com` | Firmivra team: approve, request info, decline, activate, suspend businesses |
-| Firm workspace | `app.firmivra.com` | Each business's staff (Owner, Admin, Staff) |
-| Client portal | `portal.firmivra.com/{firmSlug}` | Each business's clients, in the firm's branding |
+| App                 | Host                             | Who uses it                                                                 |
+| ------------------- | -------------------------------- | --------------------------------------------------------------------------- |
+| Super Admin console | `admin.firmivra.com`             | Firmivra team: approve, request info, decline, activate, suspend businesses |
+| Firm workspace      | `app.firmivra.com`               | Each business's staff (Owner, Admin, Staff)                                 |
+| Client portal       | `portal.firmivra.com/{firmSlug}` | Each business's clients, in the firm's branding                             |
 
 - Dev environment: `admin.dev.firmivra.com`, `app.dev.firmivra.com`, `portal.dev.firmivra.com/lvp`, `api.dev.firmivra.com`.
 - First business (beta tenant): LVP Accounting & Taxes, slug `lvp`. Beta launch: Jan 8, 2027.
@@ -29,15 +29,15 @@ Naming: the design docs say tenant / `tenant_id`. In code the tenant is the `Bus
 
 ## Repo layout
 
-| Path | What | Owner |
-| --- | --- | --- |
-| `apps/web` | Next.js App Router. Serves admin, app and portal by host name (middleware) | Frontend |
-| `apps/api` | NestJS REST API at `/api/v1` | Backend |
-| `packages/ui` | Design system: tokens and components, with Storybook | Frontend (Fahad) |
-| `packages/types` | Shared types and zod schemas for API contracts | Pairs agree, both sides use |
-| `packages/db` | Prisma schema, migrations, seed, tenant-scoped client | **Rasel only** |
-| `infra/` | AWS CDK (TypeScript) | **Rasel only** |
-| `.github/workflows/` | CI/CD | **Rasel only** |
+| Path                 | What                                                                       | Owner                       |
+| -------------------- | -------------------------------------------------------------------------- | --------------------------- |
+| `apps/web`           | Next.js App Router. Serves admin, app and portal by host name (middleware) | Frontend                    |
+| `apps/api`           | NestJS REST API at `/api/v1`                                               | Backend                     |
+| `packages/ui`        | Design system: tokens and components, with Storybook                       | Frontend (Fahad)            |
+| `packages/types`     | Shared types and zod schemas for API contracts                             | Pairs agree, both sides use |
+| `packages/db`        | Prisma schema, migrations, seed, tenant-scoped client                      | **Rasel only**              |
+| `infra/`             | AWS CDK (TypeScript)                                                       | **Rasel only**              |
+| `.github/workflows/` | CI/CD                                                                      | **Rasel only**              |
 
 The monorepo is being scaffolded in Sprint 0. If a folder does not exist yet, do not create it unless the task asks for it.
 

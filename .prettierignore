@@ -1,0 +1,11 @@
+# Imported documents keep their original formatting
+docs/
+Firmivra-Documents-2026-10-04/
+
+pnpm-lock.yaml
+**/dist/
+**/.next/
+**/.turbo/
+**/coverage/
+**/cdk.out/
+**/storybook-static/

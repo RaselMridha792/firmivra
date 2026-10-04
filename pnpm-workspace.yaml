@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+  - infra
+
+# One version of these tools for every package ("catalog:" in package.json).
+catalog:
+  eslint: ^10.12.0
+  typescript: 5.9.3

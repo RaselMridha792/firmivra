@@ -2,11 +2,11 @@
 
 One multi-tenant platform where any business signs up under its own name, runs its own team, and gives each client a private, branded portal. Every business sees only its own data. The first business is LVP Accounting & Taxes (beta: Jan 8, 2027).
 
-| App | Production | Dev |
-| --- | --- | --- |
-| Super Admin console | `admin.firmivra.com` | `admin.dev.firmivra.com` |
-| Firm workspace | `app.firmivra.com` | `app.dev.firmivra.com` |
-| Client portal | `portal.firmivra.com/{firm}` | `portal.dev.firmivra.com/lvp` |
+| App                 | Production                   | Dev                           |
+| ------------------- | ---------------------------- | ----------------------------- |
+| Super Admin console | `admin.firmivra.com`         | `admin.dev.firmivra.com`      |
+| Firm workspace      | `app.firmivra.com`           | `app.dev.firmivra.com`        |
+| Client portal       | `portal.firmivra.com/{firm}` | `portal.dev.firmivra.com/lvp` |
 
 ## Stack
 
