@@ -41,7 +41,7 @@ You are a frontend developer. You own the **design system** (`packages/ui`, with
 - The frontend never decides access. Hide buttons the user cannot use, but the API is the real check.
 - Never store tokens in `localStorage`. Use the auth helper from the repo (Cognito session via secure cookies).
 - Never log or show SSNs, EINs or full account numbers. Mask them in the UI.
-- Nobody gets AWS access. Run everything locally with Docker (PostgreSQL, LocalStack). Follow the README.
+- Nobody gets AWS access. Run everything locally with Docker (PostgreSQL, s3mock for S3, Mailpit for email; a local key instead of KMS). Follow the README.
 - Do not edit `packages/db`, `infra/`, or CI workflows. Ask Rasel through a GitHub issue labelled `infra` if you need a change there.
 
 ## 3. Repo map (expected layout; follow the README if it differs)
