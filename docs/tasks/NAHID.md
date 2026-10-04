@@ -45,7 +45,7 @@ You are a frontend developer. You own the **client portal** at `portal.firmivra.
 - A client only ever sees their own data inside their own firm. The firm slug in the URL picks the tenant; never let a client switch firm or client.
 - Never store tokens in `localStorage`. Use the repo's auth helper.
 - Never put SSNs, EINs or ID numbers in URLs, logs or analytics. Mask them on screen.
-- Nobody gets AWS access. Run everything locally with Docker (PostgreSQL, LocalStack). Follow the README.
+- Nobody gets AWS access. Run everything locally with Docker (PostgreSQL, s3mock for S3, Mailpit for email; a local key instead of KMS). Follow the README.
 - Do not edit `packages/db`, `infra/`, or CI workflows.
 
 ## 3. Repo map (expected layout; follow the README if it differs)
