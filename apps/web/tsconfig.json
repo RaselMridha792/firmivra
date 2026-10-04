@@ -1,4 +1,15 @@
 {
   "extends": "@firmivra/config-typescript/nextjs.json",
-  "include": ["src"]
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "next-env.d.ts",
+    "src",
+    "e2e",
+    "playwright.config.ts",
+    "next.config.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
 }

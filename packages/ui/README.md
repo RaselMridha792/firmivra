@@ -1,5 +1,12 @@
 # @firmivra/ui
 
-Design system: tokens and components, with Storybook.
+Firmivra's design system: tokens and components, shown in Storybook. Owner: Fahad (Nahid contributes through PRs Fahad pre-reviews).
 
-Placeholder: set up in Sprint 0 Step 6.5. Owner: Fahad.
+- Tokens live in one file, `src/styles.css` (Tailwind 4 `@theme`). The values are placeholders until FIR-S0-F1 extracts them from `docs/mockups`.
+- Components: `Button`, `Input`, `Card` to start. New UI uses only these tokens and components (CLAUDE.md rule 6).
+- `apps/web` imports the source directly (no build step) and the styles with `@import '@firmivra/ui/styles.css'`.
+
+```bash
+pnpm --filter @firmivra/ui storybook        # http://localhost:6006
+pnpm --filter @firmivra/ui build-storybook
+```

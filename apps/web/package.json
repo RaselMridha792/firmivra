@@ -3,8 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "dev": "node scripts/next.mjs dev",
+    "build": "node scripts/next.mjs build",
+    "start": "node scripts/next.mjs start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@firmivra/config-eslint": "workspace:*",
@@ -16,6 +20,7 @@
     "@types/react-dom": "^19.3.0",
     "dotenv": "^18.0.5",
     "eslint": "catalog:",
+    "globals": "^17.13.0",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:"
   },
@@ -25,5 +30,6 @@
     "next": "^16.3.8",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
-  }
+  },
+  "type": "module"
 }

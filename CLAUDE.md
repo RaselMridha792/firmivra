@@ -51,6 +51,10 @@ The decided design is in `docs/AUTH-DESIGN.md`. Read it before touching sign-in,
 
 The monorepo is being scaffolded in Sprint 0. If a folder does not exist yet, do not create it unless the task asks for it.
 
+Web routing: `apps/web/src/proxy.ts` maps hosts to route folders: `admin.*` to `src/app/admin/`, `app.*` to `src/app/firm/`, `portal.*/{slug}` to `src/app/portal/[firmSlug]/`. Links in the browser use the public paths (`/sign-in`, `/lvp/...`), never the folder names. The browser calls the API at `/api/v1` on its own host.
+
+API building blocks (`apps/api/README.md`): `@Roles(...)` on every controller, `TenantPrisma.db` for firm data, `AuditService.log(action, entity, metadata)`, `ZodValidationPipe` with schemas from `packages/types`.
+
 ## Hard rules
 
 1. Never edit `packages/db/prisma` (schema, migrations), `infra/` or `.github/workflows/` unless the user is Rasel and asks for it. Anyone who needs a schema or infra change opens an issue with the "Schema or infra request" template and the `schema` or `infra` label.
@@ -78,7 +82,7 @@ pnpm db:seed          # seed Super Admin, LVP and a second test business
 pnpm db:studio
 ```
 
-Local hosts: `admin.localhost:3000`, `app.localhost:3000`, `portal.localhost:3000/lvp`. API: `localhost:4000/api/v1`. These commands arrive during Sprint 0; the README says what works today.
+Local hosts: `admin.localhost:3000`, `app.localhost:3000`, `portal.localhost:3000/lvp`. API: `localhost:4000/api/v1`. Ports come from `.env` (`WEB_PORT`, `API_PORT`). Browser tests: `pnpm --filter @firmivra/web test:e2e`.
 
 Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style), SES is Mailpit (`EMAIL_MODE=smtp`), SNS SMS goes to the API log (`SMS_MODE=log`), KMS is `LOCAL_KMS_KEY` (`KMS_MODE=local`). Code talks to these through adapters that switch on those variables, so the same code runs against AWS.
 
