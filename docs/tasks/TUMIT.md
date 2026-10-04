@@ -186,7 +186,7 @@ Goal: a firm applies, Super Admin approves it, the firm owner activates and logs
 ### Sprint 3: audit, support access, notification center (Nov 16 to Nov 27)
 
 **FIR-S3-T1 Audit log API and viewer**
-- Build: a single `AuditService.record()` helper every module uses (agree the action names with Ibrahim), and `GET /api/v1/audit-events?actor=&action=&targetType=&targetId=&from=&to=`.
+- Build: a single `AuditService.log(action, entity, metadata)` helper every module uses (agree the action names with Ibrahim), and `GET /api/v1/audit-events?actor=&action=&targetType=&targetId=&from=&to=`.
 - Acceptance: the log is append-only (no update or delete endpoint); owner and admin can view their firm's log; Super Admin can view platform events; export to CSV; pagination.
 
 **FIR-S3-T2 Super Admin support access with owner approval**
