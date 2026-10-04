@@ -67,7 +67,7 @@ The monorepo is being scaffolded in Sprint 0. If a folder does not exist yet, do
 
 ```bash
 pnpm install          # install all workspaces
-docker compose up -d  # local Postgres, LocalStack (S3, SES, SNS, KMS), Mailpit
+docker compose up -d  # local Postgres, s3mock (S3), Mailpit (email)
 pnpm dev              # run web and api
 pnpm lint
 pnpm typecheck
@@ -79,6 +79,8 @@ pnpm db:studio
 ```
 
 Local hosts: `admin.localhost:3000`, `app.localhost:3000`, `portal.localhost:3000/lvp`. API: `localhost:4000/api/v1`. These commands arrive during Sprint 0; the README says what works today.
+
+Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style), SES is Mailpit (`EMAIL_MODE=smtp`), SNS SMS goes to the API log (`SMS_MODE=log`), KMS is `LOCAL_KMS_KEY` (`KMS_MODE=local`). Code talks to these through adapters that switch on those variables, so the same code runs against AWS.
 
 ## Branches and pull requests
 

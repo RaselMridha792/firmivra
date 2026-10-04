@@ -31,9 +31,6 @@ test-results/
 blob-report/
 playwright/.cache/
 
-# Local service data
-.localstack/
-
 # Logs
 *.log
 npm-debug.log*

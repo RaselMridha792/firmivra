@@ -58,7 +58,7 @@ Every sprint runs the same 2-week loop: plan on day 1, build with a daily stand-
 - `main` is the only long-lived branch. It is protected: no direct pushes, PR and green CI required, only Rasel can merge.
 - Every merge to `main` deploys to **dev** (dev.firmivra.com).
 - **Production** is deployed from a release tag on `main` (for example `v0.3.0`) after a manual approval in GitHub Actions. Octavia reviews on dev before each release.
-- Developers run the app locally with Docker (PostgreSQL, LocalStack for S3) and need no AWS access.
+- Developers run the app locally with Docker (PostgreSQL, s3mock for S3, Mailpit for email; SMS goes to the API log) and need no AWS access.
 
 ### Definition of Ready
 

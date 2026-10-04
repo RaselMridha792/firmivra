@@ -282,7 +282,7 @@ Every API request runs the same four checks: who is signed in, which business th
 
 ### Environments
 
-- Local: Docker Compose and LocalStack, synthetic data only, with two seeded test businesses to exercise isolation
+- Local: Docker Compose (PostgreSQL, s3mock for S3, Mailpit for email; SMS to the API log; a local encryption key instead of KMS), synthetic data only, with two seeded test businesses to exercise isolation
 - Staging: Firmivra AWS, separate account or VPC, synthetic data only
 - Production: Firmivra AWS at admin.firmivra.com, app.firmivra.com and portal.firmivra.com; real data only after go-live approval
 - One VPC across two Availability Zones; only the load balancer and NAT Gateway in public subnets; ECS and RDS private; S3 and Secrets Manager via VPC endpoints; RDS reachable only from the API security group
