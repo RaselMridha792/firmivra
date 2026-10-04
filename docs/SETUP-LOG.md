@@ -52,6 +52,13 @@ git 2.55.0, node 22.23.2, pnpm 10.32.1, Docker 29.8.0, gh 2.101.0 (scopes includ
 - Public-repo hardening: approval needed before CI runs on PRs from outside contributors; workflow token read-only by default; secret scanning, push protection, Dependabot alerts and security updates on.
 - Board: https://github.com/users/RaselMridha792/projects/3 with Status (Backlog, Ready, In progress, In review, Done), Points, and Sprint (2-week iterations, Sprint 0 from Oct 5 to Sprint 6 from Dec 28). Linked to the repo; Assignees is the owner field.
 
+## Public repo safety (Oct 5, Rasel: the repo stays public)
+
+- Secret scanning and push protection: on (since Oct 4); checked again Oct 5. Dependabot alerts and security updates: on. Not enabled: non-provider patterns and validity checks.
+- `.gitignore` covers `.env` and every `.env.*` except `.env.example`, key files (`*.pem`, `*.key`, `*.p12`, `*.pfx`), and local data that may hold real client information: database dumps and backups (`*.dump`, `*.backup`, `*.bak`, `*.sql.gz`, `*.sql.zip`) and the folders `/dumps/`, `/exports/`, `/backups/`, `/client-data/`, `/tmp/`. Checked with `git check-ignore`; no tracked file is affected.
+- Local services keep their data in Docker volumes, outside the repo. Only synthetic data is allowed in code, tests, seeds and fixtures (CLAUDE.md rule 9).
+- **Rule for Step 7:** the GitHub OIDC deploy role can only be assumed from the `main` branch and the `prod` environment of `RaselMridha792/firmivra`. Trust policy `sub` values: `repo:RaselMridha792/firmivra:ref:refs/heads/main` and `repo:RaselMridha792/firmivra:environment:prod`. Note: when a job declares `environment: dev`, GitHub sets `sub` to `...:environment:dev` instead of the branch, so the dev deploy job either runs without an environment or the trust adds `environment:dev` (which GitHub already limits to `main`). Decide in Step 8.
+
 ## Step 4: docs and conventions (done, PR #1)
 
 - `docs/SCRUM-PLAN.md` (copy), `docs/SYSTEM-DESIGN.md` (text from the HTML, diagrams written as lists), `docs/PROJECT-DRAFT-v2.md` (text from the PDF).

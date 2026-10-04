@@ -23,6 +23,22 @@ cdk.out/
 .env.*
 !.env.example
 *.pem
+*.key
+*.p12
+*.pfx
+
+# Local data that may hold real client information. Never committed: keep it outside the repo.
+*.dump
+*.dump.gz
+*.backup
+*.bak
+*.sql.gz
+*.sql.zip
+/dumps/
+/exports/
+/backups/
+/client-data/
+/tmp/
 
 # Tests
 coverage/
