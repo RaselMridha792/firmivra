@@ -35,6 +35,29 @@ describe('row-level security coverage', () => {
     expect(rows).toEqual([]);
   });
 
+  it('the app role can reach every table, and nothing else in public', async () => {
+    const { rows } = await client.query<{ table: string; select: boolean; insert: boolean }>(`
+      SELECT c.relname AS table,
+             has_table_privilege('firmivra_app', c.oid, 'SELECT') AS select,
+             has_table_privilege('firmivra_app', c.oid, 'INSERT') AS insert
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind = 'r'`);
+    const app = rows.filter((r) => r.table !== '_prisma_migrations');
+    expect(app.filter((r) => !r.select || !r.insert).map((r) => r.table)).toEqual([]);
+    expect(rows.find((r) => r.table === '_prisma_migrations')).toMatchObject({
+      select: false,
+      insert: false,
+    });
+  });
+
+  it('keeps the deliberate limits: audit log append-only, grants never deleted', async () => {
+    const { rows } = await client.query<{ privilege: string; granted: boolean }>(`
+      SELECT p.privilege, has_table_privilege('firmivra_app', p.tbl, p.privilege) AS granted
+      FROM (VALUES ('audit_logs', 'UPDATE'), ('audit_logs', 'DELETE'),
+                   ('support_access_grants', 'DELETE')) AS p(tbl, privilege)`);
+    expect(rows.every((r) => !r.granted)).toBe(true);
+  });
+
   it('the app role cannot bypass RLS', async () => {
     const { rows } = await client.query<{ rolsuper: boolean; rolbypassrls: boolean }>(
       `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'firmivra_app'`,

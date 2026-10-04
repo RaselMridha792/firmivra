@@ -60,9 +60,6 @@ beforeAll(async () => {
       const c = await tx.clientAccount.create({
         data: { businessId: firm, userId: clientId, email: user.email, status: 'ACTIVE' },
       });
-      const g = await tx.supportAccessGrant.create({
-        data: { businessId: firm, adminUserId: ids.admin, reason: 'test' },
-      });
       await tx.auditLog.create({
         data: {
           businessId: firm,
@@ -74,10 +71,19 @@ beforeAll(async () => {
       if (firm === ids.firmA) {
         ids.membershipA = m.id;
         ids.clientAccountA = c.id;
-        ids.grantA = g.id;
       }
     });
   }
+
+  // Support access starts as a request from the platform side (Super Admin).
+  await runInScope(owner, { kind: 'platform' }, async (tx) => {
+    for (const firm of [ids.firmA, ids.firmB]) {
+      const g = await tx.supportAccessGrant.create({
+        data: { businessId: firm, adminUserId: ids.admin, reason: 'test' },
+      });
+      if (firm === ids.firmA) ids.grantA = g.id;
+    }
+  });
 });
 
 afterAll(async () => {

@@ -52,11 +52,13 @@ export async function runInScope<T>(
 }
 
 /**
- * A client where every model query runs in its own transaction with the scope set first.
- * Raw queries ($queryRaw) are not scoped and therefore see nothing: use runInScope for those.
- * $transaction is removed so nobody opens an unscoped transaction by mistake.
+ * A client where every model query runs in its own transaction with the scope set first
+ * (set_config(..., true): the setting ends with that transaction, so a pooled connection
+ * goes back to the pool with no scope). Raw queries ($queryRaw) are not scoped and therefore
+ * see nothing: use runInScope for those. $transaction is removed so nobody opens an unscoped
+ * transaction by mistake. Exported for tests; application code uses createDatabase().
  */
-function scopedClient(base: PrismaClient, scope: Scope) {
+export function scopedClient(base: PrismaClient, scope: Scope) {
   assertScope(scope);
   const client = base.$extends({
     name: `firmivra-scope-${scope.kind}`,
@@ -74,16 +76,27 @@ function scopedClient(base: PrismaClient, scope: Scope) {
 
 export type ScopedClient = ReturnType<typeof scopedClient>;
 
-export function createPrismaClient(connectionString: string): PrismaClient {
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+export interface ClientOptions {
+  /** Size of the connection pool (pg default when unset). Tests use 1 to force connection reuse. */
+  maxConnections?: number;
+}
+
+export function createPrismaClient(
+  connectionString: string,
+  options: ClientOptions = {},
+): PrismaClient {
+  const pool = options.maxConnections
+    ? { connectionString, max: options.maxConnections }
+    : { connectionString };
+  return new PrismaClient({ adapter: new PrismaPg(pool) });
 }
 
 /**
  * The API's database access, as the non-owner role firmivra_app (DATABASE_URL_APP).
  * Without a scope the role sees no rows at all.
  */
-export function createDatabase(appConnectionString: string) {
-  const base = createPrismaClient(appConnectionString);
+export function createDatabase(appConnectionString: string, options: ClientOptions = {}) {
+  const base = createPrismaClient(appConnectionString, options);
   return {
     /** Only one firm's data: everything a firm user or client does. */
     forBusiness: (businessId: string) => scopedClient(base, { kind: 'business', businessId }),

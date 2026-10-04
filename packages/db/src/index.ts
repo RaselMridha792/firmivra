@@ -3,6 +3,8 @@ export {
   createDatabase,
   createPrismaClient,
   runInScope,
+  scopedClient,
+  type ClientOptions,
   type Database,
   type Scope,
   type ScopedClient,
