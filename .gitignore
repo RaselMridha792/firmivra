@@ -1,2 +1,51 @@
 # Project documents (client material, never pushed)
 Firmivra-Documents-2026-10-04/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.turbo/
+storybook-static/
+*.tsbuildinfo
+next-env.d.ts
+
+# AWS CDK (cdk.context.json stays committed)
+cdk.out/
+
+# Environment and secrets (.env.example is the only committed env file)
+.env
+.env.*
+!.env.example
+*.pem
+
+# Tests
+coverage/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
+# Local service data
+.localstack/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS and editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code personal settings
+.claude/settings.local.json
