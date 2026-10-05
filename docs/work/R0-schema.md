@@ -19,6 +19,7 @@
 - [x] 4a. Fix: the 72-hour support-grant rule judges time by the database clock only, so a slightly fast API clock never fails an approval (ship with the step 4 PR)
 - [x] 4b. Unique `users (pool, email)` for sign-in (R2): partial, STAFF and ADMIN only, because a client has one user per firm (AUTH-DESIGN)
 - [x] 5. Documents, document categories, document requests
+- [ ] 5a. Review fixes for PR #22 (lead, changes requested): see the Oct 6 entry in the Progress log
 - [ ] 6. Intake form definitions and submissions (6 Begin Online services), leads
 - [ ] 7. Notifications (per user, read/unread, link to record), notification preferences
 - [ ] 8. Appointments, staff availability, working hours, blocked time (unique constraint that blocks double booking)
@@ -56,3 +57,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 - Oct 5, step 5: migration `r0_documents`: `document_categories` (firm-defined, retention years, null = keep for good), `documents` (always in an engagement; firm S3 prefix CHECK, 10 MB, SHA-256; start PENDING, scan result set once; client uploads only to open engagements; delete only without legal hold and after retention or a client upload while open; file, engagement and uploader fixed), `document_requests` (requested, submitted, accepted, rejected, not available, cancelled; reason required; never deleted); `engagement_reports.document_id` (same engagement). Seed: LVP categories, two requests and one clean client upload. Added R5 items to Needs from others (key layout, scan, versioned bucket deletes). Commit "feat: documents, document categories and document requests tables (R0)".
 - Oct 5, step 4b check: email uniqueness is case-insensitive because `users`, `client_accounts`, `clients` and `business_settings` store emails lower-case only (CHECK `email = lower(email)`, since the Oct 4 RLS migration). No schema change; added a test that mixed-case emails are refused for users and client accounts, and a README line that the API lower-cases before writing. Commit "test: email uniqueness is case-insensitive (R0)".
 - Oct 5: PR #17 (steps 4, 4a) merged. Merged main into `rasel/R0-documents` and opened the PR for steps 4b and 5.
+- Oct 6, NEXT (first job, step 5a): PR #22 changes requested by the lead. Fix in the same PR, on `rasel/R0-documents`, with a test for each item. Push to the same branch; the lead merges when CI is green.
+  1. Prefix: `starts_with(s3_key, 'tenant/' || business_id::text || '/')`, matching docs/SYSTEM-DESIGN.md and the deployed IAM policy (`tenant/*`). Also fix the R5 note in Needs from others and the db README (they say `<business_id>/`), and the seed key.
+  2. `s3_key` and the uploader columns are immutable after insert. R5 keeps the key fixed and records the scan result on the row; if R5 ever needs to move objects, it asks R0.
+  3. `retention_until` may only move later, and NULL (keep forever) never becomes a date. Clearing `legal_hold` stays allowed (the API limits it to managers and audits it); with this rule it can no longer unlock an early delete.
+  4. From #17: a report that was ever published can never be deleted. Unpublishing stays allowed, but keep a record (e.g. `first_published_at`, which can't be cleared) and refuse DELETE when it is set.
