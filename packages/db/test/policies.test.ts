@@ -251,6 +251,21 @@ describe('users: one staff or admin identity per email, clients one per firm', (
     await expect(newUser('CLIENT', email)).resolves.toMatchObject({ pool: 'CLIENT' });
     await expect(newUser('STAFF', email)).resolves.toMatchObject({ pool: 'STAFF' });
   });
+
+  it('compares emails case-insensitively: only lower-case is stored', async () => {
+    const email = `case-${run}@p.test`;
+    await newUser('STAFF', email);
+    // "Case-…@P.test" can never sit next to "case-…@p.test": mixed case is refused outright.
+    const mixed = `Case-${run}@P.test`;
+    await expect(newUser('STAFF', mixed)).rejects.toThrow(/check constraint/i);
+
+    const client = await newUser('CLIENT', `client-case-${run}@p.test`);
+    await expect(
+      firmA().clientAccount.create({
+        data: { businessId: ids.firmA, userId: client.id, email: `Client-Case-${run}@P.test` },
+      }),
+    ).rejects.toThrow(/check constraint/i);
+  });
 });
 
 describe('businesses: status and slug belong to the platform', () => {
