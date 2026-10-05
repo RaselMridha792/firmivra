@@ -3,16 +3,46 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "generate": "prisma generate",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "node -e \"console.error('packages/db is set up in Step 6.3'); process.exit(1)\"",
-    "db:seed": "node -e \"console.error('packages/db is set up in Step 6.3'); process.exit(1)\"",
-    "db:studio": "node -e \"console.error('packages/db is set up in Step 6.3'); process.exit(1)\""
+    "test": "vitest run"
   },
   "devDependencies": {
     "@firmivra/config-eslint": "workspace:*",
     "@firmivra/config-typescript": "workspace:*",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "dotenv": "^18.0.5",
     "eslint": "catalog:",
-    "typescript": "catalog:"
+    "prisma": "7.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "catalog:",
+    "vitest": "^5.0.3"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "pg": "^8.23.1"
   }
 }

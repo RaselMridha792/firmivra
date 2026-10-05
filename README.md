@@ -24,27 +24,37 @@ infra/           AWS CDK (owned by Rasel)
 docs/            design, plan, mockups and specs
 ```
 
-The monorepo is being scaffolded in Sprint 0 (Oct 5 to Oct 16, 2026).
-
 ## Local setup
 
 You need Node.js 22.22.1 or newer (`.nvmrc`), pnpm 10 (`corepack enable` or `npm install -g pnpm`) and Docker Desktop. Nobody needs AWS access to work locally.
 
 ```bash
 cp .env.example .env     # PowerShell: Copy-Item .env.example .env
-docker compose up -d     # Postgres, s3mock, Mailpit
-docker compose ps        # wait until all three show "healthy"
+docker compose up -d     # Postgres, s3mock, Mailpit; wait until `docker compose ps` shows all healthy
 pnpm install
-pnpm lint && pnpm typecheck
+pnpm db:migrate          # tables and row-level security
+pnpm db:seed             # fake Super Admin, LVP (owner, staff, client), Test Firm B
+pnpm dev                 # API and web app
 ```
 
-`pnpm db:migrate`, `pnpm db:seed` and `pnpm dev` start working as Sprint 0 adds the database, API and web app.
+Then open:
+
+| Site                | URL                                   | Seeded users (local sign-in)                            |
+| ------------------- | ------------------------------------- | ------------------------------------------------------- |
+| Firm workspace      | `http://app.localhost:3000`           | `owner@lvp.test`, `staff@lvp.test`, `owner@firm-b.test` |
+| Client portal (LVP) | `http://portal.localhost:3000/lvp`    | `client@lvp.test`                                       |
+| Super Admin         | `http://admin.localhost:3000`         | `superadmin@firmivra.test`                              |
+| API                 | `http://localhost:4000/api/v1/health` | docs at `http://localhost:4000/api/docs`                |
+
+Chrome, Edge and Firefox resolve `*.localhost` to your machine without any hosts-file change. If ports 3000 or 4000 are taken on your machine, change `WEB_PORT`, `API_PORT` and the four `*_BASE_URL` values in your `.env`.
+
+Checks before a PR: `pnpm lint && pnpm typecheck && pnpm test` (unit, isolation and API e2e tests; needs Docker running) and `pnpm --filter @firmivra/web test:e2e` (browser tests; run `pnpm --filter @firmivra/web exec playwright install chromium` once).
 
 If PowerShell blocks `pnpm` because of the script execution policy, use `pnpm.cmd`.
 
 | Service       | Where                                                                            | Stands in for |
 | ------------- | -------------------------------------------------------------------------------- | ------------- |
-| PostgreSQL 16 | `localhost:5432`, database `firmivra`, owner `firmivra`, app role `firmivra_app` | RDS           |
+| PostgreSQL 16 | `localhost:5433`, database `firmivra`, owner `firmivra`, app role `firmivra_app` | RDS           |
 | s3mock        | `http://localhost:9090` (path-style), bucket `firmivra-docs-local`               | S3            |
 | Mailpit       | inbox at `http://localhost:8025`, SMTP `localhost:1025`                          | SES           |
 | API log       | SMS text is written to the API log (`SMS_MODE=log`)                              | SNS SMS       |

@@ -7,3 +7,9 @@ packages:
 catalog:
   eslint: ^10.12.0
   typescript: 5.9.3
+
+# Dependencies allowed to run install scripts (pnpm blocks all others).
+onlyBuiltDependencies:
+  - '@prisma/engines'
+  - esbuild
+  - prisma

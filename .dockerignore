@@ -1,0 +1,19 @@
+# Never send secrets, client material or local build output to the Docker build.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.git/
+Firmivra-Documents-2026-10-04/
+docs/
+**/node_modules/
+**/dist/
+**/.next/
+**/.turbo/
+**/coverage/
+**/storybook-static/
+**/playwright-report/
+**/test-results/
+packages/db/src/generated/
+infra/cdk.out/

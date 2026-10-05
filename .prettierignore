@@ -9,3 +9,5 @@ pnpm-lock.yaml
 **/coverage/
 **/cdk.out/
 **/storybook-static/
+packages/db/src/generated/
+packages/db/prisma/migrations/

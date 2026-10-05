@@ -11,7 +11,7 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | 3 | Clone | Not needed: the existing clone at `F:\Business-full-stack-project` is the repo |
 | 4 | Docs and repo conventions | Done (Oct 4, PR #1) |
 | 5 | AWS foundation (one account: CLI, budget, Route 53, SES, SNS, Stripe) | In progress: CLI, budget and hosted zone done; GoDaddy NS record, root MFA, Stripe and SNS SMS open |
-| 6 | Monorepo, Docker, database, API, web | 6.1 and 6.2 done on `rasel/setup-skeleton` (Oct 5, not merged yet); 6.3 to 6.5 next |
+| 6 | Monorepo, Docker, database, API, web | Done. 6.1 and 6.2 merged (PR #2); 6.3 to 6.5 committed on `rasel/setup-foundations` (Oct 5, not pushed) |
 | 7 | CDK infrastructure, deploy to dev | To do; dev sizing and cost settings decided (Oct 5) |
 | 8 | CI/CD | To do |
 | 9 | Developer branches, task docs, Sprint 0 and 1 issues | Branches and task docs done (Oct 4); issues to do |
@@ -34,6 +34,11 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | Oct 5 | Lint and TypeScript | ESLint 10 (ESLint 9 is end of life) with `@eslint-react`; TypeScript 5.9.3 (typescript-eslint supports below 6.1) | — |
 | Oct 5 | Dev infrastructure (Step 7) | No NAT gateway: Fargate tasks in public subnets, inbound only from the ALB. 1 task each for api and web at 0.25 vCPU / 0.5 GB, **Fargate Spot**, x86, running 24/7. RDS PostgreSQL db.t4g.micro single-AZ. Cognito Plus tier (compromised-credential checks). Tags `project=firmivra`, `env=dev` on everything. `cdk diff` shown and approved before every deploy. Prod stays on-demand | NAT gateway, private subnets |
 | Oct 5 | Audit helper | `AuditService.log(action, entity, metadata)` everywhere, as in CLAUDE.md | — |
+| Oct 5 | Framework versions | Prisma 7.10 (npm's "latest" tag points at 8.0 rc), NestJS 12 (ES modules), Next.js 16 (`proxy.ts` instead of `middleware.ts`), Storybook 10, Tailwind 4, Playwright 1.63, zod 4, vitest 5 | Nest 11, Next 15, Storybook 8 |
+| Oct 5 | Database scopes | Three scopes instead of one: `forBusiness` (firm data), `forUser` (own memberships for `/me`), `forPlatform` (Super Admin tables); no scope sees nothing. RLS on **every** table, not only tenant tables | `forBusiness` and `forPlatform` |
+| Oct 5 | Local ports | Docker Postgres on host port **5433** (a local PostgreSQL install often holds 5432). Ports are `.env` settings (`WEB_PORT`, `API_PORT`); Rasel's machine uses 3300/4300 because other apps hold 3000, 3100 and 4000 | 5432, 3000, 4000 |
+| Oct 5 | API calls from the browser | Same origin: each site calls `/api/v1` on its own host (Next forwards locally, CloudFront in AWS), so session cookies are per site | Browser calls the API host directly |
+| Oct 5 | Local sign-in | `AUTH_MODE=local` allowed in `development` and `test` (tests need it), refused in `production` | development only (AUTH-DESIGN.md) |
 | Oct 5 | Authentication | `docs/AUTH-DESIGN.md` (decided Oct 4): Cognito, three pools, roles from the database, our own screens, `HttpOnly` cookies | — |
 
 Team on GitHub: Fahad `Sefat-Ullah-Fahad`, Tumit `tumit-h-r-75`, Ibrahim `BFIbrahim`, Nahid `asratulhasannahid`. Octavia is not a collaborator.
@@ -51,6 +56,13 @@ git 2.55.0, node 22.23.2, pnpm 10.32.1, Docker 29.8.0, gh 2.101.0 (scopes includ
 - Environment `dev`: deployable only from `main`. Environment `prod`: required reviewer Rasel, deployable only from `v*` tags.
 - Public-repo hardening: approval needed before CI runs on PRs from outside contributors; workflow token read-only by default; secret scanning, push protection, Dependabot alerts and security updates on.
 - Board: https://github.com/users/RaselMridha792/projects/3 with Status (Backlog, Ready, In progress, In review, Done), Points, and Sprint (2-week iterations, Sprint 0 from Oct 5 to Sprint 6 from Dec 28). Linked to the repo; Assignees is the owner field.
+
+## Public repo safety (Oct 5, Rasel: the repo stays public)
+
+- Secret scanning and push protection: on (since Oct 4); checked again Oct 5. Dependabot alerts and security updates: on. Non-provider patterns: requested via the API on Oct 5; GitHub accepted the call but the setting stays `disabled` (probably not offered for repos owned by a personal account). Validity checks: off.
+- `.gitignore` covers `.env` and every `.env.*` except `.env.example`, key files (`*.pem`, `*.key`, `*.p12`, `*.pfx`), and local data that may hold real client information: database dumps and backups (`*.dump`, `*.backup`, `*.bak`, `*.sql.gz`, `*.sql.zip`) and the folders `/dumps/`, `/exports/`, `/backups/`, `/client-data/`, `/tmp/`. Checked with `git check-ignore`; no tracked file is affected.
+- Local services keep their data in Docker volumes, outside the repo. Only synthetic data is allowed in code, tests, seeds and fixtures (CLAUDE.md rule 9).
+- **Rule for Steps 7 and 8 (Rasel, Oct 5):** the GitHub OIDC deploy role trusts only `repo:RaselMridha792/firmivra:environment:dev` and `repo:RaselMridha792/firmivra:environment:prod` (no branch-based `sub`). Every deploy job declares its environment, and GitHub limits the environments: `dev` deploys only from `main`, `prod` only from `v*` tags with Rasel's approval (both set up in Step 2).
 
 ## Step 4: docs and conventions (done, PR #1)
 
@@ -74,6 +86,11 @@ git 2.55.0, node 22.23.2, pnpm 10.32.1, Docker 29.8.0, gh 2.101.0 (scopes includ
 - 6.1 `6928259`: pnpm 10.32 workspace (`apps/*`, `packages/*`, `infra`), Turborepo 2.11 (`dev`, `build`, `lint`, `typecheck`, `test`), strict `tsconfig.base.json`, `@firmivra/config-typescript` (base, nextjs, nestjs), `@firmivra/config-eslint` (base, node, nestjs with type-aware promise rules, react, nextjs), Prettier, Husky + lint-staged pre-commit. Placeholders with lint and typecheck for `apps/web`, `apps/api`, `packages/ui`, `packages/types`, `packages/db`, `infra`. Node 22.22.1 or newer (lint-staged 17 needs it). Turborepo's automatic `AGENTS.md` is turned off (`"agentGuidance": false`); `CLAUDE.md` is the one instruction file.
 - 6.2 `6628a77`: `docker-compose.yml` with `postgres:16` (5432; local-only app role `firmivra_app` without BYPASSRLS, created by `docker/postgres/init/`), `adobe/s3mock:5.2.3` (9090, bucket `firmivra-docs-local`), `axllent/mailpit:v1.31.4` (8025 inbox, 1025 SMTP). `.env.example` with a comment on every variable; Stripe and Cognito values empty. README "Local setup". Checked: all three healthy, app role logs in with `bypassrls=false`, file put and get on s3mock, mail caught by Mailpit.
 - s3mock limits: path-style URLs only; pre-signed URLs are accepted without checking expiry or signature.
+- 6.3 `0594593` (`packages/db`): Prisma 7.10 schema (`businesses`, `users`, `memberships`, `client_accounts`, `platform_admins`, `support_access_grants`, `audit_logs`, `firm_applications`; snake_case tables, `business_id` on tenant tables). Migration `row_level_security`: app role `firmivra_app` (no BYPASSRLS), RLS enabled and forced on every table, scope functions `app_scope()`, `app_current_business_id()`, `app_current_user_id()`, audit log append-only, lower-case email checks. Client `createDatabase()` with `forBusiness` / `forUser` / `forPlatform` / `withScope`. Seed: Super Admin, LVP (owner, staff, client), Test Firm B (owner, client), fake data. Tests: 14 isolation and coverage tests against `firmivra_test`; a deliberately leaky policy made 8 of them fail.
+- 6.4 `6388c3d` (`apps/api`, `packages/types`): NestJS 12. Global guards in order: throttler, `AuthGuard` (cookie or Bearer; Cognito or local key; user loaded by `sub`), `TenantGuard` (firm from `:slug`, `x-business-id` or the only firm; role from `Membership` / `ClientAccount`; 404 when not linked, 403 `BUSINESS_INACTIVE`), `RolesGuard` (default deny). `AuditService.log(action, entity, metadata)`, `GET /health`, `GET /me`, `GET /business`, `GET /portal/:slug/business`, `POST /dev/token` and `/dev/sign-out` (local only). Zod-validated config, request ids, pino logs with redaction, helmet, CORS, rate limits, OpenAPI at `/api/docs`, one error format. Tests: guard unit tests and e2e (32) against `firmivra_test_api`. Docker image runs healthy as non-root.
+- 6.5 `ef75c68` (`apps/web`, `packages/ui`): Next.js 16 with `proxy.ts` routing `admin.*`, `app.*`, `portal.*/{slug}` to `src/app/admin`, `firm`, `portal/[firmSlug]`; sign-in and `/me` pages per site; `/healthz`. `packages/ui`: Tailwind 4 tokens in one file (placeholder values for Fahad), `Button`, `Input`, `Card`, Storybook 10. Playwright: 8 tests (each site loads, sign-in end to end, client of LVP gets `NOT_FOUND` on Test Firm B). Docker image (standalone, 294 MB) runs healthy as non-root.
+- Checks at the end of Step 6: `pnpm lint` (10 tasks), `pnpm typecheck` (9), `pnpm format:check`, `pnpm test` (4 + 14 + 32 tests), `pnpm build`, Playwright 8 of 8, both images built and started.
+- `apps/web/AGENTS.md` and `apps/web/CLAUDE.md` are written by `next dev` when an AI agent runs it (no setting to turn it off); they point to the Next.js docs in `node_modules/next/dist/docs` and are committed. Turborepo's root `AGENTS.md` is turned off (`agentGuidance: false`).
 
 ## Step 7: dev cost estimate (Oct 5, us-east-1 prices from the AWS Pricing API)
 
@@ -119,12 +136,31 @@ Console menu names change from time to time; pick the closest match.
 ## Auth design: points to settle before Sprint 1 (Oct 19)
 
 - Cookie `SameSite`: the auth design says `Lax`, SYSTEM-DESIGN.md and PROJECT-DRAFT-v2.md say `Strict`.
-- Cookie names: all three pools use `fv_access`, `fv_id`, `fv_refresh` on one API host, so a portal sign-in overwrites a staff session in the same browser. Per-pool names avoid it.
+- Cookie names: solved by the same-origin decision. Each site calls `/api/v1` on its own host, so `fv_access` on `app.` and on `portal.` are separate cookies. Step 7 must route `/api/*` on every site host to the API (CloudFront behaviour).
 - `fv_refresh` path `/api/v1/auth/refresh` is not sent to the portal or admin refresh routes.
 - Cognito sends forgot-password codes itself; branded SES email needs a Cognito custom email sender (Lambda + KMS key, Step 7) or our own reset codes.
-- Schema (6.3): `User.email` not unique (one Cognito user per firm for clients); `ClientAccount` lookup by business and email.
+- Schema: done in 6.3 (`users.email` not unique; `client_accounts` unique on business and email).
+
+## Database rules tightened (Oct 5, before the first push of Step 6)
+
+Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can touch, triggers decide how a row may change (triggers also apply to the table owner and superusers):
+
+- Support access grants: platform scope can only insert a request (no approver, no expiry, not revoked) and cannot update it; only business scope can approve, and only with `granted_by_user_id` = an ACTIVE OWNER of that firm and `expires_at` in the next 72 hours. An approval cannot be changed; revocation is one-way; a declined request cannot be approved; the app cannot delete grants.
+- Users: only platform scope or the person themself (user scope) can update a user row (USING and WITH CHECK). In user scope, `id`, `cognito_sub`, `pool` and `email` cannot change.
+- Businesses: only platform scope can change `status`, `slug` or `id`; a firm can still edit its other fields.
+- Pooled connections: every scope is set with `set_config(..., true)` inside a transaction (`forBusiness`, `forUser`, `forPlatform` via a batch transaction per query; `withScope` via an interactive transaction). A test with a one-connection pool shows the next query on the same connection has no scope and sees no rows, also after a failed transaction.
+- Coverage test now also fails if any table in `public` lacks a grant for `firmivra_app`, and pins the limits: no UPDATE or DELETE on `audit_logs`, no DELETE on `support_access_grants`, no access to `_prisma_migrations`.
+- db tests: 37 (isolation 11, policies 17, pooling 4, coverage 5). Each new rule was checked by breaking it on purpose: dropping the business trigger, revoking a grant, and switching `set_config` to session-wide each made the matching tests fail.
+
+## Notes for Step 7 (from Step 6)
+
+- CloudFront: on `admin.`, `app.` and `portal.dev.firmivra.com`, send `/api/*` to the API target group and everything else to the web target group. Health checks: API `/api/v1/health`, web `/healthz`.
+- Deployed environments run with `NODE_ENV=production` and `AUTH_MODE=cognito`; the API refuses `AUTH_MODE=local` in production (tested).
+- Migration task: needs the Prisma CLI, `prisma.config.ts` and `packages/db/prisma/migrations`, which the API image does not contain; build a small migration image or stage. The app role password is set from Secrets Manager after the first migration (the migration creates the role without login).
+- API image is 758 MB: about 150 MB is Prisma tooling that pnpm installs as peer dependencies of `@prisma/client`. Trim when the migration image is decided.
 
 ## Still open from the plan
 
 - Who has the GoDaddy login for firmivra.com (Octavia?)
+- Secret scanning non-provider patterns: check in the browser under Settings, Advanced Security (or Code security) whether "Scan for non-provider patterns" is offered for this repo; if not, it needs an organization-owned repo.
 - LVP's own Terms and Privacy, approved calculators and formulas, mockups for appointments, My Services, notification center and service workspaces.
