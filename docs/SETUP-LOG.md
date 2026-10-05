@@ -118,6 +118,13 @@ Oct 5, Tumit's branch: `bfb1c83` adds `docs/AUTH-DESIGN.md`; `a582d02` updates `
 
 Oct 5, all four branches: LocalStack replaced with s3mock, Mailpit and a local key; `AuditService.log(action, entity, metadata)` instead of `AuditService.record()`. Commits: Fahad `af5790d`, Nahid `1b7fb19`, Tumit `31eda21`, Ibrahim `a36da5b`.
 
+## Windows Smart App Control (Oct 5)
+
+- Rasel's machine has Smart App Control on (policy `VerifiedAndReputableDesktop`). It blocks an unsigned program unless Microsoft's cloud reputation vouches for it. The turbo Windows binary and the `@swc/core` binding are unsigned, so a release only a few days old can be blocked: `spawn UNKNOWN`, "An Application Control policy has blocked this file". Smart App Control stays on.
+- turbo 2.11.7 (published Oct 2) was blocked; 2.11.6 is allowed. Root `package.json` pins turbo to exactly `2.11.6` (PR #6). Tested in a scratch folder: SAC blocked 2.11.7 and 2.10.12 and allowed 2.11.6, 2.11.4, 2.11.0, 2.10.13 and 2.9.18.
+- Before raising turbo, run the new binary once from a scratch folder (`npm pack @turbo/windows-64@<version>`, extract it, run `bin\turbo.exe --version`). If a native tool fails suddenly, check the log: `Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 200 | ? Id -in 3033,3077 | fl TimeCreated, Message`.
+- `@swc/core` 1.16.13 (API tests) was blocked twice on Oct 5 and loaded later the same day. Workaround while a binary is blocked: `pnpm --filter @firmivra/types --filter @firmivra/db run build`, then `pnpm -r run <script>`.
+
 ## Left for Rasel
 
 - [ ] Board: switch "View 1" to Board layout and save (the API cannot change the layout).
