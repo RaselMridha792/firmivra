@@ -64,6 +64,11 @@ enum FirmApplicationStatus {
   DECLINED
 }
 
+enum LegalDocumentKind {
+  TERMS
+  PRIVACY
+}
+
 /// A firm on Firmivra (the tenant).
 model Business {
   id         String         @id @default(uuid(7)) @db.Uuid
@@ -81,6 +86,10 @@ model Business {
   supportAccessGrants SupportAccessGrant[]
   auditLogs           AuditLog[]
   firmApplication     FirmApplication?
+  settings            BusinessSettings?
+  legalDocuments      FirmLegalDocument[]
+  taxStatuses         TaxStatus[]
+  invites             Invite[]
 
   @@map("businesses")
 }
@@ -117,8 +126,11 @@ model Membership {
 
   business Business @relation(fields: [businessId], references: [id])
   user     User     @relation(fields: [userId], references: [id])
+  invites  Invite[]
 
   @@unique([businessId, userId])
+  // Target of same-firm foreign keys (see Invite).
+  @@unique([businessId, id])
   @@index([userId])
   @@map("memberships")
 }
@@ -140,8 +152,10 @@ model ClientAccount {
 
   business Business @relation(fields: [businessId], references: [id])
   user     User     @relation(fields: [userId], references: [id])
+  invites  Invite[]
 
   @@unique([businessId, email])
+  @@unique([businessId, id])
   @@index([businessId, status])
   @@map("client_accounts")
 }
@@ -218,4 +232,96 @@ model FirmApplication {
 
   @@index([status, createdAt])
   @@map("firm_applications")
+}
+
+/// One per firm: contact details, branding, modules and setup wizard progress.
+model BusinessSettings {
+  businessId          String    @id @map("business_id") @db.Uuid
+  contactEmail        String?   @map("contact_email")
+  contactPhone        String?   @map("contact_phone")
+  website             String?
+  addressLine1        String?   @map("address_line1")
+  addressLine2        String?   @map("address_line2")
+  city                String?
+  state               String?
+  postalCode          String?   @map("postal_code")
+  country             String    @default("US")
+  timezone            String    @default("America/New_York")
+  /// S3 key under the firm's prefix.
+  logoKey             String?   @map("logo_key")
+  /// `#rrggbb`, themes the firm's client portal.
+  brandColor          String?   @map("brand_color")
+  /// Module keys switched on for this firm (docs/SYSTEM-DESIGN.md, Modules & packs).
+  enabledModules      String[]  @default([]) @map("enabled_modules")
+  clientSignUpEnabled Boolean   @default(true) @map("client_sign_up_enabled")
+  /// Setup wizard steps done so far, e.g. { "profile": true }.
+  setupProgress       Json      @default("{}") @map("setup_progress")
+  setupCompletedAt    DateTime? @map("setup_completed_at") @db.Timestamptz(3)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("business_settings")
+}
+
+/// A published version of a firm's Terms or Privacy policy. Insert-only: clients accept one exact
+/// version, so a change is a new version. The current one is the highest version.
+model FirmLegalDocument {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  businessId        String            @map("business_id") @db.Uuid
+  kind              LegalDocumentKind
+  version           Int
+  /// Markdown.
+  body              String
+  publishedByUserId String            @map("published_by_user_id") @db.Uuid
+  publishedAt       DateTime          @default(now()) @map("published_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, kind, version])
+  @@map("firm_legal_documents")
+}
+
+/// A firm-defined tax status ("Documents received", "Filed"). Archived, not deleted, once used.
+model TaxStatus {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  name       String
+  sortOrder  Int       @default(0) @map("sort_order")
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("tax_statuses")
+}
+
+/// One-time activation link (7 days) for an INVITED membership (staff, or a new firm's owner) or
+/// client account. Only the SHA-256 of the token is stored. Resend = revoke this one, add a new one.
+/// The signed-out accept step finds it with db.forInvite(tokenHash), then works in business scope.
+model Invite {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  membershipId    String?   @map("membership_id") @db.Uuid
+  clientAccountId String?   @map("client_account_id") @db.Uuid
+  tokenHash       String    @unique @map("token_hash")
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
+  /// Null when the platform invites a new firm's owner on approval.
+  invitedByUserId String?   @map("invited_by_user_id") @db.Uuid
+  acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(3)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business      Business       @relation(fields: [businessId], references: [id])
+  // Same-firm foreign keys: FK checks skip RLS, so (business_id, id) stops a link to another firm's row.
+  membership    Membership?    @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  clientAccount ClientAccount? @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, membershipId])
+  @@index([businessId, clientAccountId])
+  @@map("invites")
 }

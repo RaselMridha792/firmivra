@@ -25,6 +25,12 @@ export const SEED_USERS = {
     email: 'staff@lvp.test',
     name: 'Stan Staff (fake)',
   },
+  lvpInvited: {
+    id: '00000000-0000-4000-a000-000000000014',
+    pool: 'STAFF',
+    email: 'invited@lvp.test',
+    name: 'Ivy Invited (fake)',
+  },
   lvpClient: {
     id: '00000000-0000-4000-a000-000000000013',
     pool: 'CLIENT',
@@ -44,3 +50,19 @@ export const SEED_USERS = {
     name: 'Ben Client (fake)',
   },
 } as const;
+
+/** Firm-defined tax statuses, in display order. */
+export const SEED_TAX_STATUSES = {
+  lvp: [
+    'Waiting for documents',
+    'Documents received',
+    'In preparation',
+    'Ready for review',
+    'Filed',
+    'Accepted',
+  ],
+  testFirmB: ['Received', 'Filed'],
+} as const;
+
+/** Fixed id so re-seeding keeps a single open invite for lvpInvited. */
+export const SEED_INVITE_ID = '00000000-0000-4000-b000-000000000001';

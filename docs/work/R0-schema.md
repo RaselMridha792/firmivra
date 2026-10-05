@@ -13,7 +13,7 @@
 ## Steps
 
 - [x] 1. Read the current schema and RLS helpers; list the tables that already exist in the Progress log
-- [ ] 2. Business settings, firm legal documents (Terms, Privacy per firm), tax statuses (firm-defined), team invites
+- [x] 2. Business settings, firm legal documents (Terms, Privacy per firm), tax statuses (firm-defined), team invites
 - [ ] 3. Clients and client profiles, client account status (pending, approved, declined), client tax status history
 - [ ] 4. Services and engagements (active, recurring, completed, cancelled), service workspaces (Bookkeeping, Tax Planning: tasks, notes, reports)
 - [ ] 5. Documents, document categories, document requests
@@ -39,3 +39,4 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 (newest last: date, step, what changed, commit)
 
 - Oct 5, step 1: existing tables: `businesses` (has `terms_url`, `privacy_url`), `users`, `memberships`, `client_accounts`, `platform_admins`, `support_access_grants`, `audit_logs`, `firm_applications` (so step 11 is mostly there). RLS helpers: `app_scope()`, `app_current_business_id()`, `app_current_user_id()`; triggers `businesses_protected_columns`, `users_identity_columns`, `support_access_grants_rules`. `test/rls-coverage.test.ts` needs every table forced RLS + a policy + app SELECT/INSERT. New tables must also go into the TRUNCATE list in `src/testing.ts`. T01/I01 field lists not received yet (no issues on GitHub). Local DB `firmivra_r0` up to date. Paths match the expected layout.
+- Oct 5, step 2: migration `r0_settings_team`: `business_settings`, `firm_legal_documents` (insert-only versions, markdown), `tax_statuses`, `invites` (token SHA-256, for an INVITED membership or a client account, 7 days, lifecycle trigger, no DELETE). New `invite` scope (`db.forInvite(tokenHash)`). Same-firm composite FKs `(business_id, id)` added to `memberships` and `client_accounts`. Seed: settings, Terms and Privacy v1 and tax statuses for both firms, invited LVP staff member with an unusable invite. Field names follow docs/SYSTEM-DESIGN.md (Rasel's go, T01/I01 lists not in yet). Commit "feat: business settings, legal documents, tax statuses and invites tables (R0)".

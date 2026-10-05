@@ -65,7 +65,8 @@ export async function prepareTestDatabase(
   await owner.connect();
   try {
     await owner.query(`TRUNCATE businesses, users, memberships, client_accounts, platform_admins,
-      support_access_grants, audit_logs, firm_applications CASCADE`);
+      support_access_grants, audit_logs, firm_applications, business_settings,
+      firm_legal_documents, tax_statuses, invites CASCADE`);
   } finally {
     await owner.end();
   }

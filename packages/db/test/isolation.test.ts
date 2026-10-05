@@ -1,6 +1,6 @@
 // Tenant isolation: data of firm A is never visible to firm B, even with no WHERE clause.
 // Runs as the real app role (firmivra_app) against the test database.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
 
@@ -21,7 +21,13 @@ const ids = {
   membershipA: '',
   clientAccountA: '',
   grantA: '',
+  legalDocA: '',
+  taxStatusA: '',
+  inviteA: '',
 };
+const tokenHash = (firm: string) =>
+  createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
+const inDays = (d: number) => new Date(Date.now() + d * 86_400_000);
 
 beforeAll(async () => {
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
@@ -68,9 +74,31 @@ beforeAll(async () => {
           entityType: 'test',
         },
       });
+      await tx.businessSettings.create({ data: { businessId: firm } });
+      const doc = await tx.firmLegalDocument.create({
+        data: {
+          businessId: firm,
+          kind: 'TERMS',
+          version: 1,
+          body: 'x',
+          publishedByUserId: ownerId,
+        },
+      });
+      const t = await tx.taxStatus.create({ data: { businessId: firm, name: 'Filed' } });
+      const inv = await tx.invite.create({
+        data: {
+          businessId: firm,
+          membershipId: m.id,
+          tokenHash: tokenHash(firm),
+          expiresAt: inDays(7),
+        },
+      });
       if (firm === ids.firmA) {
         ids.membershipA = m.id;
         ids.clientAccountA = c.id;
+        ids.legalDocA = doc.id;
+        ids.taxStatusA = t.id;
+        ids.inviteA = inv.id;
       }
     });
   }
@@ -98,6 +126,10 @@ describe('no scope set', () => {
     expect(await unscopedApp.clientAccount.findMany()).toEqual([]);
     expect(await unscopedApp.auditLog.findMany()).toEqual([]);
     expect(await unscopedApp.firmApplication.findMany()).toEqual([]);
+    expect(await unscopedApp.businessSettings.findMany()).toEqual([]);
+    expect(await unscopedApp.firmLegalDocument.findMany()).toEqual([]);
+    expect(await unscopedApp.taxStatus.findMany()).toEqual([]);
+    expect(await unscopedApp.invite.findMany()).toEqual([]);
   });
 });
 
@@ -113,6 +145,10 @@ describe('business scope: firm B', () => {
       await b().clientAccount.findMany(),
       await b().supportAccessGrant.findMany(),
       await b().auditLog.findMany(),
+      await b().businessSettings.findMany(),
+      await b().firmLegalDocument.findMany(),
+      await b().taxStatus.findMany(),
+      await b().invite.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -129,6 +165,11 @@ describe('business scope: firm B', () => {
     expect(await b().supportAccessGrant.findUnique({ where: { id: ids.grantA } })).toBeNull();
     expect(await b().user.findUnique({ where: { id: ids.ownerA } })).toBeNull();
     expect(await b().user.findUnique({ where: { id: ids.clientA } })).toBeNull();
+    expect(await b().businessSettings.findUnique({ where: { businessId: ids.firmA } })).toBeNull();
+    expect(await b().firmLegalDocument.findUnique({ where: { id: ids.legalDocA } })).toBeNull();
+    expect(await b().taxStatus.findUnique({ where: { id: ids.taxStatusA } })).toBeNull();
+    expect(await b().invite.findUnique({ where: { id: ids.inviteA } })).toBeNull();
+    expect(await b().invite.findUnique({ where: { tokenHash: tokenHash(ids.firmA) } })).toBeNull();
   });
 
   it("cannot update or delete firm A's rows", async () => {
@@ -160,6 +201,13 @@ describe('business scope: firm B', () => {
     await expect(
       b().auditLog.create({ data: { businessId: ids.firmA, action: 'x', entityType: 'x' } }),
     ).rejects.toThrow();
+    await expect(
+      b().taxStatus.create({ data: { businessId: ids.firmA, name: 'Planted' } }),
+    ).rejects.toThrow();
+    expect(
+      (await b().taxStatus.updateMany({ where: { id: ids.taxStatusA }, data: { name: 'x' } }))
+        .count,
+    ).toBe(0);
   });
 
   it('sees no platform tables', async () => {
@@ -177,6 +225,33 @@ describe('user scope', () => {
     expect((await u.user.findMany()).map((x) => x.id)).toEqual([ids.ownerA]);
     expect(await u.clientAccount.findMany()).toEqual([]);
     expect(await u.auditLog.findMany()).toEqual([]);
+    expect(await u.taxStatus.findMany()).toEqual([]);
+    expect(await u.invite.findMany()).toEqual([]);
+  });
+});
+
+describe('invite scope', () => {
+  it('sees only the invite with that token hash, and nothing else', async () => {
+    const i = db.forInvite(tokenHash(ids.firmA));
+    expect((await i.invite.findMany()).map((x) => x.id)).toEqual([ids.inviteA]);
+    expect(await i.business.findMany()).toEqual([]);
+    expect(await i.membership.findMany()).toEqual([]);
+    expect(await i.user.findMany()).toEqual([]);
+    expect(await i.taxStatus.findMany()).toEqual([]);
+    expect(await i.businessSettings.findMany()).toEqual([]);
+  });
+
+  it('cannot change the invite it sees', async () => {
+    const i = db.forInvite(tokenHash(ids.firmA));
+    expect(
+      (await i.invite.updateMany({ where: { id: ids.inviteA }, data: { acceptedAt: new Date() } }))
+        .count,
+    ).toBe(0);
+  });
+
+  it('sees nothing with an unknown hash, and rejects a malformed one', async () => {
+    expect(await db.forInvite('0'.repeat(64)).invite.findMany()).toEqual([]);
+    expect(() => db.forInvite("x' OR 1=1 --")).toThrow(/invalid invite token hash/i);
   });
 });
 
@@ -189,6 +264,10 @@ describe('platform scope', () => {
     expect(await p.membership.findMany()).toEqual([]);
     expect(await p.clientAccount.findMany()).toEqual([]);
     expect((await p.auditLog.findMany()).every((r) => r.businessId === null)).toBe(true);
+    expect(await p.businessSettings.findMany()).toEqual([]);
+    expect(await p.firmLegalDocument.findMany()).toEqual([]);
+    expect(await p.taxStatus.findMany()).toEqual([]);
+    expect(await p.invite.findMany()).toEqual([]);
   });
 });
 

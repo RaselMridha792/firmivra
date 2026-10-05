@@ -6,12 +6,13 @@ Prisma schema, migrations, seed and the tenant-scoped database client. **Owner: 
 
 The API connects as `firmivra_app` (`DATABASE_URL_APP`), a role that cannot bypass row-level security. Every query runs inside one of three scopes, set per transaction with `set_config(..., true)`:
 
-| Scope      | Set by                       | Sees                                                                                                                                    |
-| ---------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `business` | `db.forBusiness(businessId)` | Only that firm's rows. Everything a firm user or client does.                                                                           |
-| `user`     | `db.forUser(userId)`         | The person's own memberships, client accounts and their firms (for `/me` and the firm picker).                                          |
-| `platform` | `db.forPlatform()`           | Platform tables: businesses (metadata), users, platform admins, firm applications, support grants, platform audit events. No firm data. |
-| none       | –                            | Nothing. Every policy is false.                                                                                                         |
+| Scope      | Set by                       | Sees                                                                                                                                      |
+| ---------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `business` | `db.forBusiness(businessId)` | Only that firm's rows. Everything a firm user or client does.                                                                             |
+| `user`     | `db.forUser(userId)`         | The person's own memberships, client accounts and their firms (for `/me` and the firm picker).                                            |
+| `platform` | `db.forPlatform()`           | Platform tables: businesses (metadata), users, platform admins, firm applications, support grants, platform audit events. No firm data.   |
+| `invite`   | `db.forInvite(tokenHash)`    | Only the invite whose SHA-256 token hash matches. For the signed-out "accept invite" step: read its `businessId`, then use `forBusiness`. |
+| none       | –                            | Nothing. Every policy is false.                                                                                                           |
 
 The policies are in `prisma/migrations/*_row_level_security/migration.sql`. Every table has RLS **enabled and forced**.
 
@@ -36,6 +37,9 @@ Rules:
 - Users can be updated only in platform scope or by the person themself (who cannot change id, Cognito sub, pool or email). Business status and slug change only in platform scope.
 - Scopes use `set_config(..., true)` inside a transaction, so they never outlive it on a pooled connection.
 - Emails in `users` and `client_accounts` are stored lower-case (a CHECK constraint enforces it).
+- Links between firm tables use same-firm foreign keys `(business_id, x_id) → x(business_id, id)`. Foreign-key checks skip RLS, so a plain `x_id` could point at another firm's row.
+- Firm Terms and Privacy (`firm_legal_documents`) are insert-only: a change is a new version.
+- Invites (staff membership or client account, 7 days at most) store only the token's SHA-256. After insert, only `accepted_at` or `revoked_at` can be set, once; a revoked or expired invite cannot be accepted; nobody deletes invites.
 
 ## Commands
 
