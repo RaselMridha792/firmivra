@@ -32,7 +32,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 ## Needs from others
 
-(none yet)
+- apps/api (owner of `apps/api/test/global-setup.ts`): create a `Client` and pass `clientId` when creating client accounts, so `client_accounts.client_id` can become NOT NULL (R0 step 12).
+- R2: invites are ready for the activation flow: create the user and an INVITED membership, then an `invites` row with the token's SHA-256; the signed-out accept step reads it with `db.forInvite(tokenHash)`, then works in business scope.
 
 ## Progress log
 
