@@ -8,7 +8,6 @@ const repoRoot = path.resolve(process.cwd(), '../..');
 const apiBase = process.env['API_BASE_URL'];
 
 const nextConfig: NextConfig = {
-  agentRules: false,
   output: 'standalone',
   outputFileTracingRoot: repoRoot,
   turbopack: { root: repoRoot },
