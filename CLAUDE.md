@@ -102,3 +102,10 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 - Read the matching spec in `docs/specs/` and the mockup in `docs/mockups/` before building a screen or endpoint.
 - Keep each change to its ticket. Ask instead of guessing when a requirement is unclear.
 - TypeScript strict everywhere.
+
+## Parallel sessions
+
+- Rasel's workstreams (R0 to R9) are in `docs/work/`, one file each. The rules for them (worktrees, branches, PR size, the database lock) are in `docs/work/README.md`.
+- A workstream session reads only `CLAUDE.md`, `docs/work/README.md` and its own R file (plus the files that R file lists under "Read first").
+- It edits only its own R file and the paths that R file owns.
+- Only the lead session (the main checkout, `Business-full-stack-project/`) edits `docs/work/BOARD.md` and merges. `BOARD.md` is git-ignored and exists only in the main checkout.
