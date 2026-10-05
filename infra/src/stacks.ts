@@ -1,6 +1,7 @@
-import { type App, Aspects, type IAspect, RemovalPolicy } from 'aws-cdk-lib';
+import { type App, Aspects, type IAspect, PermissionsBoundary, RemovalPolicy } from 'aws-cdk-lib';
 import { CfnLogGroup } from 'aws-cdk-lib/aws-logs';
 import type { IConstruct } from 'constructs';
+import { PERMISSIONS_BOUNDARY_NAME } from './bootstrap-policies';
 import { type EnvConfig, resourceName } from './config';
 import { AppStack } from './stacks/app-stack';
 import { AuthStack } from './stacks/auth-stack';
@@ -11,16 +12,20 @@ import { NetworkStack } from './stacks/network-stack';
 
 /** All stacks of one environment: firmivra-<env>-network, -data, -auth, -email, -app, -ci. */
 export function createStacks(app: App, config: EnvConfig, imageTag?: string) {
-  const env = { account: config.account, region: config.region };
+  // Every role our stacks create carries the boundary; the CDK execution role refuses roles without it.
+  const common = {
+    env: { account: config.account, region: config.region },
+    permissionsBoundary: PermissionsBoundary.fromName(PERMISSIONS_BOUNDARY_NAME),
+  };
   const id = (n: string) => resourceName(config, n);
 
   const network = new NetworkStack(app, id('network'), {
-    env,
+    ...common,
     config,
     description: 'Firmivra: VPC, subnets, security groups',
   });
   const data = new DataStack(app, id('data'), {
-    env,
+    ...common,
     config,
     vpc: network.vpc,
     dbSg: network.dbSg,
@@ -28,7 +33,7 @@ export function createStacks(app: App, config: EnvConfig, imageTag?: string) {
     description: 'Firmivra: PostgreSQL, database secrets, documents bucket and key',
   });
   const auth = new AuthStack(app, id('auth'), {
-    env,
+    ...common,
     config,
     terminationProtection: true,
     description: 'Firmivra: Cognito user pools (staff, clients, admins)',
@@ -36,13 +41,13 @@ export function createStacks(app: App, config: EnvConfig, imageTag?: string) {
   // SES needs a verified domain: only with a custom domain (emails are logged until then).
   const email = config.customDomain
     ? new EmailStack(app, id('email'), {
-        env,
+        ...common,
         config,
         description: 'Firmivra: SES domain identity, DKIM, MAIL FROM, DMARC',
       })
     : undefined;
   const appStack = new AppStack(app, id('app'), {
-    env,
+    ...common,
     config,
     network,
     data,
@@ -52,7 +57,7 @@ export function createStacks(app: App, config: EnvConfig, imageTag?: string) {
     description: 'Firmivra: ECR, ECS services, load balancer, CloudFront, DNS',
   });
   const ci = new CiStack(app, id('ci'), {
-    env,
+    ...common,
     config,
     app: appStack,
     description: 'Firmivra: GitHub OIDC deploy role',

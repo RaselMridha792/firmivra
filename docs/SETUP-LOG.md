@@ -158,11 +158,22 @@ Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can 
 
 ## Step 7: AWS CDK, dev (in progress, Oct 5)
 
-- `infra/` (CDK 2.272, cdk-nag 3): stacks `firmivra-dev-network`, `-data`, `-auth`, `-app`, `-ci` (and `-email` only with a custom domain). Every resource tagged `project=firmivra`, `env=dev`. cdk-nag: no unacknowledged findings; every accepted finding has its reason in `infra/src/nag.ts`. 20 tests in `infra/test/stacks.test.ts` pin the decided settings, for both the CloudFront-domain setup and the custom-domain switch.
-- Bootstrap: `CDKToolkit` created Oct 5 (default execution policy AdministratorAccess; tighten in Step 8 with a permissions boundary on the GitHub deploy role).
+- `infra/` (CDK 2.272, cdk-nag 3): stacks `firmivra-dev-network`, `-data`, `-auth`, `-app`, `-ci` (and `-email` only with a custom domain). Every resource tagged `project=firmivra`, `env=dev`. cdk-nag: no unacknowledged findings; every accepted finding has its reason in `infra/src/nag.ts`. 28 tests in `infra/test/` pin the decided settings and the deploy guardrails, for both the CloudFront-domain setup and the custom-domain switch. Tests and the nag report build with the `cdk.json` feature flags, like `cdk deploy`. Every log group keeps 14 days and is deleted with its stack, also the ones CDK helpers create.
+- Bootstrap: `CDKToolkit` created Oct 5 with the default execution policy AdministratorAccess; narrowed before any workflow runs (see "Deploy guardrails" below).
+- Deployed Oct 5: network; data (`db.t3.micro`, PostgreSQL 16.13); auth (pools `firmivra-dev-staff`, `-clients`, `-admins`, Plus tier, compromised-credential block). Data and auth have termination protection.
 - App design: internal load balancer (isolated subnets, HTTP 80, requests without the `X-Origin-Verify` header get 403) reached by one CloudFront VPC origin; three distributions (admin, app, portal), each with `/api/*` to the API, caching off except `/_next/static/*`. Services start at 0 tasks until Step 8 deploys images. Emails are logged (`EMAIL_MODE=log`) until the SES domain exists.
 - Images: API image trusts the RDS certificate bundle (`NODE_EXTRA_CA_CERTS`) and builds its database URL from `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_APP_USER`, `DB_APP_PASSWORD` with `sslmode=verify-full`. Migration image (`packages/db/Dockerfile`): `prisma migrate deploy` as the owner, then `ALTER ROLE firmivra_app LOGIN PASSWORD` from Secrets Manager (tested against local Postgres).
 - Site URLs (filled in after the app stack deploy): admin, app, portal.
+
+## Deploy guardrails (before any workflow runs, Rasel Oct 5)
+
+- GitHub environments (set up in Step 2, checked Oct 5): `dev` deploys only from `main`; `prod` only from `v*` tags, with Rasel as required reviewer. Ruleset `protect-release-tags`: only admins (Rasel) create, move or delete `v*` tags. Rasel is the only admin; the four developers have write access.
+- CODEOWNERS: `/.github/workflows/` and `/.github/CODEOWNERS` are Rasel's even if the `*` rule is widened later; `protect-main` requires code owner review.
+- Two IAM managed policies, defined in `infra/src/bootstrap-policies.ts`, printed by `pnpm exec tsx scripts/bootstrap-policies.ts exec|boundary`, created and updated by Rasel with the AWS CLI (not in a stack, so CloudFormation cannot change its own limits):
+  - `firmivra-cdk-cfn-exec` replaces AdministratorAccess on the CDK execution role: only the services our stacks use; ECR, load balancer, Lambda, logs, RDS, S3 and secrets only for `firmivra-*` names; DNS records only in the `dev.firmivra.com` zone; roles only `firmivra-*` and only created with the boundary; the only managed policy it may attach is `AWSLambdaBasicExecutionRole`.
+  - `firmivra-permissions-boundary` on the execution role and on every role our stacks create (also the GitHub deploy role): caps them at the services we use; IAM, S3 and secrets only for `firmivra-*` names; refuses roles without this boundary, boundary removal, changes to the two policies and changes to the `cdk-hnb659fds-*` bootstrap roles.
+  - Tests check that every role carries the boundary, that the execution policy covers every resource type in our stacks, and that every action of our roles fits inside the boundary. IAM Access Analyzer: no findings on either policy.
+- To change a policy later: edit `infra/src/bootstrap-policies.ts`, run the tests, then `aws iam create-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --policy-document file://<printed json> --set-as-default` (IAM keeps 5 versions; delete the oldest first).
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 
