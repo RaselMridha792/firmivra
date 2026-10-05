@@ -5,3 +5,6 @@
 # even if the rule above is widened later.
 /.github/workflows/ @RaselMridha792
 /.github/CODEOWNERS @RaselMridha792
+
+# The 15-day plan and the parallel workstream rules.
+/docs/work/ @RaselMridha792

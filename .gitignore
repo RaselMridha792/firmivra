@@ -65,3 +65,6 @@ desktop.ini
 
 # Claude Code personal settings
 .claude/settings.local.json
+
+# Workstream board: lives only in the main checkout, edited by the lead session (docs/work/README.md)
+docs/work/BOARD.md
