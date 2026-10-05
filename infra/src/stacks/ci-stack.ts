@@ -22,7 +22,9 @@ export class CiStack extends Stack {
   constructor(scope: Construct, id: string, props: CiStackProps) {
     super(scope, id, props);
     const { config, app } = props;
-    const repo = `repo:${config.github.owner}/${config.github.repo}`;
+    const { owner, ownerId, repo: name, repoId } = config.github;
+    // Immutable OIDC subject (repo setting "use_immutable_subject"): owner and repo with their ids.
+    const repo = `repo:${owner}@${ownerId}/${name}@${repoId}`;
 
     const github = new iam.OidcProviderNative(this, 'GitHubOidc', {
       url: 'https://token.actions.githubusercontent.com',
