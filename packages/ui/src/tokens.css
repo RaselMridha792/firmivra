@@ -1,0 +1,48 @@
+/* Provisional public-page tokens, based on the navy/blue/teal mockup direction.
+   Replace with Fahad's approved design tokens when they land on main. */
+:root {
+  --fv-ink: #092549;
+  --fv-muted: #53657b;
+  --fv-blue: #075cce;
+  --fv-teal: #08777c;
+  --fv-teal-soft: #e5f7f4;
+  --fv-paper: #ffffff;
+  --fv-canvas: #f7faff;
+  --fv-line: #dce6f0;
+  --fv-night: #062545;
+  --fv-night-muted: #bfd0e2;
+  --fv-night-line: #33546e;
+  --fv-blue-soft: #eaf2ff;
+  --fv-teal-light: #67e4d0;
+  --fv-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --fv-text-small: 0.8rem;
+  --fv-text-body: 0.95rem;
+  --fv-text-lead: 1.125rem;
+  --fv-text-brand: 1.65rem;
+  --fv-text-heading: clamp(1.5rem, 3vw, 2rem);
+  --fv-text-hero: clamp(2.65rem, 5.3vw, 4.6rem);
+  --fv-leading-body: 1.75;
+  --fv-leading-heading: 1.1;
+  --fv-tracking-heading: -0.045em;
+  --fv-tracking-label: 0.13em;
+  --fv-space-1: 0.25rem;
+  --fv-space-2: 0.5rem;
+  --fv-space-3: 0.75rem;
+  --fv-space-4: 1rem;
+  --fv-space-5: 1.25rem;
+  --fv-space-6: 1.5rem;
+  --fv-space-8: 2rem;
+  --fv-space-10: 2.5rem;
+  --fv-space-12: 3rem;
+  --fv-space-16: 4rem;
+  --fv-space-20: 5rem;
+  --fv-page-width: 75rem;
+  --fv-copy-width: 32rem;
+  --fv-radius: 1rem;
+  --fv-radius-large: 1.75rem;
+  --fv-radius-pill: 999px;
+  --fv-border: 1px;
+  --fv-shadow: 0 24px 70px #0625451c;
+  --fv-panel-gradient: linear-gradient(145deg, #06376a, #062545 70%);
+  --fv-page-glow: radial-gradient(ellipse at 90% 15%, #e8f7f5, transparent 45%);
+}

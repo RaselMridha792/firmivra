@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import '@firmivra/ui/styles.css';
+@import '@firmivra/ui/marketing.css';
 
 /* Tailwind only sees files it scans: include the design system's components. */
 @source '../../../../packages/ui/src';

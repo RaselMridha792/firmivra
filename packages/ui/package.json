@@ -26,7 +26,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./marketing.css": "./src/marketing.css"
   },
   "sideEffects": [
     "*.css"

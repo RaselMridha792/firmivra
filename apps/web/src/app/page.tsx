@@ -1,28 +1,34 @@
-// The bare host (for example localhost:3000) has no site of its own: point to the three hosts.
-// Rendered per request so the links come from the running config, not from the build.
-export const dynamic = 'force-dynamic';
+import { ComingSoon } from '@firmivra/ui';
 
-export default function Index() {
-  const sites = [
-    ['Super Admin console', process.env['ADMIN_BASE_URL'] ?? 'http://admin.localhost:3000'],
-    ['Firm workspace', process.env['APP_BASE_URL'] ?? 'http://app.localhost:3000'],
-    [
-      'Client portal (LVP)',
-      `${process.env['PORTAL_BASE_URL'] ?? 'http://portal.localhost:3000'}/lvp`,
-    ],
-  ] as const;
+export default function HomePage() {
   return (
-    <main className="mx-auto max-w-xl p-6">
-      <h1 className="mb-4 text-2xl font-semibold text-brand-900">Firmivra</h1>
-      <ul className="flex flex-col gap-2">
-        {sites.map(([label, url]) => (
-          <li key={url}>
-            <a className="text-brand-700 underline" href={url}>
-              {label}: {url}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </main>
+    <ComingSoon
+      brand="Firmivra"
+      description="One place for your team, your client work, and a portal that feels like your business. A more connected way to work is on the way."
+      beta={{ business: 'LVP Accounting & Taxes', date: 'January 8, 2027', dateTime: '2027-01-08' }}
+      experiences={[
+        {
+          name: 'Firm Workspace',
+          summary: 'Team, clients & services',
+          description:
+            'Bring your team, client records, documents and day-to-day work together in one workspace.',
+          icon: 'workspace',
+        },
+        {
+          name: 'Client Portal',
+          summary: 'Documents & conversations',
+          description:
+            'Give clients a branded space for intake, documents, messages, invoices and appointments.',
+          icon: 'portal',
+        },
+        {
+          name: 'Platform Oversight',
+          summary: 'Applications & access',
+          description:
+            'A separate space for Firmivra to review firm applications and manage platform access.',
+          icon: 'oversight',
+        },
+      ]}
+    />
   );
 }
