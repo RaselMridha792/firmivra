@@ -2,11 +2,11 @@
 
 One multi-tenant platform where any business signs up under its own name, runs its own team, and gives each client a private, branded portal. Every business sees only its own data. The first business is LVP Accounting & Taxes (beta: Jan 8, 2027).
 
-| App                 | Production                   | Dev (until dev.firmivra.com is delegated)          |
-| ------------------- | ---------------------------- | -------------------------------------------------- |
-| Super Admin console | `admin.firmivra.com`         | CloudFront URL in `docs/SETUP-LOG.md`              |
-| Firm workspace      | `app.firmivra.com`           | CloudFront URL in `docs/SETUP-LOG.md`              |
-| Client portal       | `portal.firmivra.com/{firm}` | CloudFront URL in `docs/SETUP-LOG.md`, then `/lvp` |
+| App                 | Production                   | Dev (every merge to `main` deploys here) |
+| ------------------- | ---------------------------- | ---------------------------------------- |
+| Super Admin console | `admin.firmivra.com`         | `admin.dev.firmivra.com`                 |
+| Firm workspace      | `app.firmivra.com`           | `app.dev.firmivra.com`                   |
+| Client portal       | `portal.firmivra.com/{firm}` | `portal.dev.firmivra.com/{firm}`         |
 
 ## Stack
 
