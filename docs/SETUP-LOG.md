@@ -12,7 +12,7 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | 4 | Docs and repo conventions | Done (Oct 4, PR #1) |
 | 5 | AWS foundation (one account: CLI, budget, Route 53, SES, SNS, Stripe) | In progress: CLI, budget and hosted zone done; GoDaddy NS record, root MFA, Stripe and SNS SMS open |
 | 6 | Monorepo, Docker, database, API, web | Done. 6.1 and 6.2 merged (PR #2); 6.3 to 6.5 committed on `rasel/setup-foundations` (Oct 5, not pushed) |
-| 7 | CDK infrastructure, deploy to dev | To do; dev sizing and cost settings decided (Oct 5) |
+| 7 | CDK infrastructure, deploy to dev | In progress on `rasel/setup-infra`: CDK bootstrapped (Oct 5); stacks written and tested; deploys one by one with `cdk diff` and Rasel's yes |
 | 8 | CI/CD | To do |
 | 9 | Developer branches, task docs, Sprint 0 and 1 issues | Branches and task docs done (Oct 4); issues to do |
 | 10 | Sprint 0 done checklist | To do |
@@ -33,6 +33,8 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | Oct 5 | Local AWS stand-ins | No LocalStack (it now needs a paid token for commercial use). s3mock for S3, Mailpit for email, SMS to the API log, a local key from `.env` instead of KMS | LocalStack (S3, SES, SNS, KMS) |
 | Oct 5 | Lint and TypeScript | ESLint 10 (ESLint 9 is end of life) with `@eslint-react`; TypeScript 5.9.3 (typescript-eslint supports below 6.1) | — |
 | Oct 5 | Dev infrastructure (Step 7) | No NAT gateway: Fargate tasks in public subnets, inbound only from the ALB. 1 task each for api and web at 0.25 vCPU / 0.5 GB, **Fargate Spot**, x86, running 24/7. RDS PostgreSQL db.t4g.micro single-AZ. Cognito Plus tier (compromised-credential checks). Tags `project=firmivra`, `env=dev` on everything. `cdk diff` shown and approved before every deploy. Prod stays on-demand | NAT gateway, private subnets |
+| Oct 5 | Dev domain (Step 7) | Do not wait for `dev.firmivra.com`: three CloudFront distributions (admin, app, portal) on their free `*.cloudfront.net` domains; no ACM certificate, no Route 53 records, no SES domain yet. The web app picks the site from config (`ADMIN_HOST`, `APP_HOST`, `PORTAL_HOST`); every base URL comes from config. Switching later is config only (see below) | Wait for the GoDaddy NS records |
+| Oct 5 | CloudFront to load balancer | CloudFront VPC origin to an internal load balancer (HTTP 80 inside the VPC, plus the secret origin header). Without a certificate CloudFront cannot use HTTPS to a public load balancer, and plain HTTP over the internet would expose session cookies. Also removes the load balancer's 2 public IPv4 addresses | Public load balancer with HTTPS and the CloudFront prefix list |
 | Oct 5 | Audit helper | `AuditService.log(action, entity, metadata)` everywhere, as in CLAUDE.md | — |
 | Oct 5 | Framework versions | Prisma 7.10 (npm's "latest" tag points at 8.0 rc), NestJS 12 (ES modules), Next.js 16 (`proxy.ts` instead of `middleware.ts`), Storybook 10, Tailwind 4, Playwright 1.63, zod 4, vitest 5 | Nest 11, Next 15, Storybook 8 |
 | Oct 5 | Database scopes | Three scopes instead of one: `forBusiness` (firm data), `forUser` (own memberships for `/me`), `forPlatform` (Super Admin tables); no scope sees nothing. RLS on **every** table, not only tenant tables | `forBusiness` and `forPlatform` |
@@ -152,11 +154,30 @@ Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can 
 - Coverage test now also fails if any table in `public` lacks a grant for `firmivra_app`, and pins the limits: no UPDATE or DELETE on `audit_logs`, no DELETE on `support_access_grants`, no access to `_prisma_migrations`.
 - db tests: 37 (isolation 11, policies 17, pooling 4, coverage 5). Each new rule was checked by breaking it on purpose: dropping the business trigger, revoking a grant, and switching `set_config` to session-wide each made the matching tests fail.
 
+## Step 7: AWS CDK, dev (in progress, Oct 5)
+
+- `infra/` (CDK 2.272, cdk-nag 3): stacks `firmivra-dev-network`, `-data`, `-auth`, `-app`, `-ci` (and `-email` only with a custom domain). Every resource tagged `project=firmivra`, `env=dev`. cdk-nag: no unacknowledged findings; every accepted finding has its reason in `infra/src/nag.ts`. 20 tests in `infra/test/stacks.test.ts` pin the decided settings, for both the CloudFront-domain setup and the custom-domain switch.
+- Bootstrap: `CDKToolkit` created Oct 5 (default execution policy AdministratorAccess; tighten in Step 8 with a permissions boundary on the GitHub deploy role).
+- App design: internal load balancer (isolated subnets, HTTP 80, requests without the `X-Origin-Verify` header get 403) reached by one CloudFront VPC origin; three distributions (admin, app, portal), each with `/api/*` to the API, caching off except `/_next/static/*`. Services start at 0 tasks until Step 8 deploys images. Emails are logged (`EMAIL_MODE=log`) until the SES domain exists.
+- Images: API image trusts the RDS certificate bundle (`NODE_EXTRA_CA_CERTS`) and builds its database URL from `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_APP_USER`, `DB_APP_PASSWORD` with `sslmode=verify-full`. Migration image (`packages/db/Dockerfile`): `prisma migrate deploy` as the owner, then `ALTER ROLE firmivra_app LOGIN PASSWORD` from Secrets Manager (tested against local Postgres).
+- Site URLs (filled in after the app stack deploy): admin, app, portal.
+
+## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
+
+1. GoDaddy: add the 4 NS records for `dev` (see "Left for Rasel"). Check: `Resolve-DnsName dev.firmivra.com -Type NS` lists the four Route 53 name servers.
+2. `infra/src/config.ts`, dev: `customDomain: DEV_FIRMIVRA_COM` instead of `customDomain: undefined`. That is the only edit.
+3. `pnpm --filter @firmivra/infra exec cdk diff -c env=dev --profile firmivra-dev`, then deploy `firmivra-dev-data`, `firmivra-dev-email` and `firmivra-dev-app` with Rasel's yes. The diff should show only:
+   - data: documents bucket CORS origins become `https://portal.dev.firmivra.com` and `https://app.dev.firmivra.com` (instead of `https://*.cloudfront.net`);
+   - email (new stack): SES domain identity with DKIM, MAIL FROM `mail.dev.firmivra.com`, DMARC record;
+   - app: an ACM certificate for `dev.firmivra.com` and `*.dev.firmivra.com` (validated through Route 53), one alias per distribution with TLSv1.2_2021, 6 Route 53 alias records (A and AAAA for each site), web `ADMIN_HOST`/`APP_HOST`/`PORTAL_HOST` and both apps' `*_BASE_URL` set to the custom hosts, API `EMAIL_MODE=ses` with the SES sender and configuration set.
+4. Nothing to rebuild: the web app reads its host map at runtime, and the API reads its URLs from the task environment. The `*.cloudfront.net` URLs then stop serving a site (their host is no longer in the host map).
+5. Afterwards: request SES production access, update the README dev URLs, and close the GoDaddy item in this log.
+
 ## Notes for Step 7 (from Step 6)
 
-- CloudFront: on `admin.`, `app.` and `portal.dev.firmivra.com`, send `/api/*` to the API target group and everything else to the web target group. Health checks: API `/api/v1/health`, web `/healthz`.
+- CloudFront: done as three distributions with `/api/*` to the API through the internal load balancer. Health checks: API `/api/v1/health`, web `/healthz`.
 - Deployed environments run with `NODE_ENV=production` and `AUTH_MODE=cognito`; the API refuses `AUTH_MODE=local` in production (tested).
-- Migration task: needs the Prisma CLI, `prisma.config.ts` and `packages/db/prisma/migrations`, which the API image does not contain; build a small migration image or stage. The app role password is set from Secrets Manager after the first migration (the migration creates the role without login).
+- Migration task: done, separate image `packages/db/Dockerfile` (Prisma CLI, config, migrations, `scripts/migrate-deploy.mjs`); it also sets the app role's login password from Secrets Manager.
 - API image is 758 MB: about 150 MB is Prisma tooling that pnpm installs as peer dependencies of `@prisma/client`. Trim when the migration image is decided.
 
 ## Still open from the plan
