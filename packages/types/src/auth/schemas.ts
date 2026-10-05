@@ -13,7 +13,8 @@ export const AUTH_BASE_PATH: Record<AuthSite, string> = { firm: '/auth', admin: 
 
 /**
  * Session cookies the API sets: HttpOnly, Secure, host-only (no Domain), so admin and app
- * never share a session. Each site has its own names. JavaScript never reads them.
+ * never share a session. Each site has its own names, and the API accepts only the site's own
+ * cookie: /api/v1/admin/* reads `admin`, every other route reads `firm`. JavaScript never reads them.
  */
 export const AUTH_COOKIES = {
   firm: {
@@ -66,7 +67,7 @@ export const OneTimeCode = z
   .pipe(z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'));
 
 /** Opaque, short-lived (about 3 minutes) sign-in step. Send it back unchanged. */
-export const ChallengeSession = z.string().min(1).max(4096);
+export const ChallengeSession = z.string().min(1).max(8192);
 
 // ---------- Sign-in and MFA ----------
 /** POST {base}/sign-in. Never says whether the account exists. */
