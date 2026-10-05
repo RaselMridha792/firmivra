@@ -365,8 +365,8 @@ describe('ci', () => {
               StringEquals: {
                 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
                 'token.actions.githubusercontent.com:sub': [
-                  'repo:RaselMridha792/firmivra:environment:dev',
-                  'repo:RaselMridha792/firmivra:environment:prod',
+                  'repo:RaselMridha792@149437621/firmivra@1404534844:environment:dev',
+                  'repo:RaselMridha792@149437621/firmivra@1404534844:environment:prod',
                 ],
               },
             },
