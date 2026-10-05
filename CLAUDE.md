@@ -109,3 +109,4 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 - A workstream session reads only `CLAUDE.md`, `docs/work/README.md` and its own R file (plus the files that R file lists under "Read first").
 - It edits only its own R file and the paths that R file owns.
 - Only the lead session (the main checkout, `Business-full-stack-project/`) edits `docs/work/BOARD.md` and merges. `BOARD.md` is git-ignored and exists only in the main checkout.
+- Where these rules differ from the rest of this file (branch names, PR size and titles, what to read), `docs/work/README.md` and the R file win.
