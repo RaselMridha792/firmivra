@@ -12,7 +12,7 @@ Firmivra is one multi-tenant platform shared by many businesses. Each business (
 | Firm workspace      | `app.firmivra.com`               | Each business's staff (Owner, Admin, Staff)                                 |
 | Client portal       | `portal.firmivra.com/{firmSlug}` | Each business's clients, in the firm's branding                             |
 
-- Dev environment: `admin.dev.firmivra.com`, `app.dev.firmivra.com`, `portal.dev.firmivra.com/lvp`, `api.dev.firmivra.com`.
+- Dev environment: three CloudFront URLs (`*.cloudfront.net`, listed in `docs/SETUP-LOG.md`) until `dev.firmivra.com` is delegated; then `admin.`, `app.` and `portal.dev.firmivra.com`. Every site URL and host comes from config, never from code.
 - First business (beta tenant): LVP Accounting & Taxes, slug `lvp`. Beta launch: Jan 8, 2027.
 - Isolation is enforced by four walls: the API tenant guard, PostgreSQL row-level security, per-business S3 prefixes, and per-business KMS keys. A bug in one wall must never be enough to leak data.
 
@@ -51,7 +51,7 @@ The decided design is in `docs/AUTH-DESIGN.md`. Read it before touching sign-in,
 
 The monorepo is being scaffolded in Sprint 0. If a folder does not exist yet, do not create it unless the task asks for it.
 
-Web routing: `apps/web/src/proxy.ts` maps hosts to route folders: `admin.*` to `src/app/admin/`, `app.*` to `src/app/firm/`, `portal.*/{slug}` to `src/app/portal/[firmSlug]/`. Links in the browser use the public paths (`/sign-in`, `/lvp/...`), never the folder names. The browser calls the API at `/api/v1` on its own host.
+Web routing: `apps/web/src/proxy.ts` maps hosts to route folders using the host map from config (`ADMIN_HOST`, `APP_HOST`, `PORTAL_HOST`): admin site to `src/app/admin/`, firm workspace to `src/app/firm/`, client portal `/{slug}` to `src/app/portal/[firmSlug]/`. Links and emails use `ADMIN_BASE_URL`, `APP_BASE_URL`, `PORTAL_BASE_URL`. Links in the browser use the public paths (`/sign-in`, `/lvp/...`), never the folder names. The browser calls the API at `/api/v1` on its own host.
 
 API building blocks (`apps/api/README.md`): `@Roles(...)` on every controller, `TenantPrisma.db` for firm data, `AuditService.log(action, entity, metadata)`, `ZodValidationPipe` with schemas from `packages/types`.
 

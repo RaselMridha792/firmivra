@@ -2,11 +2,11 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { areaForHost, INTERNAL_PREFIXES } from './lib/hosts';
 
 /**
- * One Next.js app, three sites, chosen by host name:
- *   admin.<domain>/...        -> app/admin/...         (Super Admin)
- *   app.<domain>/...          -> app/firm/...          (firm workspace)
- *   portal.<domain>/{slug}/.. -> app/portal/{slug}/... (client portal)
- * Works the same for admin.localhost:3000 and admin.dev.firmivra.com.
+ * One Next.js app, three sites, chosen by host name from configuration (src/lib/hosts.ts):
+ *   ADMIN_HOST/...         -> app/admin/...         (Super Admin)
+ *   APP_HOST/...           -> app/firm/...          (firm workspace)
+ *   PORTAL_HOST/{slug}/... -> app/portal/{slug}/... (client portal)
+ * Locally admin.localhost etc.; in AWS the CloudFront domains, later *.dev.firmivra.com.
  * The internal folders are never reachable by their own path.
  */
 export function proxy(request: NextRequest) {
