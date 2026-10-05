@@ -1,15 +1,19 @@
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
-import { Body, Controller, HttpCode, Inject, Module, Post, Res } from '@nestjs/common';
+import { Body, Controller, HttpCode, Module, Post, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import {
   type AuthSite,
+  ForgotPasswordRequest,
   MfaRequest,
   MfaSetupRequest,
   type MfaSetupResponse,
+  type OkResponse,
+  ResetPasswordRequest,
   SignInRequest,
   type SignInResult,
+  SignOutRequest,
 } from '@firmivra/types';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
@@ -24,20 +28,22 @@ import {
 } from './identity/cognito-identity.provider.js';
 import { IDENTITY_PROVIDER } from './identity/identity-provider.js';
 import { LocalIdentityProvider } from './identity/local-identity.provider.js';
+import { poolSecrets } from './sealed.js';
+import { RefreshEnvelopes, SessionService } from './session.service.js';
 import { type SignInOutcome, SignInService } from './sign-in.service.js';
-import { setSessionCookies } from './site.js';
 import { TokenService } from './token.service.js';
 
 /** Per client IP (the viewer's, see configure-app.ts). Step 7 adds per-email limits. */
 const ATTEMPTS = { default: { limit: 10, ttl: 60_000 } };
+const REFRESHES = { default: { limit: 30, ttl: 60_000 } };
 
-/** sign-in, mfa and mfa/setup; the same routes on the firm and the Super Admin site. */
+/** The firm and the Super Admin site have the same routes (docs/api/auth.yaml). */
 abstract class SignInRoutes {
   constructor(
     private readonly site: AuthSite,
     private readonly signIns: SignInService,
+    private readonly sessions: SessionService,
     private readonly me: MeService,
-    private readonly env: Env,
   ) {}
 
   @Post('sign-in')
@@ -69,9 +75,53 @@ abstract class SignInRoutes {
     return this.signIns.startMfaSetup(this.site, body.session);
   }
 
+  /** Public: the access cookie may have expired. Reads only the refresh cookie. */
+  @Post('refresh')
+  @HttpCode(200)
+  @Throttle(REFRESHES)
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OkResponse> {
+    await this.sessions.refresh(req, res, this.site);
+    return { ok: true };
+  }
+
+  @Post('sign-out')
+  @HttpCode(200)
+  async signOut(
+    @Body(new ZodValidationPipe(SignOutRequest.optional())) body: SignOutRequest | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OkResponse> {
+    await this.sessions.end(req, res, this.site, body?.everywhere === true);
+    return { ok: true };
+  }
+
+  @Post('forgot-password')
+  @HttpCode(200)
+  @Throttle(ATTEMPTS)
+  async forgotPassword(
+    @Body(new ZodValidationPipe(ForgotPasswordRequest))
+    body: z.output<typeof ForgotPasswordRequest>,
+  ): Promise<OkResponse> {
+    await this.signIns.forgotPassword(this.site, body.email);
+    return { ok: true };
+  }
+
+  @Post('reset-password')
+  @HttpCode(200)
+  @Throttle(ATTEMPTS)
+  async resetPassword(
+    @Body(new ZodValidationPipe(ResetPasswordRequest)) body: z.output<typeof ResetPasswordRequest>,
+  ): Promise<OkResponse> {
+    await this.signIns.resetPassword(this.site, body.email, body.code, body.password);
+    return { ok: true };
+  }
+
   private async finish(res: Response, outcome: SignInOutcome): Promise<SignInResult> {
     if (outcome.kind === 'step') return outcome.result;
-    setSessionCookies(res, this.site, outcome.tokens, this.env.NODE_ENV === 'production');
+    await this.sessions.start(res, this.site, outcome);
     return { status: 'SIGNED_IN', me: await this.me.load(outcome.userId) };
   }
 }
@@ -80,8 +130,8 @@ abstract class SignInRoutes {
 @Controller('auth')
 @Public()
 export class StaffSignInController extends SignInRoutes {
-  constructor(signIns: SignInService, me: MeService, @Inject(ENV) env: Env) {
-    super('firm', signIns, me, env);
+  constructor(signIns: SignInService, sessions: SessionService, me: MeService) {
+    super('firm', signIns, sessions, me);
   }
 }
 
@@ -89,8 +139,8 @@ export class StaffSignInController extends SignInRoutes {
 @Controller('admin/auth')
 @Public()
 export class AdminSignInController extends SignInRoutes {
-  constructor(signIns: SignInService, me: MeService, @Inject(ENV) env: Env) {
-    super('admin', signIns, me, env);
+  constructor(signIns: SignInService, sessions: SessionService, me: MeService) {
+    super('admin', signIns, sessions, me);
   }
 }
 
@@ -99,6 +149,12 @@ export class AdminSignInController extends SignInRoutes {
   controllers: [StaffSignInController, AdminSignInController],
   providers: [
     SignInService,
+    SessionService,
+    {
+      provide: RefreshEnvelopes,
+      inject: [ENV],
+      useFactory: (env: Env) => new RefreshEnvelopes(poolSecrets(env)),
+    },
     {
       provide: ChallengeSessions,
       inject: [ENV],

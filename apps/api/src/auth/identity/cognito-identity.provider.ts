@@ -3,9 +3,13 @@ import {
   AdminGetUserCommand,
   AdminInitiateAuthCommand,
   AdminRespondToAuthChallengeCommand,
+  AdminUserGlobalSignOutCommand,
   AssociateSoftwareTokenCommand,
   type AuthenticationResultType,
   type CognitoIdentityProviderClient,
+  ConfirmForgotPasswordCommand,
+  ForgotPasswordCommand,
+  RevokeTokenCommand,
   VerifySoftwareTokenCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { Logger } from '@nestjs/common';
@@ -77,6 +81,19 @@ const CODE_ERRORS: Record<string, AuthFlowErrorCode> = {
   // Cognito's answer once the 3-minute session is gone or used up.
   NotAuthorizedException: 'CHALLENGE_EXPIRED',
 };
+const REFRESH_ERRORS: Record<string, AuthFlowErrorCode> = {
+  NotAuthorizedException: 'SESSION_EXPIRED',
+  UserNotFoundException: 'SESSION_EXPIRED',
+};
+const RESET_ERRORS: Record<string, AuthFlowErrorCode> = {
+  CodeMismatchException: 'RESET_CODE_INVALID',
+  ExpiredCodeException: 'RESET_CODE_INVALID',
+  UserNotFoundException: 'RESET_CODE_INVALID',
+  NotAuthorizedException: 'RESET_CODE_INVALID',
+  InvalidPasswordException: 'PASSWORD_REJECTED',
+};
+
+const errorName = (e: unknown) => (e instanceof Error ? e.name : 'unknown error');
 
 /**
  * Cognito user pools through the API's confidential app clients (ADMIN_USER_PASSWORD_AUTH with
@@ -111,7 +128,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
       .catch((e: unknown) => fail(e, SIGN_IN_ERRORS));
 
     if (out.AuthenticationResult) {
-      return { kind: 'tokens', tokens: toTokens(out.AuthenticationResult) };
+      return { kind: 'tokens', tokens: toTokens(out.AuthenticationResult), username };
     }
     if (out.Session && out.ChallengeName === 'SOFTWARE_TOKEN_MFA') {
       return { kind: 'challenge', step: 'MFA', username, session: out.Session };
@@ -193,6 +210,85 @@ export class CognitoIdentityProvider implements IdentityProvider {
       )
       .catch((e: unknown) => fail(e, CODE_ERRORS));
     return this.signedIn(out.AuthenticationResult);
+  }
+
+  async refresh(
+    pool: IdentityPool,
+    username: string,
+    refreshToken: string,
+  ): Promise<SessionTokens> {
+    const p = this.pool(pool);
+    const out = await this.client
+      .send(
+        new AdminInitiateAuthCommand({
+          UserPoolId: p.userPoolId,
+          ClientId: p.clientId,
+          AuthFlow: 'REFRESH_TOKEN_AUTH',
+          // The hash uses the Cognito username, which is why the refresh envelope keeps it.
+          AuthParameters: { REFRESH_TOKEN: refreshToken, SECRET_HASH: secretHash(p, username) },
+        }),
+      )
+      .catch((e: unknown) => fail(e, REFRESH_ERRORS));
+    if (!out.AuthenticationResult) throw new AuthFlowError('SESSION_EXPIRED');
+    return toTokens(out.AuthenticationResult);
+  }
+
+  async revoke(pool: IdentityPool, refreshToken: string): Promise<void> {
+    const p = this.pool(pool);
+    await this.client
+      .send(
+        new RevokeTokenCommand({
+          Token: refreshToken,
+          ClientId: p.clientId,
+          ClientSecret: p.clientSecret,
+        }),
+      )
+      .catch((e: unknown) => this.logger.warn(`Refresh token not revoked: ${errorName(e)}`));
+  }
+
+  async signOutEverywhere(pool: IdentityPool, username: string): Promise<void> {
+    const p = this.pool(pool);
+    await this.client
+      .send(new AdminUserGlobalSignOutCommand({ UserPoolId: p.userPoolId, Username: username }))
+      .catch((e: unknown) => this.logger.warn(`Global sign-out failed: ${errorName(e)}`));
+  }
+
+  async forgotPassword(pool: IdentityPool, sub: string | undefined): Promise<void> {
+    const p = this.pool(pool);
+    const username = (await this.usernameFor(p, sub ?? randomUUID())) ?? randomUUID();
+    // Every failure here can depend on whether the account exists, so none reaches the caller.
+    await this.client
+      .send(
+        new ForgotPasswordCommand({
+          ClientId: p.clientId,
+          Username: username,
+          SecretHash: secretHash(p, username),
+        }),
+      )
+      .catch((e: unknown) => this.logger.warn(`No reset code sent: ${errorName(e)}`));
+  }
+
+  async resetPassword(
+    pool: IdentityPool,
+    sub: string | undefined,
+    code: string,
+    password: string,
+  ): Promise<void> {
+    const p = this.pool(pool);
+    const username = (await this.usernameFor(p, sub ?? randomUUID())) ?? randomUUID();
+    await this.client
+      .send(
+        new ConfirmForgotPasswordCommand({
+          ClientId: p.clientId,
+          Username: username,
+          ConfirmationCode: code,
+          Password: password,
+          SecretHash: secretHash(p, username),
+        }),
+      )
+      .catch((e: unknown) => fail(e, RESET_ERRORS));
+    // docs/AUTH-DESIGN.md: a password reset ends every session.
+    await this.signOutEverywhere(pool, username);
   }
 
   /** The Cognito username for a sub, or undefined for an unknown or disabled user. */

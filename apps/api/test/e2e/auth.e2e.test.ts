@@ -9,6 +9,7 @@ import type { MfaSetupResponse, SignInResult } from '@firmivra/types';
 import {
   LOCAL_MFA_CODE,
   LOCAL_PASSWORD,
+  LOCAL_RESET_CODE,
   LOCAL_TOTP_SECRET,
 } from '../../src/auth/identity/local-identity.provider.js';
 import { AppModule } from '../../src/app.module.js';
@@ -116,12 +117,12 @@ describe('staff sign-in (firm site)', () => {
       }),
     ]);
 
-    const cookies = setCookies(done);
-    expect(cookies).toEqual([expect.stringMatching(/^fv_access=/)]);
-    expect(cookies[0]).toMatch(/HttpOnly/i);
-    expect(cookies[0]).toMatch(/SameSite=Lax/i);
-    expect(cookies[0]).toMatch(/Path=\//);
-    expect(cookies[0]).not.toMatch(/Domain=/i);
+    const [access, refresh] = setCookies(done);
+    expect(setCookies(done)).toHaveLength(2);
+    expect(access).toMatch(/^fv_access=.*; Path=\/;.*HttpOnly.*SameSite=Lax/i);
+    expect(refresh).toMatch(/^fv_refresh=.*; Max-Age=2592000; Path=\/api\/v1\/auth;/i);
+    expect(refresh).toMatch(/HttpOnly.*SameSite=Strict/i);
+    for (const c of setCookies(done)) expect(c).not.toMatch(/Domain=/i);
 
     await request(app.getHttpServer())
       .get('/api/v1/me')
@@ -190,7 +191,10 @@ describe('Super Admin sign-in (admin site)', () => {
       viewer,
     );
     expect(setup.otpauthUri).toContain('otpauth://totp/Firmivra%20Admin%3A');
-    expect(setCookies(done)).toEqual([expect.stringMatching(/^fv_admin_access=/)]);
+    expect(setCookies(done)).toEqual([
+      expect.stringMatching(/^fv_admin_access=/),
+      expect.stringMatching(/^fv_admin_refresh=.*; Path=\/api\/v1\/admin\/auth;/),
+    ]);
     const cookie = cookieHeader(done);
 
     const me = await request(app.getHttpServer())
@@ -256,5 +260,127 @@ describe('rate limits use the viewer IP behind CloudFront and the ALB', () => {
     await attempt(`${newViewer()}, ${CLOUDFRONT}`).expect(401);
     // Addresses a client adds in front are ignored: still the same viewer.
     await attempt(`198.51.100.77, ${viewer}, ${CLOUDFRONT}`).expect(429);
+  });
+});
+
+/** Signs in whatever the step: first-time setup or a code. */
+async function signInFully(base: string, email: string, viewer: string, password = LOCAL_PASSWORD) {
+  const first = await post(`${base}/sign-in`, { email, password }, viewer).expect(200);
+  let step = first.body as SignInResult;
+  if (step.status === 'MFA_SETUP_REQUIRED') {
+    const setup = await post(`${base}/mfa/setup`, { session: step.session }, viewer).expect(200);
+    step = { status: 'MFA_REQUIRED', session: (setup.body as MfaSetupResponse).session };
+  }
+  if (step.status !== 'MFA_REQUIRED') throw new Error(`unexpected ${step.status}`);
+  return post(`${base}/mfa`, { session: step.session, code: LOCAL_MFA_CODE }, viewer).expect(200);
+}
+
+/** "name=value" of one cookie the response set. */
+const cookieNamed = (res: Response, name: string) =>
+  setCookies(res)
+    .map((c) => c.split(';')[0] ?? '')
+    .find((c) => c.startsWith(`${name}=`)) ?? '';
+
+describe('sessions: refresh and sign-out', () => {
+  it('renews the access cookie from the refresh cookie alone', async () => {
+    const done = await signInFully('/api/v1/auth', fx.users.staffA.email, newViewer());
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .set('cookie', cookieNamed(done, 'fv_refresh'))
+      .expect(200);
+    expect(res.body).toEqual({ ok: true });
+    const access = cookieNamed(res, 'fv_access');
+    expect(access).toMatch(/^fv_access=.+/);
+    // No rotation: the refresh cookie keeps its original expiry.
+    expect(cookieNamed(res, 'fv_refresh')).toBe('');
+    await request(app.getHttpServer()).get('/api/v1/me').set('cookie', access).expect(200);
+  });
+
+  it('answers 401 and clears the cookies without a valid refresh cookie', async () => {
+    for (const cookie of ['', 'fv_refresh=forged']) {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/refresh')
+        .set('cookie', cookie)
+        .expect(401);
+      expect(errorCode(res)).toBe('UNAUTHENTICATED');
+      expect(setCookies(res).join('\n')).toMatch(/^fv_refresh=; Path=\/api\/v1\/auth;/m);
+    }
+  });
+
+  it('never refreshes a Super Admin session on the firm site', async () => {
+    const done = await signInFully('/api/v1/admin/auth', fx.users.admin.email, newViewer());
+    const sealed = cookieNamed(done, 'fv_admin_refresh').slice('fv_admin_refresh='.length);
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .set('cookie', `fv_refresh=${sealed}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/api/v1/admin/auth/refresh')
+      .set('cookie', `fv_admin_refresh=${sealed}`)
+      .expect(200);
+  });
+
+  it('signs out by clearing all three cookies, even when already signed out', async () => {
+    const done = await signInFully('/api/v1/auth', fx.users.staffA.email, newViewer());
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-out')
+      .set('cookie', cookieHeader(done))
+      .send({ everywhere: true })
+      .expect(200);
+    expect(res.body).toEqual({ ok: true });
+    const cleared = setCookies(res).join('\n');
+    expect(cleared).toMatch(/^fv_access=; Path=\/; Expires=Thu, 01 Jan 1970/m);
+    expect(cleared).toMatch(/^fv_id=; Path=\/; Expires=Thu, 01 Jan 1970/m);
+    expect(cleared).toMatch(/^fv_refresh=; Path=\/api\/v1\/auth; Expires=Thu, 01 Jan 1970/m);
+
+    await request(app.getHttpServer()).post('/api/v1/auth/sign-out').expect(200);
+    await request(app.getHttpServer()).post('/api/v1/admin/auth/sign-out').expect(200);
+  });
+});
+
+describe('forgot and reset password', () => {
+  it('answers forgot-password the same for known and unknown emails', async () => {
+    const viewer = newViewer();
+    for (const email of [fx.users.staffA.email, 'nobody@a.test']) {
+      const res = await post('/api/v1/auth/forgot-password', { email }, viewer).expect(200);
+      expect(res.body).toEqual({ ok: true });
+    }
+  });
+
+  it('resets the password with the code; the old one stops working', async () => {
+    const viewer = newViewer();
+    const email = fx.users.ownerSuspended.email;
+    const newPassword = 'Brand-new-password-7';
+
+    const wrongCode = await post(
+      '/api/v1/auth/reset-password',
+      { email, code: '123456', password: newPassword },
+      viewer,
+    ).expect(400);
+    expect(errorCode(wrongCode)).toBe('RESET_CODE_INVALID');
+
+    const unknown = await post(
+      '/api/v1/auth/reset-password',
+      { email: 'nobody@a.test', code: LOCAL_RESET_CODE, password: newPassword },
+      viewer,
+    ).expect(400);
+    expect(errorCode(unknown)).toBe('RESET_CODE_INVALID');
+
+    const weak = await post(
+      '/api/v1/auth/reset-password',
+      { email, code: LOCAL_RESET_CODE, password: 'weak' },
+      viewer,
+    ).expect(400);
+    expect(errorCode(weak)).toBe('VALIDATION_FAILED');
+
+    await post(
+      '/api/v1/auth/reset-password',
+      { email, code: LOCAL_RESET_CODE, password: newPassword },
+      viewer,
+    ).expect(200);
+
+    const old = await post('/api/v1/auth/sign-in', { email, password: LOCAL_PASSWORD }, viewer);
+    expect(errorCode(old)).toBe('INVALID_CREDENTIALS');
+    await signInFully('/api/v1/auth', email, viewer, newPassword);
   });
 });

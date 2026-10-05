@@ -18,6 +18,8 @@ import {
   type CognitoPool,
 } from '../../src/auth/identity/cognito-identity.provider.js';
 import { AuthFlowError } from '../../src/auth/identity/identity-provider.js';
+import { deriveKey } from '../../src/auth/sealed.js';
+import { REFRESH_KEY_LABEL, RefreshEnvelopes } from '../../src/auth/session.service.js';
 import { otpauthUri } from '../../src/auth/sign-in.service.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -349,5 +351,134 @@ describe('AuthGuard: each site accepts only its own cookie and pools', () => {
     await expect(guardFor('STAFF').canActivate(ctx(req))).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+});
+
+describe('CognitoIdentityProvider: sessions and password reset', () => {
+  it('refreshes with REFRESH_TOKEN_AUTH and the hash of the Cognito username', async () => {
+    const { provider, sent } = fakeCognito({
+      AdminInitiateAuth: () => ({ AuthenticationResult: { AccessToken: 'acc2', ExpiresIn: 900 } }),
+    });
+    await expect(provider.refresh('STAFF', 'cognito-user-1', 'ref-1')).resolves.toEqual({
+      accessToken: 'acc2',
+      idToken: undefined,
+      refreshToken: undefined,
+      expiresIn: 900,
+    });
+    expect(sent[0]?.input).toMatchObject({
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      AuthParameters: { REFRESH_TOKEN: 'ref-1', SECRET_HASH: expectedHash('cognito-user-1') },
+    });
+  });
+
+  it('reports a revoked or expired refresh token as SESSION_EXPIRED', async () => {
+    const { provider } = fakeCognito({
+      AdminInitiateAuth: () => {
+        throw awsError('NotAuthorizedException');
+      },
+    });
+    expect(await flowError(provider.refresh('STAFF', 'u', 'r'))).toBe('SESSION_EXPIRED');
+  });
+
+  it('revokes this device and signs out everywhere, without ever failing sign-out', async () => {
+    const { provider, sent } = fakeCognito({
+      RevokeToken: () => {
+        throw awsError('UnsupportedTokenTypeException');
+      },
+      AdminUserGlobalSignOut: () => {
+        throw awsError('UserNotFoundException');
+      },
+    });
+    await expect(provider.revoke('STAFF', 'ref-1')).resolves.toBeUndefined();
+    await expect(provider.signOutEverywhere('STAFF', 'cognito-user-1')).resolves.toBeUndefined();
+    expect(sent[0]?.input).toEqual({
+      Token: 'ref-1',
+      ClientId: STAFF_POOL.clientId,
+      ClientSecret: STAFF_POOL.clientSecret,
+    });
+    expect(sent[1]?.input).toEqual({
+      UserPoolId: STAFF_POOL.userPoolId,
+      Username: 'cognito-user-1',
+    });
+  });
+
+  it('asks Cognito for a reset code the same way for unknown emails, and never fails', async () => {
+    const { provider, sent } = fakeCognito({
+      AdminGetUser: () => {
+        throw awsError('UserNotFoundException');
+      },
+      ForgotPassword: () => {
+        throw awsError('LimitExceededException');
+      },
+    });
+    await expect(provider.forgotPassword('STAFF', undefined)).resolves.toBeUndefined();
+    expect(sent.map((s) => s.command)).toEqual(['AdminGetUser', 'ForgotPassword']);
+    const username = sent[1]?.input['Username'] as string;
+    expect(sent[1]?.input['SecretHash']).toBe(expectedHash(username));
+  });
+
+  it('resets the password, then ends every session', async () => {
+    const { provider, sent } = fakeCognito({
+      AdminGetUser: knownUser,
+      ConfirmForgotPassword: () => ({}),
+      AdminUserGlobalSignOut: () => ({}),
+    });
+    await provider.resetPassword('STAFF', 'sub-1', '123456', 'New-password-12');
+    expect(sent.map((s) => s.command)).toEqual([
+      'AdminGetUser',
+      'ConfirmForgotPassword',
+      'AdminUserGlobalSignOut',
+    ]);
+    expect(sent[1]?.input).toMatchObject({
+      Username: 'cognito-user-1',
+      ConfirmationCode: '123456',
+      Password: 'New-password-12',
+      SecretHash: expectedHash('cognito-user-1'),
+    });
+  });
+
+  it.each([
+    ['CodeMismatchException', 'RESET_CODE_INVALID'],
+    ['ExpiredCodeException', 'RESET_CODE_INVALID'],
+    ['InvalidPasswordException', 'PASSWORD_REJECTED'],
+    ['LimitExceededException', 'RATE_LIMITED'],
+  ])('maps a reset failure %s to %s and keeps the sessions', async (name, code) => {
+    const { provider, sent } = fakeCognito({
+      AdminGetUser: knownUser,
+      ConfirmForgotPassword: () => {
+        throw awsError(name);
+      },
+    });
+    expect(await flowError(provider.resetPassword('STAFF', 'sub-1', '1', 'p'))).toBe(code);
+    expect(sent.map((s) => s.command)).not.toContain('AdminUserGlobalSignOut');
+  });
+});
+
+describe('RefreshEnvelopes', () => {
+  const envelopes = new RefreshEnvelopes({ STAFF: 'client-secret', ADMIN: 'client-secret' });
+  const envelope = {
+    userId: '0190a000-0000-7000-8000-000000000001',
+    username: '0190a000-0000-7000-8000-000000000002',
+    // Cognito refresh tokens are encrypted JWTs of about 1.8 KB.
+    refreshToken: 'r'.repeat(2000),
+    pool: 'STAFF' as const,
+  };
+
+  it('uses its own HKDF label, so its key differs from the challenge key', () => {
+    expect(REFRESH_KEY_LABEL).toBe('fv-auth-refresh-v1');
+    expect(Buffer.from(deriveKey('client-secret', 'STAFF', REFRESH_KEY_LABEL))).not.toEqual(
+      Buffer.from(deriveChallengeKey('client-secret', 'STAFF')),
+    );
+  });
+
+  it('fits in one cookie with room for its attributes', async () => {
+    const sealed = await envelopes.seal(envelope, 30 * 24 * 60 * 60);
+    expect(sealed.length).toBeLessThan(3800);
+    await expect(envelopes.open(sealed, 'STAFF')).resolves.toEqual(envelope);
+  });
+
+  it('never opens on the other site', async () => {
+    const sealed = await envelopes.seal(envelope, 60);
+    await expect(envelopes.open(sealed, 'ADMIN')).resolves.toBeUndefined();
   });
 });

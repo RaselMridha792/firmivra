@@ -72,7 +72,10 @@ info:
     - password `Firmivra-local-1` for every seeded user;
     - authenticator code `000000`; the setup key is `JBSWY3DPEHPK3PXP`, so the QR code is real;
     - each user's first sign-in after the API starts returns `MFA_SETUP_REQUIRED`, later ones
-      `MFA_REQUIRED`.
+      `MFA_REQUIRED`;
+    - `forgot-password` sends nothing; the reset code is `000000`, and the new password works
+      until the API restarts;
+    - `refresh` and `sign-out` work as in AWS, but nothing is revoked locally.
 
     `POST /dev/token` still signs in as a seeded user in one step and sets that site's access
     cookie (`fv_admin_access` for a Super Admin, `fv_access` otherwise).
