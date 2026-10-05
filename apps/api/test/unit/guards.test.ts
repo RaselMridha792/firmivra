@@ -229,6 +229,37 @@ describe('RolesGuard (default deny)', () => {
 });
 
 describe('config', () => {
+  const parts = {
+    NODE_ENV: 'production',
+    AUTH_MODE: 'cognito',
+    APP_BASE_URL: 'https://d222.cloudfront.net',
+    PORTAL_BASE_URL: 'https://d333.cloudfront.net',
+    ADMIN_BASE_URL: 'https://d111.cloudfront.net',
+    COGNITO_STAFF_USER_POOL_ID: 'p1',
+    COGNITO_STAFF_CLIENT_ID: 'c1',
+    COGNITO_CLIENTS_USER_POOL_ID: 'p2',
+    COGNITO_CLIENTS_CLIENT_ID: 'c2',
+    COGNITO_ADMINS_USER_POOL_ID: 'p3',
+    COGNITO_ADMINS_CLIENT_ID: 'c3',
+    DB_HOST: 'db.internal',
+    DB_PORT: '5432',
+    DB_NAME: 'firmivra',
+    DB_APP_USER: 'firmivra_app',
+    DB_APP_PASSWORD: 'p@ss/word',
+  };
+
+  it('builds the database URL from the AWS task parts, with TLS verification', () => {
+    expect(loadEnv(parts).DATABASE_URL_APP).toBe(
+      'postgresql://firmivra_app:p%40ss%2Fword@db.internal:5432/firmivra?sslmode=verify-full',
+    );
+  });
+
+  it('prefers an explicit DATABASE_URL_APP (local development)', () => {
+    expect(loadEnv({ ...parts, DATABASE_URL_APP: 'postgresql://x@y/z' }).DATABASE_URL_APP).toBe(
+      'postgresql://x@y/z',
+    );
+  });
+
   it('refuses AUTH_MODE=local in production', () => {
     expect(() => loadEnv({ ...env, NODE_ENV: 'production', AUTH_MODE: 'local' } as never)).toThrow(
       /AUTH_MODE=local/,
