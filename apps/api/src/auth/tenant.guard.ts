@@ -12,7 +12,7 @@ import type { Request } from 'express';
 import type { Database } from '@firmivra/db';
 import { type AuthContext, requestContext, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
-import { isPublic, rolesFor, TENANT_ROLES } from './decorators.js';
+import { businessStatusesFor, isPublic, rolesFor, TENANT_ROLES } from './decorators.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,6 +23,7 @@ const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not 
  * Global guard 2: for routes with a firm role, resolves the firm and the caller's role in it.
  * Firm: the `:slug` route param (portal), else the `x-business-id` header (selected firm),
  * else the caller's only firm. Role: the Membership (staff) or ClientAccount (client) row.
+ * The firm must be in a status the route allows: ACTIVE unless @AllowBusinessStatuses() says more.
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -49,11 +50,14 @@ export class TenantGuard implements CanActivate {
 
     const tenant = await this.membership(auth, business.id);
     if (!tenant) throw notFound();
-    if (business.status === 'SUSPENDED' || business.status === 'CLOSED') {
-      throw new ForbiddenException({
-        code: 'BUSINESS_INACTIVE',
-        message: 'This firm is not active',
-      });
+    // Only after the membership check, so the status of someone else's firm never shows.
+    if (!businessStatusesFor(this.reflector, ctx).includes(business.status)) {
+      throw business.status === 'PENDING_SETUP'
+        ? new ForbiddenException({
+            code: 'BUSINESS_SETUP_REQUIRED',
+            message: 'This firm has not finished setting up',
+          })
+        : new ForbiddenException({ code: 'BUSINESS_INACTIVE', message: 'This firm is not active' });
     }
 
     req.tenant = tenant;

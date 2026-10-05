@@ -19,12 +19,18 @@ export interface TenantContext {
   kind: 'staff' | 'client';
 }
 
+/** A verified Firmivra Super Admin, allowed onto platform tables. Set by RolesGuard. */
+export interface PlatformContext {
+  role: 'SUPER_ADMIN';
+}
+
 export interface RequestStore {
   requestId: string;
   ip?: string;
   userAgent?: string;
   auth?: AuthContext;
   tenant?: TenantContext;
+  platform?: PlatformContext;
 }
 
 declare global {
@@ -34,6 +40,7 @@ declare global {
       id?: string;
       auth?: AuthContext;
       tenant?: TenantContext;
+      platform?: PlatformContext;
     }
   }
 }
