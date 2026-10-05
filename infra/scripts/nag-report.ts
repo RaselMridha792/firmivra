@@ -3,15 +3,15 @@
 import { App, Tags, Validations } from 'aws-cdk-lib';
 import { AwsSolutionsChecks } from 'cdk-nag';
 import { cdkJsonContext } from '../src/cdk-context';
-import { configFor, DEV_FIRMIVRA_COM } from '../src/config';
+import { configFor } from '../src/config';
 import { addNagSuppressions } from '../src/nag';
 import { createStacks } from '../src/stacks';
 
 const app = new App({ context: { ...cdkJsonContext(), env: 'dev' } });
-// CUSTOM_DOMAIN=1 checks the configuration after the switch to dev.firmivra.com.
+// CLOUDFRONT_DOMAINS=1 checks the configuration without the custom domain (*.cloudfront.net).
 const config = configFor(
   'dev',
-  process.env['CUSTOM_DOMAIN'] ? { customDomain: DEV_FIRMIVRA_COM } : {},
+  process.env['CLOUDFRONT_DOMAINS'] ? { customDomain: undefined } : {},
 );
 const stacks = createStacks(app, config, process.argv[2]);
 Tags.of(app).add('project', 'firmivra');

@@ -10,7 +10,7 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | 2 | GitHub repo, rules, labels, environments, board | Done (Oct 4), 2 items left for Rasel |
 | 3 | Clone | Not needed: the existing clone at `F:\Business-full-stack-project` is the repo |
 | 4 | Docs and repo conventions | Done (Oct 4, PR #1) |
-| 5 | AWS foundation (one account: CLI, budget, Route 53, SES, SNS, Stripe) | In progress: CLI, budget and hosted zone done; GoDaddy NS record, root MFA, Stripe and SNS SMS open |
+| 5 | AWS foundation (one account: CLI, budget, Route 53, SES, SNS, Stripe) | In progress: CLI, budget, hosted zone and GoDaddy delegation done; root MFA, Stripe and SNS SMS open |
 | 6 | Monorepo, Docker, database, API, web | Done. 6.1 and 6.2 merged (PR #2); 6.3 to 6.5 committed on `rasel/setup-foundations` (Oct 5, not pushed) |
 | 7 | CDK infrastructure, deploy to dev | In progress on `rasel/setup-infra`: CDK bootstrapped (Oct 5); stacks written and tested; deploys one by one with `cdk diff` and Rasel's yes |
 | 8 | CI/CD | To do |
@@ -82,7 +82,7 @@ git 2.55.0, node 22.23.2, pnpm 10.32.1, Docker 29.8.0, gh 2.101.0 (scopes includ
 - Account state on Oct 4: no stacks, no CDK bootstrap, only default VPCs (us-east-1 and eu-north-1). No IAM users, no root access keys, **root MFA off**. SES in sandbox (200 emails a day). No Route 53 hosted zones; firmivra.com is not registered in this account.
 - Budget (done, Oct 5): `firmivra-monthly-cost`, $150 a month, email alerts at 50%, 80% and 100% of actual cost to info@exprovia.com and octaviakholder@gmail.com (each address confirms an AWS subscription email). "My Zero-Spend Budget" deleted.
 - Route 53 (done, Oct 5): public hosted zone `dev.firmivra.com`, id `Z09182951RY8TUAZ5WCXR` ($0.50 a month). Name servers: `ns-1114.awsdns-11.org`, `ns-705.awsdns-24.net`, `ns-168.awsdns-21.com`, `ns-1942.awsdns-50.co.uk`.
-- firmivra.com DNS is at **GoDaddy** (`ns05.domaincontrol.com`, `ns06.domaincontrol.com`). `dev.firmivra.com` is not delegated yet.
+- firmivra.com DNS is at **GoDaddy** (`ns05.domaincontrol.com`, `ns06.domaincontrol.com`). `dev.firmivra.com` is delegated to Route 53 (4 NS records for `dev` added by Rasel Oct 5, old `dev` CNAME removed; checked at both GoDaddy name servers, 8.8.8.8 and 1.1.1.1).
 - SES domain identity and DKIM records come from CDK in Step 7; production access is requested after the domain is verified.
 
 ## Step 6: monorepo and local services (6.1 and 6.2 done, Oct 5)
@@ -127,7 +127,7 @@ Oct 5, all four branches: LocalStack replaced with s3mock, Mailpit and a local k
 - [ ] Root user MFA on account `778127141557` (sign in as root → Security credentials → Assign MFA device); root password in Octavia's password manager.
 - [ ] Stripe: create the Firmivra account in test mode; the test keys go into GitHub environment secrets in Step 8.
 - [ ] SNS SMS: exit the SMS sandbox, raise the spend limit, request a US toll-free number and submit its registration (clicks under "SNS SMS steps" below). Needs Octavia's legal company name and address, and a live firmivra.com page, first. **Target: submit by Oct 16** so it is approved before Sprint 2 (Nov 2).
-- [ ] GoDaddy (whoever owns firmivra.com): **My Products → firmivra.com → DNS → Add New Record**, type **NS**, name **dev**, value one name server, TTL 1 hour. Repeat for all 4: `ns-1114.awsdns-11.org`, `ns-705.awsdns-24.net`, `ns-168.awsdns-21.com`, `ns-1942.awsdns-50.co.uk`. Check: `Resolve-DnsName dev.firmivra.com -Type NS` lists the four.
+- [x] GoDaddy (done by Rasel, Oct 5): **My Products → firmivra.com → DNS → Add New Record**, type **NS**, name **dev**, value one name server, TTL 1 hour. Repeat for all 4: `ns-1114.awsdns-11.org`, `ns-705.awsdns-24.net`, `ns-168.awsdns-21.com`, `ns-1942.awsdns-50.co.uk`. Check: `Resolve-DnsName dev.firmivra.com -Type NS` lists the four.
 
 ## SNS SMS steps (console, region us-east-1)
 
@@ -178,10 +178,12 @@ Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can 
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 
+Oct 5: steps 1 and 2 done (`customDomain: DEV_FIRMIVRA_COM`); the diff matched step 3. Tests and the nag report still cover the CloudFront-domain setup (`customDomain: undefined`, `CLOUDFRONT_DOMAINS=1`).
+
 1. GoDaddy: add the 4 NS records for `dev` (see "Left for Rasel"). Check: `Resolve-DnsName dev.firmivra.com -Type NS` lists the four Route 53 name servers.
 2. `infra/src/config.ts`, dev: `customDomain: DEV_FIRMIVRA_COM` instead of `customDomain: undefined`. That is the only edit.
 3. `pnpm --filter @firmivra/infra exec cdk diff -c env=dev --profile firmivra-dev`, then deploy `firmivra-dev-data`, `firmivra-dev-email` and `firmivra-dev-app` with Rasel's yes. The diff should show only:
-   - data: documents bucket CORS origins become `https://portal.dev.firmivra.com` and `https://app.dev.firmivra.com` (instead of `https://*.cloudfront.net`);
+   - data: documents bucket CORS origins become `https://admin.dev.firmivra.com`, `https://app.dev.firmivra.com` and `https://portal.dev.firmivra.com` (instead of `https://*.cloudfront.net`);
    - email (new stack): SES domain identity with DKIM, MAIL FROM `mail.dev.firmivra.com`, DMARC record;
    - app: an ACM certificate for `dev.firmivra.com` and `*.dev.firmivra.com` (validated through Route 53), one alias per distribution with TLSv1.2_2021, 6 Route 53 alias records (A and AAAA for each site), web `ADMIN_HOST`/`APP_HOST`/`PORTAL_HOST` and both apps' `*_BASE_URL` set to the custom hosts, API `EMAIL_MODE=ses` with the SES sender and configuration set.
 4. Nothing to rebuild: the web app reads its host map at runtime, and the API reads its URLs from the task environment. The `*.cloudfront.net` URLs then stop serving a site (their host is no longer in the host map).

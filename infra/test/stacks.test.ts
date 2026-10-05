@@ -26,12 +26,14 @@ const tpl = (stack: Stack | undefined) => {
   return Template.fromStack(stack);
 };
 const t = (name: 'network' | 'data' | 'auth' | 'app' | 'ci') => tpl(stacks[name]);
+/** The setup before the switch (and after switching back): customDomain unset. */
+const cloudFront = build(undefined, { customDomain: undefined }).stacks;
 
 describe('cdk-nag', () => {
-  it('has no unacknowledged findings: services at 0, with an image tag, and with the custom domain', () => {
+  it('has no unacknowledged findings: services at 0, with an image tag, and on CloudFront domains', () => {
     expect(() => app.synth()).not.toThrow();
     expect(() => build('abc1234').app.synth()).not.toThrow();
-    expect(() => build(undefined, { customDomain: DEV_FIRMIVRA_COM }).app.synth()).not.toThrow();
+    expect(() => build(undefined, { customDomain: undefined }).app.synth()).not.toThrow();
   });
 });
 
@@ -121,7 +123,9 @@ describe('documents CORS', () => {
       app: 'd2.cloudfront.net',
       portal: 'd3.cloudfront.net',
     };
-    expect(cors(build(undefined, { cloudFrontHosts: hosts }).stacks)).toEqual([
+    expect(
+      cors(build(undefined, { customDomain: undefined, cloudFrontHosts: hosts }).stacks),
+    ).toEqual([
       'https://d1.cloudfront.net',
       'https://d2.cloudfront.net',
       'https://d3.cloudfront.net',
@@ -129,7 +133,15 @@ describe('documents CORS', () => {
   });
 
   it('falls back to *.cloudfront.net only before the domains are known', () => {
-    expect(cors(stacks)).toEqual(['https://*.cloudfront.net']);
+    expect(cors(cloudFront)).toEqual(['https://*.cloudfront.net']);
+  });
+
+  it('allows only the three dev.firmivra.com sites with the custom domain (current)', () => {
+    expect(cors(stacks)).toEqual([
+      'https://admin.dev.firmivra.com',
+      'https://app.dev.firmivra.com',
+      'https://portal.dev.firmivra.com',
+    ]);
   });
 });
 
@@ -179,7 +191,7 @@ describe('auth (docs/AUTH-DESIGN.md)', () => {
   });
 });
 
-describe('app: CloudFront default domains (current)', () => {
+describe('app', () => {
   it('runs api and web on Fargate Spot at 0.25 vCPU / 0.5 GB, x86', () => {
     for (const family of ['firmivra-dev-api', 'firmivra-dev-web', 'firmivra-dev-migrate']) {
       t('app').hasResourceProperties('AWS::ECS::TaskDefinition', {
@@ -216,11 +228,15 @@ describe('app: CloudFront default domains (current)', () => {
       ],
     });
   });
+});
 
+describe('app: CloudFront default domains (without customDomain)', () => {
   it('has three distributions on *.cloudfront.net, each with /api/* to the API, through one VPC origin', () => {
-    t('app').resourceCountIs('AWS::CloudFront::Distribution', 3);
-    t('app').resourceCountIs('AWS::CloudFront::VpcOrigin', 1);
-    for (const d of Object.values(t('app').findResources('AWS::CloudFront::Distribution')) as {
+    tpl(cloudFront.app).resourceCountIs('AWS::CloudFront::Distribution', 3);
+    tpl(cloudFront.app).resourceCountIs('AWS::CloudFront::VpcOrigin', 1);
+    for (const d of Object.values(
+      tpl(cloudFront.app).findResources('AWS::CloudFront::Distribution'),
+    ) as {
       Properties: { DistributionConfig: Record<string, unknown> };
     }[]) {
       const config = d.Properties.DistributionConfig;
@@ -233,14 +249,14 @@ describe('app: CloudFront default domains (current)', () => {
   });
 
   it('creates no certificate, no DNS records and no email stack', () => {
-    t('app').resourceCountIs('AWS::CertificateManager::Certificate', 0);
-    t('app').resourceCountIs('AWS::Route53::RecordSet', 0);
-    expect(stacks.email).toBeUndefined();
+    tpl(cloudFront.app).resourceCountIs('AWS::CertificateManager::Certificate', 0);
+    tpl(cloudFront.app).resourceCountIs('AWS::Route53::RecordSet', 0);
+    expect(cloudFront.email).toBeUndefined();
   });
 
   it('gives the web app its host map and both apps their site URLs from the distributions', () => {
     const web = Object.values(
-      t('app').findResources('AWS::ECS::TaskDefinition', {
+      tpl(cloudFront.app).findResources('AWS::ECS::TaskDefinition', {
         Properties: { Family: 'firmivra-dev-web' },
       }),
     )[0] as {
@@ -253,13 +269,13 @@ describe('app: CloudFront default domains (current)', () => {
       expect(JSON.stringify(env[key])).toContain('DomainName');
     }
     expect(JSON.stringify(env['PORTAL_BASE_URL'])).toContain('https://');
-    t('app').hasOutput('AdminUrl', {});
-    t('app').hasOutput('AppUrl', {});
-    t('app').hasOutput('PortalUrl', {});
+    tpl(cloudFront.app).hasOutput('AdminUrl', {});
+    tpl(cloudFront.app).hasOutput('AppUrl', {});
+    tpl(cloudFront.app).hasOutput('PortalUrl', {});
   });
 });
 
-describe('app: switching to dev.firmivra.com is a config change only', () => {
+describe('app: dev.firmivra.com (current) is a config change only', () => {
   const custom = build(undefined, { customDomain: DEV_FIRMIVRA_COM }).stacks;
 
   it('adds the certificate, the aliases and the DNS records', () => {

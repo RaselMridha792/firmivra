@@ -55,8 +55,8 @@ const dev: EnvConfig = {
   envName: 'dev',
   account: '778127141557',
   region: 'us-east-1',
-  // Switch to the custom domain: customDomain: DEV_FIRMIVRA_COM
-  customDomain: undefined,
+  // dev.firmivra.com delegated to Route 53 at GoDaddy on Oct 5. Back to *.cloudfront.net: undefined.
+  customDomain: DEV_FIRMIVRA_COM,
   github: { owner: 'RaselMridha792', repo: 'firmivra' },
   // AZ ids use1-az1 and use1-az2 (CloudFront VPC origins are not offered in every zone).
   availabilityZones: ['us-east-1a', 'us-east-1b'],
