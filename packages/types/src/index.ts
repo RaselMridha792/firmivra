@@ -5,3 +5,4 @@ export {
   type ApiClient,
   type ApiClientOptions,
 } from './client.js';
+export * from './auth/index.js';

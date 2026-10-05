@@ -1,0 +1,565 @@
+openapi: 3.1.0
+info:
+  title: Firmivra auth API (staff and Super Admin)
+  version: 0.1.0
+  description: |
+    Sign-in contract for the firm site (`app.firmivra.com`, prefix `/auth`) and the Super Admin
+    site (`admin.firmivra.com`, prefix `/admin/auth`). Both prefixes take the same bodies. Client
+    portal sign-in (R3) will reuse them under `/portal/{slug}/auth`. Design: docs/AUTH-DESIGN.md.
+
+    **Source of truth:** the zod schemas in `packages/types/src/auth/schemas.ts`, with typed calls
+    in `createStaffAuthClient` and `createAdminAuthClient` (web: `staffAuth`, `adminAuth` in
+    `apps/web/src/lib/auth.ts`). If this file and the zod schemas differ, the zod schemas win.
+
+    ## Screen flow
+
+    ```
+    sign-in ──┬── MFA_REQUIRED ─────────────────────────► mfa ──► SIGNED_IN
+              └── MFA_SETUP_REQUIRED ──► mfa/setup (QR) ──► mfa ──► SIGNED_IN
+    activation link ──► activation/check ──► activate ──► MFA_SETUP_REQUIRED ──► (as above)
+    forgot-password ──► (6-digit code by email) ──► reset-password ──► sign-in
+    ```
+
+    - MFA (authenticator app) is required on both sites, so sign-in normally returns an MFA step.
+      Screens must still handle `SIGNED_IN`.
+    - `session` is opaque and lives about 3 minutes. Send it back unchanged with the code.
+      `MFA_CODE_INVALID`: stay on the code screen. `CHALLENGE_EXPIRED`: back to sign-in.
+    - After `SIGNED_IN`, `me.memberships` (status `ACTIVE`) decides: none, show "no access";
+      one, open it; several, show the firm picker and send its id as `x-business-id`.
+    - Errors never say whether an account exists: sign-in, forgot-password and reset-password
+      give the same answer for unknown emails.
+
+    ## Cookies
+
+    The browser never sees a token. The API sets these cookies: `HttpOnly`, `Secure` (except
+    plain-http localhost), host-only (no `Domain`), so the admin and app sites never share a
+    session. Each site uses its own names.
+
+    | Cookie  | Firm site    | Super Admin site   | Path                                      | Lifetime | SameSite |
+    | ------- | ------------ | ------------------ | ----------------------------------------- | -------- | -------- |
+    | access  | `fv_access`  | `fv_admin_access`  | `/`                                       | 15 min   | Lax      |
+    | id      | `fv_id`      | `fv_admin_id`      | `/`                                       | 15 min   | Lax      |
+    | refresh | `fv_refresh` | `fv_admin_refresh` | `/api/v1/auth` or `/api/v1/admin/auth`    | 30 days  | Strict   |
+
+    `SIGNED_IN` sets all three; `refresh` renews access and id; `sign-out` clears all three. The
+    refresh path covers sign-out too, so sign-out can revoke the refresh token. Bodies are
+    `application/json`.
+
+    ## Password policy
+
+    Same as the Cognito pools (infra auth stack): at least 12 characters, a lower-case letter, an
+    upper-case letter and a number; no symbol needed; no space at the start or end; at most 256
+    characters. Cognito also blocks known leaked passwords (`PASSWORD_REJECTED`). `PASSWORD_RULES`
+    in the zod file lists the rules for a checklist on the screen. Sign-in does not apply the policy.
+
+    ## Rate limits
+
+    `sign-in`, `mfa`, `mfa/setup`, `forgot-password`, `reset-password`, `activation/check` and
+    `activate` answer `429 RATE_LIMITED` when called too often (per IP and per email or session;
+    numbers set in R2 step 7). Show "Too many attempts. Wait a few minutes and try again."
+
+    ## Local development
+
+    With `AUTH_MODE=local` (development only) `POST /dev/token` signs in as a seeded user. From
+    R2 step 2 the endpoints below also work locally for seeded users (a local password and a fixed
+    MFA code), so the screens run end to end without AWS. Until step 3, `/dev/token` sets
+    `fv_access` on every site.
+
+servers:
+  - url: /api/v1
+    description: Same host as the site. The browser never calls another origin.
+  - url: http://localhost:4000/api/v1
+    description: Local API
+
+tags:
+  - name: sign-in
+    description: Same operation under `/auth` (firm site) and `/admin/auth` (Super Admin site).
+  - name: activation
+    description: Firm site only. Invites from owners and admins, and the activation link.
+  - name: session
+  - name: local
+    description: AUTH_MODE=local only. Never available outside development.
+
+paths:
+  /auth/sign-in: { $ref: '#/components/pathItems/SignIn' }
+  /auth/mfa: { $ref: '#/components/pathItems/Mfa' }
+  /auth/mfa/setup: { $ref: '#/components/pathItems/MfaSetup' }
+  /auth/refresh: { $ref: '#/components/pathItems/Refresh' }
+  /auth/sign-out: { $ref: '#/components/pathItems/SignOut' }
+  /auth/forgot-password: { $ref: '#/components/pathItems/ForgotPassword' }
+  /auth/reset-password: { $ref: '#/components/pathItems/ResetPassword' }
+
+  /admin/auth/sign-in: { $ref: '#/components/pathItems/SignIn' }
+  /admin/auth/mfa: { $ref: '#/components/pathItems/Mfa' }
+  /admin/auth/mfa/setup: { $ref: '#/components/pathItems/MfaSetup' }
+  /admin/auth/refresh: { $ref: '#/components/pathItems/Refresh' }
+  /admin/auth/sign-out: { $ref: '#/components/pathItems/SignOut' }
+  /admin/auth/forgot-password: { $ref: '#/components/pathItems/ForgotPassword' }
+  /admin/auth/reset-password: { $ref: '#/components/pathItems/ResetPassword' }
+
+  /auth/invites:
+    post:
+      tags: [activation]
+      operationId: createInvite
+      summary: Invite a staff member to the current firm
+      description: |
+        Owner or admin of the firm. Creates the user, an `INVITED` membership and a one-time
+        activation link valid for 7 days, then emails the link (logged until R6). Who may give
+        which role follows the permissions in docs/SYSTEM-DESIGN.md.
+      security: [{ firmCookie: [] }, { bearer: [] }]
+      parameters: [{ $ref: '#/components/parameters/BusinessId' }]
+      requestBody: { $ref: '#/components/requestBodies/CreateInvite' }
+      responses:
+        '201':
+          description: Invite created and sent
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/InviteResponse' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`ALREADY_MEMBER`: the email already has an active or invited membership here'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+  /auth/activation/check:
+    post:
+      tags: [activation]
+      operationId: checkActivation
+      summary: Check an activation link before showing the password form
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/ActivationCheckRequest' } }
+      responses:
+        '200':
+          description: The invite, for the screen's heading
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ActivationCheckResponse' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/InviteInvalid' }
+        '410': { $ref: '#/components/responses/InviteExpired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/activate:
+    post:
+      tags: [activation]
+      operationId: activate
+      summary: Set the password from an activation link
+      description: Uses up the link. The result is always `MFA_SETUP_REQUIRED`.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ActivateRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/SignInResult' }
+        '400': { $ref: '#/components/responses/PasswordFailed' }
+        '404': { $ref: '#/components/responses/InviteInvalid' }
+        '410': { $ref: '#/components/responses/InviteExpired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /me:
+    get:
+      tags: [session]
+      operationId: me
+      summary: The signed-in person and the firms they can open
+      security: [{ firmCookie: [] }, { adminCookie: [] }, { bearer: [] }]
+      responses:
+        '200':
+          description: Roles come from the database on every request
+          content: { application/json: { schema: { $ref: '#/components/schemas/MeResponse' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /dev/token:
+    post:
+      tags: [local]
+      operationId: devToken
+      summary: Sign in as a seeded user (AUTH_MODE=local)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DevTokenRequest' } } }
+      responses:
+        '200':
+          description: Signed in; sets `fv_access`
+          content: { application/json: { schema: { $ref: '#/components/schemas/DevTokenResponse' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /dev/sign-out:
+    post:
+      tags: [local]
+      operationId: devSignOut
+      summary: Clear the local session cookie
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+components:
+  pathItems:
+    SignIn:
+      post:
+        tags: [sign-in]
+        summary: Sign in with email and password
+        requestBody:
+          required: true
+          content: { application/json: { schema: { $ref: '#/components/schemas/SignInRequest' } } }
+        responses:
+          '200': { $ref: '#/components/responses/SignInResult' }
+          '400': { $ref: '#/components/responses/ValidationFailed' }
+          '401':
+            description: '`INVALID_CREDENTIALS`: "Email or password is incorrect", also for unknown emails'
+            content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+          '429': { $ref: '#/components/responses/RateLimited' }
+
+    Mfa:
+      post:
+        tags: [sign-in]
+        summary: Send the authenticator code
+        description: For `MFA_REQUIRED`, and for the first code after `mfa/setup`.
+        requestBody:
+          required: true
+          content: { application/json: { schema: { $ref: '#/components/schemas/MfaRequest' } } }
+        responses:
+          '200': { $ref: '#/components/responses/SignInResult' }
+          '400': { $ref: '#/components/responses/ValidationFailed' }
+          '401':
+            description: |
+              `MFA_CODE_INVALID`: wrong code, try again with the same session.
+              `CHALLENGE_EXPIRED`: start sign-in again.
+            content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+          '429': { $ref: '#/components/responses/RateLimited' }
+
+    MfaSetup:
+      post:
+        tags: [sign-in]
+        summary: Start first-time authenticator setup
+        description: After `MFA_SETUP_REQUIRED`. Show `otpauthUri` as a QR code and `secret` as text.
+        requestBody:
+          required: true
+          content: { application/json: { schema: { $ref: '#/components/schemas/MfaSetupRequest' } } }
+        responses:
+          '200':
+            description: The key to add to the authenticator app, and a new session
+            content: { application/json: { schema: { $ref: '#/components/schemas/MfaSetupResponse' } } }
+          '400': { $ref: '#/components/responses/ValidationFailed' }
+          '401': { $ref: '#/components/responses/ChallengeExpired' }
+          '429': { $ref: '#/components/responses/RateLimited' }
+
+    Refresh:
+      post:
+        tags: [session]
+        summary: Renew the access cookie from the refresh cookie
+        description: No body. Call it when a request answers 401 `UNAUTHENTICATED`, then retry once.
+        responses:
+          '200': { $ref: '#/components/responses/Ok' }
+          '401': { $ref: '#/components/responses/Unauthenticated' }
+
+    SignOut:
+      post:
+        tags: [session]
+        summary: Sign out
+        description: |
+          Always succeeds and clears this site's cookies, even when already signed out. Revokes
+          the refresh token. With `everywhere: true` and a valid session, also ends the person's
+          sessions on every other device.
+        requestBody:
+          required: false
+          content: { application/json: { schema: { $ref: '#/components/schemas/SignOutRequest' } } }
+        responses:
+          '200': { $ref: '#/components/responses/Ok' }
+
+    ForgotPassword:
+      post:
+        tags: [sign-in]
+        summary: Email a 6-digit reset code
+        description: 'Always `{ ok: true }`, whether or not the account exists.'
+        requestBody:
+          required: true
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ForgotPasswordRequest' } }
+        responses:
+          '200': { $ref: '#/components/responses/Ok' }
+          '400': { $ref: '#/components/responses/ValidationFailed' }
+          '429': { $ref: '#/components/responses/RateLimited' }
+
+    ResetPassword:
+      post:
+        tags: [sign-in]
+        summary: Set a new password with the emailed code
+        description: Ends every session of the person. They sign in again with the new password.
+        requestBody:
+          required: true
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ResetPasswordRequest' } }
+        responses:
+          '200': { $ref: '#/components/responses/Ok' }
+          '400':
+            description: |
+              `VALIDATION_FAILED` (policy, in `details`), `PASSWORD_REJECTED` (Cognito refused it,
+              for example a known leaked password) or `RESET_CODE_INVALID` (wrong or expired code,
+              also for unknown emails).
+            content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+          '429': { $ref: '#/components/responses/RateLimited' }
+
+  parameters:
+    BusinessId:
+      name: x-business-id
+      in: header
+      required: false
+      description: The firm to act in, for staff with more than one firm (from the firm picker).
+      schema: { type: string, format: uuid }
+
+  requestBodies:
+    CreateInvite:
+      required: true
+      content: { application/json: { schema: { $ref: '#/components/schemas/CreateInviteRequest' } } }
+
+  securitySchemes:
+    firmCookie: { type: apiKey, in: cookie, name: fv_access }
+    adminCookie: { type: apiKey, in: cookie, name: fv_admin_access }
+    bearer:
+      type: http
+      scheme: bearer
+      description: Tests and server-side calls only. Browsers use the cookies.
+
+  responses:
+    SignInResult:
+      description: Next step, or `SIGNED_IN` with the cookies set
+      content: { application/json: { schema: { $ref: '#/components/schemas/SignInResult' } } }
+    Ok:
+      description: Done
+      content: { application/json: { schema: { $ref: '#/components/schemas/Ok' } } }
+    ValidationFailed:
+      description: '`VALIDATION_FAILED`: the body does not match the schema; field errors in `details`'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    PasswordFailed:
+      description: '`VALIDATION_FAILED` (policy, in `details`) or `PASSWORD_REJECTED` (Cognito refused it)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Unauthenticated:
+      description: '`UNAUTHENTICATED`: no valid session. Refresh once, then go to sign-in.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    ChallengeExpired:
+      description: '`CHALLENGE_EXPIRED`: the sign-in step expired. Start sign-in again.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Forbidden:
+      description: '`FORBIDDEN`: signed in, but this role may not do this'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    NotFound:
+      description: '`NOT_FOUND`: no such firm, or no place in it (never 403, so firms do not leak)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    InviteInvalid:
+      description: '`INVITE_INVALID`: unknown or already used link'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    InviteExpired:
+      description: '`INVITE_EXPIRED`: the link is older than 7 days. Ask for a new invite.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    RateLimited:
+      description: '`RATE_LIMITED`: too many attempts. Wait and try again.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+  schemas:
+    Email:
+      type: string
+      format: email
+      maxLength: 254
+      description: Trimmed and lower-cased before sending.
+    Password:
+      type: string
+      minLength: 12
+      maxLength: 256
+      description: See "Password policy" above.
+    OneTimeCode:
+      type: string
+      pattern: '^\d{6}$'
+      description: Six digits. The client strips spaces before sending.
+    ChallengeSession:
+      type: string
+      minLength: 1
+      maxLength: 4096
+      description: Opaque sign-in step, about 3 minutes. Send it back unchanged.
+    Timestamp: { type: string, format: date-time }
+
+    SignInRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+        password: { type: string, minLength: 1, maxLength: 256 }
+    SignInResult:
+      oneOf:
+        - $ref: '#/components/schemas/SignedIn'
+        - $ref: '#/components/schemas/MfaRequired'
+        - $ref: '#/components/schemas/MfaSetupRequired'
+      discriminator:
+        propertyName: status
+        mapping:
+          SIGNED_IN: '#/components/schemas/SignedIn'
+          MFA_REQUIRED: '#/components/schemas/MfaRequired'
+          MFA_SETUP_REQUIRED: '#/components/schemas/MfaSetupRequired'
+    SignedIn:
+      type: object
+      required: [status, me]
+      properties:
+        status: { const: SIGNED_IN }
+        me: { $ref: '#/components/schemas/MeResponse' }
+    MfaRequired:
+      type: object
+      required: [status, session]
+      properties:
+        status: { const: MFA_REQUIRED }
+        session: { $ref: '#/components/schemas/ChallengeSession' }
+    MfaSetupRequired:
+      type: object
+      required: [status, session]
+      properties:
+        status: { const: MFA_SETUP_REQUIRED }
+        session: { $ref: '#/components/schemas/ChallengeSession' }
+    MfaRequest:
+      type: object
+      required: [session, code]
+      properties:
+        session: { $ref: '#/components/schemas/ChallengeSession' }
+        code: { $ref: '#/components/schemas/OneTimeCode' }
+    MfaSetupRequest:
+      type: object
+      required: [session]
+      properties:
+        session: { $ref: '#/components/schemas/ChallengeSession' }
+    MfaSetupResponse:
+      type: object
+      required: [session, secret, otpauthUri]
+      properties:
+        session: { $ref: '#/components/schemas/ChallengeSession' }
+        secret: { type: string, description: Base32 key for typing in by hand }
+        otpauthUri: { type: string, pattern: '^otpauth://totp/', description: Show as a QR code }
+    SignOutRequest:
+      type: object
+      properties:
+        everywhere: { type: boolean, default: false }
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+    ResetPasswordRequest:
+      type: object
+      required: [email, code, password]
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+        code: { $ref: '#/components/schemas/OneTimeCode' }
+        password: { $ref: '#/components/schemas/Password' }
+
+    InviteRole: { type: string, enum: [ADMIN, STAFF] }
+    CreateInviteRequest:
+      type: object
+      required: [email, name, role]
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        role: { $ref: '#/components/schemas/InviteRole' }
+    InviteResponse:
+      type: object
+      required: [id, membershipId, email, name, role, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        membershipId: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        role: { $ref: '#/components/schemas/InviteRole' }
+        expiresAt: { $ref: '#/components/schemas/Timestamp' }
+    ActivationCheckRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 20, maxLength: 512, description: From /activate?token= }
+    ActivationCheckResponse:
+      type: object
+      required: [email, name, role, business, expiresAt]
+      properties:
+        email: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [OWNER, ADMIN, STAFF] }
+        business: { $ref: '#/components/schemas/BusinessSummary' }
+        expiresAt: { $ref: '#/components/schemas/Timestamp' }
+    ActivateRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string, minLength: 20, maxLength: 512 }
+        password: { $ref: '#/components/schemas/Password' }
+        name: { type: string, minLength: 1, maxLength: 200, description: Correct the invited name }
+
+    BusinessSummary:
+      type: object
+      required: [id, slug, name, status]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [PENDING_SETUP, ACTIVE, SUSPENDED, CLOSED] }
+    MeResponse:
+      type: object
+      required: [user, memberships, clientAccounts, platformAdmin]
+      properties:
+        user:
+          type: object
+          required: [id, email, name, pool]
+          properties:
+            id: { type: string, format: uuid }
+            email: { type: string }
+            name: { type: string }
+            pool: { type: string, enum: [STAFF, CLIENT, ADMIN] }
+        memberships:
+          type: array
+          items:
+            type: object
+            required: [business, role, status]
+            properties:
+              business: { $ref: '#/components/schemas/BusinessSummary' }
+              role: { type: string, enum: [OWNER, ADMIN, STAFF] }
+              status: { type: string, enum: [INVITED, ACTIVE, DEACTIVATED] }
+        clientAccounts:
+          type: array
+          items:
+            type: object
+            required: [business, status]
+            properties:
+              business: { $ref: '#/components/schemas/BusinessSummary' }
+              status: { type: string, enum: [PENDING_APPROVAL, ACTIVE, DECLINED, DISABLED] }
+        platformAdmin: { type: boolean }
+
+    DevTokenRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+        pool: { type: string, enum: [STAFF, CLIENT, ADMIN] }
+    DevTokenResponse:
+      type: object
+      required: [token, expiresIn, user]
+      properties:
+        token: { type: string }
+        expiresIn: { type: integer, minimum: 1 }
+        user: { $ref: '#/components/schemas/MeResponse/properties/user' }
+
+    Ok:
+      type: object
+      required: [ok]
+      properties:
+        ok: { const: true }
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: |
+                Stable. Auth codes: PASSWORD_REJECTED, RESET_CODE_INVALID, INVALID_CREDENTIALS,
+                MFA_CODE_INVALID, CHALLENGE_EXPIRED, INVITE_INVALID, ALREADY_MEMBER,
+                INVITE_EXPIRED. Generic: VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN,
+                NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR.
+            message: { type: string, description: For people; may change }
+            requestId: { type: string }
+            details: {}
