@@ -11,7 +11,7 @@ import { EmailStack } from './stacks/email-stack';
 import { NetworkStack } from './stacks/network-stack';
 
 /** All stacks of one environment: firmivra-<env>-network, -data, -auth, -email, -app, -ci. */
-export function createStacks(app: App, config: EnvConfig, imageTag?: string) {
+export function createStacks(app: App, config: EnvConfig) {
   // Every role our stacks create carries the boundary; the CDK execution role refuses roles without it.
   const common = {
     env: { account: config.account, region: config.region },
@@ -53,7 +53,6 @@ export function createStacks(app: App, config: EnvConfig, imageTag?: string) {
     data,
     auth,
     email,
-    imageTag,
     description: 'Firmivra: ECR, ECS services, load balancer, CloudFront, DNS',
   });
   const ci = new CiStack(app, id('ci'), {

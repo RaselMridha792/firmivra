@@ -13,7 +13,7 @@ const config = configFor(
   'dev',
   process.env['CLOUDFRONT_DOMAINS'] ? { customDomain: undefined } : {},
 );
-const stacks = createStacks(app, config, process.argv[2]);
+const stacks = createStacks(app, config);
 Tags.of(app).add('project', 'firmivra');
 Tags.of(app).add('env', 'dev');
 addNagSuppressions(stacks, config);

@@ -36,8 +36,8 @@ export interface EnvConfig {
     maxAllocatedStorageGiB: number;
     backupDays: number;
   };
-  /** Fargate size per service (0.25 vCPU / 0.5 GB), on Spot in dev. */
-  task: { cpu: number; memoryMiB: number; spot: boolean };
+  /** Fargate size per service (0.25 vCPU / 0.5 GB), on Spot in dev; tasks per service once an image is deployed. */
+  task: { cpu: number; memoryMiB: number; spot: boolean; count: number };
 }
 
 /** dev.firmivra.com, used once GoDaddy delegates the zone to Route 53. */
@@ -68,7 +68,7 @@ const dev: EnvConfig = {
     maxAllocatedStorageGiB: 50,
     backupDays: 7,
   },
-  task: { cpu: 256, memoryMiB: 512, spot: true },
+  task: { cpu: 256, memoryMiB: 512, spot: true, count: 1 },
 };
 
 export function configFor(envName: unknown, overrides: Partial<EnvConfig> = {}): EnvConfig {
