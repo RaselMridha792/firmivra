@@ -20,10 +20,22 @@ export interface EnvConfig {
    * Set it to switch domains; no code changes (docs/SETUP-LOG.md, "Switching to dev.firmivra.com").
    */
   customDomain?: CustomDomain;
+  /**
+   * The three distributions' *.cloudfront.net domains, filled in after the first app deploy.
+   * Used for the documents bucket CORS while there is no custom domain. Unset: CORS allows
+   * https://*.cloudfront.net until the domains are known.
+   */
+  cloudFrontHosts?: { admin: string; app: string; portal: string };
   github: { owner: string; repo: string };
   availabilityZones: string[];
   logRetentionDays: 14;
-  db: { allocatedStorageGiB: number; maxAllocatedStorageGiB: number; backupDays: number };
+  db: {
+    /** RDS instance class without the db. prefix, for example t3.micro. */
+    instanceClass: string;
+    allocatedStorageGiB: number;
+    maxAllocatedStorageGiB: number;
+    backupDays: number;
+  };
   /** Fargate size per service (0.25 vCPU / 0.5 GB), on Spot in dev. */
   task: { cpu: number; memoryMiB: number; spot: boolean };
 }
@@ -49,7 +61,13 @@ const dev: EnvConfig = {
   // AZ ids use1-az1 and use1-az2 (CloudFront VPC origins are not offered in every zone).
   availabilityZones: ['us-east-1a', 'us-east-1b'],
   logRetentionDays: 14,
-  db: { allocatedStorageGiB: 20, maxAllocatedStorageGiB: 50, backupDays: 7 },
+  // db.t4g.micro is not offered for PostgreSQL in this account (Oct 5); t3.micro is the same size class.
+  db: {
+    instanceClass: 't3.micro',
+    allocatedStorageGiB: 20,
+    maxAllocatedStorageGiB: 50,
+    backupDays: 7,
+  },
   task: { cpu: 256, memoryMiB: 512, spot: true },
 };
 

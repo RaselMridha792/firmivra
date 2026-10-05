@@ -70,11 +70,11 @@ describe('network', () => {
 });
 
 describe('data', () => {
-  it('runs PostgreSQL 16 on db.t4g.micro, single-AZ, encrypted, private, protected', () => {
+  it('runs PostgreSQL 16 on db.t3.micro, single-AZ, encrypted, private, protected', () => {
     t('data').hasResourceProperties('AWS::RDS::DBInstance', {
       Engine: 'postgres',
       EngineVersion: '16',
-      DBInstanceClass: 'db.t4g.micro',
+      DBInstanceClass: 'db.t3.micro',
       MultiAZ: false,
       PubliclyAccessible: false,
       StorageEncrypted: true,
@@ -101,6 +101,34 @@ describe('data', () => {
         ],
       },
     });
+  });
+});
+
+describe('documents CORS', () => {
+  const cors = (stacks: ReturnType<typeof build>['stacks']) =>
+    (
+      Object.values(
+        tpl(stacks.data).findResources('AWS::S3::Bucket', {
+          Properties: { BucketName: 'firmivra-dev-documents-778127141557' },
+        }),
+      )[0] as { Properties: { CorsConfiguration: { CorsRules: { AllowedOrigins: string[] }[] } } }
+    ).Properties.CorsConfiguration.CorsRules[0]!.AllowedOrigins;
+
+  it('allows only the three exact CloudFront domains once they are in config', () => {
+    const hosts = {
+      admin: 'd1.cloudfront.net',
+      app: 'd2.cloudfront.net',
+      portal: 'd3.cloudfront.net',
+    };
+    expect(cors(build(undefined, { cloudFrontHosts: hosts }).stacks)).toEqual([
+      'https://d1.cloudfront.net',
+      'https://d2.cloudfront.net',
+      'https://d3.cloudfront.net',
+    ]);
+  });
+
+  it('falls back to *.cloudfront.net only before the domains are known', () => {
+    expect(cors(stacks)).toEqual(['https://*.cloudfront.net']);
   });
 });
 
@@ -275,7 +303,11 @@ describe('app: switching to dev.firmivra.com is a config change only', () => {
       CorsConfiguration: {
         CorsRules: [
           Match.objectLike({
-            AllowedOrigins: ['https://portal.dev.firmivra.com', 'https://app.dev.firmivra.com'],
+            AllowedOrigins: [
+              'https://admin.dev.firmivra.com',
+              'https://app.dev.firmivra.com',
+              'https://portal.dev.firmivra.com',
+            ],
           }),
         ],
       },
@@ -304,6 +336,21 @@ describe('ci', () => {
         ],
       },
     });
+  });
+});
+
+describe('retained resources', () => {
+  it('are kept on update and delete, but cleaned up when the first create fails', () => {
+    for (const name of ['network', 'data', 'auth', 'app', 'ci'] as const) {
+      const resources = t(name).toJSON()['Resources'] as Record<
+        string,
+        { DeletionPolicy?: string }
+      >;
+      const plainRetain = Object.entries(resources)
+        .filter(([, r]) => r.DeletionPolicy === 'Retain')
+        .map(([id]) => `${name}/${id}`);
+      expect(plainRetain).toEqual([]);
+    }
   });
 });
 

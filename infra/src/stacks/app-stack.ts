@@ -65,7 +65,7 @@ export class AppStack extends Stack {
         imageScanOnPush: true,
         imageTagMutability: ecr.TagMutability.IMMUTABLE,
         lifecycleRules: [{ maxImageCount: 10, description: 'Keep the last 10 images' }],
-        removalPolicy: RemovalPolicy.RETAIN,
+        removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
       });
     this.repositories = {
       api: repository('api'),
@@ -87,7 +87,7 @@ export class AppStack extends Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       lifecycleRules: [{ expiration: Duration.days(30) }],
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
     const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
       loadBalancerName: name('alb'),

@@ -14,9 +14,16 @@ export interface DataStackProps extends StackProps {
 }
 
 /**
- * PostgreSQL (single-AZ db.t4g.micro in dev), the secrets for its two roles, and the documents
+ * PostgreSQL (single-AZ db.t3.micro in dev), the secrets for its two roles, and the documents
  * bucket with its KMS key. Per-business KMS keys are created by the API later (Sprint 3).
  */
+/** https:// origins of the three sites: custom hosts, else the known CloudFront domains. */
+function siteOrigins(config: EnvConfig): string[] {
+  const hosts = config.customDomain?.hosts ?? config.cloudFrontHosts;
+  if (!hosts) return ['https://*.cloudfront.net'];
+  return [hosts.admin, hosts.app, hosts.portal].map((h) => `https://${h}`);
+}
+
 export class DataStack extends Stack {
   readonly db: rds.DatabaseInstance;
   /** Owner role: migrations only (`firmivra_owner`). */
@@ -33,7 +40,7 @@ export class DataStack extends Stack {
     this.db = new rds.DatabaseInstance(this, 'Postgres', {
       instanceIdentifier: resourceName(config, 'postgres'),
       engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16 }),
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
+      instanceType: new ec2.InstanceType(config.db.instanceClass),
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [props.dbSg],
@@ -74,7 +81,7 @@ export class DataStack extends Stack {
       alias: `alias/firmivra/${config.envName}/documents`,
       description: 'Firmivra documents bucket (per-business keys come later)',
       enableKeyRotation: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
 
     const accessLogs = new s3.Bucket(this, 'AccessLogs', {
@@ -83,7 +90,7 @@ export class DataStack extends Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       lifecycleRules: [{ expiration: Duration.days(90) }],
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
 
     this.documentsBucket = new s3.Bucket(this, 'Documents', {
@@ -99,13 +106,8 @@ export class DataStack extends Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.HEAD],
-          // Browser uploads come from the portal and the firm workspace.
-          allowedOrigins: config.customDomain
-            ? [
-                `https://${config.customDomain.hosts.portal}`,
-                `https://${config.customDomain.hosts.app}`,
-              ]
-            : ['https://*.cloudfront.net'],
+          // Browser uploads and downloads come from the three sites only.
+          allowedOrigins: siteOrigins(config),
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag'],
           maxAge: 3000,
@@ -117,7 +119,7 @@ export class DataStack extends Stack {
           abortIncompleteMultipartUploadAfter: Duration.days(1),
         },
       ],
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
   }
 }

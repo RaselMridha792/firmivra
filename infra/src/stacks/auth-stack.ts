@@ -73,7 +73,7 @@ export class AuthStack extends Stack {
       featurePlan: cognito.FeaturePlan.PLUS,
       standardThreatProtectionMode: cognito.StandardThreatProtectionMode.FULL_FUNCTION,
       deletionProtection: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
 
     // Compromised credentials: block sign-in, sign-up and password change with a leaked password.
