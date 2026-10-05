@@ -16,7 +16,7 @@ export default defineConfig({
   fullyParallel: false,
   retries: process.env['CI'] ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
-  use: { trace: 'retain-on-failure' },
+  use: { trace: 'retain-on-failure', channel: process.env['PLAYWRIGHT_CHANNEL'] },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {

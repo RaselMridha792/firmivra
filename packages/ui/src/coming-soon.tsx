@@ -1,127 +1,70 @@
-import { PageShell } from './page-shell';
+'use client';
 
-export type ComingSoonExperience = {
-  name: string;
-  summary: string;
-  description: string;
-  icon: 'workspace' | 'portal' | 'oversight';
-};
-
-const iconPaths = {
-  workspace: 'M3 7h18v14H3z M3 7V3h7l3 4 M8 11v6 M12 11v6 M16 11v6',
-  portal: 'M12 3l8 4v5c0 5-8 9-8 9s-8-4-8-9V7z M8 12l3 3 5-6',
-  oversight: 'M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z',
-  arrow: 'M5 12h14 M13 6l6 6-6 6',
-};
-
-function Icon({ name }: { name: keyof typeof iconPaths }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-      <path d={iconPaths[name]} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
+import { useEffect, useState, type ReactNode } from 'react';
+import { getCountdown } from './countdown';
 
 export function ComingSoon({
   brand,
+  logo,
   description,
-  beta,
-  experiences,
+  launchAt,
+  launchDate,
 }: {
   brand: string;
+  logo: ReactNode;
   description: string;
-  beta: { business: string; date: string; dateTime: string };
-  experiences: readonly ComingSoonExperience[];
+  launchAt: string;
+  launchDate: string;
 }) {
+  const [remaining, setRemaining] = useState<number | null>(null);
+  useEffect(() => {
+    const target = Date.parse(launchAt);
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((target - Date.now()) / 1000));
+      setRemaining(seconds);
+      return seconds;
+    };
+    const initialUpdate = window.setTimeout(update, 0);
+    const interval = window.setInterval(() => {
+      if (update() === 0) window.clearInterval(interval);
+    }, 1000);
+    return () => {
+      window.clearTimeout(initialUpdate);
+      window.clearInterval(interval);
+    };
+  }, [launchAt]);
+  const countdown = remaining === null ? null : getCountdown(remaining);
   return (
-    <div className="fv-launch">
-      <header className="fv-header fv-container">
-        <a className="fv-wordmark" href="/" aria-label={`${brand} home`}>
-          <span className="fv-brand-symbol" aria-hidden="true">
-            f
-          </span>
-          {brand}
-        </a>
-        <a className="fv-nav-link" href="#platform">
-          The platform <Icon name="arrow" />
-        </a>
-      </header>
-      <PageShell className="fv-container">
-        <section className="fv-hero" aria-labelledby="launch-title">
-          <div className="fv-hero-copy">
-            <span className="fv-launch-badge">
-              <span aria-hidden="true" />
-              Coming soon
-            </span>
-            <h1 id="launch-title">
-              Your business.
-              <br />
-              Your clients.
-              <br />
-              <span>All connected.</span>
-            </h1>
-            <p className="fv-intro">{description}</p>
-            <a className="fv-primary-link" href="#platform">
-              Explore the platform <Icon name="arrow" />
-            </a>
-            <div className="fv-beta-note">
-              <span className="fv-beta-line" aria-hidden="true" />
-              <p>
-                First beta planned for <time dateTime={beta.dateTime}>{beta.date}</time>
-                <br />
-                <span>{beta.business}</span>
-              </p>
+    <main className="fv-launch">
+      <div className="fv-launch-content">
+        <div className="fv-wordmark" aria-label={brand}>
+          {logo}
+        </div>
+        <h1>
+          Coming soon<span>.</span>
+        </h1>
+        <p className="fv-launch-description">{description}</p>
+        <div
+          className="fv-countdown"
+          role="group"
+          aria-label="Countdown to planned beta"
+          aria-live="off"
+        >
+          {(['days', 'hours', 'minutes', 'seconds'] as const).map((unit) => (
+            <div className="fv-countdown-unit" key={unit}>
+              <span className="fv-countdown-value" data-testid={`countdown-${unit}`}>
+                {countdown === null ? '––' : String(countdown[unit]).padStart(2, '0')}
+              </span>
+              <span className="fv-countdown-label">{unit}</span>
             </div>
-          </div>
-          <figure className="fv-concept" aria-label="Concept: three connected Firmivra experiences">
-            <div className="fv-concept-header">
-              <span>{brand}</span>
-              <span>One connected platform</span>
-            </div>
-            <div className="fv-concept-grid">
-              {experiences.map((experience) => (
-                <div className="fv-concept-card" key={experience.name}>
-                  <span className="fv-icon">
-                    <Icon name={experience.icon} />
-                  </span>
-                  <strong>{experience.name}</strong>
-                  <span>{experience.summary}</span>
-                </div>
-              ))}
-            </div>
-            <figcaption>
-              <span aria-hidden="true" />
-              Different spaces. One shared vision.
-            </figcaption>
-            <span className="fv-concept-orbit" aria-hidden="true" />
-          </figure>
-        </section>
-        <section className="fv-platform" id="platform" aria-labelledby="platform-title">
-          <div className="fv-section-heading">
-            <p>BUILT AROUND YOUR BUSINESS</p>
-            <h2 id="platform-title">One platform. Three experiences.</h2>
-          </div>
-          <div className="fv-feature-grid">
-            {experiences.map((experience) => (
-              <article className="fv-feature" key={experience.name}>
-                <span className="fv-icon">
-                  <Icon name={experience.icon} />
-                </span>
-                <h3>{experience.name}</h3>
-                <p>{experience.description}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-      </PageShell>
-      <footer className="fv-footer fv-container">
-        <span>{brand}</span>
-        <p>A new chapter in working together.</p>
-        <span className="fv-footer-status">
-          On the way
-          <span aria-hidden="true" />
-        </span>
-      </footer>
-    </div>
+          ))}
+        </div>
+        <p className="fv-launch-date">
+          {remaining === 0 ? 'Final preparations underway' : 'Planned first beta'}
+          <span aria-hidden="true"> · </span>
+          <time dateTime={launchAt}>{launchDate}</time>
+        </p>
+      </div>
+    </main>
   );
 }
