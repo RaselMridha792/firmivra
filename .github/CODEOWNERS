@@ -1,5 +1,10 @@
 # Rasel reviews and approves every change; only a code owner's approval counts toward merging into main.
 * @RaselMridha792
 
+# Workflows can deploy to AWS, so only Rasel approves changes to them or to this file,
+# even if the rule above is widened later.
+/.github/workflows/ @RaselMridha792
+/.github/CODEOWNERS @RaselMridha792
+
 # The 15-day plan and the parallel workstream rules.
 /docs/work/ @RaselMridha792

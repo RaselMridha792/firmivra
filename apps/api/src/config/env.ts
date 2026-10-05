@@ -60,9 +60,23 @@ export const EnvSchema = z
 
 export type Env = z.infer<typeof EnvSchema>;
 
+/**
+ * In AWS the task gets the database as parts: host and port from RDS, the password from
+ * Secrets Manager. TLS is verified against the RDS CA bundle (NODE_EXTRA_CA_CERTS in the image).
+ */
+function databaseUrlFromParts(env: Record<string, string | undefined>): string | undefined {
+  const { DB_HOST, DB_PORT = '5432', DB_NAME, DB_APP_USER, DB_APP_PASSWORD } = env;
+  if (!DB_HOST || !DB_NAME || !DB_APP_USER || !DB_APP_PASSWORD) return undefined;
+  const user = encodeURIComponent(DB_APP_USER);
+  const password = encodeURIComponent(DB_APP_PASSWORD);
+  const sslmode = env['DB_SSLMODE'] ?? 'verify-full';
+  return `postgresql://${user}:${password}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${sslmode}`;
+}
+
 export function loadEnv(raw: Record<string, string | undefined> = process.env): Env {
   // `KEY=` in .env arrives as an empty string; treat it as not set.
   const cleaned = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== ''));
+  cleaned['DATABASE_URL_APP'] ??= databaseUrlFromParts(cleaned);
   const result = EnvSchema.safeParse(cleaned);
   if (!result.success) {
     throw new Error(`Invalid API environment:\n${z.prettifyError(result.error)}`);
