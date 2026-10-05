@@ -1,4 +1,14 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import {
+  CfnCondition,
+  CfnOutput,
+  CfnParameter,
+  Duration,
+  Fn,
+  RemovalPolicy,
+  Stack,
+  type StackProps,
+  Token,
+} from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
@@ -29,9 +39,10 @@ export interface AppStackProps extends StackProps {
   auth: AuthStack;
   /** Only with a custom domain; without it the API logs emails instead of sending them. */
   email?: EmailStack;
-  /** Image tag (commit sha) to run. Without one the services stay at 0 tasks (first deploy). */
-  imageTag?: string;
 }
+
+/** Value of the image tag parameters before the first image exists: services run 0 tasks. */
+export const NO_IMAGE = 'none';
 
 /**
  * The running app: ECR repositories, an ECS cluster on Fargate (Spot in dev), the API and web
@@ -54,9 +65,28 @@ export class AppStack extends Stack {
     super(scope, id, props);
     const { config, network, data, auth, email } = props;
     const name = (n: string) => resourceName(config, n);
-    const tag = props.imageTag ?? 'none';
-    const desiredCount = props.imageTag ? 1 : 0;
     const domain = config.customDomain;
+
+    // ---------- Running release ----------
+    // The stack's parameters own the running image tags (commit shas). Only deploy-dev.yml sets them:
+    // MigrateImageTag first, then ImageTag after the migration task succeeds. A cdk deploy without
+    // --parameters keeps the previous values, so an infra change never swaps or stops the images.
+    const tagParameter = (id: string, description: string) =>
+      new CfnParameter(this, id, {
+        type: 'String',
+        default: NO_IMAGE,
+        allowedPattern: `^(${NO_IMAGE}|[0-9a-f]{40})$`,
+        description,
+      }).valueAsString;
+    const tag = tagParameter('ImageTag', 'Commit sha of the api and web images (deploy-dev.yml)');
+    const migrateTag = tagParameter(
+      'MigrateImageTag',
+      'Commit sha of the migration image (deploy-dev.yml)',
+    );
+    const hasImage = new CfnCondition(this, 'HasImage', {
+      expression: Fn.conditionNot(Fn.conditionEquals(tag, NO_IMAGE)),
+    });
+    const desiredCount = Token.asNumber(Fn.conditionIf(hasImage.logicalId, config.task.count, 0));
 
     // ---------- Images ----------
     const repository = (key: 'api' | 'web' | 'migrate') =>
@@ -338,7 +368,7 @@ export class AppStack extends Stack {
     });
     this.migrateLogGroup = logGroup('migrate');
     this.migrateTask.addContainer('migrate', {
-      image: ecs.ContainerImage.fromEcrRepository(this.repositories.migrate, tag),
+      image: ecs.ContainerImage.fromEcrRepository(this.repositories.migrate, migrateTag),
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'migrate',
         logGroup: this.migrateLogGroup,
@@ -408,6 +438,7 @@ export class AppStack extends Stack {
     new CfnOutput(this, 'PortalUrl', { value: sites.PORTAL_BASE_URL });
     new CfnOutput(this, 'ClusterName', { value: this.cluster.clusterName });
     new CfnOutput(this, 'MigrateTaskDefinition', { value: this.migrateTask.family });
+    new CfnOutput(this, 'MigrateLogGroup', { value: this.migrateLogGroup.logGroupName });
     new CfnOutput(this, 'TaskSubnets', {
       value: network.vpc.selectSubnets({ subnetType: ec2.SubnetType.PUBLIC }).subnetIds.join(','),
     });

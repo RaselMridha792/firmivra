@@ -9,10 +9,10 @@ import { configFor, DEV_FIRMIVRA_COM, type EnvConfig } from '../src/config';
 import { addNagSuppressions } from '../src/nag';
 import { createStacks } from '../src/stacks';
 
-function build(imageTag?: string, overrides: Partial<EnvConfig> = {}) {
+function build(overrides: Partial<EnvConfig> = {}) {
   const app = new App({ context: { ...cdkJsonContext(), env: 'dev' } });
   const config = configFor('dev', overrides);
-  const stacks = createStacks(app, config, imageTag);
+  const stacks = createStacks(app, config);
   Tags.of(app).add('project', 'firmivra');
   Tags.of(app).add('env', 'dev');
   addNagSuppressions(stacks, config);
@@ -27,13 +27,12 @@ const tpl = (stack: Stack | undefined) => {
 };
 const t = (name: 'network' | 'data' | 'auth' | 'app' | 'ci') => tpl(stacks[name]);
 /** The setup before the switch (and after switching back): customDomain unset. */
-const cloudFront = build(undefined, { customDomain: undefined }).stacks;
+const cloudFront = build({ customDomain: undefined }).stacks;
 
 describe('cdk-nag', () => {
-  it('has no unacknowledged findings: services at 0, with an image tag, and on CloudFront domains', () => {
+  it('has no unacknowledged findings: on the custom domain and on CloudFront domains', () => {
     expect(() => app.synth()).not.toThrow();
-    expect(() => build('abc1234').app.synth()).not.toThrow();
-    expect(() => build(undefined, { customDomain: undefined }).app.synth()).not.toThrow();
+    expect(() => build({ customDomain: undefined }).app.synth()).not.toThrow();
   });
 });
 
@@ -123,9 +122,7 @@ describe('documents CORS', () => {
       app: 'd2.cloudfront.net',
       portal: 'd3.cloudfront.net',
     };
-    expect(
-      cors(build(undefined, { customDomain: undefined, cloudFrontHosts: hosts }).stacks),
-    ).toEqual([
+    expect(cors(build({ customDomain: undefined, cloudFrontHosts: hosts }).stacks)).toEqual([
       'https://d1.cloudfront.net',
       'https://d2.cloudfront.net',
       'https://d3.cloudfront.net',
@@ -206,10 +203,39 @@ describe('app', () => {
     });
   });
 
-  it('starts services at 0 tasks without an image tag, 1 with one', () => {
-    t('app').allResourcesProperties('AWS::ECS::Service', { DesiredCount: 0 });
-    tpl(build('abc1234').stacks.app).allResourcesProperties('AWS::ECS::Service', {
-      DesiredCount: 1,
+  it('takes the running image tags from stack parameters, set only by the deploy pipeline', () => {
+    for (const p of ['ImageTag', 'MigrateImageTag']) {
+      t('app').hasParameter(p, {
+        Type: 'String',
+        Default: 'none',
+        AllowedPattern: '^(none|[0-9a-f]{40})$',
+      });
+    }
+    const image = (repository: string, parameter: string) =>
+      Match.objectLike({
+        Image: {
+          'Fn::Join': ['', Match.arrayWith([Match.stringLikeRegexp(`:$`), { Ref: parameter }])],
+        },
+        Name: repository,
+      });
+    for (const [family, container, parameter] of [
+      ['firmivra-dev-api', 'api', 'ImageTag'],
+      ['firmivra-dev-web', 'web', 'ImageTag'],
+      ['firmivra-dev-migrate', 'migrate', 'MigrateImageTag'],
+    ] as const) {
+      t('app').hasResourceProperties('AWS::ECS::TaskDefinition', {
+        Family: family,
+        ContainerDefinitions: [image(container, parameter)],
+      });
+    }
+  });
+
+  it('runs 0 tasks while ImageTag is none, then the configured count', () => {
+    t('app').hasCondition('HasImage', {
+      'Fn::Not': [{ 'Fn::Equals': [{ Ref: 'ImageTag' }, 'none'] }],
+    });
+    t('app').allResourcesProperties('AWS::ECS::Service', {
+      DesiredCount: { 'Fn::If': ['HasImage', 1, 0] },
     });
   });
 
@@ -276,7 +302,7 @@ describe('app: CloudFront default domains (without customDomain)', () => {
 });
 
 describe('app: dev.firmivra.com (current) is a config change only', () => {
-  const custom = build(undefined, { customDomain: DEV_FIRMIVRA_COM }).stacks;
+  const custom = build({ customDomain: DEV_FIRMIVRA_COM }).stacks;
 
   it('adds the certificate, the aliases and the DNS records', () => {
     const a = tpl(custom.app);
