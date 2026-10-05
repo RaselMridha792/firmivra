@@ -20,10 +20,13 @@ export const EnvSchema = z
     COGNITO_REGION: z.string().default('us-east-1'),
     COGNITO_STAFF_USER_POOL_ID: optional,
     COGNITO_STAFF_CLIENT_ID: optional,
+    COGNITO_STAFF_CLIENT_SECRET: optional,
     COGNITO_CLIENTS_USER_POOL_ID: optional,
     COGNITO_CLIENTS_CLIENT_ID: optional,
+    COGNITO_CLIENTS_CLIENT_SECRET: optional,
     COGNITO_ADMINS_USER_POOL_ID: optional,
     COGNITO_ADMINS_CLIENT_ID: optional,
+    COGNITO_ADMINS_CLIENT_SECRET: optional,
   })
   .superRefine((env, ctx) => {
     if (env.AUTH_MODE === 'local') {
@@ -47,10 +50,13 @@ export const EnvSchema = z
     for (const key of [
       'COGNITO_STAFF_USER_POOL_ID',
       'COGNITO_STAFF_CLIENT_ID',
+      'COGNITO_STAFF_CLIENT_SECRET',
       'COGNITO_CLIENTS_USER_POOL_ID',
       'COGNITO_CLIENTS_CLIENT_ID',
+      'COGNITO_CLIENTS_CLIENT_SECRET',
       'COGNITO_ADMINS_USER_POOL_ID',
       'COGNITO_ADMINS_CLIENT_ID',
+      'COGNITO_ADMINS_CLIENT_SECRET',
     ] as const) {
       if (!env[key]) {
         ctx.addIssue({ code: 'custom', path: [key], message: 'required when AUTH_MODE=cognito' });

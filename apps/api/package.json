@@ -29,6 +29,7 @@
   },
   "type": "module",
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1146.0",
     "@firmivra/db": "workspace:*",
     "@firmivra/types": "workspace:*",
     "@nestjs/common": "^12.1.2",
