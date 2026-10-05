@@ -7,17 +7,26 @@ import { Prisma, PrismaClient } from './generated/prisma/client.js';
  * - business: one firm's data. Everything a firm user or client does.
  * - user: the signed-in person's own memberships and client accounts across firms (/me).
  * - platform: platform tables for Super Admin and identity work. No firm data.
+ * - invite: only the invite whose token hash matches (signed-out "accept invite" step).
  */
 export type Scope =
   | { kind: 'business'; businessId: string }
   | { kind: 'user'; userId: string }
+  | { kind: 'invite'; tokenHash: string }
   | { kind: 'platform' };
 
 export type TxClient = Prisma.TransactionClient;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 function assertScope(scope: Scope): void {
+  if (scope.kind === 'invite') {
+    if (!SHA256_HEX.test(scope.tokenHash)) {
+      throw new Error('Invalid invite token hash for database scope');
+    }
+    return;
+  }
   const id =
     scope.kind === 'business' ? scope.businessId : scope.kind === 'user' ? scope.userId : null;
   if (id !== null && !UUID.test(id)) {
@@ -29,10 +38,12 @@ function assertScope(scope: Scope): void {
 function setScope(client: PrismaClient | TxClient, scope: Scope) {
   const businessId = scope.kind === 'business' ? scope.businessId : '';
   const userId = scope.kind === 'user' ? scope.userId : '';
+  const tokenHash = scope.kind === 'invite' ? scope.tokenHash : '';
   return client.$executeRaw`SELECT
     set_config('app.scope', ${scope.kind}, true),
     set_config('app.current_business_id', ${businessId}, true),
-    set_config('app.current_user_id', ${userId}, true)`;
+    set_config('app.current_user_id', ${userId}, true),
+    set_config('app.invite_token_hash', ${tokenHash}, true)`;
 }
 
 /**
@@ -102,6 +113,8 @@ export function createDatabase(appConnectionString: string, options: ClientOptio
     forBusiness: (businessId: string) => scopedClient(base, { kind: 'business', businessId }),
     /** The signed-in person's own memberships and client accounts across firms. */
     forUser: (userId: string) => scopedClient(base, { kind: 'user', userId }),
+    /** Only the invite with this SHA-256 token hash (hex). Read its businessId, then use forBusiness. */
+    forInvite: (tokenHash: string) => scopedClient(base, { kind: 'invite', tokenHash }),
     /** Platform tables for Super Admin and identity work. Never firm data. */
     forPlatform: () => scopedClient(base, { kind: 'platform' }),
     /** Multi-step transaction in one scope. */

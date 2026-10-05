@@ -50,12 +50,18 @@ describe('row-level security coverage', () => {
     });
   });
 
-  it('keeps the deliberate limits: audit log append-only, grants never deleted', async () => {
-    const { rows } = await client.query<{ privilege: string; granted: boolean }>(`
-      SELECT p.privilege, has_table_privilege('firmivra_app', p.tbl, p.privilege) AS granted
+  it('keeps the deliberate limits: append-only tables, nothing deleted that is kept as a record', async () => {
+    const { rows } = await client.query<{ tbl: string; privilege: string; granted: boolean }>(`
+      SELECT p.tbl, p.privilege, has_table_privilege('firmivra_app', p.tbl, p.privilege) AS granted
       FROM (VALUES ('audit_logs', 'UPDATE'), ('audit_logs', 'DELETE'),
-                   ('support_access_grants', 'DELETE')) AS p(tbl, privilege)`);
-    expect(rows.every((r) => !r.granted)).toBe(true);
+                   ('support_access_grants', 'DELETE'),
+                   ('firm_legal_documents', 'UPDATE'), ('firm_legal_documents', 'DELETE'),
+                   ('invites', 'DELETE'),
+                   ('clients', 'DELETE'), ('client_profiles', 'DELETE'),
+                   ('client_tax_statuses', 'DELETE'),
+                   ('client_tax_status_history', 'UPDATE'),
+                   ('client_tax_status_history', 'DELETE')) AS p(tbl, privilege)`);
+    expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 
   it('the app role cannot bypass RLS', async () => {
