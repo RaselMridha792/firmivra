@@ -163,7 +163,8 @@ Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can 
 - Deployed Oct 5: network; data (`db.t3.micro`, PostgreSQL 16.13); auth (pools `firmivra-dev-staff`, `-clients`, `-admins`, Plus tier, compromised-credential block). Data and auth have termination protection.
 - App design: internal load balancer (isolated subnets, HTTP 80, requests without the `X-Origin-Verify` header get 403) reached by one CloudFront VPC origin; three distributions (admin, app, portal), each with `/api/*` to the API, caching off except `/_next/static/*`. Services start at 0 tasks until Step 8 deploys images. Emails are logged (`EMAIL_MODE=log`) until the SES domain exists.
 - Images: API image trusts the RDS certificate bundle (`NODE_EXTRA_CA_CERTS`) and builds its database URL from `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_APP_USER`, `DB_APP_PASSWORD` with `sslmode=verify-full`. Migration image (`packages/db/Dockerfile`): `prisma migrate deploy` as the owner, then `ALTER ROLE firmivra_app LOGIN PASSWORD` from Secrets Manager (tested against local Postgres).
-- Site URLs (filled in after the app stack deploy): admin, app, portal.
+- Site URLs (app stack deployed Oct 5): admin `https://d9q8sm5p4gja.cloudfront.net`, app `https://d1wyghmynm8dbl.cloudfront.net`, portal `https://d37wpe29mp47x1.cloudfront.net`. They answer 503 until Step 8 starts the tasks.
+- VPC origin lesson (Oct 5): CloudFront traffic through a VPC origin keeps CloudFront's origin-facing source addresses (`130.176.x.x` in the flow log), not the VPC range. The load balancer security group allows port 80 from the managed prefix list `com.amazonaws.global.cloudfront.origin-facing` (`pl-3b927c52`); a VPC-range rule made every request time out (504).
 
 ## Deploy guardrails (before any workflow runs, Rasel Oct 5)
 

@@ -43,7 +43,7 @@ describe('network', () => {
     net.resourceCountIs('AWS::EC2::FlowLog', 1);
   });
 
-  it('lets only traffic from inside the VPC reach the load balancer, on port 80', () => {
+  it('lets only CloudFront (through the VPC origin) reach the load balancer, on port 80', () => {
     const net = t('network');
     const [albId] = Object.keys(
       net.findResources('AWS::EC2::SecurityGroup', {
@@ -65,7 +65,7 @@ describe('network', () => {
           .SecurityGroupIngress ?? [],
     );
     expect([...ingress.map((r) => r.Properties), ...inline]).toEqual([
-      expect.objectContaining({ FromPort: 80, ToPort: 80, CidrIp: '10.20.0.0/16' }),
+      expect.objectContaining({ FromPort: 80, ToPort: 80, SourcePrefixListId: expect.any(String) }),
     ]);
   });
 });

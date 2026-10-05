@@ -64,10 +64,15 @@ export class NetworkStack extends Stack {
       description: 'Internal load balancer: HTTP from the CloudFront VPC origin (inside the VPC)',
       allowAllOutbound: false,
     });
+    // VPC origin traffic keeps CloudFront's origin-facing source addresses (seen in the flow log,
+    // Oct 5), not the VPC range. Only our own VPC origin can reach this internal load balancer.
+    const cloudFront = ec2.PrefixList.fromLookup(this, 'CloudFrontOriginFacing', {
+      prefixListName: 'com.amazonaws.global.cloudfront.origin-facing',
+    });
     this.albSg.addIngressRule(
-      ec2.Peer.ipv4(VPC_CIDR),
+      ec2.Peer.prefixList(cloudFront.prefixListId),
       ec2.Port.tcp(80),
-      'HTTP from the CloudFront VPC origin network interfaces',
+      'HTTP from CloudFront through the VPC origin',
     );
 
     // Tasks have public IPs for outbound calls (Cognito, SES, Stripe) but accept traffic only from the ALB.
