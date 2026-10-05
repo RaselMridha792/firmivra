@@ -8,6 +8,7 @@ import { AuditModule } from './audit/audit.service.js';
 import { AuthGuard } from './auth/auth.guard.js';
 import { AuthModule } from './auth/auth.module.js';
 import { RolesGuard } from './auth/roles.guard.js';
+import { SignInModule } from './auth/sign-in.controller.js';
 import { TenantGuard } from './auth/tenant.guard.js';
 import { BusinessModule } from './business/business.controller.js';
 import { ConfigModule } from './config/config.module.js';
@@ -57,6 +58,7 @@ export class AppModule {
         AuditModule,
         HealthModule,
         MeModule,
+        SignInModule,
         BusinessModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
       ],

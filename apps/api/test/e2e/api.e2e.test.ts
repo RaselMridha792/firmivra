@@ -186,10 +186,11 @@ describe('tenant isolation', () => {
     expect((res.body as { error: { code: string } }).error.code).toBe('BUSINESS_INACTIVE');
   });
 
-  it('a Super Admin sees no firm data without a support grant', async () => {
+  it('a Super Admin session never works on the firm API, only on /api/v1/admin/*', async () => {
     const t = await tokenFor(fx.users.admin.email);
-    await get('/api/v1/business', t, { 'x-business-id': fx.firmA.id }).expect(404);
-    const me = await get('/api/v1/me', t).expect(200);
+    await get('/api/v1/business', t, { 'x-business-id': fx.firmA.id }).expect(401);
+    await get('/api/v1/me', t).expect(401);
+    const me = await get('/api/v1/admin/me', t).expect(200);
     expect((me.body as { platformAdmin: boolean }).platformAdmin).toBe(true);
   });
 });
