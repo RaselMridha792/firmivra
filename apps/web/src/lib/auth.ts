@@ -1,19 +1,25 @@
-import type { IdentityPool } from '@firmivra/types';
+import { createAdminAuthClient, createStaffAuthClient, type IdentityPool } from '@firmivra/types';
 import { api } from './api';
 
 /**
- * Sign-in for the three sites (docs/AUTH-DESIGN.md). Our screens always call our API, which
- * sets the HttpOnly cookie. Local development uses POST /api/v1/dev/token for seeded users;
- * the Cognito-backed endpoints (/auth/sign-in, /auth/mfa) arrive in Sprint 1 (FIR-S1-T1).
+ * Sign-in for the three sites (docs/AUTH-DESIGN.md, contract in docs/api/auth.yaml). Our
+ * screens always call our API, which sets the HttpOnly cookies; JavaScript never sees a token.
  */
 export const AUTH_MODE = process.env.NEXT_PUBLIC_AUTH_MODE === 'local' ? 'local' : 'cognito';
 
+/** Firm site: sign-in, MFA, forgot and reset password, activation, invites (/api/v1/auth). */
+export const staffAuth = createStaffAuthClient({ baseUrl: '/api/v1' });
+
+/** Super Admin site: sign-in, MFA, forgot and reset password (/api/v1/admin/auth). */
+export const adminAuth = createAdminAuthClient({ baseUrl: '/api/v1' });
+
+/** Local development quick sign-in as a seeded user (POST /api/v1/dev/token). */
 export async function signIn(email: string, pool: IdentityPool): Promise<void> {
   if (AUTH_MODE === 'local') {
     await api.devToken({ email, pool });
     return;
   }
-  throw new Error('Sign-in with Cognito arrives in Sprint 1 (FIR-S1-T1).');
+  throw new Error('Quick sign-in is local only: use staffAuth or adminAuth.');
 }
 
 export async function signOut(): Promise<void> {
