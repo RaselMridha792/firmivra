@@ -1,4 +1,6 @@
-import type { App } from 'aws-cdk-lib';
+import { type App, Aspects, type IAspect, RemovalPolicy } from 'aws-cdk-lib';
+import { CfnLogGroup } from 'aws-cdk-lib/aws-logs';
+import type { IConstruct } from 'constructs';
 import { type EnvConfig, resourceName } from './config';
 import { AppStack } from './stacks/app-stack';
 import { AuthStack } from './stacks/auth-stack';
@@ -55,5 +57,23 @@ export function createStacks(app: App, config: EnvConfig, imageTag?: string) {
     app: appStack,
     description: 'Firmivra: GitHub OIDC deploy role',
   });
+  const all = [network, data, auth, email, appStack, ci];
+  for (const stack of all) {
+    if (stack) Aspects.of(stack).add(new LogGroupRules(config.logRetentionDays));
+  }
   return { network, data, auth, email, app: appStack, ci };
+}
+
+/**
+ * Every log group keeps logs for the configured days and is deleted with its stack, also the
+ * ones CDK helpers create (by default those keep logs for two years and are left behind).
+ */
+class LogGroupRules implements IAspect {
+  constructor(private readonly days: number) {}
+
+  visit(node: IConstruct): void {
+    if (!(node instanceof CfnLogGroup)) return;
+    node.retentionInDays = this.days;
+    node.applyRemovalPolicy(RemovalPolicy.DESTROY);
+  }
 }

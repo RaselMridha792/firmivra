@@ -4,12 +4,13 @@ import { App, type Stack, Tags, Validations } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { AwsSolutionsChecks } from 'cdk-nag';
 import { describe, expect, it } from 'vitest';
+import { cdkJsonContext } from '../src/cdk-context';
 import { configFor, DEV_FIRMIVRA_COM, type EnvConfig } from '../src/config';
 import { addNagSuppressions } from '../src/nag';
 import { createStacks } from '../src/stacks';
 
 function build(imageTag?: string, overrides: Partial<EnvConfig> = {}) {
-  const app = new App({ context: { env: 'dev' } });
+  const app = new App({ context: { ...cdkJsonContext(), env: 'dev' } });
   const config = configFor('dev', overrides);
   const stacks = createStacks(app, config, imageTag);
   Tags.of(app).add('project', 'firmivra');
@@ -200,11 +201,6 @@ describe('app: CloudFront default domains (current)', () => {
     });
   });
 
-  it('keeps logs for 14 days', () => {
-    t('app').allResourcesProperties('AWS::Logs::LogGroup', { RetentionInDays: 14 });
-    t('network').allResourcesProperties('AWS::Logs::LogGroup', { RetentionInDays: 14 });
-  });
-
   it('has an internal load balancer on HTTP 80 that refuses requests without the origin header', () => {
     t('app').hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
       Scheme: 'internal',
@@ -351,6 +347,20 @@ describe('retained resources', () => {
         .map(([id]) => `${name}/${id}`);
       expect(plainRetain).toEqual([]);
     }
+  });
+});
+
+describe('log groups', () => {
+  it('keep logs for 14 days and are deleted with their stack, also the ones CDK helpers create', () => {
+    const retention = (['network', 'data', 'auth', 'app', 'ci'] as const).flatMap((name) =>
+      Object.entries(t(name).findResources('AWS::Logs::LogGroup')).map(
+        ([id, r]) =>
+          `${name}/${id}: ${String(r['Properties']?.['RetentionInDays'])} ${String(r['DeletionPolicy'])}`,
+      ),
+    );
+    expect(retention.length).toBeGreaterThan(0);
+    expect(retention.filter((line) => !line.endsWith(': 14 Delete'))).toEqual([]);
+    t('auth').resourceCountIs('AWS::Logs::LogGroup', 1);
   });
 });
 
