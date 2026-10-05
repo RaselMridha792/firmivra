@@ -36,7 +36,7 @@ Rules:
 - Support access grants: the platform only requests; an ACTIVE OWNER of the firm approves in business scope with `expires_at` within 72 hours by the database clock (up to 1 minute over, from a fast API clock, is trimmed to exactly 72 hours); approvals cannot be edited and revocation is one-way; nobody deletes grants.
 - Users can be updated only in platform scope or by the person themself (who cannot change id, Cognito sub, pool or email). Business status and slug change only in platform scope.
 - Scopes use `set_config(..., true)` inside a transaction, so they never outlive it on a pooled connection.
-- Emails in `users` and `client_accounts` are stored lower-case (a CHECK constraint enforces it).
+- Emails in `users` and `client_accounts` are stored lower-case (a CHECK constraint enforces it). `users (pool, email)` is unique for STAFF and ADMIN (partial index `users_pool_email_staff_admin_key`, SQL only: Prisma cannot express it, and its diff leaves it alone). CLIENT users are excluded: a client has one user per firm, unique by `client_accounts (business_id, email)`.
 - Links between firm tables use same-firm foreign keys `(business_id, x_id) → x(business_id, id)`. Foreign-key checks skip RLS, so a plain `x_id` could point at another firm's row.
 - Firm Terms and Privacy (`firm_legal_documents`) are insert-only: a change is a new version.
 - Clients: `clients` is the firm's record (with or without a portal login); `client_accounts.client_id` links logins to it (primary, spouse, authorized). Clients, profiles and tax statuses are archived or updated, never deleted (retention). `*_enc` columns hold ciphertext made with the firm's KMS key, never plain values.

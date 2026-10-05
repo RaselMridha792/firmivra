@@ -231,6 +231,28 @@ describe('users: only the platform or the person themself can update', () => {
   });
 });
 
+describe('users: one staff or admin identity per email, clients one per firm', () => {
+  const newUser = (pool: 'STAFF' | 'ADMIN' | 'CLIENT', email: string) => {
+    const id = randomUUID();
+    return platform().user.create({ data: { id, cognitoSub: id, pool, email, name: 'Fake' } });
+  };
+
+  it('a second STAFF or ADMIN user with the same email is refused', async () => {
+    for (const pool of ['STAFF', 'ADMIN'] as const) {
+      const email = `dup-${pool.toLowerCase()}-${run}@p.test`;
+      await newUser(pool, email);
+      await expect(newUser(pool, email)).rejects.toThrow(/unique constraint/i);
+    }
+  });
+
+  it('the same email may have a CLIENT user per firm, and a staff identity too', async () => {
+    const email = `client-twice-${run}@p.test`;
+    await newUser('CLIENT', email);
+    await expect(newUser('CLIENT', email)).resolves.toMatchObject({ pool: 'CLIENT' });
+    await expect(newUser('STAFF', email)).resolves.toMatchObject({ pool: 'STAFF' });
+  });
+});
+
 describe('businesses: status and slug belong to the platform', () => {
   it('a firm can rename itself', async () => {
     await expect(
