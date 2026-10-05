@@ -18,7 +18,7 @@
 - [x] 4. Services and engagements (active, recurring, completed, cancelled), service workspaces (Bookkeeping, Tax Planning: tasks, notes, reports)
 - [x] 4a. Fix: the 72-hour support-grant rule judges time by the database clock only, so a slightly fast API clock never fails an approval (ship with the step 4 PR)
 - [x] 4b. Unique `users (pool, email)` for sign-in (R2): partial, STAFF and ADMIN only, because a client has one user per firm (AUTH-DESIGN)
-- [ ] 5. Documents, document categories, document requests
+- [x] 5. Documents, document categories, document requests
 - [ ] 6. Intake form definitions and submissions (6 Begin Online services), leads
 - [ ] 7. Notifications (per user, read/unread, link to record), notification preferences
 - [ ] 8. Appointments, staff availability, working hours, blocked time (unique constraint that blocks double booking)
@@ -37,6 +37,10 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 - apps/api (owner of `apps/api/test/global-setup.ts`): create a `Client` and pass `clientId` when creating client accounts, so `client_accounts.client_id` can become NOT NULL (R0 step 12).
 - R2: invites are ready for the activation flow: create the user and an INVITED membership, then an `invites` row with the token's SHA-256; the signed-out accept step reads it with `db.forInvite(tokenHash)`, then works in business scope.
 - I02 (Ibrahim, client profile API): `client_profiles.dob_enc` and `ssn_enc` hold encrypted values only, never plain SSN or date of birth. Write them only through the KMS-backed encrypt helper (Rasel assigns that helper to R5); keep only `ssn_last4` in plain text.
+- R5 (secure documents):
+  - Store objects at `<business_id>/...` (a CHECK on `documents.s3_key` enforces the firm prefix).
+  - Create the row as `PENDING`; the scanner sets `scan_status` and `scanned_at` once.
+  - A hard delete of a `documents` row must also remove the object's old versions, because the documents bucket is versioned. The alternative is a lifecycle rule that expires noncurrent versions.
 
 ## Progress log
 
@@ -49,3 +53,4 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 - Oct 5, step 4: migration `r0_services`: `services` (firm catalog: kind, billing interval, packages, workflow stages), `engagements` (status = lifecycle, stage = one of the service's stages; trigger keeps client and service fixed, 90-day reactivation, writes `engagement_status_history`; never deleted), `tasks` and `notes` (per client, optional engagement of the same client via a three-column FK; also cover step 9's firm notes), `engagement_reports` (report, reconciliation, estimate, projection; figures in `data`; only drafts deletable). Seed: LVP's six Begin Online services, a 2025 tax engagement with a task and note, a bookkeeping engagement with a published reconciliation; Firm B one engagement. Commit "feat: services, engagements and service workspace tables (R0)".
 - Oct 5: PR #9 (steps 2, 3) merged; PR #17 opened for steps 4 and 4a. Work continues on local branch `rasel/R0-documents`, stacked on #17.
 - Oct 5, step 4b: migration `r0_users_pool_email`: partial unique index `users (pool, email) WHERE pool <> 'CLIENT'` for R2 sign-in. CLIENT is left out because the same email has one client user per firm; clients stay unique by `client_accounts (business_id, email)`. SQL only (Prisma cannot express partial indexes; its diff ignores it). Commit "feat: unique staff and admin email per pool (R0)".
+- Oct 5, step 5: migration `r0_documents`: `document_categories` (firm-defined, retention years, null = keep for good), `documents` (always in an engagement; firm S3 prefix CHECK, 10 MB, SHA-256; start PENDING, scan result set once; client uploads only to open engagements; delete only without legal hold and after retention or a client upload while open; file, engagement and uploader fixed), `document_requests` (requested, submitted, accepted, rejected, not available, cancelled; reason required; never deleted); `engagement_reports.document_id` (same engagement). Seed: LVP categories, two requests and one clean client upload. Added R5 items to Needs from others (key layout, scan, versioned bucket deletes). Commit "feat: documents, document categories and document requests tables (R0)".

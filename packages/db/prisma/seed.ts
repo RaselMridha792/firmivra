@@ -12,6 +12,8 @@ import {
   SEED_TAX_STATUSES,
   SEED_USERS,
   SEED_WORK_IDS,
+  SEED_DOCUMENT_CATEGORIES,
+  SEED_DOCUMENT_IDS,
 } from './seed-data.js';
 
 config({ path: '../../.env', quiet: true });
@@ -111,9 +113,32 @@ async function seedServices(
     });
     ids.set(s.name, row.id);
   }
+  return byName('service', ids);
+}
+
+/** The firm's document categories; returns their ids by name. */
+async function seedDocumentCategories(
+  tx: TxClient,
+  businessId: string,
+  categories: (typeof SEED_DOCUMENT_CATEGORIES)[keyof typeof SEED_DOCUMENT_CATEGORIES],
+) {
+  const ids = new Map<string, string>();
+  for (const [sortOrder, c] of categories.entries()) {
+    const data = { sortOrder, retentionYears: c.retentionYears };
+    const row = await tx.documentCategory.upsert({
+      where: { businessId_name: { businessId, name: c.name } },
+      update: data,
+      create: { businessId, name: c.name, ...data },
+    });
+    ids.set(c.name, row.id);
+  }
+  return byName('document category', ids);
+}
+
+function byName(kind: string, ids: Map<string, string>) {
   return (name: string) => {
     const id = ids.get(name);
-    if (!id) throw new Error(`Seed service ${name} is missing`);
+    if (!id) throw new Error(`Seed ${kind} ${name} is missing`);
     return id;
   };
 }
@@ -310,6 +335,61 @@ async function main() {
         createdByUserId: SEED_USERS.lvpStaff.id,
       },
     });
+
+    // Document categories, two requests on the 2025 tax engagement, and one scanned client
+    // upload answering one of them. No file exists behind it in local S3.
+    const category = await seedDocumentCategories(tx, businesses.lvp, SEED_DOCUMENT_CATEGORIES.lvp);
+    const taxEngagement = {
+      businessId: businesses.lvp,
+      clientId: SEED_CLIENT_IDS.lvp,
+      engagementId: SEED_WORK_IDS.lvpTax,
+      categoryId: category('W-2 and 1099'),
+    };
+    await tx.documentRequest.upsert({
+      where: { id: SEED_DOCUMENT_IDS.w2Request },
+      update: {},
+      create: {
+        ...taxEngagement,
+        id: SEED_DOCUMENT_IDS.w2Request,
+        title: 'W-2 from your employer',
+        instructions: 'Upload every W-2 you received for 2025.',
+        dueOn: new Date('2026-10-31'),
+        requestedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.documentRequest.upsert({
+      where: { id: SEED_DOCUMENT_IDS.interestRequest },
+      update: {},
+      create: {
+        ...taxEngagement,
+        id: SEED_DOCUMENT_IDS.interestRequest,
+        title: '1099-INT from your bank',
+        status: 'SUBMITTED',
+        requestedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.document.upsert({
+      where: { id: SEED_DOCUMENT_IDS.interestDocument },
+      update: {},
+      create: {
+        ...taxEngagement,
+        id: SEED_DOCUMENT_IDS.interestDocument,
+        requestId: SEED_DOCUMENT_IDS.interestRequest,
+        direction: 'CLIENT_TO_FIRM',
+        fileName: '1099-INT sample.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 48213,
+        sha256: createHash('sha256').update('sample 1099-INT').digest('hex'),
+        s3Key: `${businesses.lvp}/documents/${SEED_DOCUMENT_IDS.interestDocument}`,
+        taxYear: 2025,
+        uploadedByUserId: SEED_USERS.lvpClient.id,
+      },
+    });
+    // New documents start unscanned; mark the seeded one clean once.
+    await tx.document.updateMany({
+      where: { id: SEED_DOCUMENT_IDS.interestDocument, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    });
   });
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
@@ -348,6 +428,7 @@ async function main() {
       SEED_USERS.firmBClient,
       SEED_USERS.firmBOwner.id,
     );
+    await seedDocumentCategories(tx, businesses.testFirmB, SEED_DOCUMENT_CATEGORIES.testFirmB);
     const service = await seedServices(tx, businesses.testFirmB, SEED_SERVICES.testFirmB);
     await tx.engagement.upsert({
       where: { id: SEED_WORK_IDS.firmBTax },
@@ -365,7 +446,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services and engagements.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements and documents.`,
   );
 }
 

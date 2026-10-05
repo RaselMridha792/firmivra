@@ -43,7 +43,10 @@ Rules:
 - `client_tax_status_history` is written by a trigger on every change of `client_tax_statuses`; the app only reads it. An archived tax status cannot be assigned.
 - Engagements (one service, one period, one client) are never deleted. `status` is the lifecycle (pending, active, completed, cancelled); `stage` must be one of the service's `stages`. A trigger writes `engagement_status_history` on every status or stage change, keeps the client and service fixed, and allows reactivating a cancelled engagement only within 90 days.
 - Tasks and internal notes belong to a client and optionally to one of that client's engagements (a three-column foreign key enforces it). Neither is ever shown to clients.
-- Workspace reports: only drafts can be deleted; a published report needs `published_at`.
+- Workspace reports: only drafts can be deleted; a published report needs `published_at`. An attached `document_id` must belong to the same engagement.
+- Documents always belong to an engagement. `s3_key` must start with `<business_id>/` (CHECK), at most 10 MB, SHA-256 hex. A new document starts `PENDING` (quarantine); the scan result is set once, with `scanned_at`. A client (`CLIENT_TO_FIRM`) uploads only while the engagement is PENDING or ACTIVE; the firm can upload any time. `INTERNAL` documents are never shown to clients.
+- Deleting a document needs no legal hold and either `retention_until` in the past, or a client upload whose engagement is still open (the API checks the role and "own"). The row is deleted for real; the documents bucket is versioned, so R5 must also remove the object's old versions (or expire noncurrent versions with a lifecycle rule).
+- Document requests are cancelled, never deleted. NOT_AVAILABLE ("I don't have this") and REJECTED ("marked missing") need a `status_note`.
 - Invites (staff membership or client account, 7 days at most) store only the token's SHA-256. After insert, only `accepted_at` or `revoked_at` can be set, once; a revoked or expired invite cannot be accepted; nobody deletes invites.
 
 ## Commands

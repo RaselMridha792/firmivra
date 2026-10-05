@@ -31,6 +31,9 @@ const ids = {
   taskA: '',
   noteA: '',
   reportA: '',
+  categoryA: '',
+  requestA: '',
+  documentA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -123,6 +126,24 @@ beforeAll(async () => {
       const rep = await tx.engagementReport.create({
         data: { businessId: firm, engagementId: eng.id, kind: 'REPORT', title: 'Report' },
       });
+      const cat = await tx.documentCategory.create({ data: { businessId: firm, name: 'ID' } });
+      const req = await tx.documentRequest.create({
+        data: { ...work, engagementId: eng.id, categoryId: cat.id, title: 'Photo ID' },
+      });
+      const vaultDoc = await tx.document.create({
+        data: {
+          ...work,
+          engagementId: eng.id,
+          categoryId: cat.id,
+          requestId: req.id,
+          direction: 'CLIENT_TO_FIRM',
+          fileName: 'id.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: 'a'.repeat(64),
+          s3Key: `${firm}/documents/${randomUUID()}`,
+        },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -144,6 +165,9 @@ beforeAll(async () => {
         ids.taskA = task.id;
         ids.noteA = note.id;
         ids.reportA = rep.id;
+        ids.categoryA = cat.id;
+        ids.requestA = req.id;
+        ids.documentA = vaultDoc.id;
       }
     });
   }
@@ -185,6 +209,9 @@ describe('no scope set', () => {
     expect(await unscopedApp.task.findMany()).toEqual([]);
     expect(await unscopedApp.note.findMany()).toEqual([]);
     expect(await unscopedApp.engagementReport.findMany()).toEqual([]);
+    expect(await unscopedApp.documentCategory.findMany()).toEqual([]);
+    expect(await unscopedApp.documentRequest.findMany()).toEqual([]);
+    expect(await unscopedApp.document.findMany()).toEqual([]);
   });
 });
 
@@ -214,6 +241,9 @@ describe('business scope: firm B', () => {
       await b().task.findMany(),
       await b().note.findMany(),
       await b().engagementReport.findMany(),
+      await b().documentCategory.findMany(),
+      await b().documentRequest.findMany(),
+      await b().document.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -247,6 +277,10 @@ describe('business scope: firm B', () => {
     expect(await b().task.findUnique({ where: { id: ids.taskA } })).toBeNull();
     expect(await b().note.findUnique({ where: { id: ids.noteA } })).toBeNull();
     expect(await b().engagementReport.findUnique({ where: { id: ids.reportA } })).toBeNull();
+    expect(await b().documentCategory.findUnique({ where: { id: ids.categoryA } })).toBeNull();
+    expect(await b().documentRequest.findUnique({ where: { id: ids.requestA } })).toBeNull();
+    expect(await b().document.findUnique({ where: { id: ids.documentA } })).toBeNull();
+    expect((await b().document.deleteMany({ where: { id: ids.documentA } })).count).toBe(0);
     expect(
       await b().engagementStatusHistory.findMany({ where: { engagementId: ids.engagementA } }),
     ).toEqual([]);
@@ -369,6 +403,9 @@ describe('platform scope', () => {
     expect(await p.task.findMany()).toEqual([]);
     expect(await p.note.findMany()).toEqual([]);
     expect(await p.engagementReport.findMany()).toEqual([]);
+    expect(await p.documentCategory.findMany()).toEqual([]);
+    expect(await p.documentRequest.findMany()).toEqual([]);
+    expect(await p.document.findMany()).toEqual([]);
   });
 });
 
