@@ -66,3 +66,9 @@ export const SEED_TAX_STATUSES = {
 
 /** Fixed id so re-seeding keeps a single open invite for lvpInvited. */
 export const SEED_INVITE_ID = '00000000-0000-4000-b000-000000000001';
+
+/** Fixed ids of the firms' client records, linked to the seeded client logins. */
+export const SEED_CLIENT_IDS = {
+  lvp: '00000000-0000-4000-c000-000000000013',
+  testFirmB: '00000000-0000-4000-c000-000000000022',
+} as const;

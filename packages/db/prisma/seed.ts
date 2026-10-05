@@ -4,7 +4,13 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { config } from 'dotenv';
 import { createPrismaClient, runInScope, type TxClient } from '../src/client.js';
-import { SEED_BUSINESSES, SEED_INVITE_ID, SEED_TAX_STATUSES, SEED_USERS } from './seed-data.js';
+import {
+  SEED_BUSINESSES,
+  SEED_CLIENT_IDS,
+  SEED_INVITE_ID,
+  SEED_TAX_STATUSES,
+  SEED_USERS,
+} from './seed-data.js';
 
 config({ path: '../../.env', quiet: true });
 
@@ -57,6 +63,28 @@ async function seedFirmBasics(
       create: { businessId, name, sortOrder },
     });
   }
+}
+
+/** The firm's client record and profile for a seeded client login, linked to that login. */
+async function seedClient(
+  tx: TxClient,
+  businessId: string,
+  clientId: string,
+  user: { id: string; email: string; name: string },
+  assignedUserId: string,
+) {
+  const [firstName, lastName] = user.name.split(' ');
+  await tx.client.upsert({
+    where: { id: clientId },
+    update: {},
+    create: { id: clientId, businessId, displayName: user.name, email: user.email, assignedUserId },
+  });
+  await tx.clientProfile.upsert({
+    where: { clientId },
+    update: {},
+    create: { clientId, businessId, firstName: firstName ?? null, lastName: lastName ?? null },
+  });
+  await tx.clientAccount.update({ where: { userId: user.id }, data: { clientId } });
 }
 
 async function main() {
@@ -143,6 +171,35 @@ async function main() {
         invitedByUserId: SEED_USERS.lvpOwner.id,
       },
     });
+
+    await seedClient(
+      tx,
+      businesses.lvp,
+      SEED_CLIENT_IDS.lvp,
+      SEED_USERS.lvpClient,
+      SEED_USERS.lvpStaff.id,
+    );
+    const inPreparation = await tx.taxStatus.findUniqueOrThrow({
+      where: { businessId_name: { businessId: businesses.lvp, name: 'In preparation' } },
+    });
+    await tx.clientTaxStatus.upsert({
+      where: {
+        businessId_clientId_taxYear: {
+          businessId: businesses.lvp,
+          clientId: SEED_CLIENT_IDS.lvp,
+          taxYear: 2025,
+        },
+      },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        clientId: SEED_CLIENT_IDS.lvp,
+        taxYear: 2025,
+        taxStatusId: inPreparation.id,
+        clientNote: 'We have your documents and are preparing your return.',
+        updatedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
   });
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
@@ -174,10 +231,17 @@ async function main() {
       contactEmail: 'hello@firm-b.test',
       taxStatuses: SEED_TAX_STATUSES.testFirmB,
     });
+    await seedClient(
+      tx,
+      businesses.testFirmB,
+      SEED_CLIENT_IDS.testFirmB,
+      SEED_USERS.firmBClient,
+      SEED_USERS.firmBOwner.id,
+    );
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy and tax statuses.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses and client records.`,
   );
 }
 

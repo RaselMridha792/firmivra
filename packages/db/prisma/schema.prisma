@@ -42,6 +42,8 @@ enum MembershipStatus {
 }
 
 enum ClientAccountStatus {
+  /// The firm invited the client; the portal login is not set up yet.
+  INVITED
   PENDING_APPROVAL
   ACTIVE
   DECLINED
@@ -51,6 +53,13 @@ enum ClientAccountStatus {
 enum ClientAccountType {
   INDIVIDUAL
   BUSINESS
+}
+
+/// Whose portal login this is on the client's record (docs/SYSTEM-DESIGN.md, Data model: members).
+enum ClientPortalRole {
+  PRIMARY
+  SPOUSE
+  AUTHORIZED
 }
 
 enum PlatformRole {
@@ -90,6 +99,7 @@ model Business {
   legalDocuments      FirmLegalDocument[]
   taxStatuses         TaxStatus[]
   invites             Invite[]
+  clients             Client[]
 
   @@map("businesses")
 }
@@ -124,9 +134,10 @@ model Membership {
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
-  user     User     @relation(fields: [userId], references: [id])
-  invites  Invite[]
+  business        Business @relation(fields: [businessId], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
+  invites         Invite[]
+  assignedClients Client[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -135,11 +146,15 @@ model Membership {
   @@map("memberships")
 }
 
-/// A client's portal account at one firm. The API finds the Cognito user by (businessId, email).
+/// A client's portal login at one firm. The API finds the Cognito user by (businessId, email).
+/// clientId links it to the firm's Client record; one client can have several logins
+/// (primary, spouse, authorized). Nullable until every sign-up path creates the Client too.
 model ClientAccount {
   id               String              @id @default(uuid(7)) @db.Uuid
   businessId       String              @map("business_id") @db.Uuid
   userId           String              @unique @map("user_id") @db.Uuid
+  clientId         String?             @map("client_id") @db.Uuid
+  portalRole       ClientPortalRole    @default(PRIMARY) @map("portal_role")
   email            String
   accountType      ClientAccountType   @default(INDIVIDUAL) @map("account_type")
   status           ClientAccountStatus @default(PENDING_APPROVAL)
@@ -147,16 +162,21 @@ model ClientAccount {
   phoneVerifiedAt  DateTime?           @map("phone_verified_at") @db.Timestamptz(3)
   approvedAt       DateTime?           @map("approved_at") @db.Timestamptz(3)
   approvedByUserId String?             @map("approved_by_user_id") @db.Uuid
+  declinedAt       DateTime?           @map("declined_at") @db.Timestamptz(3)
+  declinedByUserId String?             @map("declined_by_user_id") @db.Uuid
+  declineReason    String?             @map("decline_reason")
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id])
   user     User     @relation(fields: [userId], references: [id])
+  client   Client?  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   invites  Invite[]
 
   @@unique([businessId, email])
   @@unique([businessId, id])
   @@index([businessId, status])
+  @@index([businessId, clientId])
   @@map("client_accounts")
 }
 
@@ -293,7 +313,9 @@ model TaxStatus {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
+  business          Business                 @relation(fields: [businessId], references: [id])
+  clientTaxStatuses ClientTaxStatus[]
+  history           ClientTaxStatusHistory[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -324,4 +346,108 @@ model Invite {
   @@index([businessId, membershipId])
   @@index([businessId, clientAccountId])
   @@map("invites")
+}
+
+/// A firm's client: a person or a business. Exists with or without a portal login (the firm can
+/// add a client first and invite them later). Archived, never deleted: records are kept 7 years.
+model Client {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  businessId     String            @map("business_id") @db.Uuid
+  accountType    ClientAccountType @default(INDIVIDUAL) @map("account_type")
+  /// Name shown in lists and search: the person's full name or the business name.
+  displayName    String            @map("display_name")
+  email          String?
+  phone          String?
+  /// Staff member responsible for the client; must be a member of the same firm.
+  assignedUserId String?           @map("assigned_user_id") @db.Uuid
+  archivedAt     DateTime?         @map("archived_at") @db.Timestamptz(3)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business         Business                 @relation(fields: [businessId], references: [id])
+  assignedMember   Membership?              @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  profile          ClientProfile?
+  accounts         ClientAccount[]
+  taxStatuses      ClientTaxStatus[]
+  taxStatusHistory ClientTaxStatusHistory[]
+
+  @@unique([businessId, id])
+  @@index([businessId, displayName])
+  @@index([businessId, email])
+  @@index([businessId, assignedUserId])
+  @@map("clients")
+}
+
+/// A client's personal or business details, edited by the firm and by the client in the portal.
+/// `*Enc` columns hold ciphertext made with the firm's KMS key, never plain values: the API
+/// encrypts and decrypts. Fields not typed here yet (I01 list) go in customFields.
+model ClientProfile {
+  clientId      String   @id @map("client_id") @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  firstName     String?  @map("first_name")
+  middleName    String?  @map("middle_name")
+  lastName      String?  @map("last_name")
+  preferredName String?  @map("preferred_name")
+  /// BUSINESS clients: legal name and entity type (LLC, S corp...).
+  businessName  String?  @map("business_name")
+  entityType    String?  @map("entity_type")
+  dobEnc        Bytes?   @map("dob_enc")
+  ssnEnc        Bytes?   @map("ssn_enc")
+  /// Last 4 digits only, for display and matching.
+  ssnLast4      String?  @map("ssn_last4")
+  addressLine1  String?  @map("address_line1")
+  addressLine2  String?  @map("address_line2")
+  city          String?
+  state         String?
+  postalCode    String?  @map("postal_code")
+  country       String   @default("US")
+  customFields  Json     @default("{}") @map("custom_fields")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client Client @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, clientId])
+  @@map("client_profiles")
+}
+
+/// A client's current tax status for one tax year. A trigger copies every change to
+/// ClientTaxStatusHistory. The tax status must be one of the firm's own and not archived.
+model ClientTaxStatus {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  clientId        String   @map("client_id") @db.Uuid
+  taxYear         Int      @map("tax_year")
+  taxStatusId     String   @map("tax_status_id") @db.Uuid
+  /// Shown to the client in the portal. Internal remarks do not belong here.
+  clientNote      String?  @map("client_note")
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client    Client    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  taxStatus TaxStatus @relation(fields: [businessId, taxStatusId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, clientId, taxYear])
+  @@index([businessId, taxStatusId])
+  @@map("client_tax_statuses")
+}
+
+/// Append-only: one row per change of a client's tax status, written by the trigger on
+/// client_tax_statuses. Read it for the history view; do not insert into it directly.
+model ClientTaxStatusHistory {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  clientId        String   @map("client_id") @db.Uuid
+  taxYear         Int      @map("tax_year")
+  taxStatusId     String   @map("tax_status_id") @db.Uuid
+  clientNote      String?  @map("client_note")
+  changedByUserId String?  @map("changed_by_user_id") @db.Uuid
+  changedAt       DateTime @default(now()) @map("changed_at") @db.Timestamptz(3)
+
+  client    Client    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  taxStatus TaxStatus @relation(fields: [businessId, taxStatusId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, clientId, taxYear, changedAt])
+  @@map("client_tax_status_history")
 }

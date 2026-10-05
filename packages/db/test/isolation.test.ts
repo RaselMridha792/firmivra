@@ -24,6 +24,8 @@ const ids = {
   legalDocA: '',
   taxStatusA: '',
   inviteA: '',
+  clientRecordA: '',
+  clientTaxStatusA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -63,8 +65,20 @@ beforeAll(async () => {
         data: { businessId: firm, userId: ownerId, role: 'OWNER', status: 'ACTIVE' },
       });
       const user = await tx.user.findUniqueOrThrow({ where: { id: clientId } });
+      const record = await tx.client.create({
+        data: { businessId: firm, displayName: 'Fake Client', assignedUserId: ownerId },
+      });
+      await tx.clientProfile.create({
+        data: { clientId: record.id, businessId: firm, firstName: 'Fake', ssnLast4: '0000' },
+      });
       const c = await tx.clientAccount.create({
-        data: { businessId: firm, userId: clientId, email: user.email, status: 'ACTIVE' },
+        data: {
+          businessId: firm,
+          userId: clientId,
+          clientId: record.id,
+          email: user.email,
+          status: 'ACTIVE',
+        },
       });
       await tx.auditLog.create({
         data: {
@@ -85,6 +99,9 @@ beforeAll(async () => {
         },
       });
       const t = await tx.taxStatus.create({ data: { businessId: firm, name: 'Filed' } });
+      const cts = await tx.clientTaxStatus.create({
+        data: { businessId: firm, clientId: record.id, taxYear: 2025, taxStatusId: t.id },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -99,6 +116,8 @@ beforeAll(async () => {
         ids.legalDocA = doc.id;
         ids.taxStatusA = t.id;
         ids.inviteA = inv.id;
+        ids.clientRecordA = record.id;
+        ids.clientTaxStatusA = cts.id;
       }
     });
   }
@@ -130,6 +149,10 @@ describe('no scope set', () => {
     expect(await unscopedApp.firmLegalDocument.findMany()).toEqual([]);
     expect(await unscopedApp.taxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.invite.findMany()).toEqual([]);
+    expect(await unscopedApp.client.findMany()).toEqual([]);
+    expect(await unscopedApp.clientProfile.findMany()).toEqual([]);
+    expect(await unscopedApp.clientTaxStatus.findMany()).toEqual([]);
+    expect(await unscopedApp.clientTaxStatusHistory.findMany()).toEqual([]);
   });
 });
 
@@ -149,6 +172,10 @@ describe('business scope: firm B', () => {
       await b().firmLegalDocument.findMany(),
       await b().taxStatus.findMany(),
       await b().invite.findMany(),
+      await b().client.findMany(),
+      await b().clientProfile.findMany(),
+      await b().clientTaxStatus.findMany(),
+      await b().clientTaxStatusHistory.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -170,6 +197,21 @@ describe('business scope: firm B', () => {
     expect(await b().taxStatus.findUnique({ where: { id: ids.taxStatusA } })).toBeNull();
     expect(await b().invite.findUnique({ where: { id: ids.inviteA } })).toBeNull();
     expect(await b().invite.findUnique({ where: { tokenHash: tokenHash(ids.firmA) } })).toBeNull();
+    expect(await b().client.findUnique({ where: { id: ids.clientRecordA } })).toBeNull();
+    expect(
+      await b().clientProfile.findUnique({ where: { clientId: ids.clientRecordA } }),
+    ).toBeNull();
+    expect(
+      await b().clientTaxStatus.findUnique({ where: { id: ids.clientTaxStatusA } }),
+    ).toBeNull();
+    expect(
+      (
+        await b().client.updateMany({
+          where: { id: ids.clientRecordA },
+          data: { displayName: 'x' },
+        })
+      ).count,
+    ).toBe(0);
   });
 
   it("cannot update or delete firm A's rows", async () => {
@@ -227,6 +269,7 @@ describe('user scope', () => {
     expect(await u.auditLog.findMany()).toEqual([]);
     expect(await u.taxStatus.findMany()).toEqual([]);
     expect(await u.invite.findMany()).toEqual([]);
+    expect(await u.client.findMany()).toEqual([]);
   });
 });
 
@@ -268,6 +311,10 @@ describe('platform scope', () => {
     expect(await p.firmLegalDocument.findMany()).toEqual([]);
     expect(await p.taxStatus.findMany()).toEqual([]);
     expect(await p.invite.findMany()).toEqual([]);
+    expect(await p.client.findMany()).toEqual([]);
+    expect(await p.clientProfile.findMany()).toEqual([]);
+    expect(await p.clientTaxStatus.findMany()).toEqual([]);
+    expect(await p.clientTaxStatusHistory.findMany()).toEqual([]);
   });
 });
 
