@@ -1,7 +1,7 @@
 # Firmivra authentication design (decided)
 
 Owner: Rasel (architecture). Builder: Tumit (API, Sprint 1 and 2). Consumers: Fahad and Nahid (sign-in screens).
-Status: decided Oct 4, 2026. Updated Oct 5 to match the R2 auth contract (`docs/api/auth.yaml`, `packages/types/src/auth`).
+Status: decided Oct 4, 2026. Updated Oct 5 to match the R2 auth contract (`docs/api/auth.yaml`, `packages/types/src/auth`), and with one session per site (`GET /api/v1/admin/me`).
 
 ## Summary
 
@@ -37,7 +37,7 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 3. The API returns a `SignInResult` whose `status` is the next step:
    - `MFA_REQUIRED`, with an opaque `session`: the screen shows the code input; the code and the `session` go to `.../auth/mfa`.
    - `MFA_SETUP_REQUIRED`, with a `session` (first sign-in, or after activation): `.../auth/mfa/setup` returns the QR code, then the first code goes to `.../auth/mfa`.
-   - `SIGNED_IN`, with `GET /me`-style user data. `.../auth/mfa` also answers with `SIGNED_IN` once the code is right.
+   - `SIGNED_IN`, with the user data of `GET /api/v1/me` (firm site) or `GET /api/v1/admin/me` (Super Admin site). `.../auth/mfa` also answers with `SIGNED_IN` once the code is right.
 4. On `SIGNED_IN` the API sets three cookies. Each site has its own names, so the admin and app sites never share a session:
 
    | Cookie | Firm site | Super Admin site | Path | Lifetime | SameSite |
@@ -52,7 +52,11 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 
 ## Every API request
 
-1. `AuthGuard` reads the access cookie (or `Authorization: Bearer` for tests), verifies it with `aws-jwt-verify` against the right pool, and gets the Cognito `sub`.
+1. `AuthGuard` reads the access cookie (or `Authorization: Bearer` for tests), verifies it with `aws-jwt-verify` against the right pool, and gets the Cognito `sub`. Each site has its own session, chosen by the route, never by trying both:
+   - `/api/v1/admin/*` (Super Admin site) reads only `fv_admin_access`, `fv_admin_id` and `fv_admin_refresh`, and accepts only Super Admins (admins pool, with a `PlatformAdmin` row).
+   - Every other route reads only `fv_access`, `fv_id` and `fv_refresh`, and refuses a Super Admin session, so Super Admin never reaches firm data through firm or portal routes (see "Super Admin access to a firm").
+   - The same rule applies to a `Bearer` token in tests: its pool must match the route.
+   - Who is signed in: `GET /api/v1/me` on the firm site, `GET /api/v1/admin/me` on the Super Admin site.
 2. `TenantGuard` resolves the business from the route or host (`{slug}` or the selected firm), loads the `Membership` or `ClientAccount` for that `sub` and business, and rejects with 404 if none.
 3. The request gets a tenant context `{ userId, businessId, role, kind: staff | client | admin }`. Roles come from the database on every request (cache at most 60 seconds), so a removed or deactivated user loses access at once, not at token expiry.
 4. `@Roles()` on every controller; default deny.
