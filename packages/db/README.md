@@ -41,6 +41,9 @@ Rules:
 - Firm Terms and Privacy (`firm_legal_documents`) are insert-only: a change is a new version.
 - Clients: `clients` is the firm's record (with or without a portal login); `client_accounts.client_id` links logins to it (primary, spouse, authorized). Clients, profiles and tax statuses are archived or updated, never deleted (retention). `*_enc` columns hold ciphertext made with the firm's KMS key, never plain values.
 - `client_tax_status_history` is written by a trigger on every change of `client_tax_statuses`; the app only reads it. An archived tax status cannot be assigned.
+- Engagements (one service, one period, one client) are never deleted. `status` is the lifecycle (pending, active, completed, cancelled); `stage` must be one of the service's `stages`. A trigger writes `engagement_status_history` on every status or stage change, keeps the client and service fixed, and allows reactivating a cancelled engagement only within 90 days.
+- Tasks and internal notes belong to a client and optionally to one of that client's engagements (a three-column foreign key enforces it). Neither is ever shown to clients.
+- Workspace reports: only drafts can be deleted; a published report needs `published_at`.
 - Invites (staff membership or client account, 7 days at most) store only the token's SHA-256. After insert, only `accepted_at` or `revoked_at` can be set, once; a revoked or expired invite cannot be accepted; nobody deletes invites.
 
 ## Commands
