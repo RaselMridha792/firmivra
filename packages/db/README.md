@@ -33,7 +33,7 @@ Rules:
 - Use `withScope` for multi-step work and for raw SQL. Raw queries on a scoped client are not scoped, so they see nothing.
 - New identities (`users`) are created in `platform` scope, then linked to a firm in `business` scope.
 - The audit log is append-only: the app role can insert and read, not update or delete.
-- Support access grants: the platform only requests; an ACTIVE OWNER of the firm approves in business scope with `expires_at` within 72 hours; approvals cannot be edited and revocation is one-way; nobody deletes grants.
+- Support access grants: the platform only requests; an ACTIVE OWNER of the firm approves in business scope with `expires_at` within 72 hours by the database clock (up to 1 minute over, from a fast API clock, is trimmed to exactly 72 hours); approvals cannot be edited and revocation is one-way; nobody deletes grants.
 - Users can be updated only in platform scope or by the person themself (who cannot change id, Cognito sub, pool or email). Business status and slug change only in platform scope.
 - Scopes use `set_config(..., true)` inside a transaction, so they never outlive it on a pooled connection.
 - Emails in `users` and `client_accounts` are stored lower-case (a CHECK constraint enforces it).
@@ -41,6 +41,9 @@ Rules:
 - Firm Terms and Privacy (`firm_legal_documents`) are insert-only: a change is a new version.
 - Clients: `clients` is the firm's record (with or without a portal login); `client_accounts.client_id` links logins to it (primary, spouse, authorized). Clients, profiles and tax statuses are archived or updated, never deleted (retention). `*_enc` columns hold ciphertext made with the firm's KMS key, never plain values.
 - `client_tax_status_history` is written by a trigger on every change of `client_tax_statuses`; the app only reads it. An archived tax status cannot be assigned.
+- Engagements (one service, one period, one client) are never deleted. `status` is the lifecycle (pending, active, completed, cancelled); `stage` must be one of the service's `stages`. A trigger writes `engagement_status_history` on every status or stage change, keeps the client and service fixed, and allows reactivating a cancelled engagement only within 90 days.
+- Tasks and internal notes belong to a client and optionally to one of that client's engagements (a three-column foreign key enforces it). Neither is ever shown to clients.
+- Workspace reports: only drafts can be deleted; a published report needs `published_at`.
 - Invites (staff membership or client account, 7 days at most) store only the token's SHA-256. After insert, only `accepted_at` or `revoked_at` can be set, once; a revoked or expired invite cannot be accepted; nobody deletes invites.
 
 ## Commands
