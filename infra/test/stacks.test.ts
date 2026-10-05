@@ -1,16 +1,16 @@
-// Pins the decided dev settings (docs/SETUP-LOG.md) and the cdk-nag result.
-// Runs without AWS credentials: lookups (CloudFront prefix list) get CDK's placeholder values.
-import { App, Tags, Validations } from 'aws-cdk-lib';
+// Pins the decided dev settings (docs/SETUP-LOG.md) and the cdk-nag result, for the current
+// CloudFront-domain setup and for the later switch to dev.firmivra.com (config only).
+import { App, type Stack, Tags, Validations } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { AwsSolutionsChecks } from 'cdk-nag';
 import { describe, expect, it } from 'vitest';
-import { configFor } from '../src/config';
+import { configFor, DEV_FIRMIVRA_COM, type EnvConfig } from '../src/config';
 import { addNagSuppressions } from '../src/nag';
 import { createStacks } from '../src/stacks';
 
-function build(imageTag?: string) {
+function build(imageTag?: string, overrides: Partial<EnvConfig> = {}) {
   const app = new App({ context: { env: 'dev' } });
-  const config = configFor('dev');
+  const config = configFor('dev', overrides);
   const stacks = createStacks(app, config, imageTag);
   Tags.of(app).add('project', 'firmivra');
   Tags.of(app).add('env', 'dev');
@@ -20,12 +20,17 @@ function build(imageTag?: string) {
 }
 
 const { app, stacks } = build();
-const t = (stack: keyof typeof stacks) => Template.fromStack(stacks[stack]);
+const tpl = (stack: Stack | undefined) => {
+  if (!stack) throw new Error('stack not created');
+  return Template.fromStack(stack);
+};
+const t = (name: 'network' | 'data' | 'auth' | 'app' | 'ci') => tpl(stacks[name]);
 
 describe('cdk-nag', () => {
-  it('has no unacknowledged findings (services at 0 and with an image tag)', () => {
+  it('has no unacknowledged findings: services at 0, with an image tag, and with the custom domain', () => {
     expect(() => app.synth()).not.toThrow();
     expect(() => build('abc1234').app.synth()).not.toThrow();
+    expect(() => build(undefined, { customDomain: DEV_FIRMIVRA_COM }).app.synth()).not.toThrow();
   });
 });
 
@@ -37,7 +42,7 @@ describe('network', () => {
     net.resourceCountIs('AWS::EC2::FlowLog', 1);
   });
 
-  it('lets only CloudFront reach the load balancer, on 443', () => {
+  it('lets only traffic from inside the VPC reach the load balancer, on port 80', () => {
     const net = t('network');
     const [albId] = Object.keys(
       net.findResources('AWS::EC2::SecurityGroup', {
@@ -49,12 +54,17 @@ describe('network', () => {
         Properties: { GroupId: { 'Fn::GetAtt': [albId, 'GroupId'] } },
       }),
     ) as { Properties: Record<string, unknown> }[];
-    expect(ingress.map((r) => r.Properties)).toEqual([
-      expect.objectContaining({
-        FromPort: 443,
-        ToPort: 443,
-        SourcePrefixListId: expect.any(String),
+    const inline = Object.values(
+      net.findResources('AWS::EC2::SecurityGroup', {
+        Properties: { GroupName: 'firmivra-dev-alb' },
       }),
+    ).flatMap(
+      (g) =>
+        (g as { Properties: { SecurityGroupIngress?: unknown[] } }).Properties
+          .SecurityGroupIngress ?? [],
+    );
+    expect([...ingress.map((r) => r.Properties), ...inline]).toEqual([
+      expect.objectContaining({ FromPort: 80, ToPort: 80, CidrIp: '10.20.0.0/16' }),
     ]);
   });
 });
@@ -140,7 +150,7 @@ describe('auth (docs/AUTH-DESIGN.md)', () => {
   });
 });
 
-describe('app', () => {
+describe('app: CloudFront default domains (current)', () => {
   it('runs api and web on Fargate Spot at 0.25 vCPU / 0.5 GB, x86', () => {
     for (const family of ['firmivra-dev-api', 'firmivra-dev-web', 'firmivra-dev-migrate']) {
       t('app').hasResourceProperties('AWS::ECS::TaskDefinition', {
@@ -152,15 +162,12 @@ describe('app', () => {
     }
     t('app').hasResourceProperties('AWS::ECS::Service', {
       CapacityProviderStrategy: [{ CapacityProvider: 'FARGATE_SPOT', Weight: 1 }],
-      NetworkConfiguration: {
-        AwsvpcConfiguration: Match.objectLike({ AssignPublicIp: 'ENABLED' }),
-      },
     });
   });
 
   it('starts services at 0 tasks without an image tag, 1 with one', () => {
     t('app').allResourcesProperties('AWS::ECS::Service', { DesiredCount: 0 });
-    Template.fromStack(build('abc1234').stacks.app).allResourcesProperties('AWS::ECS::Service', {
+    tpl(build('abc1234').stacks.app).allResourcesProperties('AWS::ECS::Service', {
       DesiredCount: 1,
     });
   });
@@ -170,24 +177,108 @@ describe('app', () => {
     t('network').allResourcesProperties('AWS::Logs::LogGroup', { RetentionInDays: 14 });
   });
 
-  it('serves the three sites through CloudFront with /api/* to the API', () => {
-    t('app').hasResourceProperties('AWS::CloudFront::Distribution', {
-      DistributionConfig: Match.objectLike({
-        Aliases: ['admin.dev.firmivra.com', 'app.dev.firmivra.com', 'portal.dev.firmivra.com'],
-        CacheBehaviors: Match.arrayWith([Match.objectLike({ PathPattern: '/api/*' })]),
-      }),
+  it('has an internal load balancer on HTTP 80 that refuses requests without the origin header', () => {
+    t('app').hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', {
+      Scheme: 'internal',
     });
-  });
-
-  it('refuses load balancer requests without the CloudFront origin header', () => {
     t('app').hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
-      Port: 443,
+      Port: 80,
+      Protocol: 'HTTP',
       DefaultActions: [
         Match.objectLike({
           Type: 'fixed-response',
           FixedResponseConfig: Match.objectLike({ StatusCode: '403' }),
         }),
       ],
+    });
+  });
+
+  it('has three distributions on *.cloudfront.net, each with /api/* to the API, through one VPC origin', () => {
+    t('app').resourceCountIs('AWS::CloudFront::Distribution', 3);
+    t('app').resourceCountIs('AWS::CloudFront::VpcOrigin', 1);
+    for (const d of Object.values(t('app').findResources('AWS::CloudFront::Distribution')) as {
+      Properties: { DistributionConfig: Record<string, unknown> };
+    }[]) {
+      const config = d.Properties.DistributionConfig;
+      expect(config['Aliases']).toBeUndefined();
+      expect(config['CacheBehaviors']).toEqual(
+        expect.arrayContaining([expect.objectContaining({ PathPattern: '/api/*' })]),
+      );
+      expect(JSON.stringify(config['Origins'])).toContain('VpcOriginConfig');
+    }
+  });
+
+  it('creates no certificate, no DNS records and no email stack', () => {
+    t('app').resourceCountIs('AWS::CertificateManager::Certificate', 0);
+    t('app').resourceCountIs('AWS::Route53::RecordSet', 0);
+    expect(stacks.email).toBeUndefined();
+  });
+
+  it('gives the web app its host map and both apps their site URLs from the distributions', () => {
+    const web = Object.values(
+      t('app').findResources('AWS::ECS::TaskDefinition', {
+        Properties: { Family: 'firmivra-dev-web' },
+      }),
+    )[0] as {
+      Properties: { ContainerDefinitions: { Environment: { Name: string; Value: unknown }[] }[] };
+    };
+    const env = Object.fromEntries(
+      web.Properties.ContainerDefinitions[0]!.Environment.map((e) => [e.Name, e.Value]),
+    );
+    for (const key of ['ADMIN_HOST', 'APP_HOST', 'PORTAL_HOST']) {
+      expect(JSON.stringify(env[key])).toContain('DomainName');
+    }
+    expect(JSON.stringify(env['PORTAL_BASE_URL'])).toContain('https://');
+    t('app').hasOutput('AdminUrl', {});
+    t('app').hasOutput('AppUrl', {});
+    t('app').hasOutput('PortalUrl', {});
+  });
+});
+
+describe('app: switching to dev.firmivra.com is a config change only', () => {
+  const custom = build(undefined, { customDomain: DEV_FIRMIVRA_COM }).stacks;
+
+  it('adds the certificate, the aliases and the DNS records', () => {
+    const a = tpl(custom.app);
+    a.resourceCountIs('AWS::CertificateManager::Certificate', 1);
+    for (const host of ['admin', 'app', 'portal'].map((s) => `${s}.dev.firmivra.com`)) {
+      a.hasResourceProperties('AWS::CloudFront::Distribution', {
+        DistributionConfig: Match.objectLike({
+          Aliases: [host],
+          ViewerCertificate: Match.objectLike({ MinimumProtocolVersion: 'TLSv1.2_2021' }),
+        }),
+      });
+    }
+    a.resourceCountIs('AWS::Route53::RecordSet', 6);
+  });
+
+  it('adds the SES email stack and points the apps at the custom hosts', () => {
+    expect(custom.email).toBeDefined();
+    const web = Object.values(
+      tpl(custom.app).findResources('AWS::ECS::TaskDefinition', {
+        Properties: { Family: 'firmivra-dev-web' },
+      }),
+    )[0] as {
+      Properties: { ContainerDefinitions: { Environment: { Name: string; Value: unknown }[] }[] };
+    };
+    const env = Object.fromEntries(
+      web.Properties.ContainerDefinitions[0]!.Environment.map((e) => [e.Name, e.Value]),
+    );
+    expect(env).toMatchObject({
+      ADMIN_HOST: 'admin.dev.firmivra.com',
+      APP_HOST: 'app.dev.firmivra.com',
+      PORTAL_HOST: 'portal.dev.firmivra.com',
+      PORTAL_BASE_URL: 'https://portal.dev.firmivra.com',
+    });
+    tpl(custom.data).hasResourceProperties('AWS::S3::Bucket', {
+      BucketName: 'firmivra-dev-documents-778127141557',
+      CorsConfiguration: {
+        CorsRules: [
+          Match.objectLike({
+            AllowedOrigins: ['https://portal.dev.firmivra.com', 'https://app.dev.firmivra.com'],
+          }),
+        ],
+      },
     });
   });
 });

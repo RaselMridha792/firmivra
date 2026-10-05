@@ -92,18 +92,30 @@ export function addNagSuppressions(
     'S1',
     'This bucket is itself the access-log destination for the load balancer.',
   );
-  const distribution = app.node.findChild('Distribution');
-  ack(
-    distribution,
-    'CFR1',
-    'No geo restriction: firms are in the US and the team works from Bangladesh.',
-  );
-  ack(distribution, 'CFR2', 'AWS WAF (about $8/month) is not used in dev; prod gets a web ACL.');
-  ack(
-    distribution,
-    'CFR3',
-    'Dev relies on the load balancer access logs; CloudFront logs are enabled in prod.',
-  );
+  for (const distribution of Object.values(app.distributions)) {
+    ack(
+      distribution,
+      'CFR1',
+      'No geo restriction: firms are in the US and the team works from Bangladesh.',
+    );
+    ack(
+      distribution,
+      'CFR2',
+      'AWS WAF (about $8/month per web ACL) is not used in dev; prod gets a web ACL.',
+    );
+    ack(
+      distribution,
+      'CFR3',
+      'Dev relies on the load balancer access logs; CloudFront logs are enabled in prod.',
+    );
+    if (!config.customDomain) {
+      ack(
+        distribution,
+        'CFR4',
+        'The default *.cloudfront.net certificate does not allow choosing the minimum TLS version; TLSv1.2_2021 is set once the custom domain certificate is used.',
+      );
+    }
+  }
 
   // ---------- CI ----------
   const role = ci.deployRole;

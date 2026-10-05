@@ -19,27 +19,36 @@ import type { DataStack } from './data-stack';
 import type { EmailStack } from './email-stack';
 import type { NetworkStack } from './network-stack';
 
+export type Site = 'admin' | 'app' | 'portal';
+const SITES: Site[] = ['admin', 'app', 'portal'];
+
 export interface AppStackProps extends StackProps {
   config: EnvConfig;
   network: NetworkStack;
   data: DataStack;
   auth: AuthStack;
-  email: EmailStack;
+  /** Only with a custom domain; without it the API logs emails instead of sending them. */
+  email?: EmailStack;
   /** Image tag (commit sha) to run. Without one the services stay at 0 tasks (first deploy). */
   imageTag?: string;
 }
 
 /**
  * The running app: ECR repositories, an ECS cluster on Fargate (Spot in dev), the API and web
- * services behind one load balancer, a one-off migration task, and CloudFront for
- * admin., app. and portal.<domain> with /api/* going to the API.
- * The certificate is validated through Route 53, so this stack needs the domain delegated first.
+ * services behind one internal load balancer, a one-off migration task, and one CloudFront
+ * distribution per site (admin, app, portal), each sending /api/* to the API.
+ * CloudFront reaches the load balancer through a VPC origin: no public load balancer, no
+ * certificate needed on it. Without config.customDomain the sites use their *.cloudfront.net
+ * domains; with it they get the certificate, aliases and DNS records.
  */
 export class AppStack extends Stack {
   readonly repositories: Record<'api' | 'web' | 'migrate', ecr.Repository>;
   readonly cluster: ecs.Cluster;
   readonly migrateTask: ecs.FargateTaskDefinition;
   readonly migrateLogGroup: logs.LogGroup;
+  readonly distributions: Record<Site, cloudfront.Distribution>;
+  /** Host name of each site (custom host, or the CloudFront domain). */
+  readonly siteHosts: Record<Site, string>;
 
   constructor(scope: Construct, id: string, props: AppStackProps) {
     super(scope, id, props);
@@ -47,16 +56,7 @@ export class AppStack extends Stack {
     const name = (n: string) => resourceName(config, n);
     const tag = props.imageTag ?? 'none';
     const desiredCount = props.imageTag ? 1 : 0;
-
-    const zone = route53.PublicHostedZone.fromHostedZoneAttributes(this, 'Zone', {
-      hostedZoneId: config.hostedZoneId,
-      zoneName: config.domain,
-    });
-    const certificate = new acm.Certificate(this, 'Certificate', {
-      domainName: config.domain,
-      subjectAlternativeNames: [`*.${config.domain}`],
-      validation: acm.CertificateValidation.fromDns(zone),
-    });
+    const domain = config.customDomain;
 
     // ---------- Images ----------
     const repository = (key: 'api' | 'web' | 'migrate') =>
@@ -73,6 +73,141 @@ export class AppStack extends Stack {
       migrate: repository('migrate'),
     };
 
+    // ---------- Internal load balancer, only reachable through CloudFront ----------
+    const originSecret = new secretsmanager.Secret(this, 'OriginVerifySecret', {
+      secretName: `firmivra/${config.envName}/cloudfront/origin-verify`,
+      description: 'Header value CloudFront sends and the load balancer requires',
+      generateSecretString: { excludePunctuation: true, passwordLength: 48 },
+    });
+    const originHeader = originSecret.secretValue.unsafeUnwrap();
+
+    const albLogs = new s3.Bucket(this, 'AlbLogs', {
+      bucketName: `${name('alb-logs')}-${this.account}`,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      lifecycleRules: [{ expiration: Duration.days(30) }],
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
+      loadBalancerName: name('alb'),
+      vpc: network.vpc,
+      internetFacing: false,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      securityGroup: network.albSg,
+      dropInvalidHeaderFields: true,
+    });
+    alb.logAccessLogs(albLogs, 'alb');
+    const listener = alb.addListener('Http', {
+      port: 80,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      open: false,
+      defaultAction: elbv2.ListenerAction.fixedResponse(403, {
+        contentType: 'text/plain',
+        messageBody: 'Forbidden',
+      }),
+    });
+
+    // ---------- CloudFront: one distribution per site ----------
+    const vpcOrigin = new cloudfront.VpcOrigin(this, 'AlbVpcOrigin', {
+      vpcOriginName: name('alb'),
+      endpoint: cloudfront.VpcOriginEndpoint.applicationLoadBalancer(alb),
+      httpPort: 80,
+      protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+    });
+    const certificate = domain
+      ? new acm.Certificate(this, 'Certificate', {
+          domainName: domain.zoneName,
+          subjectAlternativeNames: [`*.${domain.zoneName}`],
+          validation: acm.CertificateValidation.fromDns(
+            route53.PublicHostedZone.fromHostedZoneAttributes(this, 'Zone', {
+              hostedZoneId: domain.hostedZoneId,
+              zoneName: domain.zoneName,
+            }),
+          ),
+        })
+      : undefined;
+
+    const distribution = (site: Site) => {
+      const origin = origins.VpcOrigin.withVpcOrigin(vpcOrigin, {
+        customHeaders: { 'X-Origin-Verify': originHeader },
+        readTimeout: Duration.seconds(30),
+      });
+      const dynamic: cloudfront.BehaviorOptions = {
+        origin,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        // Host is forwarded: the web app picks the site from it (ADMIN_HOST, APP_HOST, PORTAL_HOST).
+        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
+        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
+      };
+      return new cloudfront.Distribution(this, `${site}Distribution`, {
+        comment: name(site),
+        ...(domain && certificate
+          ? {
+              domainNames: [domain.hosts[site]],
+              certificate,
+              minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
+            }
+          : {}),
+        httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
+        priceClass: cloudfront.PriceClass.PRICE_CLASS_200,
+        defaultBehavior: dynamic,
+        additionalBehaviors: {
+          '/api/*': dynamic,
+          '/_next/static/*': {
+            origin,
+            viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+            cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+            responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
+          },
+        },
+      });
+    };
+    this.distributions = {
+      admin: distribution('admin'),
+      app: distribution('app'),
+      portal: distribution('portal'),
+    };
+    this.siteHosts = {
+      admin: domain?.hosts.admin ?? this.distributions.admin.distributionDomainName,
+      app: domain?.hosts.app ?? this.distributions.app.distributionDomainName,
+      portal: domain?.hosts.portal ?? this.distributions.portal.distributionDomainName,
+    };
+    if (domain) {
+      const zone = route53.PublicHostedZone.fromHostedZoneAttributes(this, 'SitesZone', {
+        hostedZoneId: domain.hostedZoneId,
+        zoneName: domain.zoneName,
+      });
+      for (const site of SITES) {
+        const target = route53.RecordTarget.fromAlias(
+          new targets.CloudFrontTarget(this.distributions[site]),
+        );
+        new route53.ARecord(this, `${site}A`, { zone, recordName: domain.hosts[site], target });
+        new route53.AaaaRecord(this, `${site}Aaaa`, {
+          zone,
+          recordName: domain.hosts[site],
+          target,
+        });
+      }
+    }
+
+    const sites = {
+      ADMIN_BASE_URL: `https://${this.siteHosts.admin}`,
+      APP_BASE_URL: `https://${this.siteHosts.app}`,
+      PORTAL_BASE_URL: `https://${this.siteHosts.portal}`,
+    };
+    const database = {
+      DB_HOST: data.db.dbInstanceEndpointAddress,
+      DB_PORT: data.db.dbInstanceEndpointPort,
+      DB_NAME: 'firmivra',
+    };
+    const platform = {
+      cpuArchitecture: ecs.CpuArchitecture.X86_64,
+      operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+    };
+
     // ---------- Cluster and logs ----------
     this.cluster = new ecs.Cluster(this, 'Cluster', {
       clusterName: name('cluster'),
@@ -86,21 +221,6 @@ export class AppStack extends Stack {
         retention: logs.RetentionDays.TWO_WEEKS,
         removalPolicy: RemovalPolicy.DESTROY,
       });
-
-    const sites = {
-      APP_BASE_URL: `https://app.${config.domain}`,
-      PORTAL_BASE_URL: `https://portal.${config.domain}`,
-      ADMIN_BASE_URL: `https://admin.${config.domain}`,
-    };
-    const database = {
-      DB_HOST: data.db.dbInstanceEndpointAddress,
-      DB_PORT: data.db.dbInstanceEndpointPort,
-      DB_NAME: 'firmivra',
-    };
-    const platform = {
-      cpuArchitecture: ecs.CpuArchitecture.X86_64,
-      operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
-    };
 
     // ---------- API ----------
     const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', {
@@ -132,9 +252,13 @@ export class AppStack extends Stack {
         S3_DOCUMENTS_BUCKET: data.documentsBucket.bucketName,
         KMS_MODE: 'kms',
         DOCUMENTS_KMS_KEY_ID: data.documentsKey.keyArn,
-        EMAIL_MODE: 'ses',
-        EMAIL_FROM: email.fromAddress,
-        SES_CONFIGURATION_SET: email.configurationSet.configurationSetName,
+        ...(email
+          ? {
+              EMAIL_MODE: 'ses',
+              EMAIL_FROM: email.fromAddress,
+              SES_CONFIGURATION_SET: email.configurationSet.configurationSetName,
+            }
+          : { EMAIL_MODE: 'log' }),
         SMS_MODE: 'sns',
       },
       secrets: {
@@ -150,7 +274,7 @@ export class AppStack extends Stack {
       new iam.PolicyStatement({
         sid: 'TenantDocuments',
         actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:AbortMultipartUpload'],
-        resources: [`arn:aws:s3:::${resourceName(config, 'documents')}-${this.account}/tenant/*`],
+        resources: [`arn:aws:s3:::${name('documents')}-${this.account}/tenant/*`],
       }),
     );
     apiRole.addToPrincipalPolicy(
@@ -160,7 +284,7 @@ export class AppStack extends Stack {
         resources: [data.documentsKey.keyArn],
       }),
     );
-    email.identity.grantSendEmail(apiRole);
+    email?.identity.grantSendEmail(apiRole);
     apiRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         sid: 'SmsToPhoneNumbers',
@@ -194,7 +318,15 @@ export class AppStack extends Stack {
       image: ecs.ContainerImage.fromEcrRepository(this.repositories.web, tag),
       portMappings: [{ containerPort: 3000 }],
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'web', logGroup: logGroup('web') }),
-      environment: { PORT: '3000', HOSTNAME: '0.0.0.0', NEXT_TELEMETRY_DISABLED: '1', ...sites },
+      environment: {
+        PORT: '3000',
+        HOSTNAME: '0.0.0.0',
+        NEXT_TELEMETRY_DISABLED: '1',
+        ADMIN_HOST: this.siteHosts.admin,
+        APP_HOST: this.siteHosts.app,
+        PORTAL_HOST: this.siteHosts.portal,
+        ...sites,
+      },
     });
 
     // ---------- Migration (one-off task, started by the deploy pipeline) ----------
@@ -207,7 +339,10 @@ export class AppStack extends Stack {
     this.migrateLogGroup = logGroup('migrate');
     this.migrateTask.addContainer('migrate', {
       image: ecs.ContainerImage.fromEcrRepository(this.repositories.migrate, tag),
-      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'migrate', logGroup: this.migrateLogGroup }),
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'migrate',
+        logGroup: this.migrateLogGroup,
+      }),
       environment: { ...database, DB_APP_USER: 'firmivra_app' },
       secrets: {
         DB_OWNER_USER: ecs.Secret.fromSecretsManager(data.ownerSecret, 'username'),
@@ -241,43 +376,6 @@ export class AppStack extends Stack {
     const apiService = service('api', apiTask, network.apiSg);
     const webService = service('web', webTask, network.webSg);
 
-    // ---------- Load balancer: only CloudFront, only with the origin secret ----------
-    const originSecret = new secretsmanager.Secret(this, 'OriginVerifySecret', {
-      secretName: `firmivra/${config.envName}/cloudfront/origin-verify`,
-      description: 'Header value CloudFront sends and the load balancer requires',
-      generateSecretString: { excludePunctuation: true, passwordLength: 48 },
-    });
-    const originHeader = originSecret.secretValue.unsafeUnwrap();
-
-    const albLogs = new s3.Bucket(this, 'AlbLogs', {
-      bucketName: `${name('alb-logs')}-${this.account}`,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
-      lifecycleRules: [{ expiration: Duration.days(30) }],
-      removalPolicy: RemovalPolicy.RETAIN,
-    });
-    const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
-      loadBalancerName: name('alb'),
-      vpc: network.vpc,
-      internetFacing: true,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      securityGroup: network.albSg,
-      dropInvalidHeaderFields: true,
-    });
-    alb.logAccessLogs(albLogs, 'alb');
-
-    const listener = alb.addListener('Https', {
-      port: 443,
-      protocol: elbv2.ApplicationProtocol.HTTPS,
-      certificates: [certificate],
-      sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS,
-      open: false,
-      defaultAction: elbv2.ListenerAction.fixedResponse(403, {
-        contentType: 'text/plain',
-        messageBody: 'Forbidden',
-      }),
-    });
     const targetGroup = (key: string, port: number, healthPath: string) =>
       new elbv2.ApplicationTargetGroup(this, `${key}Targets`, {
         targetGroupName: name(key),
@@ -304,61 +402,15 @@ export class AppStack extends Stack {
       action: elbv2.ListenerAction.forward([webTargets]),
     });
 
-    const originHost = `origin.${config.domain}`;
-    new route53.ARecord(this, 'OriginRecord', {
-      zone,
-      recordName: originHost,
-      target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(alb)),
-    });
-
-    // ---------- CloudFront ----------
-    const origin = new origins.HttpOrigin(originHost, {
-      protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
-      originSslProtocols: [cloudfront.OriginSslPolicy.TLS_V1_2],
-      customHeaders: { 'X-Origin-Verify': originHeader },
-      readTimeout: Duration.seconds(30),
-    });
-    const dynamic: cloudfront.BehaviorOptions = {
-      origin,
-      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-      allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
-      cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
-      // Host is forwarded: the web app picks admin/app/portal from it.
-      originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
-      responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
-    };
-    const siteNames = ['admin', 'app', 'portal'].map((s) => `${s}.${config.domain}`);
-    const distribution = new cloudfront.Distribution(this, 'Distribution', {
-      comment: name('sites'),
-      domainNames: siteNames,
-      certificate,
-      minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
-      httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
-      priceClass: cloudfront.PriceClass.PRICE_CLASS_200,
-      defaultBehavior: dynamic,
-      additionalBehaviors: {
-        '/api/*': dynamic,
-        '/_next/static/*': {
-          origin,
-          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-          cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
-          responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
-        },
-      },
-    });
-    for (const site of siteNames) {
-      const target = route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(distribution));
-      new route53.ARecord(this, `${site}-A`, { zone, recordName: site, target });
-      new route53.AaaaRecord(this, `${site}-AAAA`, { zone, recordName: site, target });
-    }
-
-    // ---------- Outputs for the deploy pipeline ----------
+    // ---------- Outputs for people and the deploy pipeline ----------
+    new CfnOutput(this, 'AdminUrl', { value: sites.ADMIN_BASE_URL });
+    new CfnOutput(this, 'AppUrl', { value: sites.APP_BASE_URL });
+    new CfnOutput(this, 'PortalUrl', { value: sites.PORTAL_BASE_URL });
     new CfnOutput(this, 'ClusterName', { value: this.cluster.clusterName });
     new CfnOutput(this, 'MigrateTaskDefinition', { value: this.migrateTask.family });
     new CfnOutput(this, 'TaskSubnets', {
       value: network.vpc.selectSubnets({ subnetType: ec2.SubnetType.PUBLIC }).subnetIds.join(','),
     });
     new CfnOutput(this, 'MigrateSecurityGroup', { value: network.apiSg.securityGroupId });
-    new CfnOutput(this, 'DistributionDomain', { value: distribution.distributionDomainName });
   }
 }

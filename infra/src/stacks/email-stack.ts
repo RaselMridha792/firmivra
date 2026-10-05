@@ -23,10 +23,12 @@ export class EmailStack extends Stack {
   constructor(scope: Construct, id: string, props: EmailStackProps) {
     super(scope, id, props);
     const { config } = props;
+    const domain = config.customDomain;
+    if (!domain) throw new Error('The email stack needs config.customDomain (a delegated zone).');
 
     const zone = route53.PublicHostedZone.fromHostedZoneAttributes(this, 'Zone', {
-      hostedZoneId: config.hostedZoneId,
-      zoneName: config.domain,
+      hostedZoneId: domain.hostedZoneId,
+      zoneName: domain.zoneName,
     });
 
     this.configurationSet = new ses.ConfigurationSet(this, 'ConfigurationSet', {
@@ -39,17 +41,17 @@ export class EmailStack extends Stack {
 
     this.identity = new ses.EmailIdentity(this, 'DomainIdentity', {
       identity: ses.Identity.publicHostedZone(zone),
-      mailFromDomain: `mail.${config.domain}`,
+      mailFromDomain: `mail.${domain.zoneName}`,
       configurationSet: this.configurationSet,
     });
 
     new route53.TxtRecord(this, 'Dmarc', {
       zone,
-      recordName: `_dmarc.${config.domain}`,
+      recordName: `_dmarc.${domain.zoneName}`,
       values: ['v=DMARC1; p=quarantine; adkim=s; aspf=s'],
       ttl: Duration.hours(1),
     });
 
-    this.fromAddress = `no-reply@${config.domain}`;
+    this.fromAddress = `no-reply@${domain.zoneName}`;
   }
 }

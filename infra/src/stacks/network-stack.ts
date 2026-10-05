@@ -4,6 +4,8 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import type { Construct } from 'constructs';
 import { type EnvConfig, resourceName } from '../config';
 
+const VPC_CIDR = '10.20.0.0/16';
+
 export interface NetworkStackProps extends StackProps {
   config: EnvConfig;
 }
@@ -32,7 +34,7 @@ export class NetworkStack extends Stack {
 
     this.vpc = new ec2.Vpc(this, 'Vpc', {
       vpcName: resourceName(config, 'vpc'),
-      ipAddresses: ec2.IpAddresses.cidr('10.20.0.0/16'),
+      ipAddresses: ec2.IpAddresses.cidr(VPC_CIDR),
       availabilityZones: config.availabilityZones,
       natGateways: 0,
       subnetConfiguration: [
@@ -55,20 +57,17 @@ export class NetworkStack extends Stack {
       },
     });
 
-    // Only CloudFront reaches the load balancer (plus a secret header checked by the listener).
-    const cloudFront = ec2.PrefixList.fromLookup(this, 'CloudFrontOrigin', {
-      prefixListName: 'com.amazonaws.global.cloudfront.origin-facing',
-    });
+    // Internal load balancer: CloudFront reaches it through a VPC origin, inside the VPC only.
     this.albSg = new ec2.SecurityGroup(this, 'AlbSg', {
       vpc: this.vpc,
       securityGroupName: resourceName(config, 'alb'),
-      description: 'Load balancer: HTTPS from CloudFront only',
+      description: 'Internal load balancer: HTTP from the CloudFront VPC origin (inside the VPC)',
       allowAllOutbound: false,
     });
     this.albSg.addIngressRule(
-      ec2.Peer.prefixList(cloudFront.prefixListId),
-      ec2.Port.tcp(443),
-      'HTTPS from CloudFront',
+      ec2.Peer.ipv4(VPC_CIDR),
+      ec2.Port.tcp(80),
+      'HTTP from the CloudFront VPC origin network interfaces',
     );
 
     // Tasks have public IPs for outbound calls (Cognito, SES, Stripe) but accept traffic only from the ALB.

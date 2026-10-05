@@ -31,11 +31,14 @@ export function createStacks(app: App, config: EnvConfig, imageTag?: string) {
     terminationProtection: true,
     description: 'Firmivra: Cognito user pools (staff, clients, admins)',
   });
-  const email = new EmailStack(app, id('email'), {
-    env,
-    config,
-    description: 'Firmivra: SES domain identity, DKIM, MAIL FROM, DMARC',
-  });
+  // SES needs a verified domain: only with a custom domain (emails are logged until then).
+  const email = config.customDomain
+    ? new EmailStack(app, id('email'), {
+        env,
+        config,
+        description: 'Firmivra: SES domain identity, DKIM, MAIL FROM, DMARC',
+      })
+    : undefined;
   const appStack = new AppStack(app, id('app'), {
     env,
     config,

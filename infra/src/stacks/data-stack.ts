@@ -99,7 +99,13 @@ export class DataStack extends Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.PUT, s3.HttpMethods.HEAD],
-          allowedOrigins: [`https://portal.${config.domain}`, `https://app.${config.domain}`],
+          // Browser uploads come from the portal and the firm workspace.
+          allowedOrigins: config.customDomain
+            ? [
+                `https://${config.customDomain.hosts.portal}`,
+                `https://${config.customDomain.hosts.app}`,
+              ]
+            : ['https://*.cloudfront.net'],
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag'],
           maxAge: 3000,
