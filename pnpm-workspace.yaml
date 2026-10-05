@@ -13,3 +13,11 @@ onlyBuiltDependencies:
   - '@prisma/engines'
   - esbuild
   - prisma
+
+# Security fixes for packages that other packages pull in (Dependabot alerts, R1 step 9, Oct 5).
+# Remove each line once its parent ships the fixed version.
+overrides:
+  # GHSA-3f6p-5ww8-9rcr, GHSA-rgwj-5xj2-c3m3: through prisma 7.10.0 (also in the API image).
+  mysql2: ^3.23.1
+  # GHSA-ggr8-5vv4-36mx: through @prisma/config 7.10.0. 8.x only changes how Maps merge; Prisma merges plain objects.
+  deepmerge-ts: ^8.0.2
