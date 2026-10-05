@@ -1,14 +1,14 @@
 # Firmivra authentication design (decided)
 
 Owner: Rasel (architecture). Builder: Tumit (API, Sprint 1 and 2). Consumers: Fahad and Nahid (sign-in screens).
-Status: decided Oct 4, 2026. Put this file in the repo as `docs/AUTH-DESIGN.md`.
+Status: decided Oct 4, 2026. Updated Oct 5 to match the R2 auth contract (`docs/api/auth.yaml`, `packages/types/src/auth`).
 
 ## Summary
 
 - **Identity provider:** AWS Cognito, us-east-1. No third-party auth service.
 - **Who is who:** Cognito answers only "who is this person". Which firm they belong to and what role they have live in **our database** (`Membership`, `ClientAccount`, `PlatformAdmin`), never in Cognito groups or token claims.
 - **Our own screens:** no Cognito Hosted UI. Sign-in, MFA, forgot and reset password are Next.js screens that match Octavia's mockups, calling **our API**, which talks to Cognito.
-- **Tokens in cookies:** the browser never sees or stores raw tokens in JavaScript. The API sets them as `HttpOnly`, `Secure`, `SameSite=Lax` cookies.
+- **Tokens in cookies:** the browser never sees or stores raw tokens in JavaScript. The API sets them as `HttpOnly`, `Secure`, host-only cookies: `SameSite=Lax`, and `SameSite=Strict` for the refresh cookie.
 
 ## User pools
 
@@ -34,10 +34,21 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 
 1. Screen posts email and password to our API, for example `POST /api/v1/portal/{slug}/auth/sign-in` or `POST /api/v1/auth/sign-in` (staff) or `POST /api/v1/admin/auth/sign-in`.
 2. API looks up the Cognito username (for clients, by firm and email), then calls Cognito `AdminInitiateAuth` (`ADMIN_USER_PASSWORD_AUTH`) with the client secret.
-3. If Cognito returns an MFA challenge, the API returns `{ challenge: "MFA", session }` and the screen shows the code input; the code goes to `.../auth/mfa`.
-4. On success the API sets `fv_access` (short, 15 min), `fv_id`, `fv_refresh` (30 days, path `/api/v1/auth/refresh`) cookies and returns `GET /me`-style user data.
+3. The API returns a `SignInResult` whose `status` is the next step:
+   - `MFA_REQUIRED`, with an opaque `session`: the screen shows the code input; the code and the `session` go to `.../auth/mfa`.
+   - `MFA_SETUP_REQUIRED`, with a `session` (first sign-in, or after activation): `.../auth/mfa/setup` returns the QR code, then the first code goes to `.../auth/mfa`.
+   - `SIGNED_IN`, with `GET /me`-style user data. `.../auth/mfa` also answers with `SIGNED_IN` once the code is right.
+4. On `SIGNED_IN` the API sets three cookies. Each site has its own names, so the admin and app sites never share a session:
+
+   | Cookie | Firm site | Super Admin site | Path | Lifetime | SameSite |
+   | --- | --- | --- | --- | --- | --- |
+   | access | `fv_access` | `fv_admin_access` | `/` | 15 min | Lax |
+   | id | `fv_id` | `fv_admin_id` | `/` | 15 min | Lax |
+   | refresh | `fv_refresh` | `fv_admin_refresh` | `/api/v1/auth` (firm), `/api/v1/admin/auth` (Super Admin) | 30 days | Strict |
+
+   The refresh path covers both `refresh` and `sign-out`, so sign-out can revoke the refresh token. The client portal's cookies are set in the client auth contract (R3, `docs/api/client-auth.yaml`).
 5. Errors are generic: "Email or password is incorrect". Never reveal whether an account exists.
-6. `POST .../auth/refresh` renews the access cookie; `POST .../auth/sign-out` revokes the refresh token (`GlobalSignOut` on password reset or deactivation).
+6. `POST .../auth/refresh` renews the access and id cookies; `POST .../auth/sign-out` revokes the refresh token and clears all three cookies (`GlobalSignOut` on password reset or deactivation).
 
 ## Every API request
 
