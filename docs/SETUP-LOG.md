@@ -12,8 +12,8 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | 4 | Docs and repo conventions | Done (Oct 4, PR #1) |
 | 5 | AWS foundation (one account: CLI, budget, Route 53, SES, SNS, Stripe) | In progress: CLI, budget, hosted zone and GoDaddy delegation done; root MFA, Stripe and SNS SMS open |
 | 6 | Monorepo, Docker, database, API, web | Done. 6.1 and 6.2 merged (PR #2); 6.3 to 6.5 committed on `rasel/setup-foundations` (Oct 5, not pushed) |
-| 7 | CDK infrastructure, deploy to dev | Done on `rasel/setup-infra` (Oct 5, PR open): all six stacks deployed; bootstrap narrowed; `admin.`, `app.` and `portal.dev.firmivra.com` answer 503 until Step 8 starts the tasks |
-| 8 | CI/CD | To do |
+| 7 | CDK infrastructure, deploy to dev | Done (Oct 5, PR #7): all six stacks deployed; bootstrap narrowed; `admin.`, `app.` and `portal.dev.firmivra.com` answer 503 until Step 8 starts the tasks |
+| 8 | CI/CD | In progress (R1): `ci.yml` on every PR (PR #11); `deploy-dev.yml` on `rasel/R1-deploy-dev` |
 | 9 | Developer branches, task docs, Sprint 0 and 1 issues | Branches and task docs done (Oct 4); issues to do |
 | 10 | Sprint 0 done checklist | To do |
 
@@ -187,6 +187,23 @@ Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can 
   - Tests check that every role carries the boundary, that the execution policy covers every resource type in our stacks, and that every action of our roles fits inside the boundary. IAM Access Analyzer: no findings on either policy.
 - Done Oct 5: both policies created (v1); ci stack deployed (role `firmivra-dev-github-deploy`: trusts only `environment:dev` and `environment:prod`, 1-hour sessions, carries the boundary); every `firmivra-dev-*` role carries the boundary (10 roles). Bootstrap re-run with `--cloudformation-execution-policies arn:aws:iam::778127141557:policy/firmivra-cdk-cfn-exec --custom-permissions-boundary firmivra-permissions-boundary`: the execution role no longer has AdministratorAccess. `cdk diff --all` through it: no differences in any stack. IAM policy simulator on the execution role: the 19 kinds of change our stacks make are allowed; roles without the boundary, boundary removal, changes to the guardrail policies or bootstrap roles, AdministratorAccess, other buckets, secrets and zones, EC2 instances, IAM users and Organizations are refused. The first real deploy through it is the next stack change; if a permission is missing, CloudFormation rolls back and the fix is a new policy version.
 - To change a policy later: edit `infra/src/bootstrap-policies.ts`, run the tests, then `aws iam create-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --policy-document file://<printed json> --set-as-default` (IAM keeps 5 versions; delete the oldest first).
+
+## Step 8: CI/CD (R1, Oct 5)
+
+- `ci.yml` (PR #11): every pull request into `main` runs `pnpm install --frozen-lockfile`, `format:check`, `lint`, `typecheck`, `test` and `build` from the root through turbo. Postgres 16 runs as a service like `docker-compose.yml`, and `.env.example` is copied to `.env`. No AWS access. First run: green in 1m24s.
+- `deploy-dev.yml`: every push to `main` (except `docs/**`), in environment `dev` through the OIDC role:
+  1. Build the `api`, `web` and `migrate` images in parallel and push them to ECR, tagged with the commit sha. A re-run skips images that already exist.
+  2. `cdk deploy firmivra-dev-app --exclusively` with `MigrateImageTag=<sha>`: only the migration task changes.
+  3. Run the migration task. The deploy stops unless it exits 0, and its log is printed.
+  4. `cdk deploy` with `ImageTag=<sha>`: api and web roll to 1 task each, and the ECS circuit breaker rolls back a release that does not get healthy.
+  5. Smoke test: `/` on admin and app, `/lvp` on the portal, and `/api/v1/health` on all three. The URLs come from the stack outputs.
+- **The running image tags** are the `ImageTag` and `MigrateImageTag` parameters of `firmivra-dev-app`. Both default to `none`, which means 0 tasks; otherwise each service runs `config.task.count`. Only `deploy-dev.yml` sets them. A manual `cdk deploy` without `--parameters` keeps the previous values, so an infra deploy never stops or swaps the running images. `-c imageTag` is gone, and the CDK app refuses it.
+- **Only `firmivra-dev-app` deploys from `main`.** Template changes merged to `main` go live with the next push; the diff is in the job log. Network, data, auth, email and ci stay manual: `cdk diff`, then Rasel's yes.
+- **Migration TLS** (lead follow-up, Oct 5): Prisma's schema engine (`prisma migrate deploy`) ignores `verify-full` and `NODE_EXTRA_CA_CERTS`. It also has two traps:
+  - Without `sslaccept=strict` it accepts **any** certificate. `sslmode=require&sslcert=...` alone connected with a wrong CA.
+  - `sslcert` reads only the **first** certificate of a file, so the RDS bundle (100+ CAs) would trust just one.
+
+  `migrate-deploy.mjs` therefore gives Prisma `sslmode=require&sslaccept=strict` and `SSL_CERT_FILE` = the bundle (OpenSSL loads every certificate in it), and keeps `verify-full` for `pg`. It was tested against a local TLS Postgres with an unrelated CA first in the bundle: the right bundle connects, a wrong CA and a wrong host name are refused, and `DB_SSLMODE=disable` still works locally. The API is not affected: it uses Prisma's `pg` adapter, so `verify-full` applies.
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 

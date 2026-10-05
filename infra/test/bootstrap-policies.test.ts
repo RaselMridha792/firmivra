@@ -21,7 +21,7 @@ const boundary = permissionsBoundary(account, region);
 type Resources = Record<string, { Type: string; Properties?: Record<string, unknown> }>;
 const templates = [undefined, DEV_FIRMIVRA_COM].flatMap((customDomain) => {
   const app = new App({ context: { ...cdkJsonContext(), env: 'dev' } });
-  const stacks = createStacks(app, configFor('dev', { customDomain }), 'abc1234');
+  const stacks = createStacks(app, configFor('dev', { customDomain }));
   return Object.values(stacks)
     .filter((s) => s !== undefined)
     .map((s) => ({
