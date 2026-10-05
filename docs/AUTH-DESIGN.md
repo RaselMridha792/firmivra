@@ -44,9 +44,9 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
    | --- | --- | --- | --- | --- | --- |
    | access | `fv_access` | `fv_admin_access` | `/` | 15 min | Lax |
    | id | `fv_id` | `fv_admin_id` | `/` | 15 min | Lax |
-   | refresh | `fv_refresh` | `fv_admin_refresh` | `/api/v1/auth` (firm), `/api/v1/admin/auth` (Super Admin) | 30 days | Strict |
+   | refresh | `fv_refresh` | `fv_admin_refresh` | `/api/v1/auth` (firm), `/api/v1/admin/auth` (Super Admin) | 7 days (firm), 1 day (Super Admin) | Strict |
 
-   The refresh path covers both `refresh` and `sign-out`, so sign-out can revoke the refresh token. The client portal's cookies are set in the client auth contract (R3, `docs/api/client-auth.yaml`).
+   The refresh path covers both `refresh` and `sign-out`, so sign-out can revoke the refresh token. Refresh tokens last as long as each Cognito pool allows, and the refresh cookie lives exactly as long as its token: staff 7 days, Super Admins 1 day, clients 30 days (shorter where an account can see more). The client portal's cookies are set in the client auth contract (R3, `docs/api/client-auth.yaml`).
 5. Errors are generic: "Email or password is incorrect". Never reveal whether an account exists.
 6. `POST .../auth/refresh` renews the access and id cookies; `POST .../auth/sign-out` revokes the refresh token and clears all three cookies (`GlobalSignOut` on password reset or deactivation).
 
