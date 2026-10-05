@@ -21,13 +21,15 @@ export const SITE_POOLS: Record<AuthSite, readonly IdentityPool[]> = {
 export const SIGN_IN_POOL: Record<AuthSite, IdentityPool> = { firm: 'STAFF', admin: 'ADMIN' };
 
 /**
- * Refresh-token lifetime per pool, in days: the same as `refreshTokenValidity` of each pool's
- * app client in infra/src/stacks/auth-stack.ts. Change both together.
+ * How long a session lasts after sign-in, per pool, in days: the refresh cookie and its sealed
+ * envelope expire then, even while Cognito's refresh token would still work. Must not exceed
+ * `refreshTokenValidity` of the pool's app client in infra/src/stacks/auth-stack.ts (30 days for
+ * every pool today; R1 shortens staff and admins to match). Clients: R3 decides.
  */
 export const REFRESH_TOKEN_DAYS: Record<IdentityPool, number> = {
-  STAFF: 30,
+  STAFF: 7,
   CLIENT: 30,
-  ADMIN: 30,
+  ADMIN: 1,
 };
 
 type CookieKind = 'access' | 'id' | 'refresh';

@@ -120,7 +120,7 @@ describe('staff sign-in (firm site)', () => {
     const [access, refresh] = setCookies(done);
     expect(setCookies(done)).toHaveLength(2);
     expect(access).toMatch(/^fv_access=.*; Path=\/;.*HttpOnly.*SameSite=Lax/i);
-    expect(refresh).toMatch(/^fv_refresh=.*; Max-Age=2592000; Path=\/api\/v1\/auth;/i);
+    expect(refresh).toMatch(/^fv_refresh=.*; Max-Age=604800; Path=\/api\/v1\/auth;/i);
     expect(refresh).toMatch(/HttpOnly.*SameSite=Strict/i);
     for (const c of setCookies(done)) expect(c).not.toMatch(/Domain=/i);
 
@@ -193,7 +193,7 @@ describe('Super Admin sign-in (admin site)', () => {
     expect(setup.otpauthUri).toContain('otpauth://totp/Firmivra%20Admin%3A');
     expect(setCookies(done)).toEqual([
       expect.stringMatching(/^fv_admin_access=/),
-      expect.stringMatching(/^fv_admin_refresh=.*; Path=\/api\/v1\/admin\/auth;/),
+      expect.stringMatching(/^fv_admin_refresh=.*; Max-Age=86400; Path=\/api\/v1\/admin\/auth;/),
     ]);
     const cookie = cookieHeader(done);
 

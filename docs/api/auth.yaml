@@ -39,7 +39,7 @@ info:
     | ------- | ------------ | ------------------ | ----------------------------------------- | -------- | -------- |
     | access  | `fv_access`  | `fv_admin_access`  | `/`                                       | 15 min   | Lax      |
     | id      | `fv_id`      | `fv_admin_id`      | `/`                                       | 15 min   | Lax      |
-    | refresh | `fv_refresh` | `fv_admin_refresh` | `/api/v1/auth` or `/api/v1/admin/auth`    | 30 days  | Strict   |
+    | refresh | `fv_refresh` | `fv_admin_refresh` | `/api/v1/auth` or `/api/v1/admin/auth`    | 7 days (firm), 1 day (Super Admin) | Strict   |
 
     `SIGNED_IN` sets all three; `refresh` renews access and id; `sign-out` clears all three. The
     refresh path covers sign-out too, so sign-out can revoke the refresh token. Bodies are
