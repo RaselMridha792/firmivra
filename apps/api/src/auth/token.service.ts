@@ -5,8 +5,6 @@ import { IdentityPool } from '@firmivra/types';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 
-export const ACCESS_COOKIE = 'fv_access';
-
 const LOCAL_ISSUER = 'firmivra-local';
 const LOCAL_AUDIENCE = 'firmivra-api';
 const LOCAL_TTL_SECONDS = 60 * 60;

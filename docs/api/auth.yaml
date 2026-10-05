@@ -45,6 +45,11 @@ info:
     refresh path covers sign-out too, so sign-out can revoke the refresh token. Bodies are
     `application/json`.
 
+    Each site accepts only its own session. Routes under `/api/v1/admin/` read only the
+    `fv_admin_*` cookies and accept only Super Admins; every other route reads only the `fv_*`
+    cookies and never accepts a Super Admin session, not even as a Bearer token. So the Super
+    Admin site reads its `/me` from `GET /admin/me`.
+
     ## Password policy
 
     Same as the Cognito pools (infra auth stack): at least 12 characters, a lower-case letter, an
@@ -55,15 +60,22 @@ info:
     ## Rate limits
 
     `sign-in`, `mfa`, `mfa/setup`, `forgot-password`, `reset-password`, `activation/check` and
-    `activate` answer `429 RATE_LIMITED` when called too often (per IP and per email or session;
-    numbers set in R2 step 7). Show "Too many attempts. Wait a few minutes and try again."
+    `activate` answer `429 RATE_LIMITED` when called too often. Limits count per viewer IP (the
+    address CloudFront saw, not the load balancer's), and from R2 step 7 also per email or
+    session. Show "Too many attempts. Wait a few minutes and try again."
 
     ## Local development
 
-    With `AUTH_MODE=local` (development only) `POST /dev/token` signs in as a seeded user. From
-    R2 step 2 the endpoints below also work locally for seeded users (a local password and a fixed
-    MFA code), so the screens run end to end without AWS. Until step 3, `/dev/token` sets
-    `fv_access` on every site.
+    With `AUTH_MODE=local` (development and test only) the sign-in endpoints work without AWS
+    for the seeded users, with the same steps and errors as Cognito:
+
+    - password `Firmivra-local-1` for every seeded user;
+    - authenticator code `000000`; the setup key is `JBSWY3DPEHPK3PXP`, so the QR code is real;
+    - each user's first sign-in after the API starts returns `MFA_SETUP_REQUIRED`, later ones
+      `MFA_REQUIRED`.
+
+    `POST /dev/token` still signs in as a seeded user in one step and sets that site's access
+    cookie (`fv_admin_access` for a Super Admin, `fv_access` otherwise).
 
 servers:
   - url: /api/v1
@@ -162,12 +174,26 @@ paths:
       tags: [session]
       operationId: me
       summary: The signed-in person and the firms they can open
-      security: [{ firmCookie: [] }, { adminCookie: [] }, { bearer: [] }]
+      description: Firm and portal sites. A Super Admin session gets 401 here; use `/admin/me`.
+      security: [{ firmCookie: [] }, { bearer: [] }]
       responses:
         '200':
           description: Roles come from the database on every request
           content: { application/json: { schema: { $ref: '#/components/schemas/MeResponse' } } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /admin/me:
+    get:
+      tags: [session]
+      operationId: adminMe
+      summary: The signed-in Super Admin (Super Admin site)
+      security: [{ adminCookie: [] }, { bearer: [] }]
+      responses:
+        '200':
+          description: Same body as `/me`, with `platformAdmin` true
+          content: { application/json: { schema: { $ref: '#/components/schemas/MeResponse' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /dev/token:
     post:
@@ -179,7 +205,7 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/DevTokenRequest' } } }
       responses:
         '200':
-          description: Signed in; sets `fv_access`
+          description: Signed in; sets the site's access cookie
           content: { application/json: { schema: { $ref: '#/components/schemas/DevTokenResponse' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -373,7 +399,7 @@ components:
     ChallengeSession:
       type: string
       minLength: 1
-      maxLength: 4096
+      maxLength: 8192
       description: Opaque sign-in step, about 3 minutes. Send it back unchanged.
     Timestamp: { type: string, format: date-time }
 

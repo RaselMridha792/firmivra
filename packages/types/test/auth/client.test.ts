@@ -55,6 +55,24 @@ describe('auth clients', () => {
     expect(bodyOf(calls[1]?.init)).toEqual({ everywhere: true });
   });
 
+  it('reads the admin site /me from /admin/me', async () => {
+    const me = {
+      user: {
+        id: '00000000-0000-4000-a000-000000000099',
+        email: 'superadmin@firmivra.test',
+        name: 'A',
+        pool: 'ADMIN',
+      },
+      memberships: [],
+      clientAccounts: [],
+      platformAdmin: true,
+    };
+    const { fn, calls } = fakeFetch(200, me);
+    await expect(createAdminAuthClient({ baseUrl: '', fetch: fn }).me()).resolves.toEqual(me);
+    expect(calls[0]?.url).toBe('/admin/me');
+    expect(calls[0]?.init.method).toBe('GET');
+  });
+
   it('checks the body before sending and never calls the API with a weak password', async () => {
     const { fn, calls } = fakeFetch(200, { ok: true });
     const auth = createStaffAuthClient({ baseUrl: '', fetch: fn });

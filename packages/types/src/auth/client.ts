@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import { ApiRequestError, type ApiClientOptions } from '../client.js';
-import { ApiError, OkResponse } from '../schemas.js';
+import { ApiError, MeResponse, OkResponse } from '../schemas.js';
 import {
   ActivateRequest,
   ActivationCheckRequest,
@@ -22,10 +22,12 @@ import {
 /** Same options as createApiClient. In the browser leave out `token`: the cookies are used. */
 export type AuthClientOptions = ApiClientOptions;
 
-function createPost(options: AuthClientOptions) {
+function createRequests(options: AuthClientOptions) {
   const doFetch = options.fetch ?? fetch;
+
   /** Checks the body inside the promise, so a bad body rejects like an API error would. */
-  return async function post<S extends z.ZodType>(
+  async function send<S extends z.ZodType>(
+    method: 'GET' | 'POST',
     schema: S,
     path: string,
     bodySchema?: z.ZodType,
@@ -38,7 +40,7 @@ function createPost(options: AuthClientOptions) {
     if (options.businessId) headers['x-business-id'] = options.businessId;
 
     const res = await doFetch(`${options.baseUrl}${path}`, {
-      method: 'POST',
+      method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: 'include',
@@ -55,10 +57,16 @@ function createPost(options: AuthClientOptions) {
       );
     }
     return schema.parse(json);
+  }
+
+  return {
+    get: <S extends z.ZodType>(schema: S, path: string) => send('GET', schema, path),
+    post: <S extends z.ZodType>(schema: S, path: string, bodySchema?: z.ZodType, input?: unknown) =>
+      send('POST', schema, path, bodySchema, input),
   };
 }
 
-function sessionCalls(post: ReturnType<typeof createPost>, site: AuthSite) {
+function sessionCalls({ post }: ReturnType<typeof createRequests>, site: AuthSite) {
   const base = AUTH_BASE_PATH[site];
   return {
     signIn: (body: SignInRequest) => post(SignInResult, `${base}/sign-in`, SignInRequest, body),
@@ -80,10 +88,11 @@ function sessionCalls(post: ReturnType<typeof createPost>, site: AuthSite) {
 
 /** Firm site (app.firmivra.com): staff sign-in, activation and team invites. */
 export function createStaffAuthClient(options: AuthClientOptions) {
-  const post = createPost(options);
+  const requests = createRequests(options);
+  const { post } = requests;
   const base = AUTH_BASE_PATH.firm;
   return {
-    ...sessionCalls(post, 'firm'),
+    ...sessionCalls(requests, 'firm'),
     checkActivation: (body: ActivationCheckRequest) =>
       post(ActivationCheckResponse, `${base}/activation/check`, ActivationCheckRequest, body),
     /** Sets the password; the result is MFA_SETUP_REQUIRED. */
@@ -97,7 +106,12 @@ export function createStaffAuthClient(options: AuthClientOptions) {
 
 /** Super Admin site (admin.firmivra.com). */
 export function createAdminAuthClient(options: AuthClientOptions) {
-  return sessionCalls(createPost(options), 'admin');
+  const requests = createRequests(options);
+  return {
+    ...sessionCalls(requests, 'admin'),
+    /** GET /admin/me: the admin site's /me. Firm routes never accept the admin cookie. */
+    me: () => requests.get(MeResponse, '/admin/me'),
+  };
 }
 
 export type StaffAuthClient = ReturnType<typeof createStaffAuthClient>;

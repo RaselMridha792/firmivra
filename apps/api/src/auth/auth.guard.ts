@@ -11,11 +11,12 @@ import type { Database } from '@firmivra/db';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { isPublic } from './decorators.js';
-import { ACCESS_COOKIE, TokenService } from './token.service.js';
+import { readAccessCookie, SITE_POOLS, siteOf } from './site.js';
+import { TokenService } from './token.service.js';
 
+/** Only the site's own cookie counts; Bearer (tests, server-side calls) is held to the same pools. */
 function readToken(req: Request): string | undefined {
-  const cookies = req.cookies as Record<string, string | undefined> | undefined;
-  const fromCookie = cookies?.[ACCESS_COOKIE];
+  const fromCookie = readAccessCookie(req, siteOf(req));
   if (fromCookie) return fromCookie;
   const header = req.get('authorization');
   return header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
@@ -24,7 +25,10 @@ function readToken(req: Request): string | undefined {
 const unauthenticated = () =>
   new UnauthorizedException({ code: 'UNAUTHENTICATED', message: 'Sign in required' });
 
-/** Global guard 1: every non-public route needs a valid token for a known user of the matching pool. */
+/**
+ * Global guard 1: every non-public route needs a valid token for a known user of the matching
+ * pool, and that pool must belong to the route's site (src/auth/site.ts).
+ */
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
@@ -47,6 +51,7 @@ export class AuthGuard implements CanActivate {
       .forPlatform()
       .user.findUnique({ where: { cognitoSub: claims.sub }, select: { id: true, pool: true } });
     if (!user || user.pool !== claims.pool) throw unauthenticated();
+    if (!SITE_POOLS[siteOf(req)].includes(user.pool)) throw unauthenticated();
 
     const auth = { userId: user.id, cognitoSub: claims.sub, pool: user.pool };
     req.auth = auth;

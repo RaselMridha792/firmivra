@@ -13,10 +13,15 @@ import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import type { z } from 'zod';
 import type { Database } from '@firmivra/db';
-import { DevTokenRequest, type DevTokenResponse, type OkResponse } from '@firmivra/types';
+import {
+  AUTH_COOKIES,
+  DevTokenRequest,
+  type DevTokenResponse,
+  type OkResponse,
+} from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { Public } from '../auth/decorators.js';
-import { ACCESS_COOKIE, TokenService } from '../auth/token.service.js';
+import { TokenService } from '../auth/token.service.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { DATABASE } from '../database/database.module.js';
 
@@ -56,7 +61,9 @@ export class DevController {
     }
 
     const { token, expiresIn } = await this.tokens.signLocal(user.cognitoSub, user.pool);
-    res.cookie(ACCESS_COOKIE, token, {
+    // Each site's own cookie: a Super Admin session only works on /api/v1/admin/* (auth/site.ts).
+    const site = user.pool === 'ADMIN' ? 'admin' : 'firm';
+    res.cookie(AUTH_COOKIES[site].access, token, {
       httpOnly: true,
       sameSite: 'lax',
       secure: false, // plain http on localhost; Cognito cookies in AWS are Secure
@@ -74,7 +81,8 @@ export class DevController {
   @Post('sign-out')
   @HttpCode(200)
   signOut(@Res({ passthrough: true }) res: Response): OkResponse {
-    res.clearCookie(ACCESS_COOKIE, { path: '/' });
+    res.clearCookie(AUTH_COOKIES.firm.access, { path: '/' });
+    res.clearCookie(AUTH_COOKIES.admin.access, { path: '/' });
     return { ok: true };
   }
 }

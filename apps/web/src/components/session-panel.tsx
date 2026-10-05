@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { ApiRequestError, type BusinessSummary, type MeResponse } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
 import { api } from '../lib/api';
-import { signOut } from '../lib/auth';
+import { adminAuth, signOut } from '../lib/auth';
 
 interface Props {
   title: string;
@@ -14,6 +14,8 @@ interface Props {
   signInPath: string;
   /** Which firm to show: staff use their current firm, clients the portal's firm. */
   firm: { kind: 'staff' } | { kind: 'portal'; slug: string } | { kind: 'none' };
+  /** The Super Admin site reads /admin/me: firm routes never accept its cookie. */
+  site?: 'firm' | 'admin';
 }
 
 type State =
@@ -23,7 +25,7 @@ type State =
   | { status: 'error'; message: string };
 
 /** Calls GET /api/v1/me (and the firm) with the session cookie: proves local sign-in end to end. */
-export function SessionPanel({ title, signInPath, firm }: Props) {
+export function SessionPanel({ title, signInPath, firm, site = 'firm' }: Props) {
   const router = useRouter();
   const [state, setState] = useState<State>({ status: 'loading' });
 
@@ -31,7 +33,7 @@ export function SessionPanel({ title, signInPath, firm }: Props) {
     let active = true;
     async function load() {
       try {
-        const me = await api.me();
+        const me = site === 'admin' ? await adminAuth.me() : await api.me();
         let business: BusinessSummary | undefined;
         let firmError: string | undefined;
         try {
@@ -51,7 +53,7 @@ export function SessionPanel({ title, signInPath, firm }: Props) {
     return () => {
       active = false;
     };
-  }, [firm]);
+  }, [firm, site]);
 
   async function onSignOut() {
     await signOut();
