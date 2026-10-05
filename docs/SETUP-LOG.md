@@ -12,7 +12,7 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | 4 | Docs and repo conventions | Done (Oct 4, PR #1) |
 | 5 | AWS foundation (one account: CLI, budget, Route 53, SES, SNS, Stripe) | In progress: CLI, budget, hosted zone and GoDaddy delegation done; root MFA, Stripe and SNS SMS open |
 | 6 | Monorepo, Docker, database, API, web | Done. 6.1 and 6.2 merged (PR #2); 6.3 to 6.5 committed on `rasel/setup-foundations` (Oct 5, not pushed) |
-| 7 | CDK infrastructure, deploy to dev | In progress on `rasel/setup-infra`: CDK bootstrapped (Oct 5); stacks written and tested; deploys one by one with `cdk diff` and Rasel's yes |
+| 7 | CDK infrastructure, deploy to dev | In progress on `rasel/setup-infra`: network, data, auth, email and app deployed (Oct 5); `admin.`, `app.` and `portal.dev.firmivra.com` answer 503 until Step 8 starts the tasks. Left: ci stack and the narrowed bootstrap |
 | 8 | CI/CD | To do |
 | 9 | Developer branches, task docs, Sprint 0 and 1 issues | Branches and task docs done (Oct 4); issues to do |
 | 10 | Sprint 0 done checklist | To do |
@@ -126,7 +126,10 @@ Oct 5, all four branches: LocalStack replaced with s3mock, Mailpit and a local k
 - [ ] Step 8: add `ci` as a required status check in `protect-main` after the first CI run.
 - [ ] Root user MFA on account `778127141557` (sign in as root → Security credentials → Assign MFA device); root password in Octavia's password manager.
 - [ ] Stripe: create the Firmivra account in test mode; the test keys go into GitHub environment secrets in Step 8.
-- [ ] SNS SMS: exit the SMS sandbox, raise the spend limit, request a US toll-free number and submit its registration (clicks under "SNS SMS steps" below). Needs Octavia's legal company name and address, and a live firmivra.com page, first. **Target: submit by Oct 16** so it is approved before Sprint 2 (Nov 2).
+- [ ] Company details from Octavia (pending; nothing blocks on them): legal name, address, support email, privacy and terms URLs. They go in one place, `apps/web/src/lib/company.ts` (placeholders now), then into the two requests below.
+- [ ] SES production access: **send before beta, needs company details from Octavia** and a firmivra.com page that describes the product. Request text: `docs/aws/SES-PRODUCTION-REQUEST.md`. Until then SES stays in the sandbox (200 a day, verified addresses only).
+- [ ] SES sandbox: verify the team's addresses (Rasel, Fahad, Nahid, Tumit, Ibrahim, Octavia) so they can test; each person clicks the link in the AWS email. Addresses are not listed here (public repo).
+- [ ] SNS SMS: **send before beta, needs company details from Octavia** and a live firmivra.com page. What the registration needs: `docs/aws/SNS-SMS-REGISTRATION.md`; clicks under "SNS SMS steps" below. Review takes 2 to 3 weeks; the earlier target was to submit by Oct 16 so SMS works by Sprint 2 (Nov 2).
 - [x] GoDaddy (done by Rasel, Oct 5): **My Products → firmivra.com → DNS → Add New Record**, type **NS**, name **dev**, value one name server, TTL 1 hour. Repeat for all 4: `ns-1114.awsdns-11.org`, `ns-705.awsdns-24.net`, `ns-168.awsdns-21.com`, `ns-1942.awsdns-50.co.uk`. Check: `Resolve-DnsName dev.firmivra.com -Type NS` lists the four.
 
 ## SNS SMS steps (console, region us-east-1)
@@ -163,22 +166,24 @@ Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can 
 - Deployed Oct 5: network; data (`db.t3.micro`, PostgreSQL 16.13); auth (pools `firmivra-dev-staff`, `-clients`, `-admins`, Plus tier, compromised-credential block). Data and auth have termination protection.
 - App design: internal load balancer (isolated subnets, HTTP 80, requests without the `X-Origin-Verify` header get 403) reached by one CloudFront VPC origin; three distributions (admin, app, portal), each with `/api/*` to the API, caching off except `/_next/static/*`. Services start at 0 tasks until Step 8 deploys images. Emails are logged (`EMAIL_MODE=log`) until the SES domain exists.
 - Images: API image trusts the RDS certificate bundle (`NODE_EXTRA_CA_CERTS`) and builds its database URL from `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_APP_USER`, `DB_APP_PASSWORD` with `sslmode=verify-full`. Migration image (`packages/db/Dockerfile`): `prisma migrate deploy` as the owner, then `ALTER ROLE firmivra_app LOGIN PASSWORD` from Secrets Manager (tested against local Postgres).
-- Site URLs (app stack deployed Oct 5): admin `https://d9q8sm5p4gja.cloudfront.net`, app `https://d1wyghmynm8dbl.cloudfront.net`, portal `https://d37wpe29mp47x1.cloudfront.net`. They answer 503 until Step 8 starts the tasks.
+- Site URLs (since the switch, Oct 5): `https://admin.dev.firmivra.com`, `https://app.dev.firmivra.com`, `https://portal.dev.firmivra.com` (certificate for `dev.firmivra.com` and `*.dev.firmivra.com`, TLSv1.2_2021). They answer 503 until Step 8 starts the tasks. The distributions' own domains (admin `d9q8sm5p4gja`, app `d1wyghmynm8dbl`, portal `d37wpe29mp47x1`, all `.cloudfront.net`) no longer serve a site.
+- SES: domain identity `dev.firmivra.com` verified (DKIM and MAIL FROM `mail.dev.firmivra.com` both SUCCESS), configuration set `firmivra-dev-email`; the API sends with `EMAIL_MODE=ses` from `no-reply@dev.firmivra.com`. Account still in the SES sandbox.
 - VPC origin lesson (Oct 5): CloudFront traffic through a VPC origin keeps CloudFront's origin-facing source addresses (`130.176.x.x` in the flow log), not the VPC range. The load balancer security group allows port 80 from the managed prefix list `com.amazonaws.global.cloudfront.origin-facing` (`pl-3b927c52`); a VPC-range rule made every request time out (504).
 
 ## Deploy guardrails (before any workflow runs, Rasel Oct 5)
 
-- GitHub environments (set up in Step 2, checked Oct 5): `dev` deploys only from `main`; `prod` only from `v*` tags, with Rasel as required reviewer. Ruleset `protect-release-tags`: only admins (Rasel) create, move or delete `v*` tags. Rasel is the only admin; the four developers have write access.
+- GitHub environments (set up in Step 2, checked Oct 5; admin bypass turned off on both, Oct 5): `dev` deploys only from `main`; `prod` only from `v*` tags, with Rasel as required reviewer. Ruleset `protect-release-tags`: only admins (Rasel) create, move or delete `v*` tags. Rasel is the only admin; the four developers have write access.
 - CODEOWNERS: `/.github/workflows/` and `/.github/CODEOWNERS` are Rasel's even if the `*` rule is widened later; `protect-main` requires code owner review.
 - Two IAM managed policies, defined in `infra/src/bootstrap-policies.ts`, printed by `pnpm exec tsx scripts/bootstrap-policies.ts exec|boundary`, created and updated by Rasel with the AWS CLI (not in a stack, so CloudFormation cannot change its own limits):
   - `firmivra-cdk-cfn-exec` replaces AdministratorAccess on the CDK execution role: only the services our stacks use; ECR, load balancer, Lambda, logs, RDS, S3 and secrets only for `firmivra-*` names; DNS records only in the `dev.firmivra.com` zone; roles only `firmivra-*` and only created with the boundary; the only managed policy it may attach is `AWSLambdaBasicExecutionRole`.
   - `firmivra-permissions-boundary` on the execution role and on every role our stacks create (also the GitHub deploy role): caps them at the services we use; IAM, S3 and secrets only for `firmivra-*` names; refuses roles without this boundary, boundary removal, changes to the two policies and changes to the `cdk-hnb659fds-*` bootstrap roles.
   - Tests check that every role carries the boundary, that the execution policy covers every resource type in our stacks, and that every action of our roles fits inside the boundary. IAM Access Analyzer: no findings on either policy.
+- Done Oct 5: both policies created (v1); every `firmivra-dev-*` role carries the boundary (9 roles, checked in IAM). Left: deploy the ci stack (its role is born with the boundary), then re-run `cdk bootstrap` with `--cloudformation-execution-policies arn:aws:iam::778127141557:policy/firmivra-cdk-cfn-exec --custom-permissions-boundary firmivra-permissions-boundary`.
 - To change a policy later: edit `infra/src/bootstrap-policies.ts`, run the tests, then `aws iam create-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --policy-document file://<printed json> --set-as-default` (IAM keeps 5 versions; delete the oldest first).
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 
-Oct 5: steps 1 and 2 done (`customDomain: DEV_FIRMIVRA_COM`); the diff matched step 3. Tests and the nag report still cover the CloudFront-domain setup (`customDomain: undefined`, `CLOUDFRONT_DOMAINS=1`).
+Done Oct 5: steps 1 to 3 (`customDomain: DEV_FIRMIVRA_COM`; the diff matched step 3; deployed network, email, app, data, auth in that order). Tests and the nag report still cover the CloudFront-domain setup (`customDomain: undefined`, `CLOUDFRONT_DOMAINS=1`).
 
 1. GoDaddy: add the 4 NS records for `dev` (see "Left for Rasel"). Check: `Resolve-DnsName dev.firmivra.com -Type NS` lists the four Route 53 name servers.
 2. `infra/src/config.ts`, dev: `customDomain: DEV_FIRMIVRA_COM` instead of `customDomain: undefined`. That is the only edit.
