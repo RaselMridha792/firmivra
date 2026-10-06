@@ -2,9 +2,10 @@ openapi: 3.0.3
 info:
   title: Firmivra team API
   version: 0.1.0
-  description: T01 proposed contract for T03. Not implemented or frontend-approved. No invitation
-    creation, acceptance, passwords or auth implementation belongs to this module. Role escalation
-    policy requires Rasel confirmation.
+  description: 'T03 implementation: owner/admin scoped listing, current-role checks under a firm
+    transaction lock, last-owner protection, per-firm deactivation and invite resend delegation.
+    Rasel invite adapter pending; no auth or sending implementation. Frontend/policy review
+    pending.'
 servers:
   - url: /api/v1
 security:
@@ -79,6 +80,8 @@ paths:
           $ref: ./common.yaml#/responses/RateLimited
         '500': &a10
           $ref: ./common.yaml#/responses/InternalError
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/team/{id}/role:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -123,6 +126,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/team/{id}/deactivate:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -153,6 +158,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/team/{id}/resend-invite:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -189,6 +196,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
 components:
   securitySchemes:
     FirmCookie:
