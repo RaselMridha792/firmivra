@@ -16,6 +16,7 @@ import {
 import { type ReactNode, useEffect, useState } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
 import type { NavItem } from '../../../components/app-shell/types';
+import { FirmContext } from '../../../components/firm-context';
 import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
 
@@ -90,7 +91,8 @@ function FirmArea({ children }: { children: ReactNode }) {
       roleLabel={role ? ROLE_LABEL[role] : 'Staff'}
       greeting={<span data-testid="firm-name">{firm.name}</span>}
     >
-      {children}
+      {/* Pages read the firm and the role with useFirm() (and <RequireRole>). */}
+      <FirmContext value={{ firm, role }}>{children}</FirmContext>
     </AppShell>
   );
 }
