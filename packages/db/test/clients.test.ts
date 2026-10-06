@@ -135,6 +135,7 @@ describe('clients', () => {
     for (const data of [
       { referralSource: ' ' },
       { referralSource: 'x'.repeat(201) },
+      { additionalInfo: ' ' },
       { additionalInfo: 'x'.repeat(2001) },
     ]) {
       await expect(profile(data)).rejects.toThrow(/check constraint/i);

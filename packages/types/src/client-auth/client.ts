@@ -12,6 +12,7 @@ import {
 } from '../auth/schemas.js';
 import { MeResponse, OkResponse } from '../schemas.js';
 import {
+  ApproveSignUpRequest,
   ApproveSignUpResponse,
   ChangeEmailRequest,
   ChangePhoneRequest,
@@ -94,8 +95,18 @@ export function createClientSignUpsClient(request: ApiRequest) {
       return request(ClientSignUpList, `${SIGN_UPS}?${params.toString()}`);
     },
     /** Creates the client record; the client gets an email. 409 NOT_PENDING. */
-    approve: async (clientAccountId: string): Promise<ApproveSignUpResponse> =>
-      request(ApproveSignUpResponse, `${one(clientAccountId)}/approve`, { method: 'POST' }),
+    /**
+     * Creates the client record, or links to `{ clientId }` (for example `existingClient` from the
+     * list) so the firm gets no duplicate. 409 NOT_PENDING; 404 for an unknown clientId.
+     */
+    approve: async (
+      clientAccountId: string,
+      body: ApproveSignUpRequest = {},
+    ): Promise<ApproveSignUpResponse> =>
+      request(ApproveSignUpResponse, `${one(clientAccountId)}/approve`, {
+        method: 'POST',
+        body: parseInput(ApproveSignUpRequest, body),
+      }),
     /** Closes the login; the client gets an email. 409 NOT_PENDING. */
     decline: async (
       clientAccountId: string,
