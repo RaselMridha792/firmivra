@@ -1,0 +1,262 @@
+openapi: 3.0.3
+info:
+  title: Firmivra tax status configuration API
+  version: 0.1.0
+  description: T01 proposed contract for T04. Not implemented or frontend-approved. Reads by staff;
+    configuration changes by owner/admin. Reuses the existing TaxStatus table.
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /business/tax-statuses:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: listTaxStatuses
+      summary: List firm tax statuses in display order
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles:
+        - OWNER
+        - ADMIN
+        - STAFF
+      parameters:
+        - name: includeArchived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TaxStatus'
+                    maxItems: 500
+        '400': &a1
+          $ref: ./common.yaml#/responses/BadRequest
+        '401': &a2
+          $ref: ./common.yaml#/responses/Unauthenticated
+        '403': &a3
+          $ref: ./common.yaml#/responses/Forbidden
+        '404': &a4
+          $ref: ./common.yaml#/responses/NotFound
+        '409': &a5
+          $ref: ./common.yaml#/responses/Conflict
+        '422': &a6
+          $ref: ./common.yaml#/responses/Unprocessable
+        '429': &a7
+          $ref: ./common.yaml#/responses/RateLimited
+        '500': &a8
+          $ref: ./common.yaml#/responses/InternalError
+    post:
+      operationId: createTaxStatus
+      summary: Create a firm-defined status
+      description:
+        Trim nonblank name; unique within firm. Server places it after current active statuses.
+        Duplicate -> 409 DUPLICATE_NAME. No client status assignment in this endpoint.
+      x-roles: &a9
+        - OWNER
+        - ADMIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  maxLength: 120
+                  minLength: 1
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxStatus'
+        '400': *a1
+        '401': *a2
+        '403': *a3
+        '404': *a4
+        '409': *a5
+        '422': *a6
+        '429': *a7
+        '500': *a8
+  /business/tax-statuses/order:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    put:
+      operationId: orderTaxStatuses
+      summary: Atomically reorder all active statuses
+      description:
+        Exact permutation of this firm active status ids; no duplicates, missing or foreign
+        ids. One transaction assigns zero-based sortOrder. Foreign id -> 404, stale/incomplete order
+        -> 409 CONFLICT. Serialize with create/archive.
+      x-roles: *a9
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - ids
+              properties:
+                ids:
+                  type: array
+                  items: &a10
+                    type: string
+                    format: uuid
+                  maxItems: 500
+                  uniqueItems: true
+                  minItems: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TaxStatus'
+                    maxItems: 500
+        '400': *a1
+        '401': *a2
+        '403': *a3
+        '404': *a4
+        '409': *a5
+        '422': *a6
+        '429': *a7
+        '500': *a8
+  /business/tax-statuses/{id}:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    patch:
+      operationId: renameTaxStatus
+      summary: Rename status without rewriting client history
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: *a9
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  maxLength: 120
+                  minLength: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxStatus'
+        '400': *a1
+        '401': *a2
+        '403': *a3
+        '404': *a4
+        '409': *a5
+        '422': *a6
+        '429': *a7
+        '500': *a8
+  /business/tax-statuses/{id}/archive:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    post:
+      operationId: archiveTaxStatus
+      summary: Archive rather than delete a referenced status
+      description:
+        Idempotent archive; preserve existing assignments/history. Archived status cannot be
+        assigned to new client updates. Audit entity id and action, not client data.
+      x-roles: *a9
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxStatus'
+        '400': *a1
+        '401': *a2
+        '403': *a3
+        '404': *a4
+        '409': *a5
+        '422': *a6
+        '429': *a7
+        '500': *a8
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas:
+    TaxStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - sortOrder
+        - archivedAt
+        - createdAt
+        - updatedAt
+      properties:
+        id: *a10
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+        sortOrder:
+          type: integer
+          minimum: 0
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt: &a11
+          type: string
+          format: date-time
+        updatedAt: *a11
