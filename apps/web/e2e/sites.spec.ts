@@ -50,6 +50,8 @@ test.describe('local sign-in works end to end (/api/v1/me)', () => {
 
   test('Super Admin in the admin console', async ({ page }) => {
     await signInAs(page, site('admin', '/sign-in'), 'superadmin@firmivra.test');
+    // The console's user menu (app shell) shows the email once opened.
+    await page.getByRole('button', { name: /Super Admin/ }).click();
     await expect(page.getByTestId('me-email')).toHaveText('superadmin@firmivra.test');
     await expect(page.getByText('Super Admin', { exact: false }).first()).toBeVisible();
   });
