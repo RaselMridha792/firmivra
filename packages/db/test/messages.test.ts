@@ -189,28 +189,131 @@ describe("a client's private notes", () => {
     ).rejects.toThrow(/permission denied/i);
   });
 
-  it('reminders: set by the owner, re-armed by a new date, sent without reading the note', async () => {
+  /** A note of login 1 with a reminder that is due (an hour ago) or not (tomorrow). */
+  const withReminder = async (due: boolean) => {
     const n = await note(ids.login1, ids.login1);
-    const reminder = { ...A(), noteId: n.id, userId: ids.login1, remindAt: new Date() };
-    await expect(firmA().clientNoteReminder.create({ data: reminder })).rejects.toThrow(
-      /only the note's owner/,
-    );
-    const r = await as(ids.login1).clientNoteReminder.create({ data: reminder });
-
-    // The reminder sender works without an actor: it sees the reminder, never the note.
-    const due = await firmA().clientNoteReminder.findMany({ where: { id: r.id } });
-    expect(due).toHaveLength(1);
-    expect(await firmA().clientPrivateNote.findMany({ where: { id: n.id } })).toEqual([]);
-    await firmA().clientNoteReminder.update({
-      where: { id: r.id },
-      data: { remindedAt: new Date() },
+    return as(ids.login1).clientNoteReminder.create({
+      data: {
+        ...A(),
+        noteId: n.id,
+        userId: ids.login1,
+        remindAt: new Date(Date.now() + (due ? -1 : 24) * 3_600_000),
+      },
     });
+  };
 
+  it('reminders: the owner creates, reads, moves (re-arms) and deletes its own', async () => {
+    const r = await withReminder(false);
+    expect(await as(ids.login1).clientNoteReminder.findUnique({ where: { id: r.id } })).not.toBe(
+      null,
+    );
     const moved = await as(ids.login1).clientNoteReminder.update({
       where: { id: r.id },
-      data: { remindAt: new Date(Date.now() + 86_400_000) },
+      data: { remindAt: new Date(Date.now() + 48 * 3_600_000) },
     });
     expect(moved.remindedAt).toBeNull();
+    expect(
+      (await as(ids.login1).clientNoteReminder.deleteMany({ where: { id: r.id } })).count,
+    ).toBe(1);
+  });
+
+  it('reminders: nobody else creates one for the owner', async () => {
+    const n = await note(ids.login1, ids.login1);
+    const data = { ...A(), noteId: n.id, userId: ids.login1, remindAt: new Date() };
+    for (const other of [firmA(), as(ids.staff), as(ids.login2)]) {
+      // The trigger refuses first (it cannot see the note); the insert policy would too.
+      await expect(other.clientNoteReminder.create({ data })).rejects.toThrow(
+        /only the note's owner/,
+      );
+    }
+  });
+
+  it("reminders: staff can't see, move or delete them, with or without an actor", async () => {
+    const due = await withReminder(true);
+    const later = await withReminder(false);
+    const both = { id: { in: [due.id, later.id] } };
+    const staff = as(ids.staff);
+    expect(await staff.clientNoteReminder.findMany({ where: both })).toEqual([]);
+    expect(
+      (await staff.clientNoteReminder.updateMany({ where: both, data: { remindAt: new Date() } }))
+        .count,
+    ).toBe(0);
+    expect((await staff.clientNoteReminder.deleteMany({ where: both })).count).toBe(0);
+
+    // A session without an actor (the API's staff routes) may not move or delete them either.
+    expect(
+      (
+        await firmA().clientNoteReminder.updateMany({
+          where: { id: later.id },
+          data: { remindAt: new Date() },
+        })
+      ).count,
+    ).toBe(0);
+    await expect(
+      firmA().clientNoteReminder.update({
+        where: { id: due.id },
+        data: { remindAt: new Date(Date.now() + 3_600_000) },
+      }),
+    ).rejects.toThrow(/only the note's owner changes a reminder/);
+    expect((await firmA().clientNoteReminder.deleteMany({ where: both })).count).toBe(0);
+
+    const mine = await as(ids.login1).clientNoteReminder.findMany({ where: both });
+    expect(mine.map((r) => r.remindAt.getTime()).sort()).toEqual(
+      [due.remindAt.getTime(), later.remindAt.getTime()].sort(),
+    );
+  });
+
+  it('reminders: the sender sees only due ones, never the note, and only marks them sent', async () => {
+    const due = await withReminder(true);
+    const later = await withReminder(false);
+    const sender = firmA();
+    const visible = await sender.clientNoteReminder.findMany({
+      where: { id: { in: [due.id, later.id] } },
+    });
+    expect(visible.map((r) => r.id)).toEqual([due.id]);
+    expect(await sender.clientPrivateNote.findMany({ where: { id: due.noteId } })).toEqual([]);
+
+    const sent = await sender.clientNoteReminder.update({
+      where: { id: due.id },
+      data: { remindedAt: new Date() },
+    });
+    expect(sent.remindedAt).not.toBeNull();
+    // Sent once: not cleared or sent again; a reminder that isn't due can't be touched.
+    expect(
+      (
+        await sender.clientNoteReminder.updateMany({
+          where: { id: due.id },
+          data: { remindedAt: null },
+        })
+      ).count,
+    ).toBe(0);
+    expect(
+      (
+        await sender.clientNoteReminder.updateMany({
+          where: { id: later.id },
+          data: { remindedAt: new Date() },
+        })
+      ).count,
+    ).toBe(0);
+  });
+
+  it('reminders: another client login and firm B see and change nothing', async () => {
+    const due = await withReminder(true);
+    const firmB = await runInScope(owner, { kind: 'platform' }, (tx) =>
+      tx.business.create({ data: { slug: `mb-${run}`, name: 'B' } }),
+    );
+    for (const other of [as(ids.login2), db.forBusiness(firmB.id)]) {
+      expect(await other.clientNoteReminder.findMany({ where: { id: due.id } })).toEqual([]);
+      expect(
+        (
+          await other.clientNoteReminder.updateMany({
+            where: { id: due.id },
+            data: { remindedAt: new Date() },
+          })
+        ).count,
+      ).toBe(0);
+      expect((await other.clientNoteReminder.deleteMany({ where: { id: due.id } })).count).toBe(0);
+    }
   });
 
   it('rejects a malformed actor id before touching the database', () => {

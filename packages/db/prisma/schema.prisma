@@ -1670,7 +1670,7 @@ enum TaxReturnStatus {
 
 /// A client's tax return for one year (portal Taxes tab, R10): annual, or one quarter's estimate.
 /// Older years can exist without an engagement. The return PDF is one of the client's own
-/// documents, never an INTERNAL one. Only an IN_PROGRESS return can be deleted.
+/// documents, never an INTERNAL one. Only a return that was never filed can be deleted.
 model TaxReturn {
   id           String          @id @default(uuid(7)) @db.Uuid
   businessId   String          @map("business_id") @db.Uuid
@@ -1687,6 +1687,9 @@ model TaxReturn {
   filedOn      DateTime?       @map("filed_on") @db.Date
   /// The return PDF the client can view and download.
   documentId   String?         @map("document_id") @db.Uuid
+  /// Set by the database the first time the return leaves IN_PROGRESS; never changes. A return
+  /// with it set is never deleted.
+  firstFiledAt DateTime?       @map("first_filed_at") @db.Timestamptz(3)
   createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
