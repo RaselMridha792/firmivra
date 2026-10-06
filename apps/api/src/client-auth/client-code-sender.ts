@@ -3,16 +3,19 @@ import { Logger } from '@nestjs/common';
 /** Nest injection token for the ClientCodeSender. R6 provides the real email and SMS sender. */
 export const CLIENT_CODE_SENDER = Symbol('CLIENT_CODE_SENDER');
 
+type CodeMessage = { to: string; code: string; businessName: string };
+type NoticeMessage = { to: string; businessName: string };
+
 export interface ClientCodeSender {
   /** The 6-digit email code for a portal sign-up. */
-  emailCode(message: { to: string; code: string; businessName: string }): Promise<void>;
+  emailCode(message: CodeMessage): Promise<void>;
   /** The 6-digit SMS code (E.164 number). */
-  smsCode(message: { to: string; code: string; businessName: string }): Promise<void>;
+  smsCode(message: CodeMessage): Promise<void>;
   /**
    * Sent instead of a code when someone signs up with an email that already has an account at
    * this firm: the API answers the same either way, only the address owner learns which.
    */
-  alreadyRegistered(message: { to: string; businessName: string }): Promise<void>;
+  alreadyRegistered(message: NoticeMessage): Promise<void>;
 }
 
 /**
@@ -27,15 +30,15 @@ export class LogClientCodeSender implements ClientCodeSender {
     private readonly logger: Pick<Logger, 'log' | 'warn'> = new Logger('ClientCodeSender'),
   ) {}
 
-  emailCode(m: { to: string; code: string }): Promise<void> {
+  emailCode(m: CodeMessage): Promise<void> {
     return this.write(`Local email code for ${m.to}: ${m.code}`, 'email code');
   }
 
-  smsCode(m: { to: string; code: string }): Promise<void> {
+  smsCode(m: CodeMessage): Promise<void> {
     return this.write(`Local SMS code for ${m.to}: ${m.code}`, 'SMS code');
   }
 
-  alreadyRegistered(m: { to: string }): Promise<void> {
+  alreadyRegistered(m: NoticeMessage): Promise<void> {
     return this.write(`Local "already registered" email to ${m.to}`, '"already registered" email');
   }
 

@@ -192,7 +192,8 @@ export class AdminSignInController extends SignInRoutes {
             ),
     },
   ],
-  // For R4 (a new firm's owner on approval) and the Team API (resend): import SignInModule.
-  exports: [InvitesService],
+  // For R4 (a new firm's owner on approval) and the Team API (resend), and R3's client sign-up
+  // (the identity provider): import SignInModule.
+  exports: [InvitesService, IDENTITY_PROVIDER],
 })
 export class SignInModule {}
