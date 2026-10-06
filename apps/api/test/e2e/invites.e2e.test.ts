@@ -10,14 +10,20 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import type {
   ActivationCheckResponse,
+  IdentityPool,
   InviteResponse,
   MeResponse,
   MfaSetupResponse,
   SignInResult,
 } from '@firmivra/types';
 import { ACTIVATION_MAILER, type ActivationEmail } from '../../src/auth/activation-mailer.js';
-import { LOCAL_MFA_CODE } from '../../src/auth/identity/local-identity.provider.js';
-import { InvitesService } from '../../src/auth/invites.service.js';
+import { IDENTITY_PROVIDER } from '../../src/auth/identity/identity-provider.js';
+import {
+  LOCAL_MFA_CODE,
+  LocalIdentityProvider,
+} from '../../src/auth/identity/local-identity.provider.js';
+import { INVITE_LIMITS, InvitesService } from '../../src/auth/invites.service.js';
+import { TokenService } from '../../src/auth/token.service.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { type Env, loadEnv } from '../../src/config/env.js';
@@ -27,22 +33,65 @@ let app: INestApplication;
 let env: Env;
 const outbox: ActivationEmail[] = [];
 
+/**
+ * The local stand-in with a gate: `holdNextSetPassword()` keeps the next password change waiting
+ * until released, which opens the window a slow Cognito call would (#41 review races).
+ */
+class GatedIdentity extends LocalIdentityProvider {
+  private gate?: { entered: () => void; released: Promise<void> };
+
+  holdNextSetPassword() {
+    let entered!: () => void;
+    let release!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    this.gate = { entered, released: new Promise<void>((resolve) => (release = resolve)) };
+    return { reached, release };
+  }
+
+  override async setPassword(pool: IdentityPool, sub: string, password: string): Promise<void> {
+    const gate = this.gate;
+    this.gate = undefined;
+    if (gate) {
+      gate.entered();
+      await gate.released;
+    }
+    return super.setPassword(pool, sub, password);
+  }
+}
+let identity: GatedIdentity;
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** People of this file only: invites change memberships, so shared fixtures stay untouched. */
 const people = {
   adminA: { id: randomUUID(), email: `r2-inv-admin-${randomUUID()}@a.test` },
   formerA: { id: randomUUID(), email: `r2-inv-former-${randomUUID()}@a.test` },
   staffOfB: { id: randomUUID(), email: `r2-inv-elsewhere-${randomUUID()}@b.test` },
+  setupOwner: { id: randomUUID(), email: `r2-inv-setup-${randomUUID()}@c.test` },
+  laterOwner: { id: randomUUID(), email: `r2-inv-later-${randomUUID()}@d.test` },
+  cappedOwner: { id: randomUUID(), email: `r2-inv-capped-${randomUUID()}@e.test` },
+};
+/** Firms of this file: one in setup, one suspended later, one for the per-firm cap. */
+const firms = {
+  setup: { id: '', status: 'PENDING_SETUP' as const, owner: people.setupOwner },
+  later: { id: '', status: 'ACTIVE' as const, owner: people.laterOwner },
+  capped: { id: '', status: 'ACTIVE' as const, owner: people.cappedOwner },
 };
 
 let lastViewer = 0;
 const newViewer = () => `198.51.100.${++lastViewer}`;
 
+/** One dev token per person (they last an hour): the dev route allows 30 a minute per IP. */
+const devTokens = new Map<string, string>();
 async function tokenFor(email: string): Promise<string> {
+  const cached = devTokens.get(email);
+  if (cached) return cached;
   const res = await request(app.getHttpServer())
     .post('/api/v1/dev/token')
     .send({ email })
     .expect(200);
-  return (res.body as { token: string }).token;
+  const { token } = res.body as { token: string };
+  devTokens.set(email, token);
+  return token;
 }
 
 /** A signed-in call (Bearer, so no cookie and no Origin needed), acting in `businessId`. */
@@ -91,10 +140,19 @@ beforeAll(async () => {
       });
     }
   });
+  for (const firm of Object.values(firms)) {
+    const slug = `r2-inv-${randomUUID().slice(0, 8)}`;
+    firm.id = (
+      await asOwner({ kind: 'platform' }, (tx) =>
+        tx.business.create({ data: { slug, name: slug, status: firm.status } }),
+      )
+    ).id;
+  }
   for (const [businessId, userId, role, status] of [
     [fx.firmA.id, people.adminA.id, 'ADMIN', 'ACTIVE'],
     [fx.firmA.id, people.formerA.id, 'STAFF', 'DEACTIVATED'],
     [fx.firmB.id, people.staffOfB.id, 'STAFF', 'ACTIVE'],
+    ...Object.values(firms).map((f) => [f.id, f.owner.id, 'OWNER', 'ACTIVE'] as const),
   ] as const) {
     await asOwner({ kind: 'business', businessId }, (tx) =>
       tx.membership.create({ data: { businessId, userId, role, status } }),
@@ -109,6 +167,11 @@ beforeAll(async () => {
     DATABASE_URL_APP: fx.appUrl,
   });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(IDENTITY_PROVIDER)
+    .useFactory({
+      factory: (tokens: TokenService) => (identity = new GatedIdentity(tokens)),
+      inject: [TokenService],
+    })
     .overrideProvider(ACTIVATION_MAILER)
     .useValue({
       send: (mail: ActivationEmail) => {
@@ -189,18 +252,32 @@ describe('invite and activate a new person', () => {
       ),
     ).toBe('INVITE_INVALID');
 
-    // Both steps are audited in firm A, by the inviter and by the new person.
+    // Both steps are audited in firm A, by the inviter and by the new person; the metadata holds
+    // ids only, never the token or the address.
     const rows = await asOwner({ kind: 'business', businessId: fx.firmA.id }, (tx) =>
       tx.auditLog.findMany({
         where: { entityId: body.membershipId },
-        select: { action: true, businessId: true, actorUserId: true },
+        select: { action: true, businessId: true, actorUserId: true, metadata: true },
         orderBy: { createdAt: 'asc' },
       }),
     );
     expect(rows).toEqual([
-      { action: 'membership.invited', businessId: fx.firmA.id, actorUserId: fx.users.ownerA.id },
-      { action: 'membership.activated', businessId: fx.firmA.id, actorUserId: signedIn.me.user.id },
+      {
+        action: 'membership.invited',
+        businessId: fx.firmA.id,
+        actorUserId: fx.users.ownerA.id,
+        metadata: { inviteId: body.id, role: 'STAFF', resent: false },
+      },
+      {
+        action: 'membership.activated',
+        businessId: fx.firmA.id,
+        actorUserId: signedIn.me.user.id,
+        metadata: { inviteId: body.id, via: 'activate' },
+      },
     ]);
+    const stored = JSON.stringify(rows);
+    expect(stored).not.toContain(token);
+    expect(stored).not.toContain(email.toLowerCase());
   });
 
   it('refuses an unknown token, and an expired link with 410', async () => {
@@ -351,9 +428,14 @@ describe('someone who already works at another firm', () => {
     });
     expect([activate.status, codeOf(activate)]).toEqual([409, 'ACCOUNT_EXISTS']);
 
-    // Only the invited person can accept, signed in.
-    const wrong = await as(fx.users.staffA.email, '/api/v1/auth/activation/accept', { token });
-    expect([wrong.status, codeOf(wrong)]).toEqual([404, 'INVITE_INVALID']);
+    // Only the invited person can accept, signed in: not another staff member, not a client,
+    // and never a Super Admin session (it does not work on the firm site at all).
+    for (const other of [fx.users.staffA.email, fx.users.clientA.email]) {
+      const wrong = await as(other, '/api/v1/auth/activation/accept', { token });
+      expect([other, wrong.status, codeOf(wrong)]).toEqual([other, 404, 'INVITE_INVALID']);
+    }
+    const admin = await as(fx.users.admin.email, '/api/v1/auth/activation/accept', { token });
+    expect(admin.status).toBe(401);
     expect((await publicPost('/api/v1/auth/activation/accept', { token })).status).toBe(401);
 
     const accepted = await as(people.staffOfB.email, '/api/v1/auth/activation/accept', { token });
@@ -368,5 +450,158 @@ describe('someone who already works at another firm', () => {
     expect(
       codeOf(await as(people.staffOfB.email, '/api/v1/auth/activation/accept', { token })),
     ).toBe('INVITE_INVALID');
+  });
+});
+
+describe('a link is used once, even under races (#41 review)', () => {
+  /** Sends at once (supertest sends only when awaited) and gives back the answer later. */
+  const start = (path: string, body: object) => publicPost(path, body).then((res) => res);
+  const signInWith = (email: string, password: string) =>
+    publicPost('/api/v1/auth/sign-in', { email, password });
+
+  it('two activations at once: one sets the password, the other changes nothing', async () => {
+    const email = `r2-race-${randomUUID()}@a.test`;
+    await invite(email, 'STAFF');
+    const token = tokenSentTo(email);
+
+    const gate = identity.holdNextSetPassword();
+    const first = start('/api/v1/auth/activate', { token, password: 'First-password-12' });
+    await gate.reached; // the first request holds the link and waits in Cognito
+    const second = start('/api/v1/auth/activate', { token, password: 'Second-password-1' });
+    await pause(300); // the second is now waiting for the link
+    gate.release();
+
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.status).toBe(200);
+    expect([404, 409]).toContain(b.status);
+    expect((await signInWith(email, 'First-password-12')).status).toBe(200);
+    const loser = await signInWith(email, 'Second-password-1');
+    expect([loser.status, codeOf(loser)]).toEqual([401, 'INVALID_CREDENTIALS']);
+  });
+
+  it('a resend during an activation never flips the new member back to INVITED', async () => {
+    const email = `r2-resend-race-${randomUUID()}@a.test`;
+    const { membershipId } = (await invite(email, 'STAFF')).body as InviteResponse;
+    const token = tokenSentTo(email);
+    const sent = outbox.length;
+
+    const gate = identity.holdNextSetPassword();
+    const activation = start('/api/v1/auth/activate', {
+      token,
+      password: 'Racing-password-1',
+    });
+    await gate.reached;
+    const resend = invite(email, 'STAFF');
+    await pause(300);
+    gate.release();
+
+    const [activated, resent] = await Promise.all([activation, resend]);
+    expect(activated.status).toBe(200);
+    expect([resent.status, codeOf(resent)]).toEqual([409, 'ALREADY_MEMBER']);
+    expect(outbox.length).toBe(sent); // no new link went out
+    const state = await asOwner({ kind: 'business', businessId: fx.firmA.id }, async (tx) => ({
+      membership: await tx.membership.findUniqueOrThrow({
+        where: { id: membershipId },
+        select: { status: true },
+      }),
+      openInvites: await tx.invite.count({
+        where: { membershipId, acceptedAt: null, revokedAt: null },
+      }),
+    }));
+    expect(state).toEqual({ membership: { status: 'ACTIVE' }, openInvites: 0 });
+  });
+
+  it('a resend that wins first leaves the old link unable to set a password', async () => {
+    const email = `r2-resend-first-${randomUUID()}@a.test`;
+    await invite(email, 'STAFF');
+    const oldToken = tokenSentTo(email);
+    await invite(email, 'STAFF');
+    const res = await publicPost('/api/v1/auth/activate', {
+      token: oldToken,
+      password: 'Old-link-password-1',
+    });
+    expect([res.status, codeOf(res)]).toEqual([404, 'INVITE_INVALID']);
+    expect((await signInWith(email, 'Old-link-password-1')).status).toBe(401);
+  });
+});
+
+describe('firm status (#41 review)', () => {
+  it("lets a firm in setup invite its team (the wizard's Team and access step)", async () => {
+    const res = await as(
+      people.setupOwner.email,
+      '/api/v1/auth/invites',
+      { email: `r2-setup-team-${randomUUID()}@c.test`, name: 'Setup Staff', role: 'ADMIN' },
+      firms.setup.id,
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it('refuses invites into a suspended or closed firm, also without the route guard', async () => {
+    const service = app.get(InvitesService);
+    await expect(
+      service.createInvite({
+        businessId: fx.suspended.id,
+        email: `r2-into-suspended-${randomUUID()}@s.test`,
+        name: 'Nobody',
+        role: 'OWNER',
+        invitedBy: null,
+      }),
+    ).rejects.toMatchObject({ response: { code: 'BUSINESS_INACTIVE' } });
+  });
+
+  it('refuses activation once the firm is suspended', async () => {
+    const email = `r2-later-${randomUUID()}@d.test`;
+    const res = await as(
+      people.laterOwner.email,
+      '/api/v1/auth/invites',
+      { email, name: 'Later Staff', role: 'STAFF' },
+      firms.later.id,
+    );
+    expect(res.status).toBe(201);
+    const token = tokenSentTo(email);
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.business.update({ where: { id: firms.later.id }, data: { status: 'SUSPENDED' } }),
+    );
+    for (const path of ['/api/v1/auth/activation/check', '/api/v1/auth/activate']) {
+      const r = await publicPost(path, { token, password: 'Later-password-12' });
+      expect([path, r.status, codeOf(r)]).toEqual([path, 404, 'INVITE_INVALID']);
+    }
+  });
+});
+
+describe('invite caps, counted in the database (#41 review)', () => {
+  it('sends one person at most INVITE_LIMITS.perPerson links a day', async () => {
+    const email = `r2-many-${randomUUID()}@a.test`;
+    for (let i = 0; i < INVITE_LIMITS.perPerson; i++) {
+      expect((await invite(email, 'STAFF')).status).toBe(201);
+    }
+    const capped = await invite(email, 'STAFF');
+    expect([capped.status, codeOf(capped)]).toEqual([429, 'RATE_LIMITED']);
+  });
+
+  it('sends at most INVITE_LIMITS.perFirm links a day per firm, before creating any login', async () => {
+    const limit = INVITE_LIMITS.perFirm;
+    INVITE_LIMITS.perFirm = 2;
+    try {
+      const send = (email: string) =>
+        as(
+          people.cappedOwner.email,
+          '/api/v1/auth/invites',
+          { email, name: 'Capped Staff', role: 'STAFF' },
+          firms.capped.id,
+        );
+      for (const n of [1, 2]) {
+        expect((await send(`r2-capped-${n}-${randomUUID()}@e.test`)).status).toBe(201);
+      }
+      const third = `r2-capped-3-${randomUUID()}@e.test`;
+      const res = await send(third);
+      expect([res.status, codeOf(res)]).toEqual([429, 'RATE_LIMITED']);
+      const users = await asOwner({ kind: 'platform' }, (tx) =>
+        tx.user.count({ where: { email: third } }),
+      );
+      expect(users).toBe(0);
+    } finally {
+      INVITE_LIMITS.perFirm = limit;
+    }
   });
 });

@@ -158,6 +158,10 @@ paths:
         sends it in the body. Inviting someone with an open invite sends a new link (the old one
         stops working); a deactivated member is invited again. The answer is the same whether or
         not the person already works at another firm. The email address is lower-cased.
+
+        Works while the firm is in setup (the setup wizard's "Team and access" step) or active;
+        a suspended or closed firm gets 403 `BUSINESS_INACTIVE`. A firm sends at most 50 links a
+        day and one person at most 5 (resends included), else 429 `RATE_LIMITED`.
       security: [{ firmCookie: [] }, { bearer: [] }]
       parameters: [{ $ref: '#/components/parameters/BusinessId' }]
       requestBody: { $ref: '#/components/requestBodies/CreateInvite' }
@@ -173,6 +177,7 @@ paths:
         '409':
           description: '`ALREADY_MEMBER`: the email already has an active membership in this firm'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   /auth/activation/check:
     post:
@@ -204,7 +209,10 @@ paths:
       description: |
         For a new person only. Uses up the link; the result is `MFA_SETUP_REQUIRED`. When the
         person already has a login it answers 409 `ACCOUNT_EXISTS` and changes nothing, so an
-        invite can never reset an existing account's password.
+        invite can never reset an existing account's password. The password is set only while
+        this request holds the link: of two activations at once, or an activation and a resend,
+        only one uses it, and a failure leaves the link working. Expiry follows the database's
+        clock (410).
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/ActivateRequest' } } }

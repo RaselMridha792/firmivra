@@ -19,7 +19,7 @@
 - [ ] 4. Firm side: list pending sign-ups, approve, decline (owner and admin only), notify the client
 - [x] 5. Client sign-in, optional MFA, session cookies scoped to the portal
 - [x] 6. Forgot and reset password per firm; the response never reveals whether an account exists
-- [ ] 7. Per-firm Terms and Privacy accepted at sign-up and stored with version and time
+- [x] 7. Per-firm Terms and Privacy accepted at sign-up and stored with version and time
 - [ ] 8. e2e tests, including a client of firm A trying firm B's portal
 
 ## Done when
@@ -68,3 +68,4 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
   - Per-firm cookies `fv_portal_{slug}_*` on `/api/v1/portal/{slug}/`. The challenge and the refresh envelope carry the firm and open only on its portal. `AuthGuard` reads that firm's cookie on portal routes and takes only the clients pool; `crossSiteGuard` takes only the portal's origin on portal routes and counts the portal cookies (sign-up included) as session cookies.
   - Reset failures count per firm and email. Local mode: clients sign in without MFA (the pool's MFA is optional); `POST /dev/token` gives a client their portal's cookie.
   - Docs: apps/api/README.md, auth.yaml, client-auth.yaml. Tests: `test/e2e/portal-sign-in.e2e.test.ts` (11), `test/unit/portal-sign-in.test.ts` (8), the browser case in `guards.e2e.test.ts`; the sign-up e2e visitor now sends the portal's origin.
+- 2026-10-07, steps 2-3 PR branch `rasel/R3-signup` (696df21 plus the #41 branch, which holds main with #32): #32 merged, so the PR opens now (Rasel); its diff shows #41's changes until #41 merges, then main is merged in. Step 7 is part of sign-up: `POST auth/sign-up` refuses outdated versions (409 `TERMS_OUTDATED`) and stores one `legal_acceptances` row each for Terms and Privacy (document id, so its version, plus time, IP and user agent) in the transaction that creates the account.

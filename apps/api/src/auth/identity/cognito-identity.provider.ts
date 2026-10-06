@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import {
   AdminCreateUserCommand,
+  AdminDisableUserCommand,
   AdminSetUserPasswordCommand,
   AdminUpdateUserAttributesCommand,
   type AttributeType,
@@ -356,6 +357,15 @@ export class CognitoIdentityProvider implements IdentityProvider {
     const user = await this.userBySub(p, sub);
     // Invited users wait in FORCE_CHANGE_PASSWORD (the generated password nobody knows).
     return !!user && !['FORCE_CHANGE_PASSWORD', 'UNCONFIRMED'].includes(user.UserStatus ?? '');
+  }
+
+  async disableUser(pool: IdentityPool, sub: string): Promise<void> {
+    const p = this.pool(pool);
+    const user = await this.userBySub(p, sub);
+    if (!user?.Username || user.Enabled === false) return;
+    await this.client
+      .send(new AdminDisableUserCommand({ UserPoolId: p.userPoolId, Username: user.Username }))
+      .catch((e: unknown) => fail(e, {}));
   }
 
   /** The Cognito username for a sub, or undefined for an unknown or disabled user. */

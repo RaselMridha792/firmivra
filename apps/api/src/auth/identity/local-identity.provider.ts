@@ -29,13 +29,16 @@ export class LocalIdentityProvider implements IdentityProvider {
   private readonly passwords = new Map<string, string>();
   /** Logins created by an invite: no password until activation (seeded users have the dev one). */
   private readonly invited = new Set<string>();
+  private readonly disabled = new Set<string>();
 
   constructor(private readonly tokens: TokenService) {}
 
   async signIn(pool: IdentityPool, sub: string | undefined, password: string): Promise<AuthStep> {
     const expected =
       this.passwords.get(sub ?? '') ?? (this.invited.has(sub ?? '') ? undefined : LOCAL_PASSWORD);
-    if (!sub || password !== expected) throw new AuthFlowError('INVALID_CREDENTIALS');
+    if (!sub || password !== expected || this.disabled.has(sub)) {
+      throw new AuthFlowError('INVALID_CREDENTIALS');
+    }
     if (pool === 'CLIENT' && !this.mfaReady.has(sub)) {
       return { kind: 'tokens', tokens: await this.issue(sub, pool), username: sub };
     }
@@ -117,6 +120,11 @@ export class LocalIdentityProvider implements IdentityProvider {
 
   hasPassword(_pool: IdentityPool, sub: string): Promise<boolean> {
     return Promise.resolve(!this.invited.has(sub));
+  }
+
+  disableUser(_pool: IdentityPool, sub: string): Promise<void> {
+    this.disabled.add(sub);
+    return Promise.resolve();
   }
 
   private async issue(sub: string, pool: IdentityPool): Promise<SessionTokens> {
