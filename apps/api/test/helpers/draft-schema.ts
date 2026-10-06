@@ -5,7 +5,10 @@ export async function installDraftSchema(owner: PrismaClient, statements: readon
   const [row] = await owner.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`;
   if (!row || !row.name.endsWith('_test_api'))
     throw new Error('Draft schema fixture requires the isolated API test database');
-  for (const statement of statements) await owner.$executeRawUnsafe(statement);
+  await owner.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(89420512)`;
+    for (const statement of statements) await tx.$executeRawUnsafe(statement);
+  });
 }
 export const applicationHistoryFixture = [
   `CREATE TABLE IF NOT EXISTS firm_application_histories (id uuid PRIMARY KEY, application_id uuid NOT NULL REFERENCES firm_applications(id), from_status text, to_status text NOT NULL, actor_user_id uuid REFERENCES users(id), reason text, created_at timestamptz NOT NULL DEFAULT now())`,
