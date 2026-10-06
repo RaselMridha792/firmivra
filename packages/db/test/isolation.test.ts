@@ -41,6 +41,8 @@ const ids = {
   notificationA: '',
   preferenceA: '',
   appointmentA: '',
+  threadA: '',
+  messageA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -234,6 +236,21 @@ beforeAll(async () => {
           locationKind: 'VIDEO',
         },
       });
+      const thread = await tx.messageThread.create({
+        data: { ...work, engagementId: eng.id, subject: 'Question' },
+      });
+      const msg = await tx.message.create({
+        data: {
+          businessId: firm,
+          threadId: thread.id,
+          senderUserId: clientId,
+          direction: 'CLIENT_TO_FIRM',
+          body: 'Hello',
+        },
+      });
+      await tx.messageAttachment.create({
+        data: { businessId: firm, messageId: msg.id, documentId: vaultDoc.id },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -265,6 +282,8 @@ beforeAll(async () => {
         ids.notificationA = note2.id;
         ids.preferenceA = pref.id;
         ids.appointmentA = appt.id;
+        ids.threadA = thread.id;
+        ids.messageA = msg.id;
       }
     });
   }
@@ -321,6 +340,11 @@ describe('no scope set', () => {
     expect(await unscopedApp.workingHours.findMany()).toEqual([]);
     expect(await unscopedApp.blockedTime.findMany()).toEqual([]);
     expect(await unscopedApp.appointment.findMany()).toEqual([]);
+    expect(await unscopedApp.messageThread.findMany()).toEqual([]);
+    expect(await unscopedApp.message.findMany()).toEqual([]);
+    expect(await unscopedApp.messageAttachment.findMany()).toEqual([]);
+    expect(await unscopedApp.clientPrivateNote.findMany()).toEqual([]);
+    expect(await unscopedApp.clientNoteReminder.findMany()).toEqual([]);
   });
 });
 
@@ -365,6 +389,9 @@ describe('business scope: firm B', () => {
       await b().workingHours.findMany(),
       await b().blockedTime.findMany(),
       await b().appointment.findMany(),
+      await b().messageThread.findMany(),
+      await b().message.findMany(),
+      await b().messageAttachment.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -424,6 +451,19 @@ describe('business scope: firm B', () => {
       (await b().notificationPreference.deleteMany({ where: { id: ids.preferenceA } })).count,
     ).toBe(0);
     expect(await b().appointment.findUnique({ where: { id: ids.appointmentA } })).toBeNull();
+    expect(await b().messageThread.findUnique({ where: { id: ids.threadA } })).toBeNull();
+    expect(await b().message.findUnique({ where: { id: ids.messageA } })).toBeNull();
+    await expect(
+      b().message.create({
+        data: {
+          businessId: ids.firmB,
+          threadId: ids.threadA,
+          senderUserId: ids.ownerB,
+          direction: 'FIRM_TO_CLIENT',
+          body: 'Planted',
+        },
+      }),
+    ).rejects.toThrow();
     expect(
       (
         await b().appointment.updateMany({
@@ -568,6 +608,10 @@ describe('platform scope', () => {
     expect(await p.workingHours.findMany()).toEqual([]);
     expect(await p.blockedTime.findMany()).toEqual([]);
     expect(await p.appointment.findMany()).toEqual([]);
+    expect(await p.messageThread.findMany()).toEqual([]);
+    expect(await p.message.findMany()).toEqual([]);
+    expect(await p.clientPrivateNote.findMany()).toEqual([]);
+    expect(await p.clientNoteReminder.findMany()).toEqual([]);
   });
 });
 

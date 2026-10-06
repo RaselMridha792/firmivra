@@ -216,6 +216,11 @@ enum LocationKind {
   VIDEO
 }
 
+enum MessageDirection {
+  FIRM_TO_CLIENT
+  CLIENT_TO_FIRM
+}
+
 enum LegalDocumentKind {
   TERMS
   PRIVACY
@@ -321,12 +326,15 @@ model ClientAccount {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
-  user     User     @relation(fields: [userId], references: [id])
-  client   Client?  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  invites  Invite[]
+  business     Business            @relation(fields: [businessId], references: [id])
+  user         User                @relation(fields: [userId], references: [id])
+  client       Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  invites      Invite[]
+  privateNotes ClientPrivateNote[]
 
   @@unique([businessId, email])
+  // Target of client-owned rows (private notes).
+  @@unique([businessId, userId])
   @@unique([businessId, id])
   @@index([businessId, status])
   @@index([businessId, clientId])
@@ -527,6 +535,7 @@ model Client {
   tasks            Task[]
   notes            Note[]
   appointments     Appointment[]
+  messageThreads   MessageThread[]
 
   @@unique([businessId, id])
   @@index([businessId, displayName])
@@ -678,6 +687,7 @@ model Engagement {
   intakes          Intake[]
   leads            Lead[]
   appointments     Appointment[]
+  messageThreads   MessageThread[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -839,12 +849,15 @@ model Document {
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  category   DocumentCategory?  @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  request    DocumentRequest?   @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
-  leadUpload LeadUpload?        @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
-  reports    EngagementReport[]
+  engagement         Engagement          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category           DocumentCategory?   @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  request            DocumentRequest?    @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
+  leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  reports            EngagementReport[]
+  messageAttachments MessageAttachment[]
 
+  // Target of message attachments.
+  @@unique([businessId, id])
   // One document per carried-over lead upload.
   @@unique([businessId, leadUploadId])
   // Lets reports require that their document belongs to the same engagement.
@@ -1192,4 +1205,109 @@ model Appointment {
   @@index([businessId, staffUserId, startsAt])
   @@index([businessId, clientId, startsAt])
   @@map("appointments")
+}
+
+/// A subject thread between the firm and one client, optionally about one of that client's
+/// engagements and linked to a related record. Never deleted.
+model MessageThread {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  clientId        String    @map("client_id") @db.Uuid
+  engagementId    String?   @map("engagement_id") @db.Uuid
+  subject         String
+  /// The record the thread is about, e.g. "document_request" and its id.
+  entityType      String?   @map("entity_type")
+  entityId        String?   @map("entity_id") @db.Uuid
+  /// When false, the client can read but not reply.
+  repliesEnabled  Boolean   @default(true) @map("replies_enabled")
+  /// Set by the database when a message is added.
+  lastMessageAt   DateTime? @map("last_message_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  messages   Message[]
+
+  @@unique([businessId, id])
+  @@index([businessId, clientId, lastMessageAt])
+  @@map("message_threads")
+}
+
+/// One message in a thread. The sender is a staff member (FIRM_TO_CLIENT) or a portal login
+/// of the thread's own client (CLIENT_TO_FIRM). readAt is the receiving side's read state
+/// (mark unread clears it). Otherwise never changed and never deleted.
+model Message {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  businessId   String           @map("business_id") @db.Uuid
+  threadId     String           @map("thread_id") @db.Uuid
+  senderUserId String           @map("sender_user_id") @db.Uuid
+  direction    MessageDirection
+  body         String
+  readAt       DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  thread      MessageThread       @relation(fields: [businessId, threadId], references: [businessId, id], onDelete: Restrict)
+  attachments MessageAttachment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, threadId, createdAt])
+  @@map("messages")
+}
+
+/// A file attached to a message: always a document in the vault (scanned, retained), from an
+/// engagement of the thread's client. Insert-only.
+model MessageAttachment {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  messageId  String   @map("message_id") @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message  Message  @relation(fields: [businessId, messageId], references: [businessId, id], onDelete: Restrict)
+  document Document @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, messageId, documentId])
+  @@index([businessId, documentId])
+  @@map("message_attachments")
+}
+
+/// A client's private notepad entry (Messages and Notes). Never shown to the firm: the database
+/// shows it only to its own client login (db.forBusiness(businessId, { actorUserId })). Each
+/// save adds a version; the latest is shown; text never changes and nothing is deleted.
+model ClientPrivateNote {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  /// The client's portal login that owns the note.
+  userId     String   @map("user_id") @db.Uuid
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  owner    ClientAccount       @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+  reminder ClientNoteReminder?
+
+  @@unique([businessId, id])
+  @@index([businessId, userId, createdAt])
+  @@map("client_private_notes")
+}
+
+/// The optional reminder on a client's note, kept apart from the note so the reminder sender
+/// can find due reminders without ever reading note text. Editable; deleting removes it.
+model ClientNoteReminder {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  noteId     String    @map("note_id") @db.Uuid
+  /// The note's owner, so the reminder can be sent without opening the note.
+  userId     String    @map("user_id") @db.Uuid
+  remindAt   DateTime  @map("remind_at") @db.Timestamptz(3)
+  remindedAt DateTime? @map("reminded_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  note ClientPrivateNote @relation(fields: [businessId, noteId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, noteId])
+  @@index([businessId, remindAt])
+  @@map("client_note_reminders")
 }

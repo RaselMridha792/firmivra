@@ -18,6 +18,7 @@ import {
   SEED_NOTIFICATION_IDS,
   SEED_APPOINTMENT_TYPES,
   SEED_CALENDAR_IDS,
+  SEED_MESSAGE_IDS,
   SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
@@ -661,7 +662,117 @@ async function main() {
         bookedByClient: true,
       },
     });
+
+    // Messages: the client asks about a W-2 (with the 1099-INT attached) and staff answer;
+    // the firm's welcome thread.
+    const thread = async (
+      id: string,
+      data: { subject: string; engagementId?: string; createdByUserId: string },
+    ) => {
+      await tx.messageThread.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, clientId: SEED_CLIENT_IDS.lvp, ...data },
+      });
+    };
+    const message = async (
+      id: string,
+      threadId: string,
+      direction: 'FIRM_TO_CLIENT' | 'CLIENT_TO_FIRM',
+      body: string,
+      createdAt: string,
+    ) => {
+      if (!(await tx.message.findUnique({ where: { id } }))) {
+        await tx.message.create({
+          data: {
+            ...lvp,
+            id,
+            threadId,
+            direction,
+            body,
+            senderUserId:
+              direction === 'CLIENT_TO_FIRM' ? SEED_USERS.lvpClient.id : SEED_USERS.lvpStaff.id,
+            createdAt: new Date(createdAt),
+          },
+        });
+      }
+    };
+    await thread(SEED_MESSAGE_IDS.welcomeThread, {
+      subject: 'Welcome to LVP!',
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    });
+    await message(
+      SEED_MESSAGE_IDS.welcomeMessage,
+      SEED_MESSAGE_IDS.welcomeThread,
+      'FIRM_TO_CLIENT',
+      'Welcome to your client portal. Send us a message here any time.',
+      '2026-10-01T14:00:00Z',
+    );
+    await thread(SEED_MESSAGE_IDS.w2Thread, {
+      subject: 'Question about my W-2',
+      engagementId: SEED_WORK_IDS.lvpTax,
+      createdByUserId: SEED_USERS.lvpClient.id,
+    });
+    await message(
+      SEED_MESSAGE_IDS.w2Question,
+      SEED_MESSAGE_IDS.w2Thread,
+      'CLIENT_TO_FIRM',
+      'Do you need the W-2 from my second job too? I attached my 1099-INT.',
+      '2026-10-02T15:00:00Z',
+    );
+    await tx.messageAttachment.upsert({
+      where: {
+        businessId_messageId_documentId: {
+          businessId: businesses.lvp,
+          messageId: SEED_MESSAGE_IDS.w2Question,
+          documentId: SEED_DOCUMENT_IDS.interestDocument,
+        },
+      },
+      update: {},
+      create: {
+        ...lvp,
+        messageId: SEED_MESSAGE_IDS.w2Question,
+        documentId: SEED_DOCUMENT_IDS.interestDocument,
+      },
+    });
+    await message(
+      SEED_MESSAGE_IDS.w2Answer,
+      SEED_MESSAGE_IDS.w2Thread,
+      'FIRM_TO_CLIENT',
+      'Yes, please upload every W-2 under the W-2 request. Thanks for the 1099-INT.',
+      '2026-10-02T17:30:00Z',
+    );
   });
+
+  // The client's private note: written as the client, the only one the database shows it to.
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpClient.id },
+    async (tx) => {
+      const owner = { businessId: businesses.lvp, userId: SEED_USERS.lvpClient.id };
+      if (
+        !(await tx.clientPrivateNote.findUnique({ where: { id: SEED_MESSAGE_IDS.clientNote } }))
+      ) {
+        await tx.clientPrivateNote.create({
+          data: {
+            ...owner,
+            id: SEED_MESSAGE_IDS.clientNote,
+            body: 'Remember to gather my 1099 forms. Ask about retirement contribution options.',
+          },
+        });
+      }
+      await tx.clientNoteReminder.upsert({
+        where: { id: SEED_MESSAGE_IDS.clientNoteReminder },
+        update: {},
+        create: {
+          ...owner,
+          id: SEED_MESSAGE_IDS.clientNoteReminder,
+          noteId: SEED_MESSAGE_IDS.clientNote,
+          remindAt: new Date('2026-10-25T13:00:00Z'),
+        },
+      });
+    },
+  );
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
     await tx.membership.upsert({
@@ -719,7 +830,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications and a calendar.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar and messages.`,
   );
 }
 

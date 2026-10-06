@@ -6,13 +6,13 @@ Prisma schema, migrations, seed and the tenant-scoped database client. **Owner: 
 
 The API connects as `firmivra_app` (`DATABASE_URL_APP`), a role that cannot bypass row-level security. Every query runs inside one of three scopes, set per transaction with `set_config(..., true)`:
 
-| Scope      | Set by                       | Sees                                                                                                                                      |
-| ---------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `business` | `db.forBusiness(businessId)` | Only that firm's rows. Everything a firm user or client does.                                                                             |
-| `user`     | `db.forUser(userId)`         | The person's own memberships, client accounts and their firms (for `/me` and the firm picker).                                            |
-| `platform` | `db.forPlatform()`           | Platform tables: businesses (metadata), users, platform admins, firm applications, support grants, platform audit events. No firm data.   |
-| `invite`   | `db.forInvite(tokenHash)`    | Only the invite whose SHA-256 token hash matches. For the signed-out "accept invite" step: read its `businessId`, then use `forBusiness`. |
-| none       | –                            | Nothing. Every policy is false.                                                                                                           |
+| Scope      | Set by                       | Sees                                                                                                                                                                      |
+| ---------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `business` | `db.forBusiness(businessId)` | Only that firm's rows. Everything a firm user or client does. With `{ actorUserId }` it also records who acts: rows private to one person (a client's own notes) need it. |
+| `user`     | `db.forUser(userId)`         | The person's own memberships, client accounts and their firms (for `/me` and the firm picker).                                                                            |
+| `platform` | `db.forPlatform()`           | Platform tables: businesses (metadata), users, platform admins, firm applications, support grants, platform audit events. No firm data.                                   |
+| `invite`   | `db.forInvite(tokenHash)`    | Only the invite whose SHA-256 token hash matches. For the signed-out "accept invite" step: read its `businessId`, then use `forBusiness`.                                 |
+| none       | –                            | Nothing. Every policy is false.                                                                                                                                           |
 
 The policies are in `prisma/migrations/*_row_level_security/migration.sql`. Every table has RLS **enabled and forced**.
 
@@ -57,6 +57,8 @@ Rules:
 - `notification_preferences`: email and SMS per person, firm and category; no row means email on, SMS off. There is no preference for ACCOUNT (security) notices.
 - Appointments: no double booking. Two exclusion constraints (extension `btree_gist`, SQL only; Prisma ignores them) refuse overlapping live appointments for the same staff member or the same client; ranges are half-open, so back-to-back is fine, and a cancelled appointment frees its time. A trigger refuses times over the staff member's blocked time or a firm-wide closure (`blocked_times.user_id` NULL). Client bookings inside working hours is an API rule.
 - A reschedule updates the times in place; the database sets `rescheduled_at` and `reschedule_count` (the app cannot write them). The client never changes; CANCELLED needs `cancelled_at` and is final; appointments are never deleted. Staff, working hours and blocked time point at memberships of the same firm.
+- Messages: a thread belongs to one client (optionally one of its engagements and a related record). The firm side of a message must be an active member; the client side an active portal login of the thread's own client, and only while replies are enabled. A message never changes except `read_at` (read and unread); nothing is deleted. The database keeps `last_message_at`. Attachments are documents of the thread's client.
+- A client's private notes are visible only with `db.forBusiness(businessId, { actorUserId })` where the actor is the note's own client login; staff sessions, other clients and sessions with no actor see none. Each save is a new row (no update, no delete). The reminder lives in `client_note_reminders` (date only), so the reminder sender finds due reminders in plain business scope without reading the note; a new `remind_at` clears `reminded_at`.
 - Invites (staff membership or client account, 7 days at most) store only the token's SHA-256. After insert, only `accepted_at` or `revoked_at` can be set, once; a revoked or expired invite cannot be accepted; nobody deletes invites.
 
 ## Commands

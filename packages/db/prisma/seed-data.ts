@@ -228,3 +228,14 @@ export const SEED_CALENDAR_IDS = {
   appointment: '00000000-0000-4000-8000-000000000001',
   thanksgiving: '00000000-0000-4000-8000-000000000002',
 } as const;
+
+/** Fixed ids of seeded message threads, messages and the client's note, for re-seeding. */
+export const SEED_MESSAGE_IDS = {
+  w2Thread: '00000000-0000-4000-7000-000000000001',
+  w2Question: '00000000-0000-4000-7000-000000000002',
+  w2Answer: '00000000-0000-4000-7000-000000000003',
+  welcomeThread: '00000000-0000-4000-7000-000000000011',
+  welcomeMessage: '00000000-0000-4000-7000-000000000012',
+  clientNote: '00000000-0000-4000-7000-000000000021',
+  clientNoteReminder: '00000000-0000-4000-7000-000000000022',
+} as const;
