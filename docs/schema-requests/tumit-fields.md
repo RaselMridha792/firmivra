@@ -2,7 +2,8 @@
 
 Owner: Tumit. Database owner: Rasel. Requested on **2026-10-06**; tables needed by **Oct 8**.
 Compared against `origin/main` at `a0bee59`, not the earlier skeleton. This is a request,
-not an approved migration. Fahad must confirm the proposed UI fields and DTOs.
+not an approved migration. Implementations are on T02–T08 ticket branches, not main.
+This revision matches their current adapter/fixture columns. Fahad must confirm UI fields/DTOs.
 Ticket plan: `docs/tasks/TUMIT.md` on `tumit/FIR-0-onboarding` (15-day plan).
 Use the `schema` label and assign the GitHub issue to RaselMridha792.
 
@@ -12,7 +13,7 @@ Use the `schema` label and assign the GitHub issue to RaselMridha792.
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Profile        | `Business`: id, name, legalName, slug, status, termsUrl, privacyUrl, timestamps. Legal name and slug are not editable by these APIs.                                                                                        |
 | Settings/setup | `BusinessSettings`: contactEmail, contactPhone, website, addressLine1/2, city, state, postalCode, country, timezone, logoKey, brandColor, enabledModules, clientSignUpEnabled, setupProgress, setupCompletedAt, timestamps. |
-| Legal          | `FirmLegalDocument`: id, businessId, kind (TERMS/PRIVACY), version, bodyMarkdown, publishedByUserId, publishedAt; unique firm/kind/version; append-only.                                                                    |
+| Legal          | `FirmLegalDocument`: id, businessId, kind (TERMS/PRIVACY), version, body (API alias: bodyMarkdown), publishedByUserId, publishedAt; unique firm/kind/version; append-only.                                                  |
 | Team           | `Membership`: id, businessId, userId, role (OWNER/ADMIN/STAFF), status (INVITED/ACTIVE/DEACTIVATED), timestamps. `User`: name, email, phone, pool.                                                                          |
 | Invites        | `Invite`: tokenHash, expiresAt, invitedByUserId, acceptedAt, revokedAt, createdAt, membershipId/clientAccountId. Rasel owns issuing and resending; never expose tokenHash.                                                  |
 | Tax statuses   | `TaxStatus`: id, businessId, name, sortOrder, archivedAt, timestamps; referenced by `ClientTaxStatus` and its history. Archive rather than delete.                                                                          |
@@ -28,7 +29,8 @@ ask Rasel whether to enforce this invariant at the database layer as well. Do no
 
 The five-step setup wizard in `docs/SYSTEM-DESIGN.md` requires portal naming,
 header and welcome content. `setupProgress` is progress only, not a content store.
-These fields are proposals until Fahad/Rasel confirm the exact screen shape.
+The T02 implementation reads these fields as null until supplied, and rejects unavailable writes with 503.
+Fahad/Rasel must confirm the screen shape before migration/merge.
 
 | Model            | Field          | Type             | Nullable | Default | Unique / index | Notes                    |
 | ---------------- | -------------- | ---------------- | -------- | ------- | -------------- | ------------------------ |
@@ -63,20 +65,24 @@ Every table below is firm data: businessId UUID NOT NULL, FK Business,
 forced RLS, same-firm relations and unique(businessId, id), unless a composite PK is listed.
 UUID ids default to uuid v7 and timestamps use Timestamptz(3).
 
-| Model                  | Field                 | Type                       | Nullable | Default                        | Unique / index                                             | Notes                                                                                      |
-| ---------------------- | --------------------- | -------------------------- | -------- | ------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Notification           | id / businessId       | UUID / UUID                | no       | uuid / none                    | PK; firm/id                                                | One recipient, not a broadcast row.                                                        |
-| Notification           | recipientUserId       | UUID                       | no       | none                           | FK User; index(businessId, recipientUserId, createdAt, id) | Validate active Membership or ClientAccount in firm.                                       |
-| Notification           | category              | enum                       | no       | none                           | none                                                       | APPOINTMENT, DOCUMENT, SERVICE, BILLING, SECURITY, LEGAL, MARKETING (proposed).            |
-| Notification           | eventKey              | String                     | no       | none                           | unique(businessId, recipientUserId, eventKey)              | Producer's stable deduplication key.                                                       |
-| Notification           | title / message       | String(160) / String(1000) | no       | none                           | none                                                       | Generic summary; no financial/tax/document contents.                                       |
-| Notification           | entityType / entityId | String / UUID              | yes      | null                           | none                                                       | Both set or both null; allowlisted type, same-firm target; verify permission when opening. |
-| Notification           | readAt                | Timestamptz(3)             | yes      | null                           | index(businessId, recipientUserId, readAt)                 | Mark-read is idempotent, first read retained.                                              |
-| Notification           | createdAt             | Timestamptz(3)             | no       | now                            | above                                                      | No public recipient-selecting create endpoint.                                             |
-| NotificationPreference | businessId / userId   | UUID / UUID                | no       | none                           | FK; composite PK with category                             | One set per user per firm.                                                                 |
-| NotificationPreference | category              | same category enum         | no       | none                           | PK(businessId, userId, category)                           | Validate recipient is attached to firm.                                                    |
-| NotificationPreference | inApp / email / sms   | Boolean each               | no       | true / true / false (proposed) | none                                                       | Only supported channels can be enabled.                                                    |
-| NotificationPreference | updatedAt             | Timestamptz(3)             | no       | now/updatedAt                  | none                                                       | Self-service only.                                                                         |
+| Model                  | Field                             | Type                       | Nullable | Default              | Unique / index                                             | Notes                                                                                      |
+| ---------------------- | --------------------------------- | -------------------------- | -------- | -------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Notification           | id / businessId                   | UUID / UUID                | no       | uuid / none          | PK; firm/id                                                | One recipient, not a broadcast row.                                                        |
+| Notification           | recipientUserId                   | UUID                       | no       | none                 | FK User; index(businessId, recipientUserId, createdAt, id) | Validate active Membership or ClientAccount in firm.                                       |
+| Notification           | category                          | enum                       | no       | none                 | none                                                       | APPOINTMENT, DOCUMENT, SERVICE, BILLING, SECURITY, LEGAL, MARKETING (proposed).            |
+| Notification           | eventKey                          | String                     | no       | none                 | unique(businessId, recipientUserId, eventKey)              | Producer's stable deduplication key.                                                       |
+| Notification           | title / message                   | String(160) / String(1000) | no       | none                 | none                                                       | Generic summary; no financial/tax/document contents.                                       |
+| Notification           | targetEntityType / targetEntityId | String / UUID              | yes      | null                 | none                                                       | Both set or both null; allowlisted type, same-firm target; verify permission when opening. |
+| Notification           | readAt                            | Timestamptz(3)             | yes      | null                 | index(businessId, recipientUserId, readAt)                 | Mark-read is idempotent, first read retained.                                              |
+| Notification           | createdAt                         | Timestamptz(3)             | no       | now                  | above                                                      | No public recipient-selecting create endpoint.                                             |
+| NotificationPreference | businessId / userId               | UUID / UUID                | no       | none                 | FK; composite PK with category                             | One set per user per firm.                                                                 |
+| NotificationPreference | category                          | same category enum         | no       | none                 | PK(businessId, userId, category)                           | Validate recipient is attached to firm.                                                    |
+| NotificationPreference | inApp / email / sms               | Boolean each               | no       | true / false / false | none                                                       | Only supported channels can be enabled.                                                    |
+
+Add Notification.inApp Boolean NOT NULL DEFAULT true (column in_app): a creation-time channel snapshot.
+Only in-app rows appear in the bell/count/read APIs. Stored target columns are target_entity_type/id;
+response target uses entityType/id. Preference fallback is inApp=true, email=false, sms=false;
+R6 supplies supported channels and mandatory-category policy. There is no proposed second consent ledger.
 
 Preferences never grant SMS/marketing consent. Reuse Rasel's consent source; do not add a second opt-out ledger.
 NotifyService remains responsible for consent, required notices and provider delivery.
@@ -85,68 +91,71 @@ Do not return delivery credentials or arbitrary external URLs as notification ta
 
 ## Appointments (T07)
 
-All models have businessId/RLS and same-firm composite foreign keys as above.
-Use canonical Client and Membership; do not create duplicate portal appointment records.
+The implementation and isolated fixture now define the following contract. Names below are
+camelCase; physical columns are snake_case, under the exact tables listed. Rasel owns production
+models/migrations. UUID ids are server-generated; timestamps are timestamptz. All tables require
+businessId, forced RLS and same-firm foreign keys; never use platform scope for worker access.
 
-| Model               | Field                                              | Type                           | Nullable       | Default            | Unique / index                                                       | Notes                                                                |
-| ------------------- | -------------------------------------------------- | ------------------------------ | -------------- | ------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| AppointmentType     | id / businessId                                    | UUID / UUID                    | no             | uuid / none        | PK; firm/id                                                          | Firm-defined type.                                                   |
-| AppointmentType     | name                                               | String(120)                    | no             | none               | unique(businessId, name)                                             | Nonblank after trim.                                                 |
-| AppointmentType     | durationMinutes                                    | Int                            | no             | none               | CHECK > 0, <= 480 (proposed)                                         | Server calculates end time.                                          |
-| AppointmentType     | bufferBeforeMinutes / bufferAfterMinutes           | Int each                       | no             | 0                  | CHECK 0..120 (proposed)                                              | Included in overlap interval.                                        |
-| AppointmentType     | allowedMethods                                     | enum[]                         | no             | none               | nonempty                                                             | PHONE, VIDEO, IN_PERSON. Free five-minute call is PHONE only.        |
-| AppointmentType     | clientBookingEnabled / active                      | Boolean each                   | no             | true               | none                                                                 | Inactive type cannot be newly booked.                                |
-| AppointmentType     | createdAt / updatedAt                              | Timestamptz(3)                 | no             | now/updatedAt      | none                                                                 | Configuration audit.                                                 |
-| WorkingHours        | id / businessId                                    | UUID / UUID                    | no             | uuid / none        | PK; firm/id                                                          | Per provider, not firm-wide UTC recurrence.                          |
-| WorkingHours        | providerMembershipId                               | UUID                           | no             | none               | FK Membership(businessId,id)                                         | Must be active staff member.                                         |
-| WorkingHours        | weekday                                            | Int                            | no             | none               | CHECK 0..6                                                           | Sunday=0, explicit contract.                                         |
-| WorkingHours        | startMinute / endMinute                            | Int each                       | no             | none               | CHECK 0 <= start < end <= 1440                                       | Local wall time in BusinessSettings.timezone. Split overnight hours. |
-| WorkingHours        | createdAt / updatedAt                              | Timestamptz(3)                 | no             | now/updatedAt      | index(businessId, providerMembershipId, weekday)                     | Reject overlapping recurring rows.                                   |
-| BlockedTime         | id / businessId                                    | UUID / UUID                    | no             | uuid / none        | PK; firm/id                                                          | Provider-specific block.                                             |
-| BlockedTime         | providerMembershipId                               | UUID                           | no             | none               | FK Membership(businessId,id)                                         | Same provider lock as appointments.                                  |
-| BlockedTime         | startsAt / endsAt                                  | Timestamptz(3) each            | no             | none               | CHECK startsAt < endsAt; provider/time index                         | UTC instants.                                                        |
-| BlockedTime         | reason                                             | String(500)                    | yes            | null               | none                                                                 | Staff-only; never show in client availability.                       |
-| BlockedTime         | createdByUserId / createdAt                        | UUID / Timestamptz(3)          | no             | none / now         | FK User                                                              | Actor from request context.                                          |
-| Appointment         | id / businessId                                    | UUID / UUID                    | no             | uuid / none        | PK; firm/id                                                          | Shared by firm and portal.                                           |
-| Appointment         | clientId                                           | UUID                           | no             | none               | FK Client(businessId,id); client/time index                          | Portal derives it from authenticated ClientAccount.                  |
-| Appointment         | providerMembershipId / typeId                      | UUID each                      | no             | none               | Same-firm FK to Membership / AppointmentType                         | Never arbitrary provider from another firm.                          |
-| Appointment         | startsAt / endsAt                                  | Timestamptz(3) each            | no             | none               | provider/time index; CHECK start < end                               | End is calculated using type snapshot.                               |
-| Appointment         | occupiedStartsAt / occupiedEndsAt                  | Timestamptz(3) each            | no             | none               | Exclusion constraint below                                           | Snapshot buffers so later type edits do not move bookings.           |
-| Appointment         | timezone                                           | String                         | no             | none               | none                                                                 | Valid IANA zone snapshot; UTC storage; no ambiguous DST slots.       |
-| Appointment         | method                                             | meeting-method enum            | no             | none               | none                                                                 | Must be allowed by type.                                             |
-| Appointment         | location / meetingUrl / instructions               | String each                    | yes            | null               | none                                                                 | Safe client-visible text; HTTPS approved meeting URL.                |
-| Appointment         | status                                             | enum                           | no             | BOOKED             | provider/time index                                                  | BOOKED, CANCELLED, COMPLETED, NO_SHOW (proposed).                    |
-| Appointment         | version                                            | Int                            | no             | 1                  | CHECK > 0                                                            | Optimistic concurrency for reschedule/cancel.                        |
-| Appointment         | requestKey                                         | String                         | no             | none               | unique(businessId, createdByUserId, requestKey)                      | Idempotent booking; key reused with different payload -> 409.        |
-| Appointment         | createdByUserId / cancelledByUserId                | UUID each                      | no / yes       | none / null        | FK User                                                              | Authenticated actor, not a body field.                               |
-| Appointment         | cancelledAt / cancelReason                         | Timestamptz(3) / String(500)   | yes            | null               | none                                                                 | No private notes or sensitive details.                               |
-| Appointment         | createdAt / updatedAt                              | Timestamptz(3)                 | no             | now/updatedAt      | index(businessId, clientId, startsAt, id)                            | Client and firm see the same row.                                    |
-| AppointmentHistory  | id / businessId / appointmentId                    | UUID each                      | no             | uuid / none / none | Same-firm FK; index(businessId, appointmentId, createdAt, id)        | Append-only, every transition.                                       |
-| AppointmentHistory  | action / actorUserId                               | enum / UUID                    | no             | none               | FK User                                                              | BOOKED, RESCHEDULED, CANCELLED, COMPLETED, NO_SHOW.                  |
-| AppointmentHistory  | previousStartsAt / previousEndsAt / previousStatus | timestamp / timestamp / status | yes            | null               | none                                                                 | Null at initial booking.                                             |
-| AppointmentHistory  | newStartsAt / newEndsAt / newStatus                | timestamp / timestamp / status | no             | none               | none                                                                 | Store safe change summary, not appointment content.                  |
-| AppointmentHistory  | createdAt                                          | Timestamptz(3)                 | no             | now                | above                                                                | Actor from context.                                                  |
-| AppointmentReminder | id / businessId / appointmentId                    | UUID each                      | no             | uuid / none / none | Same-firm FK                                                         | Durable job; not an in-process timer.                                |
-| AppointmentReminder | appointmentVersion / offsetMinutes                 | Int each                       | no             | none               | unique(businessId, appointmentId, appointmentVersion, offsetMinutes) | Configurable offsets; 1440/60 proposed defaults.                     |
-| AppointmentReminder | dueAt                                              | Timestamptz(3)                 | no             | none               | index(state, dueAt)                                                  | Computed from current startsAt.                                      |
-| AppointmentReminder | state                                              | enum                           | no             | PENDING            | none                                                                 | PENDING, PROCESSING, SENT, CANCELLED, FAILED.                        |
-| AppointmentReminder | attemptCount / lockedUntil / sentAt                | Int / timestamp / timestamp    | no / yes / yes | 0 / null / null    | none                                                                 | Worker lease, bounded retry, stable NotifyService dedupe key.        |
-| AppointmentReminder | createdAt / updatedAt                              | Timestamptz(3)                 | no             | now/updatedAt      | none                                                                 | Store safe error code only, no provider secrets.                     |
+- **AppointmentType / appointment_types:** id, businessId, name (nonblank, max 120), durationMinutes
+  (1..480), bufferBeforeMinutes / bufferAfterMinutes (0..120), allowedMethods (nonempty PHONE,
+  VIDEO, IN_PERSON), clientBookingEnabled, active, isIntroCall (Boolean, default false), createdAt,
+  updatedAt. Introductory calls require durationMinutes=5 and PHONE only; enforce that CHECK in DB.
+  Name uniqueness is checked case-insensitively under the business lock; retain a per-firm unique
+  name/index if Rasel confirms normalization. At most 100 configured types in the API.
+- **WorkingHours / working_hours:** id, businessId, providerMembershipId, weekday (0=Sunday,
+  0..6), startMinute (0..1439), endMinute (1..1440, greater than start). Index firm/provider/weekday.
+  These are local wall minutes in BusinessSettings.timezone, not UTC recurrence. Reject overlapping
+  intervals and split overnight hours. No createdAt/updatedAt columns are required by this adapter.
+- **BlockedTime / blocked_times:** id, businessId, providerMembershipId, startsAt, endsAt, reason
+  (nullable max 500), createdAt. CHECK endsAt > startsAt, index firm/provider/time. The actor is
+  recorded in AuditLog; this adapter does not require a separate createdByUserId column.
+- **Appointment / appointments:** id, businessId, clientId, clientName, providerMembershipId,
+  providerName, typeId, typeName; the three display names are safe booking-time snapshots.
+  startsAt / endsAt and occupiedStartsAt / occupiedEndsAt are UTC instants with valid ordered
+  half-open intervals; occupied bounds include the bufferBeforeMinutes / bufferAfterMinutes
+  snapshots. timezone is an IANA zone snapshot; method is PHONE/VIDEO/IN_PERSON. location,
+  meetingUrl and instructions are nullable client-visible values; HTTPS meeting URLs cannot
+  contain credentials. status is BOOKED/CANCELLED/COMPLETED/NO_SHOW; version starts at 1.
+  createdByUserId, requestKey, requestFingerprint, createdAt, updatedAt are required. requestKey
+  and requestFingerprint store SHA-256 hashes, never the raw header or response/audit metadata.
+  Unique(businessId, createdByUserId, requestKey) provides durable booking retry identity.
+  Changed canonical input with the same actor/key returns 409 IDEMPOTENCY_CONFLICT; retries
+  return the same canonical appointment in its current state, including after cancellation.
+  Index firm/createdAt/id and firm/client/startsAt/id. Cancellation actor/reason/time belong to
+  history; no duplicated cancelledByUserId/cancelReason/cancelledAt row fields are required.
+- **AppointmentHistory / appointment_histories:** id, businessId, appointmentId, action,
+  actorUserId (nullable), previousStartsAt / previousEndsAt / previousStatus (nullable),
+  newStartsAt / newEndsAt / newStatus (required), reason (nullable max 500), createdAt.
+  Actions written now: BOOKED, RESCHEDULED, CANCELLED, DETAILS_UPDATED. Future completion/no-show
+  transitions are not exposed by these APIs. Index firm/appointment/createdAt/id. Append-only:
+  app role SELECT/INSERT only; no UPDATE/DELETE. Never copy appointment instructions into history.
+- **AppointmentReminder / appointment_reminders:** id, businessId, appointmentId,
+  appointmentVersion, recipientUserId, kind, eventKey, dueAt, nextAttemptAt, leaseUntil (nullable),
+  leaseToken (nullable UUID), attempts (Int default 0), status, lastErrorCode (nullable safe code),
+  createdAt. Unique(businessId,eventKey); index businessId/status/nextAttemptAt/dueAt. kind records
+  the change/reminder identity; each provider/client recipient has its own durable event key.
+  status is PENDING/PROCESSING/QUEUED/CANCELLED. **QUEUED means accepted by R6, not delivered.**
+  This adapter does not use offsetMinutes/state/attemptCount/lockedUntil/sentAt/updatedAt columns.
+  Beta reminder defaults are 24 hours and 1 hour before start; schedule only future reminders.
 
-Additional requested reminder field: `AppointmentReminder.lastErrorCode`, nullable String(100), default null,
-for a safe retry/failure category only, never provider responses or credentials. Add `DETAILS_UPDATED` to
-the proposed AppointmentHistory action enum for staff changes to client-visible location/link/instructions;
-retain the same interval/status and never put that content into history or audit metadata.
+Composite FKs use (businessId,id) on Client, Membership and AppointmentType, and
+(businessId,appointmentId) on histories/reminders. Clients/providers must be active when booking;
+portal clientId is derived from the current ClientAccount. Staff use their own calendar and assigned
+clients; owner/admin use their firm. Calendar reads page providers and expose nextFrom after 1000
+slots. UTC-minute scanning preserves DST-fold instants and excludes nonexistent DST-gap times.
 
-**Double-booking is a database invariant**, not check-then-insert in application memory.
-Ask Rasel for a GiST exclusion on businessId + providerMembershipId + the half-open
-`tstzrange(occupiedStartsAt, occupiedEndsAt, '[)')` for BOOKED appointments (`btree_gist` if needed).
-Serialize booking/reschedule, blocked-time creation and working-hours changes on the same
-firm/provider transaction lock, then recheck availability. A block cannot be inserted over a live booking.
-Return 409 `SLOT_UNAVAILABLE` for the loser of a concurrent booking, with no other client's details.
-Reschedule updates the original id, increments version, appends history and invalidates old reminders atomically.
-Cancelled bookings never send reminders. NotifyService needs durable enqueue and idempotency guarantees;
-confirm whether R6 provides an outbox, otherwise request an outbox rather than promise exactly-once delivery.
+**Double-booking is a database invariant.** The named valid appointments_no_overlap GiST exclusion
+must cover businessId + providerMembershipId + tstzrange(occupiedStartsAt,occupiedEndsAt,'[)')
+with overlap (&&), WHERE status='BOOKED' (btree_gist required). Booking/reschedule returns 503 if
+the invariant is missing/wrong, and maps structured SQLSTATE 23P01 to 409 SLOT_UNAVAILABLE.
+All calendar mutations serialize on the Business row and provider advisory transaction lock,
+then recheck current role/provider/availability; a block cannot invalidate a live booking.
+Reschedule preserves id, increments version, appends history and invalidates old reminders atomically.
+
+AppointmentJobs uses leased FOR UPDATE SKIP LOCKED jobs with status/version/recipient checks and
+safe backoff. R6 must durably enqueue/deduplicate eventKey, honor consent, and recheck the current
+appointment version/recipient again at actual delivery. Rasel must register runDue(trustedBusinessId)
+with his scheduler. No fake sender, in-memory timer, public worker endpoint or delivery claim.
 
 ## External links (T08)
 
@@ -181,3 +190,14 @@ Domain approval source/maintenance belongs to Rasel; do not accept arbitrary sta
   logo storage contract (T02), owner-approved support-grant adapter (T08), scheduler worker mechanism (T07).
 - Fahad confirmation pending: portal content, notification categories/defaults, appointment rules/durations,
   paging/filter states, external-link section/audience display. No approval is implied by this document.
+
+## Exact handoff references
+
+- T05: apps/api/test/helpers/draft-schema.ts (firm_application_histories, platform SELECT only).
+- T06: apps/api/test/fixtures/notification-schema.ts (notifications, notification_preferences).
+- T07: apps/api/test/fixtures/appointment-schema.ts (six calendar/job tables and exclusion).
+- T08: apps/api/test/fixtures/external-links-schema.ts (external_links).
+- Fixture DDL is synthetic-test contract evidence, never a production migration or instruction
+  to apply it to the normal local database. Rasel confirms production names/policies/indexes.
+- OpenAPI and shared Zod DTOs on each ticket branch describe actual request/response shapes;
+  schema issue submission, frontend agreement and reviews remain pending.
