@@ -9,6 +9,8 @@ const apiBase = process.env['API_BASE_URL'];
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // The mock-mode e2e server builds into its own folder so it can run next to `pnpm dev`.
+  distDir: process.env['NEXT_DIST_DIR'] ?? '.next',
   outputFileTracingRoot: repoRoot,
   turbopack: { root: repoRoot },
   transpilePackages: ['@firmivra/ui'],
