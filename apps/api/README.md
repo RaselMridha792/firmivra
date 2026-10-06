@@ -55,6 +55,15 @@ Each site calls the API on its own host: `/api/v1/...` on `app.`, `admin.` or `p
 
 Locally, `APP_BASE_URL`, `PORTAL_BASE_URL` and `ADMIN_BASE_URL` in `.env` must be the addresses in the browser, port included (for example `http://app.localhost:3320`), or every change answers 403.
 
+## Invites (`InvitesService`)
+
+Staff invites and activation live in `apps/api/src/auth/invites.service.ts` (R2). Other modules import `SignInModule` and inject `InvitesService`; they never write `invites` or invited memberships themselves.
+
+- `createInvite({ businessId, email, name, role, invitedBy })`: creates the person if needed, an `INVITED` membership and a 7-day link, emails it (`ActivationMailer`), audits `membership.invited` in the firm. `invitedBy` is `{ userId, role }` of the firm owner or admin, or `null` for the platform (R4: a new firm's owner on approval, role `OWNER`). The owner may give `ADMIN` or `STAFF`, an admin only `STAFF` (403 `FORBIDDEN`); only the platform gives `OWNER`. Someone with an open invite gets a new link and the old one stops working; a deactivated member is invited again; an active member is 409 `ALREADY_MEMBER`. The result never shows whether the person has a login at another firm. Emails are lower-cased.
+- `resendInvite({ businessId, membershipId, invitedBy })` (Team API, T03): a new link for an open invite, same role rules. 409 `NOT_INVITED` when the membership is not `INVITED`, 404 when it is not in this firm.
+- The link is `{APP_BASE_URL}/activate#token=...`: the token sits in the fragment, so it never reaches CloudFront, the load balancer, Next.js logs or a Referer header. The page reads it and posts it to `/api/v1/auth/activation/check`, then `activate` (new person) or, after sign-in, `activation/accept` (existing login).
+- Until R6's email sender, `ActivationMailer` logs the link only with `AUTH_MODE=local`; anywhere else it sends nothing and logs neither the token nor the address.
+
 ## Adding a module
 
 ```ts

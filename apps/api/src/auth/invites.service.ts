@@ -65,6 +65,18 @@ function assertMayInvite(inviter: Inviter | null, role: MembershipRole): void {
 
 const sha256 = (token: string) => createHash('sha256').update(token).digest('hex');
 
+const isUniqueViolation = (e: unknown) => (e as { code?: string }).code === 'P2002';
+
+/** Runs `fn`, and once more if it hit a unique index another request filled in meanwhile. */
+async function retryOnConflict<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!isUniqueViolation(e)) throw e;
+    return fn();
+  }
+}
+
 /**
  * Staff invites and activation (docs/api/auth.yaml). Exported for R4 (a new firm's owner on
  * approval: role OWNER, invitedBy null) and the Team API (resend). See apps/api/README.md.
@@ -89,29 +101,13 @@ export class InvitesService {
     const { businessId, role, invitedBy } = input;
     assertMayInvite(invitedBy, role);
 
-    // Identities are created in platform scope (the users policy), then linked to the firm.
-    const platform = this.db.forPlatform();
-    const users = await platform.user.findMany({
-      where: { email, pool: 'STAFF' },
-      select: { id: true },
-      take: 2,
-    });
-    if (users.length > 1) throw new Error('Two staff users share one email (R0: unique index)');
-    let userId = users[0]?.id;
-    if (!userId) {
-      const sub = await this.identity.createUser('STAFF', email);
-      const user = await platform.user.create({
-        data: { cognitoSub: sub, pool: 'STAFF', email, name: input.name },
-        select: { id: true },
-      });
-      userId = user.id;
-    }
+    const userId = await this.staffUserFor(email, input.name);
 
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_DAYS * DAY_MS);
-    const { inviteId, membershipId, resent } = await this.db.withScope(
-      { kind: 'business', businessId },
-      async (tx) => {
+    // Retried once if a parallel invite created the membership first: then it is a resend.
+    const { inviteId, membershipId, resent } = await retryOnConflict(() =>
+      this.db.withScope({ kind: 'business', businessId }, async (tx) => {
         const existing = await tx.membership.findFirst({
           where: { userId },
           select: { id: true, status: true, role: true },
@@ -153,7 +149,7 @@ export class InvitesService {
           membershipId: membership.id,
           resent: existing?.status === 'INVITED',
         };
-      },
+      }),
     );
 
     const business = await this.db
@@ -182,6 +178,32 @@ export class InvitesService {
       role,
       expiresAt: expiresAt.toISOString(),
     };
+  }
+
+  /**
+   * The staff user with this email, created if needed. Identities are created in platform scope
+   * (the users policy), then linked to the firm. The database keeps staff emails unique (#22):
+   * when two invites race to create the same person, the second reads the first one's row.
+   */
+  private async staffUserFor(email: string, name: string): Promise<string> {
+    const platform = this.db.forPlatform();
+    const find = () =>
+      platform.user.findFirst({ where: { email, pool: 'STAFF' }, select: { id: true } });
+    const existing = await find();
+    if (existing) return existing.id;
+    const sub = await this.identity.createUser('STAFF', email);
+    try {
+      const user = await platform.user.create({
+        data: { cognitoSub: sub, pool: 'STAFF', email, name },
+        select: { id: true },
+      });
+      return user.id;
+    } catch (e) {
+      const raced = isUniqueViolation(e) ? await find() : null;
+      if (!raced) throw e;
+      // The Cognito login made for this request stays unused (no row points to it).
+      return raced.id;
+    }
   }
 
   /** A new link for an open invite (Team API). 409 NOT_INVITED unless the membership is INVITED. */

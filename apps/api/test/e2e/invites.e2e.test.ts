@@ -286,6 +286,17 @@ describe('invite again', () => {
     await publicPost('/api/v1/auth/activation/check', { token: tokenSentTo(email) }).expect(200);
   });
 
+  it('two invites for the same new person at once give one person, one membership', async () => {
+    const email = `r2-twice-${randomUUID()}@a.test`;
+    const [a, b] = await Promise.all([invite(email, 'STAFF'), invite(email, 'STAFF')]);
+    expect([a.status, b.status]).toEqual([201, 201]);
+    expect((a.body as InviteResponse).membershipId).toBe((b.body as InviteResponse).membershipId);
+    const counts = await asOwner({ kind: 'platform' }, async (tx) => ({
+      users: await tx.user.count({ where: { email, pool: 'STAFF' } }),
+    }));
+    expect(counts.users).toBe(1);
+  });
+
   it('InvitesService.resendInvite (Team API) needs an open invite', async () => {
     const service = app.get(InvitesService);
     const { membershipId } = (await invite(`r2-resend-${randomUUID()}@a.test`, 'STAFF'))
