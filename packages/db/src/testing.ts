@@ -71,7 +71,8 @@ export async function prepareTestDatabase(
       engagement_reports, document_categories, documents, document_requests, intake_forms, intakes,
       intake_submissions, leads, lead_uploads, notifications, notification_deliveries,
       notification_preferences, appointment_types, working_hours, blocked_times, appointments,
-      message_threads, messages, message_attachments, client_private_notes, client_note_reminders CASCADE`);
+      message_threads, messages, message_attachments, client_private_notes, client_note_reminders,
+      invoices, invoice_lines, payments, payment_events, content_items, calculator_definitions CASCADE`);
   } finally {
     await owner.end();
   }

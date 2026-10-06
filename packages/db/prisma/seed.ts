@@ -19,6 +19,7 @@ import {
   SEED_APPOINTMENT_TYPES,
   SEED_CALENDAR_IDS,
   SEED_MESSAGE_IDS,
+  SEED_BILLING_IDS,
   SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
@@ -742,6 +743,130 @@ async function main() {
       'Yes, please upload every W-2 under the W-2 request. Thanks for the 1099-INT.',
       '2026-10-02T17:30:00Z',
     );
+
+    // Billing: a paid bookkeeping invoice, paid the only way the database allows (a recorded
+    // processor event confirms the payment), and an open invoice for the 2025 return.
+    const invoice = async (
+      id: string,
+      data: { number: string; engagementId: string; line: string; cents: number; dueOn: string },
+    ) => {
+      if (await tx.invoice.findUnique({ where: { id } })) return false;
+      await tx.invoice.create({
+        data: {
+          ...lvp,
+          id,
+          clientId: SEED_CLIENT_IDS.lvp,
+          engagementId: data.engagementId,
+          number: data.number,
+          createdByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+      await tx.invoiceLine.create({
+        data: { ...lvp, invoiceId: id, description: data.line, unitAmountCents: data.cents },
+      });
+      await tx.invoice.update({
+        where: { id },
+        data: { status: 'OPEN', issuedAt: new Date(), dueOn: new Date(data.dueOn) },
+      });
+      return true;
+    };
+    if (
+      await invoice(SEED_BILLING_IDS.paidInvoice, {
+        number: 'INV-1000',
+        engagementId: SEED_WORK_IDS.lvpBookkeeping,
+        line: 'Bookkeeping (Growth), September 2026',
+        cents: 30000,
+        dueOn: '2026-10-10',
+      })
+    ) {
+      const paidAt = new Date();
+      await tx.payment.create({
+        data: {
+          ...lvp,
+          id: SEED_BILLING_IDS.paidPayment,
+          invoiceId: SEED_BILLING_IDS.paidInvoice,
+          amountCents: 30000,
+          processorRef: 'cs_test_seed_inv_1000',
+        },
+      });
+      await tx.paymentEvent.create({
+        data: {
+          ...lvp,
+          processorEventId: 'evt_test_seed_inv_1000',
+          type: 'checkout.session.completed',
+          paymentId: SEED_BILLING_IDS.paidPayment,
+          processedAt: paidAt,
+        },
+      });
+      await tx.payment.update({
+        where: { id: SEED_BILLING_IDS.paidPayment },
+        data: { status: 'SUCCEEDED', paidAt },
+      });
+      await tx.invoice.update({
+        where: { id: SEED_BILLING_IDS.paidInvoice },
+        data: { status: 'PAID', paidAt },
+      });
+    }
+    await invoice(SEED_BILLING_IDS.openInvoice, {
+      number: 'INV-1001',
+      engagementId: SEED_WORK_IDS.lvpTax,
+      line: '2025 personal tax return preparation',
+      cents: 45000,
+      dueOn: '2026-11-15',
+    });
+
+    // Content editor records and the Tax Return Calculator.
+    const content = async (
+      id: string,
+      data: {
+        kind: 'RESOURCE' | 'TIP' | 'EXTERNAL_LINK';
+        category: string;
+        title: string;
+        body?: string;
+        url?: string;
+      },
+    ) => {
+      await tx.contentItem.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, ...data, publishedAt: new Date() },
+      });
+    };
+    await content(SEED_BILLING_IDS.refundLink, {
+      kind: 'EXTERNAL_LINK',
+      category: 'External Links',
+      title: "IRS: Where's My Refund?",
+      url: 'https://www.irs.gov/refunds',
+    });
+    await content(SEED_BILLING_IDS.transcriptLink, {
+      kind: 'EXTERNAL_LINK',
+      category: 'External Links',
+      title: 'IRS: Get your tax records',
+      url: 'https://www.irs.gov/individuals/get-transcript',
+    });
+    await content(SEED_BILLING_IDS.recordKeeping, {
+      kind: 'RESOURCE',
+      category: 'Record Keeping',
+      title: 'Record keeping basics',
+      body: 'Sample resource for local development: keep receipts, statements and prior returns.',
+    });
+    await content(SEED_BILLING_IDS.receiptsTip, {
+      kind: 'TIP',
+      category: 'Tax Deductions',
+      title: 'Keep your business receipts',
+      body: 'Sample tip for local development.',
+    });
+    await tx.calculatorDefinition.upsert({
+      where: { businessId_key: { businessId: businesses.lvp, key: 'tax_return' } },
+      update: {},
+      create: {
+        ...lvp,
+        key: 'tax_return',
+        title: 'Tax Return Calculator',
+        config: { taxYear: 2025, note: 'Sample figures for local development only.' },
+        disclaimer: 'This is an estimate only, not tax advice. Your actual result may differ.',
+      },
+    });
   });
 
   // The client's private note: written as the client, the only one the database shows it to.
@@ -830,7 +955,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar and messages.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar, messages, invoices, content and a calculator.`,
   );
 }
 

@@ -43,6 +43,8 @@ const ids = {
   appointmentA: '',
   threadA: '',
   messageA: '',
+  invoiceA: '',
+  paymentA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -251,6 +253,38 @@ beforeAll(async () => {
       await tx.messageAttachment.create({
         data: { businessId: firm, messageId: msg.id, documentId: vaultDoc.id },
       });
+      const bill = await tx.invoice.create({
+        data: { ...work, number: 'INV-1' },
+      });
+      await tx.invoiceLine.create({
+        data: { businessId: firm, invoiceId: bill.id, description: 'Fee', unitAmountCents: 100 },
+      });
+      await tx.invoice.update({
+        where: { id: bill.id },
+        data: { status: 'OPEN', issuedAt: new Date() },
+      });
+      const pay = await tx.payment.create({
+        data: {
+          businessId: firm,
+          invoiceId: bill.id,
+          amountCents: 100,
+          processorRef: `cs_${randomUUID()}`,
+        },
+      });
+      await tx.paymentEvent.create({
+        data: {
+          businessId: firm,
+          processorEventId: `evt_${randomUUID()}`,
+          type: 'checkout.session.completed',
+          paymentId: pay.id,
+        },
+      });
+      await tx.contentItem.create({
+        data: { businessId: firm, kind: 'TIP', title: 'Tip', body: 'Keep receipts' },
+      });
+      await tx.calculatorDefinition.create({
+        data: { businessId: firm, key: 'tax_return', title: 'Tax', disclaimer: 'Estimate only' },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -284,6 +318,8 @@ beforeAll(async () => {
         ids.appointmentA = appt.id;
         ids.threadA = thread.id;
         ids.messageA = msg.id;
+        ids.invoiceA = bill.id;
+        ids.paymentA = pay.id;
       }
     });
   }
@@ -345,6 +381,12 @@ describe('no scope set', () => {
     expect(await unscopedApp.messageAttachment.findMany()).toEqual([]);
     expect(await unscopedApp.clientPrivateNote.findMany()).toEqual([]);
     expect(await unscopedApp.clientNoteReminder.findMany()).toEqual([]);
+    expect(await unscopedApp.invoice.findMany()).toEqual([]);
+    expect(await unscopedApp.invoiceLine.findMany()).toEqual([]);
+    expect(await unscopedApp.payment.findMany()).toEqual([]);
+    expect(await unscopedApp.paymentEvent.findMany()).toEqual([]);
+    expect(await unscopedApp.contentItem.findMany()).toEqual([]);
+    expect(await unscopedApp.calculatorDefinition.findMany()).toEqual([]);
   });
 });
 
@@ -392,6 +434,12 @@ describe('business scope: firm B', () => {
       await b().messageThread.findMany(),
       await b().message.findMany(),
       await b().messageAttachment.findMany(),
+      await b().invoice.findMany(),
+      await b().invoiceLine.findMany(),
+      await b().payment.findMany(),
+      await b().paymentEvent.findMany(),
+      await b().contentItem.findMany(),
+      await b().calculatorDefinition.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -453,6 +501,29 @@ describe('business scope: firm B', () => {
     expect(await b().appointment.findUnique({ where: { id: ids.appointmentA } })).toBeNull();
     expect(await b().messageThread.findUnique({ where: { id: ids.threadA } })).toBeNull();
     expect(await b().message.findUnique({ where: { id: ids.messageA } })).toBeNull();
+    expect(await b().invoice.findUnique({ where: { id: ids.invoiceA } })).toBeNull();
+    expect(await b().payment.findUnique({ where: { id: ids.paymentA } })).toBeNull();
+    // Firm B cannot pay, or record a webhook event against, firm A's invoice or payment.
+    await expect(
+      b().payment.create({
+        data: {
+          businessId: ids.firmB,
+          invoiceId: ids.invoiceA,
+          amountCents: 100,
+          processorRef: `cs_${randomUUID()}`,
+        },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      b().paymentEvent.create({
+        data: {
+          businessId: ids.firmB,
+          processorEventId: `evt_${randomUUID()}`,
+          type: 'charge.refunded',
+          paymentId: ids.paymentA,
+        },
+      }),
+    ).rejects.toThrow(/foreign key/i);
     await expect(
       b().message.create({
         data: {
@@ -612,6 +683,10 @@ describe('platform scope', () => {
     expect(await p.message.findMany()).toEqual([]);
     expect(await p.clientPrivateNote.findMany()).toEqual([]);
     expect(await p.clientNoteReminder.findMany()).toEqual([]);
+    expect(await p.invoice.findMany()).toEqual([]);
+    expect(await p.payment.findMany()).toEqual([]);
+    expect(await p.paymentEvent.findMany()).toEqual([]);
+    expect(await p.contentItem.findMany()).toEqual([]);
   });
 });
 
