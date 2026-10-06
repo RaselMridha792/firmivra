@@ -212,21 +212,25 @@ Links people who already exist in Cognito to the dev database:
 - `platform_admins` for the Super Admin;
 - an ACTIVE membership in LVP for staff.
 
-If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and `business_settings`; legal documents and tax statuses come from the setup wizard. It is safe to run again. It refuses to move a user to another pool, and it runs only where `APP_ENV=dev` (set on the dev migrate task). Code: `packages/db/src/link-users.ts`, `packages/db/scripts/link-dev-users.mjs`. **Nothing about the people is committed.**
+If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and empty `business_settings`; contact details, legal documents and tax statuses come from the setup wizard. It is safe to run again. It refuses to move a user to another pool, and it runs only where `APP_ENV=dev` (set on the dev migrate task). Code: `packages/db/src/link-users.ts`, `packages/db/scripts/link-dev-users.mjs`.
 
-1. Create the Cognito users if needed, then read each `sub`: `aws cognito-idp admin-get-user --user-pool-id <pool id> --username <email> --query "UserAttributes[?Name=='sub'].Value" --output text --profile firmivra-dev`. Pool ids are in the `firmivra-dev-auth` outputs.
-2. Write the overrides to a file **outside the repo**, for example `%TEMP%\link-users.json`:
+**No emails or names in the repo, the task input or the logs.** ECS task overrides are recorded in CloudTrail, so the input `LINK_USERS` holds only Cognito subs and roles; any other key is refused. The task reads each email and name from Cognito with `AdminGetUser`, the migrate task role's only Cognito permission, limited to the staff and admins pools. The task log shows user ids and roles only.
+
+1. **Cognito logins** (R2's sign-in finds the user by email in our database, then by `sub` in Cognito, and does not support Cognito's temporary-password step):
+   - username: a random UUID;
+   - attributes: `email`, `email_verified=true`, `name`;
+   - no invite email (`--message-action SUPPRESS`);
+   - then `admin-set-user-password --permanent`.
+
+   MFA is set up at the first sign-in. The pool ids are in the `firmivra-dev-auth` outputs.
+2. **Overrides file** outside the repo, for example `%TEMP%\link-users.json`. `LINK_USERS` holds subs and roles only; optional: `LINK_FIRM_SLUG` (default `lvp`) and `LINK_FIRM_NAME` (used only when the firm is created).
    ```json
    {"containerOverrides":[{"name":"migrate","command":["node","scripts/link-dev-users.mjs"],"environment":[
-     {"name":"LINK_USERS","value":"[{\"sub\":\"<sub>\",\"email\":\"<email>\",\"name\":\"<name>\",\"role\":\"SUPER_ADMIN\"},{\"sub\":\"<sub>\",\"email\":\"<email>\",\"name\":\"<name>\",\"role\":\"OWNER\"}]"},
-     {"name":"LINK_FIRM_CONTACT","value":"<lvp contact email>"}]}]}
+     {"name":"LINK_USERS","value":"[{\"sub\":\"<admins-pool sub>\",\"role\":\"SUPER_ADMIN\"},{\"sub\":\"<staff-pool sub>\",\"role\":\"OWNER\"}]"}]}]}
    ```
-   Emails must be lower-case. Optional: `LINK_FIRM_SLUG` (default `lvp`) and `LINK_FIRM_NAME` (used only when the firm is created).
-3. Run it with the subnets and security group from the `firmivra-dev-app` outputs (`TaskSubnets`, `MigrateSecurityGroup`):
+3. **Run it** with the subnets and security group from the `firmivra-dev-app` outputs (`TaskSubnets`, `MigrateSecurityGroup`):
    `aws ecs run-task --cluster firmivra-dev-cluster --task-definition firmivra-dev-migrate --capacity-provider-strategy capacityProvider=FARGATE,weight=1 --network-configuration "awsvpcConfiguration={subnets=[<subnets>],securityGroups=[<sg>],assignPublicIp=ENABLED}" --overrides file://<that file> --profile firmivra-dev`
-4. Read the result in the log group `/firmivra/dev/migrate`. It shows user ids and roles only, no emails or names. Then delete the overrides file.
-
-The overrides (emails and subs, no secrets) stay visible in the ECS task details and in CloudTrail.
+4. **Read the result** in the log group `/firmivra/dev/migrate`.
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 

@@ -81,3 +81,10 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
 
   Tests: 6 new db tests (validation, first link, re-run, pool refusal with nothing written, firm isolation); infra test pins `APP_ENV`. Ran the script locally and inside the built image against local Postgres. Nothing ran in AWS: Rasel sees the Cognito and run-task commands first.
 - 2026-10-06, CSRF check live (after the #23 deploy, run 37448823378, green): sign-in POSTs with a made-up email and a wrong password. app.dev with `Origin: https://app.dev.firmivra.com` answered 401 INVALID_CREDENTIALS, and so did a request without `Origin` but with `Sec-Fetch-Site: same-origin`; admin.dev with its own Origin answered 401 INVALID_CREDENTIALS too. Controls answered 403 ORIGIN_NOT_ALLOWED: Origin https://evil.example, `Sec-Fetch-Site: cross-site`, and app's Origin on the admin sign-in. Both headers reach the API through CloudFront and the load balancer. The #20 deploy (run 37448607179) was green too.
+- 2026-10-06, step 13: switched to subs and roles only (Rasel), so no emails land in CloudTrail through the task overrides.
+  - The task reads email and name from Cognito with `AdminGetUser`, the migrate task role's only Cognito permission, on the staff and admins pool ARNs.
+  - `LINK_USERS` refuses any key but `sub` and `role`; `LINK_FIRM_CONTACT` is dropped (the wizard sets contact details).
+  - `@aws-sdk/client-cognito-identity-provider` (same 3.1146.0 as the API) is a dev dependency of `packages/db`: it ships in the migrate image, not the API image.
+  - `cdk diff` app: the new policy and the migrate task's env (APP_ENV, AWS_REGION, two pool ids). Auth: no differences (the pool ARN outputs already exist).
+  - The `:none` api and web images in `cdk diff` (also in the pipeline's diff step) only show the parameter defaults. `cdk deploy` keeps the previous values: `MigrateImageTag` stayed d62849a through the `ImageTag`-only step.
+  - The stray remote branch rasel/R1-refresh-tokens was deleted (Rasel's yes) after checking that its commits are in main (#21) or #26.

@@ -246,15 +246,37 @@ describe('app', () => {
     }
   });
 
-  it('marks the migrate task as dev, so the one-off link-dev-users command may run there', () => {
+  it('marks the migrate task as dev and gives it the pools link-dev-users reads', () => {
     t('app').hasResourceProperties('AWS::ECS::TaskDefinition', {
       Family: 'firmivra-dev-migrate',
       ContainerDefinitions: [
         Match.objectLike({
-          Environment: Match.arrayWith([{ Name: 'APP_ENV', Value: 'dev' }]),
+          Environment: Match.arrayWith([
+            { Name: 'APP_ENV', Value: 'dev' },
+            Match.objectLike({ Name: 'COGNITO_STAFF_USER_POOL_ID' }),
+            Match.objectLike({ Name: 'COGNITO_ADMINS_USER_POOL_ID' }),
+          ]),
         }),
       ],
     });
+  });
+
+  it('lets the migrate task only read single users (AdminGetUser) in the staff and admins pools', () => {
+    type Policy = { Properties: { Roles: unknown; PolicyDocument: { Statement: unknown[] } } };
+    const policies = Object.values(t('app').findResources('AWS::IAM::Policy')) as Policy[];
+    const statements = policies
+      .filter((p) => JSON.stringify(p.Properties.Roles).includes('MigrateTaskTaskRole'))
+      .flatMap((p) => p.Properties.PolicyDocument.Statement) as {
+      Action: string | string[];
+      Resource: unknown;
+    }[];
+    expect(statements.flatMap((s) => [s.Action].flat())).toEqual(
+      statements.map(() => 'cognito-idp:AdminGetUser'),
+    );
+    const resources = JSON.stringify(statements.map((s) => s.Resource));
+    expect(resources).toMatch(/StaffPool/);
+    expect(resources).toMatch(/AdminsPool/);
+    expect(resources).not.toMatch(/ClientsPool/);
   });
 
   it('runs 0 tasks while ImageTag is none, then the configured count', () => {
