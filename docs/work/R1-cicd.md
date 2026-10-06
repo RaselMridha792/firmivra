@@ -31,7 +31,7 @@
 - [x] 10. Find why Windows blocks turbo.exe on Rasel's machine ("An Application Control policy has blocked this file", Oct 5; the SWC binding was blocked at times too) and fix it so `pnpm lint`, `pnpm typecheck` and `pnpm test` work from the repo root again; make sure ci.yml runs them from the root through turbo. Until then build the packages first, as turbo would (`pnpm --filter @firmivra/types --filter @firmivra/db run build`), then use `pnpm -r run <script>`. Never turn off a Windows security feature without Rasel's yes.
 - [x] 11. CLAUDE.md and README.md still say dev runs on `*.cloudfront.net`; change them to `admin.`, `app.` and `portal.dev.firmivra.com`. The lead's go (Oct 5): this step may change CLAUDE.md and README.md.
 - [x] 12. Cognito refresh token validity per pool: staff 7 days, admins 1 day, clients 30 days (Rasel, Oct 5). Show the `cdk diff` of firmivra-dev-auth, deploy with Rasel's yes, and tell R2 the new values.
-- [ ] 13. One-off "link dev users" command in the migrate image, run as an ECS task by Rasel after the first deploy is healthy. Cognito subs, emails, names and roles come in as task overrides (`LINK_USERS`), never committed. It creates the `users` rows (`SUPER_ADMIN` in the ADMIN pool; `OWNER`, `ADMIN` or `STAFF` in the STAFF pool), `platform_admins` for the Super Admin, and an ACTIVE membership in LVP for staff. LVP itself gets only the `businesses` row (ACTIVE) and `business_settings`; legal documents and tax statuses come through the setup wizard on dev. Code: `packages/db/src/link-users.ts` (uses `runInScope`), `packages/db/scripts/link-dev-users.mjs`, a test against the test database, and `packages/db/Dockerfile` ships `dist`. Guard: the migrate task gets `APP_ENV=dev` and the script refuses any other value. No CLIENT role until R3 asks. Rasel's go (Oct 5) for those `packages/db` paths; tell R0 in R0's "Needs from others".
+- [x] 13. One-off "link dev users" command in the migrate image, run as an ECS task by Rasel after the first deploy is healthy. Cognito subs, emails, names and roles come in as task overrides (`LINK_USERS`), never committed. It creates the `users` rows (`SUPER_ADMIN` in the ADMIN pool; `OWNER`, `ADMIN` or `STAFF` in the STAFF pool), `platform_admins` for the Super Admin, and an ACTIVE membership in LVP for staff. LVP itself gets only the `businesses` row (ACTIVE) and `business_settings`; legal documents and tax statuses come through the setup wizard on dev. Code: `packages/db/src/link-users.ts` (uses `runInScope`), `packages/db/scripts/link-dev-users.mjs`, a test against the test database, and `packages/db/Dockerfile` ships `dist`. Guard: the migrate task gets `APP_ENV=dev` and the script refuses any other value. No CLIENT role until R3 asks. Rasel's go (Oct 5) for those `packages/db` paths; tell R0 in R0's "Needs from others".
 
 ## Done when
 
@@ -112,3 +112,18 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   1. Push rasel/R1-cognito-listusers and open its PR.
   2. When it and R2's #34 are deployed, ask Rasel's yes, run the link task with the two subs (SUPER_ADMIN, OWNER), show him the log lines, and tick step 13.
   3. Then the earlier list: the portal PR after #33 merges, the firm skeleton, the kit, the path guard.
+- 2026-10-07 (night, Rasel: keep working), step 13 done:
+  - #35 (ListUsers for the API and migrate roles) and R2's #34 were merged and deployed: #30's run included #35, then #34's run. The live task roles were checked read-only.
+  - The link task ran with Rasel's yes (subs and roles only), exit 0:
+    - "Firm lvp: 01a11307-637d-… (created, ACTIVE)";
+    - "Created user 01a11307-644a-… as SUPER_ADMIN";
+    - "Created user 01a11307-651a-… as OWNER".
+
+    The overrides file was deleted. Rasel's first sign-in on admin.dev and app.dev sets up MFA.
+- 2026-10-07, skeleton:
+  - #33 (Super Admin) merged and deployed, green.
+  - Portal: PR #36. `main` merged in; signed-in.tsx and the shell files were add/add conflicts, resolved with the portal versions; e2e 17/17.
+  - Firm workspace: 75b5715 on rasel/R1-skeleton-firm, stacked on #36. The Owner and Admin menu is in place; session-panel.tsx is deleted; e2e 20/20.
+  - PAGE-MAP and GUIDE in the repo (#28) are identical to the spec I built from.
+- 2026-10-07, dev tooling: Next 16's on-disk Turbopack dev cache kept stale routes ("Page not found" for pages that exist) after routes were added or moved. `turbopackFileSystemCacheForDev: false` in next.config.ts: PR #43 from main, and the same line in the firm PR. The e2e smoke specs get 240 s (cold compiles in dev).
+- Kit notes from R3 (Oct 7): the portal client is `portalAuth(slug)` in lib/auth.ts, mocked by `createPortalAuthMock(firmSlug, options)` in mocks/client-auth.ts, with state per instance, so keep one per slug across navigation. The firm's sign-ups are `api.clientSignUps`, mocked by `createClientSignUpsMock`.
