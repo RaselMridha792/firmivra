@@ -1,4 +1,9 @@
-import { createApiClient, createRequest, createTaxStatusesClient } from '@firmivra/types';
+import {
+  createApiClient,
+  createClientSignUpsClient,
+  createRequest,
+  createTaxStatusesClient,
+} from '@firmivra/types';
 
 /** Same origin (/api/v1 on the current host). */
 const options = { baseUrl: '/api/v1' };
@@ -12,4 +17,6 @@ const request = createRequest(options);
 export const api = {
   ...createApiClient(options),
   taxStatuses: createTaxStatusesClient(request),
+  /** Pending client sign-ups, approve and decline (docs/api/client-auth.yaml). */
+  clientSignUps: createClientSignUpsClient(request),
 };
