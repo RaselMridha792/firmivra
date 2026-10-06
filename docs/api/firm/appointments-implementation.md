@@ -6,6 +6,13 @@ cancellation and history. Portal clientId is derived from the current active Cli
 STAFF manage their own calendar and book only assigned clients; OWNER/ADMIN manage the firm.
 Every read/mutation is audited with identifiers, never appointment instructions or messages.
 
+Both booking routes require Idempotency-Key (8–128 characters). A per-firm/actor hash and
+the canonical input fingerprint are stored under a unique constraint; simultaneous retries
+return the same appointment and create one history/job set. Changed payloads return 409
+IDEMPOTENCY_CONFLICT. A retry after cancellation/rescheduling returns the same canonical row
+in its current state and never restores the original slot. Keys/fingerprints are not returned
+or audited. Each retry rechecks current client access; different actors have separate key spaces.
+
 Every mutation locks the Business row, then rechecks current identity/role and the active provider.
 Provider advisory locks serialize slot/hour/block changes. Booking/reschedule also require the
 valid named `appointments_no_overlap` GiST exclusion constraint, covering business/provider and
