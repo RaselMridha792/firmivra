@@ -8,8 +8,10 @@ import {
   SEED_BUSINESSES,
   SEED_CLIENT_IDS,
   SEED_INVITE_ID,
+  SEED_SERVICES,
   SEED_TAX_STATUSES,
   SEED_USERS,
+  SEED_WORK_IDS,
 } from './seed-data.js';
 
 config({ path: '../../.env', quiet: true });
@@ -85,6 +87,35 @@ async function seedClient(
     create: { clientId, businessId, firstName: firstName ?? null, lastName: lastName ?? null },
   });
   await tx.clientAccount.update({ where: { userId: user.id }, data: { clientId } });
+}
+
+/** The firm's services; returns their ids by name. */
+async function seedServices(
+  tx: TxClient,
+  businessId: string,
+  services: (typeof SEED_SERVICES)[keyof typeof SEED_SERVICES],
+) {
+  const ids = new Map<string, string>();
+  for (const [sortOrder, s] of services.entries()) {
+    const data = {
+      kind: s.kind,
+      billingInterval: s.billingInterval,
+      packages: [...s.packages],
+      stages: [...s.stages],
+      sortOrder,
+    };
+    const row = await tx.service.upsert({
+      where: { businessId_name: { businessId, name: s.name } },
+      update: data,
+      create: { businessId, name: s.name, ...data },
+    });
+    ids.set(s.name, row.id);
+  }
+  return (name: string) => {
+    const id = ids.get(name);
+    if (!id) throw new Error(`Seed service ${name} is missing`);
+    return id;
+  };
 }
 
 async function main() {
@@ -200,6 +231,85 @@ async function main() {
         updatedByUserId: SEED_USERS.lvpStaff.id,
       },
     });
+
+    // Services, a tax engagement with a task and a note, and a bookkeeping engagement with a
+    // published reconciliation in its workspace.
+    const service = await seedServices(tx, businesses.lvp, SEED_SERVICES.lvp);
+    const lvpWork = {
+      businessId: businesses.lvp,
+      clientId: SEED_CLIENT_IDS.lvp,
+      assignedUserId: SEED_USERS.lvpStaff.id,
+      updatedByUserId: SEED_USERS.lvpStaff.id,
+    };
+    await tx.engagement.upsert({
+      where: { id: SEED_WORK_IDS.lvpTax },
+      update: {},
+      create: {
+        ...lvpWork,
+        id: SEED_WORK_IDS.lvpTax,
+        serviceId: service('Annual Tax'),
+        title: '2025 Personal Tax',
+        taxYear: 2025,
+        stage: 'Preparation',
+      },
+    });
+    await tx.engagement.upsert({
+      where: { id: SEED_WORK_IDS.lvpBookkeeping },
+      update: {},
+      create: {
+        ...lvpWork,
+        id: SEED_WORK_IDS.lvpBookkeeping,
+        serviceId: service('Bookkeeping'),
+        title: 'Bookkeeping (Growth)',
+        package: 'Growth',
+        stage: 'Monthly close',
+        billingInterval: 'MONTHLY',
+        periodStart: new Date('2026-01-01'),
+        nextBillingOn: new Date('2026-11-01'),
+      },
+    });
+    await tx.task.upsert({
+      where: { id: SEED_WORK_IDS.lvpTask },
+      update: {},
+      create: {
+        id: SEED_WORK_IDS.lvpTask,
+        businessId: businesses.lvp,
+        clientId: SEED_CLIENT_IDS.lvp,
+        engagementId: SEED_WORK_IDS.lvpTax,
+        title: 'Check the W-2 against last year',
+        dueOn: new Date('2026-10-20'),
+        assignedUserId: SEED_USERS.lvpStaff.id,
+        createdByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+    await tx.note.upsert({
+      where: { id: SEED_WORK_IDS.lvpNote },
+      update: {},
+      create: {
+        id: SEED_WORK_IDS.lvpNote,
+        businessId: businesses.lvp,
+        clientId: SEED_CLIENT_IDS.lvp,
+        engagementId: SEED_WORK_IDS.lvpTax,
+        body: 'Sample note: prefers contact by email.',
+        authorUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.engagementReport.upsert({
+      where: { id: SEED_WORK_IDS.lvpReport },
+      update: {},
+      create: {
+        id: SEED_WORK_IDS.lvpReport,
+        businessId: businesses.lvp,
+        engagementId: SEED_WORK_IDS.lvpBookkeeping,
+        kind: 'RECONCILIATION',
+        title: 'Business checking reconciliation',
+        periodLabel: 'September 2026',
+        status: 'PUBLISHED',
+        publishedAt: new Date(),
+        data: { statementBalanceCents: 1250000, bookBalanceCents: 1250000 },
+        createdByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
   });
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
@@ -238,10 +348,24 @@ async function main() {
       SEED_USERS.firmBClient,
       SEED_USERS.firmBOwner.id,
     );
+    const service = await seedServices(tx, businesses.testFirmB, SEED_SERVICES.testFirmB);
+    await tx.engagement.upsert({
+      where: { id: SEED_WORK_IDS.firmBTax },
+      update: {},
+      create: {
+        id: SEED_WORK_IDS.firmBTax,
+        businessId: businesses.testFirmB,
+        clientId: SEED_CLIENT_IDS.testFirmB,
+        serviceId: service('Annual Tax'),
+        title: '2025 Personal Tax',
+        taxYear: 2025,
+        stage: 'New',
+      },
+    });
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses and client records.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services and engagements.`,
   );
 }
 

@@ -23,10 +23,11 @@ The response also sets that site's HttpOnly access cookie (`fv_admin_access` for
 ## Every request
 
 1. `requestContextMiddleware`: request id (`x-request-id`), IP and user agent in an AsyncLocalStorage context.
-2. `ThrottlerGuard`: rate limit (300 a minute per viewer IP; stricter on sensitive routes). Behind CloudFront and the ALB the viewer IP is the second address from the right in `X-Forwarded-For` (`trust proxy` 2).
-3. `AuthGuard`: token from the site's access cookie or `Authorization: Bearer`, verified (Cognito, or the local key), user loaded by Cognito `sub`. Skipped for `@Public()`.
-4. `TenantGuard`: for routes with a firm role, finds the firm (`:slug` route param, else `x-business-id` header, else the caller's only firm) and the caller's role from `Membership` or `ClientAccount`. No link to the firm: **404**. Several firms and no header: 400 `BUSINESS_REQUIRED`. Firm not `ACTIVE`: 403 `BUSINESS_SETUP_REQUIRED` (still in setup) or `BUSINESS_INACTIVE` (suspended or closed), unless the route allows that status.
-5. `RolesGuard`: **default deny**. Every non-public route needs `@Roles(...)`. Wrong role: **403**.
+2. `crossSiteGuard`: POST, PUT, PATCH and DELETE need a JSON body (415 `UNSUPPORTED_MEDIA_TYPE`) and, from a browser, an `Origin` of the route's own site, from `ADMIN_BASE_URL` for `/api/v1/admin/*` and `APP_BASE_URL` or `PORTAL_BASE_URL` otherwise (403 `ORIGIN_NOT_ALLOWED`). No CORS: each site calls the API on its own host.
+3. `ThrottlerGuard`: rate limit (300 a minute per viewer IP; stricter on sensitive routes). Behind CloudFront and the ALB the viewer IP is the second address from the right in `X-Forwarded-For` (`trust proxy` 2).
+4. `AuthGuard`: token from the site's access cookie or `Authorization: Bearer`, verified (Cognito, or the local key), user loaded by Cognito `sub`. Skipped for `@Public()`.
+5. `TenantGuard`: for routes with a firm role, finds the firm (`:slug` route param, else `x-business-id` header, else the caller's only firm) and the caller's role from `Membership` or `ClientAccount`. No link to the firm: **404**. Several firms and no header: 400 `BUSINESS_REQUIRED`. Firm not `ACTIVE`: 403 `BUSINESS_SETUP_REQUIRED` (still in setup) or `BUSINESS_INACTIVE` (suspended or closed), unless the route allows that status.
+6. `RolesGuard`: **default deny**. Every non-public route needs `@Roles(...)`. Wrong role: **403**.
 
 ### Two sites, two kinds of session
 

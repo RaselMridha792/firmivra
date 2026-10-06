@@ -73,6 +73,52 @@ enum FirmApplicationStatus {
   DECLINED
 }
 
+/// Begin Online's six services, plus OTHER (docs/SYSTEM-DESIGN.md, Sign-up flows).
+enum ServiceKind {
+  ANNUAL_TAX
+  QUARTERLY_TAX
+  BOOKKEEPING
+  PAYROLL
+  TAX_PLANNING
+  BUSINESS_DEVELOPMENT
+  OTHER
+}
+
+/// ONE_TIME, or recurring.
+enum BillingInterval {
+  ONE_TIME
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum EngagementStatus {
+  /// From Begin Online, waiting for staff review.
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+/// Bookkeeping: REPORT, RECONCILIATION. Tax Planning: ESTIMATE, PROJECTION.
+enum ReportKind {
+  REPORT
+  RECONCILIATION
+  ESTIMATE
+  PROJECTION
+}
+
+enum ReportStatus {
+  DRAFT
+  PUBLISHED
+}
+
 enum LegalDocumentKind {
   TERMS
   PRIVACY
@@ -100,6 +146,7 @@ model Business {
   taxStatuses         TaxStatus[]
   invites             Invite[]
   clients             Client[]
+  services            Service[]
 
   @@map("businesses")
 }
@@ -134,10 +181,12 @@ model Membership {
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business        Business @relation(fields: [businessId], references: [id])
-  user            User     @relation(fields: [userId], references: [id])
-  invites         Invite[]
-  assignedClients Client[]
+  business            Business     @relation(fields: [businessId], references: [id])
+  user                User         @relation(fields: [userId], references: [id])
+  invites             Invite[]
+  assignedClients     Client[]
+  assignedEngagements Engagement[]
+  assignedTasks       Task[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -370,6 +419,9 @@ model Client {
   accounts         ClientAccount[]
   taxStatuses      ClientTaxStatus[]
   taxStatusHistory ClientTaxStatusHistory[]
+  engagements      Engagement[]
+  tasks            Task[]
+  notes            Note[]
 
   @@unique([businessId, id])
   @@index([businessId, displayName])
@@ -450,4 +502,163 @@ model ClientTaxStatusHistory {
 
   @@index([businessId, clientId, taxYear, changedAt])
   @@map("client_tax_status_history")
+}
+
+/// A service the firm offers (its catalog). Archived, not deleted, once engagements use it.
+model Service {
+  id              String          @id @default(uuid(7)) @db.Uuid
+  businessId      String          @map("business_id") @db.Uuid
+  kind            ServiceKind
+  name            String
+  description     String?
+  /// Default for new engagements; anything but ONE_TIME is a recurring service.
+  billingInterval BillingInterval @default(ONE_TIME) @map("billing_interval")
+  /// Package names offered, e.g. Starter, Growth, Premium for Bookkeeping.
+  packages        String[]        @default([])
+  /// The firm's workflow steps for this service, in order. An engagement's stage is one of them.
+  stages          String[]        @default([])
+  sortOrder       Int             @default(0) @map("sort_order")
+  archivedAt      DateTime?       @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business    Business     @relation(fields: [businessId], references: [id])
+  engagements Engagement[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("services")
+}
+
+/// One service for one period for one client, e.g. "2025 Personal Tax". Never deleted.
+/// status is the lifecycle; stage is the firm's workflow step. A trigger keeps the lifecycle
+/// rules and writes EngagementStatusHistory. Recurring = billingInterval other than ONE_TIME.
+model Engagement {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  businessId         String           @map("business_id") @db.Uuid
+  clientId           String           @map("client_id") @db.Uuid
+  serviceId          String           @map("service_id") @db.Uuid
+  title              String
+  taxYear            Int?             @map("tax_year")
+  periodStart        DateTime?        @map("period_start") @db.Date
+  periodEnd          DateTime?        @map("period_end") @db.Date
+  package            String?
+  status             EngagementStatus @default(ACTIVE)
+  /// One of the service's stages.
+  stage              String?
+  billingInterval    BillingInterval  @default(ONE_TIME) @map("billing_interval")
+  nextBillingOn      DateTime?        @map("next_billing_on") @db.Date
+  assignedUserId     String?          @map("assigned_user_id") @db.Uuid
+  completedAt        DateTime?        @map("completed_at") @db.Timestamptz(3)
+  /// Recurring services: the client's request, at least 14 days before nextBillingOn.
+  cancelRequestedAt  DateTime?        @map("cancel_requested_at") @db.Timestamptz(3)
+  /// The client keeps document access for 60 days after this and can reactivate within 90.
+  cancelledAt        DateTime?        @map("cancelled_at") @db.Timestamptz(3)
+  cancellationReason String?          @map("cancellation_reason")
+  updatedByUserId    String?          @map("updated_by_user_id") @db.Uuid
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client         Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service        Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory  EngagementStatusHistory[]
+  tasks          Task[]
+  notes          Note[]
+  reports        EngagementReport[]
+
+  @@unique([businessId, id])
+  // Lets tasks and notes require that their engagement belongs to their client.
+  @@unique([businessId, clientId, id])
+  @@index([businessId, status, assignedUserId])
+  @@index([businessId, serviceId])
+  @@map("engagements")
+}
+
+/// Append-only: one row per change of an engagement's status or stage, written by the trigger
+/// on engagements (the status tracker). Do not insert into it directly.
+model EngagementStatusHistory {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  businessId      String           @map("business_id") @db.Uuid
+  engagementId    String           @map("engagement_id") @db.Uuid
+  status          EngagementStatus
+  stage           String?
+  changedByUserId String?          @map("changed_by_user_id") @db.Uuid
+  changedAt       DateTime         @default(now()) @map("changed_at") @db.Timestamptz(3)
+
+  engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, engagementId, changedAt])
+  @@map("engagement_status_history")
+}
+
+/// Firm-side to-do for a client, optionally within one of that client's engagements (client
+/// record Tasks tab, service workspaces). Never shown to the client.
+model Task {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  businessId      String     @map("business_id") @db.Uuid
+  clientId        String     @map("client_id") @db.Uuid
+  engagementId    String?    @map("engagement_id") @db.Uuid
+  title           String
+  details         String?
+  status          TaskStatus @default(OPEN)
+  dueOn           DateTime?  @map("due_on") @db.Date
+  assignedUserId  String?    @map("assigned_user_id") @db.Uuid
+  completedAt     DateTime?  @map("completed_at") @db.Timestamptz(3)
+  createdByUserId String?    @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client         Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement     Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  assignedMember Membership? @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, clientId])
+  @@index([businessId, engagementId])
+  @@index([businessId, assignedUserId, status])
+  @@map("tasks")
+}
+
+/// Internal note about a client, optionally within one of that client's engagements (client
+/// record Internal notes tab, service workspaces). Never shown to the client.
+model Note {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  clientId     String   @map("client_id") @db.Uuid
+  engagementId String?  @map("engagement_id") @db.Uuid
+  body         String
+  authorUserId String   @map("author_user_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+
+  @@index([businessId, clientId, createdAt])
+  @@index([businessId, engagementId])
+  @@map("notes")
+}
+
+/// A service workspace report: bookkeeping report or reconciliation, tax planning estimate or
+/// projection. Figures go in `data`. The client sees it once PUBLISHED; only drafts can be
+/// deleted. Step 5 links an attached file.
+model EngagementReport {
+  id              String       @id @default(uuid(7)) @db.Uuid
+  businessId      String       @map("business_id") @db.Uuid
+  engagementId    String       @map("engagement_id") @db.Uuid
+  kind            ReportKind
+  title           String
+  /// e.g. "March 2026", "Q1 2026", "2026 plan".
+  periodLabel     String?      @map("period_label")
+  status          ReportStatus @default(DRAFT)
+  data            Json         @default("{}")
+  publishedAt     DateTime?    @map("published_at") @db.Timestamptz(3)
+  createdByUserId String?      @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, engagementId, status])
+  @@map("engagement_reports")
 }

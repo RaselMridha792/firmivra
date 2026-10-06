@@ -12,7 +12,7 @@ Firmivra is one multi-tenant platform shared by many businesses. Each business (
 | Firm workspace      | `app.firmivra.com`               | Each business's staff (Owner, Admin, Staff)                                 |
 | Client portal       | `portal.firmivra.com/{firmSlug}` | Each business's clients, in the firm's branding                             |
 
-- Dev environment: three CloudFront URLs (`*.cloudfront.net`, listed in `docs/SETUP-LOG.md`) until `dev.firmivra.com` is delegated; then `admin.`, `app.` and `portal.dev.firmivra.com`. Every site URL and host comes from config, never from code.
+- Dev environment: `admin.dev.firmivra.com`, `app.dev.firmivra.com` and `portal.dev.firmivra.com/{firmSlug}`; every merge to `main` deploys there. Every site URL and host comes from config, never from code.
 - First business (beta tenant): LVP Accounting & Taxes, slug `lvp`. Beta launch: Jan 8, 2027.
 - Isolation is enforced by four walls: the API tenant guard, PostgreSQL row-level security, per-business S3 prefixes, and per-business KMS keys. A bug in one wall must never be enough to leak data.
 

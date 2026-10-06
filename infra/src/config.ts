@@ -26,7 +26,11 @@ export interface EnvConfig {
    * https://*.cloudfront.net until the domains are known.
    */
   cloudFrontHosts?: { admin: string; app: string; portal: string };
-  github: { owner: string; repo: string };
+  /**
+   * The repo uses GitHub's immutable OIDC subject (`repo:<owner>@<ownerId>/<repo>@<repoId>:...`),
+   * so the deploy role trusts the numeric ids too: a renamed or re-created repo cannot deploy.
+   */
+  github: { owner: string; ownerId: number; repo: string; repoId: number };
   availabilityZones: string[];
   logRetentionDays: 14;
   db: {
@@ -36,8 +40,8 @@ export interface EnvConfig {
     maxAllocatedStorageGiB: number;
     backupDays: number;
   };
-  /** Fargate size per service (0.25 vCPU / 0.5 GB), on Spot in dev. */
-  task: { cpu: number; memoryMiB: number; spot: boolean };
+  /** Fargate size per service (0.25 vCPU / 0.5 GB), on Spot in dev; tasks per service once an image is deployed. */
+  task: { cpu: number; memoryMiB: number; spot: boolean; count: number };
 }
 
 /** dev.firmivra.com, used once GoDaddy delegates the zone to Route 53. */
@@ -57,7 +61,7 @@ const dev: EnvConfig = {
   region: 'us-east-1',
   // dev.firmivra.com delegated to Route 53 at GoDaddy on Oct 5. Back to *.cloudfront.net: undefined.
   customDomain: DEV_FIRMIVRA_COM,
-  github: { owner: 'RaselMridha792', repo: 'firmivra' },
+  github: { owner: 'RaselMridha792', ownerId: 149437621, repo: 'firmivra', repoId: 1404534844 },
   // AZ ids use1-az1 and use1-az2 (CloudFront VPC origins are not offered in every zone).
   availabilityZones: ['us-east-1a', 'us-east-1b'],
   logRetentionDays: 14,
@@ -68,7 +72,7 @@ const dev: EnvConfig = {
     maxAllocatedStorageGiB: 50,
     backupDays: 7,
   },
-  task: { cpu: 256, memoryMiB: 512, spot: true },
+  task: { cpu: 256, memoryMiB: 512, spot: true, count: 1 },
 };
 
 export function configFor(envName: unknown, overrides: Partial<EnvConfig> = {}): EnvConfig {

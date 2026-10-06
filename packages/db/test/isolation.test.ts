@@ -26,6 +26,11 @@ const ids = {
   inviteA: '',
   clientRecordA: '',
   clientTaxStatusA: '',
+  serviceA: '',
+  engagementA: '',
+  taskA: '',
+  noteA: '',
+  reportA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -102,6 +107,22 @@ beforeAll(async () => {
       const cts = await tx.clientTaxStatus.create({
         data: { businessId: firm, clientId: record.id, taxYear: 2025, taxStatusId: t.id },
       });
+      const svc = await tx.service.create({
+        data: { businessId: firm, kind: 'ANNUAL_TAX', name: 'Annual Tax', stages: ['New'] },
+      });
+      const work = { businessId: firm, clientId: record.id };
+      const eng = await tx.engagement.create({
+        data: { ...work, serviceId: svc.id, title: '2025 Personal Tax', stage: 'New' },
+      });
+      const task = await tx.task.create({
+        data: { ...work, engagementId: eng.id, title: 'Task' },
+      });
+      const note = await tx.note.create({
+        data: { ...work, engagementId: eng.id, body: 'Note', authorUserId: ownerId },
+      });
+      const rep = await tx.engagementReport.create({
+        data: { businessId: firm, engagementId: eng.id, kind: 'REPORT', title: 'Report' },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -118,6 +139,11 @@ beforeAll(async () => {
         ids.inviteA = inv.id;
         ids.clientRecordA = record.id;
         ids.clientTaxStatusA = cts.id;
+        ids.serviceA = svc.id;
+        ids.engagementA = eng.id;
+        ids.taskA = task.id;
+        ids.noteA = note.id;
+        ids.reportA = rep.id;
       }
     });
   }
@@ -153,6 +179,12 @@ describe('no scope set', () => {
     expect(await unscopedApp.clientProfile.findMany()).toEqual([]);
     expect(await unscopedApp.clientTaxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.clientTaxStatusHistory.findMany()).toEqual([]);
+    expect(await unscopedApp.service.findMany()).toEqual([]);
+    expect(await unscopedApp.engagement.findMany()).toEqual([]);
+    expect(await unscopedApp.engagementStatusHistory.findMany()).toEqual([]);
+    expect(await unscopedApp.task.findMany()).toEqual([]);
+    expect(await unscopedApp.note.findMany()).toEqual([]);
+    expect(await unscopedApp.engagementReport.findMany()).toEqual([]);
   });
 });
 
@@ -176,6 +208,12 @@ describe('business scope: firm B', () => {
       await b().clientProfile.findMany(),
       await b().clientTaxStatus.findMany(),
       await b().clientTaxStatusHistory.findMany(),
+      await b().service.findMany(),
+      await b().engagement.findMany(),
+      await b().engagementStatusHistory.findMany(),
+      await b().task.findMany(),
+      await b().note.findMany(),
+      await b().engagementReport.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -204,6 +242,15 @@ describe('business scope: firm B', () => {
     expect(
       await b().clientTaxStatus.findUnique({ where: { id: ids.clientTaxStatusA } }),
     ).toBeNull();
+    expect(await b().service.findUnique({ where: { id: ids.serviceA } })).toBeNull();
+    expect(await b().engagement.findUnique({ where: { id: ids.engagementA } })).toBeNull();
+    expect(await b().task.findUnique({ where: { id: ids.taskA } })).toBeNull();
+    expect(await b().note.findUnique({ where: { id: ids.noteA } })).toBeNull();
+    expect(await b().engagementReport.findUnique({ where: { id: ids.reportA } })).toBeNull();
+    expect(
+      await b().engagementStatusHistory.findMany({ where: { engagementId: ids.engagementA } }),
+    ).toEqual([]);
+    expect((await b().note.deleteMany({ where: { id: ids.noteA } })).count).toBe(0);
     expect(
       (
         await b().client.updateMany({
@@ -270,6 +317,7 @@ describe('user scope', () => {
     expect(await u.taxStatus.findMany()).toEqual([]);
     expect(await u.invite.findMany()).toEqual([]);
     expect(await u.client.findMany()).toEqual([]);
+    expect(await u.engagement.findMany()).toEqual([]);
   });
 });
 
@@ -315,6 +363,12 @@ describe('platform scope', () => {
     expect(await p.clientProfile.findMany()).toEqual([]);
     expect(await p.clientTaxStatus.findMany()).toEqual([]);
     expect(await p.clientTaxStatusHistory.findMany()).toEqual([]);
+    expect(await p.service.findMany()).toEqual([]);
+    expect(await p.engagement.findMany()).toEqual([]);
+    expect(await p.engagementStatusHistory.findMany()).toEqual([]);
+    expect(await p.task.findMany()).toEqual([]);
+    expect(await p.note.findMany()).toEqual([]);
+    expect(await p.engagementReport.findMany()).toEqual([]);
   });
 });
 

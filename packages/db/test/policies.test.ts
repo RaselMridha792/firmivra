@@ -112,6 +112,22 @@ describe('support access grants', () => {
     }
   });
 
+  it('judges the 72 hours by the database clock, so a fast API clock never fails approval', async () => {
+    for (const apiClockAhead of [0, 30_000]) {
+      const g = await request();
+      const requested = new Date(hours(72).getTime() + apiClockAhead);
+      const approved = await firmA().supportAccessGrant.update({
+        where: { id: g.id },
+        data: { grantedByUserId: ids.ownerA, expiresAt: requested },
+      });
+      const [db72h] = await owner.$queryRaw<
+        { at: Date }[]
+      >`SELECT now() + interval '72 hours' AS at`;
+      expect(approved.expiresAt!.getTime()).toBeLessThanOrEqual(db72h!.at.getTime());
+      expect(approved.expiresAt!.getTime()).toBeLessThanOrEqual(requested.getTime());
+    }
+  });
+
   it('staff, or an owner of another firm, cannot approve', async () => {
     const g = await request();
     for (const approver of [ids.staffA, ids.ownerB]) {

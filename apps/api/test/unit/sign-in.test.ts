@@ -11,7 +11,7 @@ import {
   ChallengeSessions,
   deriveChallengeKey,
 } from '../../src/auth/challenge-session.js';
-import { Roles } from '../../src/auth/decorators.js';
+import { isPublic, Roles } from '../../src/auth/decorators.js';
 import {
   type CognitoClient,
   CognitoIdentityProvider,
@@ -20,7 +20,9 @@ import {
 import { AuthFlowError } from '../../src/auth/identity/identity-provider.js';
 import { deriveKey } from '../../src/auth/sealed.js';
 import { REFRESH_KEY_LABEL, RefreshEnvelopes } from '../../src/auth/session.service.js';
+import { AdminSignInController, StaffSignInController } from '../../src/auth/sign-in.controller.js';
 import { otpauthUri } from '../../src/auth/sign-in.service.js';
+import { siteOf } from '../../src/auth/site.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -480,5 +482,53 @@ describe('RefreshEnvelopes', () => {
   it('never opens on the other site', async () => {
     const sealed = await envelopes.seal(envelope, 60);
     await expect(envelopes.open(sealed, 'ADMIN')).resolves.toBeUndefined();
+  });
+});
+
+describe('sign-in routes are public one by one, never by class (#16 fix)', () => {
+  const reflector = new Reflector();
+  const routes = [
+    'signIn',
+    'mfa',
+    'mfaSetup',
+    'refresh',
+    'signOut',
+    'forgotPassword',
+    'resetPassword',
+  ] as const;
+  const ctxFor = (cls: object, handler: unknown) =>
+    ({ getHandler: () => handler, getClass: () => cls }) as unknown as ExecutionContext;
+
+  it.each([
+    ['StaffSignInController', StaffSignInController],
+    ['AdminSignInController', AdminSignInController],
+  ])('%s', (_name, cls) => {
+    const proto = cls.prototype as unknown as Record<string, unknown>;
+    for (const route of routes) {
+      expect([route, isPublic(reflector, ctxFor(cls, proto[route]))]).toEqual([route, true]);
+    }
+    // A route added later (for example POST /auth/invites) is not public unless it says so.
+    expect(
+      isPublic(
+        reflector,
+        ctxFor(cls, function addedLater() {}),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('siteOf (#16 fix)', () => {
+  it('recognises the Super Admin API whatever the letter case, as Express routes it', () => {
+    for (const path of [
+      '/api/v1/admin/me',
+      '/API/V1/ADMIN/me',
+      '/Api/v1/Admin',
+      '/api/v1/admin/',
+    ]) {
+      expect([path, siteOf({ path })]).toEqual([path, 'admin']);
+    }
+    for (const path of ['/api/v1/me', '/api/v1/administrators', '/api/v1/auth/sign-in']) {
+      expect([path, siteOf({ path })]).toEqual([path, 'firm']);
+    }
   });
 });

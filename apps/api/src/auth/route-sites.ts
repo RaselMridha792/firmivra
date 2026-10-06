@@ -31,7 +31,7 @@ export function routeSiteProblems(
       for (const base of paths(Reflect.getMetadata(PATH_METADATA, controller))) {
         for (const sub of paths(methodPath)) {
           const path = [base, sub].filter(Boolean).join('/');
-          const admin = /^admin(\/|$)/.test(path);
+          const admin = /^admin(\/|$)/i.test(path); // any case, like routing and siteOf()
           const route = `${controller.name}.${name} (/${path})`;
           if (admin && hasFirmRole) problems.push(`${route}: firm role on a Super Admin route`);
           if (!admin && roles.includes('SUPER_ADMIN')) {

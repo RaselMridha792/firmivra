@@ -48,7 +48,15 @@ info:
     Each site accepts only its own session. Routes under `/api/v1/admin/` read only the
     `fv_admin_*` cookies and accept only Super Admins; every other route reads only the `fv_*`
     cookies and never accepts a Super Admin session, not even as a Bearer token. So the Super
-    Admin site reads its `/me` from `GET /admin/me`.
+    Admin site reads its `/me` from `GET /admin/me`. The `/admin/` match ignores letter case,
+    as routing does.
+
+    Requests from other sites are refused. Every POST, PUT, PATCH and DELETE must send its body
+    as `application/json` (else `415 UNSUPPORTED_MEDIA_TYPE`), and a browser request must come
+    from the route's own site: `Origin` is the admin site's origin for `/api/v1/admin/*` and the
+    app or portal site's origin for the rest (else `403 ORIGIN_NOT_ALLOWED`). Without `Origin`,
+    only `Sec-Fetch-Site: same-origin` passes. The API sends no CORS headers: each site calls
+    it on its own host.
 
     ## Password policy
 
@@ -588,9 +596,11 @@ components:
                 Stable. Auth codes: PASSWORD_REJECTED, RESET_CODE_INVALID, INVALID_CREDENTIALS,
                 MFA_CODE_INVALID, CHALLENGE_EXPIRED, INVITE_INVALID, ALREADY_MEMBER,
                 INVITE_EXPIRED. Generic: VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN,
-                NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR. Firm routes: BUSINESS_REQUIRED (400,
-                choose a firm with x-business-id), BUSINESS_SETUP_REQUIRED (403, the firm has
-                not finished setup), BUSINESS_INACTIVE (403, suspended or closed).
+                NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR, UNSUPPORTED_MEDIA_TYPE (415, the body
+                is not JSON), ORIGIN_NOT_ALLOWED (403, sent from another site). Firm routes:
+                BUSINESS_REQUIRED (400, choose a firm with x-business-id), BUSINESS_SETUP_REQUIRED
+                (403, the firm has not finished setup), BUSINESS_INACTIVE (403, suspended or
+                closed).
             message: { type: string, description: For people; may change }
             requestId: { type: string }
             details: {}
