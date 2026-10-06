@@ -1,0 +1,148 @@
+parameters:
+  Business:
+    name: x-business-id
+    in: header
+    required: false
+    description:
+      Firm selector for multi-membership staff. TenantGuard verifies membership; never trust
+      it directly. Omit for a user with one firm.
+    schema:
+      type: string
+      format: uuid
+  Cursor:
+    name: cursor
+    in: query
+    required: false
+    schema:
+      type: string
+      maxLength: 500
+  Limit:
+    name: limit
+    in: query
+    required: false
+    schema:
+      type: integer
+      minimum: 1
+      maximum: 100
+      default: 25
+  Slug:
+    name: slug
+    in: path
+    required: true
+    schema:
+      type: string
+      maxLength: 120
+      minLength: 1
+      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+  Idempotency:
+    name: Idempotency-Key
+    in: header
+    required: true
+    schema:
+      type: string
+      maxLength: 128
+      minLength: 8
+    description:
+      Same firm/actor/key and same payload returns original booking; changed payload returns
+      409 IDEMPOTENCY_CONFLICT.
+schemas:
+  Error:
+    type: object
+    additionalProperties: false
+    required:
+      - error
+    properties:
+      error:
+        type: object
+        additionalProperties: false
+        required:
+          - code
+          - message
+        properties:
+          code:
+            type: string
+            maxLength: 100
+            minLength: 1
+          message:
+            type: string
+            maxLength: 500
+            minLength: 1
+          requestId:
+            type: string
+            maxLength: 100
+          details:
+            type: object
+            additionalProperties: true
+  Ok:
+    type: object
+    additionalProperties: false
+    required:
+      - ok
+    properties:
+      ok:
+        type: boolean
+        enum:
+          - true
+responses:
+  BadRequest:
+    description:
+      'Invalid input or selector: BAD_REQUEST, BUSINESS_REQUIRED. VALIDATION_FAILED for Zod
+      input errors.'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+  Unauthenticated:
+    description: 'Missing/expired/wrong-site session: UNAUTHENTICATED.'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+  Forbidden:
+    description: 'Verified firm but denied role or module: FORBIDDEN, BUSINESS_INACTIVE,
+      MODULE_DISABLED, ACCOUNT_TYPE_FORBIDDEN, SUPPORT_GRANT_REQUIRED.'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+  NotFound:
+    description: NOT_FOUND; unknown record or no relationship with the requested firm. Never reveal
+      foreign firm or client details.
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+  Conflict:
+    description: CONFLICT, LAST_OWNER, DUPLICATE_NAME, INVITE_NOT_PENDING, SLOT_UNAVAILABLE,
+      VERSION_CONFLICT, IDEMPOTENCY_CONFLICT. SETUP_INCOMPLETE or SETUP_COMPLETE for setup state.
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+  Unprocessable:
+    description: UNPROCESSABLE; valid structure but invalid timezone, URL, state transition or related record.
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+  RateLimited:
+    description: RATE_LIMITED; retry after policy delay.
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+  InternalError:
+    description: INTERNAL_ERROR; safe message and request id, no provider/SQL details.
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+  Unavailable:
+    description:
+      'SCHEMA_NOT_READY, STORAGE_NOT_READY, ENTITLEMENTS_NOT_READY or INTEGRATION_NOT_READY:
+      required owner-managed dependency is unavailable. Do not retry blindly; no partial mutation is
+      committed.'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
