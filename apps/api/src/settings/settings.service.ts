@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -50,6 +51,18 @@ export class SettingsService {
       update: {},
     });
   }
+  private async manager(tx: TxClient, businessId: string, userId: string) {
+    const firms = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM businesses WHERE id=${businessId}::uuid AND status='ACTIVE' FOR UPDATE`;
+    if (!firms.length) throw notFound();
+    const member = await tx.membership.findFirst({
+      where: { businessId, userId, status: 'ACTIVE' },
+      select: { role: true },
+    });
+    if (!member) throw notFound();
+    if (member.role !== 'OWNER' && member.role !== 'ADMIN')
+      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
+  }
   private async serialize(tx: TxClient, businessId: string) {
     const profile = await tx.business.findUnique({
       where: { id: businessId },
@@ -84,9 +97,9 @@ export class SettingsService {
     return result;
   }
   async update(input: UpdateBusinessSettingsRequest) {
-    const { businessId } = this.context();
+    const { businessId, userId } = this.context();
     const result = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await tx.$queryRaw`SELECT id FROM businesses WHERE id=${businessId}::uuid FOR UPDATE`;
+      await this.manager(tx, businessId, userId);
       const current = await this.row(tx, businessId);
       if (
         input.logoKey !== undefined &&
@@ -143,9 +156,9 @@ export class SettingsService {
     return (await this.get()).setup;
   }
   async saveSetup(input: SaveBusinessSetupRequest) {
-    const { businessId } = this.context();
+    const { businessId, userId } = this.context();
     const result = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await tx.$queryRaw`SELECT id FROM businesses WHERE id=${businessId}::uuid FOR UPDATE`;
+      await this.manager(tx, businessId, userId);
       const settings = await this.row(tx, businessId);
       if (settings.setupCompletedAt)
         throw new ConflictException({
@@ -182,9 +195,9 @@ export class SettingsService {
     };
   }
   async complete() {
-    const { businessId } = this.context();
+    const { businessId, userId } = this.context();
     const result = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await tx.$queryRaw`SELECT id FROM businesses WHERE id=${businessId}::uuid FOR UPDATE`;
+      await this.manager(tx, businessId, userId);
       const row = await this.row(tx, businessId);
       if (!row.setupCompletedAt) {
         const steps = ['branding', 'businessDetails', 'team', 'clientPortal'];
@@ -225,7 +238,7 @@ export class SettingsService {
   async publish(kind: 'TERMS' | 'PRIVACY', bodyMarkdown: string) {
     const { businessId, userId } = this.context();
     const row = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await tx.$queryRaw`SELECT id FROM businesses WHERE id=${businessId}::uuid FOR UPDATE`;
+      await this.manager(tx, businessId, userId);
       const last = await tx.firmLegalDocument.findFirst({
         where: { businessId, kind },
         orderBy: { version: 'desc' },
