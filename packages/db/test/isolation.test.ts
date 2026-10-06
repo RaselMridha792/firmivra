@@ -3,11 +3,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner);
-const unscopedApp = createPrismaClient(urls.app);
-const db = createDatabase(urls.app);
+const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+const unscopedApp = createPrismaClient(urls.app, TEST_CLIENT_OPTIONS);
+const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 const run = randomUUID().slice(0, 8);
 const ids = {
@@ -40,6 +41,9 @@ const ids = {
   leadUploadA: '',
   notificationA: '',
   preferenceA: '',
+  appointmentA: '',
+  threadA: '',
+  messageA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -115,9 +119,22 @@ beforeAll(async () => {
       await tx.legalAcceptance.create({
         data: { businessId: firm, clientAccountId: c.id, legalDocumentId: doc.id },
       });
+      await tx.verificationCode.create({
+        data: {
+          businessId: firm,
+          clientAccountId: c.id,
+          channel: 'EMAIL',
+          target: user.email,
+          codeHash: tokenHash(`code-${firm}`),
+          expiresAt: new Date(Date.now() + 10 * 60_000),
+        },
+      });
       const t = await tx.taxStatus.create({ data: { businessId: firm, name: 'Filed' } });
       const cts = await tx.clientTaxStatus.create({
         data: { businessId: firm, clientId: record.id, taxYear: 2025, taxStatusId: t.id },
+      });
+      await tx.taxReturn.create({
+        data: { businessId: firm, clientId: record.id, taxYear: 2025, filingType: 'INDIVIDUAL' },
       });
       const svc = await tx.service.create({
         data: { businessId: firm, kind: 'ANNUAL_TAX', name: 'Annual Tax', stages: ['New'] },
@@ -206,6 +223,51 @@ beforeAll(async () => {
       const pref = await tx.notificationPreference.create({
         data: { businessId: firm, userId: clientId, category: 'DOCUMENTS' },
       });
+      const apptType = await tx.appointmentType.create({
+        data: { businessId: firm, name: 'Consultation', durationMinutes: 30 },
+      });
+      await tx.workingHours.create({
+        data: {
+          businessId: firm,
+          userId: ownerId,
+          weekday: 1,
+          startsAt: new Date('1970-01-01T09:00:00Z'),
+          endsAt: new Date('1970-01-01T17:00:00Z'),
+        },
+      });
+      await tx.blockedTime.create({
+        data: {
+          businessId: firm,
+          userId: ownerId,
+          startsAt: new Date('2026-12-24T00:00:00Z'),
+          endsAt: new Date('2026-12-26T00:00:00Z'),
+        },
+      });
+      const appt = await tx.appointment.create({
+        data: {
+          ...work,
+          staffUserId: ownerId,
+          typeId: apptType.id,
+          startsAt: new Date('2026-11-02T15:00:00Z'),
+          endsAt: new Date('2026-11-02T15:30:00Z'),
+          locationKind: 'VIDEO',
+        },
+      });
+      const thread = await tx.messageThread.create({
+        data: { ...work, engagementId: eng.id, subject: 'Question' },
+      });
+      const msg = await tx.message.create({
+        data: {
+          businessId: firm,
+          threadId: thread.id,
+          senderUserId: clientId,
+          direction: 'CLIENT_TO_FIRM',
+          body: 'Hello',
+        },
+      });
+      await tx.messageAttachment.create({
+        data: { businessId: firm, messageId: msg.id, documentId: vaultDoc.id },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -236,6 +298,9 @@ beforeAll(async () => {
         ids.leadUploadA = leadUpload.id;
         ids.notificationA = note2.id;
         ids.preferenceA = pref.id;
+        ids.appointmentA = appt.id;
+        ids.threadA = thread.id;
+        ids.messageA = msg.id;
       }
     });
   }
@@ -266,6 +331,8 @@ describe('no scope set', () => {
     expect(await unscopedApp.businessSettings.findMany()).toEqual([]);
     expect(await unscopedApp.firmLegalDocument.findMany()).toEqual([]);
     expect(await unscopedApp.legalAcceptance.findMany()).toEqual([]);
+    expect(await unscopedApp.verificationCode.findMany()).toEqual([]);
+    expect(await unscopedApp.taxReturn.findMany()).toEqual([]);
     expect(await unscopedApp.taxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.invite.findMany()).toEqual([]);
     expect(await unscopedApp.client.findMany()).toEqual([]);
@@ -289,6 +356,15 @@ describe('no scope set', () => {
     expect(await unscopedApp.notification.findMany()).toEqual([]);
     expect(await unscopedApp.notificationDelivery.findMany()).toEqual([]);
     expect(await unscopedApp.notificationPreference.findMany()).toEqual([]);
+    expect(await unscopedApp.appointmentType.findMany()).toEqual([]);
+    expect(await unscopedApp.workingHours.findMany()).toEqual([]);
+    expect(await unscopedApp.blockedTime.findMany()).toEqual([]);
+    expect(await unscopedApp.appointment.findMany()).toEqual([]);
+    expect(await unscopedApp.messageThread.findMany()).toEqual([]);
+    expect(await unscopedApp.message.findMany()).toEqual([]);
+    expect(await unscopedApp.messageAttachment.findMany()).toEqual([]);
+    expect(await unscopedApp.clientPrivateNote.findMany()).toEqual([]);
+    expect(await unscopedApp.clientNoteReminder.findMany()).toEqual([]);
   });
 });
 
@@ -307,6 +383,8 @@ describe('business scope: firm B', () => {
       await b().businessSettings.findMany(),
       await b().firmLegalDocument.findMany(),
       await b().legalAcceptance.findMany(),
+      await b().verificationCode.findMany(),
+      await b().taxReturn.findMany(),
       await b().taxStatus.findMany(),
       await b().invite.findMany(),
       await b().client.findMany(),
@@ -330,6 +408,13 @@ describe('business scope: firm B', () => {
       await b().notification.findMany(),
       await b().notificationDelivery.findMany(),
       await b().notificationPreference.findMany(),
+      await b().appointmentType.findMany(),
+      await b().workingHours.findMany(),
+      await b().blockedTime.findMany(),
+      await b().appointment.findMany(),
+      await b().messageThread.findMany(),
+      await b().message.findMany(),
+      await b().messageAttachment.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -387,6 +472,28 @@ describe('business scope: firm B', () => {
     ).toBe(0);
     expect(
       (await b().notificationPreference.deleteMany({ where: { id: ids.preferenceA } })).count,
+    ).toBe(0);
+    expect(await b().appointment.findUnique({ where: { id: ids.appointmentA } })).toBeNull();
+    expect(await b().messageThread.findUnique({ where: { id: ids.threadA } })).toBeNull();
+    expect(await b().message.findUnique({ where: { id: ids.messageA } })).toBeNull();
+    await expect(
+      b().message.create({
+        data: {
+          businessId: ids.firmB,
+          threadId: ids.threadA,
+          senderUserId: ids.ownerB,
+          direction: 'FIRM_TO_CLIENT',
+          body: 'Planted',
+        },
+      }),
+    ).rejects.toThrow();
+    expect(
+      (
+        await b().appointment.updateMany({
+          where: { id: ids.appointmentA },
+          data: { status: 'CANCELLED', cancelledAt: new Date() },
+        })
+      ).count,
     ).toBe(0);
     expect(
       await b().engagementStatusHistory.findMany({ where: { engagementId: ids.engagementA } }),
@@ -499,6 +606,8 @@ describe('platform scope', () => {
     expect(await p.businessSettings.findMany()).toEqual([]);
     expect(await p.firmLegalDocument.findMany()).toEqual([]);
     expect(await p.legalAcceptance.findMany()).toEqual([]);
+    expect(await p.verificationCode.findMany()).toEqual([]);
+    expect(await p.taxReturn.findMany()).toEqual([]);
     expect(await p.taxStatus.findMany()).toEqual([]);
     expect(await p.invite.findMany()).toEqual([]);
     expect(await p.client.findMany()).toEqual([]);
@@ -521,6 +630,14 @@ describe('platform scope', () => {
     expect(await p.notification.findMany()).toEqual([]);
     expect(await p.notificationDelivery.findMany()).toEqual([]);
     expect(await p.notificationPreference.findMany()).toEqual([]);
+    expect(await p.appointmentType.findMany()).toEqual([]);
+    expect(await p.workingHours.findMany()).toEqual([]);
+    expect(await p.blockedTime.findMany()).toEqual([]);
+    expect(await p.appointment.findMany()).toEqual([]);
+    expect(await p.messageThread.findMany()).toEqual([]);
+    expect(await p.message.findMany()).toEqual([]);
+    expect(await p.clientPrivateNote.findMany()).toEqual([]);
+    expect(await p.clientNoteReminder.findMany()).toEqual([]);
   });
 });
 
