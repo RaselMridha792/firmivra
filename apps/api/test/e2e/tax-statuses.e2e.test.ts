@@ -9,10 +9,16 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
-import { ListTaxStatusesResponse, TaxStatus } from '@firmivra/types';
+import { z } from 'zod';
+import { TaxStatus as RowShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+
+// The contract drops unknown keys; the tests refuse them, so a leaked field (businessId) fails.
+const TaxStatus = z.strictObject(RowShape.shape);
+type TaxStatus = z.infer<typeof TaxStatus>;
+const ListTaxStatusesResponse = z.strictObject({ items: z.array(TaxStatus) });
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -25,13 +31,15 @@ const people = {
   ownerB: person('owner-b'),
   ownerFull: person('owner-full'),
   ownerRace: person('owner-race'),
+  ownerNames: person('owner-names'),
 };
-const firms = {} as Record<'a' | 'b' | 'full' | 'race', { id: string; slug: string }>;
+const firms = {} as Record<'a' | 'b' | 'full' | 'race' | 'names', { id: string; slug: string }>;
 const ownerOf = {
   a: people.ownerA,
   b: people.ownerB,
   full: people.ownerFull,
   race: people.ownerRace,
+  names: people.ownerNames,
 };
 
 let app: INestApplication;
@@ -71,7 +79,7 @@ const list = async (firm: 'a' | 'b' | 'race', query = '') => {
   expect(res.status).toBe(200);
   return ListTaxStatusesResponse.parse(res.body).items;
 };
-const create = async (name: string, firm: 'a' | 'b' | 'full' | 'race' = 'a') =>
+const create = async (name: string, firm: keyof typeof firms = 'a') =>
   call('post', '', ownerOf[firm], firms[firm].id, { name });
 
 beforeAll(async () => {
@@ -83,7 +91,7 @@ beforeAll(async () => {
         data: { id: p.id, cognitoSub: p.id, pool, email: p.email, name: `Fake T04 ${key}` },
       });
     }
-    for (const key of ['a', 'b', 'full', 'race'] as const) {
+    for (const key of ['a', 'b', 'full', 'race', 'names'] as const) {
       const slug = `t04-${key}-${run}`;
       firms[key] = await tx.business.create({
         data: { slug, name: slug, status: 'ACTIVE' },
@@ -98,6 +106,7 @@ beforeAll(async () => {
     [firms.b.id, people.ownerB.id, 'OWNER'],
     [firms.full.id, people.ownerFull.id, 'OWNER'],
     [firms.race.id, people.ownerRace.id, 'OWNER'],
+    [firms.names.id, people.ownerNames.id, 'OWNER'],
   ] as const;
   for (const [businessId, userId, role] of members) {
     await runInScope(owner, { kind: 'business', businessId }, (tx) =>
@@ -154,6 +163,8 @@ describe('who may do what', () => {
     expect([staff.status, staff.body]).toEqual([200, { items: [] }]);
     const staffCreate = await call('post', '', people.staffA, firms.a.id, { name: 'Mine' });
     expect([staffCreate.status, codeOf(staffCreate)]).toEqual([403, 'FORBIDDEN']);
+    const staffBad = await call('post', '', people.staffA, firms.a.id, { name: '' });
+    expect([staffBad.status, codeOf(staffBad)]).toEqual([403, 'FORBIDDEN']);
     expect((await call('get', '', people.clientA, firms.a.id)).status).toBe(403);
     const outsider = await call('get', '', people.ownerB, firms.a.id);
     expect([outsider.status, codeOf(outsider)]).toEqual([404, 'NOT_FOUND']);
@@ -176,6 +187,18 @@ describe('create, rename, reorder, archive', () => {
       const res = await call('post', '', people.ownerA, firms.a.id, body);
       expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
     }
+  });
+
+  it('treats _ % and \\ as ordinary characters; case still makes one name', async () => {
+    for (const name of ['Filed', '100 percent', 'A\\B']) {
+      expect((await create(name, 'names')).status).toBe(201);
+    }
+    // Would be false duplicates under ILIKE: _ and % are patterns there.
+    expect((await create('F_led', 'names')).status).toBe(201);
+    expect((await create('100%', 'names')).status).toBe(201);
+    const slash = await create('a\\b', 'names');
+    expect([slash.status, codeOf(slash)]).toEqual([409, 'DUPLICATE_NAME']);
+    expect((await create('Bad\u0000name', 'names')).status).toBe(400);
   });
 
   it('renames; 404 for an unknown id or another firm’s; 409 for a taken name', async () => {
@@ -207,6 +230,13 @@ describe('create, rename, reorder, archive', () => {
     });
     expect([across.status, codeOf(across)]).toEqual([404, 'NOT_FOUND']);
     expect((await list('b')).map((s) => s.name)).toEqual(['Firm B only']);
+    const archiveTheirs = await call('post', `/${theirs.id}/archive`, people.ownerA, firms.a.id);
+    expect([archiveTheirs.status, codeOf(archiveTheirs)]).toEqual([404, 'NOT_FOUND']);
+    const ours = (await list('a')).map((r) => r.id);
+    const orderTheirs = await call('put', '/order', people.ownerA, firms.a.id, {
+      ids: [...ours, theirs.id],
+    });
+    expect([orderTheirs.status, codeOf(orderTheirs)]).toEqual([404, 'NOT_FOUND']);
   });
 
   it('reorders: every active status once, unknown 404, missing 409, repeated 400', async () => {
@@ -275,6 +305,22 @@ describe('limits and races', () => {
   it('refuses a 501st status, archived ones included', async () => {
     const res = await create('One too many', 'full');
     expect([res.status, codeOf(res)]).toEqual([409, 'CONFIGURATION_LIMIT']);
+  });
+
+  it('long reorders at the same moment all finish', async () => {
+    const res = await call('get', '', ownerOf.full, firms.full.id);
+    const ids = ListTaxStatusesResponse.parse(res.body).items.map((r) => r.id);
+    expect(ids).toHaveLength(499);
+    const results = await Promise.all(
+      [0, 1, 2, 3].map((n) =>
+        call('put', '/order', ownerOf.full, firms.full.id, {
+          ids: n % 2 ? [...ids].reverse() : ids,
+        }),
+      ),
+    );
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    const after = ListTaxStatusesResponse.parse(results[3]?.body).items;
+    expect(after.map((r) => r.sortOrder)).toEqual(ids.map((_, i) => i));
   });
 
   it('statuses added at the same moment get distinct places and never duplicate', async () => {

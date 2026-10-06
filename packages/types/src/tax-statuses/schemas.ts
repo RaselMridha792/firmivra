@@ -9,7 +9,8 @@ export const TaxStatusName = z
   .string()
   .trim()
   .min(1, 'Enter a name')
-  .max(120, 'Use at most 120 characters');
+  .max(120, 'Use at most 120 characters')
+  .regex(/^[^\p{Cc}]*$/u, 'Remove the special characters');
 
 /** A status id in a path: anything else gets 400 VALIDATION_FAILED. */
 export const TaxStatusId = z.uuid();
