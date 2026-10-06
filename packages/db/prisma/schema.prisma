@@ -203,6 +203,24 @@ enum DeliveryStatus {
   SKIPPED
 }
 
+enum AppointmentStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum LocationKind {
+  IN_PERSON
+  PHONE
+  VIDEO
+}
+
+enum MessageDirection {
+  FIRM_TO_CLIENT
+  CLIENT_TO_FIRM
+}
+
 enum LegalDocumentKind {
   TERMS
   PRIVACY
@@ -234,6 +252,7 @@ model Business {
   documentCategories  DocumentCategory[]
   notifications       Notification[]
   notificationPrefs   NotificationPreference[]
+  appointmentTypes    AppointmentType[]
 
   @@map("businesses")
 }
@@ -268,12 +287,15 @@ model Membership {
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business            Business     @relation(fields: [businessId], references: [id])
-  user                User         @relation(fields: [userId], references: [id])
+  business            Business       @relation(fields: [businessId], references: [id])
+  user                User           @relation(fields: [userId], references: [id])
   invites             Invite[]
   assignedClients     Client[]
   assignedEngagements Engagement[]
   assignedTasks       Task[]
+  workingHours        WorkingHours[]
+  blockedTimes        BlockedTime[]
+  appointments        Appointment[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -304,13 +326,17 @@ model ClientAccount {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business         Business          @relation(fields: [businessId], references: [id])
-  user             User              @relation(fields: [userId], references: [id])
-  client           Client?           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  invites          Invite[]
-  legalAcceptances LegalAcceptance[]
+  business          Business            @relation(fields: [businessId], references: [id])
+  user              User                @relation(fields: [userId], references: [id])
+  client            Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  invites           Invite[]
+  privateNotes      ClientPrivateNote[]
+  legalAcceptances  LegalAcceptance[]
+  verificationCodes VerificationCode[]
 
   @@unique([businessId, email])
+  // Target of client-owned rows (private notes).
+  @@unique([businessId, userId])
   @@unique([businessId, id])
   @@index([businessId, status])
   @@index([businessId, clientId])
@@ -408,6 +434,8 @@ model BusinessSettings {
   logoKey             String?   @map("logo_key")
   /// `#rrggbb`, themes the firm's client portal.
   brandColor          String?   @map("brand_color")
+  /// Optional second colour (`#rrggbb`) for the portal; the API uses a default when empty.
+  accentColor         String?   @map("accent_color")
   /// Module keys switched on for this firm (docs/SYSTEM-DESIGN.md, Modules & packs).
   enabledModules      String[]  @default([]) @map("enabled_modules")
   clientSignUpEnabled Boolean   @default(true) @map("client_sign_up_enabled")
@@ -517,6 +545,8 @@ model Client {
   engagements      Engagement[]
   tasks            Task[]
   notes            Note[]
+  appointments     Appointment[]
+  messageThreads   MessageThread[]
 
   @@unique([businessId, id])
   @@index([businessId, displayName])
@@ -667,6 +697,8 @@ model Engagement {
   documentRequests DocumentRequest[]
   intakes          Intake[]
   leads            Lead[]
+  appointments     Appointment[]
+  messageThreads   MessageThread[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -828,12 +860,15 @@ model Document {
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  category   DocumentCategory?  @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
-  request    DocumentRequest?   @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
-  leadUpload LeadUpload?        @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
-  reports    EngagementReport[]
+  engagement         Engagement          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category           DocumentCategory?   @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  request            DocumentRequest?    @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
+  leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  reports            EngagementReport[]
+  messageAttachments MessageAttachment[]
 
+  // Target of message attachments.
+  @@unique([businessId, id])
   // One document per carried-over lead upload.
   @@unique([businessId, leadUploadId])
   // Lets reports require that their document belongs to the same engagement.
@@ -1089,6 +1124,212 @@ model NotificationPreference {
   @@map("notification_preferences")
 }
 
+/// A kind of appointment the firm offers ("Tax consultation", 30 minutes, video). Clients can
+/// book only types marked clientBookable. Archived, not deleted, once used.
+model AppointmentType {
+  id              String       @id @default(uuid(7)) @db.Uuid
+  businessId      String       @map("business_id") @db.Uuid
+  name            String
+  durationMinutes Int          @map("duration_minutes")
+  locationKind    LocationKind @default(VIDEO) @map("location_kind")
+  clientBookable  Boolean      @default(false) @map("client_bookable")
+  sortOrder       Int          @default(0) @map("sort_order")
+  archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  appointments Appointment[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("appointment_types")
+}
+
+/// A staff member's regular working hours: one row per range, several a day allowed (a lunch
+/// break). Times of day in the firm's timezone (business_settings.timezone); weekday 0 = Sunday.
+model WorkingHours {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  weekday    Int
+  startsAt   DateTime @map("starts_at") @db.Time(0)
+  endsAt     DateTime @map("ends_at") @db.Time(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, userId, weekday])
+  @@map("working_hours")
+}
+
+/// Time a staff member is not available (holiday, training), or the whole firm when userId is
+/// null. An appointment cannot overlap it.
+model BlockedTime {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
+  startsAt        DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime @map("ends_at") @db.Timestamptz(3)
+  /// Internal; never shown to clients.
+  reason          String?
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership? @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, userId, startsAt])
+  @@map("blocked_times")
+}
+
+/// One meeting between a staff member and a client; staff and client booking write the same
+/// record. The database blocks double booking (no two overlapping live appointments for the
+/// same staff member, or for the same client) and overlap with blocked time. A reschedule
+/// updates the times in place; the database counts it. Cancelled is final; never deleted.
+model Appointment {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  clientId        String            @map("client_id") @db.Uuid
+  engagementId    String?           @map("engagement_id") @db.Uuid
+  staffUserId     String            @map("staff_user_id") @db.Uuid
+  typeId          String?           @map("type_id") @db.Uuid
+  startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime          @map("ends_at") @db.Timestamptz(3)
+  status          AppointmentStatus @default(SCHEDULED)
+  locationKind    LocationKind      @map("location_kind")
+  /// The address, phone number or video link.
+  locationDetails String?           @map("location_details")
+  bookedByUserId  String?           @map("booked_by_user_id") @db.Uuid
+  /// True when the client booked it in the portal.
+  bookedByClient  Boolean           @default(false) @map("booked_by_client")
+  /// Set by the database when the times change.
+  rescheduledAt   DateTime?         @map("rescheduled_at") @db.Timestamptz(3)
+  rescheduleCount Int               @default(0) @map("reschedule_count")
+  /// Set when the reminder went out; the database clears it on a reschedule, so the new time
+  /// gets its own reminder.
+  reminderSentAt  DateTime?         @map("reminder_sent_at") @db.Timestamptz(3)
+  cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  cancelReason    String?           @map("cancel_reason")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  staff      Membership       @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
+  type       AppointmentType? @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, staffUserId, startsAt])
+  @@index([businessId, clientId, startsAt])
+  @@map("appointments")
+}
+
+/// A subject thread between the firm and one client, optionally about one of that client's
+/// engagements and linked to a related record. Never deleted.
+model MessageThread {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  clientId        String    @map("client_id") @db.Uuid
+  engagementId    String?   @map("engagement_id") @db.Uuid
+  subject         String
+  /// The record the thread is about, e.g. "document_request" and its id.
+  entityType      String?   @map("entity_type")
+  entityId        String?   @map("entity_id") @db.Uuid
+  /// When false, the client can read but not reply.
+  repliesEnabled  Boolean   @default(true) @map("replies_enabled")
+  /// Set by the database when a message is added.
+  lastMessageAt   DateTime? @map("last_message_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  messages   Message[]
+
+  @@unique([businessId, id])
+  @@index([businessId, clientId, lastMessageAt])
+  @@map("message_threads")
+}
+
+/// One message in a thread. The sender is a staff member (FIRM_TO_CLIENT) or a portal login
+/// of the thread's own client (CLIENT_TO_FIRM). readAt is the receiving side's read state
+/// (mark unread clears it). Otherwise never changed and never deleted.
+model Message {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  businessId   String           @map("business_id") @db.Uuid
+  threadId     String           @map("thread_id") @db.Uuid
+  senderUserId String           @map("sender_user_id") @db.Uuid
+  direction    MessageDirection
+  body         String
+  readAt       DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  thread      MessageThread       @relation(fields: [businessId, threadId], references: [businessId, id], onDelete: Restrict)
+  attachments MessageAttachment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, threadId, createdAt])
+  @@map("messages")
+}
+
+/// A file attached to a message: always a document in the vault (scanned, retained), from an
+/// engagement of the thread's client. Insert-only.
+model MessageAttachment {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  messageId  String   @map("message_id") @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message  Message  @relation(fields: [businessId, messageId], references: [businessId, id], onDelete: Restrict)
+  document Document @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, messageId, documentId])
+  @@index([businessId, documentId])
+  @@map("message_attachments")
+}
+
+/// A client's private notepad entry (Messages and Notes). Never shown to the firm: the database
+/// shows it only to its own client login (db.forBusiness(businessId, { actorUserId })). Each
+/// save adds a version; the latest is shown; text never changes and nothing is deleted.
+model ClientPrivateNote {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  /// The client's portal login that owns the note.
+  userId     String   @map("user_id") @db.Uuid
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  owner    ClientAccount       @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+  reminder ClientNoteReminder?
+
+  @@unique([businessId, id])
+  @@index([businessId, userId, createdAt])
+  @@map("client_private_notes")
+}
+
+/// The optional reminder on a client's note, kept apart from the note so the reminder sender
+/// can find due reminders without ever reading note text. Editable; deleting removes it.
+model ClientNoteReminder {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  noteId     String    @map("note_id") @db.Uuid
+  /// The note's owner, so the reminder can be sent without opening the note.
+  userId     String    @map("user_id") @db.Uuid
+  remindAt   DateTime  @map("remind_at") @db.Timestamptz(3)
+  remindedAt DateTime? @map("reminded_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  note ClientPrivateNote @relation(fields: [businessId, noteId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, noteId])
+  @@index([businessId, remindAt])
+  @@map("client_note_reminders")
+}
+
 /// A client's acceptance of one exact version of the firm's Terms or Privacy (portal sign-up
 /// writes one row for each). Insert-only: an acceptance is never changed or deleted. The client
 /// can see their own; the firm sees its clients'.
@@ -1108,4 +1349,35 @@ model LegalAcceptance {
   @@unique([clientAccountId, legalDocumentId])
   @@index([businessId, clientAccountId])
   @@map("legal_acceptances")
+}
+
+/// Where a sign-up verification code was sent.
+enum VerificationChannel {
+  EMAIL
+  PHONE
+}
+
+/// One code sent to a client during portal sign-up (R3), kept on the server so replaying an old
+/// sign-up cookie cannot reset the attempts. Only the code's HMAC is stored. The database sets
+/// `created_at` (its clock, for the resend gap) and keeps `expires_at` within 15 minutes. After
+/// insert only `attempts` (+1 at a time) and `consumed_at` (once, only on the newest unexpired
+/// code for that account and channel) change; a used code is final; nothing is deleted.
+model VerificationCode {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  businessId      String              @map("business_id") @db.Uuid
+  clientAccountId String              @map("client_account_id") @db.Uuid
+  channel         VerificationChannel
+  /// The exact address the code went to: a lower-case email, or an E.164 phone number.
+  target          String
+  /// Hex HMAC-SHA256 of the code with a server key; never the code itself.
+  codeHash        String              @map("code_hash")
+  attempts        Int                 @default(0)
+  expiresAt       DateTime            @map("expires_at") @db.Timestamptz(3)
+  consumedAt      DateTime?           @map("consumed_at") @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  clientAccount ClientAccount @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([clientAccountId, channel, createdAt(sort: Desc)])
+  @@map("verification_codes")
 }

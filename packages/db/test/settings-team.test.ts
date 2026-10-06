@@ -3,10 +3,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import { isDbError } from '../src/errors.js';
+import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner);
-const db = createDatabase(urls.app);
+const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 const run = randomUUID().slice(0, 8);
 const ids = {
@@ -78,12 +80,24 @@ describe('business settings and tax statuses', () => {
     ).resolves.toMatchObject({ timezone: 'America/New_York', clientSignUpEnabled: true });
   });
 
-  it('rejects a brand colour that is not #rrggbb and an upper-case email', async () => {
-    for (const data of [{ brandColor: 'red' }, { contactEmail: 'Hello@A.test' }]) {
+  it('rejects a brand or accent colour that is not #rrggbb and an upper-case email', async () => {
+    for (const data of [
+      { brandColor: 'red' },
+      { accentColor: 'blue' },
+      { accentColor: '#12345' },
+      { contactEmail: 'Hello@A.test' },
+    ]) {
       await expect(
         firmA().businessSettings.update({ where: { businessId: ids.firmA }, data }),
       ).rejects.toThrow(/check constraint/i);
     }
+  });
+
+  it('the accent colour is optional; empty means the default', async () => {
+    const save = (accentColor: string | null) =>
+      firmA().businessSettings.update({ where: { businessId: ids.firmA }, data: { accentColor } });
+    await expect(save('#F2A900')).resolves.toMatchObject({ accentColor: '#F2A900' });
+    await expect(save(null)).resolves.toMatchObject({ accentColor: null });
   });
 
   it('tax status names are unique per firm and not blank', async () => {
@@ -274,5 +288,102 @@ describe('legal acceptances', () => {
     expect((await db.forUser(clientA).legalAcceptance.findMany()).map((x) => x.id)).toEqual([a.id]);
     expect(await db.forUser(clientB).legalAcceptance.findMany()).toEqual([]);
     expect(await db.forBusiness(ids.firmB).legalAcceptance.findMany()).toEqual([]);
+  });
+});
+
+describe('a firm keeps at least one active owner', () => {
+  /** A new firm with the given team; returns the firm id and the membership ids in order. */
+  const newTeam = async (roles: ('OWNER' | 'STAFF')[]) => {
+    let businessId = '';
+    const userIds = roles.map(() => randomUUID());
+    await runInScope(owner, { kind: 'platform' }, async (tx) => {
+      for (const id of userIds) {
+        await tx.user.create({
+          data: { id, cognitoSub: id, pool: 'STAFF', email: `${id}@s.test`, name: 'Fake' },
+        });
+      }
+      businessId = (await tx.business.create({ data: { slug: `so-${randomUUID()}`, name: 'O' } }))
+        .id;
+    });
+    const memberships: string[] = [];
+    for (const [i, role] of roles.entries()) {
+      const m = await db.forBusiness(businessId).membership.create({
+        data: { businessId, userId: userIds[i]!, role, status: 'ACTIVE' },
+      });
+      memberships.push(m.id);
+    }
+    return { businessId, memberships };
+  };
+  const activeOwners = (businessId: string) =>
+    db.forBusiness(businessId).membership.count({ where: { role: 'OWNER', status: 'ACTIVE' } });
+  const lastOwner = (error: unknown) => isDbError(error, 'LAST_ACTIVE_OWNER');
+
+  it('the last active owner cannot be demoted, deactivated or removed (FV001)', async () => {
+    const { businessId, memberships } = await newTeam(['OWNER', 'STAFF']);
+    const [ownerId, staffId] = memberships as [string, string];
+    const firm = db.forBusiness(businessId);
+    for (const data of [{ role: 'ADMIN' as const }, { status: 'DEACTIVATED' as const }]) {
+      const error = await firm.membership
+        .update({ where: { id: ownerId }, data })
+        .catch((e: unknown) => e);
+      expect(lastOwner(error)).toBe(true);
+      expect(String(error)).toMatch(/LAST_ACTIVE_OWNER/);
+    }
+    expect(
+      lastOwner(await firm.membership.delete({ where: { id: ownerId } }).catch((e) => e)),
+    ).toBe(true);
+
+    // Make someone else an active owner first; then the first owner can step down.
+    await firm.membership.update({ where: { id: staffId }, data: { role: 'OWNER' } });
+    await expect(
+      firm.membership.update({ where: { id: ownerId }, data: { role: 'STAFF' } }),
+    ).resolves.toMatchObject({ role: 'STAFF' });
+    expect(await activeOwners(businessId)).toBe(1);
+  });
+
+  it('demoting every owner in one statement is refused', async () => {
+    const { businessId } = await newTeam(['OWNER', 'OWNER']);
+    const error = await db
+      .forBusiness(businessId)
+      .membership.updateMany({ where: { role: 'OWNER' }, data: { role: 'ADMIN' } })
+      .catch((e: unknown) => e);
+    expect(lastOwner(error)).toBe(true);
+    expect(await activeOwners(businessId)).toBe(2);
+  });
+
+  it('two owners demoting each other at the same moment: only the first succeeds', async () => {
+    const { businessId, memberships } = await newTeam(['OWNER', 'OWNER']);
+    const demote = (id: string, holdMs: number) =>
+      db.withScope({ kind: 'business', businessId }, async (tx) => {
+        await tx.membership.update({ where: { id }, data: { role: 'STAFF' } });
+        // Keep the transaction open so the other one starts before this one commits.
+        await new Promise((resolve) => setTimeout(resolve, holdMs));
+      });
+    const first = demote(memberships[0]!, 500);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const second = demote(memberships[1]!, 0);
+    const [a, b] = await Promise.allSettled([first, second]);
+    expect(a.status).toBe('fulfilled');
+    expect(b.status === 'rejected' && lastOwner(b.reason)).toBe(true);
+    expect(await activeOwners(businessId)).toBe(1);
+  });
+
+  it('an invited or deactivated owner does not count, and changes to them are free', async () => {
+    const { businessId, memberships } = await newTeam(['OWNER', 'OWNER']);
+    const firm = db.forBusiness(businessId);
+    await firm.membership.update({
+      where: { id: memberships[1]! },
+      data: { status: 'DEACTIVATED' },
+    });
+    expect(
+      lastOwner(
+        await firm.membership
+          .update({ where: { id: memberships[0]! }, data: { role: 'STAFF' } })
+          .catch((e: unknown) => e),
+      ),
+    ).toBe(true);
+    await expect(
+      firm.membership.update({ where: { id: memberships[1]! }, data: { role: 'STAFF' } }),
+    ).resolves.toMatchObject({ role: 'STAFF', status: 'DEACTIVATED' });
   });
 });

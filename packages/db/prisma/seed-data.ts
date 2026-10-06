@@ -200,3 +200,42 @@ export const SEED_NOTIFICATION_IDS = {
   staffLead: '00000000-0000-4000-9000-000000000011',
   staffLeadEmail: '00000000-0000-4000-9000-000000000012',
 } as const;
+
+/** Each firm's appointment types, in display order. */
+export const SEED_APPOINTMENT_TYPES = {
+  lvp: [
+    { name: 'Tax consultation', durationMinutes: 30, locationKind: 'VIDEO', clientBookable: true },
+    {
+      name: 'Document drop-off',
+      durationMinutes: 15,
+      locationKind: 'IN_PERSON',
+      clientBookable: true,
+    },
+    {
+      name: 'Bookkeeping review',
+      durationMinutes: 60,
+      locationKind: 'VIDEO',
+      clientBookable: false,
+    },
+  ],
+  testFirmB: [
+    { name: 'Consultation', durationMinutes: 30, locationKind: 'PHONE', clientBookable: true },
+  ],
+} as const;
+
+/** Fixed ids of the seeded appointment and firm closure, so re-seeding keeps one of each. */
+export const SEED_CALENDAR_IDS = {
+  appointment: '00000000-0000-4000-8000-000000000001',
+  thanksgiving: '00000000-0000-4000-8000-000000000002',
+} as const;
+
+/** Fixed ids of seeded message threads, messages and the client's note, for re-seeding. */
+export const SEED_MESSAGE_IDS = {
+  w2Thread: '00000000-0000-4000-7000-000000000001',
+  w2Question: '00000000-0000-4000-7000-000000000002',
+  w2Answer: '00000000-0000-4000-7000-000000000003',
+  welcomeThread: '00000000-0000-4000-7000-000000000011',
+  welcomeMessage: '00000000-0000-4000-7000-000000000012',
+  clientNote: '00000000-0000-4000-7000-000000000021',
+  clientNoteReminder: '00000000-0000-4000-7000-000000000022',
+} as const;
