@@ -14,11 +14,20 @@ const apiPort = process.env['API_PORT'] ?? '4000';
 export default defineConfig({
   testDir: 'e2e',
   fullyParallel: false,
+  workers: 2,
+  expect: { timeout: 10_000 },
   retries: process.env['CI'] ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { trace: 'retain-on-failure' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
+    {
+      command: 'pnpm --filter @firmivra/ui storybook',
+      url: 'http://localhost:6006',
+      cwd: '../..',
+      reuseExistingServer: !process.env['CI'],
+      timeout: 180_000,
+    },
     {
       command: 'pnpm --filter @firmivra/api dev',
       url: `http://localhost:${apiPort}/api/v1/health`,

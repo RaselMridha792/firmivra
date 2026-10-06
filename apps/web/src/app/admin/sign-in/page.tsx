@@ -1,5 +1,10 @@
-import { SignInPanel } from '../../../components/sign-in-panel';
+import { StaffAccess } from '../../../components/staff-access';
 
-export default function AdminSignIn() {
-  return <SignInPanel title="Super Admin console" pool="ADMIN" homePath="/" />;
+export default async function AdminSignIn({
+  searchParams,
+}: {
+  searchParams: Promise<{ dev?: string }>;
+}) {
+  const query = await searchParams;
+  return <StaffAccess site="admin" devTools={query.dev === '1'} />;
 }

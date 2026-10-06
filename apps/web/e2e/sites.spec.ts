@@ -5,19 +5,21 @@ const site = (host: 'admin' | 'app' | 'portal', path = '/') =>
   `http://${host}.localhost:${port}${path}`;
 
 async function signInAs(page: Page, url: string, email: string) {
-  await page.goto(url);
+  await page.goto(url + '?dev=1');
   await page.getByRole('button', { name: new RegExp(email.replace('.', '\\.')) }).click();
 }
 
 test.describe('each site loads on its own host', () => {
   test('Super Admin sign-in', async ({ page }) => {
     await page.goto(site('admin', '/sign-in'));
-    await expect(page.getByRole('heading', { name: 'Super Admin console' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Welcome Back', exact: true })).toBeVisible();
+    await expect(page.getByText('SUPER ADMIN PORTAL', { exact: true }).first()).toBeVisible();
   });
 
   test('firm workspace sign-in', async ({ page }) => {
     await page.goto(site('app', '/sign-in'));
-    await expect(page.getByRole('heading', { name: 'Firm workspace' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Welcome Back', exact: true })).toBeVisible();
+    await expect(page.getByText('FIRM WORKSPACE', { exact: true }).first()).toBeVisible();
   });
 
   test('client portal sign-in for LVP', async ({ page }) => {

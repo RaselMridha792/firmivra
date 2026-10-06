@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
   turbopack: { root: repoRoot },
   transpilePackages: ['@firmivra/ui'],
   poweredByHeader: false,
+  devIndicators: false,
   rewrites: async () =>
     apiBase ? [{ source: '/api/v1/:path*', destination: `${apiBase}/api/v1/:path*` }] : [],
 };

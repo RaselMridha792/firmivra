@@ -1,5 +1,10 @@
-import { SignInPanel } from '../../../components/sign-in-panel';
+import { StaffAccess } from '../../../components/staff-access';
 
-export default function FirmSignIn() {
-  return <SignInPanel title="Firm workspace" pool="STAFF" homePath="/" />;
+export default async function FirmSignIn({
+  searchParams,
+}: {
+  searchParams: Promise<{ dev?: string }>;
+}) {
+  const query = await searchParams;
+  return <StaffAccess site="firm" devTools={query.dev === '1'} />;
 }
