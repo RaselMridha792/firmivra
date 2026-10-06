@@ -85,13 +85,6 @@ const REFRESH_ERRORS: Record<string, AuthFlowErrorCode> = {
   NotAuthorizedException: 'SESSION_EXPIRED',
   UserNotFoundException: 'SESSION_EXPIRED',
 };
-const RESET_ERRORS: Record<string, AuthFlowErrorCode> = {
-  CodeMismatchException: 'RESET_CODE_INVALID',
-  ExpiredCodeException: 'RESET_CODE_INVALID',
-  UserNotFoundException: 'RESET_CODE_INVALID',
-  NotAuthorizedException: 'RESET_CODE_INVALID',
-  InvalidPasswordException: 'PASSWORD_REJECTED',
-};
 
 const errorName = (e: unknown) => (e instanceof Error ? e.name : 'unknown error');
 
@@ -286,7 +279,13 @@ export class CognitoIdentityProvider implements IdentityProvider {
           SecretHash: secretHash(p, username),
         }),
       )
-      .catch((e: unknown) => fail(e, RESET_ERRORS));
+      .catch((e: unknown) => {
+        // Every failure answers the same: Cognito's per-user attempt limit and other errors only
+        // a real account can hit would otherwise tell real emails apart. The API keeps its own
+        // per-email limit, the same for every email (SignInService.resetPassword).
+        this.logger.warn(`Password reset refused: ${errorName(e)}`);
+        throw new AuthFlowError('RESET_CODE_INVALID');
+      });
     // docs/AUTH-DESIGN.md: a password reset ends every session.
     await this.signOutEverywhere(pool, username);
   }

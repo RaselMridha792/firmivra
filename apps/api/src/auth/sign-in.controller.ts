@@ -98,11 +98,14 @@ abstract class SignInRoutes {
   @Public()
   @HttpCode(200)
   async signOut(
-    @Body(new ZodValidationPipe(SignOutRequest.optional())) body: SignOutRequest | undefined,
+    @Body() body: unknown,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<OkResponse> {
-    await this.sessions.end(req, res, this.site, body?.everywhere === true);
+    // Sign-out always succeeds; a body it cannot read only means "not everywhere".
+    const parsed = SignOutRequest.optional().safeParse(body);
+    const everywhere = parsed.success && parsed.data?.everywhere === true;
+    await this.sessions.end(req, res, this.site, everywhere);
     return { ok: true };
   }
 

@@ -27,6 +27,12 @@ export function deriveKey(secret: string, pool: IdentityPool, label: string): Ui
   return new Uint8Array(hkdfSync('sha256', secret, pool, label, 32));
 }
 
+/** An opened value and when it expires (Unix seconds). */
+export interface Opened<T> {
+  value: T;
+  expiresAt: number;
+}
+
 /**
  * Values the browser holds but can neither read nor change: JWE (dir + A256GCM) with an expiry,
  * bound to one pool, so a value from one site never opens on another.
@@ -45,23 +51,29 @@ export class Sealer<T extends { pool: IdentityPool }> {
     }
   }
 
-  async seal(value: T, ttlSeconds: number): Promise<string> {
+  seal(value: T, ttlSeconds: number): Promise<string> {
+    return this.sealUntil(value, Math.floor(Date.now() / 1000) + ttlSeconds);
+  }
+
+  /** Seals with a fixed expiry, for example to keep a session's original end. */
+  async sealUntil(value: T, expiresAt: number): Promise<string> {
     return new EncryptJWT({ ...value })
       .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
       .setIssuedAt()
-      .setExpirationTime(`${ttlSeconds}s`)
+      .setExpirationTime(expiresAt)
       .encrypt(this.key(value.pool));
   }
 
   /** The value, or undefined when it is expired, tampered with or from another pool. */
-  async open(token: string, pool: IdentityPool): Promise<T | undefined> {
+  async open(token: string, pool: IdentityPool): Promise<Opened<T> | undefined> {
     try {
       const { payload } = await jwtDecrypt(token, this.key(pool), {
         keyManagementAlgorithms: ['dir'],
         contentEncryptionAlgorithms: ['A256GCM'],
       });
       const value = this.schema.safeParse(payload);
-      return value.success && value.data.pool === pool ? value.data : undefined;
+      if (!value.success || value.data.pool !== pool || payload.exp === undefined) return undefined;
+      return { value: value.data, expiresAt: payload.exp };
     } catch {
       return undefined;
     }

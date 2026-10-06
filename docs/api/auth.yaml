@@ -55,8 +55,27 @@ info:
     as `application/json` (else `415 UNSUPPORTED_MEDIA_TYPE`), and a browser request must come
     from the route's own site: `Origin` is the admin site's origin for `/api/v1/admin/*` and the
     app or portal site's origin for the rest (else `403 ORIGIN_NOT_ALLOWED`). Without `Origin`,
-    only `Sec-Fetch-Site: same-origin` passes. The API sends no CORS headers: each site calls
-    it on its own host.
+    only `Sec-Fetch-Site: same-origin` passes. A change with neither header but with a session
+    cookie (server code relaying the user's session) is refused too. The API sends no CORS
+    headers: each site calls it on its own host.
+
+    ## Calling the API from the web app
+
+    - **Changes (POST, PUT, PATCH, DELETE) go from the browser only**, to `/api/v1/...` on the
+      page's own host, with the shared clients (`api`, `staffAuth`, `adminAuth` in
+      `apps/web/src/lib`). They send JSON with `credentials: 'include'`; the browser adds
+      `Origin` and the HttpOnly cookies. Call them from client components. No HTML forms to
+      `/api/v1` (415), no calls to another site's host (403; there is no CORS).
+    - **Server-side code** (server components, route handlers, server actions, `proxy.ts`)
+      **only reads**: a GET to the API with the incoming `cookie` header forwarded, for example
+      `/me` before rendering. It never sends a change with the user's cookie: Node's `fetch`
+      sends no `Origin`, so the API answers `403 ORIGIN_NOT_ALLOWED`. Hand the change back to a
+      client component instead.
+    - **Refresh runs in the browser**: when a call answers 401, call `refresh` once and retry.
+      The refresh cookie is `SameSite=Strict` and only goes to the `auth` paths, so server code
+      never has it. A server-side GET that answers 401 renders the signed-out state.
+    - Locally, `APP_BASE_URL`, `PORTAL_BASE_URL` and `ADMIN_BASE_URL` in `.env` must match the
+      address in the browser, port included, or every change answers 403.
 
     ## Password policy
 
@@ -284,7 +303,11 @@ components:
       post:
         tags: [session]
         summary: Renew the access cookie from the refresh cookie
-        description: No body. Call it when a request answers 401 `UNAUTHENTICATED`, then retry once.
+        description: |
+          No body. Call it when a request answers 401 `UNAUTHENTICATED`, then retry once. The
+          person must still be allowed to sign in (user still there; on the Super Admin site,
+          still a Super Admin); if not, the refresh token is revoked and the cookies cleared (401).
+          Refreshing never makes a session longer than 7 days (firm) or 1 day (Super Admin).
         responses:
           '200': { $ref: '#/components/responses/Ok' }
           '401': { $ref: '#/components/responses/Unauthenticated' }
@@ -294,9 +317,10 @@ components:
         tags: [session]
         summary: Sign out
         description: |
-          Always succeeds and clears this site's cookies, even when already signed out. Revokes
-          the refresh token. With `everywhere: true` and a valid session, also ends the person's
-          sessions on every other device.
+          Always succeeds and clears this site's cookies, even when already signed out or when
+          the body cannot be read (then it is not `everywhere`). Revokes the refresh token. With
+          `everywhere: true` and a valid session, also ends the person's sessions on every other
+          device.
         requestBody:
           required: false
           content: { application/json: { schema: { $ref: '#/components/schemas/SignOutRequest' } } }
@@ -321,7 +345,11 @@ components:
       post:
         tags: [sign-in]
         summary: Set a new password with the emailed code
-        description: Ends every session of the person. They sign in again with the new password.
+        description: |
+          Ends every session of the person. They sign in again with the new password. Real and
+          unknown emails get the same answers: any failure is `RESET_CODE_INVALID`, and after 5
+          failures for an email within 15 minutes every attempt for it answers `429 RATE_LIMITED`
+          until the window passes.
         requestBody:
           required: true
           content:
@@ -330,9 +358,9 @@ components:
           '200': { $ref: '#/components/responses/Ok' }
           '400':
             description: |
-              `VALIDATION_FAILED` (policy, in `details`), `PASSWORD_REJECTED` (Cognito refused it,
-              for example a known leaked password) or `RESET_CODE_INVALID` (wrong or expired code,
-              also for unknown emails).
+              `VALIDATION_FAILED` (policy, in `details`) or `RESET_CODE_INVALID`: wrong or expired
+              code, an unknown email, or a password Cognito refuses (for example a known leaked
+              one). Show "That code is not right or has expired, or choose another password." 
             content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
           '429': { $ref: '#/components/responses/RateLimited' }
 
@@ -560,7 +588,8 @@ components:
             required: [business, status]
             properties:
               business: { $ref: '#/components/schemas/BusinessSummary' }
-              status: { type: string, enum: [PENDING_APPROVAL, ACTIVE, DECLINED, DISABLED] }
+              status:
+                { type: string, enum: [INVITED, PENDING_APPROVAL, ACTIVE, DECLINED, DISABLED] }
         platformAdmin: { type: boolean }
 
     DevTokenRequest:

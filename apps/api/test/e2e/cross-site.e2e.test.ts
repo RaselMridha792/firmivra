@@ -178,3 +178,37 @@ describe('Super Admin site, whatever the letter case', () => {
     expect(codeOf(res)).toBe('ORIGIN_NOT_ALLOWED');
   });
 });
+
+describe('server-side code never relays a session (#23 review)', () => {
+  it("refuses a change that carries the user's cookie but no Origin or Sec-Fetch-Site", async () => {
+    // What a Next.js route handler or server action would send: Node's fetch adds neither header.
+    for (const cookie of ['fv_access=x', 'fv_refresh=x', 'fv_admin_access=x']) {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/sign-out')
+        .set('cookie', cookie)
+        .send({});
+      expect([cookie, res.status, codeOf(res)]).toEqual([cookie, 403, 'ORIGIN_NOT_ALLOWED']);
+    }
+  });
+
+  it('lets the same change through from the browser, and cookie-less calls without Origin', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-out')
+      .set('cookie', 'fv_access=x')
+      .set('origin', site.app)
+      .send({})
+      .expect(200);
+    // No session cookie (tests, curl, Bearer tokens): not a relay, nothing to forge.
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-out')
+      .set('authorization', 'Bearer x')
+      .send({})
+      .expect(200);
+    // Unrelated cookies do not count as a session.
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-out')
+      .set('cookie', 'theme=dark')
+      .send({})
+      .expect(200);
+  });
+});

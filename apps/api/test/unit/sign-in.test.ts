@@ -1,5 +1,6 @@
 // Unit tests for R2 sign-in: Cognito calls (fake SDK client), challenge sessions, per-site cookies.
 import { createHmac, hkdfSync } from 'node:crypto';
+import type { Response as ExpressResponse } from 'express';
 import { type ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,7 +20,11 @@ import {
 } from '../../src/auth/identity/cognito-identity.provider.js';
 import { AuthFlowError } from '../../src/auth/identity/identity-provider.js';
 import { deriveKey } from '../../src/auth/sealed.js';
-import { REFRESH_KEY_LABEL, RefreshEnvelopes } from '../../src/auth/session.service.js';
+import {
+  REFRESH_KEY_LABEL,
+  RefreshEnvelopes,
+  SessionService,
+} from '../../src/auth/session.service.js';
 import { AdminSignInController, StaffSignInController } from '../../src/auth/sign-in.controller.js';
 import { otpauthUri } from '../../src/auth/sign-in.service.js';
 import { siteOf } from '../../src/auth/site.js';
@@ -439,19 +444,25 @@ describe('CognitoIdentityProvider: sessions and password reset', () => {
     });
   });
 
+  // Cognito's attempt limits and unexpected errors only ever hit real accounts: answering them
+  // differently would tell real emails apart, so every reset failure is RESET_CODE_INVALID.
   it.each([
-    ['CodeMismatchException', 'RESET_CODE_INVALID'],
-    ['ExpiredCodeException', 'RESET_CODE_INVALID'],
-    ['InvalidPasswordException', 'PASSWORD_REJECTED'],
-    ['LimitExceededException', 'RATE_LIMITED'],
-  ])('maps a reset failure %s to %s and keeps the sessions', async (name, code) => {
+    'CodeMismatchException',
+    'ExpiredCodeException',
+    'InvalidPasswordException',
+    'LimitExceededException',
+    'TooManyFailedAttemptsException',
+    'InternalErrorException',
+  ])('answers a reset failure %s with RESET_CODE_INVALID and keeps the sessions', async (name) => {
     const { provider, sent } = fakeCognito({
       AdminGetUser: knownUser,
       ConfirmForgotPassword: () => {
         throw awsError(name);
       },
     });
-    expect(await flowError(provider.resetPassword('STAFF', 'sub-1', '1', 'p'))).toBe(code);
+    expect(await flowError(provider.resetPassword('STAFF', 'sub-1', '1', 'p'))).toBe(
+      'RESET_CODE_INVALID',
+    );
     expect(sent.map((s) => s.command)).not.toContain('AdminUserGlobalSignOut');
   });
 });
@@ -476,7 +487,13 @@ describe('RefreshEnvelopes', () => {
   it('fits in one cookie with room for its attributes', async () => {
     const sealed = await envelopes.seal(envelope, 30 * 24 * 60 * 60);
     expect(sealed.length).toBeLessThan(3800);
-    await expect(envelopes.open(sealed, 'STAFF')).resolves.toEqual(envelope);
+    await expect(envelopes.open(sealed, 'STAFF')).resolves.toMatchObject({ value: envelope });
+  });
+
+  it('can keep a fixed end, so a rotated token never lengthens the session', async () => {
+    const end = Math.floor(Date.now() / 1000) + 3600;
+    const opened = await envelopes.open(await envelopes.sealUntil(envelope, end), 'STAFF');
+    expect(opened?.expiresAt).toBe(end);
   });
 
   it('never opens on the other site', async () => {
@@ -530,5 +547,77 @@ describe('siteOf (#16 fix)', () => {
     for (const path of ['/api/v1/me', '/api/v1/administrators', '/api/v1/auth/sign-in']) {
       expect([path, siteOf({ path })]).toEqual([path, 'firm']);
     }
+  });
+});
+
+describe('SessionService.refresh (#23 review)', () => {
+  const env = loadEnv({
+    NODE_ENV: 'test',
+    AUTH_MODE: 'local',
+    LOCAL_AUTH_SECRET: 'unit-test-secret-unit-test-secret-1234',
+    DATABASE_URL_APP: 'postgresql://unused',
+    APP_BASE_URL: 'http://app.localhost:3000',
+    PORTAL_BASE_URL: 'http://portal.localhost:3000',
+    ADMIN_BASE_URL: 'http://admin.localhost:3000',
+  });
+  const envelopes = new RefreshEnvelopes({
+    STAFF: env.LOCAL_AUTH_SECRET,
+    ADMIN: env.LOCAL_AUTH_SECRET,
+  });
+  const envelope = {
+    userId: 'u1',
+    username: 'cognito-user-1',
+    refreshToken: 'ref-1',
+    pool: 'STAFF' as const,
+  };
+
+  function setup(user: { pool: string } | null, rotated?: string) {
+    const identity = {
+      refresh: vi
+        .fn()
+        .mockResolvedValue({ accessToken: 'acc2', refreshToken: rotated, expiresIn: 900 }),
+      revoke: vi.fn().mockResolvedValue(undefined),
+    };
+    const db = {
+      forPlatform: () => ({
+        user: { findUnique: vi.fn().mockResolvedValue(user) },
+        platformAdmin: { findUnique: vi.fn().mockResolvedValue(null) },
+      }),
+    } as unknown as Database;
+    const cookies: Record<string, { value: string; maxAge?: number }> = {};
+    const res = {
+      cookie: (name: string, value: string, opts: { maxAge?: number }) => {
+        cookies[name] = { value, maxAge: opts.maxAge };
+      },
+      clearCookie: (name: string) => {
+        cookies[name] = { value: '' };
+      },
+    } as unknown as ExpressResponse;
+    const service = new SessionService(identity as never, envelopes, db, env);
+    return { service, identity, cookies, res };
+  }
+
+  it('keeps the original end when Cognito rotates the refresh token', async () => {
+    const end = Math.floor(Date.now() / 1000) + 3600;
+    const { service, cookies, res } = setup({ pool: 'STAFF' }, 'ref-2');
+    const req = { cookies: { fv_refresh: await envelopes.sealUntil(envelope, end) } };
+    await service.refresh(req as never, res, 'firm');
+
+    const maxAge = cookies['fv_refresh']?.maxAge ?? 0;
+    expect(maxAge).toBeLessThanOrEqual(3600 * 1000);
+    expect(maxAge).toBeGreaterThan(3590 * 1000); // not a fresh 7 days
+    const reopened = await envelopes.open(cookies['fv_refresh']?.value ?? '', 'STAFF');
+    expect(reopened).toEqual({ value: { ...envelope, refreshToken: 'ref-2' }, expiresAt: end });
+  });
+
+  it('revokes the token and clears the cookies when the user is gone', async () => {
+    const { service, identity, cookies, res } = setup(null);
+    const req = { cookies: { fv_refresh: await envelopes.seal(envelope, 3600) } };
+    await expect(service.refresh(req as never, res, 'firm')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(identity.revoke).toHaveBeenCalledWith('STAFF', 'ref-1');
+    expect(identity.refresh).not.toHaveBeenCalled();
+    expect(cookies['fv_refresh']).toEqual({ value: '' });
   });
 });
