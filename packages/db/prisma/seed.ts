@@ -319,6 +319,26 @@ async function main() {
         },
       });
     }
+    // ...and verified their email with a code (only its HMAC is stored; this one is fake).
+    const sentCode = await tx.verificationCode.findFirst({
+      where: { clientAccountId: lvpLogin.id, channel: 'EMAIL' },
+    });
+    if (!sentCode) {
+      const code = await tx.verificationCode.create({
+        data: {
+          businessId: businesses.lvp,
+          clientAccountId: lvpLogin.id,
+          channel: 'EMAIL',
+          target: lvpLogin.email,
+          codeHash: createHash('sha256').update('seed-verification-code').digest('hex'),
+          expiresAt: new Date(Date.now() + 10 * 60_000),
+        },
+      });
+      await tx.verificationCode.update({
+        where: { id: code.id },
+        data: { attempts: 1, consumedAt: new Date() },
+      });
+    }
     const inPreparation = await tx.taxStatus.findUniqueOrThrow({
       where: { businessId_name: { businessId: businesses.lvp, name: 'In preparation' } },
     });
