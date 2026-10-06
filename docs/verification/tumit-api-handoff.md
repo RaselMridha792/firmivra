@@ -1,58 +1,16 @@
 # Tumit API handoff
 
-All assigned API code is on separate ticket branches based on main a0bee59. Authentication,
-approval actions, DB migrations, infra, storage, senders and payments remain Rasel-owned.
-The frontend is unchanged. Frontend DTO agreement, Ibrahim pre-review and Rasel merge are pending.
+T02 settings (9 HTTP operations), T03 team (4), T04 tax statuses (5), T05 applications (3), T06 notifications (10), T07 appointments (26) and T08 audit/resources (6) are on separate tumit/FIR-T02 through FIR-T08 ticket branches. T01 contains the missing-field request and OpenAPI; T09 contains verification and read-only smoke tools. All branches start from main a0bee59.
 
-| Ticket | Branch                             | Implemented HTTP operations                                               |
-| ------ | ---------------------------------- | ------------------------------------------------------------------------- |
-| T02    | tumit/FIR-T02-business-settings    | 9: profile, settings, setup, firm legal versions and portal projection    |
-| T03    | tumit/FIR-T03-team-api             | 4: list, role, deactivate, invite resend delegation                       |
-| T04    | tumit/FIR-T04-tax-statuses         | 5: list, create, rename, order, archive                                   |
-| T05    | tumit/FIR-T05-application-data     | 3: platform list, safe detail, history                                    |
-| T06    | tumit/FIR-T06-notification-center  | 10: current-user center/preferences, plus internal creation               |
-| T07    | tumit/FIR-T07-appointments         | 26: types, hours, blocks, providers, slots, canonical booking/history     |
-| T08    | tumit/FIR-T08-audit-external-links | 6: firm/support audit viewer, resource configuration and portal directory |
-| T09    | tumit/FIR-T09-verification         | Verification and read-only deployment smoke tooling                       |
+Rasel handoffs: R0/R4 migrations with tenant RLS, same-firm FKs and booking exclusion; R2/R3 settings assets/invite resend; R6 notification policy/enqueue and appointment delivery/scheduler; approved support access and resource icon storage. Document/invoice/engagement owners provide notification target permissions. Default adapters deny unresolved operations; test draft tables are not migrations. See each module's implementation note and [verification evidence](tumit-api-verification-2026-10-06.md).
 
-Each feature branch includes shared Zod contracts, a standalone OpenAPI section, unit/endpoint
-tests, firm isolation cases and an implementation note describing actual dependencies. Isolated
-draft table fixtures are not migrations and reject execution outside the API test database.
+Feature branches need PRs below 400 changed lines as dependencies merge onto main. Ibrahim pre-review, frontend DTO agreement and Rasel merge remain pending; only Rasel merges. No issue submission, reviewer approval or Team Board Done is claimed without the actual action.
 
-Owner-managed handoffs:
+After the routes are deployed, run node scripts/api-smoke.mjs for anonymous protection/DB health, or node scripts/api-authenticated-smoke.mjs for signed-in checks. Configure:
 
-- R0/R4: portal content fields, application status history, notifications/preferences, appointment
-  tables with forced RLS/same-firm FKs/exclusion invariant, durable reminder leases and external links.
-  The latest field request is on tumit/FIR-T01-field-lists-openapi.
-- R2/R3: SettingsAssets and InviteResender adapters; no auth/token/email implementation is duplicated.
-- R6: NotificationDelivery.policy/enqueue, AppointmentNotifier.enqueue, consent, mandatory categories,
-  durable idempotent delivery, and scheduler registration of AppointmentJobs.runDue(trustedBusinessId).
-- Support/storage: ApprovedSupportAccess.withFirm supplies a currently approved scoped transaction;
-  ExternalLinkIcons checks own assets and resolves safe signed URLs. Default unresolved access is denied.
-- Module owners: ScopedNotificationTargets implements actual appointment/resource permissions;
-  document/invoice/engagement owners still supply their adapters. Unresolved targets are hidden.
-  initializeDirectory can be wired to verified firm setup/activation.
+- API_BASE_URL: deployment base ending /api/v1; HTTPS except localhost.
+- FIRM_SLUG: configured firm slug, default lvp.
+- SMOKE_FIRM_ID, SMOKE_OTHER_FIRM_ID: distinct firm UUIDs; the owner belongs only to the first.
+- SMOKE_OWNER_TOKEN, SMOKE_CLIENT_TOKEN: approved synthetic Owner and BUSINESS-client identities for the first firm, supplied securely in environment variables.
 
-Combined verification on Oct 6 passed: 133 API tests, 35 shared-types tests, 73 DB tests,
-30 infra tests and 2 smoke-tool tests. Workspace build, typecheck and lint passed; all 63
-OpenAPI operations validate and are registered in the synthetic local preview. See
-[verification evidence](tumit-api-verification-2026-10-06.md) for source revisions and limits.
-
-These branches exceed the 400-line PR limit if submitted as complete modules. Do not open oversized
-combined PRs or merge/push main. Review/split shared DTOs, logic, controllers and tests as small PRs
-from fresh main as dependencies merge; split the long scheduling service and OpenAPI paths for review.
-Only Rasel merges. No frontend agreement, issue submission, PR/pre-review or Team Board Done status
-is claimed without the actual action/review.
-
-Deployment smoke (after feature routes are merged/deployed):
-
-```powershell
-$env:API_BASE_URL = '<deployment API base ending /api/v1>'
-$env:FIRM_SLUG = '<configured firm slug>'
-node scripts/api-smoke.mjs
-```
-
-This checks DB health plus anonymous denial on registered feature GET routes. It sends no credentials
-or mutation requests and prints no response bodies. Missing routes fail instead of passing as denial.
-Authenticated production workflows need Rasel's approved deployment and test identities; local tests
-and a prepared smoke script are not a production deployment or a production smoke pass.
+The signed-in tool verifies identities, firm/portal reads and role/tenant denials using GET only. It rejects unsafe configuration, follows no redirects and outputs only path/status. Missing routes or a 503 dependency fail readiness. Never commit tokens, create production users through dev endpoints or count a synthetic local run as production verification.
