@@ -119,6 +119,34 @@ enum ReportStatus {
   PUBLISHED
 }
 
+enum DocumentDirection {
+  /// Uploaded by the client or a portal member.
+  CLIENT_TO_FIRM
+  /// Shared by the firm with the client.
+  FIRM_TO_CLIENT
+  /// Firm only: never shown to the client.
+  INTERNAL
+}
+
+/// Malware scan of an upload. Only CLEAN files can be downloaded.
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  FAILED
+}
+
+enum DocumentRequestStatus {
+  REQUESTED
+  SUBMITTED
+  ACCEPTED
+  /// The firm marked the upload missing; the client is asked again.
+  REJECTED
+  /// The client said "I don't have this" (reason in statusNote).
+  NOT_AVAILABLE
+  CANCELLED
+}
+
 enum LegalDocumentKind {
   TERMS
   PRIVACY
@@ -147,6 +175,7 @@ model Business {
   invites             Invite[]
   clients             Client[]
   services            Service[]
+  documentCategories  DocumentCategory[]
 
   @@map("businesses")
 }
@@ -559,13 +588,15 @@ model Engagement {
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client         Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service        Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  statusHistory  EngagementStatusHistory[]
-  tasks          Task[]
-  notes          Note[]
-  reports        EngagementReport[]
+  client           Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service          Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember   Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory    EngagementStatusHistory[]
+  tasks            Task[]
+  notes            Note[]
+  reports          EngagementReport[]
+  documents        Document[]
+  documentRequests DocumentRequest[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -640,25 +671,129 @@ model Note {
 }
 
 /// A service workspace report: bookkeeping report or reconciliation, tax planning estimate or
-/// projection. Figures go in `data`. The client sees it once PUBLISHED; only drafts can be
-/// deleted. Step 5 links an attached file.
+/// projection. Figures go in `data`; documentId is the attached file, from the same engagement.
+/// The client sees it while PUBLISHED. It can be unpublished, but a report that was ever
+/// published (firstPublishedAt set) is never deleted.
 model EngagementReport {
-  id              String       @id @default(uuid(7)) @db.Uuid
-  businessId      String       @map("business_id") @db.Uuid
-  engagementId    String       @map("engagement_id") @db.Uuid
-  kind            ReportKind
-  title           String
+  id               String       @id @default(uuid(7)) @db.Uuid
+  businessId       String       @map("business_id") @db.Uuid
+  engagementId     String       @map("engagement_id") @db.Uuid
+  documentId       String?      @map("document_id") @db.Uuid
+  kind             ReportKind
+  title            String
   /// e.g. "March 2026", "Q1 2026", "2026 plan".
-  periodLabel     String?      @map("period_label")
-  status          ReportStatus @default(DRAFT)
-  data            Json         @default("{}")
-  publishedAt     DateTime?    @map("published_at") @db.Timestamptz(3)
-  createdByUserId String?      @map("created_by_user_id") @db.Uuid
-  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  periodLabel      String?      @map("period_label")
+  status           ReportStatus @default(DRAFT)
+  data             Json         @default("{}")
+  publishedAt      DateTime?    @map("published_at") @db.Timestamptz(3)
+  /// Set by the database when the report is first published; never changed or cleared.
+  firstPublishedAt DateTime?    @map("first_published_at") @db.Timestamptz(3)
+  createdByUserId  String?      @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  document   Document?  @relation(fields: [businessId, engagementId, documentId], references: [businessId, engagementId, id], onDelete: Restrict)
 
   @@index([businessId, engagementId, status])
   @@map("engagement_reports")
+}
+
+/// A firm-defined document category (W-2 and 1099, ID, Payroll...). retentionYears sets how long
+/// its documents are kept; null keeps them for good (formation papers). Archived, not deleted,
+/// once used.
+model DocumentCategory {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  name           String
+  retentionYears Int?      @default(7) @map("retention_years")
+  sortOrder      Int       @default(0) @map("sort_order")
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business          @relation(fields: [businessId], references: [id])
+  documents Document[]
+  requests  DocumentRequest[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("document_categories")
+}
+
+/// A file in the firm's vault, always within one engagement. The file is in S3 under the firm's
+/// prefix (`tenant/<business_id>/...`, under a UUID name) and its key never changes; it starts in
+/// quarantine (PENDING) and only a CLEAN file can be downloaded. INTERNAL documents are never
+/// shown to the client. Database rules: a client uploads only while the engagement is open; the
+/// scan result is set once; retentionUntil only moves later; a document is deleted only without
+/// a legal hold, and either after retentionUntil or, for a client upload, while its engagement
+/// is open.
+model Document {
+  id               String            @id @default(uuid(7)) @db.Uuid
+  businessId       String            @map("business_id") @db.Uuid
+  clientId         String            @map("client_id") @db.Uuid
+  engagementId     String            @map("engagement_id") @db.Uuid
+  categoryId       String?           @map("category_id") @db.Uuid
+  /// The request this upload answers, from the same engagement.
+  requestId        String?           @map("request_id") @db.Uuid
+  direction        DocumentDirection
+  /// The uploader's file name, for display only.
+  fileName         String            @map("file_name")
+  contentType      String            @map("content_type")
+  sizeBytes        Int               @map("size_bytes")
+  /// SHA-256 of the file, hex.
+  sha256           String
+  s3Key            String            @unique @map("s3_key")
+  scanStatus       ScanStatus        @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?         @map("scanned_at") @db.Timestamptz(3)
+  taxYear          Int?              @map("tax_year")
+  /// Set at upload from the category's retention; it can only move later. Null keeps the
+  /// document for good and never becomes a date.
+  retentionUntil   DateTime?         @map("retention_until") @db.Date
+  legalHold        Boolean           @default(false) @map("legal_hold")
+  uploadedByUserId String?           @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement         @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category   DocumentCategory?  @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  request    DocumentRequest?   @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
+  reports    EngagementReport[]
+
+  // Lets reports require that their document belongs to the same engagement.
+  @@unique([businessId, engagementId, id])
+  @@index([businessId, clientId, createdAt])
+  @@index([businessId, requestId])
+  @@map("documents")
+}
+
+/// The firm asks the client for a document within an engagement ("W-2 from your employer", with
+/// a due date). The client uploads (SUBMITTED) or says "I don't have this" (NOT_AVAILABLE, with
+/// a reason); the firm accepts it or marks it missing (REJECTED). Cancelled, never deleted.
+model DocumentRequest {
+  id                String                @id @default(uuid(7)) @db.Uuid
+  businessId        String                @map("business_id") @db.Uuid
+  clientId          String                @map("client_id") @db.Uuid
+  engagementId      String                @map("engagement_id") @db.Uuid
+  categoryId        String?               @map("category_id") @db.Uuid
+  title             String
+  /// Shown to the client.
+  instructions      String?
+  dueOn             DateTime?             @map("due_on") @db.Date
+  status            DocumentRequestStatus @default(REQUESTED)
+  /// Shown to the client and the firm: the client's reason for NOT_AVAILABLE, or the firm's for REJECTED.
+  statusNote        String?               @map("status_note")
+  requestedByUserId String?               @map("requested_by_user_id") @db.Uuid
+  resolvedAt        DateTime?             @map("resolved_at") @db.Timestamptz(3)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement        @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category   DocumentCategory? @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  documents  Document[]
+
+  // Lets documents require that the request they answer belongs to the same engagement.
+  @@unique([businessId, engagementId, id])
+  @@index([businessId, clientId, status])
+  @@map("document_requests")
 }
