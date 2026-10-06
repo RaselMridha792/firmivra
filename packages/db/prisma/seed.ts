@@ -29,7 +29,11 @@ config({ path: '../../.env', quiet: true });
 
 const url = process.env['DATABASE_URL'];
 if (!url) throw new Error('DATABASE_URL is not set (copy .env.example to .env)');
-const prisma = createPrismaClient(url);
+// The seed runs a few large transactions, sometimes next to the test suites (seed.test.ts): give
+// them time to start and finish.
+const prisma = createPrismaClient(url, {
+  transactionOptions: { maxWait: 15_000, timeout: 60_000 },
+});
 
 /** Settings, Terms and Privacy v1 and tax statuses for one firm (business scope). */
 async function seedFirmBasics(
