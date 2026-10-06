@@ -1,0 +1,1510 @@
+openapi: 3.0.3
+info:
+  title: Firmivra appointments API
+  version: 0.1.0
+  description: "T07 implementation: provider types/hours/blocks, availability, guarded canonical
+    booking/update/reschedule/cancel/history and durable reminder worker. Database/provider locking
+    and exclusion are tested with isolated fixtures. Production migrations, scheduling policy and R6
+    sending integration remain owner-managed dependencies."
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /business/appointment-types:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: listFirmAppointmentTypes
+      summary: List configured appointment types
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles:
+        - OWNER
+        - ADMIN
+        - STAFF
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AppointmentType"
+                    maxItems: 100
+        "400": &a1
+          $ref: ./common.yaml#/responses/BadRequest
+        "401": &a2
+          $ref: ./common.yaml#/responses/Unauthenticated
+        "403": &a3
+          $ref: ./common.yaml#/responses/Forbidden
+        "404": &a4
+          $ref: ./common.yaml#/responses/NotFound
+        "409": &a5
+          $ref: ./common.yaml#/responses/Conflict
+        "422": &a6
+          $ref: ./common.yaml#/responses/Unprocessable
+        "429": &a7
+          $ref: ./common.yaml#/responses/RateLimited
+        "500": &a8
+          $ref: ./common.yaml#/responses/InternalError
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+    post:
+      operationId: createAppointmentType
+      summary: Create type and scheduling rules
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: &a9
+        - OWNER
+        - ADMIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentTypeInput"
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentType"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/appointment-types/{id}:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: id
+        in: path
+        required: true
+        schema: &a10
+          type: string
+          format: uuid
+    patch:
+      operationId: updateAppointmentType
+      summary: Update type without changing existing booked intervals
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: *a9
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentTypePatch"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentType"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/working-hours/{providerId}:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: providerId
+        in: path
+        required: true
+        schema: *a10
+    get:
+      operationId: getProviderWorkingHours
+      summary: Read recurring local working hours
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients.
+        ProviderId is a same-firm Membership id.
+      x-roles: &a11
+        - OWNER
+        - ADMIN
+        - STAFF
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WorkingHours"
+                    maxItems: 50
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+    put:
+      operationId: replaceProviderWorkingHours
+      summary: Replace non-overlapping provider weekly hours
+      description: OWNER/ADMIN only; same-firm active provider. Weekday Sunday=0; minutes 0..1440;
+        start<end. Serialize with booking/blocks, reject changes invalidating existing bookings.
+        Timezone is existing BusinessSettings.timezone.
+      x-roles: *a9
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - items
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/WorkingHours"
+                  maxItems: 50
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WorkingHours"
+                    maxItems: 50
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/blocked-time:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: listProviderBlockedTime
+      summary: List staff-only blocked intervals
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients.
+      x-roles: *a11
+      parameters:
+        - &a13
+          $ref: ./common.yaml#/parameters/Cursor
+        - &a14
+          $ref: ./common.yaml#/parameters/Limit
+        - name: providerMembershipId
+          in: query
+          required: true
+          schema: *a10
+        - name: from
+          in: query
+          required: true
+          schema: &a12
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema: *a12
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BlockedTime"
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+    post:
+      operationId: createProviderBlockedTime
+      summary: Block a provider interval
+      description: OWNER/ADMIN only; same-firm provider and positive UTC interval. Same provider database
+        lock as booking; reject overlap with a BOOKED appointment. Audit without private reason.
+      x-roles: *a9
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlockedTimeInput"
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockedTime"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/blocked-time/{id}:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    delete:
+      operationId: removeProviderBlockedTime
+      summary: Remove a blocked interval
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: *a9
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: ./common.yaml#/schemas/Ok
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/appointments:
+    parameters: &a15
+      - &a16
+        $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: listFirmAppointments
+      summary: Read permitted canonical appointments
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients.
+      x-roles: *a11
+      parameters:
+        - *a13
+        - *a14
+        - name: from
+          in: query
+          required: true
+          schema: *a12
+        - name: to
+          in: query
+          required: true
+          schema: *a12
+        - name: status
+          in: query
+          required: false
+          schema: &a17
+            type: string
+            enum: &a36
+              - BOOKED
+              - CANCELLED
+              - COMPLETED
+              - NO_SHOW
+        - name: providerMembershipId
+          in: query
+          required: false
+          schema: *a10
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Appointment"
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+    post:
+      operationId: bookFirmAppointment
+      summary: Book a currently available slot
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients.
+        Serialize on firm/provider database transaction lock, recheck working hours/blocks and
+        database exclusion. Concurrent conflict -> 409 SLOT_UNAVAILABLE; stale version -> 409
+        VERSION_CONFLICT. Append safe history/audit and durable reminders atomically; never mutate
+        an unrelated appointment. Use R6 NotifyService for reminders/confirmations; no sending
+        implementation here. End time and occupied buffer interval are calculated server-side; same
+        client/idempotency key returns the original record.
+      x-roles: *a11
+      parameters:
+        - $ref: ./common.yaml#/parameters/Idempotency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - typeId
+                - providerMembershipId
+                - startsAt
+                - method
+                - clientId
+              properties:
+                typeId: *a10
+                providerMembershipId: *a10
+                startsAt: *a12
+                method: &a19
+                  type: string
+                  enum:
+                    - PHONE
+                    - VIDEO
+                    - IN_PERSON
+                clientId: *a10
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/appointments/availability:
+    parameters: *a15
+    get:
+      operationId: listFirmAvailableSlots
+      summary: Read safe available booking slots
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients. This
+        response does not reserve a slot. Skip DST nonexistent local times; represent distinct fold
+        instants explicitly with UTC offsets. Apply buffers and blocks. Booking revalidates.
+      x-roles: *a11
+      parameters: &a21
+        - name: providerMembershipId
+          in: query
+          required: true
+          schema: *a10
+        - name: typeId
+          in: query
+          required: true
+          schema: *a10
+        - name: from
+          in: query
+          required: true
+          schema: *a12
+        - name: to
+          in: query
+          required: true
+          schema: *a12
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - timezone
+                  - slots
+                  - nextFrom
+                properties:
+                  timezone:
+                    type: string
+                    maxLength: 100
+                    minLength: 1
+                  slots:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - startsAt
+                        - endsAt
+                      properties:
+                        startsAt: *a12
+                        endsAt: *a12
+                    maxItems: 1000
+                  nextFrom:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: Continue from this timestamp with the same provider/type/to; no truncated slots are
+                      silently lost.
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/appointment-providers:
+    parameters: *a15
+    get:
+      operationId: listFirmAppointmentProviders
+      summary: List active bookable provider identities
+      description: "Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients. Only
+        provider Membership id and display name; no email, phone, roles, working-hour private
+        reasons or other client data. Proposed eligibility: active staff with configured hours,
+        until Rasel confirms a provider-to-type mapping."
+      x-roles: *a11
+      parameters:
+        - name: typeId
+          in: query
+          required: true
+          schema: *a10
+        - $ref: ./common.yaml#/parameters/Cursor
+        - $ref: ./common.yaml#/parameters/Limit
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - id
+                        - name
+                      properties:
+                        id: *a10
+                        name:
+                          type: string
+                          maxLength: 200
+                          minLength: 1
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/appointments/{id}:
+    parameters:
+      - *a16
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    get:
+      operationId: getFirmAppointment
+      summary: Read permitted appointment detail
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients.
+      x-roles: *a11
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+    patch:
+      operationId: updateFirmAppointmentDetails
+      summary: Update client-visible meeting details
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients. BOOKED
+        only, expectedVersion must match. Provider meeting URL must be HTTPS and approved; plain
+        text instructions, no secrets. Increment version, preserve booking interval, append safe
+        detail-change history/audit and rebuild reminders for new version. Notify client through R6,
+        without private details in messages.
+      x-roles: *a11
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - expectedVersion
+              properties:
+                expectedVersion:
+                  type: integer
+                  minimum: 1
+                location: &a26
+                  type: string
+                  maxLength: 500
+                  nullable: true
+                meetingUrl: &a27
+                  type: string
+                  maxLength: 2048
+                  format: uri
+                  pattern: ^https://
+                  nullable: true
+                instructions: &a28
+                  type: string
+                  maxLength: 2000
+                  nullable: true
+              minProperties: 2
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/appointments/{id}/reschedule:
+    parameters:
+      - *a16
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    post:
+      operationId: rescheduleFirmAppointment
+      summary: Reschedule the same appointment id
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients.
+        Serialize on firm/provider database transaction lock, recheck working hours/blocks and
+        database exclusion. Concurrent conflict -> 409 SLOT_UNAVAILABLE; stale version -> 409
+        VERSION_CONFLICT. Append safe history/audit and durable reminders atomically; never mutate
+        an unrelated appointment. Use R6 NotifyService for reminders/confirmations; no sending
+        implementation here. BOOKED only. Invalidate old reminder jobs; regenerate using incremented
+        appointment version.
+      x-roles: *a11
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: &a23
+              type: object
+              additionalProperties: false
+              required:
+                - startsAt
+                - expectedVersion
+              properties:
+                startsAt: *a12
+                expectedVersion:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/appointments/{id}/cancel:
+    parameters:
+      - *a16
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    post:
+      operationId: cancelFirmAppointment
+      summary: Cancel booking and its unsent reminders
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients.
+        Serialize on firm/provider database transaction lock, recheck working hours/blocks and
+        database exclusion. Concurrent conflict -> 409 SLOT_UNAVAILABLE; stale version -> 409
+        VERSION_CONFLICT. Append safe history/audit and durable reminders atomically; never mutate
+        an unrelated appointment. Use R6 NotifyService for reminders/confirmations; no sending
+        implementation here. Already CANCELLED returns the existing record without another
+        transition; otherwise expectedVersion must match. Completed/no-show cannot be cancelled.
+        Never send an old-version reminder after cancellation.
+      x-roles: *a11
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: &a24
+              type: object
+              additionalProperties: false
+              required:
+                - expectedVersion
+              properties:
+                expectedVersion:
+                  type: integer
+                  minimum: 1
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/appointments/{id}/history:
+    parameters:
+      - *a16
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    get:
+      operationId: listFirmAppointmentHistory
+      summary: Read safe appointment transition history
+      description: Same-firm record only; STAFF can access only assigned-provider bookings (proposed
+        policy). Enabled appointments module required. UTC instants, valid firm IANA timezone;
+        provider/time range <=31 days. Never return private blocked-time reasons to clients.
+      x-roles: *a11
+      parameters: &a25
+        - *a13
+        - *a14
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AppointmentHistory"
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/appointments:
+    parameters: &a20
+      - &a22
+        $ref: ./common.yaml#/parameters/Slug
+    get:
+      operationId: listPortalAppointments
+      summary: Read permitted canonical appointments
+      description: ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation.
+      x-roles: &a18
+        - CLIENT
+      parameters:
+        - *a13
+        - *a14
+        - name: from
+          in: query
+          required: true
+          schema: *a12
+        - name: to
+          in: query
+          required: true
+          schema: *a12
+        - name: status
+          in: query
+          required: false
+          schema: *a17
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Appointment"
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+    post:
+      operationId: bookPortalAppointment
+      summary: Book a currently available slot
+      description: ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation. Serialize on firm/provider database transaction lock, recheck working
+        hours/blocks and database exclusion. Concurrent conflict -> 409 SLOT_UNAVAILABLE; stale
+        version -> 409 VERSION_CONFLICT. Append safe history/audit and durable reminders atomically;
+        never mutate an unrelated appointment. Use R6 NotifyService for reminders/confirmations; no
+        sending implementation here. End time and occupied buffer interval are calculated
+        server-side; same client/idempotency key returns the original record.
+      x-roles: *a18
+      parameters:
+        - $ref: ./common.yaml#/parameters/Idempotency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - typeId
+                - providerMembershipId
+                - startsAt
+                - method
+              properties:
+                typeId: *a10
+                providerMembershipId: *a10
+                startsAt: *a12
+                method: *a19
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/appointments/availability:
+    parameters: *a20
+    get:
+      operationId: listPortalAvailableSlots
+      summary: Read safe available booking slots
+      description: ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation. This response does not reserve a slot. Skip DST nonexistent local times;
+        represent distinct fold instants explicitly with UTC offsets. Apply buffers and blocks.
+        Booking revalidates.
+      x-roles: *a18
+      parameters: *a21
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - timezone
+                  - slots
+                  - nextFrom
+                properties:
+                  timezone:
+                    type: string
+                    maxLength: 100
+                    minLength: 1
+                  slots:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - startsAt
+                        - endsAt
+                      properties:
+                        startsAt: *a12
+                        endsAt: *a12
+                    maxItems: 1000
+                  nextFrom:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description: Continue from this timestamp with the same provider/type/to; no truncated slots are
+                      silently lost.
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/appointment-providers:
+    parameters: *a20
+    get:
+      operationId: listPortalAppointmentProviders
+      summary: List active bookable provider identities
+      description: "ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation. Only provider Membership id and display name; no email, phone, roles,
+        working-hour private reasons or other client data. Proposed eligibility: active staff with
+        configured hours, until Rasel confirms a provider-to-type mapping."
+      x-roles: *a18
+      parameters:
+        - name: typeId
+          in: query
+          required: true
+          schema: *a10
+        - $ref: ./common.yaml#/parameters/Cursor
+        - $ref: ./common.yaml#/parameters/Limit
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - id
+                        - name
+                      properties:
+                        id: *a10
+                        name:
+                          type: string
+                          maxLength: 200
+                          minLength: 1
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/appointments/{id}:
+    parameters:
+      - *a22
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    get:
+      operationId: getPortalAppointment
+      summary: Read permitted appointment detail
+      description: ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation.
+      x-roles: *a18
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/appointments/{id}/reschedule:
+    parameters:
+      - *a22
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    post:
+      operationId: reschedulePortalAppointment
+      summary: Reschedule the same appointment id
+      description: ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation. Serialize on firm/provider database transaction lock, recheck working
+        hours/blocks and database exclusion. Concurrent conflict -> 409 SLOT_UNAVAILABLE; stale
+        version -> 409 VERSION_CONFLICT. Append safe history/audit and durable reminders atomically;
+        never mutate an unrelated appointment. Use R6 NotifyService for reminders/confirmations; no
+        sending implementation here. BOOKED only. Invalidate old reminder jobs; regenerate using
+        incremented appointment version.
+      x-roles: *a18
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *a23
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/appointments/{id}/cancel:
+    parameters:
+      - *a22
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    post:
+      operationId: cancelPortalAppointment
+      summary: Cancel booking and its unsent reminders
+      description: ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation. Serialize on firm/provider database transaction lock, recheck working
+        hours/blocks and database exclusion. Concurrent conflict -> 409 SLOT_UNAVAILABLE; stale
+        version -> 409 VERSION_CONFLICT. Append safe history/audit and durable reminders atomically;
+        never mutate an unrelated appointment. Use R6 NotifyService for reminders/confirmations; no
+        sending implementation here. Already CANCELLED returns the existing record without another
+        transition; otherwise expectedVersion must match. Completed/no-show cannot be cancelled.
+        Never send an old-version reminder after cancellation.
+      x-roles: *a18
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *a24
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/appointments/{id}/history:
+    parameters:
+      - *a22
+      - name: id
+        in: path
+        required: true
+        schema: *a10
+    get:
+      operationId: listPortalAppointmentHistory
+      summary: Read safe appointment transition history
+      description: ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation.
+      x-roles: *a18
+      parameters: *a25
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AppointmentHistory"
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/appointment-types:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Slug
+    get:
+      operationId: listPortalAppointmentTypes
+      summary: List active client-bookable types
+      description: ACTIVE client in verified slug; clientId derived from ClientAccount, never from
+        URL/body. Only own canonical appointment rows; enabled module and type/clientBookingEnabled
+        required. No private staff notes or other client data. Reschedule/cancel rules require
+        confirmation.
+      x-roles: *a18
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AppointmentType"
+                    maxItems: 100
+        "400": *a1
+        "401": *a2
+        "403": *a3
+        "404": *a4
+        "409": *a5
+        "422": *a6
+        "429": *a7
+        "500": *a8
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas:
+    Appointment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - clientId
+        - clientName
+        - providerMembershipId
+        - providerName
+        - typeId
+        - typeName
+        - startsAt
+        - endsAt
+        - timezone
+        - method
+        - location
+        - meetingUrl
+        - instructions
+        - status
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id: *a10
+        clientId: *a10
+        clientName:
+          type: string
+          maxLength: 200
+          minLength: 1
+        providerMembershipId: *a10
+        providerName:
+          type: string
+          maxLength: 200
+          minLength: 1
+        typeId: *a10
+        typeName:
+          type: string
+          maxLength: 120
+          minLength: 1
+        startsAt: *a12
+        endsAt: *a12
+        timezone:
+          type: string
+          maxLength: 100
+          minLength: 1
+        method: *a19
+        location: *a26
+        meetingUrl: *a27
+        instructions: *a28
+        status: *a17
+        version:
+          type: integer
+          minimum: 1
+        createdAt: *a12
+        updatedAt: *a12
+    AppointmentTypeInput:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - durationMinutes
+        - bufferBeforeMinutes
+        - bufferAfterMinutes
+        - allowedMethods
+        - clientBookingEnabled
+        - active
+      properties:
+        name: &a30
+          type: string
+          maxLength: 120
+          minLength: 1
+        durationMinutes: &a31
+          type: integer
+          minimum: 1
+          maximum: 480
+        bufferBeforeMinutes: &a32
+          type: integer
+          minimum: 0
+          maximum: 120
+        bufferAfterMinutes: &a33
+          type: integer
+          minimum: 0
+          maximum: 120
+        allowedMethods: &a34
+          type: array
+          items: *a19
+          maxItems: 3
+          uniqueItems: true
+          minItems: 1
+        clientBookingEnabled: &a29
+          type: boolean
+        active: *a29
+        isIntroCall:
+          type: boolean
+          description: Explicit free introductory call classification; must be 5 minutes and PHONE only. Not
+            inferred from display name.
+          default: false
+    AppointmentTypePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: *a30
+        durationMinutes: *a31
+        bufferBeforeMinutes: *a32
+        bufferAfterMinutes: *a33
+        allowedMethods: *a34
+        clientBookingEnabled: *a29
+        active: *a29
+        isIntroCall:
+          type: boolean
+          description: Explicit free introductory call classification; must be 5 minutes and PHONE only. Not
+            inferred from display name.
+      minProperties: 1
+    AppointmentType:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - durationMinutes
+        - bufferBeforeMinutes
+        - bufferAfterMinutes
+        - allowedMethods
+        - clientBookingEnabled
+        - active
+        - createdAt
+        - updatedAt
+        - isIntroCall
+      properties:
+        id: *a10
+        name: *a30
+        durationMinutes: *a31
+        bufferBeforeMinutes: *a32
+        bufferAfterMinutes: *a33
+        allowedMethods: *a34
+        clientBookingEnabled: *a29
+        active: *a29
+        createdAt: *a12
+        updatedAt: *a12
+        isIntroCall:
+          type: boolean
+          description: Explicit free introductory call classification; must be 5 minutes and PHONE only. Not
+            inferred from display name.
+    WorkingHours:
+      type: object
+      additionalProperties: false
+      required:
+        - weekday
+        - startMinute
+        - endMinute
+      properties:
+        weekday:
+          type: integer
+          minimum: 0
+          maximum: 6
+        startMinute:
+          type: integer
+          minimum: 0
+          maximum: 1439
+        endMinute:
+          type: integer
+          minimum: 1
+          maximum: 1440
+    BlockedTimeInput:
+      type: object
+      additionalProperties: false
+      required:
+        - providerMembershipId
+        - startsAt
+        - endsAt
+        - reason
+      properties:
+        providerMembershipId: *a10
+        startsAt: *a12
+        endsAt: *a12
+        reason: &a35
+          type: string
+          maxLength: 500
+          nullable: true
+    BlockedTime:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - providerMembershipId
+        - startsAt
+        - endsAt
+        - reason
+        - createdAt
+      properties:
+        id: *a10
+        providerMembershipId: *a10
+        startsAt: *a12
+        endsAt: *a12
+        reason: *a35
+        createdAt: *a12
+    AppointmentHistory:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - action
+        - previousStartsAt
+        - previousEndsAt
+        - previousStatus
+        - newStartsAt
+        - newEndsAt
+        - newStatus
+        - createdAt
+      properties:
+        id: *a10
+        action:
+          type: string
+          enum:
+            - BOOKED
+            - RESCHEDULED
+            - CANCELLED
+            - DETAILS_UPDATED
+            - COMPLETED
+            - NO_SHOW
+        previousStartsAt:
+          type: string
+          format: date-time
+          nullable: true
+        previousEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        previousStatus:
+          type: string
+          enum: *a36
+          nullable: true
+        newStartsAt: *a12
+        newEndsAt: *a12
+        newStatus: *a17
+        createdAt: *a12
