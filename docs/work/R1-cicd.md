@@ -103,3 +103,12 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
      - then delete session-panel.tsx.
   3. Kit: rebase onto the skeleton (SignedIn/useMe), add the reference screen on T04 (#29 merged: api.taxStatuses, mocks/tax-statuses.ts) with its mock-mode e2e, then the path guard PR (pull_request_target, lists from PAGE-MAP "Your files").
   4. Then the remaining R1 steps (7: deploy-prod.yml, disabled until R8), then R4.
+- 2026-10-06 late, step 13: Rasel created both dev logins (Super Admin sub 74d81428-… in the admins pool, LVP owner sub 9478c4d8-… in the staff pool). The first link run stopped before writing anything: UserNotFoundException.
+  - Cause, confirmed read-only: our pools sign in by username, so AdminGetUser does not take the sub. ListUsers with `sub = "<sub>"` finds the username, and the migrate task's pool ids are right.
+  - Both users' `name` set to "Rasel Mridha" (Rasel's yes).
+  - Fix committed locally: b9f9014 on rasel/R1-cognito-listusers, not pushed. ListUsers for the API role (three pools) and the migrate role (in place of AdminGetUser); the link lookup uses ListUsers; SETUP-LOG notes the PowerShell quoting and LAST_ACTIVE_OWNER. `cdk diff`: only those two IAM policies. Read-only test against the real pools: one match each, email present, name right.
+  - Option B (store the Cognito username in `users`) waits until sign-in volume needs it.
+- Next steps (Oct 7), in this order:
+  1. Push rasel/R1-cognito-listusers and open its PR.
+  2. When it and R2's #34 are deployed, ask Rasel's yes, run the link task with the two subs (SUPER_ADMIN, OWNER), show him the log lines, and tick step 13.
+  3. Then the earlier list: the portal PR after #33 merges, the firm skeleton, the kit, the path guard.
