@@ -63,7 +63,8 @@ export function SignedIn({
   const signOut = useCallback(async () => {
     if (AUTH_MODE === 'local') await devSignOut();
     else if (site === 'admin') await adminAuth.signOut();
-    else await staffAuth.signOut();
+    else if (site === 'firm') await staffAuth.signOut();
+    // Portal clients sign out through R3's client auth once it's on main.
     router.replace(signInPath);
   }, [site, signInPath, router]);
 
