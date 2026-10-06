@@ -41,6 +41,20 @@ export class PortalInfoService {
     return firm;
   }
 
+  /** Whether the firm takes sign-ups now, and the documents a sign-up accepts (with their ids). */
+  async signUpPolicy(businessId: string) {
+    const [settings, terms, privacy] = await Promise.all([
+      this.db.forBusiness(businessId).businessSettings.findUnique({
+        where: { businessId },
+        select: { clientSignUpEnabled: true },
+      }),
+      this.currentVersion(businessId, 'TERMS'),
+      this.currentVersion(businessId, 'PRIVACY'),
+    ]);
+    const open = (settings?.clientSignUpEnabled ?? true) && terms !== null && privacy !== null;
+    return { open, terms, privacy };
+  }
+
   async info(firmSlug: string): Promise<PortalInfo> {
     const firm = await this.activeFirm(firmSlug);
     const scope = this.db.forBusiness(firm.id);

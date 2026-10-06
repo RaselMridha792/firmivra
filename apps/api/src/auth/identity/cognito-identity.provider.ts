@@ -2,6 +2,8 @@ import { createHmac, randomUUID } from 'node:crypto';
 import {
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
+  AdminUpdateUserAttributesCommand,
+  type AttributeType,
   AdminInitiateAuthCommand,
   AdminRespondToAuthChallengeCommand,
   AdminUserGlobalSignOutCommand,
@@ -23,7 +25,9 @@ import {
   AuthFlowError,
   type AuthFlowErrorCode,
   type AuthStep,
+  type ContactUpdate,
   type IdentityProvider,
+  type NewUserContact,
 } from './identity-provider.js';
 
 export type CognitoClient = Pick<CognitoIdentityProviderClient, 'send'>;
@@ -294,16 +298,21 @@ export class CognitoIdentityProvider implements IdentityProvider {
     await this.signOutEverywhere(pool, username);
   }
 
-  async createUser(pool: IdentityPool, email: string): Promise<string> {
+  async createUser(
+    pool: IdentityPool,
+    email: string,
+    contact: NewUserContact = {},
+  ): Promise<string> {
     const p = this.pool(pool);
     const out = await this.client.send(
       new AdminCreateUserCommand({
         UserPoolId: p.userPoolId,
         Username: randomUUID(),
-        UserAttributes: [
-          { Name: 'email', Value: email },
-          { Name: 'email_verified', Value: 'true' },
-        ],
+        UserAttributes: contactAttributes({
+          email,
+          emailVerified: contact.emailVerified ?? true,
+          phone: contact.phone,
+        }),
         // Our API sends the activation email (docs/AUTH-DESIGN.md); Cognito sends nothing.
         MessageAction: 'SUPPRESS',
       }),
@@ -311,6 +320,19 @@ export class CognitoIdentityProvider implements IdentityProvider {
     const sub = out.User?.Attributes?.find((a) => a.Name === 'sub')?.Value;
     if (!sub) throw new Error('Cognito created a user without a sub');
     return sub;
+  }
+
+  async updateContact(pool: IdentityPool, sub: string, contact: ContactUpdate): Promise<void> {
+    const p = this.pool(pool);
+    const username = await this.usernameFor(p, sub);
+    if (!username) throw new Error('No Cognito user for this account');
+    await this.client.send(
+      new AdminUpdateUserAttributesCommand({
+        UserPoolId: p.userPoolId,
+        Username: username,
+        UserAttributes: contactAttributes(contact),
+      }),
+    );
   }
 
   async setPassword(pool: IdentityPool, sub: string, password: string): Promise<void> {
@@ -368,6 +390,20 @@ export class CognitoIdentityProvider implements IdentityProvider {
     if (!p) throw new Error(`Cognito is not configured for the ${pool} pool`);
     return p;
   }
+}
+
+/** Cognito attributes for an email or phone change; a changed address starts unverified. */
+function contactAttributes(c: ContactUpdate): AttributeType[] {
+  const attrs: AttributeType[] = [];
+  if (c.email !== undefined) attrs.push({ Name: 'email', Value: c.email });
+  if (c.email !== undefined || c.emailVerified !== undefined) {
+    attrs.push({ Name: 'email_verified', Value: String(c.emailVerified ?? false) });
+  }
+  if (c.phone !== undefined) attrs.push({ Name: 'phone_number', Value: c.phone });
+  if (c.phone !== undefined || c.phoneVerified !== undefined) {
+    attrs.push({ Name: 'phone_number_verified', Value: String(c.phoneVerified ?? false) });
+  }
+  return attrs;
 }
 
 /** SECRET_HASH for app clients with a secret: Base64(HMAC-SHA256(secret, username + clientId)). */

@@ -107,6 +107,11 @@ export class LocalIdentityProvider implements IdentityProvider {
     return Promise.resolve();
   }
 
+  /** Locally the contact details live only in our database. */
+  updateContact(): Promise<void> {
+    return Promise.resolve();
+  }
+
   hasPassword(_pool: IdentityPool, sub: string): Promise<boolean> {
     return Promise.resolve(!this.invited.has(sub));
   }
