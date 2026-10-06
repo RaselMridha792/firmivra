@@ -1489,6 +1489,8 @@ model ContentItem {
   body            String?
   url             String?
   description     String?
+  /// External links: the icon shown on the card (a design-system icon name, never a URL).
+  iconKey         String?     @map("icon_key")
   sortOrder       Int         @default(0) @map("sort_order")
   publishedAt     DateTime?   @map("published_at") @db.Timestamptz(3)
   createdByUserId String?     @map("created_by_user_id") @db.Uuid
