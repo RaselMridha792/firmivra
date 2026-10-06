@@ -2,9 +2,10 @@ openapi: 3.0.3
 info:
   title: Firmivra appointments API
   version: 0.1.0
-  description: T01 proposed contract for T07. Not implemented or frontend-approved. New tables and
-    database-level overlap constraint required from Rasel. Type management/availability policy is
-    proposed pending frontend confirmation. Reminder jobs are internal, not public endpoints.
+  description: 'T07 implementation: provider types/hours/blocks, availability, guarded canonical
+    booking/update/reschedule/cancel/history and durable reminder worker. Database/provider locking
+    and exclusion are tested with isolated fixtures. Production migrations, scheduling policy and R6
+    sending integration remain owner-managed dependencies.'
 servers:
   - url: /api/v1
 security:
@@ -54,6 +55,8 @@ paths:
           $ref: ./common.yaml#/responses/RateLimited
         '500': &a8
           $ref: ./common.yaml#/responses/InternalError
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     post:
       operationId: createAppointmentType
       summary: Create type and scheduling rules
@@ -83,6 +86,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/appointment-types/{id}:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -119,6 +124,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/working-hours/{providerId}:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -161,6 +168,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     put:
       operationId: replaceProviderWorkingHours
       summary: Replace non-overlapping provider weekly hours
@@ -207,6 +216,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/blocked-time:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -265,6 +276,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     post:
       operationId: createProviderBlockedTime
       summary: Block a provider interval
@@ -293,6 +306,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/blocked-time/{id}:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -321,6 +336,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/appointments:
     parameters: &a15
       - &a16
@@ -348,7 +365,7 @@ paths:
           required: false
           schema: &a17
             type: string
-            enum: &a37
+            enum: &a36
               - BOOKED
               - CANCELLED
               - COMPLETED
@@ -386,6 +403,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     post:
       operationId: bookFirmAppointment
       summary: Book a currently available slot
@@ -440,6 +459,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/appointments/availability:
     parameters: *a15
     get:
@@ -479,6 +500,7 @@ paths:
                 required:
                   - timezone
                   - slots
+                  - nextFrom
                 properties:
                   timezone:
                     type: string
@@ -496,6 +518,13 @@ paths:
                         startsAt: *a12
                         endsAt: *a12
                     maxItems: 1000
+                  nextFrom:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description:
+                      Continue from this timestamp with the same provider/type/to; no truncated slots are
+                      silently lost.
         '400': *a1
         '401': *a2
         '403': *a3
@@ -504,6 +533,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/appointment-providers:
     parameters: *a15
     get:
@@ -522,6 +553,8 @@ paths:
           in: query
           required: true
           schema: *a10
+        - $ref: ./common.yaml#/parameters/Cursor
+        - $ref: ./common.yaml#/parameters/Limit
       responses:
         '200':
           description: Success
@@ -532,6 +565,7 @@ paths:
                 additionalProperties: false
                 required:
                   - items
+                  - nextCursor
                 properties:
                   items:
                     type: array
@@ -548,6 +582,10 @@ paths:
                           maxLength: 200
                           minLength: 1
                     maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
         '400': *a1
         '401': *a2
         '403': *a3
@@ -556,6 +594,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/appointments/{id}:
     parameters:
       - *a16
@@ -585,6 +625,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     patch:
       operationId: updateFirmAppointmentDetails
       summary: Update client-visible meeting details
@@ -639,6 +681,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/appointments/{id}/reschedule:
     parameters:
       - *a16
@@ -689,6 +733,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/appointments/{id}/cancel:
     parameters:
       - *a16
@@ -741,6 +787,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/appointments/{id}/history:
     parameters:
       - *a16
@@ -787,6 +835,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/appointments:
     parameters: &a20
       - &a22
@@ -844,6 +894,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     post:
       operationId: bookPortalAppointment
       summary: Book a currently available slot
@@ -891,6 +943,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/appointments/availability:
     parameters: *a20
     get:
@@ -915,6 +969,7 @@ paths:
                 required:
                   - timezone
                   - slots
+                  - nextFrom
                 properties:
                   timezone:
                     type: string
@@ -932,6 +987,13 @@ paths:
                         startsAt: *a12
                         endsAt: *a12
                     maxItems: 1000
+                  nextFrom:
+                    type: string
+                    format: date-time
+                    nullable: true
+                    description:
+                      Continue from this timestamp with the same provider/type/to; no truncated slots are
+                      silently lost.
         '400': *a1
         '401': *a2
         '403': *a3
@@ -940,6 +1002,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/appointment-providers:
     parameters: *a20
     get:
@@ -957,6 +1021,8 @@ paths:
           in: query
           required: true
           schema: *a10
+        - $ref: ./common.yaml#/parameters/Cursor
+        - $ref: ./common.yaml#/parameters/Limit
       responses:
         '200':
           description: Success
@@ -967,6 +1033,7 @@ paths:
                 additionalProperties: false
                 required:
                   - items
+                  - nextCursor
                 properties:
                   items:
                     type: array
@@ -983,6 +1050,10 @@ paths:
                           maxLength: 200
                           minLength: 1
                     maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
         '400': *a1
         '401': *a2
         '403': *a3
@@ -991,6 +1062,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/appointments/{id}:
     parameters:
       - *a22
@@ -1021,6 +1094,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/appointments/{id}/reschedule:
     parameters:
       - *a22
@@ -1061,6 +1136,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/appointments/{id}/cancel:
     parameters:
       - *a22
@@ -1102,6 +1179,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/appointments/{id}/history:
     parameters:
       - *a22
@@ -1147,6 +1226,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/appointment-types:
     parameters:
       - $ref: ./common.yaml#/parameters/Slug
@@ -1182,6 +1263,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
 components:
   securitySchemes:
     FirmCookie:
@@ -1259,24 +1342,24 @@ components:
         - allowedMethods
         - clientBookingEnabled
         - active
-      properties: &a30
-        name: &a31
+      properties:
+        name: &a30
           type: string
           maxLength: 120
           minLength: 1
-        durationMinutes: &a32
+        durationMinutes: &a31
           type: integer
           minimum: 1
           maximum: 480
-        bufferBeforeMinutes: &a33
+        bufferBeforeMinutes: &a32
           type: integer
           minimum: 0
           maximum: 120
-        bufferAfterMinutes: &a34
+        bufferAfterMinutes: &a33
           type: integer
           minimum: 0
           maximum: 120
-        allowedMethods: &a35
+        allowedMethods: &a34
           type: array
           items: *a19
           maxItems: 3
@@ -1285,10 +1368,28 @@ components:
         clientBookingEnabled: &a29
           type: boolean
         active: *a29
+        isIntroCall:
+          type: boolean
+          description:
+            Explicit free introductory call classification; must be 5 minutes and PHONE only. Not
+            inferred from display name.
+          default: false
     AppointmentTypePatch:
       type: object
       additionalProperties: false
-      properties: *a30
+      properties:
+        name: *a30
+        durationMinutes: *a31
+        bufferBeforeMinutes: *a32
+        bufferAfterMinutes: *a33
+        allowedMethods: *a34
+        clientBookingEnabled: *a29
+        active: *a29
+        isIntroCall:
+          type: boolean
+          description:
+            Explicit free introductory call classification; must be 5 minutes and PHONE only. Not
+            inferred from display name.
       minProperties: 1
     AppointmentType:
       type: object
@@ -1304,17 +1405,23 @@ components:
         - active
         - createdAt
         - updatedAt
+        - isIntroCall
       properties:
         id: *a10
-        name: *a31
-        durationMinutes: *a32
-        bufferBeforeMinutes: *a33
-        bufferAfterMinutes: *a34
-        allowedMethods: *a35
+        name: *a30
+        durationMinutes: *a31
+        bufferBeforeMinutes: *a32
+        bufferAfterMinutes: *a33
+        allowedMethods: *a34
         clientBookingEnabled: *a29
         active: *a29
         createdAt: *a12
         updatedAt: *a12
+        isIntroCall:
+          type: boolean
+          description:
+            Explicit free introductory call classification; must be 5 minutes and PHONE only. Not
+            inferred from display name.
     WorkingHours:
       type: object
       additionalProperties: false
@@ -1347,7 +1454,7 @@ components:
         providerMembershipId: *a10
         startsAt: *a12
         endsAt: *a12
-        reason: &a36
+        reason: &a35
           type: string
           maxLength: 500
           nullable: true
@@ -1366,7 +1473,7 @@ components:
         providerMembershipId: *a10
         startsAt: *a12
         endsAt: *a12
-        reason: *a36
+        reason: *a35
         createdAt: *a12
     AppointmentHistory:
       type: object
@@ -1402,7 +1509,7 @@ components:
           nullable: true
         previousStatus:
           type: string
-          enum: *a37
+          enum: *a36
           nullable: true
         newStartsAt: *a12
         newEndsAt: *a12
