@@ -1,5 +1,8 @@
 # T04 tax status configuration
 
+Locked writes recheck the active Business and current manager membership. Suspending a firm
+after request authentication prevents create/rename/order/archive, with no partial changes.
+
 Five routes use the existing TaxStatus table and shared Zod contracts. OWNER/ADMIN manage
 definitions; STAFF can read the ordered list. Names are trimmed and unique case-insensitively
 within the firm. All mutations lock the Business row and recheck current management permission.
