@@ -1,6 +1,7 @@
 'use client';
 
 import { ApiRequestError, type BusinessSummary, type MembershipRole } from '@firmivra/types';
+import { Button } from '@firmivra/ui';
 import {
   Briefcase,
   CalendarDays,
@@ -13,6 +14,7 @@ import {
   Users,
   UsersRound,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useState } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
 import type { NavItem } from '../../../components/app-shell/types';
@@ -34,6 +36,14 @@ const items: (NavItem & { managers?: true })[] = [
   { label: 'Settings', icon: Settings, href: '/settings', managers: true },
 ];
 
+/** What a signed-in person sees when the firm can't be opened (GET /business). */
+const FIRM_ERRORS: Record<string, string> = {
+  BUSINESS_INACTIVE: 'This firm is not active right now. Contact Firmivra support.',
+  BUSINESS_REQUIRED:
+    "Your account belongs to more than one firm, and choosing a firm isn't available yet.",
+  NOT_FOUND: "Your account isn't a member of a firm on this site.",
+};
+
 const ROLE_LABEL: Record<MembershipRole, string> = {
   OWNER: 'Owner',
   ADMIN: 'Admin',
@@ -50,7 +60,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
 }
 
 function FirmArea({ children }: { children: ReactNode }) {
-  const { me } = useMe();
+  const { me, signOut } = useMe();
+  const router = useRouter();
   const [firm, setFirm] = useState<BusinessSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,18 +69,33 @@ function FirmArea({ children }: { children: ReactNode }) {
     let active = true;
     api.currentBusiness().then(
       (b) => active && setFirm(b),
-      (e: unknown) => active && setError(e instanceof ApiRequestError ? e.code : 'ERROR'),
+      (e: unknown) => {
+        if (!active) return;
+        const code = e instanceof ApiRequestError ? e.code : 'ERROR';
+        // A firm still in Pending Setup finishes the setup wizard first; a lost session signs in.
+        if (code === 'BUSINESS_SETUP_REQUIRED') router.replace('/setup');
+        else if (e instanceof ApiRequestError && e.status === 401) router.replace('/sign-in');
+        else setError(code);
+      },
     );
     return () => {
       active = false;
     };
-  }, []);
+  }, [router]);
 
   if (error) {
     return (
-      <div data-testid="firm-error" className="mx-auto max-w-xl p-6 text-sm">
-        <p className="font-medium text-text">We couldn&apos;t open your firm.</p>
-        <p className="mt-1 text-muted">({error})</p>
+      <div
+        data-testid="firm-error"
+        className="mx-auto flex max-w-xl flex-col items-start gap-3 p-6"
+      >
+        <p className="font-medium text-text">
+          {FIRM_ERRORS[error] ?? "We couldn't open your firm."}
+        </p>
+        <p className="text-sm text-muted">({error})</p>
+        <Button variant="secondary" onClick={() => void signOut()}>
+          Sign out
+        </Button>
       </div>
     );
   }
