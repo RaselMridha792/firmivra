@@ -8,6 +8,9 @@ Current main's FirmLegalDocument stores Markdown in **body**; the API calls it *
   Legal name, slug, business status and tenant identity are not writable.
 - Legal publication and setup updates lock this firm's Business row within `Database.withScope`.
   Concurrent publication allocates distinct versions; published versions remain immutable.
+- Every settings/setup/legal write rechecks the active firm and current membership role after
+  acquiring that lock. A stale guard snapshot cannot authorize a demoted/deactivated manager
+  or a suspended firm. No rejected write publishes legal text or changes setup/profile state.
 - Completion rechecks branding, contact details, an active owner and both published legal kinds.
   Repeated completion retains its original timestamp and does not approve/activate a firm.
 - Portal settings/legal are projected for a verified active client; internal contact/progress/storage keys are excluded.
