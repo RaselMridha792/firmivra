@@ -1,0 +1,551 @@
+openapi: 3.0.3
+info:
+  title: Firmivra business settings and setup API
+  version: 0.1.0
+  description: T01 proposed contract for T02. Not implemented or frontend-approved. Missing
+    portalName/header/welcome fields are proposed in docs/schema-requests/tumit-fields.md. Storage
+    and firm approval are Rasel-owned.
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /business/settings:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: getBusinessSettings
+      summary: Read firm profile and settings
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: &a1
+        - OWNER
+        - ADMIN
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '400': &a2
+          $ref: ./common.yaml#/responses/BadRequest
+        '401': &a3
+          $ref: ./common.yaml#/responses/Unauthenticated
+        '403': &a4
+          $ref: ./common.yaml#/responses/Forbidden
+        '404': &a5
+          $ref: ./common.yaml#/responses/NotFound
+        '409': &a6
+          $ref: ./common.yaml#/responses/Conflict
+        '422': &a7
+          $ref: ./common.yaml#/responses/Unprocessable
+        '429': &a8
+          $ref: ./common.yaml#/responses/RateLimited
+        '500': &a9
+          $ref: ./common.yaml#/responses/InternalError
+    patch:
+      operationId: updateBusinessSettings
+      summary: Update allowlisted firm profile and settings
+      description:
+        OWNER/ADMIN only. legalName, slug, status and businessId are not writable. logoKey must
+        belong to this firm; module keys require entitlement validation. Reject an empty patch.
+        Audit only changed field names, never legal text/contact values.
+      x-roles: *a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsPatch'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '400': *a2
+        '401': *a3
+        '403': *a4
+        '404': *a5
+        '409': *a6
+        '422': *a7
+        '429': *a8
+        '500': *a9
+  /business/setup:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: getBusinessSetup
+      summary: Read five-step setup progress
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: *a1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Setup'
+        '400': *a2
+        '401': *a3
+        '403': *a4
+        '404': *a5
+        '409': *a6
+        '422': *a7
+        '429': *a8
+        '500': *a9
+    patch:
+      operationId: saveBusinessSetup
+      summary: Save draft step completion
+      description: Validate prerequisites server-side. This endpoint cannot activate a firm or write
+        setupCompletedAt; content is stored in settings/legal/team, not setupProgress.
+      x-roles: *a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - completedSteps
+              properties:
+                completedSteps: &a11
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - branding
+                      - businessDetails
+                      - team
+                      - clientPortal
+                      - finish
+                  maxItems: 5
+                  uniqueItems: true
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Setup'
+        '400': *a2
+        '401': *a3
+        '403': *a4
+        '404': *a5
+        '409': *a6
+        '422': *a7
+        '429': *a8
+        '500': *a9
+  /business/setup/complete:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    post:
+      operationId: completeBusinessSetup
+      summary: Complete a valid setup idempotently
+      description:
+        Recheck all required steps and published TERMS/PRIVACY. Set setupCompletedAt using
+        server time once. Does not approve/activate a firm; R4 owns those transitions.
+      x-roles: *a1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Setup'
+        '400': *a2
+        '401': *a3
+        '403': *a4
+        '404': *a5
+        '409': *a6
+        '422': *a7
+        '429': *a8
+        '500': *a9
+  /business/legal/{kind}:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - &a10
+        name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+            - TERMS
+            - PRIVACY
+    get:
+      operationId: getFirmLegalVersion
+      summary: Read latest or selected published legal version
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: *a1
+      parameters:
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocument'
+        '400': *a2
+        '401': *a3
+        '403': *a4
+        '404': *a5
+        '409': *a6
+        '422': *a7
+        '429': *a8
+        '500': *a9
+    post:
+      operationId: publishFirmLegalVersion
+      summary: Append a versioned firm Terms or Privacy document
+      description: Append only; server assigns version, publisher and timestamp in a serialized
+        transaction. No update/delete of published versions. Do not put document body in audit
+        metadata.
+      x-roles: *a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - bodyMarkdown
+              properties:
+                bodyMarkdown:
+                  type: string
+                  maxLength: 100000
+                  minLength: 1
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocument'
+        '400': *a2
+        '401': *a3
+        '403': *a4
+        '404': *a5
+        '409': *a6
+        '422': *a7
+        '429': *a8
+        '500': *a9
+  /portal/{slug}/settings:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Slug
+    get:
+      operationId: getPortalSettings
+      summary: Read own portal branding and enabled modules
+      description:
+        Existing TenantGuard resolves slug and ACTIVE ClientAccount. Return only safe portal
+        fields; filter business-only modules for INDIVIDUAL accounts. No contact/internal setup
+        fields or raw storage key.
+      x-roles:
+        - CLIENT
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortalSettings'
+        '400': *a2
+        '401': *a3
+        '403': *a4
+        '404': *a5
+        '409': *a6
+        '422': *a7
+        '429': *a8
+        '500': *a9
+  /portal/{slug}/legal/{kind}:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Slug
+      - *a10
+    get:
+      operationId: getPortalLegalVersion
+      summary: Read own firm published Terms or Privacy
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles:
+        - CLIENT
+      parameters:
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocument'
+        '400': *a2
+        '401': *a3
+        '403': *a4
+        '404': *a5
+        '409': *a6
+        '422': *a7
+        '429': *a8
+        '500': *a9
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas:
+    Settings:
+      type: object
+      additionalProperties: false
+      required:
+        - profile
+        - contactEmail
+        - contactPhone
+        - website
+        - addressLine1
+        - addressLine2
+        - city
+        - state
+        - postalCode
+        - country
+        - timezone
+        - logoKey
+        - brandColor
+        - enabledModules
+        - clientSignUpEnabled
+        - portalName
+        - portalHeader
+        - welcomeMessage
+        - setup
+        - updatedAt
+      properties:
+        profile:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+            - legalName
+            - slug
+            - status
+          properties:
+            id: &a30
+              type: string
+              format: uuid
+            name:
+              type: string
+              maxLength: 120
+              minLength: 1
+            legalName:
+              type: string
+              maxLength: 200
+              minLength: 1
+              nullable: true
+            slug:
+              type: string
+              maxLength: 120
+              minLength: 1
+            status:
+              type: string
+              enum:
+                - PENDING_SETUP
+                - ACTIVE
+                - SUSPENDED
+                - CLOSED
+        contactEmail: &a12
+          type: string
+          maxLength: 254
+          format: email
+          nullable: true
+        contactPhone: &a13
+          type: string
+          maxLength: 40
+          nullable: true
+        website: &a14
+          type: string
+          maxLength: 2048
+          format: uri
+          pattern: ^https://
+          nullable: true
+        addressLine1: &a15
+          type: string
+          maxLength: 200
+          nullable: true
+        addressLine2: &a16
+          type: string
+          maxLength: 200
+          nullable: true
+        city: &a17
+          type: string
+          maxLength: 120
+          nullable: true
+        state: &a18
+          type: string
+          maxLength: 120
+          nullable: true
+        postalCode: &a19
+          type: string
+          maxLength: 32
+          nullable: true
+        country: &a20
+          type: string
+          maxLength: 2
+          minLength: 2
+          pattern: ^[A-Z]{2}$
+        timezone: &a21
+          type: string
+          maxLength: 100
+          minLength: 1
+          description: Valid IANA timezone, checked server-side.
+        logoKey: &a22
+          type: string
+          maxLength: 1024
+          description: Existing key issued by Rasel StorageService for this firm; not an upload endpoint.
+          nullable: true
+        brandColor: &a23
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+          nullable: true
+        enabledModules: &a24
+          type: array
+          items:
+            type: string
+            maxLength: 60
+            minLength: 1
+          maxItems: 30
+          uniqueItems: true
+          description: Allowlisted module keys; selection does not grant roles or paid entitlements.
+        clientSignUpEnabled: &a25
+          type: boolean
+        portalName: &a26
+          type: string
+          maxLength: 120
+          nullable: true
+        portalHeader: &a27
+          type: string
+          maxLength: 200
+          nullable: true
+        welcomeMessage: &a28
+          type: string
+          maxLength: 2000
+          nullable: true
+        setup: &a29
+          type: object
+          additionalProperties: false
+          required:
+            - completedSteps
+            - completedAt
+          properties:
+            completedSteps: *a11
+            completedAt:
+              type: string
+              format: date-time
+              nullable: true
+        updatedAt: &a31
+          type: string
+          format: date-time
+    SettingsPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+        contactEmail: *a12
+        contactPhone: *a13
+        website: *a14
+        addressLine1: *a15
+        addressLine2: *a16
+        city: *a17
+        state: *a18
+        postalCode: *a19
+        country: *a20
+        timezone: *a21
+        logoKey: *a22
+        brandColor: *a23
+        enabledModules: *a24
+        clientSignUpEnabled: *a25
+        portalName: *a26
+        portalHeader: *a27
+        welcomeMessage: *a28
+      minProperties: 1
+    Setup: *a29
+    LegalDocument:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - version
+        - bodyMarkdown
+        - publishedAt
+      properties:
+        id: *a30
+        kind:
+          type: string
+          enum:
+            - TERMS
+            - PRIVACY
+        version:
+          type: integer
+          minimum: 1
+        bodyMarkdown:
+          type: string
+          maxLength: 100000
+          minLength: 1
+        publishedAt: *a31
+    PortalSettings:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - portalName
+        - portalHeader
+        - welcomeMessage
+        - brandColor
+        - logoUrl
+        - enabledModules
+        - clientSignUpEnabled
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+        portalName:
+          type: string
+          maxLength: 120
+          nullable: true
+        portalHeader:
+          type: string
+          maxLength: 200
+          nullable: true
+        welcomeMessage:
+          type: string
+          maxLength: 2000
+          nullable: true
+        brandColor: *a23
+        logoUrl:
+          type: string
+          format: uri
+          nullable: true
+        enabledModules: *a24
+        clientSignUpEnabled: *a25
