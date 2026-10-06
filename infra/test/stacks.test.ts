@@ -180,6 +180,22 @@ describe('auth (docs/AUTH-DESIGN.md)', () => {
     }
   });
 
+  it('keeps sessions shortest where an account sees most: admins 1 day, staff 7, clients 30', () => {
+    for (const [name, days] of [
+      ['admins', 1],
+      ['staff', 7],
+      ['clients', 30],
+    ] as const) {
+      t('auth').hasResourceProperties('AWS::Cognito::UserPoolClient', {
+        ClientName: `firmivra-dev-${name}-api`,
+        AccessTokenValidity: 15,
+        IdTokenValidity: 15,
+        RefreshTokenValidity: days * 24 * 60,
+        TokenValidityUnits: { AccessToken: 'minutes', IdToken: 'minutes', RefreshToken: 'minutes' },
+      });
+    }
+  });
+
   it('blocks compromised credentials', () => {
     t('auth').resourceCountIs('AWS::Cognito::UserPoolRiskConfigurationAttachment', 3);
     t('auth').hasResourceProperties('AWS::Cognito::UserPoolRiskConfigurationAttachment', {

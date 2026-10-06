@@ -3,6 +3,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
+import { crossSiteGuard } from './auth/cross-site.middleware.js';
 import { ApiExceptionFilter } from './common/api-exception.filter.js';
 import { requestContextMiddleware } from './common/request-context.js';
 import type { Env } from './config/env.js';
@@ -21,10 +22,9 @@ export function configureApp(app: NestExpressApplication, env: Env): void {
   app.use(requestContextMiddleware);
   app.use(helmet());
   app.use(cookieParser());
-  app.enableCors({
-    origin: [env.APP_BASE_URL, env.PORTAL_BASE_URL, env.ADMIN_BASE_URL],
-    credentials: true,
-  });
+  // Before Nest's body parsers: JSON bodies only, and browser requests from the site itself.
+  // No CORS: each site calls the API on its own host (/api/v1), so no other origin needs access.
+  app.use(crossSiteGuard(env));
   app.setGlobalPrefix('api/v1');
   app.useGlobalFilters(new ApiExceptionFilter());
   app.enableShutdownHooks();
