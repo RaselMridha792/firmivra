@@ -1,0 +1,307 @@
+openapi: 3.1.0
+info:
+  title: Firmivra firm settings API
+  version: 0.1.0
+  description: |
+    The firm's settings, the first-time setup wizard, and the firm's own Terms and Privacy
+    (Settings > Profile, Branding, Client portal, Legal, and `/setup`). Lead's T02, from Tumit's
+    design.
+
+    **Source of truth:** the zod schemas in `packages/types/src/settings/schemas.ts`, with typed
+    calls in `createSettingsClient` (web: `api.settings` in `apps/web/src/lib/api.ts`). Mock mode:
+    `createSettingsMock()` in `apps/web/src/mocks/settings.ts`. If this file and the zod schemas
+    differ, the zod schemas win.
+
+    ## Pages and calls
+
+    | Page | Calls |
+    | --- | --- |
+    | `/setup` (5 steps) | `getSetup`; each step's fields with `update` (Save Draft); Next: `completeStep(step)`; Finish: `finishSetup` |
+    | `/settings/profile`, `/branding`, `/portal` | `get`, `update` |
+    | `/settings/legal` | `getLegal(kind)`, `getLegalVersion(kind, n)`, `publishLegal(kind, { body })` |
+
+    - **Who:** Owner and Admin of the firm (`403 FORBIDDEN` for staff). Every route also works
+      while the firm is Pending Setup. The firm comes from the signed-in membership
+      (`x-business-id` for staff with more than one firm), never from the body.
+    - **Locked:** the business id, slug (portal address), legal name and status are shown but
+      only Firmivra changes them; sending one is `400 VALIDATION_FAILED`.
+    - **Clearing:** an empty text field is sent as `null` and clears the setting (`null` colours
+      and portal texts mean Firmivra's default). Name, country and time zone cannot be cleared.
+    - **Logo:** `logoUrl` is null until R5 adds logo upload and signed URLs.
+    - **Wizard:** Branding, Business details, Team and access, Client portal, then Finish. Save
+      Draft saves the step's fields; Next also marks the step done. Finish (`POST setup/complete`)
+      needs all four steps (`409 SETUP_INCOMPLETE` names the missing ones), makes the firm Active
+      and opens its portal. Repeating it returns the first finish time.
+    - **Terms and Privacy:** versions are numbered from 1 and never edited; publishing makes the
+      next version current for clients at once (the portal reads it from client-auth.yaml's
+      `GET /portal/{firmSlug}/legal/{kind}`). Client sign-up stays closed until both are published.
+    - **Writes:** JSON bodies from the app site only (`415 UNSUPPORTED_MEDIA_TYPE`,
+      `403 ORIGIN_NOT_ALLOWED`; see "Calling the API from the web app" in auth.yaml).
+    - **Audit:** every change is logged with field names or the version, never the values or text.
+
+servers:
+  - url: /api/v1
+
+security: [{ firmCookie: [] }]
+
+tags:
+  - name: settings
+  - name: setup
+  - name: legal
+
+paths:
+  /business/settings:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [settings]
+      operationId: getFirmSettings
+      summary: The firm's settings
+      responses:
+        '200': { $ref: '#/components/responses/FirmSettings' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [settings]
+      operationId: updateFirmSettings
+      summary: Change some settings (only the fields sent)
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/UpdateFirmSettingsRequest' } }
+      responses:
+        '200': { $ref: '#/components/responses/FirmSettings' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+  /business/setup:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [setup]
+      operationId: getFirmSetup
+      summary: Wizard progress
+      responses:
+        '200': { $ref: '#/components/responses/FirmSetup' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /business/setup/steps/{step}:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - name: step
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/SetupStep' }
+    put:
+      tags: [setup]
+      operationId: completeSetupStep
+      summary: Mark a step done (no body; repeating changes nothing)
+      responses:
+        '200': { $ref: '#/components/responses/FirmSetup' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /business/setup/complete:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [setup]
+      operationId: finishFirmSetup
+      summary: Finish the wizard; the firm becomes Active (no body)
+      responses:
+        '200': { $ref: '#/components/responses/FirmSetup' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`SETUP_INCOMPLETE`: the message names the steps still to do'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+  /business/legal/{kind}:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/LegalKind' }
+    get:
+      tags: [legal]
+      operationId: getFirmLegal
+      summary: The current text and every published version
+      responses:
+        '200':
+          description: Current version (null before the first) and all versions, newest first
+          content: { application/json: { schema: { $ref: '#/components/schemas/FirmLegalOverview' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /business/legal/{kind}/versions:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/LegalKind' }
+    post:
+      tags: [legal]
+      operationId: publishFirmLegal
+      summary: Publish the next version
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/PublishLegalDocumentRequest' } }
+      responses:
+        '201': { $ref: '#/components/responses/LegalDocument' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+  /business/legal/{kind}/versions/{version}:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/LegalKind' }
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1, maximum: 2147483647 }
+    get:
+      tags: [legal]
+      operationId: getFirmLegalVersion
+      summary: One published version's text
+      responses:
+        '200': { $ref: '#/components/responses/LegalDocument' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  parameters:
+    LegalKind:
+      name: kind
+      in: path
+      required: true
+      schema: { type: string, enum: [terms, privacy] }
+
+  securitySchemes:
+    firmCookie: { type: apiKey, in: cookie, name: fv_access }
+
+  responses:
+    FirmSettings:
+      description: The settings after the call
+      content: { application/json: { schema: { $ref: '#/components/schemas/FirmSettings' } } }
+    FirmSetup:
+      description: Wizard progress after the call
+      content: { application/json: { schema: { $ref: '#/components/schemas/FirmSetup' } } }
+    LegalDocument:
+      description: One version with its text (Markdown)
+      content: { application/json: { schema: { $ref: './client-auth.yaml#/components/schemas/LegalDocument' } } }
+    ValidationFailed:
+      description: '`VALIDATION_FAILED`: a field, step, kind or version is not valid, or a locked or unknown field was sent'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Unauthenticated:
+      description: '`UNAUTHENTICATED`: not signed in'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Forbidden:
+      description: '`FORBIDDEN` (staff, or the firm is suspended or closed) or `ORIGIN_NOT_ALLOWED` (sent from another site)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    NotFound:
+      description: '`NOT_FOUND`: no active membership in that firm, or a version that was never published'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    UnsupportedMediaType:
+      description: '`UNSUPPORTED_MEDIA_TYPE`: the body is not JSON'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+  schemas:
+    ApiError: { $ref: './client-auth.yaml#/components/schemas/ApiError' }
+    HexColor: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+    NullableText:
+      description: Trimmed; an empty string is stored as null (clears the setting)
+      type: [string, 'null']
+    SetupStep: { type: string, enum: [branding, businessDetails, team, clientPortal] }
+    FirmSettings:
+      type: object
+      additionalProperties: false
+      required: [business, name, contactEmail, contactPhone, website, addressLine1, addressLine2, city, state, postalCode, country, timezone, logoUrl, primaryColor, accentColor, portalName, portalHeader, welcomeMessage, clientSignUpEnabled, updatedAt]
+      properties:
+        business:
+          description: Set when Firmivra approved the firm; read-only here
+          type: object
+          additionalProperties: false
+          required: [id, slug, legalName, status]
+          properties:
+            id: { type: string, format: uuid }
+            slug: { type: string, description: 'portal.firmivra.com/{slug}' }
+            legalName: { type: [string, 'null'] }
+            status: { type: string, enum: [PENDING_SETUP, ACTIVE, SUSPENDED, CLOSED] }
+        name: { type: string }
+        contactEmail: { type: [string, 'null'] }
+        contactPhone: { type: [string, 'null'] }
+        website: { type: [string, 'null'] }
+        addressLine1: { type: [string, 'null'] }
+        addressLine2: { type: [string, 'null'] }
+        city: { type: [string, 'null'] }
+        state: { type: [string, 'null'] }
+        postalCode: { type: [string, 'null'] }
+        country: { type: string, description: ISO 3166 two-letter code }
+        timezone: { type: string, description: IANA time zone }
+        logoUrl: { type: [string, 'null'], format: uri, description: Null until R5 }
+        primaryColor: { type: [string, 'null'], description: '#rrggbb; null uses the default' }
+        accentColor: { type: [string, 'null'], description: '#rrggbb; null uses the default' }
+        portalName: { type: [string, 'null'], description: 'Null: "{name} Client Portal"' }
+        portalHeader: { type: [string, 'null'] }
+        welcomeMessage: { type: [string, 'null'] }
+        clientSignUpEnabled: { type: boolean }
+        updatedAt: { type: string, format: date-time }
+    UpdateFirmSettingsRequest:
+      description: At least one field. Unknown and locked fields are refused.
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        contactEmail: { allOf: [{ $ref: '#/components/schemas/NullableText' }], format: email, maxLength: 254 }
+        contactPhone: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 40 }
+        website: { allOf: [{ $ref: '#/components/schemas/NullableText' }], format: uri, pattern: '^https://', maxLength: 2048 }
+        addressLine1: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 200 }
+        addressLine2: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 200 }
+        city: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 120 }
+        state: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 120 }
+        postalCode: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 32 }
+        country: { type: string, pattern: '^[A-Za-z]{2}$', description: Stored in capitals }
+        timezone: { type: string, maxLength: 100, description: Must be a known IANA time zone }
+        primaryColor: { oneOf: [{ $ref: '#/components/schemas/HexColor' }, { type: 'null' }, { const: '' }] }
+        accentColor: { oneOf: [{ $ref: '#/components/schemas/HexColor' }, { type: 'null' }, { const: '' }] }
+        portalName: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 120 }
+        portalHeader: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 200 }
+        welcomeMessage: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 2000 }
+        clientSignUpEnabled: { type: boolean }
+    FirmSetup:
+      type: object
+      additionalProperties: false
+      required: [completedSteps, completedAt]
+      properties:
+        completedSteps: { type: array, items: { $ref: '#/components/schemas/SetupStep' }, description: In wizard order }
+        completedAt: { type: [string, 'null'], format: date-time, description: The firm is Active from then on }
+    FirmLegalOverview:
+      type: object
+      additionalProperties: false
+      required: [current, versions]
+      properties:
+        current:
+          oneOf:
+            - { $ref: './client-auth.yaml#/components/schemas/LegalDocument' }
+            - { type: 'null' }
+        versions:
+          type: array
+          description: Newest first, the current one included
+          items: { $ref: './client-auth.yaml#/components/schemas/LegalVersion' }
+    PublishLegalDocumentRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 100000, description: Markdown; not only spaces }

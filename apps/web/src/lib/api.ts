@@ -2,6 +2,7 @@ import {
   createApiClient,
   createClientSignUpsClient,
   createRequest,
+  createSettingsClient,
   createTaxStatusesClient,
 } from '@firmivra/types';
 
@@ -17,6 +18,8 @@ const request = createRequest(options);
 export const api = {
   ...createApiClient(options),
   taxStatuses: createTaxStatusesClient(request),
+  /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
+  settings: createSettingsClient(request),
   /** Pending client sign-ups, approve and decline (docs/api/client-auth.yaml). */
   clientSignUps: createClientSignUpsClient(request),
 };
