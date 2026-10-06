@@ -14,7 +14,8 @@ export const TaxStatusName = z
 /** A status id in a path: anything else gets 400 VALIDATION_FAILED. */
 export const TaxStatusId = z.uuid();
 
-export const TaxStatus = z.strictObject({
+/** Responses are plain objects: a field added later is dropped, so an open page keeps working. */
+export const TaxStatus = z.object({
   id: z.uuid(),
   name: z.string(),
   /** 0, 1, 2 ... in display order; archived statuses keep their last position. */
@@ -38,7 +39,7 @@ export const ListTaxStatusesQuery = z.strictObject({
 export type ListTaxStatusesQuery = { includeArchived?: boolean };
 
 /** The list and the result of a reorder, in display order (at most 500 per firm). */
-export const ListTaxStatusesResponse = z.strictObject({
+export const ListTaxStatusesResponse = z.object({
   items: z.array(TaxStatus).max(500),
 });
 export type ListTaxStatusesResponse = z.infer<typeof ListTaxStatusesResponse>;
