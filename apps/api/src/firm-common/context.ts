@@ -16,6 +16,11 @@ export function firmContext() {
 export const missing = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 /** Recheck permission after waiting for a transaction lock: the guard's earlier snapshot may be stale. */
 export async function activeManager(tx: TxClient, context: ReturnType<typeof firmContext>) {
+  const firm = await tx.business.findFirst({
+    where: { id: context.businessId, status: 'ACTIVE' },
+    select: { id: true },
+  });
+  if (!firm) throw missing();
   const actor = await tx.membership.findFirst({
     where: { businessId: context.businessId, userId: context.userId, status: 'ACTIVE' },
     select: { role: true },
