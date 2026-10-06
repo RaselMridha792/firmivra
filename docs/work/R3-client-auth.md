@@ -13,7 +13,7 @@
 
 ## Steps
 
-- [ ] 1. Publish docs/api/client-auth.yaml by Oct 7 so Nahid builds N02 and N03 against it
+- [ ] 1. Contract first: `packages/types/src/client-auth` (schemas and client functions) plus mock fixtures on Oct 7, with docs/api/client-auth.yaml, so Nahid builds N02 and N03 against it; the firm's pending sign-ups contract by Oct 8 (Fahad F06)
 - [ ] 2. Sign-up on portal/{slug} through our API (no Cognito self sign-up): account status pending
 - [ ] 3. Verify email and phone codes (SMS goes to the API log locally and in dev until SNS is registered)
 - [ ] 4. Firm side: list pending sign-ups, approve, decline (owner and admin only), notify the client
@@ -25,6 +25,11 @@
 ## Done when
 
 Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign-ups queue approves a client.
+
+## Rules
+
+- Contract first for every module (Rasel, Oct 6): the module's first PR is its zod schemas and client functions in `packages/types`, registered on `api` in `apps/web/src/lib/api.ts`, plus typed mock fixtures in `apps/web/src/mocks/<module>.ts`. The developers build the screen against it the same day.
+- Never edit screens: in apps/web change only `src/mocks/<module>.ts` and your lines in `src/lib/api.ts`.
 
 ## Needs from others
 

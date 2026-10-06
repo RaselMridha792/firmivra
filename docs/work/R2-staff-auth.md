@@ -27,6 +27,11 @@
 
 A staff user and a Super Admin can sign in with MFA on dev; Fahad's F02 screens work against it.
 
+## Rules
+
+- Contract first for every module (Rasel, Oct 6): the module's first PR is its zod schemas and client functions in `packages/types`, registered on `api` in `apps/web/src/lib/api.ts`, plus typed mock fixtures in `apps/web/src/mocks/<module>.ts`. The developers build the screen against it the same day.
+- Never edit screens: in apps/web change only `src/mocks/<module>.ts`, your lines in `src/lib/api.ts`, and `src/lib/auth.ts` (owned above).
+
 ## Needs from others
 
 - R0 (in progress): `team_invites` table holding the token hash; the user row and an `INVITED` membership are created when the invite is sent. Step 6 builds on that shape.

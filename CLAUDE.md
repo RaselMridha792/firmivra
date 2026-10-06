@@ -13,7 +13,7 @@ Firmivra is one multi-tenant platform shared by many businesses. Each business (
 | Client portal       | `portal.firmivra.com/{firmSlug}` | Each business's clients, in the firm's branding                             |
 
 - Dev environment: `admin.dev.firmivra.com`, `app.dev.firmivra.com` and `portal.dev.firmivra.com/{firmSlug}`; every merge to `main` deploys there. Every site URL and host comes from config, never from code.
-- First business (beta tenant): LVP Accounting & Taxes, slug `lvp`. Beta launch: Jan 8, 2027.
+- First business (beta tenant): LVP Accounting & Taxes, slug `lvp`. Delivery: Oct 18, 2026.
 - Isolation is enforced by four walls: the API tenant guard, PostgreSQL row-level security, per-business S3 prefixes, and per-business KMS keys. A bug in one wall must never be enough to leak data.
 
 ## Read before you build
@@ -24,7 +24,7 @@ Firmivra is one multi-tenant platform shared by many businesses. Each business (
 - `docs/SCRUM-PLAN.md`: team, process, sprints, Definition of Ready and Done.
 - `docs/mockups/{begin-online,client-portal,super-admin}/`: Octavia's mockups. Screens must match them.
 - `docs/specs/`: Octavia's written instructions (.docx) for each area.
-- `docs/tasks/<NAME>.md`: each developer's ticket plan (on their onboarding branch).
+- `docs/tasks/<NAME>.md`: each developer's ticket plan.
 
 Naming: the design docs say tenant / `tenant_id`. In code the tenant is the `Business` model, the field is `businessId` and the column is `business_id`.
 
@@ -90,7 +90,7 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 
 - Branch from the latest `main`: `<name>/FIR-<issue number>-short-name`, for example `fahad/FIR-42-login-screen`.
 - Open a PR into `main` under 400 changed lines and fill in the PR template. UI PRs include the mockup next to a screenshot of the result.
-- CI must pass. Your pair pre-reviews first (frontend: Fahad and Nahid; backend: Tumit and Ibrahim). Only Rasel approves and merges (squash).
+- CI must pass. Your pair pre-reviews first (Fahad + Tumit, Nahid + Ibrahim; all four build screens). Only Rasel approves and merges (squash).
 - A merge to `main` deploys to dev. Production deploys only from a `v*` tag that Rasel creates, after approval.
 - Never push to `main`, never force-push a branch someone else uses, never commit `.env`.
 - Commit messages follow Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`.
@@ -103,9 +103,13 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 - Keep each change to its ticket. Ask instead of guessing when a requirement is unclear.
 - TypeScript strict everywhere.
 
+## Junior developers
+
+From Oct 7, Fahad, Nahid, Tumit and Ibrahim build screens and tests; Rasel's Claude Code sessions build every API. The developers change only `apps/web`, `packages/ui` (Fahad) and their own `docs/tasks/<NAME>.md`, and follow `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md`.
+
 ## Parallel sessions
 
-- Rasel's workstreams (R0 to R9) are in `docs/work/`, one file each. The rules for them (worktrees, branches, PR size, the database lock) are in `docs/work/README.md`.
+- Rasel's workstreams (R0 to R12) are in `docs/work/`, one file each. The rules for them (worktrees, branches, PR size, the database lock) are in `docs/work/README.md`.
 - A workstream session reads only `CLAUDE.md`, `docs/work/README.md` and its own R file (plus the files that R file lists under "Read first").
 - It edits only its own R file and the paths that R file owns.
 - Only the lead session (the main checkout, `Business-full-stack-project/`) edits `docs/work/BOARD.md` and merges. `BOARD.md` is git-ignored and exists only in the main checkout.
