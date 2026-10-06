@@ -66,6 +66,11 @@ enum PlatformRole {
   SUPER_ADMIN
 }
 
+/// docs/SYSTEM-DESIGN.md, Modules & packs. Only the tax and accounting pack exists now.
+enum IndustryPack {
+  TAX_ACCOUNTING
+}
+
 enum FirmApplicationStatus {
   PENDING_REVIEW
   INFO_REQUESTED
@@ -263,15 +268,21 @@ enum LegalDocumentKind {
 
 /// A firm on Firmivra (the tenant).
 model Business {
-  id         String         @id @default(uuid(7)) @db.Uuid
-  name       String
-  legalName  String?        @map("legal_name")
-  slug       String         @unique
-  status     BusinessStatus @default(PENDING_SETUP)
-  termsUrl   String?        @map("terms_url")
-  privacyUrl String?        @map("privacy_url")
-  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id           String         @id @default(uuid(7)) @db.Uuid
+  name         String
+  legalName    String?        @map("legal_name")
+  slug         String         @unique
+  status       BusinessStatus @default(PENDING_SETUP)
+  termsUrl     String?        @map("terms_url")
+  privacyUrl   String?        @map("privacy_url")
+  /// The firm's own KMS key (per-business key, the fourth wall). Set at approval; platform only.
+  kmsKeyId     String?        @map("kms_key_id")
+  /// What kind of business, from the application. Platform only.
+  businessType String?        @map("business_type")
+  /// The industry pack that sets starter modules and wording. Platform only.
+  pack         IndustryPack   @default(TAX_ACCOUNTING)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   memberships         Membership[]
   clientAccounts      ClientAccount[]
@@ -447,7 +458,8 @@ model FirmApplication {
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business? @relation(fields: [businessId], references: [id])
+  business      Business?                      @relation(fields: [businessId], references: [id])
+  statusHistory FirmApplicationStatusHistory[]
 
   @@index([status, createdAt])
   @@map("firm_applications")
@@ -1532,4 +1544,23 @@ model StripeAccount {
   business Business @relation(fields: [businessId], references: [id])
 
   @@map("stripe_accounts")
+}
+
+/// Append-only: one row per status change of a firm application (and its submission), written by
+/// a trigger on firm_applications. Platform data: admin and platform scope only.
+model FirmApplicationStatusHistory {
+  id              String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId   String                 @map("application_id") @db.Uuid
+  fromStatus      FirmApplicationStatus? @map("from_status")
+  toStatus        FirmApplicationStatus  @map("to_status")
+  /// The reviewer, when a Super Admin made the change.
+  changedByUserId String?                @map("changed_by_user_id") @db.Uuid
+  /// The decision reason at the time (request for information, decline).
+  reason          String?
+  changedAt       DateTime               @default(now()) @map("changed_at") @db.Timestamptz(3)
+
+  application FirmApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, changedAt])
+  @@map("firm_application_status_history")
 }

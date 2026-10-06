@@ -73,7 +73,7 @@ export async function prepareTestDatabase(
       notification_preferences, appointment_types, working_hours, blocked_times, appointments,
       message_threads, messages, message_attachments, client_private_notes, client_note_reminders,
       invoices, invoice_lines, payments, payment_events, content_items, calculator_definitions,
-      stripe_accounts CASCADE`);
+      stripe_accounts, firm_application_status_history CASCADE`);
   } finally {
     await owner.end();
   }

@@ -7,12 +7,16 @@ import { Prisma, PrismaClient } from './generated/prisma/client.js';
  * - business: one firm's data. Everything a firm user or client does. `actorUserId` optionally
  *   records who is acting; rows private to one person (a client's own notes) need it.
  * - user: the signed-in person's own memberships and client accounts across firms (/me).
- * - platform: platform tables for Super Admin and identity work. No firm data.
+ * - admin: Super Admin pages, for one platform admin: firm applications and their history,
+ *   firms' platform fields, support grant requests, firm owners' contact and platform audit
+ *   events. Never firm data. Sees nothing unless `adminUserId` is a platform admin.
+ * - platform: identity work (sign-in, invites, activation, firm provisioning). No firm data.
  * - invite: only the invite whose token hash matches (signed-out "accept invite" step).
  */
 export type Scope =
   | { kind: 'business'; businessId: string; actorUserId?: string }
   | { kind: 'user'; userId: string }
+  | { kind: 'admin'; adminUserId: string }
   | { kind: 'invite'; tokenHash: string }
   | { kind: 'platform' };
 
@@ -29,7 +33,13 @@ function assertScope(scope: Scope): void {
     return;
   }
   const id =
-    scope.kind === 'business' ? scope.businessId : scope.kind === 'user' ? scope.userId : null;
+    scope.kind === 'business'
+      ? scope.businessId
+      : scope.kind === 'user'
+        ? scope.userId
+        : scope.kind === 'admin'
+          ? scope.adminUserId
+          : null;
   if (id !== null && !UUID.test(id)) {
     throw new Error(`Invalid ${scope.kind} id for database scope`);
   }
@@ -47,12 +57,14 @@ function setScope(client: PrismaClient | TxClient, scope: Scope) {
   const businessId = scope.kind === 'business' ? scope.businessId : '';
   const actorUserId = scope.kind === 'business' ? (scope.actorUserId ?? '') : '';
   const userId = scope.kind === 'user' ? scope.userId : '';
+  const adminUserId = scope.kind === 'admin' ? scope.adminUserId : '';
   const tokenHash = scope.kind === 'invite' ? scope.tokenHash : '';
   return client.$executeRaw`SELECT
     set_config('app.scope', ${scope.kind}, true),
     set_config('app.current_business_id', ${businessId}, true),
     set_config('app.current_actor_id', ${actorUserId}, true),
     set_config('app.current_user_id', ${userId}, true),
+    set_config('app.current_admin_id', ${adminUserId}, true),
     set_config('app.invite_token_hash', ${tokenHash}, true)`;
 }
 
@@ -134,7 +146,14 @@ export function createDatabase(appConnectionString: string, options: ClientOptio
     forUser: (userId: string) => scopedClient(base, { kind: 'user', userId }),
     /** Only the invite with this SHA-256 token hash (hex). Read its businessId, then use forBusiness. */
     forInvite: (tokenHash: string) => scopedClient(base, { kind: 'invite', tokenHash }),
-    /** Platform tables for Super Admin and identity work. Never firm data. */
+    /**
+     * Super Admin pages, acting as `adminUserId` (must be a platform admin, else nothing is
+     * visible): firm applications and history, firms' status and slug, support grant requests,
+     * firm owners' contact, platform audit events. Never firm data: that needs an approved
+     * support grant and firm scope.
+     */
+    forAdmin: (adminUserId: string) => scopedClient(base, { kind: 'admin', adminUserId }),
+    /** Identity work: sign-in, invites, activation, firm provisioning. Never firm data. */
     forPlatform: () => scopedClient(base, { kind: 'platform' }),
     /** Multi-step transaction in one scope. */
     withScope: <T>(scope: Scope, fn: (tx: TxClient) => Promise<T>) => runInScope(base, scope, fn),
