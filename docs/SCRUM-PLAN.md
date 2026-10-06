@@ -114,14 +114,14 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Sprint | Dates | Theme |
 | --- | --- | --- |
 | 0 | Oct 5 to Oct 16 | Setup and CI/CD |
-| 1 | Oct 19 to Oct 30 | Sign-in, firm approval |
-| 2 | Nov 2 to Nov 13 | Workspace, client sign-up |
-| 3 | Nov 16 to Nov 27 | Documents, services, notifications |
-| 4 | Nov 30 to Dec 11 | Intake, taxes, service workspaces |
-| 5 | Dec 14 to Dec 25 | Appointments, messages, billing, calculator |
+| 1 | after Sprint 0 | Sign-in, firm approval |
+| 2 | after Sprint 1 | Workspace, client sign-up |
+| 3 | after Sprint 2 | Documents, services, notifications |
+| 4 | after Sprint 3 | Intake, taxes, service workspaces |
+| 5 | after Sprint 4 | Appointments, messages, billing, calculator |
 | 6 | after Sprint 5 | Hardening, Octavia's acceptance, LVP launch |
 
-### Sprint 1: sign-in and firm approval (Oct 19 to Oct 30)
+### Sprint 1: sign-in and firm approval
 
 **Goal:** a firm can apply, Super Admin approves it, and the firm owner activates the account and logs in.
 
@@ -132,7 +132,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Tumit | Cognito pools and role claims, firm application API, approve and activate flow, invite emails through SES |
 | Ibrahim | Business settings API, firm-defined tax statuses API, client record CRUD API |
 
-### Sprint 2: firm workspace and client sign-up (Nov 2 to Nov 13)
+### Sprint 2: firm workspace and client sign-up
 
 **Goal:** a firm sets itself up with its own Terms and Privacy, a client signs up on the firm's portal, and the firm approves the account.
 
@@ -143,7 +143,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Tumit | Role-based access on every endpoint (owner, admin, staff), team invite API, client self sign-up with firm approval, firm-scoped Cognito password reset that never reveals whether an account exists, per-firm legal documents setting |
 | Ibrahim | Client profile API, tax status tracking per client, firm-side status update API |
 
-### Sprint 3: documents, services, notifications (Nov 16 to Nov 27)
+### Sprint 3: documents, services, notifications
 
 **Goal:** clients upload documents securely, see their services, and both sides get an in-app notification center.
 
@@ -154,7 +154,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Tumit | Audit log API and viewer, Super Admin support access only with the firm owner's time-limited, logged approval, notification center API |
 | Ibrahim | Pre-signed S3 uploads, per-business KMS keys, file type and size checks, document categories, services and engagement API |
 
-### Sprint 4: intake, taxes, service workspaces (Nov 30 to Dec 11)
+### Sprint 4: intake, taxes, service workspaces
 
 **Goal:** a visitor completes Begin Online, the firm turns the lead into a client, clients see their tax status, and staff work Bookkeeping and Tax Planning jobs in a service workspace.
 
@@ -165,7 +165,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Tumit | Lead to client conversion API, notification service (email through SES, SMS through SNS), external links configuration API |
 | Ibrahim | Intake form definitions and submissions API, tax returns API, service workspace API (Bookkeeping reconciliation and reports, Tax Planning projections) |
 
-### Sprint 5: appointments, messages, billing, calculator (Dec 14 to Dec 25)
+### Sprint 5: appointments, messages, billing, calculator
 
 **Goal:** clients book appointments, message the firm, pay invoices with Stripe and use the tax calculator.
 
@@ -176,7 +176,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Tumit | Appointments API with double-booking lock, reminder and change notifications, notification preferences |
 | Ibrahim | Messages API, invoices API, Stripe payments and webhooks, calculator formulas and validation |
 
-This is the heaviest sprint and it includes Dec 25. If Sprint 2's velocity shows we are behind, the calculator and the resource dashboards move after beta first.
+This is the heaviest sprint. If Sprint 2's velocity shows we are behind, the calculator and the resource dashboards move after beta first.
 
 ### Sprint 6: hardening and LVP launch
 
