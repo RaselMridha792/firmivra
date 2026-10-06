@@ -19,6 +19,7 @@ import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Public, Roles } from './deco
 import { InvitesService } from './invites.service.js';
 import { SessionService } from './session.service.js';
 import { SignInService } from './sign-in.service.js';
+import { sitePlace } from './site.js';
 
 /** Per viewer IP (see configure-app.ts). */
 const ATTEMPTS = { default: { limit: 10, ttl: 60_000 } };
@@ -75,7 +76,7 @@ export class InvitesController {
     const { userId, sub } = await this.invites.activate(body.token, body.password, body.name);
     const outcome = await this.signIns.afterActivation(userId, sub, body.password);
     if (outcome.kind === 'step') return outcome.result;
-    await this.sessions.start(res, 'firm', outcome);
+    await this.sessions.start(res, sitePlace('firm'), outcome);
     return { status: 'SIGNED_IN', me: await this.me.load(outcome.userId) };
   }
 

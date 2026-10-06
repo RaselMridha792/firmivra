@@ -21,6 +21,8 @@ let firmId = '';
 const docIds: string[] = [];
 type Sent = { kind: 'email' | 'sms' | 'registered'; to: string; code?: string };
 const outbox: Sent[] = [];
+/** The portal's own origin: the browser sends it on every POST (cross-site check). */
+let portalOrigin = '';
 
 let lastViewer = 0;
 const newViewer = () => `198.18.0.${++lastViewer}`;
@@ -28,7 +30,7 @@ const base = (s = slug) => `/api/v1/portal/${s}/auth/sign-up`;
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 const emailFor = (name: string) => `r3-${name}-${randomUUID().slice(0, 6)}@example.com`;
 
-/** A browser on the sign-up pages: one viewer, one cookie jar. */
+/** A browser on the sign-up pages: one viewer, one cookie jar, the portal's origin. */
 function visitor(firmSlug = slug) {
   const viewer = newViewer();
   let cookie = '';
@@ -41,10 +43,11 @@ function visitor(firmSlug = slug) {
     return res;
   };
   const send = (method: 'get' | 'post', path: string, body?: object) => {
-    const req = request(app.getHttpServer())
+    let req = request(app.getHttpServer())
       [method](`${base(firmSlug)}${path}`)
       .set('x-forwarded-for', `${viewer}, 10.0.0.5`)
       .set('cookie', cookie);
+    if (method === 'post') req = req.set('origin', portalOrigin);
     return (body ? req.send(body) : req).then(keep);
   };
   return {
@@ -110,6 +113,7 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
+  portalOrigin = new URL(env.PORTAL_BASE_URL).origin;
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(CLIENT_CODE_SENDER)
     .useValue({
