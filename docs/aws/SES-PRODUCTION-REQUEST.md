@@ -1,6 +1,6 @@
 # SES production access request (us-east-1)
 
-> **Status: send before beta (Jan 8, 2027); needs company details from Octavia.**
+> **Status: send before delivery (Oct 18, 2026); needs company details from Octavia.**
 > Not sent. Until then SES stays in the sandbox: 200 emails a day, only to verified addresses (the team's addresses are verified for testing).
 
 ## Before sending
@@ -21,7 +21,7 @@
 
 ## Use case description
 
-Firmivra is a multi-tenant web platform for accounting and tax firms, in development with a beta launch in January 2027. Each firm gets a workspace for its staff and a branded portal for its own clients.
+Firmivra is a multi-tenant web platform for accounting and tax firms, in development, with delivery to its first firm on Oct 18, 2026. Each firm gets a workspace for its staff and a branded portal for its own clients.
 
 We will send transactional email only: from no-reply@dev.firmivra.com for our development environment now, and later from our production domain in this same account. The emails are:
 - 6-digit email verification and password-reset codes;

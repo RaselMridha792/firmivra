@@ -1,6 +1,6 @@
 # @firmivra/api
 
-NestJS 12 REST API at `/api/v1`. Backend: Tumit and Ibrahim. Read `docs/AUTH-DESIGN.md` first.
+NestJS 12 REST API at `/api/v1`. Built by Rasel's Claude Code sessions (the API workstreams in `docs/work/`). Read `docs/AUTH-DESIGN.md` first.
 
 ## Run it
 

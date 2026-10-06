@@ -21,7 +21,7 @@ One platform where any business opens its own account under its own name, runs i
 
 **4** isolation walls: API, database, files, keys
 
-**8 Jan** 2027 LVP beta; payroll, advisory and calendar sync right after
+**Oct 18** 2026: delivery for LVP; payroll, advisory and calendar sync right after
 
 **6** build phases, foundations first
 
@@ -617,7 +617,7 @@ Tax pack
 
 **Gate:** Octavia's 20 beta checks and the draft's go-live criteria all pass.
 
-**Beta scope, decided 4 Oct.** The LVP beta stays on 8 January 2027 and includes every item on Octavia's missing-requirements list except three, which ship right after: payroll operations (payroll runs, filings, W-2/1099, provider integration; provider chosen later), the Business Advisory workspace, and Google/Outlook calendar sync.
+**Beta scope, decided 4 Oct.** Delivery: Oct 18, 2026. It includes every item on Octavia's missing-requirements list except three, which ship right after: payroll operations (payroll runs, filings, W-2/1099, provider integration; provider chosen later), the Business Advisory workspace, and Google/Outlook calendar sync.
 
 **Octavia's priority.** Her Super Admin scope says the primary focus is the firm workspace and client portal; Super Admin only needs the application → approve → activate path in Phase 1. Phase 1 above is kept that small so Phases 2 and 3 start early.
 
@@ -662,7 +662,7 @@ The four Drive folders hold a platform guide, Super Admin scope, 7 portal instru
 
 | Question | Decision |
 | --- | --- |
-| Beta scope | Beta stays on 8 Jan 2027 with all missing requirements except payroll operations, Advisory and calendar sync, which ship right after |
+| Beta scope | Delivery: Oct 18, 2026, with all missing requirements except payroll operations, Advisory and calendar sync, which ship right after |
 | AWS region | us-east-1 (N. Virginia) |
 | AWS account | One Firmivra account for all firms, isolated per firm; no separate LVP account |
 | Client sign-up | Self sign-up on the firm portal, then the firm approves |
