@@ -4,10 +4,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, scopedClient } from '../src/client.js';
+import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner);
-const pooled = createPrismaClient(urls.app, { maxConnections: 1 });
+const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+const pooled = createPrismaClient(urls.app, { ...TEST_CLIENT_OPTIONS, maxConnections: 1 });
 
 const userId = randomUUID();
 let businessId = '';

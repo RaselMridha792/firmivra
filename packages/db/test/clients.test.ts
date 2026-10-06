@@ -3,10 +3,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner);
-const db = createDatabase(urls.app);
+const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 const run = randomUUID().slice(0, 8);
 const ids = {
@@ -125,6 +126,27 @@ describe('clients', () => {
         data: { clientId: c.id, businessId: ids.firmA, ssnLast4: '12345' },
       }),
     ).rejects.toThrow(/check constraint/i);
+  });
+
+  it("keeps the client's additional information short (My Profile)", async () => {
+    const c = await newClientA();
+    const profile = (data: object) =>
+      firmA().clientProfile.create({ data: { clientId: c.id, businessId: ids.firmA, ...data } });
+    for (const data of [
+      { referralSource: ' ' },
+      { referralSource: 'x'.repeat(201) },
+      { additionalInfo: ' ' },
+      { additionalInfo: 'x'.repeat(2001) },
+    ]) {
+      await expect(profile(data)).rejects.toThrow(/check constraint/i);
+    }
+    await expect(
+      profile({
+        preferredContactMethod: 'TEXT',
+        referralSource: 'A friend',
+        additionalInfo: 'Prefers mornings.',
+      }),
+    ).resolves.toMatchObject({ preferredContactMethod: 'TEXT' });
   });
 });
 
