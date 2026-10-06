@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: Firmivra audit log viewer API
+  version: 0.1.0
+  description: T01 proposed contract for T08. Not implemented or frontend-approved. Existing
+    append-only AuditLog. No edit/delete/export endpoint. Support grant adapter is Rasel-owned.
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /business/audit-logs:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: listFirmAuditLogs
+      summary: Filter firm audit events
+      description:
+        OWNER only per T08. Staff/client/admin denied until Rasel confirms a wider matrix.
+        TenantPrisma scoped read; stable descending createdAt/id cursor. Record audit viewer access
+        without copying result metadata/content.
+      x-roles:
+        - OWNER
+      parameters: &a3
+        - $ref: ./common.yaml#/parameters/Cursor
+        - $ref: ./common.yaml#/parameters/Limit
+        - name: from
+          in: query
+          required: false
+          schema: &a1
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema: *a1
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: entityType
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: actorUserId
+          in: query
+          required: false
+          schema: &a2
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEvent'
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        '400': &a4
+          $ref: ./common.yaml#/responses/BadRequest
+        '401': &a5
+          $ref: ./common.yaml#/responses/Unauthenticated
+        '403': &a6
+          $ref: ./common.yaml#/responses/Forbidden
+        '404': &a7
+          $ref: ./common.yaml#/responses/NotFound
+        '409': &a8
+          $ref: ./common.yaml#/responses/Conflict
+        '422': &a9
+          $ref: ./common.yaml#/responses/Unprocessable
+        '429': &a10
+          $ref: ./common.yaml#/responses/RateLimited
+        '500': &a11
+          $ref: ./common.yaml#/responses/InternalError
+  /admin/support/businesses/{businessId}/audit-logs:
+    parameters:
+      - name: businessId
+        in: path
+        required: true
+        schema: *a2
+    get:
+      operationId: listSupportAuditLogs
+      summary: Read firm audit logs through an approved support grant
+      description:
+        'Route businessId is only an untrusted selector: Rasel support-access service validates
+        the active owner-approved grant, expiry/revocation and attaches trusted firm context before
+        forBusiness. No membership/grant -> 404; expired or denied grant -> 403
+        SUPPORT_GRANT_REQUIRED. Never query firm audit data through forPlatform or create your own
+        guard. Blocked until support adapter is published.'
+      x-roles:
+        - SUPER_ADMIN
+      security:
+        - AdminCookie: []
+      parameters: *a3
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEvent'
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        '400': *a4
+        '401': *a5
+        '403': *a6
+        '404': *a7
+        '409': *a8
+        '422': *a9
+        '429': *a10
+        '500': *a11
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas:
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - actorUserId
+        - action
+        - entityType
+        - entityId
+        - metadata
+        - requestId
+        - createdAt
+      properties:
+        id: *a2
+        actorUserId:
+          type: string
+          format: uuid
+          nullable: true
+        action:
+          type: string
+          maxLength: 100
+          minLength: 1
+        entityType:
+          type: string
+          maxLength: 100
+          minLength: 1
+        entityId:
+          type: string
+          maxLength: 200
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+          description:
+            Allowlisted safe fields only. Never legal/document content, tokens or financial
+            identifiers.
+        requestId:
+          type: string
+          maxLength: 100
+          nullable: true
+        createdAt: *a1
