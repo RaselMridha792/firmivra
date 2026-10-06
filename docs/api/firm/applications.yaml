@@ -1,0 +1,343 @@
+openapi: 3.0.3
+info:
+  title: Firmivra Super Admin application data API
+  version: 0.1.0
+  description: T05 read-only platform application list/detail/history implementation. Existing
+    application data is allowlisted; history schema depends on R4/R0. Approval/decline/request-info
+    actions remain Rasel-owned; frontend detail mapping review pending.
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /admin/applications:
+    get:
+      operationId: listAdminApplications
+      summary: Filter and page platform firm applications
+      description: ADMIN identity pool and active PlatformAdmin required; use forPlatform only on
+        FirmApplication/history. Audit platform read/filter fields without application content. No
+        firm rows and no support bypass. R4 must confirm allowlisted application DTO; never emit raw
+        data JSON.
+      x-roles: &a2
+        - SUPER_ADMIN
+      security:
+        - AdminCookie: []
+      parameters:
+        - &a12
+          $ref: ./common.yaml#/parameters/Cursor
+        - &a13
+          $ref: ./common.yaml#/parameters/Limit
+        - name: status
+          in: query
+          required: false
+          schema: &a14
+            type: string
+            enum: &a19
+              - PENDING_REVIEW
+              - INFO_REQUESTED
+              - APPROVED
+              - DECLINED
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+        - name: from
+          in: query
+          required: false
+          schema: &a1
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema: *a1
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApplicationSummary"
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": &a3
+          $ref: ./common.yaml#/responses/BadRequest
+        "401": &a4
+          $ref: ./common.yaml#/responses/Unauthenticated
+        "403": &a5
+          $ref: ./common.yaml#/responses/Forbidden
+        "404": &a6
+          $ref: ./common.yaml#/responses/NotFound
+        "409": &a7
+          $ref: ./common.yaml#/responses/Conflict
+        "422": &a8
+          $ref: ./common.yaml#/responses/Unprocessable
+        "429": &a9
+          $ref: ./common.yaml#/responses/RateLimited
+        "500": &a10
+          $ref: ./common.yaml#/responses/InternalError
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /admin/applications/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: &a11
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminApplication
+      summary: Read allowlisted application details
+      description: ADMIN identity pool and active PlatformAdmin required; use forPlatform only on
+        FirmApplication/history. Audit platform read/filter fields without application content. No
+        firm rows and no support bypass. R4 must confirm allowlisted application DTO; never emit raw
+        data JSON.
+      x-roles: *a2
+      security:
+        - AdminCookie: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationDetail"
+        "400": *a3
+        "401": *a4
+        "403": *a5
+        "404": *a6
+        "409": *a7
+        "422": *a8
+        "429": *a9
+        "500": *a10
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /admin/applications/{id}/history:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *a11
+    get:
+      operationId: listAdminApplicationHistory
+      summary: Read application status history
+      description: ADMIN identity pool and active PlatformAdmin required; use forPlatform only on
+        FirmApplication/history. Audit platform read/filter fields without application content. No
+        firm rows and no support bypass. R4 must confirm allowlisted application DTO; never emit raw
+        data JSON.
+      x-roles: *a2
+      security:
+        - AdminCookie: []
+      parameters:
+        - *a12
+        - *a13
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApplicationHistory"
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        "400": *a3
+        "401": *a4
+        "403": *a5
+        "404": *a6
+        "409": *a7
+        "422": *a8
+        "429": *a9
+        "500": *a10
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas:
+    ApplicationSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - legalName
+        - dbaName
+        - contactName
+        - contactEmail
+        - createdAt
+        - updatedAt
+      properties:
+        id: *a11
+        status: *a14
+        legalName: &a15
+          type: string
+          maxLength: 200
+          minLength: 1
+        dbaName: &a16
+          type: string
+          maxLength: 200
+          nullable: true
+        contactName: &a17
+          type: string
+          maxLength: 200
+          minLength: 1
+        contactEmail: &a18
+          type: string
+          maxLength: 254
+          minLength: 1
+          format: email
+        createdAt: *a1
+        updatedAt: *a1
+    ApplicationDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - legalName
+        - dbaName
+        - contactName
+        - contactEmail
+        - createdAt
+        - updatedAt
+        - contactPhone
+        - internalNotes
+        - decisionReason
+        - reviewedByUserId
+        - reviewedAt
+        - businessId
+        - form
+      properties:
+        id: *a11
+        status: *a14
+        legalName: *a15
+        dbaName: *a16
+        contactName: *a17
+        contactEmail: *a18
+        createdAt: *a1
+        updatedAt: *a1
+        contactPhone:
+          type: string
+          maxLength: 40
+          nullable: true
+        internalNotes:
+          type: string
+          maxLength: 4000
+          nullable: true
+        decisionReason:
+          type: string
+          maxLength: 4000
+          nullable: true
+        reviewedByUserId:
+          type: string
+          format: uuid
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+        businessId:
+          type: string
+          format: uuid
+          nullable: true
+        form:
+          type: object
+          additionalProperties: false
+          required:
+            - website
+            - addressLine1
+            - addressLine2
+            - city
+            - state
+            - postalCode
+            - country
+          properties:
+            website:
+              type: string
+              maxLength: 2048
+              format: uri
+              nullable: true
+            addressLine1:
+              type: string
+              maxLength: 200
+              nullable: true
+            addressLine2:
+              type: string
+              maxLength: 200
+              nullable: true
+            city:
+              type: string
+              maxLength: 120
+              nullable: true
+            state:
+              type: string
+              maxLength: 120
+              nullable: true
+            postalCode:
+              type: string
+              maxLength: 32
+              nullable: true
+            country:
+              type: string
+              maxLength: 2
+              nullable: true
+    ApplicationHistory:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - fromStatus
+        - toStatus
+        - actorUserId
+        - reason
+        - createdAt
+      properties:
+        id: *a11
+        fromStatus:
+          type: string
+          enum: *a19
+          nullable: true
+        toStatus: *a14
+        actorUserId:
+          type: string
+          format: uuid
+          nullable: true
+        reason:
+          type: string
+          maxLength: 4000
+          nullable: true
+        createdAt: *a1
