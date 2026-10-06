@@ -1,0 +1,123 @@
+openapi: 3.0.3
+info:
+  title: Firmivra firm-side API draft
+  version: 0.1.0
+  description: T01 proposed contract for T01/T02-T08. Not implemented or frontend-approved. Eight
+    review sections; Rasel owns auth/approval actions/storage/senders/payments. Read
+    docs/api/firm/README.md for pending decisions, schema dependencies and validation.
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /business/settings:
+    $ref: ./firm/settings.yaml#/paths/~1business~1settings
+  /business/setup:
+    $ref: ./firm/settings.yaml#/paths/~1business~1setup
+  /business/setup/complete:
+    $ref: ./firm/settings.yaml#/paths/~1business~1setup~1complete
+  /business/legal/{kind}:
+    $ref: ./firm/settings.yaml#/paths/~1business~1legal~1{kind}
+  /portal/{slug}/settings:
+    $ref: ./firm/settings.yaml#/paths/~1portal~1{slug}~1settings
+  /portal/{slug}/legal/{kind}:
+    $ref: ./firm/settings.yaml#/paths/~1portal~1{slug}~1legal~1{kind}
+  /business/team:
+    $ref: ./firm/team.yaml#/paths/~1business~1team
+  /business/team/{id}/role:
+    $ref: ./firm/team.yaml#/paths/~1business~1team~1{id}~1role
+  /business/team/{id}/deactivate:
+    $ref: ./firm/team.yaml#/paths/~1business~1team~1{id}~1deactivate
+  /business/team/{id}/resend-invite:
+    $ref: ./firm/team.yaml#/paths/~1business~1team~1{id}~1resend-invite
+  /business/tax-statuses:
+    $ref: ./firm/tax-statuses.yaml#/paths/~1business~1tax-statuses
+  /business/tax-statuses/order:
+    $ref: ./firm/tax-statuses.yaml#/paths/~1business~1tax-statuses~1order
+  /business/tax-statuses/{id}:
+    $ref: ./firm/tax-statuses.yaml#/paths/~1business~1tax-statuses~1{id}
+  /business/tax-statuses/{id}/archive:
+    $ref: ./firm/tax-statuses.yaml#/paths/~1business~1tax-statuses~1{id}~1archive
+  /admin/applications:
+    $ref: ./firm/applications.yaml#/paths/~1admin~1applications
+  /admin/applications/{id}:
+    $ref: ./firm/applications.yaml#/paths/~1admin~1applications~1{id}
+  /admin/applications/{id}/history:
+    $ref: ./firm/applications.yaml#/paths/~1admin~1applications~1{id}~1history
+  /business/notifications:
+    $ref: ./firm/notifications.yaml#/paths/~1business~1notifications
+  /business/notifications/unread-count:
+    $ref: ./firm/notifications.yaml#/paths/~1business~1notifications~1unread-count
+  /business/notifications/{id}/read:
+    $ref: ./firm/notifications.yaml#/paths/~1business~1notifications~1{id}~1read
+  /business/notification-preferences:
+    $ref: ./firm/notifications.yaml#/paths/~1business~1notification-preferences
+  /portal/{slug}/notifications:
+    $ref: ./firm/notifications.yaml#/paths/~1portal~1{slug}~1notifications
+  /portal/{slug}/notifications/unread-count:
+    $ref: ./firm/notifications.yaml#/paths/~1portal~1{slug}~1notifications~1unread-count
+  /portal/{slug}/notifications/{id}/read:
+    $ref: ./firm/notifications.yaml#/paths/~1portal~1{slug}~1notifications~1{id}~1read
+  /portal/{slug}/notification-preferences:
+    $ref: ./firm/notifications.yaml#/paths/~1portal~1{slug}~1notification-preferences
+  /business/appointment-types:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointment-types
+  /business/appointment-types/{id}:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointment-types~1{id}
+  /business/working-hours/{providerId}:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1working-hours~1{providerId}
+  /business/blocked-time:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1blocked-time
+  /business/blocked-time/{id}:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1blocked-time~1{id}
+  /business/appointments:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointments
+  /business/appointments/availability:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointments~1availability
+  /business/appointment-providers:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointment-providers
+  /business/appointments/{id}:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointments~1{id}
+  /business/appointments/{id}/reschedule:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointments~1{id}~1reschedule
+  /business/appointments/{id}/cancel:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointments~1{id}~1cancel
+  /business/appointments/{id}/history:
+    $ref: ./firm/appointments.yaml#/paths/~1business~1appointments~1{id}~1history
+  /portal/{slug}/appointments:
+    $ref: ./firm/appointments.yaml#/paths/~1portal~1{slug}~1appointments
+  /portal/{slug}/appointments/availability:
+    $ref: ./firm/appointments.yaml#/paths/~1portal~1{slug}~1appointments~1availability
+  /portal/{slug}/appointment-providers:
+    $ref: ./firm/appointments.yaml#/paths/~1portal~1{slug}~1appointment-providers
+  /portal/{slug}/appointments/{id}:
+    $ref: ./firm/appointments.yaml#/paths/~1portal~1{slug}~1appointments~1{id}
+  /portal/{slug}/appointments/{id}/reschedule:
+    $ref: ./firm/appointments.yaml#/paths/~1portal~1{slug}~1appointments~1{id}~1reschedule
+  /portal/{slug}/appointments/{id}/cancel:
+    $ref: ./firm/appointments.yaml#/paths/~1portal~1{slug}~1appointments~1{id}~1cancel
+  /portal/{slug}/appointments/{id}/history:
+    $ref: ./firm/appointments.yaml#/paths/~1portal~1{slug}~1appointments~1{id}~1history
+  /portal/{slug}/appointment-types:
+    $ref: ./firm/appointments.yaml#/paths/~1portal~1{slug}~1appointment-types
+  /business/audit-logs:
+    $ref: ./firm/audit.yaml#/paths/~1business~1audit-logs
+  /admin/support/businesses/{businessId}/audit-logs:
+    $ref: ./firm/audit.yaml#/paths/~1admin~1support~1businesses~1{businessId}~1audit-logs
+  /business/external-links:
+    $ref: ./firm/external-links.yaml#/paths/~1business~1external-links
+  /business/external-links/{id}:
+    $ref: ./firm/external-links.yaml#/paths/~1business~1external-links~1{id}
+  /portal/{slug}/external-links:
+    $ref: ./firm/external-links.yaml#/paths/~1portal~1{slug}~1external-links
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas: {}
