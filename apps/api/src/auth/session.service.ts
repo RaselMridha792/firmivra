@@ -1,16 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import type { Database } from '@firmivra/db';
 import { type AuthSite, IdentityPool } from '@firmivra/types';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import { DATABASE } from '../database/database.module.js';
 import { httpError } from './auth-errors.js';
 import {
   AuthFlowError,
   IDENTITY_PROVIDER,
   type IdentityProvider,
 } from './identity/identity-provider.js';
-import { type PoolSecrets, Sealer } from './sealed.js';
+import { type Opened, type PoolSecrets, Sealer } from './sealed.js';
 import {
   clearSessionCookies,
   readCookie,
@@ -43,6 +45,7 @@ export class RefreshEnvelopes extends Sealer<RefreshEnvelope> {
 }
 
 const DAY_SECONDS = 24 * 60 * 60;
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 /** The site's session cookies: set after sign-in, renewed by refresh, ended by sign-out. */
 @Injectable()
@@ -52,6 +55,7 @@ export class SessionService {
   constructor(
     @Inject(IDENTITY_PROVIDER) private readonly identity: IdentityProvider,
     private readonly envelopes: RefreshEnvelopes,
+    @Inject(DATABASE) private readonly db: Database,
     @Inject(ENV) env: Env,
   ) {
     this.secure = env.NODE_ENV === 'production';
@@ -63,21 +67,33 @@ export class SessionService {
     session: { userId: string; username: string; tokens: SessionTokens },
   ): Promise<void> {
     const { tokens } = session;
-    const envelope = tokens.refreshToken
+    const pool = SIGN_IN_POOL[site];
+    const refresh = tokens.refreshToken
       ? {
-          userId: session.userId,
-          username: session.username,
-          refreshToken: tokens.refreshToken,
-          pool: SIGN_IN_POOL[site],
+          value: {
+            userId: session.userId,
+            username: session.username,
+            refreshToken: tokens.refreshToken,
+            pool,
+          },
+          expiresAt: nowSeconds() + REFRESH_TOKEN_DAYS[pool] * DAY_SECONDS,
         }
       : undefined;
-    await this.write(res, site, tokens, envelope);
+    await this.write(res, site, tokens, refresh);
   }
 
-  /** New access and id cookies. Without a valid refresh cookie: cookies cleared, 401. */
+  /**
+   * New access and id cookies. The person must still be allowed in (our database, not only
+   * Cognito); otherwise, or without a valid refresh cookie: token revoked, cookies cleared, 401.
+   */
   async refresh(req: Request, res: Response, site: AuthSite): Promise<void> {
-    const envelope = await this.envelope(req, site);
-    if (!envelope) throw this.signedOut(res, site);
+    const opened = await this.envelope(req, site);
+    if (!opened) throw this.signedOut(res, site);
+    const envelope = opened.value;
+    if (!(await this.stillAllowed(envelope))) {
+      await this.identity.revoke(envelope.pool, envelope.refreshToken);
+      throw this.signedOut(res, site);
+    }
     let tokens: SessionTokens;
     try {
       tokens = await this.identity.refresh(envelope.pool, envelope.username, envelope.refreshToken);
@@ -86,22 +102,42 @@ export class SessionService {
       throw e.code === 'SESSION_EXPIRED' ? this.signedOut(res, site) : httpError(e.code);
     }
     // Cognito returns a new refresh token only when rotation is on; otherwise the cookie stays.
+    // A rotated one keeps the session's original end: refreshing never makes a session longer.
     const rotated = tokens.refreshToken
-      ? { ...envelope, refreshToken: tokens.refreshToken }
+      ? { value: { ...envelope, refreshToken: tokens.refreshToken }, expiresAt: opened.expiresAt }
       : undefined;
     await this.write(res, site, tokens, rotated);
   }
 
   /** Always succeeds: clears the cookies, revokes this device's refresh token, optionally all. */
   async end(req: Request, res: Response, site: AuthSite, everywhere: boolean): Promise<void> {
-    const envelope = await this.envelope(req, site);
+    const envelope = (await this.envelope(req, site))?.value;
     clearSessionCookies(res, site, this.secure);
     if (!envelope) return;
     await this.identity.revoke(envelope.pool, envelope.refreshToken);
     if (everywhere) await this.identity.signOutEverywhere(envelope.pool, envelope.username);
   }
 
-  private async envelope(req: Request, site: AuthSite): Promise<RefreshEnvelope | undefined> {
+  /** Same rule as sign-in: the user row of this pool exists; on the admin site, a Super Admin. */
+  private async stillAllowed(envelope: RefreshEnvelope): Promise<boolean> {
+    const platform = this.db.forPlatform();
+    const user = await platform.user.findUnique({
+      where: { id: envelope.userId },
+      select: { pool: true },
+    });
+    if (user?.pool !== envelope.pool) return false;
+    if (envelope.pool !== 'ADMIN') return true;
+    const admin = await platform.platformAdmin.findUnique({
+      where: { userId: envelope.userId },
+      select: { role: true },
+    });
+    return admin?.role === 'SUPER_ADMIN';
+  }
+
+  private async envelope(
+    req: Request,
+    site: AuthSite,
+  ): Promise<Opened<RefreshEnvelope> | undefined> {
     const sealed = readCookie(req, site, 'refresh');
     return sealed ? this.envelopes.open(sealed, SIGN_IN_POOL[site]) : undefined;
   }
@@ -111,22 +147,27 @@ export class SessionService {
     return httpError('SESSION_EXPIRED');
   }
 
+  /** `refresh`: the envelope to seal and the session's end; the cookie expires with it. */
   private async write(
     res: Response,
     site: AuthSite,
     tokens: SessionTokens,
-    envelope: RefreshEnvelope | undefined,
+    refresh: Opened<RefreshEnvelope> | undefined,
   ): Promise<void> {
-    const refreshSeconds = REFRESH_TOKEN_DAYS[SIGN_IN_POOL[site]] * DAY_SECONDS;
     writeSessionCookies(
       res,
       site,
       {
         access: tokens.accessToken,
         id: tokens.idToken,
-        refresh: envelope ? await this.envelopes.seal(envelope, refreshSeconds) : undefined,
+        refresh: refresh
+          ? await this.envelopes.sealUntil(refresh.value, refresh.expiresAt)
+          : undefined,
       },
-      { accessMs: tokens.expiresIn * 1000, refreshMs: refreshSeconds * 1000 },
+      {
+        accessMs: tokens.expiresIn * 1000,
+        refreshMs: refresh ? (refresh.expiresAt - nowSeconds()) * 1000 : 0,
+      },
       this.secure,
     );
   }

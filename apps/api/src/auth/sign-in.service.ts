@@ -1,15 +1,27 @@
+import { createHmac } from 'node:crypto';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
 import type { AuthSite, IdentityPool, MfaSetupResponse, SignInResult } from '@firmivra/types';
+import { AuditService } from '../audit/audit.service.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { httpError, runFlow } from './auth-errors.js';
 import { ChallengeSessions } from './challenge-session.js';
 import {
+  AuthFlowError,
   type AuthStep,
   IDENTITY_PROVIDER,
   type IdentityProvider,
 } from './identity/identity-provider.js';
+import { deriveKey, poolSecrets } from './sealed.js';
 import { type SessionTokens, SIGN_IN_POOL } from './site.js';
+
+/** Failed resets are audited; the per-email limit counts those rows (shared by every API task). */
+const RESET_FAILED = 'auth.password_reset_failed';
+export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
+/** HKDF label for the key that turns an email into the pseudonymous key the limit counts by. */
+const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
 
 const TOTP_ISSUER: Record<AuthSite, string> = { firm: 'Firmivra', admin: 'Firmivra Admin' };
 
@@ -30,11 +42,25 @@ const wrongStep = () =>
  */
 @Injectable()
 export class SignInService {
+  private readonly emailKeys: Partial<Record<IdentityPool, Uint8Array>> = {};
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(IDENTITY_PROVIDER) private readonly identity: IdentityProvider,
     private readonly challenges: ChallengeSessions,
-  ) {}
+    private readonly audit: AuditService,
+    @Inject(ENV) env: Env,
+  ) {
+    for (const [pool, secret] of Object.entries(poolSecrets(env))) {
+      if (secret) {
+        this.emailKeys[pool as IdentityPool] = deriveKey(
+          secret,
+          pool as IdentityPool,
+          EMAIL_KEY_LABEL,
+        );
+      }
+    }
+  }
 
   async signIn(site: AuthSite, email: string, password: string): Promise<SignInOutcome> {
     const pool = SIGN_IN_POOL[site];
@@ -79,10 +105,14 @@ export class SignInService {
   async forgotPassword(site: AuthSite, email: string): Promise<void> {
     const pool = SIGN_IN_POOL[site];
     const user = await this.findUser(pool, email);
-    await this.identity.forgotPassword(pool, user?.cognitoSub);
+    await runFlow(() => this.identity.forgotPassword(pool, user?.cognitoSub));
   }
 
-  /** Sets the new password with the emailed code; Cognito then ends every session. */
+  /**
+   * Sets the new password with the emailed code; Cognito then ends every session. Real and
+   * unknown emails get the same answers: RESET_CODE_INVALID for any failure, and RATE_LIMITED
+   * once an email has RESET_LIMIT.attempts failures in the window.
+   */
   async resetPassword(
     site: AuthSite,
     email: string,
@@ -90,8 +120,36 @@ export class SignInService {
     password: string,
   ): Promise<void> {
     const pool = SIGN_IN_POOL[site];
+    const emailKey = this.emailKey(pool, email);
+    if ((await this.recentResetFailures(emailKey)) >= RESET_LIMIT.attempts) {
+      throw httpError('RATE_LIMITED');
+    }
     const user = await this.findUser(pool, email);
-    await runFlow(() => this.identity.resetPassword(pool, user?.cognitoSub, code, password));
+    try {
+      await this.identity.resetPassword(pool, user?.cognitoSub, code, password);
+    } catch (e) {
+      if (!(e instanceof AuthFlowError)) throw e;
+      await this.audit.log(RESET_FAILED, { type: 'login' }, { emailKey, pool });
+      throw httpError('RESET_CODE_INVALID');
+    }
+  }
+
+  private recentResetFailures(emailKey: string): Promise<number> {
+    return this.db.forPlatform().auditLog.count({
+      where: {
+        businessId: null,
+        action: RESET_FAILED,
+        createdAt: { gt: new Date(Date.now() - RESET_LIMIT.windowMs) },
+        metadata: { path: ['emailKey'], equals: emailKey },
+      },
+    });
+  }
+
+  /** A keyed hash, so the audit log never holds the email itself. */
+  private emailKey(pool: IdentityPool, email: string): string {
+    const key = this.emailKeys[pool];
+    if (!key) throw new Error(`No email key for the ${pool} pool`);
+    return createHmac('sha256', key).update(email).digest('hex');
   }
 
   /** Exactly one user of the pool with this email; on the admin site also a platform admin. */

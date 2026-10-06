@@ -1,10 +1,13 @@
 // End-to-end: staff and Super Admin sign-in (R2) in AUTH_MODE=local, the same routes and guards
 // as with Cognito. Contract: docs/api/auth.yaml.
+import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { createPrismaClient, runInScope } from '@firmivra/db';
+import { testDatabaseUrls } from '@firmivra/db/testing';
 import type { MfaSetupResponse, SignInResult } from '@firmivra/types';
 import {
   LOCAL_MFA_CODE,
@@ -12,12 +15,15 @@ import {
   LOCAL_RESET_CODE,
   LOCAL_TOTP_SECRET,
 } from '../../src/auth/identity/local-identity.provider.js';
+import { RESET_LIMIT } from '../../src/auth/sign-in.service.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
 const fx = inject('fixtures');
 let app: INestApplication;
+/** Each site's origin: browsers send it with every change, and the API checks it. */
+let origins: { app: string; admin: string };
 
 /** The ALB's view: CloudFront's address is the last X-Forwarded-For entry, the viewer before it. */
 const CLOUDFRONT = '10.0.0.5';
@@ -67,6 +73,7 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
+  origins = { app: new URL(env.APP_BASE_URL).origin, admin: new URL(env.ADMIN_BASE_URL).origin };
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule.forRoot(env)],
   }).compile();
@@ -286,6 +293,7 @@ describe('sessions: refresh and sign-out', () => {
     const done = await signInFully('/api/v1/auth', fx.users.staffA.email, newViewer());
     const res = await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
+      .set('origin', origins.app)
       .set('cookie', cookieNamed(done, 'fv_refresh'))
       .expect(200);
     expect(res.body).toEqual({ ok: true });
@@ -300,6 +308,7 @@ describe('sessions: refresh and sign-out', () => {
     for (const cookie of ['', 'fv_refresh=forged']) {
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/refresh')
+        .set('origin', origins.app)
         .set('cookie', cookie)
         .expect(401);
       expect(errorCode(res)).toBe('UNAUTHENTICATED');
@@ -312,10 +321,12 @@ describe('sessions: refresh and sign-out', () => {
     const sealed = cookieNamed(done, 'fv_admin_refresh').slice('fv_admin_refresh='.length);
     await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
+      .set('origin', origins.app)
       .set('cookie', `fv_refresh=${sealed}`)
       .expect(401);
     await request(app.getHttpServer())
       .post('/api/v1/admin/auth/refresh')
+      .set('origin', origins.admin)
       .set('cookie', `fv_admin_refresh=${sealed}`)
       .expect(200);
   });
@@ -324,6 +335,7 @@ describe('sessions: refresh and sign-out', () => {
     const done = await signInFully('/api/v1/auth', fx.users.staffA.email, newViewer());
     const res = await request(app.getHttpServer())
       .post('/api/v1/auth/sign-out')
+      .set('origin', origins.app)
       .set('cookie', cookieHeader(done))
       .send({ everywhere: true })
       .expect(200);
@@ -382,5 +394,111 @@ describe('forgot and reset password', () => {
     const old = await post('/api/v1/auth/sign-in', { email, password: LOCAL_PASSWORD }, viewer);
     expect(errorCode(old)).toBe('INVALID_CREDENTIALS');
     await signInFully('/api/v1/auth', email, viewer, newPassword);
+  });
+});
+
+describe('#23 review: refresh checks our database', () => {
+  /** A person of this test only, so removing them never touches the shared fixtures. */
+  async function makePerson(pool: 'STAFF' | 'ADMIN') {
+    const id = randomUUID();
+    const email = `r2-refresh-${randomUUID()}@${pool === 'ADMIN' ? 'firmivra' : 'a'}.test`;
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    await runInScope(owner, { kind: 'platform' }, async (tx) => {
+      await tx.user.create({ data: { id, cognitoSub: id, pool, email, name: 'Fake R2 person' } });
+      if (pool === 'ADMIN') await tx.platformAdmin.create({ data: { userId: id } });
+    });
+    await owner.$disconnect();
+    return { id, email };
+  }
+
+  async function asOwner(work: Parameters<typeof runInScope>[2]) {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    await runInScope(owner, { kind: 'platform' }, work);
+    await owner.$disconnect();
+  }
+
+  const refresh = (path: string, origin: string, cookie: string) =>
+    request(app.getHttpServer()).post(path).set('origin', origin).set('cookie', cookie);
+
+  it('ends the session of a Super Admin removed from the team', async () => {
+    const person = await makePerson('ADMIN');
+    const done = await signInFully('/api/v1/admin/auth', person.email, newViewer());
+    const cookie = cookieNamed(done, 'fv_admin_refresh');
+    await refresh('/api/v1/admin/auth/refresh', origins.admin, cookie).expect(200);
+
+    await asOwner((tx) => tx.platformAdmin.delete({ where: { userId: person.id } }));
+    const res = await refresh('/api/v1/admin/auth/refresh', origins.admin, cookie).expect(401);
+    expect(errorCode(res)).toBe('UNAUTHENTICATED');
+    expect(setCookies(res).join('\n')).toMatch(/^fv_admin_refresh=; Path=\/api\/v1\/admin\/auth;/m);
+  });
+
+  it('ends the session of a user who no longer exists', async () => {
+    const person = await makePerson('STAFF');
+    const done = await signInFully('/api/v1/auth', person.email, newViewer());
+    const cookie = cookieNamed(done, 'fv_refresh');
+
+    await asOwner((tx) => tx.user.delete({ where: { id: person.id } }));
+    const res = await refresh('/api/v1/auth/refresh', origins.app, cookie).expect(401);
+    expect(setCookies(res).join('\n')).toMatch(/^fv_access=; Path=\/;/m);
+  });
+});
+
+describe('#23 review: reset-password never tells real emails apart', () => {
+  const reset = (email: string, code: string, viewer: string) =>
+    post('/api/v1/auth/reset-password', { email, code, password: 'Brand-new-password-8' }, viewer);
+  const answer = (res: Response) => [res.status, { ...(res.body as object), requestId: 0 }];
+  const strip = (res: Response) => {
+    const body = res.body as { error: { code: string; message: string } };
+    return [res.status, body.error.code, body.error.message];
+  };
+
+  it('answers a real and an unknown email the same, then limits both after 5 failures', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const real = { id: randomUUID(), email: `r2-reset-${randomUUID()}@a.test` };
+    await runInScope(owner, { kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: real.id, cognitoSub: real.id, pool: 'STAFF', email: real.email, name: 'F' },
+      }),
+    );
+    const unknown = `r2-nobody-${randomUUID()}@a.test`;
+    const realViewer = newViewer();
+    const unknownViewer = newViewer();
+
+    for (let i = 0; i < RESET_LIMIT.attempts; i += 1) {
+      const a = await reset(real.email, '111111', realViewer);
+      const b = await reset(unknown, '111111', unknownViewer);
+      expect(strip(a)).toEqual([400, 'RESET_CODE_INVALID', expect.any(String)]);
+      expect(strip(a)).toEqual(strip(b));
+    }
+    // Over the limit: refused before Cognito, even with the right code.
+    const realBlocked = await reset(real.email, LOCAL_RESET_CODE, realViewer);
+    const unknownBlocked = await reset(unknown, LOCAL_RESET_CODE, unknownViewer);
+    expect(strip(realBlocked)).toEqual([429, 'RATE_LIMITED', expect.any(String)]);
+    expect(answer(realBlocked)[0]).toBe(answer(unknownBlocked)[0]);
+    expect(strip(realBlocked)).toEqual(strip(unknownBlocked));
+
+    // The failures are audited under a keyed hash, never the email itself.
+    const rows = await runInScope(owner, { kind: 'platform' }, (tx) =>
+      tx.auditLog.findMany({ where: { action: 'auth.password_reset_failed' } }),
+    );
+    await owner.$disconnect();
+    const text = JSON.stringify(rows);
+    expect(text).not.toContain(real.email);
+    expect(text).not.toContain(unknown);
+    expect(rows.length).toBeGreaterThanOrEqual(2 * RESET_LIMIT.attempts);
+    expect((rows[0]?.metadata as { emailKey: string }).emailKey).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('#23 review: sign-out always signs out', () => {
+  it('clears the cookies even when the body cannot be read', async () => {
+    const done = await signInFully('/api/v1/auth', fx.users.ownerB.email, newViewer());
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-out')
+      .set('origin', origins.app)
+      .set('cookie', cookieHeader(done))
+      .send({ everywhere: 'yes please' })
+      .expect(200);
+    expect(setCookies(res).join('\n')).toMatch(/^fv_refresh=; Path=\/api\/v1\/auth;/m);
   });
 });

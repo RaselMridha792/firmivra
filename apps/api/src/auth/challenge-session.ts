@@ -36,8 +36,8 @@ export class ChallengeSessions {
     return this.sealer.seal(challenge, TTL_SECONDS);
   }
 
-  open(token: string, pool: IdentityPool): Promise<Challenge | undefined> {
-    return this.sealer.open(token, pool);
+  async open(token: string, pool: IdentityPool): Promise<Challenge | undefined> {
+    return (await this.sealer.open(token, pool))?.value;
   }
 }
 
