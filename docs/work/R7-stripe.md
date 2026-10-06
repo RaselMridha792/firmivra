@@ -18,10 +18,16 @@
 - [ ] 4. Webhook endpoint with signature check; idempotent; marks payment and invoice paid; notifies firm and client
 - [ ] 5. Refund and failed payment states
 - [ ] 6. e2e test with Stripe test cards and the Stripe CLI webhook forwarder
+- [ ] 7. Plus I10 (Oct 6): invoice records, lines, totals, send, statuses Pending, Due Soon, Paid, Upcoming, Canceled. Contract by Oct 12 (Fahad F10, Nahid N09)
 
 ## Done when
 
 Nahid's Invoices tab pays an invoice in test mode on dev and the firm sees it paid.
+
+## Rules
+
+- Contract first for every module (Rasel, Oct 6): the module's first PR is its zod schemas and client functions in `packages/types`, registered on `api` in `apps/web/src/lib/api.ts`, plus typed mock fixtures in `apps/web/src/mocks/<module>.ts`. The developers build the screen against it the same day.
+- Never edit screens: in apps/web change only `src/mocks/<module>.ts` and your lines in `src/lib/api.ts`.
 
 ## Needs from others
 
