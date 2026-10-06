@@ -33,7 +33,13 @@ export type MembershipRole = z.infer<typeof MembershipRole>;
 export const BusinessStatus = z.enum(['PENDING_SETUP', 'ACTIVE', 'SUSPENDED', 'CLOSED']);
 export type BusinessStatus = z.infer<typeof BusinessStatus>;
 
-export const ClientAccountStatus = z.enum(['PENDING_APPROVAL', 'ACTIVE', 'DECLINED', 'DISABLED']);
+export const ClientAccountStatus = z.enum([
+  'INVITED',
+  'PENDING_APPROVAL',
+  'ACTIVE',
+  'DECLINED',
+  'DISABLED',
+]);
 export type ClientAccountStatus = z.infer<typeof ClientAccountStatus>;
 
 export const BusinessSummary = z.object({
