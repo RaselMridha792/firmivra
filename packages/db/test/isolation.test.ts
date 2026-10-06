@@ -113,6 +113,9 @@ beforeAll(async () => {
           publishedByUserId: ownerId,
         },
       });
+      await tx.legalAcceptance.create({
+        data: { businessId: firm, clientAccountId: c.id, legalDocumentId: doc.id },
+      });
       const t = await tx.taxStatus.create({ data: { businessId: firm, name: 'Filed' } });
       const cts = await tx.clientTaxStatus.create({
         data: { businessId: firm, clientId: record.id, taxYear: 2025, taxStatusId: t.id },
@@ -294,6 +297,7 @@ describe('no scope set', () => {
     expect(await unscopedApp.firmApplication.findMany()).toEqual([]);
     expect(await unscopedApp.businessSettings.findMany()).toEqual([]);
     expect(await unscopedApp.firmLegalDocument.findMany()).toEqual([]);
+    expect(await unscopedApp.legalAcceptance.findMany()).toEqual([]);
     expect(await unscopedApp.taxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.invite.findMany()).toEqual([]);
     expect(await unscopedApp.client.findMany()).toEqual([]);
@@ -338,6 +342,7 @@ describe('business scope: firm B', () => {
       await b().auditLog.findMany(),
       await b().businessSettings.findMany(),
       await b().firmLegalDocument.findMany(),
+      await b().legalAcceptance.findMany(),
       await b().taxStatus.findMany(),
       await b().invite.findMany(),
       await b().client.findMany(),
@@ -542,6 +547,7 @@ describe('platform scope', () => {
     expect((await p.auditLog.findMany()).every((r) => r.businessId === null)).toBe(true);
     expect(await p.businessSettings.findMany()).toEqual([]);
     expect(await p.firmLegalDocument.findMany()).toEqual([]);
+    expect(await p.legalAcceptance.findMany()).toEqual([]);
     expect(await p.taxStatus.findMany()).toEqual([]);
     expect(await p.invite.findMany()).toEqual([]);
     expect(await p.client.findMany()).toEqual([]);
