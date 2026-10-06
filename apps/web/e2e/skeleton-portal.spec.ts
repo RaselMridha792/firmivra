@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 // Every LVP portal page from docs/junior/PAGE-MAP.md opens in its layout with its title.
+// These tests open many pages; in `next dev` each compiles on its first visit.
+test.describe.configure({ timeout: 240_000 });
+
 const port = process.env['WEB_PORT'] ?? '3000';
 const portal = (path: string) => `http://portal.localhost:${port}/lvp${path}`;
 
