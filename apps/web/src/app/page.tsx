@@ -1,4 +1,7 @@
 // The bare host (for example localhost:3000) has no site of its own: point to the three hosts.
+// Rendered per request so the links come from the running config, not from the build.
+export const dynamic = 'force-dynamic';
+
 export default function Index() {
   const sites = [
     ['Super Admin console', process.env['ADMIN_BASE_URL'] ?? 'http://admin.localhost:3000'],
