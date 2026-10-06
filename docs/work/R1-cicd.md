@@ -88,3 +88,18 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   - `cdk diff` app: the new policy and the migrate task's env (APP_ENV, AWS_REGION, two pool ids). Auth: no differences (the pool ARN outputs already exist).
   - The `:none` api and web images in `cdk diff` (also in the pipeline's diff step) only show the parameter defaults. `cdk deploy` keeps the previous values: `MigrateImageTag` stayed d62849a through the `ImageTag`-only step.
   - The stray remote branch rasel/R1-refresh-tokens was deleted (Rasel's yes) after checking that its commits are in main (#21) or #26.
+- 2026-10-06, step 13: #26 merged (7fb588c) and is deployed: run 37489456004, after #28, green. Rasel runs the Cognito and run-task commands (subs and roles only); then tick step 13.
+- 2026-10-06, new work from Rasel (plan change: the developers build only screens and tests).
+  - **Web kit** (KIT-TASK.md) started on rasel/R1-web-kit: aa85e02, local, not pushed. It has the data hooks, `errorMessage`, PageState, RequireRole, QrCode, the uploadFile stub, mock mode and the module pattern in packages/types/README.md. The packages @tanstack/react-query, react-hook-form, @hookform/resolvers and qrcode.react are Rasel's yes. It's paused for the skeleton.
+  - **Page skeleton** (SKELETON-TASK.md, PAGE-MAP.md), lucide-react for icons (Rasel's yes):
+    - Super Admin with the shared app shell, SignedIn/useMe and PagePlaceholder: PR #33, open.
+    - Client portal: 127db60 on rasel/R1-skeleton-portal, local and stacked on #33; 324 lines without placeholders; e2e 17/17.
+  - The kit folder from Rasel still has an extra level (F:/firmivra-junior-kit/firmivra-junior-kit/). The files there are the evening versions I built from.
+- Next steps (Oct 7):
+  1. After #33 merges, merge origin/main into rasel/R1-skeleton-portal, check the e2e tests, and push the portal PR (ask first). Re-read the kit files if they move to the top-level folder.
+  2. Firm workspace skeleton (rasel/R1-skeleton-firm, from main):
+     - `(workspace)/layout.tsx` with the firm menu (Owner and Admin see Sign-ups, Team and Settings);
+     - the `clients/[id]`, `settings` and `setup` layouts and the placeholders;
+     - then delete session-panel.tsx.
+  3. Kit: rebase onto the skeleton (SignedIn/useMe), add the reference screen on T04 (#29 merged: api.taxStatuses, mocks/tax-statuses.ts) with its mock-mode e2e, then the path guard PR (pull_request_target, lists from PAGE-MAP "Your files").
+  4. Then the remaining R1 steps (7: deploy-prod.yml, disabled until R8), then R4.
