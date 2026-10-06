@@ -326,12 +326,13 @@ model ClientAccount {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business         Business            @relation(fields: [businessId], references: [id])
-  user             User                @relation(fields: [userId], references: [id])
-  client           Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  invites          Invite[]
-  privateNotes     ClientPrivateNote[]
-  legalAcceptances LegalAcceptance[]
+  business          Business            @relation(fields: [businessId], references: [id])
+  user              User                @relation(fields: [userId], references: [id])
+  client            Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  invites           Invite[]
+  privateNotes      ClientPrivateNote[]
+  legalAcceptances  LegalAcceptance[]
+  verificationCodes VerificationCode[]
 
   @@unique([businessId, email])
   // Target of client-owned rows (private notes).
@@ -1348,4 +1349,35 @@ model LegalAcceptance {
   @@unique([clientAccountId, legalDocumentId])
   @@index([businessId, clientAccountId])
   @@map("legal_acceptances")
+}
+
+/// Where a sign-up verification code was sent.
+enum VerificationChannel {
+  EMAIL
+  PHONE
+}
+
+/// One code sent to a client during portal sign-up (R3), kept on the server so replaying an old
+/// sign-up cookie cannot reset the attempts. Only the code's HMAC is stored. The database sets
+/// `created_at` (its clock, for the resend gap) and keeps `expires_at` within 15 minutes. After
+/// insert only `attempts` (+1 at a time) and `consumed_at` (once, only on the newest unexpired
+/// code for that account and channel) change; a used code is final; nothing is deleted.
+model VerificationCode {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  businessId      String              @map("business_id") @db.Uuid
+  clientAccountId String              @map("client_account_id") @db.Uuid
+  channel         VerificationChannel
+  /// The exact address the code went to: a lower-case email, or an E.164 phone number.
+  target          String
+  /// Hex HMAC-SHA256 of the code with a server key; never the code itself.
+  codeHash        String              @map("code_hash")
+  attempts        Int                 @default(0)
+  expiresAt       DateTime            @map("expires_at") @db.Timestamptz(3)
+  consumedAt      DateTime?           @map("consumed_at") @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  clientAccount ClientAccount @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([clientAccountId, channel, createdAt(sort: Desc)])
+  @@map("verification_codes")
 }
