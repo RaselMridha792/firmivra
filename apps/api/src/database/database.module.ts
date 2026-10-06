@@ -22,6 +22,23 @@ export class TenantPrisma {
   }
 }
 
+/**
+ * Platform tables for Super Admin routes: `this.platformPrisma.db.firmApplication.findMany()`.
+ * Only works in a request whose caller RolesGuard verified as a Super Admin (`@Roles('SUPER_ADMIN')`
+ * on a route under /api/v1/admin/). Never firm data: that needs an approved support grant (R8).
+ */
+@Injectable()
+export class PlatformPrisma {
+  constructor(@Inject(DATABASE) private readonly database: Database) {}
+
+  get db(): ScopedClient {
+    if (requestContext.getStore()?.platform?.role !== 'SUPER_ADMIN') {
+      throw new Error('PlatformPrisma used outside a Super Admin request (check @Roles)');
+    }
+    return this.database.forPlatform();
+  }
+}
+
 @Global()
 @Module({
   providers: [
@@ -31,8 +48,9 @@ export class TenantPrisma {
       useFactory: (env: Env): Database => createDatabase(env.DATABASE_URL_APP),
     },
     TenantPrisma,
+    PlatformPrisma,
   ],
-  exports: [DATABASE, TenantPrisma],
+  exports: [DATABASE, TenantPrisma, PlatformPrisma],
 })
 export class DatabaseModule implements OnApplicationShutdown {
   constructor(@Inject(DATABASE) private readonly database: Database) {}

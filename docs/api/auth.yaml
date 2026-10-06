@@ -369,7 +369,10 @@ components:
       name: x-business-id
       in: header
       required: false
-      description: The firm to act in, for staff with more than one firm (from the firm picker).
+      description: |
+        The firm to act in, for staff with more than one firm (from the firm picker). The API
+        checks it against the caller's ACTIVE membership in that firm and answers 404 NOT_FOUND
+        otherwise, also for a firm that does not exist, so it can never reach another firm.
       schema: { type: string, format: uuid }
 
   requestBodies:
@@ -626,7 +629,10 @@ components:
                 MFA_CODE_INVALID, CHALLENGE_EXPIRED, INVITE_INVALID, ALREADY_MEMBER,
                 INVITE_EXPIRED. Generic: VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN,
                 NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR, UNSUPPORTED_MEDIA_TYPE (415, the body
-                is not JSON), ORIGIN_NOT_ALLOWED (403, sent from another site).
+                is not JSON), ORIGIN_NOT_ALLOWED (403, sent from another site). Firm routes:
+                BUSINESS_REQUIRED (400, choose a firm with x-business-id), BUSINESS_SETUP_REQUIRED
+                (403, the firm has not finished setup), BUSINESS_INACTIVE (403, suspended or
+                closed).
             message: { type: string, description: For people; may change }
             requestId: { type: string }
             details: {}

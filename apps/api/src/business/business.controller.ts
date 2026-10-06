@@ -25,7 +25,7 @@ export class BusinessController {
   }
 
   /** Clients: the firm whose portal they are in. */
-  @Get('portal/:slug/business')
+  @Get('portal/:firmSlug/business')
   @Roles('CLIENT')
   portal(@CurrentTenant() tenant: TenantContext): Promise<BusinessSummary> {
     return this.tenantPrisma.db.business.findUniqueOrThrow({

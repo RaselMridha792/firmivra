@@ -1,6 +1,6 @@
 # Firmivra
 
-One multi-tenant platform where any business signs up under its own name, runs its own team, and gives each client a private, branded portal. Every business sees only its own data. The first business is LVP Accounting & Taxes (beta: Jan 8, 2027).
+One multi-tenant platform where any business signs up under its own name, runs its own team, and gives each client a private, branded portal. Every business sees only its own data. The first business is LVP Accounting & Taxes (delivery: Oct 18, 2026).
 
 | App                 | Production                   | Dev (every merge to `main` deploys here) |
 | ------------------- | ---------------------------- | ---------------------------------------- |

@@ -13,10 +13,19 @@ export interface AuthContext {
 export type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF' | 'CLIENT';
 
 /** Which firm the request acts in and the caller's role there, from the database. Set by TenantGuard. */
-export interface TenantContext {
-  businessId: string;
-  role: TenantRole;
-  kind: 'staff' | 'client';
+export type TenantContext =
+  | { businessId: string; role: Exclude<TenantRole, 'CLIENT'>; kind: 'staff' }
+  | {
+      businessId: string;
+      role: 'CLIENT';
+      kind: 'client';
+      /** The caller's own ClientAccount here: portal routes take the client from it, never the URL. */
+      clientAccountId: string;
+    };
+
+/** A verified Firmivra Super Admin, allowed onto platform tables. Set by RolesGuard. */
+export interface PlatformContext {
+  role: 'SUPER_ADMIN';
 }
 
 export interface RequestStore {
@@ -25,6 +34,7 @@ export interface RequestStore {
   userAgent?: string;
   auth?: AuthContext;
   tenant?: TenantContext;
+  platform?: PlatformContext;
 }
 
 declare global {
@@ -34,6 +44,7 @@ declare global {
       id?: string;
       auth?: AuthContext;
       tenant?: TenantContext;
+      platform?: PlatformContext;
     }
   }
 }

@@ -34,6 +34,12 @@ const ids = {
   categoryA: '',
   requestA: '',
   documentA: '',
+  formA: '',
+  leadA: '',
+  intakeA: '',
+  leadUploadA: '',
+  notificationA: '',
+  preferenceA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -106,6 +112,9 @@ beforeAll(async () => {
           publishedByUserId: ownerId,
         },
       });
+      await tx.legalAcceptance.create({
+        data: { businessId: firm, clientAccountId: c.id, legalDocumentId: doc.id },
+      });
       const t = await tx.taxStatus.create({ data: { businessId: firm, name: 'Filed' } });
       const cts = await tx.clientTaxStatus.create({
         data: { businessId: firm, clientId: record.id, taxYear: 2025, taxStatusId: t.id },
@@ -144,6 +153,59 @@ beforeAll(async () => {
           s3Key: `tenant/${firm}/documents/${randomUUID()}`,
         },
       });
+      const form = await tx.intakeForm.create({
+        data: {
+          businessId: firm,
+          serviceId: svc.id,
+          version: 1,
+          title: 'Annual Tax intake',
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+        },
+      });
+      const lead = await tx.lead.create({
+        data: {
+          businessId: firm,
+          serviceId: svc.id,
+          firstName: 'Fake',
+          lastName: 'Lead',
+          email: `lead-${run}@x.test`,
+        },
+      });
+      const intake = await tx.intake.create({
+        data: { businessId: firm, formId: form.id, leadId: lead.id },
+      });
+      await tx.intakeSubmission.create({
+        data: { businessId: firm, intakeId: intake.id, version: 1 },
+      });
+      const leadUpload = await tx.leadUpload.create({
+        data: {
+          businessId: firm,
+          leadId: lead.id,
+          slot: 'id',
+          fileName: 'id.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 100,
+          sha256: 'a'.repeat(64),
+          s3Key: `tenant/${firm}/leads/${randomUUID()}`,
+        },
+      });
+      const note2 = await tx.notification.create({
+        data: {
+          businessId: firm,
+          recipientUserId: clientId,
+          category: 'DOCUMENTS',
+          type: 'document_request.created',
+          entityType: 'document_request',
+          entityId: req.id,
+        },
+      });
+      await tx.notificationDelivery.create({
+        data: { businessId: firm, notificationId: note2.id, channel: 'EMAIL' },
+      });
+      const pref = await tx.notificationPreference.create({
+        data: { businessId: firm, userId: clientId, category: 'DOCUMENTS' },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -168,6 +230,12 @@ beforeAll(async () => {
         ids.categoryA = cat.id;
         ids.requestA = req.id;
         ids.documentA = vaultDoc.id;
+        ids.formA = form.id;
+        ids.leadA = lead.id;
+        ids.intakeA = intake.id;
+        ids.leadUploadA = leadUpload.id;
+        ids.notificationA = note2.id;
+        ids.preferenceA = pref.id;
       }
     });
   }
@@ -197,6 +265,7 @@ describe('no scope set', () => {
     expect(await unscopedApp.firmApplication.findMany()).toEqual([]);
     expect(await unscopedApp.businessSettings.findMany()).toEqual([]);
     expect(await unscopedApp.firmLegalDocument.findMany()).toEqual([]);
+    expect(await unscopedApp.legalAcceptance.findMany()).toEqual([]);
     expect(await unscopedApp.taxStatus.findMany()).toEqual([]);
     expect(await unscopedApp.invite.findMany()).toEqual([]);
     expect(await unscopedApp.client.findMany()).toEqual([]);
@@ -212,6 +281,14 @@ describe('no scope set', () => {
     expect(await unscopedApp.documentCategory.findMany()).toEqual([]);
     expect(await unscopedApp.documentRequest.findMany()).toEqual([]);
     expect(await unscopedApp.document.findMany()).toEqual([]);
+    expect(await unscopedApp.intakeForm.findMany()).toEqual([]);
+    expect(await unscopedApp.intake.findMany()).toEqual([]);
+    expect(await unscopedApp.intakeSubmission.findMany()).toEqual([]);
+    expect(await unscopedApp.lead.findMany()).toEqual([]);
+    expect(await unscopedApp.leadUpload.findMany()).toEqual([]);
+    expect(await unscopedApp.notification.findMany()).toEqual([]);
+    expect(await unscopedApp.notificationDelivery.findMany()).toEqual([]);
+    expect(await unscopedApp.notificationPreference.findMany()).toEqual([]);
   });
 });
 
@@ -229,6 +306,7 @@ describe('business scope: firm B', () => {
       await b().auditLog.findMany(),
       await b().businessSettings.findMany(),
       await b().firmLegalDocument.findMany(),
+      await b().legalAcceptance.findMany(),
       await b().taxStatus.findMany(),
       await b().invite.findMany(),
       await b().client.findMany(),
@@ -244,6 +322,14 @@ describe('business scope: firm B', () => {
       await b().documentCategory.findMany(),
       await b().documentRequest.findMany(),
       await b().document.findMany(),
+      await b().intakeForm.findMany(),
+      await b().intake.findMany(),
+      await b().intakeSubmission.findMany(),
+      await b().lead.findMany(),
+      await b().leadUpload.findMany(),
+      await b().notification.findMany(),
+      await b().notificationDelivery.findMany(),
+      await b().notificationPreference.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -281,6 +367,27 @@ describe('business scope: firm B', () => {
     expect(await b().documentRequest.findUnique({ where: { id: ids.requestA } })).toBeNull();
     expect(await b().document.findUnique({ where: { id: ids.documentA } })).toBeNull();
     expect((await b().document.deleteMany({ where: { id: ids.documentA } })).count).toBe(0);
+    expect(await b().intakeForm.findUnique({ where: { id: ids.formA } })).toBeNull();
+    expect(await b().lead.findUnique({ where: { id: ids.leadA } })).toBeNull();
+    expect(await b().intake.findUnique({ where: { id: ids.intakeA } })).toBeNull();
+    expect(await b().leadUpload.findUnique({ where: { id: ids.leadUploadA } })).toBeNull();
+    expect(await b().intakeSubmission.findMany({ where: { intakeId: ids.intakeA } })).toEqual([]);
+    expect((await b().leadUpload.deleteMany({ where: { id: ids.leadUploadA } })).count).toBe(0);
+    expect(await b().notification.findUnique({ where: { id: ids.notificationA } })).toBeNull();
+    expect(
+      await b().notificationDelivery.findMany({ where: { notificationId: ids.notificationA } }),
+    ).toEqual([]);
+    expect(
+      (
+        await b().notification.updateMany({
+          where: { id: ids.notificationA },
+          data: { readAt: new Date() },
+        })
+      ).count,
+    ).toBe(0);
+    expect(
+      (await b().notificationPreference.deleteMany({ where: { id: ids.preferenceA } })).count,
+    ).toBe(0);
     expect(
       await b().engagementStatusHistory.findMany({ where: { engagementId: ids.engagementA } }),
     ).toEqual([]);
@@ -391,6 +498,7 @@ describe('platform scope', () => {
     expect((await p.auditLog.findMany()).every((r) => r.businessId === null)).toBe(true);
     expect(await p.businessSettings.findMany()).toEqual([]);
     expect(await p.firmLegalDocument.findMany()).toEqual([]);
+    expect(await p.legalAcceptance.findMany()).toEqual([]);
     expect(await p.taxStatus.findMany()).toEqual([]);
     expect(await p.invite.findMany()).toEqual([]);
     expect(await p.client.findMany()).toEqual([]);
@@ -406,6 +514,13 @@ describe('platform scope', () => {
     expect(await p.documentCategory.findMany()).toEqual([]);
     expect(await p.documentRequest.findMany()).toEqual([]);
     expect(await p.document.findMany()).toEqual([]);
+    expect(await p.intakeForm.findMany()).toEqual([]);
+    expect(await p.intake.findMany()).toEqual([]);
+    expect(await p.lead.findMany()).toEqual([]);
+    expect(await p.leadUpload.findMany()).toEqual([]);
+    expect(await p.notification.findMany()).toEqual([]);
+    expect(await p.notificationDelivery.findMany()).toEqual([]);
+    expect(await p.notificationPreference.findMany()).toEqual([]);
   });
 });
 
