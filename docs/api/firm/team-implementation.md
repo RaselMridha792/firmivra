@@ -5,7 +5,9 @@ firm-scoped database reads and safe AuditService entries. OWNER/ADMIN list membe
 STAFF and CLIENT cannot manage the team. Tokens, hashes and invite URLs are never returned.
 
 Writes lock this firm's Business row and re-read the actor's active membership after the lock,
-so a concurrent demotion/deactivation cannot reuse the guard's earlier role. The transaction
+so a concurrent demotion/deactivation cannot reuse the guard's earlier role. The active firm
+is rechecked as well; suspension prevents role/deactivation writes and resend delegation from
+a previously authenticated context. The transaction
 retains at least one active owner. Administrators manage staff but cannot manage owners or peer
 administrators or promote a staff member to owner. This conservative policy awaits Rasel review.
 Deactivation changes Membership only; other memberships and User identity remain intact.
