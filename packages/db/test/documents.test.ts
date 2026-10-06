@@ -49,7 +49,7 @@ const upload = (data: Upload = {}) =>
       contentType: 'application/pdf',
       sizeBytes: 1024,
       sha256: 'b'.repeat(64),
-      s3Key: `${ids.firmA}/documents/${randomUUID()}`,
+      s3Key: `tenant/${ids.firmA}/documents/${randomUUID()}`,
       ...data,
     },
   });
@@ -96,10 +96,18 @@ afterAll(async () => {
 });
 
 describe('where a document can point', () => {
-  it("must sit under its own firm's S3 prefix", async () => {
-    for (const s3Key of [`${ids.firmB}/documents/${randomUUID()}`, `documents/${randomUUID()}`]) {
+  it("must sit under its own firm's prefix, tenant/<business_id>/", async () => {
+    for (const s3Key of [
+      `tenant/${ids.firmB}/documents/${randomUUID()}`,
+      `${ids.firmA}/documents/${randomUUID()}`,
+      `documents/${randomUUID()}`,
+      `tenant/${ids.firmA}`,
+    ]) {
       await expect(upload({ s3Key })).rejects.toThrow(/check constraint/i);
     }
+    await expect(
+      upload({ s3Key: `tenant/${ids.firmA}/documents/${randomUUID()}` }),
+    ).resolves.toMatchObject({ businessId: ids.firmA });
   });
 
   it("cannot use another firm's category or another client's engagement", async () => {
@@ -163,13 +171,53 @@ describe('uploads and scanning', () => {
     }
   });
 
-  it('the file, its engagement and its uploader never change', async () => {
-    const doc = await upload();
-    for (const data of [{ sha256: 'c'.repeat(64) }, { direction: 'INTERNAL' as const }]) {
+  it('the file, its S3 key, its engagement and its uploader never change', async () => {
+    const doc = await upload({ direction: 'FIRM_TO_CLIENT' });
+    for (const data of [
+      { s3Key: `tenant/${ids.firmA}/documents/${randomUUID()}` },
+      { contentType: 'image/png' },
+      { sha256: 'c'.repeat(64) },
+      { direction: 'INTERNAL' as const },
+      { uploadedByUserId: randomUUID() },
+    ]) {
       await expect(firmA().document.update({ where: { id: doc.id }, data })).rejects.toThrow(
         /cannot change/,
       );
     }
+    await expect(
+      firmA().document.update({ where: { id: doc.id }, data: { fileName: 'Renamed W-2.pdf' } }),
+    ).resolves.toMatchObject({ fileName: 'Renamed W-2.pdf' });
+  });
+});
+
+describe('retention', () => {
+  const setRetention = (id: string, retentionUntil: Date | null) =>
+    firmA().document.update({ where: { id }, data: { retentionUntil } });
+
+  it('only moves later: a later date or keep-for-good, never earlier', async () => {
+    const doc = await upload({ retentionUntil: days(365) });
+    await expect(setRetention(doc.id, days(30))).rejects.toThrow(/only move later/);
+    await expect(setRetention(doc.id, days(400))).resolves.toBeDefined();
+    await expect(setRetention(doc.id, null)).resolves.toMatchObject({ retentionUntil: null });
+  });
+
+  it('keep-for-good (NULL) never becomes a date', async () => {
+    const doc = await upload();
+    await expect(setRetention(doc.id, days(-1))).rejects.toThrow(/only move later/);
+    await expect(setRetention(doc.id, days(3650))).rejects.toThrow(/only move later/);
+  });
+
+  it('clearing a legal hold is allowed but cannot unlock an early delete', async () => {
+    const doc = await upload({
+      direction: 'FIRM_TO_CLIENT',
+      retentionUntil: days(30),
+      legalHold: true,
+    });
+    await expect(
+      firmA().document.update({ where: { id: doc.id }, data: { legalHold: false } }),
+    ).resolves.toMatchObject({ legalHold: false });
+    await expect(setRetention(doc.id, days(-1))).rejects.toThrow(/only move later/);
+    expect((await firmA().document.deleteMany({ where: { id: doc.id } })).count).toBe(0);
   });
 });
 

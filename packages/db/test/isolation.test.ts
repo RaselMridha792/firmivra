@@ -141,7 +141,7 @@ beforeAll(async () => {
           contentType: 'application/pdf',
           sizeBytes: 100,
           sha256: 'a'.repeat(64),
-          s3Key: `${firm}/documents/${randomUUID()}`,
+          s3Key: `tenant/${firm}/documents/${randomUUID()}`,
         },
       });
       const inv = await tx.invite.create({

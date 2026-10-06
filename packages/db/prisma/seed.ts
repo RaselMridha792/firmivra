@@ -380,7 +380,7 @@ async function main() {
         contentType: 'application/pdf',
         sizeBytes: 48213,
         sha256: createHash('sha256').update('sample 1099-INT').digest('hex'),
-        s3Key: `${businesses.lvp}/documents/${SEED_DOCUMENT_IDS.interestDocument}`,
+        s3Key: `tenant/${businesses.lvp}/documents/${SEED_DOCUMENT_IDS.interestDocument}`,
         taxYear: 2025,
         uploadedByUserId: SEED_USERS.lvpClient.id,
       },

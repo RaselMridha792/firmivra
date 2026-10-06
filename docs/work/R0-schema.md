@@ -19,7 +19,7 @@
 - [x] 4a. Fix: the 72-hour support-grant rule judges time by the database clock only, so a slightly fast API clock never fails an approval (ship with the step 4 PR)
 - [x] 4b. Unique `users (pool, email)` for sign-in (R2): partial, STAFF and ADMIN only, because a client has one user per firm (AUTH-DESIGN)
 - [x] 5. Documents, document categories, document requests
-- [ ] 5a. Review fixes for PR #22 (lead, changes requested): see the Oct 6 entry in the Progress log
+- [x] 5a. Review fixes for PR #22 (lead, changes requested): see the Oct 6 entry in the Progress log
 - [ ] 6. Intake form definitions and submissions (6 Begin Online services), leads
 - [ ] 7. Notifications (per user, read/unread, link to record), notification preferences
 - [ ] 8. Appointments, staff availability, working hours, blocked time (unique constraint that blocks double booking)
@@ -39,7 +39,8 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 - R2: invites are ready for the activation flow: create the user and an INVITED membership, then an `invites` row with the token's SHA-256; the signed-out accept step reads it with `db.forInvite(tokenHash)`, then works in business scope.
 - I02 (Ibrahim, client profile API): `client_profiles.dob_enc` and `ssn_enc` hold encrypted values only, never plain SSN or date of birth. Write them only through the KMS-backed encrypt helper (Rasel assigns that helper to R5); keep only `ssn_last4` in plain text.
 - R5 (secure documents):
-  - Store objects at `<business_id>/...` (a CHECK on `documents.s3_key` enforces the firm prefix).
+  - Store objects at `tenant/<business_id>/...` (a CHECK on `documents.s3_key` enforces the firm prefix; it matches the IAM policy `tenant/*`).
+  - The key is fixed once the row exists (the database refuses a change). Record the scan result on the row and never move objects; if R5 ever needs to move objects, it asks R0 first.
   - Create the row as `PENDING`; the scanner sets `scan_status` and `scanned_at` once.
   - A hard delete of a `documents` row must also remove the object's old versions, because the documents bucket is versioned. The alternative is a lifecycle rule that expires noncurrent versions.
 
@@ -62,3 +63,4 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
   2. `s3_key` and the uploader columns are immutable after insert. R5 keeps the key fixed and records the scan result on the row; if R5 ever needs to move objects, it asks R0.
   3. `retention_until` may only move later, and NULL (keep forever) never becomes a date. Clearing `legal_hold` stays allowed (the API limits it to managers and audits it); with this rule it can no longer unlock an early delete.
   4. From #17: a report that was ever published can never be deleted. Unpublishing stays allowed, but keep a record (e.g. `first_published_at`, which can't be cleared) and refuse DELETE when it is set.
+- Oct 6, step 5a: migration `r0_documents_review` (a new migration in #22, because the local DBs had already applied `r0_documents`): (1) prefix CHECK `tenant/<business_id>/`; (2) `s3_key` and `content_type` join the immutable upload columns; (3) `retention_until` only moves later, NULL never becomes a date; (4) `engagement_reports.first_published_at`, set by trigger on first publication and never changed or cleared, and DELETE only when it is NULL; backfill for reports already published runs per firm with business scope (checked as `firmivra_app` without RLS bypass). A test for each. Seed key and R5 note updated. Locally: deleted the one seeded document with the old key and truncated the test database's documents so the new CHECK could apply (the seed recreates it). Commit "fix: review fixes for documents and reports (R0)".

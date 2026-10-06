@@ -267,4 +267,52 @@ describe('workspace tasks, notes and reports', () => {
       null,
     );
   });
+
+  it('a report that was ever published is never deleted, even after unpublishing', async () => {
+    const e = await engagement();
+    const publishedAt = new Date();
+    const r = await firmA().engagementReport.create({
+      data: {
+        businessId: ids.firmA,
+        engagementId: e.id,
+        kind: 'PROJECTION',
+        title: '2026 projection',
+        status: 'PUBLISHED',
+        publishedAt,
+      },
+    });
+    expect(r.firstPublishedAt).toEqual(publishedAt);
+
+    // Unpublishing is allowed; the record that it was published stays.
+    const unpublished = await firmA().engagementReport.update({
+      where: { id: r.id },
+      data: { status: 'DRAFT', publishedAt: null },
+    });
+    expect(unpublished).toMatchObject({ status: 'DRAFT', firstPublishedAt: publishedAt });
+    expect((await firmA().engagementReport.deleteMany({ where: { id: r.id } })).count).toBe(0);
+
+    // Republishing keeps the first date.
+    const republished = await firmA().engagementReport.update({
+      where: { id: r.id },
+      data: { status: 'PUBLISHED', publishedAt: new Date(Date.now() + 60_000) },
+    });
+    expect(republished.firstPublishedAt).toEqual(publishedAt);
+  });
+
+  it('first_published_at is set only by the database and never cleared or changed', async () => {
+    const e = await engagement();
+    const base = { businessId: ids.firmA, engagementId: e.id, kind: 'REPORT' as const, title: 'X' };
+    await expect(
+      firmA().engagementReport.create({ data: { ...base, firstPublishedAt: new Date() } }),
+    ).rejects.toThrow(/set by the database/);
+
+    const r = await firmA().engagementReport.create({
+      data: { ...base, status: 'PUBLISHED', publishedAt: new Date() },
+    });
+    for (const firstPublishedAt of [null, new Date(Date.now() - 86_400_000)]) {
+      await expect(
+        firmA().engagementReport.update({ where: { id: r.id }, data: { firstPublishedAt } }),
+      ).rejects.toThrow(/cannot change or be cleared/);
+    }
+  });
 });
