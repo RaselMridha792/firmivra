@@ -67,3 +67,17 @@ test('every signed-in portal page opens in the client shell', async ({ page }) =
     await expect(page.getByTestId('page-title')).toHaveText(title);
   }
 });
+
+test('an encoded slash or backslash as the firm slug is a 404, never a redirect', async ({
+  request,
+}) => {
+  for (const path of ['/%2Fevil.com/home', '/%5Cevil.com/home', '/%2F%2Fevil.com/sign-in']) {
+    // Node can't resolve *.localhost (the browser can), so send the portal host as a header.
+    const res = await request.get(`http://localhost:${port}${path}`, {
+      headers: { host: `portal.localhost:${port}` },
+      maxRedirects: 0,
+    });
+    expect(res.status(), path).toBe(404);
+    expect(res.headers()['location'], path).toBeUndefined();
+  }
+});

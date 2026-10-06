@@ -2,10 +2,12 @@
 
 import { ApiRequestError, type MeResponse } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, use, useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { adminAuth, AUTH_MODE, signOut as devSignOut, staffAuth } from '../lib/auth';
+import { adminAuth, AUTH_MODE, portalAuth, signOut as devSignOut, staffAuth } from '../lib/auth';
+import { claimCache, refreshSession, releaseCache, setSession } from '../lib/session';
 
 export type Site = 'admin' | 'firm' | 'portal';
 
@@ -27,46 +29,76 @@ export function useMe(): SignedInValue {
 type State =
   { status: 'loading' } | { status: 'ready'; me: MeResponse } | { status: 'error'; code: string };
 
+/** Renews this site's session (POST .../auth/refresh): the API sets fresh cookies. */
+function refreshFor(site: Site, firmSlug: string | undefined): () => Promise<unknown> {
+  if (site === 'admin') return () => adminAuth.refresh();
+  if (site === 'portal' && firmSlug) return () => portalAuth(firmSlug).refresh();
+  return () => staffAuth.refresh();
+}
+
 /**
  * The sign-in check of every signed-in layout. Reads the user once in the browser
- * (GET /admin/me on the Super Admin site, GET /me elsewhere), shows a loading state, sends
- * signed-out visitors to the site's sign-in page, and gives the pages the user through useMe().
+ * (GET /admin/me on the Super Admin site, GET /me elsewhere), shows a loading state, and gives the
+ * pages the user through useMe(). On a 401 it refreshes the session once, then sends the visitor
+ * to the site's sign-in page. A different person than last time on this tab starts with an empty
+ * data cache, and sign-out empties it (lib/session.ts).
  */
 export function SignedIn({
   site,
   signInPath,
+  firmSlug,
   children,
 }: {
   site: Site;
   signInPath: string;
+  /** The portal's firm (portal only): its sign-out ends that firm's session. */
+  firmSlug?: string;
   children: ReactNode;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [state, setState] = useState<State>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
-    (site === 'admin' ? adminAuth.me() : api.me()).then(
-      (me) => active && setState({ status: 'ready', me }),
-      (e: unknown) => {
-        if (!active) return;
-        if (e instanceof ApiRequestError && e.status === 401) router.replace(signInPath);
-        else setState({ status: 'error', code: e instanceof ApiRequestError ? e.code : 'ERROR' });
-      },
-    );
+    const refresh = refreshFor(site, firmSlug);
+    const loadMe = () => (site === 'admin' ? adminAuth.me() : api.me());
+    const is401 = (e: unknown) => e instanceof ApiRequestError && e.status === 401;
+    // One refresh on a 401, then one more try; a second 401 means the session is over.
+    loadMe()
+      .catch(async (e: unknown) => {
+        if (!is401(e) || !(await refreshSession(refresh))) throw e;
+        return loadMe();
+      })
+      .then(
+        (me) => {
+          if (!active) return;
+          claimCache(queryClient, 'user', me.user.id);
+          setSession({ refresh, signInPath });
+          setState({ status: 'ready', me });
+        },
+        (e: unknown) => {
+          if (!active) return;
+          if (is401(e)) router.replace(signInPath);
+          else setState({ status: 'error', code: e instanceof ApiRequestError ? e.code : 'ERROR' });
+        },
+      );
     return () => {
       active = false;
     };
-  }, [site, signInPath, router, attempt]);
+  }, [site, signInPath, firmSlug, router, queryClient, attempt]);
 
   const signOut = useCallback(async () => {
     if (AUTH_MODE === 'local') await devSignOut();
     else if (site === 'admin') await adminAuth.signOut();
     else if (site === 'firm') await staffAuth.signOut();
-    // Portal clients sign out through R3's client auth once it's on main.
+    else if (firmSlug) await portalAuth(firmSlug).signOut();
+    // Nothing of this person's stays in memory for whoever uses the tab next.
+    setSession(null);
+    releaseCache(queryClient);
     router.replace(signInPath);
-  }, [site, signInPath, router]);
+  }, [site, signInPath, firmSlug, router, queryClient]);
 
   if (state.status === 'loading') {
     return (

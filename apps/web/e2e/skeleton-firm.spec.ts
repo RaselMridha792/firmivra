@@ -83,3 +83,23 @@ test('Sign-ups, Team and Settings show for the owner, not for staff', async ({ p
   for (const label of ['Sign-ups', 'Team', 'Settings'])
     await expect(menu(page, label)).toHaveCount(0);
 });
+
+test('a firm that cannot be opened shows why, with Sign out (no dead end)', async ({ page }) => {
+  // invited@lvp.test only has an INVITED membership, so GET /business refuses them.
+  await page.goto(app('/sign-in'));
+  // Sign in from the page, like the quick sign-in buttons (local dev token).
+  const status = await page.evaluate(async () => {
+    const r = await fetch('/api/v1/dev/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'invited@lvp.test', pool: 'STAFF' }),
+    });
+    return r.status;
+  });
+  expect(status).toBe(200);
+  await page.goto(app('/'));
+  await expect(page.getByTestId('firm-error')).toBeVisible();
+  await expect(page.getByTestId('page-title')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL(app('/sign-in'));
+});

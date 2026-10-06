@@ -1,4 +1,4 @@
-import type { BusinessSummary, MembershipRole, MeResponse } from '@firmivra/types';
+import type { BusinessSummary, MeResponse } from '@firmivra/types';
 import { MOCK_ROLE, mockDelay } from '../lib/mock';
 
 /**
@@ -21,7 +21,7 @@ export function createMeMock() {
       name: 'Mock User',
       pool: 'STAFF',
     },
-    memberships: [{ business: mockBusiness, role: MOCK_ROLE as MembershipRole, status: 'ACTIVE' }],
+    memberships: [{ business: mockBusiness, role: MOCK_ROLE, status: 'ACTIVE' }],
     clientAccounts: [],
     platformAdmin: false,
   };

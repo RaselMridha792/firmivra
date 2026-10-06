@@ -19,7 +19,7 @@ const tabs: [label: string, path: string][] = [
 export default function ClientLayout({ children }: { children: ReactNode }) {
   const { id } = useParams<{ id: string }>();
   const path = publicPath(usePathname());
-  const base = `/clients/${id}`;
+  const base = `/clients/${encodeURIComponent(id)}`;
 
   return (
     <div className="flex flex-col gap-4">

@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 import {
   linkUsers,
   parseLinkUsers,
@@ -13,8 +14,8 @@ import {
 } from '../src/link-users.js';
 
 const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner);
-const db = createDatabase(urls.app);
+const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 const run = randomUUID().slice(0, 8);
 const firm = { slug: `link-${run}`, name: `Link Firm ${run}` };
@@ -150,9 +151,16 @@ describe('linkUsers', () => {
   });
 
   it('is safe to run again and applies a changed staff role', async () => {
-    const again = await linkUsers(owner, firm, [admin, { ...staff, role: 'ADMIN' }]);
+    // The firm's only owner cannot be demoted (R0: a firm keeps an active owner).
+    await expect(linkUsers(owner, firm, [admin, { ...staff, role: 'ADMIN' }])).rejects.toThrow(
+      /LAST_ACTIVE_OWNER/,
+    );
+
+    // With another owner linked first, the change applies.
+    const newOwner: LinkUser = { ...staff, sub: randomUUID(), email: `owner-${run}@link.test` };
+    const again = await linkUsers(owner, firm, [admin, newOwner, { ...staff, role: 'ADMIN' }]);
     expect(again.businessCreated).toBe(false);
-    expect(again.users.every((u) => !u.created)).toBe(true);
+    expect(again.users.map((u) => u.created)).toEqual([false, true, false]);
     expect(
       await platform().user.count({ where: { cognitoSub: { in: [admin.sub, staff.sub] } } }),
     ).toBe(2);
@@ -160,7 +168,8 @@ describe('linkUsers', () => {
     const memberships = await db.forBusiness(again.businessId).membership.findMany({
       where: { businessId: again.businessId },
     });
-    expect(memberships).toEqual([expect.objectContaining({ role: 'ADMIN', status: 'ACTIVE' })]);
+    expect(memberships.map((m) => m.role).sort()).toEqual(['ADMIN', 'OWNER']);
+    expect(memberships.every((m) => m.status === 'ACTIVE')).toBe(true);
   });
 
   it('never moves a user to another pool, and writes nothing on that run', async () => {

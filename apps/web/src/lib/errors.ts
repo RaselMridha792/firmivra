@@ -19,7 +19,8 @@ const MESSAGES: Record<string, string> = {
   ALREADY_MEMBER: 'This person is already on the team.',
   // Access
   FORBIDDEN: "You don't have permission to do this.",
-  BUSINESS_INACTIVE: 'This firm is not active right now.',
+  BUSINESS_INACTIVE: 'This firm is not active right now. Contact Firmivra support.',
+  BUSINESS_SETUP_REQUIRED: 'Your firm needs to finish setup first.',
   BUSINESS_REQUIRED: 'Choose a firm first.',
   NOT_FOUND: "We couldn't find that. It may have been removed.",
   // Input and conflicts
@@ -32,6 +33,7 @@ const MESSAGES: Record<string, string> = {
   ORIGIN_NOT_ALLOWED: 'Something went wrong. Reload the page and try again.',
   UNSUPPORTED_MEDIA_TYPE: 'Something went wrong. Reload the page and try again.',
   INTERNAL_ERROR: 'Something went wrong on our side. Try again in a moment.',
+  NOT_IMPLEMENTED: "This isn't available yet.",
 };
 
 const NETWORK = "We can't reach Firmivra. Check your connection and try again.";

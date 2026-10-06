@@ -4,12 +4,13 @@
 //   LINK_USERS: JSON list of { sub, role }; role SUPER_ADMIN, OWNER, ADMIN or STAFF
 //   LINK_FIRM_SLUG (default lvp), LINK_FIRM_NAME (only when the firm is created)
 // Overrides are recorded in CloudTrail, so they hold no emails or names: the task reads them from
-// Cognito (AdminGetUser by sub, the only Cognito permission of the migrate task role).
+// Cognito (ListUsers with the filter sub = "<sub>", the only Cognito permission of the migrate
+// task role). Our pools sign in by username, and AdminGetUser does not take the sub there.
 // Refuses to run unless APP_ENV=dev (set on the dev task only).
 // Connection as in migrate-deploy.mjs: owner role, DB_SSLMODE verify-full (default) or disable.
 import {
-  AdminGetUserCommand,
   CognitoIdentityProviderClient,
+  ListUsersCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { createPrismaClient } from '../dist/index.js';
 import { linkUsers, parseLinkUsers, resolveLinkUsers } from '../dist/link-users.js';
@@ -39,14 +40,16 @@ const pools = {
   ADMIN: required('COGNITO_ADMINS_USER_POOL_ID'),
 };
 const cognito = new CognitoIdentityProviderClient({});
-/** AdminGetUser accepts the sub in place of the username. */
+/** The user with this sub in the pool. parseLinkUsers already checked that sub is a UUID. */
 async function lookup(pool, sub) {
-  const out = await cognito
-    .send(new AdminGetUserCommand({ UserPoolId: pools[pool], Username: sub }))
-    .catch((e) => {
-      throw new Error(`Cognito user ${sub} not found in the ${pool} pool (${e.name})`);
-    });
-  const attr = (name) => out.UserAttributes?.find((a) => a.Name === name)?.Value;
+  const out = await cognito.send(
+    new ListUsersCommand({ UserPoolId: pools[pool], Filter: `sub = "${sub}"`, Limit: 2 }),
+  );
+  const found = out.Users ?? [];
+  if (found.length !== 1) {
+    throw new Error(`Cognito user ${sub} not found in the ${pool} pool (${found.length} matches)`);
+  }
+  const attr = (name) => found[0].Attributes?.find((a) => a.Name === name)?.Value;
   return { email: attr('email'), name: attr('name') };
 }
 

@@ -7,7 +7,7 @@ export function MockBadge() {
     <div
       role="status"
       data-testid="mock-badge"
-      className="fixed right-4 bottom-4 z-50 rounded-control bg-danger px-3 py-1 text-xs font-semibold text-white shadow-card"
+      className="fixed right-4 bottom-4 z-50 rounded-control bg-danger px-3 py-1 text-xs font-semibold text-surface shadow-card"
     >
       Mock data: {MOCK_MODULES.join(', ')}
     </div>
