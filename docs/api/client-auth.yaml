@@ -72,6 +72,14 @@ info:
     client record and opens the portal; decline closes the login. The client gets an email either
     way.
 
+    **Linking an existing client record.** Approve with `clientId` links the login to a record the
+    firm already has (added by staff, or from Begin Online) instead of creating a duplicate. That
+    login then sees the record's tax files, so approve links only if the record's email is the
+    sign-up's verified email (both lower-cased) and the record has no primary portal login yet.
+    Otherwise it answers `409 CLIENT_NOT_LINKABLE` and changes nothing (`404` if the firm has no
+    such record). `existingClient` in the list shows only a record that passes this check; offer
+    linking only for that one.
+
     ## Local development
 
     With `AUTH_MODE=local`, every verification code is `000000` and nothing is sent. The sign-in
@@ -399,22 +407,39 @@ paths:
     post:
       tags: [sign-ups]
       operationId: approveClientSignUp
-      summary: Approve; creates the client record and opens the portal
+      summary: Approve; creates the client record (or links an existing one) and opens the portal
+      description: |
+        Without a body it creates the firm's client record from the sign-up. With `clientId` (for
+        example `existingClient` from the list) it links the login to that record instead, so the
+        firm gets no duplicate, but only if the record's email is the sign-up's verified email
+        (both lower-cased) and the record has no primary portal login yet. Otherwise
+        `409 CLIENT_NOT_LINKABLE` and nothing changes; `404` if the firm has no such record. Any
+        other body field is `400 VALIDATION_FAILED`.
       security: [{ firmCookie: [] }]
       parameters:
         - { $ref: '#/components/parameters/BusinessId' }
         - { $ref: '#/components/parameters/ClientAccountId' }
+      requestBody:
+        required: false
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/ApproveSignUpRequest' } }
       responses:
         '200':
           description: Approved; the client gets an email
           content:
             application/json: { schema: { $ref: '#/components/schemas/ApproveSignUpResponse' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403':
           description: '`FORBIDDEN` (only the owner and admins) or `ORIGIN_NOT_ALLOWED` (not sent from the site''s own pages)'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/NotPending' }
+        '409':
+          description: |
+            `NOT_PENDING` (someone already approved or declined it) or `CLIENT_NOT_LINKABLE` (the
+            record's email is not the sign-up's verified email, or the record already has a
+            primary portal login)
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
   /client-sign-ups/{clientAccountId}/decline:
@@ -633,6 +658,7 @@ components:
         - signedUpAt
         - declinedAt
         - declineReason
+        - existingClient
       properties:
         clientAccountId: { type: string, format: uuid }
         name: { type: string }
@@ -643,18 +669,41 @@ components:
         signedUpAt: { $ref: '#/components/schemas/Timestamp' }
         declinedAt: { oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }] }
         declineReason: { type: [string, 'null'] }
+        existingClient:
+          description: |
+            A client record of this firm that approve would link to (`clientId`): its email is the
+            sign-up's verified email (both lower-cased) and it has no primary portal login yet.
+            Null when there is none.
+          oneOf:
+            - type: object
+              required: [clientId, displayName]
+              properties:
+                clientId: { type: string, format: uuid }
+                displayName: { type: string }
+            - { type: 'null' }
     ClientSignUpList:
       type: object
       required: [items, nextCursor]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/ClientSignUp' } }
         nextCursor: { type: [string, 'null'], description: Pass as `cursor`; null on the last page }
+    ApproveSignUpRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        clientId:
+          type: string
+          format: uuid
+          description: |
+            Link to this existing client record of the firm instead of creating one. Only a record
+            whose email is the sign-up's verified email (both lower-cased) and that has no primary
+            portal login yet.
     ApproveSignUpResponse:
       type: object
       required: [clientAccountId, clientId, status, approvedAt]
       properties:
         clientAccountId: { type: string, format: uuid }
-        clientId: { type: string, format: uuid, description: The new client record }
+        clientId: { type: string, format: uuid, description: The client record, new or linked }
         status: { const: ACTIVE }
         approvedAt: { $ref: '#/components/schemas/Timestamp' }
     DeclineSignUpRequest:
@@ -674,5 +723,5 @@ components:
       description: |
         Codes of these routes: SIGN_UP_CLOSED (403), ORIGIN_NOT_ALLOWED (403),
         UNSUPPORTED_MEDIA_TYPE (415), TERMS_OUTDATED (409), SIGN_UP_EXPIRED (410),
-        CODE_INVALID (400), ALREADY_VERIFIED (409), WRONG_STEP (409), NOT_PENDING (409), plus
-        the auth and generic codes in auth.yaml.
+        CODE_INVALID (400), ALREADY_VERIFIED (409), WRONG_STEP (409), NOT_PENDING (409),
+        CLIENT_NOT_LINKABLE (409), plus the auth and generic codes in auth.yaml.

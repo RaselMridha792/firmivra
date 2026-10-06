@@ -127,6 +127,27 @@ describe('clients', () => {
       }),
     ).rejects.toThrow(/check constraint/i);
   });
+
+  it("keeps the client's additional information short (My Profile)", async () => {
+    const c = await newClientA();
+    const profile = (data: object) =>
+      firmA().clientProfile.create({ data: { clientId: c.id, businessId: ids.firmA, ...data } });
+    for (const data of [
+      { referralSource: ' ' },
+      { referralSource: 'x'.repeat(201) },
+      { additionalInfo: ' ' },
+      { additionalInfo: 'x'.repeat(2001) },
+    ]) {
+      await expect(profile(data)).rejects.toThrow(/check constraint/i);
+    }
+    await expect(
+      profile({
+        preferredContactMethod: 'TEXT',
+        referralSource: 'A friend',
+        additionalInfo: 'Prefers mornings.',
+      }),
+    ).resolves.toMatchObject({ preferredContactMethod: 'TEXT' });
+  });
 });
 
 describe('same-firm links (foreign keys skip RLS, so the keys include business_id)', () => {

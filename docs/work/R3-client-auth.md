@@ -19,7 +19,7 @@
 - [ ] 4. Firm side: list pending sign-ups, approve, decline (owner and admin only), notify the client
 - [ ] 5. Client sign-in, optional MFA, session cookies scoped to the portal
 - [ ] 6. Forgot and reset password per firm; the response never reveals whether an account exists
-- [ ] 7. Per-firm Terms and Privacy accepted at sign-up and stored with version and time
+- [x] 7. Per-firm Terms and Privacy accepted at sign-up and stored with version and time
 - [ ] 8. e2e tests, including a client of firm A trying firm B's portal
 
 ## Done when
@@ -36,6 +36,8 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
 - R0 (answered Oct 6, PR #27): `legal_acceptances` / `LegalAcceptance` (clientAccountId, legalDocumentId, acceptedAt, ip, userAgent; insert-only; written in business scope in the transaction that creates the client account, one row each for Terms and Privacy) and `business_settings.portalName`, `portalHeader`, `welcomeMessage`. No accent colour column (R0 asked Rasel): `info.branding.accentColor` sends a default until there is one.
 - R0 (answered Oct 6, PR #32, migration `20261006101400_r0_verification_codes`): `verification_codes` / `VerificationCode`, enum `VerificationChannel` (EMAIL, PHONE); fields businessId, clientAccountId, channel, target, codeHash, attempts, expiresAt, consumedAt, createdAt; business scope only. The database sets createdAt (use it for the 45 s resend gap), trims expiresAt to at most 15 minutes, allows only attempts +1 and consumedAt after insert, and refuses consuming an expired code or one that is not the newest. The API locks out at its own attempt limit before consuming and checks target against the account's current email or phone.
 - R1: serve `apps/web/src/mocks/client-auth.ts` in mock mode (lands Oct 7).
+- R10 (note, Rasel Oct 7): until R10's client records exist, step 4's approve creates the minimal client record itself (display name, email, phone, account type) in the approve transaction. That insert sits in one small function so R10 can take it over later. Linking an existing record follows the rule below; R10's own linking (for example a staff invite) should use the same check.
+- Fahad, F06 (note): a pending sign-up has `existingClient` (`{ clientId, displayName }` or null). It is set only for a record approve would accept: the record's email is the sign-up's verified email (both lower-cased) and the record has no primary portal login yet. Offer "link to this client" only then: `approve(id, { clientId: existingClient.clientId })`. Approve refuses any other record with 409 `CLIENT_NOT_LINKABLE` (nothing changes; reload the list), and 404 for a record the firm doesn't have. Without a body, approve creates a new record. The body is strict: any other field is 400.
 - R3 itself, step 5: when the portal switches to the per-firm cookies, the e2e test that expects 404 on another firm's portal changes: there the visitor is simply signed out (401).
 
 ## Progress log
@@ -57,3 +59,6 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
   - Cognito: `createUser` takes phone and `emailVerified`, new `updateContact` (verified flags, changed email or phone).
   - Audit `client_account.signed_up` and `client_account.verified` in the firm.
   - Tests: `test/e2e/sign-up.e2e.test.ts` (7), `test/unit/client-auth.test.ts`.
+- 2026-10-07, step 4 contract (Rasel): approve takes an optional `{ clientId }` to link the login to an existing client record of the firm (404 if the firm has none with that id); `ClientSignUp.existingClient` shows a record with the same email. Types, client, YAML and mocks updated (Jane Roe's mock sign-up has an `existingClient`); notes above for R10 and F06.
+- 2026-10-07, #37 fix (lead took #37 off the ready list: linking any record would let one wrong click give a stranger another client's tax records): approve links only a record whose email is the sign-up's verified email (both lower-cased) and that has no primary portal login yet, else 409 `CLIENT_NOT_LINKABLE`; `existingClient` shows only such a record; `ApproveSignUpRequest` is strict. In the zod schemas, client-auth.yaml ("Linking an existing client record"), the F06 note and the mocks (John Doe's record has his email but already a login, so it is refused). Step 4's API enforces the same rule in the approve transaction.
+- 2026-10-07, steps 2-3 PR branch `rasel/R3-signup` (696df21 plus the #41 branch, which holds main with #32): #32 merged, so the PR opens now (Rasel); its diff shows #41's changes until #41 merges, then main is merged in. Step 7 is part of sign-up: `POST auth/sign-up` refuses outdated versions (409 `TERMS_OUTDATED`) and stores one `legal_acceptances` row each for Terms and Privacy (document id, so its version, plus time, IP and user agent) in the transaction that creates the account.

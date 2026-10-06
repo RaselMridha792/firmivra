@@ -3,11 +3,13 @@ import {
   ConflictException,
   ForbiddenException,
   GoneException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Database } from '@firmivra/db';
+import type { Database, TxClient } from '@firmivra/db';
 import type { ActivationCheckResponse, MembershipRole } from '@firmivra/types';
 import { AuditService, type AuditEntity } from '../audit/audit.service.js';
 import { type AuthContext, requestContext } from '../common/request-context.js';
@@ -21,6 +23,18 @@ import { IDENTITY_PROVIDER, type IdentityProvider } from './identity/identity-pr
 /** Activation links last 7 days (docs/AUTH-DESIGN.md; the database refuses longer). */
 const INVITE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Caps on activation links, counted in the database so every API task shares them (#41 review).
+ * They bound email to any one address and the Cognito logins a firm can create.
+ */
+export const INVITE_LIMITS = {
+  /** Links one firm sends in a day, resends included. */
+  perFirm: 50,
+  /** Links to one person at one firm in a day, resends included. */
+  perPerson: 5,
+  windowMs: DAY_MS,
+};
 
 /** Who sends an invite: a firm owner or admin, or null for the platform (R4, new firm owners). */
 export interface Inviter {
@@ -52,6 +66,27 @@ const inviteExpired = () =>
     code: 'INVITE_EXPIRED',
     message: 'This link has expired. Ask for a new invite.',
   });
+const alreadyMember = () =>
+  new ConflictException({
+    code: 'ALREADY_MEMBER',
+    message: 'This person already works at this firm',
+  });
+const accountExists = () =>
+  new ConflictException({
+    code: 'ACCOUNT_EXISTS',
+    message: 'You already have a login: sign in to accept the invite',
+  });
+const businessInactive = () =>
+  new ForbiddenException({ code: 'BUSINESS_INACTIVE', message: 'This firm is not active' });
+const tooManyInvites = () =>
+  new HttpException(
+    { code: 'RATE_LIMITED', message: 'Too many invites today. Try again tomorrow.' },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+
+/** The invites_rules trigger refused an acceptance: by the database's clock the link expired. */
+const expiredByDatabase = (e: unknown) =>
+  e instanceof Error && e.message.includes('expired invite cannot be accepted');
 
 /** The owner invites admins and staff, an admin invites staff; only the platform invites owners. */
 function assertMayInvite(inviter: Inviter | null, role: MembershipRole): void {
@@ -67,12 +102,18 @@ const sha256 = (token: string) => createHash('sha256').update(token).digest('hex
 
 const isUniqueViolation = (e: unknown) => (e as { code?: string }).code === 'P2002';
 
-/** Runs `fn`, and once more if it hit a unique index another request filled in meanwhile. */
+/** A membership changed between reading and updating it (for example an activation committed). */
+class MembershipChanged extends Error {}
+
+/**
+ * Runs `fn`, and once more if another request got there first: it filled a unique index, or
+ * changed the membership meanwhile. The second run reads the new state.
+ */
 async function retryOnConflict<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
-    if (!isUniqueViolation(e)) throw e;
+    if (!isUniqueViolation(e) && !(e instanceof MembershipChanged)) throw e;
     return fn();
   }
 }
@@ -95,37 +136,50 @@ export class InvitesService {
    * Invites a person to a firm and emails the activation link. Someone with an open invite gets
    * a new link (the old one stops working); a deactivated member is invited again; an active
    * member is 409 ALREADY_MEMBER. The answer never shows whether the person has a login elsewhere.
+   * The firm must be in setup or active (403 BUSINESS_INACTIVE), also for callers without the
+   * route's guard (R4, the Team API), and within INVITE_LIMITS (429 RATE_LIMITED).
    */
   async createInvite(input: CreateInviteInput): Promise<InviteResult> {
     const email = input.email.trim().toLowerCase();
     const { businessId, role, invitedBy } = input;
     assertMayInvite(invitedBy, role);
 
+    const firm = this.db.forBusiness(businessId);
+    const business = await firm.business.findUnique({
+      where: { id: businessId },
+      select: { name: true, status: true },
+    });
+    if (business?.status !== 'PENDING_SETUP' && business?.status !== 'ACTIVE') {
+      throw businessInactive();
+    }
+    const since = new Date(Date.now() - INVITE_LIMITS.windowMs);
+    // Before any Cognito login is created, so a firm at its cap cannot fill the pool.
+    const sentToday = await firm.invite.count({ where: { createdAt: { gt: since } } });
+    if (sentToday >= INVITE_LIMITS.perFirm) throw tooManyInvites();
+
     const userId = await this.staffUserFor(email, input.name);
 
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_DAYS * DAY_MS);
-    // Retried once if a parallel invite created the membership first: then it is a resend.
+    // Retried once if a parallel invite created the membership first (then it is a resend), or
+    // an activation changed it meanwhile (then the person is a member).
     const { inviteId, membershipId, resent } = await retryOnConflict(() =>
       this.db.withScope({ kind: 'business', businessId }, async (tx) => {
         const existing = await tx.membership.findFirst({
           where: { userId },
           select: { id: true, status: true, role: true },
         });
-        if (existing?.status === 'ACTIVE') {
-          throw new ConflictException({
-            code: 'ALREADY_MEMBER',
-            message: 'This person already works at this firm',
-          });
-        }
+        if (existing?.status === 'ACTIVE') throw alreadyMember();
         // Re-inviting changes an existing membership: the inviter must be allowed its role too.
         if (existing) assertMayInvite(invitedBy, existing.role);
+        if (existing) {
+          const toThisPerson = await tx.invite.count({
+            where: { membershipId: existing.id, createdAt: { gt: since } },
+          });
+          if (toThisPerson >= INVITE_LIMITS.perPerson) throw tooManyInvites();
+        }
         const membership = existing
-          ? await tx.membership.update({
-              where: { id: existing.id },
-              data: { status: 'INVITED', role },
-              select: { id: true },
-            })
+          ? await this.reinvite(tx, existing, role)
           : await tx.membership.create({
               data: { businessId, userId, role, status: 'INVITED' },
               select: { id: true },
@@ -152,9 +206,14 @@ export class InvitesService {
       }),
     );
 
-    const business = await this.db
-      .forBusiness(businessId)
-      .business.findUniqueOrThrow({ where: { id: businessId }, select: { name: true } });
+    // Audited before sending: a failed send still leaves the invite on record.
+    await this.auditInFirm(
+      businessId,
+      undefined,
+      'membership.invited',
+      { type: 'membership', id: membershipId },
+      { inviteId, role, resent },
+    );
     await this.mailer.send({
       inviteId,
       to: email,
@@ -163,13 +222,6 @@ export class InvitesService {
       link: this.activationLink(token),
       expiresAt,
     });
-    await this.auditInFirm(
-      businessId,
-      undefined,
-      'membership.invited',
-      { type: 'membership', id: membershipId },
-      { inviteId, role, resent },
-    );
     return {
       id: inviteId,
       membershipId,
@@ -178,6 +230,23 @@ export class InvitesService {
       role,
       expiresAt: expiresAt.toISOString(),
     };
+  }
+
+  /**
+   * Back to INVITED with the new role, only if the membership is still as read: an activation
+   * that committed meanwhile is never flipped back (#41 review).
+   */
+  private async reinvite(
+    tx: TxClient,
+    existing: { id: string; status: string },
+    role: MembershipRole,
+  ): Promise<{ id: string }> {
+    const moved = await tx.membership.updateMany({
+      where: { id: existing.id, status: existing.status as 'INVITED' | 'DEACTIVATED' },
+      data: { status: 'INVITED', role },
+    });
+    if (moved.count !== 1) throw new MembershipChanged();
+    return { id: existing.id };
   }
 
   /**
@@ -201,7 +270,9 @@ export class InvitesService {
     } catch (e) {
       const raced = isUniqueViolation(e) ? await find() : null;
       if (!raced) throw e;
-      // The Cognito login made for this request stays unused (no row points to it).
+      // No row points to the Cognito login made for this request: disable it, so it can never
+      // be used (the API may not delete Cognito users).
+      await this.identity.disableUser('STAFF', sub);
       return raced.id;
     }
   }
@@ -248,19 +319,18 @@ export class InvitesService {
   /**
    * A new person sets their password and joins the firm. Refused with 409 ACCOUNT_EXISTS when the
    * login already has a password: an invite must never reset an existing account's password.
-   * Returns who to sign in next.
+   * The password is set only while this request holds the link (see `use`), so a link used,
+   * resent or revoked a moment earlier can never set it. Returns who to sign in next.
    */
   async activate(token: string, password: string, name?: string) {
     const found = await this.openInvite(token);
     const { user } = found;
-    if (await this.identity.hasPassword('STAFF', user.cognitoSub)) {
-      throw new ConflictException({
-        code: 'ACCOUNT_EXISTS',
-        message: 'You already have a login: sign in to accept the invite',
-      });
-    }
-    await runFlow(() => this.identity.setPassword('STAFF', user.cognitoSub, password));
-    await this.markAccepted(found);
+    if (await this.identity.hasPassword('STAFF', user.cognitoSub)) throw accountExists();
+    await this.use(found, async () => {
+      // Checked again now that nobody else can use the link.
+      if (await this.identity.hasPassword('STAFF', user.cognitoSub)) throw accountExists();
+      await runFlow(() => this.identity.setPassword('STAFF', user.cognitoSub, password));
+    });
     if (name && name !== user.name) {
       await this.db.forUser(user.id).user.update({ where: { id: user.id }, data: { name } });
     }
@@ -278,7 +348,7 @@ export class InvitesService {
   async accept(token: string, auth: AuthContext): Promise<void> {
     const found = await this.openInvite(token);
     if (found.user.id !== auth.userId) throw inviteInvalid();
-    await this.markAccepted(found);
+    await this.use(found);
     await this.auditInFirm(
       found.businessId,
       auth,
@@ -341,23 +411,35 @@ export class InvitesService {
     };
   }
 
-  private async markAccepted(found: {
-    inviteId: string;
-    businessId: string;
-    membership: { id: string };
-  }) {
-    await this.db.withScope({ kind: 'business', businessId: found.businessId }, async (tx) => {
-      // Only one request can use a link, even two at once.
-      const used = await tx.invite.updateMany({
-        where: { id: found.inviteId, acceptedAt: null, revokedAt: null },
-        data: { acceptedAt: new Date() },
+  /**
+   * Uses the link, all in one transaction: claims the invite (the conditional update locks its
+   * row, so a second activation or a resend waits, then finds it used), makes the membership
+   * ACTIVE, then runs `last` (activation sets the Cognito password there, so nothing but the
+   * commit follows it). Any failure rolls everything back and the link still works. The
+   * database's clock decides expiry: its refusal is 410 INVITE_EXPIRED.
+   */
+  private async use(
+    found: { inviteId: string; businessId: string; membership: { id: string } },
+    last?: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await this.db.withScope({ kind: 'business', businessId: found.businessId }, async (tx) => {
+        const used = await tx.invite.updateMany({
+          where: { id: found.inviteId, acceptedAt: null, revokedAt: null },
+          data: { acceptedAt: new Date() },
+        });
+        if (used.count !== 1) throw inviteInvalid();
+        const joined = await tx.membership.updateMany({
+          where: { id: found.membership.id, status: 'INVITED' },
+          data: { status: 'ACTIVE' },
+        });
+        if (joined.count !== 1) throw inviteInvalid();
+        await last?.();
       });
-      if (used.count !== 1) throw inviteInvalid();
-      await tx.membership.update({
-        where: { id: found.membership.id },
-        data: { status: 'ACTIVE' },
-      });
-    });
+    } catch (e) {
+      if (expiredByDatabase(e)) throw inviteExpired();
+      throw e;
+    }
   }
 
   /**

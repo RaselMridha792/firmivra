@@ -9,6 +9,7 @@
 import {
   ApiError,
   ApiRequestError,
+  ApproveSignUpRequest,
   ApproveSignUpResponse,
   ChangeEmailRequest,
   ChangePhoneRequest,
@@ -135,8 +136,45 @@ const signUpItem = (n: number, fields: Partial<ClientSignUp>): ClientSignUp => (
   signedUpAt: '2026-10-07T12:03:00.000Z',
   declinedAt: null,
   declineReason: null,
+  existingClient: null,
   ...fields,
 });
+
+/**
+ * Client records the mock firm already has. Approve links a sign-up to one only if its email is
+ * the sign-up's verified email (both lower-cased) and it has no primary portal login yet
+ * (`linkable`); `existingClient` shows only such a record.
+ */
+interface MockClientRecord {
+  clientId: string;
+  displayName: string;
+  email: string | null;
+  hasPrimaryLogin: boolean;
+}
+const JANE_CLIENT_ID = '00000000-0000-4000-a000-000000000402';
+const JOHN_CLIENT_ID = '00000000-0000-4000-a000-000000000403';
+const CLIENT_RECORDS: readonly MockClientRecord[] = [
+  // Added by staff before Jane signed up: linkable to Jane's sign-up.
+  {
+    clientId: JANE_CLIENT_ID,
+    displayName: 'Jane Roe',
+    email: 'Jane@Example.com',
+    hasPrimaryLogin: false,
+  },
+  // Same email as John's sign-up, but it already has a portal login: never linkable.
+  {
+    clientId: JOHN_CLIENT_ID,
+    displayName: 'John Doe',
+    email: 'john@example.com',
+    hasPrimaryLogin: true,
+  },
+];
+const linkable = (signUp: { email: string }, record: MockClientRecord) =>
+  !record.hasPrimaryLogin && record.email?.toLowerCase() === signUp.email.toLowerCase();
+const existingClientFor = (email: string): ClientSignUp['existingClient'] => {
+  const record = CLIENT_RECORDS.find((r) => linkable({ email }, r));
+  return record ? { clientId: record.clientId, displayName: record.displayName } : null;
+};
 
 /** GET /api/v1/client-sign-ups */
 export const pendingSignUps = ClientSignUpList.parse({
@@ -148,6 +186,7 @@ export const pendingSignUps = ClientSignUpList.parse({
       phone: '+14045550188',
       accountType: 'BUSINESS',
       signedUpAt: '2026-10-07T13:20:00.000Z',
+      existingClient: existingClientFor('jane@example.com'),
     }),
   ],
   nextCursor: null,
@@ -194,6 +233,11 @@ export const errors = {
   rateLimited: error('RATE_LIMITED', 'Too many attempts. Wait a few minutes and try again.'),
   /** 409 on approve or decline when someone else already handled the sign-up. */
   notPending: error('NOT_PENDING', 'This sign-up was already handled'),
+  /** 409 on approve with a client record that has another email or already has a login. */
+  clientNotLinkable: error(
+    'CLIENT_NOT_LINKABLE',
+    'This client record cannot be linked to this sign-up',
+  ),
 } as const;
 
 // ---------- Mock clients ----------
@@ -413,7 +457,9 @@ export function createPortalAuthMock(
 /**
  * An in-memory `api.clientSignUps` with the API's rules: approve and decline only pending
  * sign-ups (409 NOT_PENDING), unknown ids 404, and `role: 'STAFF'` gets 403 FORBIDDEN.
- * Pages of two, so a screen can try `nextCursor`.
+ * Jane Roe's sign-up has an `existingClient`: approve with its `clientId` links to it. Any other
+ * record is 409 CLIENT_NOT_LINKABLE (for example John Doe's, which already has a login), and an
+ * unknown `clientId` 404. Pages of two, so a screen can try `nextCursor`.
  */
 export function createClientSignUpsMock(
   options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {},
@@ -433,6 +479,7 @@ export function createClientSignUpsMock(
       declineReason: 'Not a client of ours',
     }),
   ].map(copy);
+  const records = CLIENT_RECORDS.map(copy);
   let nextClient = 500;
   const PAGE = 2;
   const allowed = () => {
@@ -461,14 +508,21 @@ export function createClientSignUpsMock(
       const next = start + size < matching.length ? String(start + size) : null;
       return { items, nextCursor: next };
     },
-    approve: async (clientAccountId) => {
+    approve: async (clientAccountId, body = {}) => {
       await pause();
       allowed();
+      const { clientId } = parseInput(ApproveSignUpRequest, body);
       const row = pending(clientAccountId);
+      if (clientId) {
+        const record = records.find((r) => r.clientId === clientId);
+        if (!record) throw fail(404, error('NOT_FOUND', 'Not found'));
+        if (!linkable(row, record)) throw fail(409, errors.clientNotLinkable);
+        record.hasPrimaryLogin = true;
+      }
       rows = rows.filter((r) => r !== row);
       return {
         clientAccountId: row.clientAccountId,
-        clientId: `00000000-0000-4000-a000-${String(nextClient++).padStart(12, '0')}`,
+        clientId: clientId ?? `00000000-0000-4000-a000-${String(nextClient++).padStart(12, '0')}`,
         status: 'ACTIVE',
         approvedAt: new Date().toISOString(),
       };

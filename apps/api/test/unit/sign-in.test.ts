@@ -675,6 +675,23 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
 });
 
 describe('CognitoIdentityProvider: invites and activation (step 6)', () => {
+  it('disables a login found by sub, and skips one that is unknown or already disabled', async () => {
+    const enabled = fakeCognito({ ListUsers: knownUser, AdminDisableUser: () => ({}) });
+    await enabled.provider.disableUser('STAFF', 'sub-1');
+    expect(enabled.sent[1]).toEqual({
+      command: 'AdminDisableUser',
+      input: { UserPoolId: STAFF_POOL.userPoolId, Username: 'cognito-user-1' },
+    });
+    for (const list of [
+      noUser,
+      () => ({ Users: [{ Username: 'cognito-user-1', Enabled: false }] }),
+    ]) {
+      const other = fakeCognito({ ListUsers: list });
+      await other.provider.disableUser('STAFF', 'sub-1');
+      expect(other.sent.map((c) => c.command)).toEqual(['ListUsers']);
+    }
+  });
+
   it('creates a login with a verified email and no Cognito email, and returns its sub', async () => {
     const { provider, sent } = fakeCognito({
       AdminCreateUser: () => ({ User: { Attributes: [{ Name: 'sub', Value: 'new-sub' }] } }),
