@@ -1,9 +1,11 @@
 # T01: firm-side API contracts
 
 Entry point: [firm.yaml](../firm.yaml). Schema request: [tumit-fields.md](../../schema-requests/tumit-fields.md).
-**Status: proposed, not implemented, not approved by Fahad/Rasel.** Contracts cover Tumit's revised
+**Status: implemented and tested on separate T02–T08 branches; frontend agreement and reviews pending.** Contracts cover Tumit's revised
 15-day plan on `tumit/FIR-0-onboarding`, compared with main `a0bee59` on Oct 6.
-Do not treat these routes as working endpoints or tick T01 Done before the handoff/agreement.
+The combined synthetic local preview verifies the routes together. They are not merged/deployed;
+production migrations and Rasel's service adapters remain dependencies. Do not tick tickets Done
+before required handoff/agreement/reviews. See each branch's module implementation note.
 
 ## Review sections
 
@@ -60,7 +62,8 @@ Appointment booking/rescheduling/cancellation use one canonical record. An Idemp
 creation; expectedVersion protects updates. Server computes end/buffer instants; PostgreSQL prevents
 overlapping live bookings. All availability-changing operations share the firm/provider DB lock.
 Reminders are durable rows, claimed with a lease and rechecked against current version/status before delivery;
-cancel/reschedule invalidates stale jobs. R6 must confirm dedupe/outbox guarantees before implementation.
+cancel/reschedule invalidates stale jobs. R6 must supply durable dedupe/outbox and consent guarantees,
+and recheck the appointment version/recipient at actual delivery. QUEUED records R6 acceptance only.
 No promises of exactly-once sending or an in-memory lock replacing the DB constraint.
 
 ## Decisions to agree with Fahad and Rasel
@@ -78,8 +81,11 @@ No promises of exactly-once sending or an in-memory lock replacing the DB constr
 7. Final endpoint names, cursor/filter UX, conflict/empty/error states. Publish agreed Zod DTOs in
    `packages/types` on the corresponding implementation ticket before frontend consumption.
 
-Do not build endpoints on guessed policy approvals. T02-T09 get separate fresh-main branches and
-endpoint/firm-isolation tests. Octavia review/production smoke require the deployed integrated application.
+Unresolved owner-service policy is represented by explicit integration ports; unavailable dependencies
+fail closed with 503. T02–T09 have separate fresh-main branches and endpoint/firm-isolation tests.
+Notification links to appointments/resources recheck actual recipient permissions; unresolved document,
+invoice and engagement links stay hidden pending their owning modules. Octavia review and production
+smoke require the reviewed/deployed integrated application.
 
 ## Validation and review
 

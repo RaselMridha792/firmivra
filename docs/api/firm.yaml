@@ -1,9 +1,10 @@
 openapi: 3.0.3
 info:
-  title: Firmivra firm-side API draft
-  version: 0.1.0
-  description: T01 proposed contract for T01/T02-T08. Not implemented or frontend-approved. Eight
-    review sections; Rasel owns auth/approval actions/storage/senders/payments. Read
+  title: Firmivra firm-side API contract
+  version: 0.2.0
+  description: T01 handoff synchronized with implemented T02-T08 ticket branches. Pending
+    frontend agreement, migrations, service adapters and review/merge; not production deployed.
+    Rasel owns auth/approval actions/storage/senders/payments. Read
     docs/api/firm/README.md for pending decisions, schema dependencies and validation.
 servers:
   - url: /api/v1
