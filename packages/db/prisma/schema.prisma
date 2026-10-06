@@ -100,6 +100,12 @@ enum EngagementStatus {
   CANCELLED
 }
 
+/// GENERAL, or a client's "Request Name Change" from the portal (at most one open per client).
+enum TaskKind {
+  GENERAL
+  NAME_CHANGE
+}
+
 enum TaskStatus {
   OPEN
   DONE
@@ -612,6 +618,10 @@ model ClientProfile {
   ssnEnc                 Bytes?         @map("ssn_enc")
   /// Last 4 digits only, for display and matching.
   ssnLast4               String?        @map("ssn_last4")
+  /// BUSINESS clients: the EIN, encrypted with the firm's key (field-encryption helper), never plain.
+  einEnc                 Bytes?         @map("ein_enc")
+  /// Last 4 digits only, for display.
+  einLast4               String?        @map("ein_last4")
   addressLine1           String?        @map("address_line1")
   addressLine2           String?        @map("address_line2")
   city                   String?
@@ -707,30 +717,32 @@ model Service {
 /// status is the lifecycle; stage is the firm's workflow step. A trigger keeps the lifecycle
 /// rules and writes EngagementStatusHistory. Recurring = billingInterval other than ONE_TIME.
 model Engagement {
-  id                 String           @id @default(uuid(7)) @db.Uuid
-  businessId         String           @map("business_id") @db.Uuid
-  clientId           String           @map("client_id") @db.Uuid
-  serviceId          String           @map("service_id") @db.Uuid
-  title              String
-  taxYear            Int?             @map("tax_year")
-  periodStart        DateTime?        @map("period_start") @db.Date
-  periodEnd          DateTime?        @map("period_end") @db.Date
-  package            String?
-  status             EngagementStatus @default(ACTIVE)
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  businessId          String           @map("business_id") @db.Uuid
+  clientId            String           @map("client_id") @db.Uuid
+  serviceId           String           @map("service_id") @db.Uuid
+  title               String
+  taxYear             Int?             @map("tax_year")
+  periodStart         DateTime?        @map("period_start") @db.Date
+  periodEnd           DateTime?        @map("period_end") @db.Date
+  package             String?
+  status              EngagementStatus @default(ACTIVE)
   /// One of the service's stages.
-  stage              String?
-  billingInterval    BillingInterval  @default(ONE_TIME) @map("billing_interval")
-  nextBillingOn      DateTime?        @map("next_billing_on") @db.Date
-  assignedUserId     String?          @map("assigned_user_id") @db.Uuid
-  completedAt        DateTime?        @map("completed_at") @db.Timestamptz(3)
+  stage               String?
+  billingInterval     BillingInterval  @default(ONE_TIME) @map("billing_interval")
+  nextBillingOn       DateTime?        @map("next_billing_on") @db.Date
+  assignedUserId      String?          @map("assigned_user_id") @db.Uuid
+  completedAt         DateTime?        @map("completed_at") @db.Timestamptz(3)
   /// Recurring services: the client's request, at least 14 days before nextBillingOn.
-  cancelRequestedAt  DateTime?        @map("cancel_requested_at") @db.Timestamptz(3)
+  cancelRequestedAt   DateTime?        @map("cancel_requested_at") @db.Timestamptz(3)
+  /// The client's own words when asking to cancel (portal); only with cancelRequestedAt.
+  cancelRequestReason String?          @map("cancel_request_reason")
   /// The client keeps document access for 60 days after this and can reactivate within 90.
-  cancelledAt        DateTime?        @map("cancelled_at") @db.Timestamptz(3)
-  cancellationReason String?          @map("cancellation_reason")
-  updatedByUserId    String?          @map("updated_by_user_id") @db.Uuid
-  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  cancelledAt         DateTime?        @map("cancelled_at") @db.Timestamptz(3)
+  cancellationReason  String?          @map("cancellation_reason")
+  updatedByUserId     String?          @map("updated_by_user_id") @db.Uuid
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   client           Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   service          Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
@@ -782,6 +794,7 @@ model Task {
   engagementId    String?    @map("engagement_id") @db.Uuid
   title           String
   details         String?
+  kind            TaskKind   @default(GENERAL)
   status          TaskStatus @default(OPEN)
   dueOn           DateTime?  @map("due_on") @db.Date
   assignedUserId  String?    @map("assigned_user_id") @db.Uuid
