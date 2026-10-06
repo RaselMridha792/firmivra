@@ -11,10 +11,10 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { NotificationCenterService } from './notification-center.service.js';
 import {
   NotificationTargets,
-  PendingNotificationTargets,
   NotificationDelivery,
   PendingNotificationDelivery,
 } from './notification.ports.js';
+import { ScopedNotificationTargets } from './notification-targets.service.js';
 @Controller('business')
 @Roles('OWNER', 'ADMIN', 'STAFF')
 export class FirmNotificationsController {
@@ -75,7 +75,8 @@ export class PortalNotificationsController {
   controllers: [FirmNotificationsController, PortalNotificationsController],
   providers: [
     NotificationCenterService,
-    { provide: NotificationTargets, useClass: PendingNotificationTargets },
+    ScopedNotificationTargets,
+    { provide: NotificationTargets, useExisting: ScopedNotificationTargets },
     { provide: NotificationDelivery, useClass: PendingNotificationDelivery },
   ],
   exports: [NotificationCenterService, NotificationDelivery],
