@@ -334,6 +334,9 @@ export class AppStack extends Stack {
         'cognito-idp:AdminUserGlobalSignOut',
         'cognito-idp:AdminDisableUser',
         'cognito-idp:AdminEnableUser',
+        // Find a user's username by sub: our pools sign in by username, and AdminGetUser does not
+        // take the sub there (Oct 7).
+        'cognito-idp:ListUsers',
       );
     }
 
@@ -389,9 +392,11 @@ export class AppStack extends Stack {
         DB_APP_PASSWORD: ecs.Secret.fromSecretsManager(data.appDbSecret, 'password'),
       },
     });
-    // Read-only, one user at a time, only the two pools link-dev-users reads (no clients pool).
+    // Read-only, only the two pools link-dev-users reads (no clients pool). ListUsers with the
+    // filter sub = "<sub>" finds the user and its attributes; AdminGetUser does not take the sub
+    // in pools that sign in by username.
     for (const pool of [auth.staff.pool, auth.admins.pool]) {
-      pool.grant(this.migrateTask.taskRole, 'cognito-idp:AdminGetUser');
+      pool.grant(this.migrateTask.taskRole, 'cognito-idp:ListUsers');
     }
 
     // ---------- Services ----------

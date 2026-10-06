@@ -598,6 +598,7 @@ model Client {
   appointments     Appointment[]
   messageThreads   MessageThread[]
   invoices         Invoice[]
+  taxReturns       TaxReturn[]
 
   @@unique([businessId, id])
   @@index([businessId, displayName])
@@ -610,28 +611,34 @@ model Client {
 /// `*Enc` columns hold ciphertext made with the firm's KMS key, never plain values: the API
 /// encrypts and decrypts. Fields not typed here yet (I01 list) go in customFields.
 model ClientProfile {
-  clientId      String   @id @map("client_id") @db.Uuid
-  businessId    String   @map("business_id") @db.Uuid
-  firstName     String?  @map("first_name")
-  middleName    String?  @map("middle_name")
-  lastName      String?  @map("last_name")
-  preferredName String?  @map("preferred_name")
+  clientId               String         @id @map("client_id") @db.Uuid
+  businessId             String         @map("business_id") @db.Uuid
+  firstName              String?        @map("first_name")
+  middleName             String?        @map("middle_name")
+  lastName               String?        @map("last_name")
+  preferredName          String?        @map("preferred_name")
   /// BUSINESS clients: legal name and entity type (LLC, S corp...).
-  businessName  String?  @map("business_name")
-  entityType    String?  @map("entity_type")
-  dobEnc        Bytes?   @map("dob_enc")
-  ssnEnc        Bytes?   @map("ssn_enc")
+  businessName           String?        @map("business_name")
+  entityType             String?        @map("entity_type")
+  dobEnc                 Bytes?         @map("dob_enc")
+  ssnEnc                 Bytes?         @map("ssn_enc")
   /// Last 4 digits only, for display and matching.
-  ssnLast4      String?  @map("ssn_last4")
-  addressLine1  String?  @map("address_line1")
-  addressLine2  String?  @map("address_line2")
-  city          String?
-  state         String?
-  postalCode    String?  @map("postal_code")
-  country       String   @default("US")
-  customFields  Json     @default("{}") @map("custom_fields")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  ssnLast4               String?        @map("ssn_last4")
+  addressLine1           String?        @map("address_line1")
+  addressLine2           String?        @map("address_line2")
+  city                   String?
+  state                  String?
+  postalCode             String?        @map("postal_code")
+  country                String         @default("US")
+  customFields           Json           @default("{}") @map("custom_fields")
+  /// My Profile "Additional information" (the client may edit these; R10).
+  preferredContactMethod ContactMethod? @map("preferred_contact_method")
+  /// "How did you hear about us?"
+  referralSource         String?        @map("referral_source")
+  /// Anything else the client wants the firm to know. Not the client's private notes.
+  additionalInfo         String?        @map("additional_info")
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   client Client @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
 
@@ -751,6 +758,7 @@ model Engagement {
   appointments     Appointment[]
   messageThreads   MessageThread[]
   invoices         Invoice[]
+  taxReturns       TaxReturn[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -918,6 +926,7 @@ model Document {
   leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
   reports            EngagementReport[]
   messageAttachments MessageAttachment[]
+  taxReturns         TaxReturn[]
 
   // Target of message attachments.
   @@unique([businessId, id])
@@ -1635,4 +1644,57 @@ model VerificationCode {
 
   @@index([clientAccountId, channel, createdAt(sort: Desc)])
   @@map("verification_codes")
+}
+
+/// How a client prefers to be contacted (My Profile).
+enum ContactMethod {
+  EMAIL
+  PHONE
+  TEXT
+}
+
+/// Individual (1040) or business (1120, 1120-S, 1065...) return.
+enum TaxFilingType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+/// The status the client sees on a return (portal Taxes tab).
+enum TaxReturnStatus {
+  IN_PROGRESS
+  FILED
+  ACCEPTED
+  REJECTED
+  COMPLETED
+}
+
+/// A client's tax return for one year (portal Taxes tab, R10): annual, or one quarter's estimate.
+/// Older years can exist without an engagement. The return PDF is one of the client's own
+/// documents, never an INTERNAL one. Only an IN_PROGRESS return can be deleted.
+model TaxReturn {
+  id           String          @id @default(uuid(7)) @db.Uuid
+  businessId   String          @map("business_id") @db.Uuid
+  clientId     String          @map("client_id") @db.Uuid
+  /// The engagement it was prepared in, if any (one of this client's).
+  engagementId String?         @map("engagement_id") @db.Uuid
+  taxYear      Int             @map("tax_year")
+  filingType   TaxFilingType   @map("filing_type")
+  /// 1 to 4 for a quarterly estimate; empty for the annual return.
+  quarter      Int?
+  /// The form, e.g. "1040" or "1120-S".
+  formType     String?         @map("form_type")
+  status       TaxReturnStatus @default(IN_PROGRESS)
+  filedOn      DateTime?       @map("filed_on") @db.Date
+  /// The return PDF the client can view and download.
+  documentId   String?         @map("document_id") @db.Uuid
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  document   Document?   @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, clientId, taxYear])
+  @@index([businessId, documentId])
+  @@map("tax_returns")
 }

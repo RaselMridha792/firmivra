@@ -137,6 +137,7 @@ export const SEED_WORK_IDS = {
   lvpTax: '00000000-0000-4000-d000-000000000001',
   lvpBookkeeping: '00000000-0000-4000-d000-000000000002',
   firmBTax: '00000000-0000-4000-d000-000000000003',
+  lvpTax2024: '00000000-0000-4000-d000-000000000004',
   lvpTask: '00000000-0000-4000-d000-000000000011',
   lvpNote: '00000000-0000-4000-d000-000000000021',
   lvpReport: '00000000-0000-4000-d000-000000000031',
@@ -161,6 +162,14 @@ export const SEED_DOCUMENT_IDS = {
   w2Request: '00000000-0000-4000-e000-000000000001',
   interestRequest: '00000000-0000-4000-e000-000000000002',
   interestDocument: '00000000-0000-4000-e000-000000000011',
+  return2024: '00000000-0000-4000-e000-000000000021',
+} as const;
+
+/** Fixed ids of the LVP client's seeded tax returns (portal Taxes tab). */
+export const SEED_TAX_RETURN_IDS = {
+  lvp2023: '00000000-0000-4000-9100-000000000001',
+  lvp2024: '00000000-0000-4000-9100-000000000002',
+  lvp2025: '00000000-0000-4000-9100-000000000003',
 } as const;
 
 /** Fixed ids of seeded intakes and the Begin Online lead, so re-seeding keeps one of each. */

@@ -261,7 +261,7 @@ describe('app', () => {
     });
   });
 
-  it('lets the migrate task only read single users (AdminGetUser) in the staff and admins pools', () => {
+  it('lets the migrate task only look users up (ListUsers) in the staff and admins pools', () => {
     type Policy = { Properties: { Roles: unknown; PolicyDocument: { Statement: unknown[] } } };
     const policies = Object.values(t('app').findResources('AWS::IAM::Policy')) as Policy[];
     const statements = policies
@@ -271,12 +271,25 @@ describe('app', () => {
       Resource: unknown;
     }[];
     expect(statements.flatMap((s) => [s.Action].flat())).toEqual(
-      statements.map(() => 'cognito-idp:AdminGetUser'),
+      statements.map(() => 'cognito-idp:ListUsers'),
     );
     const resources = JSON.stringify(statements.map((s) => s.Resource));
     expect(resources).toMatch(/StaffPool/);
     expect(resources).toMatch(/AdminsPool/);
     expect(resources).not.toMatch(/ClientsPool/);
+  });
+
+  it('lets the API look users up by sub (ListUsers) in all three pools', () => {
+    type Policy = { Properties: { Roles: unknown; PolicyDocument: { Statement: unknown[] } } };
+    const policies = Object.values(t('app').findResources('AWS::IAM::Policy')) as Policy[];
+    const listUsers = policies
+      .filter((p) => JSON.stringify(p.Properties.Roles).includes('ApiTaskTaskRole'))
+      .flatMap(
+        (p) => p.Properties.PolicyDocument.Statement as { Action: unknown; Resource: unknown }[],
+      )
+      .filter((s) => [s.Action].flat().includes('cognito-idp:ListUsers'));
+    const resources = JSON.stringify(listUsers.map((s) => s.Resource));
+    for (const pool of ['StaffPool', 'ClientsPool', 'AdminsPool']) expect(resources).toMatch(pool);
   });
 
   it('runs 0 tasks while ImageTag is none, then the configured count', () => {

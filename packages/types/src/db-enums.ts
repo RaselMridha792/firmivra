@@ -170,3 +170,21 @@ export type LegalDocumentKind = z.infer<typeof LegalDocumentKind>;
 /** Where a sign-up verification code was sent. */
 export const VerificationChannel = z.enum(['EMAIL', 'PHONE']);
 export type VerificationChannel = z.infer<typeof VerificationChannel>;
+
+/** How a client prefers to be contacted (My Profile). */
+export const ContactMethod = z.enum(['EMAIL', 'PHONE', 'TEXT']);
+export type ContactMethod = z.infer<typeof ContactMethod>;
+
+/** Individual (1040) or business (1120, 1120-S, 1065...) return. */
+export const TaxFilingType = z.enum(['INDIVIDUAL', 'BUSINESS']);
+export type TaxFilingType = z.infer<typeof TaxFilingType>;
+
+/** The status the client sees on a return (portal Taxes tab). */
+export const TaxReturnStatus = z.enum([
+  'IN_PROGRESS',
+  'FILED',
+  'ACCEPTED',
+  'REJECTED',
+  'COMPLETED',
+]);
+export type TaxReturnStatus = z.infer<typeof TaxReturnStatus>;
