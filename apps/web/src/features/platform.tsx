@@ -208,6 +208,14 @@ export function ApplicationTable({
     <>
       <div className="ref-table-region">
         <table className="ref-table" aria-label="Firm applications">
+          <colgroup>
+            {(compact
+              ? [5, 15, 13, 18, 12, 13, 12, 12]
+              : [3, 11, 10, 10, 14.5, 12, 9, 9, 11, 10.5]
+            ).map((width, index) => (
+              <col key={index} style={{ width: `${width}%` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
               {(compact
@@ -661,7 +669,7 @@ export function Firms({ id }: { id?: string }) {
     preview &&
     `${sample.firm} ${sample.owner} ${sample.email}`.toLowerCase().includes(search.toLowerCase());
   return (
-    <>
+    <div className={id ? 'ref-firm-detail-list' : undefined}>
       <div className="ref-page-heading">
         <div>
           <h1>Firms</h1>
@@ -754,7 +762,7 @@ export function Firms({ id }: { id?: string }) {
           />
         )
       ) : null}
-    </>
+    </div>
   );
 }
 export function FutureModule({ title }: { title: string }) {

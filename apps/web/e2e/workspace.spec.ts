@@ -46,6 +46,39 @@ test('unknown credentials are generic; activation without an invite is blocked',
   );
   await expect(page.getByRole('button', { name: 'Activate account', exact: true })).toBeDisabled();
 });
+
+test('merged reset contract accepts a valid local code and rejects an invalid code', async ({
+  page,
+}) => {
+  await page.goto(site('app', '/forgot-password'));
+  await page.getByLabel('Email Address', { exact: true }).fill('owner@firm-b.test');
+  await page.getByRole('button', { name: 'Send reset code', exact: true }).click();
+  await expect(
+    page.getByText('If an account matches this email, we sent a reset code.'),
+  ).toBeVisible();
+  await page.getByLabel('6-digit code').fill('111111');
+  await page.getByLabel('New password', { exact: true }).fill('Firmivra-local-1');
+  await page.getByLabel('Confirm new password').fill('Firmivra-local-1');
+  await page.getByRole('button', { name: 'Reset password', exact: true }).click();
+  await expect(
+    page.getByText('This reset code is invalid or expired. Request a new code.'),
+  ).toBeVisible();
+  await page.getByLabel('6-digit code').fill('000000');
+  await page.getByRole('button', { name: 'Reset password', exact: true }).click();
+  await expect(
+    page.getByText('Your password was reset. Sign in with your new password.'),
+  ).toBeVisible();
+});
+
+test('Super Admin mobile navigation traps focus and restores its trigger', async ({ page }) => {
+  await quick(page, 'admin', 'superadmin@firmivra.test');
+  await page.setViewportSize({ width: 375, height: 900 });
+  const trigger = page.getByRole('button', { name: 'Open navigation', exact: true });
+  await trigger.click();
+  await expect(page.getByRole('dialog', { name: 'Super Admin navigation' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+});
 test('staff routes and direct admin-only URLs respect the API role', async ({ page }) => {
   await quick(page, 'app', 'staff@lvp.test');
   await expect(page).toHaveURL(/\/dashboard$/);
@@ -81,9 +114,20 @@ test('wizard keeps edits on Back and never claims persistence', async ({ page })
   await quick(page, 'app', 'owner@lvp.test');
   await page.goto(site('app', '/setup?preview=1'));
   await page.getByLabel('Portal display name').fill('Example Firm');
+  await page
+    .getByLabel('Logo', { exact: true })
+    .setInputFiles('public/brand/firmivra-wordmark.png');
+  await expect(page.getByAltText('Selected firm logo preview')).toBeVisible();
+  await page.getByRole('button', { name: 'Preview next step' }).click();
+  await page.getByLabel('Address', { exact: true }).fill('123 Example Avenue');
+  await page.getByLabel('City', { exact: true }).fill('Atlanta');
   await page.getByRole('button', { name: 'Preview next step' }).click();
   await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page.getByLabel('Address', { exact: true })).toHaveValue('123 Example Avenue');
+  await expect(page.getByLabel('City', { exact: true })).toHaveValue('Atlanta');
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.getByLabel('Portal display name')).toHaveValue('Example Firm');
+  await expect(page.getByAltText('Selected firm logo preview')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled();
 });
 test('invoice editor sums cents and multiple lines; send remains disabled', async ({ page }) => {

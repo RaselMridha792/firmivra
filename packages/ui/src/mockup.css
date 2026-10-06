@@ -27,32 +27,9 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: 43.359375%;
-  background:
-    radial-gradient(ellipse at 100% -10%, #0099bd 0, #104477 22%, transparent 54%),
-    linear-gradient(125deg, #001226, #002348);
+  background: #001226 url('/brand/admin-waves.svg') center / 100% 100% no-repeat;
   overflow: hidden;
   color: white;
-}
-.ref-login-art::before,
-.ref-login-art::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-  border-radius: 50%;
-  width: 1150px;
-  height: 940px;
-  border: 70px solid #06376e;
-  left: -635px;
-  top: 405px;
-  transform: rotate(-30deg);
-}
-.ref-login-art::after {
-  width: 1220px;
-  height: 1030px;
-  border-width: 18px;
-  border-color: #004181;
-  left: -661px;
-  top: 410px;
 }
 .ref-office {
   position: absolute;
@@ -350,11 +327,14 @@
 }
 .ref-admin-sidebar nav > a {
   height: 50px;
-  padding: 0 10px 0 30px;
+  padding: 0 10px 0 26px;
   display: flex;
   align-items: center;
-  gap: 19px;
+  gap: 15px;
   border-left: 4px solid transparent;
+}
+.ref-admin-sidebar nav > a > span {
+  white-space: nowrap;
 }
 .ref-admin-sidebar nav > a.is-active {
   background: linear-gradient(90deg, #15466f, #103a5f);
@@ -1058,6 +1038,7 @@
   border-radius: 6px;
   width: 100%;
   min-height: 56px;
+  height: 56px;
   padding: 10px 12px;
   font-size: 13px;
   resize: vertical;
@@ -1480,6 +1461,65 @@
   max-width: 1010px;
   grid-template-columns: 1.13fr 1fr 0.89fr 1.08fr;
   margin-bottom: 14px;
+}
+.ref-firm-detail-list .ref-page-heading {
+  margin-top: -6px;
+}
+.ref-firm-detail-list .ref-summary-grid {
+  margin-bottom: 13px;
+}
+.ref-firm-detail-list .ref-summary {
+  padding: 16px;
+  min-height: 112px;
+}
+.ref-firm-detail-list .ref-summary a {
+  margin-top: 2px;
+  line-height: 20px;
+}
+.ref-firm-detail-list .ref-table td {
+  padding-top: 10.5px;
+  padding-bottom: 10.5px;
+}
+.ref-firm-detail-list .ref-table th {
+  height: 41px;
+}
+.ref-firm-detail-list .ref-pagination {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.ref-firm-detail-list .ref-pagination button {
+  height: 37px;
+}
+.ref-firm-detail-list .ref-record-detail {
+  padding-bottom: 5px;
+}
+.ref-firm-detail-list .ref-history-item {
+  padding-bottom: 6px;
+}
+.ref-firm-detail-list .ref-record-heading {
+  margin-bottom: 7px;
+}
+.ref-firm-detail-list .ref-back-link {
+  margin-bottom: 10px;
+}
+.ref-firm-detail-list .ref-detail-card td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  line-height: 18px;
+}
+.ref-firm-detail-list .ref-detail-card {
+  padding-top: 9px;
+  padding-bottom: 10px;
+}
+.ref-admin-dashboard-layout .ref-platform-modules {
+  margin-top: 10px;
+  padding-bottom: 13px;
+}
+.ref-app-detail-list .ref-back-link {
+  margin-bottom: 10px;
+}
+.ref-app-detail-list .ref-record-heading {
+  margin-bottom: 11px;
 }
 .ref-app-detail-list > .ref-summary-grid .ref-summary {
   min-height: 86px;
@@ -1936,5 +1976,32 @@
   }
   .ref-recent-applications .ref-table {
     min-width: 780px;
+  }
+  .ref-dashboard-grid,
+  .ref-dashboard-middle {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ref-dashboard-grid > *,
+  .ref-dashboard-middle > *,
+  .ref-panel {
+    min-width: 0;
+  }
+  .ref-app-detail-list > .ref-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ref-admin-horizontal .ref-summary {
+    padding: 12px;
+    gap: 10px;
+  }
+  .ref-admin-horizontal .ref-summary p {
+    white-space: normal;
+    font-size: 12px;
+  }
+  .ref-admin-horizontal .ref-stat-icon {
+    width: 40px;
+    height: 44px;
+  }
+  .ref-admin-sidebar {
+    visibility: hidden;
   }
 }

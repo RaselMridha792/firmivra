@@ -52,7 +52,14 @@ for (const [name, path, width, height, reference] of cases) {
     .waitFor();
   await page.evaluate(async () => {
     await document.fonts.ready;
-    await Promise.all(Array.from(document.images).map((image) => image.decode().catch(() => {})));
+    await Promise.all(
+      Array.from(document.images)
+        .filter((image) => image.getBoundingClientRect().width > 0)
+        .map((image) => {
+          image.loading = 'eager';
+          return image.decode().catch(() => {});
+        }),
+    );
   });
   await page.screenshot({
     path: fileURLToPath(new URL(`${name}.png`, output)),
@@ -80,8 +87,29 @@ for (const [name, path, width, height, reference] of cases) {
 for (const [name, path] of cases) {
   await page.setViewportSize({ width: 375, height: 900 });
   await page.goto(`${origin}${path}`);
+  await page
+    .getByRole('heading', {
+      name:
+        name === 'admin-login'
+          ? 'Welcome Back'
+          : name === 'admin-dashboard'
+            ? /Welcome back/
+            : name === 'admin-firm-approved'
+              ? 'Firms'
+              : 'Firm Applications',
+      exact: name !== 'admin-dashboard',
+    })
+    .waitFor();
   await page.evaluate(async () => {
     await document.fonts.ready;
+    await Promise.all(
+      Array.from(document.images)
+        .filter((image) => image.getBoundingClientRect().width > 0)
+        .map((image) => {
+          image.loading = 'eager';
+          return image.decode().catch(() => {});
+        }),
+    );
   });
   await page.screenshot({
     path: fileURLToPath(new URL(`${name}-mobile.png`, output)),

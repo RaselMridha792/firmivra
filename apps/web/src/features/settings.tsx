@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
+import Image from 'next/image';
 import { Alert, Button, Card, Checkbox, Input, Select, Textarea, tokens } from '@firmivra/ui';
 import { OwnerOnly, useWorkspace } from '../components/workspace-context';
 import { ContactFields, DataNotice, PageHeading, UnavailableAction } from './screen-kit';
@@ -24,12 +25,24 @@ export function Settings({ wizard = false }: { wizard?: boolean }) {
     website: '',
     entity: 'LLC',
     description: '',
+    address: '',
+    city: '',
+    region: '',
+    postalCode: '',
+    teamSize: '',
     welcome: 'Welcome to your secure client portal.',
     terms: '',
     privacy: '',
   });
   const [features, setFeatures] = useState(['Documents', 'Messages', 'Appointments', 'Invoices']);
   const [statuses, setStatuses] = useState('Awaiting documents\nUnder review\nCompleted');
+  const [logoPreview, setLogoPreview] = useState('');
+  useEffect(
+    () => () => {
+      if (logoPreview) URL.revokeObjectURL(logoPreview);
+    },
+    [logoPreview],
+  );
   const update = (key: keyof typeof draft, value: string) =>
     setDraft((d) => ({ ...d, [key]: value }));
   const validPrimary = /^#[0-9a-f]{6}$/i.test(draft.primary);
@@ -54,6 +67,10 @@ export function Settings({ wizard = false }: { wizard?: boolean }) {
             type="file"
             accept="image/png,image/jpeg,image/svg+xml"
             hint="Choose a file for review. Uploading is currently unavailable."
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              setLogoPreview(file ? URL.createObjectURL(file) : '');
+            }}
           />
           <Input
             label="Primary colour (HEX)"
@@ -75,6 +92,16 @@ export function Settings({ wizard = false }: { wizard?: boolean }) {
           style={previewStyle}
           className="space-y-4 rounded-card border border-border bg-folder-surface p-6"
         >
+          {logoPreview ? (
+            <Image
+              src={logoPreview}
+              alt="Selected firm logo preview"
+              width={160}
+              height={80}
+              className="h-20 w-auto max-w-full object-contain"
+              unoptimized
+            />
+          ) : null}
           <h2 className="font-display text-2xl font-bold text-heading">
             {draft.displayName || 'Your firm'}
           </h2>
@@ -133,11 +160,37 @@ export function Settings({ wizard = false }: { wizard?: boolean }) {
           value={draft.website}
           onChange={(e) => update('website', e.target.value)}
         />
-        <Input label="Address" autoComplete="street-address" />
-        <Input label="City" autoComplete="address-level2" />
-        <Input label="State / region" autoComplete="address-level1" />
-        <Input label="Postal code" autoComplete="postal-code" />
-        <Input label="Team size" type="number" min={1} />
+        <Input
+          label="Address"
+          autoComplete="street-address"
+          value={draft.address}
+          onChange={(event) => update('address', event.target.value)}
+        />
+        <Input
+          label="City"
+          autoComplete="address-level2"
+          value={draft.city}
+          onChange={(event) => update('city', event.target.value)}
+        />
+        <Input
+          label="State / region"
+          autoComplete="address-level1"
+          value={draft.region}
+          onChange={(event) => update('region', event.target.value)}
+        />
+        <Input
+          label="Postal code"
+          autoComplete="postal-code"
+          value={draft.postalCode}
+          onChange={(event) => update('postalCode', event.target.value)}
+        />
+        <Input
+          label="Team size"
+          type="number"
+          min={1}
+          value={draft.teamSize}
+          onChange={(event) => update('teamSize', event.target.value)}
+        />
       </div>
       <div className="mt-4">
         <Textarea
