@@ -146,6 +146,12 @@ export const ClientSignUp = z.object({
   signedUpAt: z.iso.datetime({ offset: true }),
   declinedAt: z.iso.datetime({ offset: true }).nullable(),
   declineReason: z.string().nullable(),
+  /**
+   * A client record of this firm that approve can link this login to (`clientId`) instead of
+   * creating a duplicate, or null. Only a record that approve would accept: its email is the
+   * sign-up's verified email (both lower-cased) and it has no primary portal login yet.
+   */
+  existingClient: z.object({ clientId: z.uuid(), displayName: z.string() }).nullable(),
 });
 export type ClientSignUp = z.infer<typeof ClientSignUp>;
 
@@ -156,10 +162,20 @@ export const ClientSignUpList = z.object({
 });
 export type ClientSignUpList = z.infer<typeof ClientSignUpList>;
 
-/** POST /client-sign-ups/{clientAccountId}/approve: the client can use the portal. */
+/**
+ * POST /client-sign-ups/{clientAccountId}/approve. Without `clientId` it creates the firm's client
+ * record from the sign-up. With it, it links the login to that existing record of this firm, and
+ * only if the record's email is the sign-up's verified email (both lower-cased) and the record
+ * has no primary portal login yet; else 409 CLIENT_NOT_LINKABLE (404 if the firm has no such
+ * client). Any other field is refused (400), so a typo never approves the wrong way.
+ */
+export const ApproveSignUpRequest = z.strictObject({ clientId: z.uuid().optional() });
+export type ApproveSignUpRequest = z.input<typeof ApproveSignUpRequest>;
+
+/** The client can use the portal. */
 export const ApproveSignUpResponse = z.object({
   clientAccountId: z.uuid(),
-  /** The firm's client record created for this person. */
+  /** The firm's client record: the one created, or the existing one it was linked to. */
   clientId: z.uuid(),
   status: ClientAccountStatus.extract(['ACTIVE']),
   approvedAt: z.iso.datetime({ offset: true }),
@@ -196,5 +212,10 @@ export const ClientAuthErrorCode = z.enum([
   'WRONG_STEP',
   /** 409: approve or decline a sign-up that is no longer pending. */
   'NOT_PENDING',
+  /**
+   * 409: approve with a `clientId` whose record has another email than the sign-up's verified
+   * one, or already has a primary portal login. Nothing changed; reload the list.
+   */
+  'CLIENT_NOT_LINKABLE',
 ]);
 export type ClientAuthErrorCode = z.infer<typeof ClientAuthErrorCode>;
