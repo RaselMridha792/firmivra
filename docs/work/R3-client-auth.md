@@ -13,7 +13,7 @@
 
 ## Steps
 
-- [ ] 1. Publish docs/api/client-auth.yaml by Oct 7 so Nahid builds N02 and N03 against it
+- [x] 1. Publish docs/api/client-auth.yaml by Oct 7 so Nahid builds N02 and N03 against it
 - [ ] 2. Sign-up on portal/{slug} through our API (no Cognito self sign-up): account status pending
 - [ ] 3. Verify email and phone codes (SMS goes to the API log locally and in dev until SNS is registered)
 - [ ] 4. Firm side: list pending sign-ups, approve, decline (owner and admin only), notify the client
@@ -28,8 +28,12 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
 
 ## Needs from others
 
-(none yet)
+- R0 (answered Oct 6, PR #27): `legal_acceptances` / `LegalAcceptance` (clientAccountId, legalDocumentId, acceptedAt, ip, userAgent; insert-only; written in business scope in the transaction that creates the client account, one row each for Terms and Privacy) and `business_settings.portalName`, `portalHeader`, `welcomeMessage`. No accent colour column (R0 asked Rasel): `info.branding.accentColor` sends a default until there is one.
+- R1: serve `apps/web/src/mocks/client-auth.ts` in mock mode (lands Oct 7).
+- R3 itself, step 5: when the portal switches to the per-firm cookies, the e2e test that expects 404 on another firm's portal changes: there the visitor is simply signed out (401).
 
 ## Progress log
 
 (newest last: date, step, what changed, commit)
+
+- 2026-10-06, step 1 (this session, after R2): contract in `docs/api/client-auth.yaml`, zod schemas and `createPortalAuthClient` / `createClientSignUpsClient` in `packages/types/src/client-auth`, `portalAuth(slug)` in `apps/web/src/lib/auth.ts`, `api.clientSignUps` in `apps/web/src/lib/api.ts`, typed fixtures in `apps/web/src/mocks/client-auth.ts` (approved outside the owned paths). Fields follow the mockups (Full Name, Email, Phone, Password, Account Type, Terms) and PAGE-MAP's pages; the sign-up session is a sealed HttpOnly cookie (path `.../auth/sign-up`), so every page reads `GET .../auth/sign-up`; per-firm portal cookies with access and id on `/api/v1/portal/{slug}/`. Portal info and legal reads are R3's. Branch `rasel/R3-client-auth`.
