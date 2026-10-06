@@ -162,3 +162,32 @@ export const SEED_DOCUMENT_IDS = {
   interestRequest: '00000000-0000-4000-e000-000000000002',
   interestDocument: '00000000-0000-4000-e000-000000000011',
 } as const;
+
+/** Fixed ids of seeded intakes and the Begin Online lead, so re-seeding keeps one of each. */
+export const SEED_INTAKE_IDS = {
+  taxIntake: '00000000-0000-4000-f000-000000000001',
+  taxSubmission: '00000000-0000-4000-f000-000000000002',
+  lead: '00000000-0000-4000-f000-000000000011',
+  leadIntake: '00000000-0000-4000-f000-000000000012',
+  leadSubmission: '00000000-0000-4000-f000-000000000013',
+  leadUpload: '00000000-0000-4000-f000-000000000014',
+} as const;
+
+/** A small placeholder form definition until the form engine (I06) sets the real shape. */
+export const SAMPLE_FORM_DEFINITION = {
+  steps: [
+    {
+      id: 'about',
+      title: 'About you',
+      fields: [{ id: 'fullName', type: 'text', label: 'Full name', required: true }],
+    },
+    {
+      id: 'documents',
+      title: 'Documents',
+      fields: [
+        { id: 'priorReturn', type: 'upload', label: 'Last year return', notAvailable: true },
+      ],
+    },
+    { id: 'sign', title: 'Review and sign', fields: [] },
+  ],
+};

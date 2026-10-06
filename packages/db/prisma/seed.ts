@@ -14,6 +14,8 @@ import {
   SEED_WORK_IDS,
   SEED_DOCUMENT_CATEGORIES,
   SEED_DOCUMENT_IDS,
+  SEED_INTAKE_IDS,
+  SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
 config({ path: '../../.env', quiet: true });
@@ -133,6 +135,35 @@ async function seedDocumentCategories(
     ids.set(c.name, row.id);
   }
   return byName('document category', ids);
+}
+
+/** A published v1 intake form for each named service; returns their ids by service name. */
+async function seedIntakeForms(
+  tx: TxClient,
+  businessId: string,
+  service: (name: string) => string,
+  serviceNames: readonly string[],
+) {
+  const ids = new Map<string, string>();
+  for (const name of serviceNames) {
+    const serviceId = service(name);
+    const row = await tx.intakeForm.upsert({
+      where: { businessId_serviceId_version: { businessId, serviceId, version: 1 } },
+      update: {},
+      create: {
+        businessId,
+        serviceId,
+        version: 1,
+        title: `${name} intake`,
+        definition: SAMPLE_FORM_DEFINITION,
+        agreementText: `Sample ${name} service agreement for local development. Not legal text.`,
+        status: 'PUBLISHED',
+        publishedAt: new Date(),
+      },
+    });
+    ids.set(name, row.id);
+  }
+  return byName('intake form', ids);
 }
 
 function byName(kind: string, ids: Map<string, string>) {
@@ -390,6 +421,109 @@ async function main() {
       where: { id: SEED_DOCUMENT_IDS.interestDocument, scanStatus: 'PENDING' },
       data: { scanStatus: 'CLEAN', scannedAt: new Date() },
     });
+
+    // A published v1 intake form per service, an in-progress portal intake on the 2025 tax
+    // engagement, and a submitted Begin Online lead for Bookkeeping with one clean upload.
+    const form = await seedIntakeForms(
+      tx,
+      businesses.lvp,
+      service,
+      SEED_SERVICES.lvp.map((s) => s.name),
+    );
+    const lvp = { businessId: businesses.lvp };
+    await tx.intake.upsert({
+      where: { id: SEED_INTAKE_IDS.taxIntake },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.taxIntake,
+        formId: form('Annual Tax'),
+        engagementId: SEED_WORK_IDS.lvpTax,
+        status: 'IN_PROGRESS',
+        dueOn: new Date('2026-11-15'),
+        createdByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.intakeSubmission.upsert({
+      where: { id: SEED_INTAKE_IDS.taxSubmission },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.taxSubmission,
+        intakeId: SEED_INTAKE_IDS.taxIntake,
+        version: 1,
+        answers: { fullName: SEED_USERS.lvpClient.name },
+      },
+    });
+
+    await tx.lead.upsert({
+      where: { id: SEED_INTAKE_IDS.lead },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.lead,
+        serviceId: service('Bookkeeping'),
+        firstName: 'Lena',
+        lastName: 'Lead (fake)',
+        email: 'lena.lead@begin.test',
+        phone: '+15555550123',
+      },
+    });
+    // Uploads are added while the lead is a draft; no file exists behind it in local S3.
+    await tx.leadUpload.upsert({
+      where: { id: SEED_INTAKE_IDS.leadUpload },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadUpload,
+        leadId: SEED_INTAKE_IDS.lead,
+        slot: 'priorReturn',
+        fileName: 'Prior return sample.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 81234,
+        sha256: createHash('sha256').update('sample prior return').digest('hex'),
+        s3Key: `tenant/${businesses.lvp}/leads/${SEED_INTAKE_IDS.leadUpload}`,
+      },
+    });
+    await tx.leadUpload.updateMany({
+      where: { id: SEED_INTAKE_IDS.leadUpload, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    });
+    await tx.intake.upsert({
+      where: { id: SEED_INTAKE_IDS.leadIntake },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadIntake,
+        formId: form('Bookkeeping'),
+        leadId: SEED_INTAKE_IDS.lead,
+        status: 'SUBMITTED',
+      },
+    });
+    // A submitted version is locked (even an empty upsert would update it), so create it once.
+    const signedAt = new Date();
+    if (
+      !(await tx.intakeSubmission.findUnique({ where: { id: SEED_INTAKE_IDS.leadSubmission } }))
+    ) {
+      await tx.intakeSubmission.create({
+        data: {
+          ...lvp,
+          id: SEED_INTAKE_IDS.leadSubmission,
+          intakeId: SEED_INTAKE_IDS.leadIntake,
+          version: 1,
+          answers: { fullName: 'Lena Lead (fake)', package: 'Growth' },
+          submittedAt: signedAt,
+          signerName: 'Lena Lead (fake)',
+          signedAt,
+          signerIp: '203.0.113.10',
+          signerUserAgent: 'Sample browser (seed)',
+        },
+      });
+    }
+    await tx.lead.updateMany({
+      where: { id: SEED_INTAKE_IDS.lead, status: 'DRAFT' },
+      data: { status: 'SUBMITTED', submittedAt: signedAt },
+    });
   });
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
@@ -430,6 +564,7 @@ async function main() {
     );
     await seedDocumentCategories(tx, businesses.testFirmB, SEED_DOCUMENT_CATEGORIES.testFirmB);
     const service = await seedServices(tx, businesses.testFirmB, SEED_SERVICES.testFirmB);
+    await seedIntakeForms(tx, businesses.testFirmB, service, ['Annual Tax']);
     await tx.engagement.upsert({
       where: { id: SEED_WORK_IDS.firmBTax },
       update: {},
@@ -446,7 +581,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements and documents.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms and a Begin Online lead.`,
   );
 }
 

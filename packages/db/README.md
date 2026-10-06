@@ -48,6 +48,10 @@ Rules:
 - `retention_until` only moves later: a later date or NULL (keep for good), never earlier, and NULL never becomes a date. Clearing `legal_hold` is allowed (the API limits it to managers and audits it) and so can never unlock an early delete.
 - Deleting a document needs no legal hold and either `retention_until` in the past, or a client upload whose engagement is still open (the API checks the role and "own"). The row is deleted for real; the documents bucket is versioned, so R5 must also remove the object's old versions (or expire noncurrent versions with a lifecycle rule).
 - Document requests are cancelled, never deleted. NOT_AVAILABLE ("I don't have this") and REJECTED ("marked missing") need a `status_note`.
+- Intake forms are versioned per firm and service. A published version never changes and can only be retired; only drafts can be deleted. An intake uses a published form of its engagement's (or lead's) service.
+- Intake submissions: one draft at a time (autosave), versions 1, 2, 3… in order; `submitted_at` locks a version for good. Unlocking means inserting the next version. A signature is a name and a time; IP and browser are stored only with it.
+- Begin Online leads run in the firm's business scope (the firm comes from the site's route). The resume link stores only the token's SHA-256 and lasts at most 30 days (database clock). Converting sets `client_id` and an engagement of the lead's service once; a converted lead stays converted. The lead's intake then gets that engagement, once.
+- Lead uploads follow the document file rules (`tenant/<business_id>/`, 10 MB, scan once, file fixed), are added only while the lead is a DRAFT and deleted only then. At conversion each becomes a document with `lead_upload_id` and the same S3 key, file and scan result; that is the only way a document starts already scanned.
 - Invites (staff membership or client account, 7 days at most) store only the token's SHA-256. After insert, only `accepted_at` or `revoked_at` can be set, once; a revoked or expired invite cannot be accepted; nobody deletes invites.
 
 ## Commands
