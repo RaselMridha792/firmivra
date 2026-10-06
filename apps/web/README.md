@@ -2,12 +2,12 @@
 
 One Next.js 16 app (App Router) for three sites, chosen in `src/proxy.ts` by the host map from config (`ADMIN_HOST`, `APP_HOST`, `PORTAL_HOST`, read on every request):
 
-| Host                       | Route folder                       | Who                    |
-| -------------------------- | ---------------------------------- | ---------------------- |
-| `ADMIN_HOST`               | `src/app/admin/`                   | Super Admin (Tumit)    |
-| `APP_HOST`                 | `src/app/firm/`                    | Firm workspace (Fahad) |
-| `PORTAL_HOST/{slug}`       | `src/app/portal/[firmSlug]/`       | Client portal (Nahid)  |
-| `PORTAL_HOST/{slug}/begin` | `src/app/portal/[firmSlug]/begin/` | Begin Online (Ibrahim) |
+| Host                       | Route folder                                | Who                    |
+| -------------------------- | ------------------------------------------- | ---------------------- |
+| `ADMIN_HOST`               | `src/app/admin/`                            | Super Admin (Tumit)    |
+| `APP_HOST`                 | `src/app/firm/`                             | Firm workspace (Fahad) |
+| `PORTAL_HOST/{slug}`       | `src/app/portal/[firmSlug]/`                | Client portal (Nahid)  |
+| `PORTAL_HOST/{slug}/begin` | `src/app/portal/[firmSlug]/(public)/begin/` | Begin Online (Ibrahim) |
 
 - UI comes only from `@firmivra/ui` (tokens and components). Tailwind 4 reads the tokens from `@firmivra/ui/styles.css`.
 - The browser calls the API at `/api/v1` on its own host (`src/lib/api.ts`, typed by `@firmivra/types`), so the API's HttpOnly cookie is per site. Locally Next forwards `/api/v1` to `API_BASE_URL`; in AWS CloudFront does it.

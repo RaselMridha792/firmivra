@@ -1,7 +1,7 @@
 # Fahad: tasks
 
 Firmivra Phase 1 · updated Oct 6, 2026 (evening) by Rasel · delivery Oct 18, 2026.
-Read `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md` first.
+Read `docs/junior/GUIDE.md`, `docs/junior/AI-RULES.md` and `docs/junior/PAGE-MAP.md` first. Your page files already exist as placeholders: PAGE-MAP.md lists them.
 
 ## Your role
 
@@ -20,7 +20,7 @@ You are the only one who adds to `packages/ui`. The others ask you for component
 | --- | --- | --- | --- |
 | F01 | Oct 6-7 | Design tokens and core components | none |
 | F02 | Oct 7 | Sign-in, MFA and activate (firm and Super Admin) | auth, on main |
-| F03 | Oct 8 | Firm app shell and dashboard | `/me` and `/business`, on main |
+| F03 | Oct 8 | Firm dashboard and menu | `/me` and `/business`, on main |
 | F06 | Oct 9-10 | Clients, client record and pending sign-ups | R10, R3 |
 | F07 | Oct 11 | Firm documents and the notification bell | R5, R6 |
 | F10 | Oct 12-13 | Messages, internal notes and invoices | R11, R7 |
@@ -38,7 +38,7 @@ Moved to others: F04, F05, F09 and the team page went to Tumit; F08 went to Ibra
 Everyone builds on `packages/ui` from tomorrow, so ship it in two PRs:
 
 - **PR 1, by Oct 7 morning:** colours, type scale, spacing, radii and shadows from the mockups (`docs/mockups/*`), plus Button, Input, Select, Checkbox, Radio, Card and Badge, each with a story.
-- **PR 2, by Oct 8:** Table, Modal, Tabs, Toast, Skeleton, EmptyState, Sidebar, Header and Stepper.
+- **PR 2, by Oct 8:** Table, Modal, Tabs, Toast, Skeleton, EmptyState and Stepper. (The sidebar and header live in `apps/web/src/components/app-shell/`: R1 makes them, Tumit polishes them.)
 
 Checklist:
 
@@ -49,7 +49,7 @@ Checklist:
 
 ### F02 · Oct 7 · Sign-in, MFA and activate (firm and Super Admin)
 
-- **Pages:** firm site `/sign-in`, `/forgot-password`, `/reset-password`, `/activate`; Super Admin site `/sign-in`, `/forgot-password`, `/reset-password`. Files go under `apps/web/src/app/firm/` and `apps/web/src/app/admin/`. Build the screens once as shared components and use them on both sites.
+- **Pages:** firm site `/sign-in`, `/forgot-password`, `/reset-password`, `/activate`; Super Admin site `/sign-in`, `/forgot-password`, `/reset-password`. R1 creates the page files. Build the screens once in `apps/web/src/components/auth/` and use them in both sites' pages.
 - **Mockup:** `docs/mockups/super-admin/Super login.png`. The firm sign-in uses the same layout with the Firmivra brand.
 - **API (on main):** `staffAuth` and `adminAuth` in `apps/web/src/lib/auth.ts`: `signIn`, `submitMfaCode`, `startMfaSetup`, `forgotPassword`, `resetPassword`, `signOut`. Firm site only: `checkActivation`, `activate`. Contract: `docs/api/auth.yaml`.
 - **Build:**
@@ -68,24 +68,24 @@ Checklist:
 - [ ] The existing Playwright sign-in tests still pass
 - [ ] Split sign-in and activate into two PRs if it goes over 400 lines
 
-### F03 · Oct 8 · Firm app shell and dashboard
+### F03 · Oct 8 · Firm dashboard and menu
 
-- **Pages:** the signed-in firm workspace. The kit already created the route group `apps/web/src/app/firm/(workspace)/` with a placeholder `layout.tsx`: build the shell in that layout, so `/sign-in` and `/activate` stay without it.
-- **Mockup:** none for the firm workspace. Follow the Super Admin layout (`docs/mockups/super-admin/Dashboard Active .png`) with the firm's name. Tumit builds that site, so share the sidebar and header with him through `packages/ui`.
-- **API (on main):** `api.me()` for the user and role, `api.currentBusiness()` for the firm name.
-- **Build:** sidebar by role (Owner and Admin also see Settings and Team), header with the firm name, a bell placeholder and a user menu with sign-out. Dashboard with eight work-queue cards (New clients, Missing documents, Preparation, Review, Signature, Payment, Filing, Completed), showing empty states for now. Signed-out visitors go to `/sign-in`.
+- **Pages:** the dashboard in `firm/(workspace)/page.tsx`, and the firm's menu in `firm/(workspace)/layout.tsx`. R1 made the shell (sign-in check, sidebar, header). Its look lives in `apps/web/src/components/app-shell/` and is Tumit's: he matches it to the Super Admin mockup on Oct 7, so the firm site gets the same look.
+- **Mockup:** none for the firm workspace. Follow the Super Admin layout (`docs/mockups/super-admin/Dashboard Active .png`) with the firm's name.
+- **API (on main):** `useMe()` from the layout for the user and role, `api.currentBusiness()` for the firm name.
+- **Build:** check the menu items, icons and order (Owner and Admin also see Sign-ups, Team and Settings), and show the firm name in the header. Dashboard with eight work-queue cards (New clients, Missing documents, Preparation, Review, Signature, Payment, Filing, Completed), showing empty states for now.
 
 Checklist:
 
-- [ ] The sidebar turns into a menu button at 375 px
-- [ ] Staff don't see Settings or Team
+- [ ] Works at 375 px
+- [ ] Staff don't see Sign-ups, Team or Settings
 - [ ] Playwright: the owner sees Settings, staff don't
 
 ### F06 · Oct 9-10 · Clients, client record and pending sign-ups
 
-- **Pages:** `/clients`, `/clients/[id]`, `/sign-ups`.
+- **Pages:** `/clients`, `/clients/[id]` and `/sign-ups`, in `firm/(workspace)/`.
 - **API:** R10's `api.clients.*` and R3's pending sign-ups. Both contracts arrive by Oct 8; use mock mode until they merge.
-- **Build:** clients list with search and paging. Client record with the tabs Overview, Contact and Profile (this ticket), plus placeholders for Documents (F07), Messages and Invoices (F10). Pending sign-ups queue with approve and decline (Owner and Admin).
+- **Build:** clients list with search and paging. Client record: the client header and tabs in `clients/[id]/layout.tsx`, and Overview, contact and profile in `clients/[id]/page.tsx`. The Documents, Messages and Invoices tabs already have placeholder pages (F07, F10). Pending sign-ups queue with approve and decline (Owner and Admin).
 
 Checklist:
 
@@ -95,17 +95,20 @@ Checklist:
 
 ### F07 · Oct 11 · Firm documents and the notification bell
 
+- **Pages:** `firm/(workspace)/clients/[id]/documents/`; the bell's wiring in `apps/web/src/components/notification-bell.tsx`.
 - **API:** R5's `api.documents.*` and document requests; R6's `api.notifications.*`. Contracts arrive by Oct 10.
 - **Build:** client record > Documents tab: list, filter by category and year, download, request a document, request status (Requested, Received, Accepted, Missing with the client's reason). The bell: unread count, list, mark read, open the related record. Put the bell's look in `packages/ui` and its data wiring in one file in `apps/web/src/components/`, so Nahid reuses it in the portal.
 
 ### F10 · Oct 12-13 · Messages, internal notes and invoices
 
+- **Pages:** in `firm/(workspace)/`: `messages/`, `invoices/`, `clients/[id]/messages/` (messages and internal notes) and `clients/[id]/invoices/`.
 - **Mockups (client side, for style):** `docs/mockups/client-portal/Messages and notes.png`, `invoices tab.png`.
 - **API:** R11's `api.messages.*` and internal notes, R7's `api.invoices.*`. Contracts arrive by Oct 11-12.
 - **Build:** message threads per client with unread counts, compose and reply. Internal notes, visible only to the firm. Invoices: create with lines, send, statuses.
 
 ### F11 · Oct 14-15 · Service workspaces
 
+- **Pages:** `firm/(workspace)/workspaces/` and `workspaces/[engagementId]/`.
 - **API:** R12's `api.workspaces.*` (contract by Oct 10).
 - **Build:** Bookkeeping and Tax Planning workspaces per engagement: status, tasks, documents, notes and reports. No mockup: use the shell and the design system.
 

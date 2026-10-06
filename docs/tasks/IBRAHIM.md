@@ -1,7 +1,7 @@
 # Ibrahim: tasks
 
 Firmivra Phase 1 · updated Oct 6, 2026 (evening) by Rasel · delivery Oct 18, 2026.
-Read `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md` first.
+Read `docs/junior/GUIDE.md`, `docs/junior/AI-RULES.md` and `docs/junior/PAGE-MAP.md` first. Your page files already exist as placeholders: PAGE-MAP.md lists them.
 
 ## Your role
 
@@ -31,11 +31,11 @@ You own the new-client flow screens: Begin Online (all six services, review, sig
 
 ### N07a · Oct 7-8 · Begin Online: entry page, form blocks, Annual Tax
 
-- **Pages:** on the portal site, `/{slug}/begin` (the service picker) and `/{slug}/begin/annual-tax`. Public, no sign-in. If Nahid's route map uses other paths, follow her map.
+- **Pages:** on the portal site, `/{firm}/begin` (the service picker) and `/{firm}/begin/annual-tax`, in `portal/[firmSlug]/(public)/begin/`. Public, no sign-in. R1 creates the page files.
 - **Mockups:** in `docs/mockups/begin-online/`: `Begin online.png`, `Annual Intake Form 1.png`, `Annual Intake Business Income 2 .png`, `Annual Intake From 3.png`, `Annual Tax Intake Form 4.png`. Read `docs/specs/NOTES-begin-online.md` first: it lists every field and the mockup mistakes to ignore.
 - **API:** none yet. Keep the answers in form state. R11 publishes the save and submit functions by Oct 9.
 - **Build, in this order:**
-  1. Form blocks in a private folder such as `apps/web/src/app/portal/[firmSlug]/begin/_blocks/`: Stepper, numbered section panel, Yes/No question, radio group, checkbox group, repeater (for dependents and businesses), quarterly grid (Q1-Q4 plus an auto-summed total), upload tile with "I don't have this document" and a reason, masked SSN input with show and hide, review card with Edit. All six services reuse these.
+  1. Form blocks in `apps/web/src/app/portal/[firmSlug]/(public)/begin/_blocks/` (start here: it doesn't need the placeholders): Stepper, numbered section panel, Yes/No question, radio group, checkbox group, repeater (for dependents and businesses), quarterly grid (Q1-Q4 plus an auto-summed total), upload tile with "I don't have this document" and a reason, masked SSN input with show and hide, review card with Edit. All six services reuse these.
   2. The entry page with the six service cards, in the firm's branding (not LVP's website header).
   3. Annual Tax in 4 steps. Step 2 appears only when "Business" was chosen. Step 4 is the review, with Edit links back to each step.
 
@@ -49,6 +49,7 @@ Checklist:
 
 ### N07b · Oct 9-10 · Begin Online: the other five services
 
+- **Pages:** in `portal/[firmSlug]/(public)/begin/`: `quarterly-tax/`, `bookkeeping/`, `payroll/`, `tax-planning/` and `business-development/`.
 - **Mockups:** Quarterly Tax (`business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png`), Bookkeeping (4 files), Payroll (3), Tax Planning (4) and Business Development (4), all in `docs/mockups/begin-online/`. `NOTES-begin-online.md` maps each file to its service.
 - **Build:** each service from the N07a blocks. One PR per one or two services, each under 400 lines.
 
@@ -68,13 +69,14 @@ Open one GitHub issue per failure (Bug template).
 
 ### N07c · Oct 11 · Begin Online: review, sign, submit, save and resume
 
+- **Pages:** `begin/resume/` (opened from the resume link) and `begin/done/` (the success page for each service).
 - **Mockups:** the review pages, `Success Page for all services except taxes.png`, `Success Tax Prep.png`.
 - **API:** R11's `api.beginOnline.*` (start, save a step, email a resume link, submit) and draft uploads (R11 with R5).
 - **Build:** "Save and Continue Later" (the API emails a resume link) and resuming from that link; uploads in the tiles; the signature (typed full name and a checkbox until Rasel confirms the e-sign tool); submit; the success page for each service.
 
 ### F08 · Oct 12 · Leads inbox and convert to client
 
-- **Pages:** firm workspace `/leads` and `/leads/[id]`.
+- **Pages:** firm workspace `/leads` and `/leads/[id]`, in `firm/(workspace)/leads/`.
 - **API:** R11's `api.leads.*`.
 - **Build:** the list of Begin Online submissions (New, Reviewed, Converted, Declined); lead detail with the intake answers (SSN masked); "Convert to client" (creates the client and sends a portal invite); decline with a reason.
 

@@ -6,13 +6,15 @@ Firmivra · for Fahad, Nahid, Tumit and Ibrahim · Oct 6, 2026. Read it once, th
 
 You build **screens** in `apps/web` and **tests**. Rasel's Claude Code sessions build every API, table and sign-in flow, and publish ready-made API functions for your screens. If a screen needs data that the API functions don't give you, ask Rasel. Never add it yourself.
 
+Rasel's R1 session also creates every page as a placeholder inside its layout: the sidebar, header, footer, sign-in check and menu links are done. `docs/junior/PAGE-MAP.md` lists every page with its file, owner, ticket and mockup. You fill in your own pages.
+
 | You change | You never change |
 | --- | --- |
-| `apps/web/` (pages, components, e2e tests) | `apps/api/`, `packages/db/`, `infra/`, `.github/` |
+| the files under your name in "Your files" in `docs/junior/PAGE-MAP.md` | `apps/api/`, `packages/db/`, `infra/`, `.github/` |
 | `packages/ui/` (Fahad only; the others ask Fahad) | `packages/types/` (the sessions publish the API functions there) |
-| your own `docs/tasks/<NAME>.md` | `.env` files, `pnpm-lock.yaml`, other people's branches |
+| your own `docs/tasks/<NAME>.md` | `.env` files, `pnpm-lock.yaml`, other people's pages and branches |
 
-CI fails a PR from your branch if it changes anything outside these folders.
+CI fails a PR from your branch if it changes anything outside your files.
 
 ## Every morning (10 minutes)
 
@@ -27,7 +29,7 @@ CI fails a PR from your branch if it changes anything outside these folders.
 ## How to build a screen
 
 1. **Branch from fresh main:** `git switch -c tumit/FIR-F04a-admin-dashboard origin/main` (your name, the ticket id, a short name).
-2. **Copy the reference screen** `apps/web/src/app/firm/(workspace)/settings/tax-statuses/` into your route folder and keep its structure. Its comments explain every part.
+2. **Open your page file** (find it in `docs/junior/PAGE-MAP.md`). Replace the `<PagePlaceholder>` with your screen, and put the screen's parts in a `_components/` folder next to the page. Never create, move or rename a route, layout or page folder: if a page is missing, ask Rasel. Copy the patterns of the reference screen `apps/web/src/app/firm/(workspace)/settings/tax-statuses/`; its comments explain every part.
 3. **Read data with the hook**, never with `fetch` or axios:
 
    ```tsx
@@ -43,9 +45,11 @@ CI fails a PR from your branch if it changes anything outside these folders.
 
 4. **Change data only from the browser:** in a `'use client'` component, on a click or a form submit, with `useApiMutation`. Never in a server component, a server action (`'use server'`) or a route handler: the API refuses those with 403.
 5. **Forms:** `useForm` with `zodResolver(<schema from @firmivra/types>)`. Show API errors with `errorMessage(error)`.
-6. **Look:** only `@firmivra/ui` components and token classes such as `bg-surface`, `bg-canvas`, `text-muted`, `border-border`, `text-danger`. No hex colours, no values like `p-[13px]`, no inline styles. Need a component that isn't there? Ask Fahad. Until he adds it, keep a small local one in your page folder.
+6. **Look:** only `@firmivra/ui` components and token classes such as `bg-surface`, `bg-canvas`, `text-muted`, `border-border`, `text-danger`. No hex colours, no values like `p-[13px]`, no inline styles. Colours come from the tokens: never fix a colour inside your page; a colour that looks wrong everywhere is Fahad's to fix. Need a component that isn't there? Ask Fahad. Until he adds it, keep a small local one in your `_components/` folder.
 7. **API not merged yet?** Put `NEXT_PUBLIC_API_MOCK=<module>` (or `all`) in `apps/web/.env.local` and build against the mock data. Remove it when the API is on main.
-8. **Test:** put `data-testid` on the key elements and add one Playwright test in `apps/web/e2e/` (copy the reference screen's test).
+8. **Test:** put `data-testid` on the key elements and add one Playwright test in `apps/web/e2e/<your-name>-<page>.spec.ts` (copy the reference screen's test).
+
+Placeholders not on main yet when you start? Build your parts in your `_components/` folder and don't create the page file yourself.
 
 Always:
 

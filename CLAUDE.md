@@ -105,7 +105,7 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 
 ## Junior developers
 
-From Oct 7, Fahad, Nahid, Tumit and Ibrahim build screens and tests; Rasel's Claude Code sessions build every API. The developers change only `apps/web`, `packages/ui` (Fahad) and their own `docs/tasks/<NAME>.md`, and follow `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md`.
+From Oct 7, Fahad, Nahid, Tumit and Ibrahim build screens and tests; Rasel's Claude Code sessions build every API. R1 creates every page as a placeholder; the developers change only the files listed under their name in `docs/junior/PAGE-MAP.md` (Fahad also `packages/ui`) and their own `docs/tasks/<NAME>.md`, and follow `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md`.
 
 ## Parallel sessions
 
