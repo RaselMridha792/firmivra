@@ -20,6 +20,7 @@ import {
   SEED_CALENDAR_IDS,
   SEED_MESSAGE_IDS,
   SEED_BILLING_IDS,
+  SEED_STRIPE_ACCOUNT_ID,
   SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
@@ -744,6 +745,20 @@ async function main() {
       '2026-10-02T17:30:00Z',
     );
 
+    // LVP is paid into its own Stripe connected account (Stripe Connect), already onboarded.
+    await tx.stripeAccount.upsert({
+      where: { businessId: businesses.lvp },
+      update: {},
+      create: {
+        ...lvp,
+        accountId: SEED_STRIPE_ACCOUNT_ID,
+        onboardingStatus: 'COMPLETE',
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        detailsSubmitted: true,
+      },
+    });
+
     // Billing: a paid bookkeeping invoice, paid the only way the database allows (a recorded
     // processor event confirms the payment), and an open invoice for the 2025 return.
     const invoice = async (
@@ -787,12 +802,14 @@ async function main() {
           invoiceId: SEED_BILLING_IDS.paidInvoice,
           amountCents: 30000,
           processorRef: 'cs_test_seed_inv_1000',
+          accountId: SEED_STRIPE_ACCOUNT_ID,
         },
       });
       await tx.paymentEvent.create({
         data: {
           ...lvp,
           processorEventId: 'evt_test_seed_inv_1000',
+          accountId: SEED_STRIPE_ACCOUNT_ID,
           type: 'checkout.session.completed',
           paymentId: SEED_BILLING_IDS.paidPayment,
           processedAt: paidAt,

@@ -49,6 +49,8 @@ const ids = {
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
 const inDays = (d: number) => new Date(Date.now() + d * 86_400_000);
+/** A fake Stripe connected account id per firm (acct_ + letters and digits). */
+const firmAccount = (firm: string) => `acct_${firm.replace(/-/g, '')}`;
 
 beforeAll(async () => {
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
@@ -253,6 +255,9 @@ beforeAll(async () => {
       await tx.messageAttachment.create({
         data: { businessId: firm, messageId: msg.id, documentId: vaultDoc.id },
       });
+      await tx.stripeAccount.create({
+        data: { businessId: firm, accountId: firmAccount(firm), chargesEnabled: true },
+      });
       const bill = await tx.invoice.create({
         data: { ...work, number: 'INV-1' },
       });
@@ -269,12 +274,14 @@ beforeAll(async () => {
           invoiceId: bill.id,
           amountCents: 100,
           processorRef: `cs_${randomUUID()}`,
+          accountId: firmAccount(firm),
         },
       });
       await tx.paymentEvent.create({
         data: {
           businessId: firm,
           processorEventId: `evt_${randomUUID()}`,
+          accountId: firmAccount(firm),
           type: 'checkout.session.completed',
           paymentId: pay.id,
         },
@@ -511,6 +518,7 @@ describe('business scope: firm B', () => {
           invoiceId: ids.invoiceA,
           amountCents: 100,
           processorRef: `cs_${randomUUID()}`,
+          accountId: firmAccount(ids.firmB),
         },
       }),
     ).rejects.toThrow();
@@ -519,11 +527,12 @@ describe('business scope: firm B', () => {
         data: {
           businessId: ids.firmB,
           processorEventId: `evt_${randomUUID()}`,
+          accountId: firmAccount(ids.firmB),
           type: 'charge.refunded',
           paymentId: ids.paymentA,
         },
       }),
-    ).rejects.toThrow(/foreign key/i);
+    ).rejects.toThrow(/account that sent the event|foreign key/i);
     await expect(
       b().message.create({
         data: {

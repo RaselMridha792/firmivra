@@ -250,3 +250,6 @@ export const SEED_BILLING_IDS = {
   recordKeeping: '00000000-0000-4000-6000-000000000023',
   receiptsTip: '00000000-0000-4000-6000-000000000024',
 } as const;
+
+/** LVP's Stripe connected account for local development: fake, never a real account id. */
+export const SEED_STRIPE_ACCOUNT_ID = 'acct_1LvpLocalSeed0001';

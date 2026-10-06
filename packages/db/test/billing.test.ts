@@ -10,7 +10,10 @@ const owner = createPrismaClient(urls.owner);
 const db = createDatabase(urls.app);
 
 const run = randomUUID().slice(0, 8);
-const ids = { firmA: '', client: '', otherClient: '' };
+const ids = { firmA: '', firmB: '', client: '', otherClient: '' };
+/** A fake Stripe connected account id (acct_ + letters and digits). */
+const newAccountId = () => `acct_${randomUUID().replace(/-/g, '')}`;
+const accounts = { A: newAccountId(), B: newAccountId() };
 let invoiceNumber = 0;
 
 const firmA = () => db.forBusiness(ids.firmA);
@@ -34,23 +37,42 @@ const openInvoice = async () => {
     data: { status: 'OPEN', issuedAt: new Date() },
   });
 };
-const pay = (invoiceId: string, amountCents = 10000) =>
+const pay = (invoiceId: string, amountCents = 10000, accountId = accounts.A) =>
   firmA().payment.create({
-    data: { ...A(), invoiceId, amountCents, processorRef: `cs_${randomUUID()}` },
+    data: { ...A(), invoiceId, amountCents, processorRef: `cs_${randomUUID()}`, accountId },
   });
-const recordEvent = (paymentId: string, type = 'checkout.session.completed') =>
+const recordEvent = (
+  paymentId: string | null,
+  accountId = accounts.A,
+  type = 'checkout.session.completed',
+) =>
   firmA().paymentEvent.create({
-    data: { ...A(), processorEventId: `evt_${randomUUID()}`, type, paymentId },
+    data: { ...A(), processorEventId: `evt_${randomUUID()}`, type, paymentId, accountId },
   });
 
 beforeAll(async () => {
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     ids.firmA = (await tx.business.create({ data: { slug: `ba-${run}`, name: 'A' } })).id;
+    ids.firmB = (await tx.business.create({ data: { slug: `bb-${run}`, name: 'B' } })).id;
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
     ids.client = (await tx.client.create({ data: { ...A(), displayName: 'One' } })).id;
     ids.otherClient = (await tx.client.create({ data: { ...A(), displayName: 'Two' } })).id;
+    await tx.stripeAccount.create({
+      data: {
+        ...A(),
+        accountId: accounts.A,
+        onboardingStatus: 'COMPLETE',
+        chargesEnabled: true,
+        payoutsEnabled: true,
+      },
+    });
   });
+  await runInScope(owner, { kind: 'business', businessId: ids.firmB }, (tx) =>
+    tx.stripeAccount.create({
+      data: { businessId: ids.firmB, accountId: accounts.B, chargesEnabled: true },
+    }),
+  );
 });
 
 afterAll(async () => {
@@ -165,6 +187,7 @@ describe('payments and webhook events', () => {
           invoiceId: inv.id,
           amountCents: 10000,
           processorRef: `cs_${randomUUID()}`,
+          accountId: accounts.A,
           status: 'SUCCEEDED',
           paidAt: new Date(),
         },
@@ -203,6 +226,7 @@ describe('payments and webhook events', () => {
         data: {
           ...A(),
           processorEventId: eventId,
+          accountId: accounts.A,
           type: 'checkout.session.completed',
           paymentId: p.id,
         },
@@ -221,6 +245,94 @@ describe('payments and webhook events', () => {
     await expect(firmA().paymentEvent.deleteMany({ where: { id: e.id } })).rejects.toThrow(
       /permission denied/i,
     );
+  });
+});
+
+describe('Stripe Connect: each firm is paid into its own account', () => {
+  it("a payment runs only on the firm's own account, with charges enabled", async () => {
+    const inv = await openInvoice();
+    await expect(pay(inv.id, 10000, accounts.B)).rejects.toThrow(/own connected account/);
+    await expect(pay(inv.id, 10000, newAccountId())).rejects.toThrow(/own connected account/);
+
+    await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+      tx.stripeAccount.update({
+        where: { businessId: ids.firmA },
+        data: { chargesEnabled: false, onboardingStatus: 'RESTRICTED' },
+      }),
+    );
+    try {
+      await expect(pay(inv.id)).rejects.toThrow(/charges enabled/);
+    } finally {
+      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.stripeAccount.update({
+          where: { businessId: ids.firmA },
+          data: { chargesEnabled: true, onboardingStatus: 'COMPLETE' },
+        }),
+      );
+    }
+  });
+
+  it("an event from another firm's account cannot be recorded or mark anything paid", async () => {
+    const inv = await openInvoice();
+    const p = await pay(inv.id);
+    // Firm B's account sending an event into firm A's scope is refused outright.
+    await expect(recordEvent(p.id, accounts.B)).rejects.toThrow(/own connected account/);
+    await expect(recordEvent(null, accounts.B)).rejects.toThrow(/own connected account/);
+    await expect(
+      firmA().payment.update({
+        where: { id: p.id },
+        data: { status: 'SUCCEEDED', paidAt: new Date() },
+      }),
+    ).rejects.toThrow(/recorded processor event/);
+
+    // In firm B's own scope, with B's own account, firm A's payment is out of reach.
+    await expect(
+      db.forBusiness(ids.firmB).paymentEvent.create({
+        data: {
+          businessId: ids.firmB,
+          processorEventId: `evt_${randomUUID()}`,
+          type: 'checkout.session.completed',
+          accountId: accounts.B,
+          paymentId: p.id,
+        },
+      }),
+    ).rejects.toThrow();
+
+    // From the firm's own account, the full path works.
+    await recordEvent(p.id);
+    await firmA().payment.update({
+      where: { id: p.id },
+      data: { status: 'SUCCEEDED', paidAt: new Date() },
+    });
+    await expect(
+      firmA().invoice.update({
+        where: { id: inv.id },
+        data: { status: 'PAID', paidAt: new Date() },
+      }),
+    ).resolves.toMatchObject({ status: 'PAID' });
+  });
+
+  it('one account per firm, never shared, never changed; the platform can read it', async () => {
+    await expect(
+      db.forBusiness(ids.firmB).stripeAccount.create({
+        data: { businessId: ids.firmB, accountId: newAccountId() },
+      }),
+    ).rejects.toThrow(/unique constraint/i);
+    await expect(
+      firmA().stripeAccount.update({
+        where: { businessId: ids.firmA },
+        data: { accountId: newAccountId() },
+      }),
+    ).rejects.toThrow(/cannot change/);
+    await expect(
+      firmA().stripeAccount.update({
+        where: { businessId: ids.firmA },
+        data: { onboardingStatus: 'COMPLETE', payoutsEnabled: false },
+      }),
+    ).rejects.toThrow(/check constraint/i);
+    expect(await db.forBusiness(ids.firmB).stripeAccount.findMany()).toHaveLength(1);
+    const seen = (await db.forPlatform().stripeAccount.findMany()).map((a) => a.accountId);
+    expect(seen).toEqual(expect.arrayContaining([accounts.A, accounts.B]));
   });
 });
 

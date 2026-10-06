@@ -237,6 +237,14 @@ enum PaymentStatus {
   REFUNDED
 }
 
+/// A firm's Stripe Connect onboarding: PENDING until Stripe has the details, RESTRICTED when
+/// Stripe needs more, COMPLETE when charges and payouts work.
+enum StripeOnboardingStatus {
+  PENDING
+  RESTRICTED
+  COMPLETE
+}
+
 enum PaymentProcessor {
   STRIPE
 }
@@ -282,6 +290,7 @@ model Business {
   appointmentTypes    AppointmentType[]
   contentItems        ContentItem[]
   calculators         CalculatorDefinition[]
+  stripeAccount       StripeAccount?
 
   @@map("businesses")
 }
@@ -1417,6 +1426,8 @@ model Payment {
   processor    PaymentProcessor @default(STRIPE)
   /// The checkout session or payment intent id.
   processorRef String           @map("processor_ref")
+  /// The firm's Stripe connected account the checkout ran on (acct_...).
+  accountId    String           @map("account_id")
   /// A short code from the processor when it failed.
   failureCode  String?          @map("failure_code")
   paidAt       DateTime?        @map("paid_at") @db.Timestamptz(3)
@@ -1440,6 +1451,8 @@ model PaymentEvent {
   businessId       String           @map("business_id") @db.Uuid
   processor        PaymentProcessor @default(STRIPE)
   processorEventId String           @map("processor_event_id")
+  /// The Stripe connected account that sent the event (event.account); must be the firm's.
+  accountId        String           @map("account_id")
   /// e.g. "checkout.session.completed".
   type             String
   paymentId        String?          @map("payment_id") @db.Uuid
@@ -1497,4 +1510,26 @@ model CalculatorDefinition {
 
   @@unique([businessId, key])
   @@map("calculator_definitions")
+}
+
+/// A firm's own Stripe connected account (Stripe Connect: Firmivra's account is the platform,
+/// each firm is paid into its own account). One per firm; the account id never changes once
+/// set. The firm sees and updates its own row; platform scope can read it so the webhook can
+/// find which firm an account belongs to. Payments run only on this account, and webhook events
+/// are accepted only from it.
+model StripeAccount {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  businessId       String                 @unique @map("business_id") @db.Uuid
+  /// acct_...
+  accountId        String                 @unique @map("account_id")
+  onboardingStatus StripeOnboardingStatus @default(PENDING) @map("onboarding_status")
+  chargesEnabled   Boolean                @default(false) @map("charges_enabled")
+  payoutsEnabled   Boolean                @default(false) @map("payouts_enabled")
+  detailsSubmitted Boolean                @default(false) @map("details_submitted")
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("stripe_accounts")
 }
