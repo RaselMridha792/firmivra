@@ -221,3 +221,58 @@ describe('invites', () => {
     await expect(firmA().invite.deleteMany({})).rejects.toThrow(/permission denied/i);
   });
 });
+
+describe('legal acceptances', () => {
+  const clientA = randomUUID();
+  const clientB = randomUUID();
+  const setUp = async () => {
+    await runInScope(owner, { kind: 'platform' }, async (tx) => {
+      for (const id of [clientA, clientB]) {
+        await tx.user.create({
+          data: { id, cognitoSub: id, pool: 'CLIENT', email: `${id}@s.test`, name: 'Fake' },
+        });
+      }
+    });
+    const login = async (businessId: string, userId: string) =>
+      runInScope(owner, { kind: 'business', businessId }, (tx) =>
+        tx.clientAccount.create({ data: { businessId, userId, email: `${userId}@s.test` } }),
+      );
+    const terms = async (businessId: string, publishedByUserId: string) =>
+      runInScope(owner, { kind: 'business', businessId }, (tx) =>
+        tx.firmLegalDocument.create({
+          data: { businessId, kind: 'TERMS', version: 7, body: 'v7', publishedByUserId },
+        }),
+      );
+    return {
+      loginA: await login(ids.firmA, clientA),
+      termsA: await terms(ids.firmA, ids.ownerA),
+      termsB: await terms(ids.firmB, ids.ownerB),
+    };
+  };
+
+  it("records a client's acceptance once, of its own firm's document, and never changes it", async () => {
+    const { loginA, termsA, termsB } = await setUp();
+    const accept = (legalDocumentId: string) =>
+      firmA().legalAcceptance.create({
+        data: {
+          businessId: ids.firmA,
+          clientAccountId: loginA.id,
+          legalDocumentId,
+          ip: '203.0.113.7',
+          userAgent: 'Test browser',
+        },
+      });
+    await expect(accept(termsB.id)).rejects.toThrow(/foreign key/i);
+    const a = await accept(termsA.id);
+    await expect(accept(termsA.id)).rejects.toThrow(/unique constraint/i);
+    await expect(
+      firmA().legalAcceptance.update({ where: { id: a.id }, data: { ip: null } }),
+    ).rejects.toThrow(/permission denied/i);
+    await expect(firmA().legalAcceptance.deleteMany({})).rejects.toThrow(/permission denied/i);
+
+    // The client sees their own acceptance in user scope; nobody else does.
+    expect((await db.forUser(clientA).legalAcceptance.findMany()).map((x) => x.id)).toEqual([a.id]);
+    expect(await db.forUser(clientB).legalAcceptance.findMany()).toEqual([]);
+    expect(await db.forBusiness(ids.firmB).legalAcceptance.findMany()).toEqual([]);
+  });
+});
