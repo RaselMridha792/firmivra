@@ -433,6 +433,8 @@ model BusinessSettings {
   logoKey             String?   @map("logo_key")
   /// `#rrggbb`, themes the firm's client portal.
   brandColor          String?   @map("brand_color")
+  /// Optional second colour (`#rrggbb`) for the portal; the API uses a default when empty.
+  accentColor         String?   @map("accent_color")
   /// Module keys switched on for this firm (docs/SYSTEM-DESIGN.md, Modules & packs).
   enabledModules      String[]  @default([]) @map("enabled_modules")
   clientSignUpEnabled Boolean   @default(true) @map("client_sign_up_enabled")
