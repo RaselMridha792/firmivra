@@ -422,7 +422,7 @@ Work follows Rasel's order: foundations first, then Super Admin, role-based acce
 
 *Chart in the PDF: 6 build phases with 5 gates. The phases and gates are written out under "Build phases" in docs/SYSTEM-DESIGN.md.*
 
-The LVP beta date is 8 January 2027 (decided 4 Oct). It includes everything above except payroll operations, the Business Advisory workspace and Google/Outlook calendar sync, which ship right after. The original draft's 7 days and $400 covered a single-firm portal, so each phase gets its own estimate.
+Delivery: Oct 18, 2026. It includes everything above except payroll operations, the Business Advisory workspace and Google/Outlook calendar sync, which ship right after. The original draft's 7 days and $400 covered a single-firm portal, so each phase gets its own estimate.
 
 ## Changes from the original draft
 
@@ -459,7 +459,7 @@ Rasel decided these on 4 October 2026.
 
 |Question|Decision|
 |---|---|
-|Beta scope|8 January 2027, with all missing requirements except payroll operations, Advisory and calendar sync, which ship right after|
+|Beta scope|Delivery: Oct 18, 2026, with all missing requirements except payroll operations, Advisory and calendar sync, which ship right after|
 |AWS region|us-east-1 (N. Virginia)|
 |AWS account|One Firmivra account for all firms, isolated per firm; no separate LVP account|
 |Client sign-up|Self sign-up on the firm portal, then the firm approves|
