@@ -33,9 +33,11 @@ export class AuthStack extends Stack {
     super(scope, id, props);
     const { config } = props;
 
-    this.staff = this.pool(config, 'staff', cognito.Mfa.REQUIRED);
-    this.clients = this.pool(config, 'clients', cognito.Mfa.OPTIONAL);
-    this.admins = this.pool(config, 'admins', cognito.Mfa.REQUIRED);
+    // Refresh tokens (the longest a session lasts without signing in again): shorter where an
+    // account can see more. Clients: 30 days for now (Rasel, Oct 5).
+    this.staff = this.pool(config, 'staff', cognito.Mfa.REQUIRED, Duration.days(7));
+    this.clients = this.pool(config, 'clients', cognito.Mfa.OPTIONAL, Duration.days(30));
+    this.admins = this.pool(config, 'admins', cognito.Mfa.REQUIRED, Duration.days(1));
 
     this.clientSecrets = new secretsmanager.Secret(this, 'ApiClientSecrets', {
       secretName: `firmivra/${config.envName}/cognito/api-clients`,
@@ -48,7 +50,12 @@ export class AuthStack extends Stack {
     });
   }
 
-  private pool(config: EnvConfig, name: string, mfa: cognito.Mfa): PoolOutput {
+  private pool(
+    config: EnvConfig,
+    name: string,
+    mfa: cognito.Mfa,
+    refreshTokenValidity: Duration,
+  ): PoolOutput {
     const id = name.charAt(0).toUpperCase() + name.slice(1);
     const pool = new cognito.UserPool(this, `${id}Pool`, {
       userPoolName: resourceName(config, name),
@@ -95,7 +102,7 @@ export class AuthStack extends Stack {
       enableTokenRevocation: true,
       accessTokenValidity: Duration.minutes(15),
       idTokenValidity: Duration.minutes(15),
-      refreshTokenValidity: Duration.days(30),
+      refreshTokenValidity,
     });
     return { pool, client };
   }
