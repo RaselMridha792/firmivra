@@ -34,6 +34,7 @@ Rules:
 - Use `withScope` for multi-step work and for raw SQL. Raw queries on a scoped client are not scoped, so they see nothing.
 - New identities (`users`) are created in `platform` scope, then linked to a firm in `business` scope.
 - The audit log is append-only: the app role can insert and read, not update or delete.
+- Firm applications: a Super Admin reviews in admin scope, setting `status`, `reviewed_by_user_id` (the acting admin), `reviewed_at` and `decision_reason` in one update; INFO_REQUESTED and DECLINED need a `decision_reason` (the message to the applicant). The database writes `firm_application_status_history`: the admin comes from the scope (NULL for platform-scope changes such as a resubmission), and the message only from the update that sets it or for INFO_REQUESTED and DECLINED. A new message on the same status is also a history row.
 - Support access grants: the platform only requests; an ACTIVE OWNER of the firm approves in business scope with `expires_at` within 72 hours by the database clock (up to 1 minute over, from a fast API clock, is trimmed to exactly 72 hours); approvals cannot be edited and revocation is one-way; nobody deletes grants.
 - Users can be updated only in platform scope or by the person themself (who cannot change id, Cognito sub, pool or email). Business status and slug change only in platform scope.
 - Scopes use `set_config(..., true)` inside a transaction, so they never outlive it on a pooled connection.

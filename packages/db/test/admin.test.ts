@@ -144,8 +144,15 @@ describe('firm applications', () => {
     const history = await admin().firmApplicationStatusHistory.findMany({
       where: { applicationId: ids.application },
     });
-    expect(history.map((h) => `${h.fromStatus}>${h.toStatus}`).sort()).toEqual(
-      ['null>PENDING_REVIEW', 'PENDING_REVIEW>INFO_REQUESTED'].sort(),
+    expect(
+      history
+        .map((h) => `${h.fromStatus}>${h.toStatus} by ${h.changedByUserId}: ${h.reason}`)
+        .sort(),
+    ).toEqual(
+      [
+        'null>PENDING_REVIEW by null: null',
+        `PENDING_REVIEW>INFO_REQUESTED by ${ids.admin}: Please send your EIN letter.`,
+      ].sort(),
     );
     expect(
       (
@@ -154,6 +161,65 @@ describe('firm applications', () => {
         })
       ).length,
     ).toBe(2);
+  });
+
+  it('history records who decided and the message from that change only', async () => {
+    const { id } = await db.forPlatform().firmApplication.create({
+      data: {
+        legalName: 'History LLC (fake)',
+        contactName: 'Applicant',
+        contactEmail: `history-${run}@ad.test`,
+        data: {},
+      },
+    });
+    const decide = (
+      adminId: string,
+      status: 'INFO_REQUESTED' | 'APPROVED' | 'DECLINED',
+      decisionReason?: string | null,
+    ) =>
+      db.forAdmin(adminId).firmApplication.update({
+        where: { id },
+        data: { status, reviewedByUserId: adminId, reviewedAt: new Date(), decisionReason },
+      });
+    // The applicant answers in platform scope (R4): no admin, and the old message is not repeated.
+    const resubmit = () =>
+      db
+        .forPlatform()
+        .firmApplication.update({ where: { id }, data: { status: 'PENDING_REVIEW' } });
+
+    for (const reason of [undefined, ' ']) {
+      await expect(decide(ids.admin, 'DECLINED', reason)).rejects.toThrow(/needs a message/);
+      await expect(decide(ids.admin, 'INFO_REQUESTED', reason)).rejects.toThrow(/needs a message/);
+    }
+    await decide(ids.admin, 'INFO_REQUESTED', 'Please send your EIN letter.');
+    await resubmit();
+    await decide(ids.otherAdmin, 'INFO_REQUESTED', 'Please also send a photo ID.');
+    // A new message on the same status is a history row too.
+    await db.forAdmin(ids.admin).firmApplication.update({
+      where: { id },
+      data: { decisionReason: 'Reminder: photo ID.' },
+    });
+    await resubmit();
+    await decide(ids.admin, 'APPROVED');
+
+    const history = await admin().firmApplicationStatusHistory.findMany({
+      where: { applicationId: id },
+    });
+    expect(
+      history
+        .map((h) => `${h.fromStatus}>${h.toStatus} by ${h.changedByUserId}: ${h.reason}`)
+        .sort(),
+    ).toEqual(
+      [
+        'null>PENDING_REVIEW by null: null',
+        `PENDING_REVIEW>INFO_REQUESTED by ${ids.admin}: Please send your EIN letter.`,
+        'INFO_REQUESTED>PENDING_REVIEW by null: null',
+        `PENDING_REVIEW>INFO_REQUESTED by ${ids.otherAdmin}: Please also send a photo ID.`,
+        `INFO_REQUESTED>INFO_REQUESTED by ${ids.admin}: Reminder: photo ID.`,
+        'INFO_REQUESTED>PENDING_REVIEW by null: null',
+        `PENDING_REVIEW>APPROVED by ${ids.admin}: null`,
+      ].sort(),
+    );
   });
 
   it('a review never changes the application itself, and history is never written by hand', async () => {
