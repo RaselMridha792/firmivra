@@ -17,6 +17,8 @@ describe('settings input contracts', () => {
       { status: 'ACTIVE' },
       { logoKey: 'tenant/other/logo.png' },
       { enabledModules: ['documents'] },
+      { name: 'LVP', businessId: '0199b6a0-0000-7000-8000-000000000001' },
+      { name: 'LVP', slug: 'other-firm' },
       {},
       { name: undefined },
     ]) {
@@ -61,16 +63,44 @@ describe('settings input contracts', () => {
     expect(ok({ accentColor: 'red' })).toBe(false);
     expect(ok({ country: 'USA' })).toBe(false);
     expect(ok({ timezone: 'Bad/Zone' })).toBe(false);
+    for (const timezone of ['+05:30', 'EST', 'GMT-5', '']) expect(ok({ timezone })).toBe(false);
+    expect(UpdateFirmSettingsRequest.parse({ timezone: 'america/new_york' })).toEqual({
+      timezone: 'America/New_York',
+    });
+    expect(UpdateFirmSettingsRequest.parse({ timezone: 'UTC' })).toEqual({ timezone: 'UTC' });
     expect(ok({ timezone: null })).toBe(false);
     expect(ok({ country: '' })).toBe(false);
   });
 
-  it('accepts only https web addresses on a real domain', () => {
+  it('accepts only https web addresses on a real domain, without a user name', () => {
     expect(ok({ website: 'https://lvp.example.com/about' })).toBe(true);
     expect(ok({ website: '' })).toBe(true);
-    for (const website of ['http://lvp.example.com', 'javascript:alert(1)', 'https://localhost']) {
+    for (const website of [
+      'http://lvp.example.com',
+      'javascript:alert(1)',
+      'https://localhost',
+      'https://good.example.com@evil.example.com',
+      'https://user:secret@lvp.example.com',
+    ]) {
       expect(ok({ website })).toBe(false);
     }
+    // Stored as the browser would read it.
+    expect(UpdateFirmSettingsRequest.parse({ website: 'https:lvp.example.com' })).toEqual({
+      website: 'https://lvp.example.com/',
+    });
+  });
+
+  it('refuses control characters; multi-line texts keep their line breaks', () => {
+    for (const patch of [
+      { name: 'LVP\nBcc: someone' },
+      { portalHeader: 'Hello\u0000' },
+      { city: 'Tab\there' },
+      { welcomeMessage: 'Hi\u0000' },
+    ]) {
+      expect(ok(patch)).toBe(false);
+    }
+    expect(ok({ welcomeMessage: 'Line one\r\nLine two\tend' })).toBe(true);
+    expect(PublishLegalDocumentRequest.safeParse({ body: '# Terms\u0000' }).success).toBe(false);
   });
 
   it('checks wizard steps, legal versions and legal text', () => {

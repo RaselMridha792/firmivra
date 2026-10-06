@@ -22,20 +22,36 @@ const clearable = (value: z.ZodType<string, string>) =>
     .pipe(value.nullable())
     .nullable();
 
-const upTo = (max: number) => z.string().max(max, `Use at most ${max} characters`);
+/** One line: no control characters (names go into emails). */
+const ONE_LINE = /^[^\p{Cc}]*$/u;
+/** Several lines: tabs and line breaks only; Postgres text cannot hold NUL. */
+const MULTI_LINE = /^(?:[^\p{Cc}]|[\t\n\r])*$/u;
 
-const isTimeZone = (value: string) => {
+const upTo = (max: number, lines: 'one' | 'many' = 'one') =>
+  z
+    .string()
+    .max(max, `Use at most ${max} characters`)
+    .regex(lines === 'one' ? ONE_LINE : MULTI_LINE, 'Remove the special characters');
+
+/** IANA name such as America/New_York (or UTC); offsets and abbreviations like EST are refused. */
+const IANA_NAME = /^(?:UTC|[A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+)$/;
+
+/** The time zone's canonical spelling, or null when the runtime does not know it. */
+const canonicalTimeZone = (value: string): string | null => {
   try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value });
-    return true;
+    return new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone;
   } catch {
-    return false;
+    return null;
   }
 };
 
-export const FirmSettings = z.strictObject({
+/**
+ * Responses are plain objects: a field the API adds later is dropped, not an error, so a page
+ * already open in a browser keeps working. Requests stay strict.
+ */
+export const FirmSettings = z.object({
   /** Set when Firmivra approved the firm. Shown, never changed here (legal name is locked). */
-  business: z.strictObject({
+  business: z.object({
     id: z.uuid(),
     /** The portal address: portal.firmivra.com/{slug}. */
     slug: z.string(),
@@ -63,11 +79,15 @@ export const FirmSettings = z.strictObject({
   accentColor: z.string().nullable(),
   /** Null: the portal is called "{name} Client Portal". */
   portalName: z.string().nullable(),
-  /** Heading and welcome text on the portal's landing page; null shows the default. */
+  /**
+   * Heading and welcome text on the portal's landing page; null shows the default. Plain text:
+   * screens show them as text, never as HTML or Markdown.
+   */
   portalHeader: z.string().nullable(),
   welcomeMessage: z.string().nullable(),
   /** Clients may sign up on the portal (the firm approves each one). */
   clientSignUpEnabled: z.boolean(),
+  /** The latest change to any of these settings. */
   updatedAt: z.iso.datetime({ offset: true }),
 });
 export type FirmSettings = z.infer<typeof FirmSettings>;
@@ -78,7 +98,7 @@ export type FirmSettings = z.infer<typeof FirmSettings>;
  */
 export const UpdateFirmSettingsRequest = z
   .strictObject({
-    name: z.string().trim().min(1, 'Enter a name').max(120, 'Use at most 120 characters'),
+    name: z.string().trim().min(1, 'Enter a name').pipe(upTo(120)),
     contactEmail: clearable(Email),
     contactPhone: clearable(upTo(40)),
     website: clearable(
@@ -86,9 +106,14 @@ export const UpdateFirmSettingsRequest = z
         .url({
           protocol: /^https$/,
           hostname: z.regexes.domain,
+          normalize: true,
           error: 'Enter a web address that starts with https://',
         })
-        .max(2048, 'Use at most 2048 characters'),
+        .max(2048, 'Use at most 2048 characters')
+        .refine((url) => {
+          const { username, password } = new URL(url);
+          return username === '' && password === '';
+        }, 'Enter a web address without a user name'),
     ),
     addressLine1: clearable(upTo(200)),
     addressLine2: clearable(upTo(200)),
@@ -100,12 +125,23 @@ export const UpdateFirmSettingsRequest = z
       .trim()
       .toUpperCase()
       .regex(/^[A-Z]{2}$/, 'Use a two-letter country code'),
-    timezone: z.string().trim().max(100).refine(isTimeZone, 'Choose a time zone'),
+    /** Stored in its canonical spelling (america/new_york becomes America/New_York). */
+    timezone: z
+      .string()
+      .trim()
+      .max(100)
+      .regex(IANA_NAME, 'Choose a time zone')
+      .transform((value, ctx) => {
+        const canonical = canonicalTimeZone(value);
+        if (canonical) return canonical;
+        ctx.addIssue({ code: 'custom', message: 'Choose a time zone' });
+        return z.NEVER;
+      }),
     primaryColor: clearable(HexColor),
     accentColor: clearable(HexColor),
     portalName: clearable(upTo(120)),
     portalHeader: clearable(upTo(200)),
-    welcomeMessage: clearable(upTo(2000)),
+    welcomeMessage: clearable(upTo(2000, 'many')),
     clientSignUpEnabled: z.boolean(),
   })
   .partial()
@@ -120,7 +156,7 @@ export const SetupStep = z.enum(['branding', 'businessDetails', 'team', 'clientP
 export type SetupStep = z.infer<typeof SetupStep>;
 
 /** Wizard progress. The firm is Active from `completedAt` on. */
-export const FirmSetup = z.strictObject({
+export const FirmSetup = z.object({
   /** In wizard order. */
   completedSteps: z.array(SetupStep),
   completedAt: z.iso.datetime({ offset: true }).nullable(),
@@ -128,7 +164,7 @@ export const FirmSetup = z.strictObject({
 export type FirmSetup = z.infer<typeof FirmSetup>;
 
 /** GET /business/legal/{kind}: the text clients see now, and every published version. */
-export const FirmLegalOverview = z.strictObject({
+export const FirmLegalOverview = z.object({
   /** The newest version; null until the firm publishes one. */
   current: LegalDocument.nullable(),
   /** Newest first, the current one included. */
@@ -139,12 +175,13 @@ export type FirmLegalOverview = z.infer<typeof FirmLegalOverview>;
 /** A published version number in a path. */
 export const LegalVersionNumber = z.number().int().min(1).max(2_147_483_647);
 
-/** POST /business/legal/{kind}/versions: publishes the next version. Markdown. */
+/**
+ * POST /business/legal/{kind}/versions: publishes the next version, in Markdown. Every firm's
+ * portal shares one origin, so screens render it with raw HTML off and only https and mailto
+ * links: a script in one firm's Terms could otherwise act in another firm's portal session.
+ */
 export const PublishLegalDocumentRequest = z.strictObject({
-  body: z
-    .string()
-    .max(100_000, 'Use at most 100,000 characters')
-    .refine((body) => body.trim().length > 0, 'Write the text first'),
+  body: upTo(100_000, 'many').refine((body) => body.trim().length > 0, 'Write the text first'),
 });
 export type PublishLegalDocumentRequest = z.input<typeof PublishLegalDocumentRequest>;
 

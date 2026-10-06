@@ -27,14 +27,23 @@ info:
       only Firmivra changes them; sending one is `400 VALIDATION_FAILED`.
     - **Clearing:** an empty text field is sent as `null` and clears the setting (`null` colours
       and portal texts mean Firmivra's default). Name, country and time zone cannot be cleared.
-    - **Logo:** `logoUrl` is null until R5 adds logo upload and signed URLs.
+    - **Not yet here:** the logo (`logoUrl` is null until R5 adds upload and signed URLs) and the
+      client portal's features (modules; who switches them is still open). Screens show both as
+      "Soon". Responses are plain objects, so fields added later never break an open page.
+    - **Text:** one-line fields refuse control characters; the welcome message and legal texts
+      allow tabs and line breaks only. The time zone is an IANA name (offsets and abbreviations
+      such as EST are refused) and is stored in its canonical spelling.
     - **Wizard:** Branding, Business details, Team and access, Client portal, then Finish. Save
       Draft saves the step's fields; Next also marks the step done. Finish (`POST setup/complete`)
       needs all four steps (`409 SETUP_INCOMPLETE` names the missing ones), makes the firm Active
-      and opens its portal. Repeating it returns the first finish time.
+      and opens its portal. Repeating it returns the first finish time. Until then every other
+      firm route answers `403 BUSINESS_SETUP_REQUIRED`: send the person to `/setup`.
     - **Terms and Privacy:** versions are numbered from 1 and never edited; publishing makes the
       next version current for clients at once (the portal reads it from client-auth.yaml's
       `GET /portal/{firmSlug}/legal/{kind}`). Client sign-up stays closed until both are published.
+    - **Rendering firm text:** every firm's portal shares one origin, so Markdown (Terms and
+      Privacy) is rendered with raw HTML off and only `https:` and `mailto:` links, and the portal
+      header and welcome message are plain text. Never `dangerouslySetInnerHTML`.
     - **Writes:** JSON bodies from the app site only (`415 UNSUPPORTED_MEDIA_TYPE`,
       `403 ORIGIN_NOT_ALLOWED`; see "Calling the API from the web app" in auth.yaml).
     - **Audit:** every change is logged with field names or the version, never the values or text.
@@ -200,13 +209,13 @@ components:
       description: One version with its text (Markdown)
       content: { application/json: { schema: { $ref: './client-auth.yaml#/components/schemas/LegalDocument' } } }
     ValidationFailed:
-      description: '`VALIDATION_FAILED`: a field, step, kind or version is not valid, or a locked or unknown field was sent'
+      description: '`VALIDATION_FAILED` (a field, step, kind or version is not valid, or a locked or unknown field was sent) or `BUSINESS_REQUIRED` (someone in several firms sent no `x-business-id`)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Unauthenticated:
       description: '`UNAUTHENTICATED`: not signed in'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Forbidden:
-      description: '`FORBIDDEN` (staff, or the firm is suspended or closed) or `ORIGIN_NOT_ALLOWED` (sent from another site)'
+      description: '`FORBIDDEN` (staff and clients), `BUSINESS_INACTIVE` (the firm is suspended or closed) or `ORIGIN_NOT_ALLOWED` (sent from another site)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no active membership in that firm, or a version that was never published'
@@ -224,13 +233,11 @@ components:
     SetupStep: { type: string, enum: [branding, businessDetails, team, clientPortal] }
     FirmSettings:
       type: object
-      additionalProperties: false
       required: [business, name, contactEmail, contactPhone, website, addressLine1, addressLine2, city, state, postalCode, country, timezone, logoUrl, primaryColor, accentColor, portalName, portalHeader, welcomeMessage, clientSignUpEnabled, updatedAt]
       properties:
         business:
           description: Set when Firmivra approved the firm; read-only here
           type: object
-          additionalProperties: false
           required: [id, slug, legalName, status]
           properties:
             id: { type: string, format: uuid }
@@ -265,14 +272,14 @@ components:
         name: { type: string, minLength: 1, maxLength: 120 }
         contactEmail: { allOf: [{ $ref: '#/components/schemas/NullableText' }], format: email, maxLength: 254 }
         contactPhone: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 40 }
-        website: { allOf: [{ $ref: '#/components/schemas/NullableText' }], format: uri, pattern: '^https://', maxLength: 2048 }
+        website: { allOf: [{ $ref: '#/components/schemas/NullableText' }], pattern: '^(https://.*)?$', maxLength: 2048, description: 'https on a real domain, no user name; stored normalised (https:example.com becomes https://example.com/)' }
         addressLine1: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 200 }
         addressLine2: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 200 }
         city: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 120 }
         state: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 120 }
         postalCode: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 32 }
         country: { type: string, pattern: '^[A-Za-z]{2}$', description: Stored in capitals }
-        timezone: { type: string, maxLength: 100, description: Must be a known IANA time zone }
+        timezone: { type: string, maxLength: 100, description: 'IANA name (America/New_York) or UTC; stored canonical' }
         primaryColor: { oneOf: [{ $ref: '#/components/schemas/HexColor' }, { type: 'null' }, { const: '' }] }
         accentColor: { oneOf: [{ $ref: '#/components/schemas/HexColor' }, { type: 'null' }, { const: '' }] }
         portalName: { allOf: [{ $ref: '#/components/schemas/NullableText' }], maxLength: 120 }
@@ -281,14 +288,12 @@ components:
         clientSignUpEnabled: { type: boolean }
     FirmSetup:
       type: object
-      additionalProperties: false
       required: [completedSteps, completedAt]
       properties:
         completedSteps: { type: array, items: { $ref: '#/components/schemas/SetupStep' }, description: In wizard order }
         completedAt: { type: [string, 'null'], format: date-time, description: The firm is Active from then on }
     FirmLegalOverview:
       type: object
-      additionalProperties: false
       required: [current, versions]
       properties:
         current:
@@ -304,4 +309,4 @@ components:
       additionalProperties: false
       required: [body]
       properties:
-        body: { type: string, minLength: 1, maxLength: 100000, description: Markdown; not only spaces }
+        body: { type: string, minLength: 1, maxLength: 100000, description: 'Markdown; not only spaces; no control characters except tab and line breaks' }

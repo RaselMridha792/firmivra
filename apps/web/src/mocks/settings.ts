@@ -24,7 +24,7 @@ export const settingsFixture: FirmSettings = FirmSettings.parse({
   business: {
     id: '0199b6a0-0000-7000-8000-0000000000a1',
     slug: 'lvp',
-    legalName: null,
+    legalName: 'Sample Legal Name LLC',
     status: 'PENDING_SETUP',
   },
   name: 'LVP Accounting & Taxes',
