@@ -2,9 +2,10 @@
  * Firmivra's company and legal details: footers, sign-up consent, privacy and terms links, the
  * support contact, and the SES and SMS registrations (docs/aws/). Change them here only.
  *
- * Address, phone, governing law and website confirmed by Octavia (Oct 5). The rest are
- * placeholders until she sends them; email addresses are never committed. Every placeholder
- * starts with PLACEHOLDER so a search finds what is still missing.
+ * Address, phone, governing law, website and the company email confirmed by Octavia (Oct 5).
+ * admin@firmivra.com is the company's public contact address; no personal addresses here. The
+ * rest are placeholders until she sends them. Every placeholder starts with PLACEHOLDER so a
+ * search finds what is still missing.
  */
 export const COMPANY = {
   /** Registered legal name, as on the incorporation papers. */
@@ -22,12 +23,12 @@ export const COMPANY = {
   website: 'https://firmivra.com',
   /** Law that governs the Terms of Service and Privacy Policy. */
   governingLaw: 'Georgia, USA',
-  /** County named in the governing-law clause. */
+  /** County where disputes are heard (Terms of Service). */
   county: 'PLACEHOLDER county',
   /** Where users and the SMS HELP reply send people. */
-  supportEmail: 'PLACEHOLDER support email',
-  privacyEmail: 'PLACEHOLDER privacy email',
-  legalEmail: 'PLACEHOLDER legal email',
+  supportEmail: 'admin@firmivra.com',
+  privacyEmail: 'admin@firmivra.com',
+  legalEmail: 'admin@firmivra.com',
   privacyUrl: 'PLACEHOLDER privacy policy URL',
   termsUrl: 'PLACEHOLDER terms of service URL',
 } as const;

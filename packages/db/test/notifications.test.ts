@@ -139,6 +139,31 @@ describe('deliveries', () => {
   });
 });
 
+describe('event keys', () => {
+  it('a retried producer cannot notify the same person twice; the key never changes', async () => {
+    const eventKey = `appointment.reminder.24h:${randomUUID()}`;
+    const send = (recipientUserId: string) =>
+      firmA().notification.create({
+        data: {
+          businessId: ids.firmA,
+          recipientUserId,
+          category: 'APPOINTMENTS',
+          type: 'appointment.reminder',
+          entityType: 'appointment',
+          entityId: randomUUID(),
+          eventKey,
+        },
+      });
+    const first = await send(ids.clientA);
+    await expect(send(ids.clientA)).rejects.toThrow(/unique constraint/i);
+    // The same event for another recipient is its own notification.
+    await expect(send(ids.staffA)).resolves.toBeDefined();
+    await expect(
+      firmA().notification.update({ where: { id: first.id }, data: { eventKey: 'other' } }),
+    ).rejects.toThrow(/only read_at can change/);
+  });
+});
+
 describe('preferences', () => {
   const prefer = (userId: string, category: 'DOCUMENTS' | 'MESSAGES' | 'ACCOUNT') =>
     firmA().notificationPreference.create({
