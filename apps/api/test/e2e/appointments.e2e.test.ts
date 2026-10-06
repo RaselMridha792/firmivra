@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import { runInScope, type Database, Prisma } from '@firmivra/db';
@@ -222,8 +223,16 @@ describe('canonical appointment API', () => {
   it('allows exactly one of two concurrent portal bookings of the same slot', async () => {
     const body = { typeId, providerMembershipId: providerId, startsAt: time(9), method: 'PHONE' };
     const results = await Promise.all([
-      api().post(`${portal()}/appointments`).auth(client, { type: 'bearer' }).send(body),
-      api().post(`${portal()}/appointments`).auth(other, { type: 'bearer' }).send(body),
+      api()
+        .post(`${portal()}/appointments`)
+        .set('Idempotency-Key', randomUUID())
+        .auth(client, { type: 'bearer' })
+        .send(body),
+      api()
+        .post(`${portal()}/appointments`)
+        .set('Idempotency-Key', randomUUID())
+        .auth(other, { type: 'bearer' })
+        .send(body),
     ]);
     expect(results.map((row) => row.status).sort()).toEqual([201, 409]);
     const index = results.findIndex((row) => row.status === 201);
@@ -232,17 +241,20 @@ describe('canonical appointment API', () => {
     expect(FirmAppointment.safeParse(results[index]!.body).success).toBe(true);
     await api()
       .post(`${portal()}/appointments`)
+      .set('Idempotency-Key', randomUUID())
       .auth(client, { type: 'bearer' })
       .send({ ...body, startsAt: time(14), clientId: foreignClientId })
       .expect(400);
     await api()
       .post('/api/v1/business/appointments')
+      .set('Idempotency-Key', randomUUID())
       .auth(owner, { type: 'bearer' })
       .send({ ...body, startsAt: time(10), clientId: foreignClientId })
       .expect(404);
     firmId = (
       await api()
         .post('/api/v1/business/appointments')
+        .set('Idempotency-Key', randomUUID())
         .auth(owner, { type: 'bearer' })
         .send({ ...body, startsAt: time(10), clientId })
         .expect(201)
@@ -360,9 +372,69 @@ describe('canonical appointment API', () => {
       .send({ expectedVersion: 3 })
       .expect(200);
   });
+  it('deduplicates concurrent booking retries and rejects key/payload changes', async () => {
+    const key = randomUUID();
+    const body = {
+      typeId,
+      providerMembershipId: providerId,
+      startsAt: time(15),
+      method: 'PHONE',
+      clientId,
+    };
+    await api()
+      .post('/api/v1/business/appointments')
+      .auth(owner, { type: 'bearer' })
+      .send(body)
+      .expect(400);
+    await api()
+      .post('/api/v1/business/appointments')
+      .set('Idempotency-Key', 'short')
+      .auth(owner, { type: 'bearer' })
+      .send(body)
+      .expect(400);
+    const attempt = () =>
+      api()
+        .post('/api/v1/business/appointments')
+        .set('Idempotency-Key', key)
+        .auth(owner, { type: 'bearer' })
+        .send(body);
+    const responses = await Promise.all([attempt(), attempt()]);
+    expect(responses.map((r) => r.status)).toEqual([201, 201]);
+    expect(responses[0].body.id).toBe(responses[1].body.id);
+    expect(FirmAppointment.safeParse(responses[0].body).success).toBe(true);
+    expect(responses[0].body.requestKey).toBeUndefined();
+    const changed = await api()
+      .post('/api/v1/business/appointments')
+      .set('Idempotency-Key', key)
+      .auth(owner, { type: 'bearer' })
+      .send({ ...body, startsAt: time(16) })
+      .expect(409);
+    expect(changed.body.error.code).toBe('IDEMPOTENCY_CONFLICT');
+    const history = await api()
+      .get('/api/v1/business/appointments/' + responses[0].body.id + '/history')
+      .auth(owner, { type: 'bearer' })
+      .expect(200);
+    expect(history.body.items).toHaveLength(1);
+    await api()
+      .post('/api/v1/business/appointments/' + responses[0].body.id + '/cancel')
+      .auth(owner, { type: 'bearer' })
+      .send({ expectedVersion: 1 })
+      .expect(200);
+    const retried = await attempt().expect(201);
+    expect(retried.body.id).toBe(responses[0].body.id);
+    expect(retried.body.status).toBe('CANCELLED');
+    // A different actor owns a separate key space, even for an identical header value.
+    await api()
+      .post('/api/v1/business/appointments')
+      .set('Idempotency-Key', key)
+      .auth(staff, { type: 'bearer' })
+      .send({ ...body, providerMembershipId: staffId, startsAt: time(15) })
+      .expect(201);
+  });
   it('limits staff booking and views to their own calendar and assigned clients', async () => {
     const booked = await api()
       .post('/api/v1/business/appointments')
+      .set('Idempotency-Key', randomUUID())
       .auth(staff, { type: 'bearer' })
       .send({
         typeId,
@@ -389,6 +461,7 @@ describe('canonical appointment API', () => {
     );
     await api()
       .post('/api/v1/business/appointments')
+      .set('Idempotency-Key', randomUUID())
       .auth(staff, { type: 'bearer' })
       .send({
         typeId,
@@ -416,7 +489,7 @@ describe('canonical appointment API', () => {
           );
         if (!row) throw new Error('Fixture needs an active booking');
         const { businessId: _businessId, id: _id, ...copy } = row;
-        return records.insert('appointments', copy);
+        return records.insert('appointments', { ...copy, requestKey: randomUUID() });
       },
     );
     await expect(overlappingWrite).rejects.toSatisfy((error: unknown) =>
@@ -557,6 +630,7 @@ describe('canonical appointment API', () => {
     try {
       await api()
         .post('/api/v1/business/appointments')
+        .set('Idempotency-Key', randomUUID())
         .auth(owner, { type: 'bearer' })
         .send({
           typeId,
