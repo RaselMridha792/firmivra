@@ -1,0 +1,70 @@
+import type { FirmExternalLinkInput } from '@firmivra/types';
+/** Approved directory from FirmVora_External_Links_Directions.docx; stored as firm-owned rows. */
+export const approvedDirectory: FirmExternalLinkInput[] = [
+  [
+    'IRS_TAX',
+    'IRS Small Business & Self-Employed Tax Center',
+    'Federal tax information and tools for small businesses and self-employed taxpayers.',
+    'https://www.irs.gov/businesses/small-businesses-self-employed',
+    'IRS',
+  ],
+  [
+    'IRS_TAX',
+    'IRS Employer Identification Number (EIN)',
+    'Information about when a business needs an EIN and how to obtain one.',
+    'https://www.irs.gov/ein',
+    'IRS',
+  ],
+  [
+    'IRS_TAX',
+    'IRS Pay Business Taxes',
+    'Official IRS Direct Pay information for eligible business tax payments.',
+    'https://www.irs.gov/payments/pay-business-taxes-from-your-bank-account',
+    'IRS',
+  ],
+  [
+    'FUNDING_FINANCE',
+    'SBA Loans',
+    'Overview of SBA-backed small-business financing options.',
+    'https://www.sba.gov/loans/',
+    'SBA',
+  ],
+  [
+    'FUNDING_FINANCE',
+    'SBA Lender Match',
+    'Connect with participating SBA lenders.',
+    'https://www.sba.gov/loans/lender-match/',
+    'SBA',
+  ],
+  [
+    'FUNDING_FINANCE',
+    'SBA Plan Your Business',
+    'Guidance for planning, starting and funding a business.',
+    'https://www.sba.gov/counseling/plan-your-business/',
+    'SBA',
+  ],
+  [
+    'PLANNING_RESEARCH',
+    'FDIC Money Smart for Small Business',
+    'Educational resources for starting and managing a small business.',
+    'https://www.fdic.gov/consumer-resource-center/money-smart-small-business',
+    'FDIC',
+  ],
+  [
+    'PLANNING_RESEARCH',
+    'Census Business Builder',
+    'Market and demographic data for business planning and research.',
+    'https://www.census.gov/data/data-tools/cbb.html',
+    'U.S. Census',
+  ],
+].map(([section, title, description, url, source], sortOrder) => ({
+  section: section as FirmExternalLinkInput['section'],
+  title: title!,
+  description: description!,
+  url: url!,
+  source: source!,
+  sortOrder,
+  iconKey: null,
+  active: true,
+  audience: 'BUSINESS',
+}));
