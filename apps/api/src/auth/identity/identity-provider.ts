@@ -6,11 +6,17 @@ export const IDENTITY_PROVIDER = Symbol('IDENTITY_PROVIDER');
 
 /** Signed in, or the next challenge with the provider's session and the user's provider username. */
 export type AuthStep =
-  | { kind: 'tokens'; tokens: SessionTokens }
+  | { kind: 'tokens'; tokens: SessionTokens; username: string }
   | { kind: 'challenge'; step: 'MFA' | 'MFA_SETUP'; username: string; session: string };
 
 export type AuthFlowErrorCode =
-  'INVALID_CREDENTIALS' | 'MFA_CODE_INVALID' | 'CHALLENGE_EXPIRED' | 'RATE_LIMITED';
+  | 'INVALID_CREDENTIALS'
+  | 'MFA_CODE_INVALID'
+  | 'CHALLENGE_EXPIRED'
+  | 'RATE_LIMITED'
+  | 'SESSION_EXPIRED'
+  | 'RESET_CODE_INVALID'
+  | 'PASSWORD_REJECTED';
 
 /** An expected sign-in failure. Anything else a provider throws is a 500. */
 export class AuthFlowError extends Error {
@@ -50,4 +56,22 @@ export interface IdentityProvider {
     session: string,
     code: string,
   ): Promise<SessionTokens>;
+  /** New access and id tokens (and a new refresh token if rotated). Throws SESSION_EXPIRED. */
+  refresh(pool: IdentityPool, username: string, refreshToken: string): Promise<SessionTokens>;
+  /** Revokes one refresh token (this device). Never throws: sign-out always succeeds. */
+  revoke(pool: IdentityPool, refreshToken: string): Promise<void>;
+  /** Ends every session of the person, on every device. Never throws. */
+  signOutEverywhere(pool: IdentityPool, username: string): Promise<void>;
+  /** Emails a reset code. Same outcome whether or not `sub` exists; never throws for that. */
+  forgotPassword(pool: IdentityPool, sub: string | undefined): Promise<void>;
+  /**
+   * Sets a new password with the emailed code, then ends every session. Throws
+   * RESET_CODE_INVALID (also for an unknown user) or PASSWORD_REJECTED.
+   */
+  resetPassword(
+    pool: IdentityPool,
+    sub: string | undefined,
+    code: string,
+    password: string,
+  ): Promise<void>;
 }

@@ -1,5 +1,6 @@
 // Unit tests for R2 sign-in: Cognito calls (fake SDK client), challenge sessions, per-site cookies.
 import { createHmac, hkdfSync } from 'node:crypto';
+import type { Response as ExpressResponse } from 'express';
 import { type ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -11,14 +12,22 @@ import {
   ChallengeSessions,
   deriveChallengeKey,
 } from '../../src/auth/challenge-session.js';
-import { Roles } from '../../src/auth/decorators.js';
+import { isPublic, Roles } from '../../src/auth/decorators.js';
 import {
   type CognitoClient,
   CognitoIdentityProvider,
   type CognitoPool,
 } from '../../src/auth/identity/cognito-identity.provider.js';
 import { AuthFlowError } from '../../src/auth/identity/identity-provider.js';
+import { deriveKey } from '../../src/auth/sealed.js';
+import {
+  REFRESH_KEY_LABEL,
+  RefreshEnvelopes,
+  SessionService,
+} from '../../src/auth/session.service.js';
+import { AdminSignInController, StaffSignInController } from '../../src/auth/sign-in.controller.js';
 import { otpauthUri } from '../../src/auth/sign-in.service.js';
+import { siteOf } from '../../src/auth/site.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -349,5 +358,266 @@ describe('AuthGuard: each site accepts only its own cookie and pools', () => {
     await expect(guardFor('STAFF').canActivate(ctx(req))).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+});
+
+describe('CognitoIdentityProvider: sessions and password reset', () => {
+  it('refreshes with REFRESH_TOKEN_AUTH and the hash of the Cognito username', async () => {
+    const { provider, sent } = fakeCognito({
+      AdminInitiateAuth: () => ({ AuthenticationResult: { AccessToken: 'acc2', ExpiresIn: 900 } }),
+    });
+    await expect(provider.refresh('STAFF', 'cognito-user-1', 'ref-1')).resolves.toEqual({
+      accessToken: 'acc2',
+      idToken: undefined,
+      refreshToken: undefined,
+      expiresIn: 900,
+    });
+    expect(sent[0]?.input).toMatchObject({
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      AuthParameters: { REFRESH_TOKEN: 'ref-1', SECRET_HASH: expectedHash('cognito-user-1') },
+    });
+  });
+
+  it('reports a revoked or expired refresh token as SESSION_EXPIRED', async () => {
+    const { provider } = fakeCognito({
+      AdminInitiateAuth: () => {
+        throw awsError('NotAuthorizedException');
+      },
+    });
+    expect(await flowError(provider.refresh('STAFF', 'u', 'r'))).toBe('SESSION_EXPIRED');
+  });
+
+  it('revokes this device and signs out everywhere, without ever failing sign-out', async () => {
+    const { provider, sent } = fakeCognito({
+      RevokeToken: () => {
+        throw awsError('UnsupportedTokenTypeException');
+      },
+      AdminUserGlobalSignOut: () => {
+        throw awsError('UserNotFoundException');
+      },
+    });
+    await expect(provider.revoke('STAFF', 'ref-1')).resolves.toBeUndefined();
+    await expect(provider.signOutEverywhere('STAFF', 'cognito-user-1')).resolves.toBeUndefined();
+    expect(sent[0]?.input).toEqual({
+      Token: 'ref-1',
+      ClientId: STAFF_POOL.clientId,
+      ClientSecret: STAFF_POOL.clientSecret,
+    });
+    expect(sent[1]?.input).toEqual({
+      UserPoolId: STAFF_POOL.userPoolId,
+      Username: 'cognito-user-1',
+    });
+  });
+
+  it('asks Cognito for a reset code the same way for unknown emails, and never fails', async () => {
+    const { provider, sent } = fakeCognito({
+      AdminGetUser: () => {
+        throw awsError('UserNotFoundException');
+      },
+      ForgotPassword: () => {
+        throw awsError('LimitExceededException');
+      },
+    });
+    await expect(provider.forgotPassword('STAFF', undefined)).resolves.toBeUndefined();
+    expect(sent.map((s) => s.command)).toEqual(['AdminGetUser', 'ForgotPassword']);
+    const username = sent[1]?.input['Username'] as string;
+    expect(sent[1]?.input['SecretHash']).toBe(expectedHash(username));
+  });
+
+  it('resets the password, then ends every session', async () => {
+    const { provider, sent } = fakeCognito({
+      AdminGetUser: knownUser,
+      ConfirmForgotPassword: () => ({}),
+      AdminUserGlobalSignOut: () => ({}),
+    });
+    await provider.resetPassword('STAFF', 'sub-1', '123456', 'New-password-12');
+    expect(sent.map((s) => s.command)).toEqual([
+      'AdminGetUser',
+      'ConfirmForgotPassword',
+      'AdminUserGlobalSignOut',
+    ]);
+    expect(sent[1]?.input).toMatchObject({
+      Username: 'cognito-user-1',
+      ConfirmationCode: '123456',
+      Password: 'New-password-12',
+      SecretHash: expectedHash('cognito-user-1'),
+    });
+  });
+
+  // Cognito's attempt limits and unexpected errors only ever hit real accounts: answering them
+  // differently would tell real emails apart, so every reset failure is RESET_CODE_INVALID.
+  it.each([
+    'CodeMismatchException',
+    'ExpiredCodeException',
+    'InvalidPasswordException',
+    'LimitExceededException',
+    'TooManyFailedAttemptsException',
+    'InternalErrorException',
+  ])('answers a reset failure %s with RESET_CODE_INVALID and keeps the sessions', async (name) => {
+    const { provider, sent } = fakeCognito({
+      AdminGetUser: knownUser,
+      ConfirmForgotPassword: () => {
+        throw awsError(name);
+      },
+    });
+    expect(await flowError(provider.resetPassword('STAFF', 'sub-1', '1', 'p'))).toBe(
+      'RESET_CODE_INVALID',
+    );
+    expect(sent.map((s) => s.command)).not.toContain('AdminUserGlobalSignOut');
+  });
+});
+
+describe('RefreshEnvelopes', () => {
+  const envelopes = new RefreshEnvelopes({ STAFF: 'client-secret', ADMIN: 'client-secret' });
+  const envelope = {
+    userId: '0190a000-0000-7000-8000-000000000001',
+    username: '0190a000-0000-7000-8000-000000000002',
+    // Cognito refresh tokens are encrypted JWTs of about 1.8 KB.
+    refreshToken: 'r'.repeat(2000),
+    pool: 'STAFF' as const,
+  };
+
+  it('uses its own HKDF label, so its key differs from the challenge key', () => {
+    expect(REFRESH_KEY_LABEL).toBe('fv-auth-refresh-v1');
+    expect(Buffer.from(deriveKey('client-secret', 'STAFF', REFRESH_KEY_LABEL))).not.toEqual(
+      Buffer.from(deriveChallengeKey('client-secret', 'STAFF')),
+    );
+  });
+
+  it('fits in one cookie with room for its attributes', async () => {
+    const sealed = await envelopes.seal(envelope, 30 * 24 * 60 * 60);
+    expect(sealed.length).toBeLessThan(3800);
+    await expect(envelopes.open(sealed, 'STAFF')).resolves.toMatchObject({ value: envelope });
+  });
+
+  it('can keep a fixed end, so a rotated token never lengthens the session', async () => {
+    const end = Math.floor(Date.now() / 1000) + 3600;
+    const opened = await envelopes.open(await envelopes.sealUntil(envelope, end), 'STAFF');
+    expect(opened?.expiresAt).toBe(end);
+  });
+
+  it('never opens on the other site', async () => {
+    const sealed = await envelopes.seal(envelope, 60);
+    await expect(envelopes.open(sealed, 'ADMIN')).resolves.toBeUndefined();
+  });
+});
+
+describe('sign-in routes are public one by one, never by class (#16 fix)', () => {
+  const reflector = new Reflector();
+  const routes = [
+    'signIn',
+    'mfa',
+    'mfaSetup',
+    'refresh',
+    'signOut',
+    'forgotPassword',
+    'resetPassword',
+  ] as const;
+  const ctxFor = (cls: object, handler: unknown) =>
+    ({ getHandler: () => handler, getClass: () => cls }) as unknown as ExecutionContext;
+
+  it.each([
+    ['StaffSignInController', StaffSignInController],
+    ['AdminSignInController', AdminSignInController],
+  ])('%s', (_name, cls) => {
+    const proto = cls.prototype as unknown as Record<string, unknown>;
+    for (const route of routes) {
+      expect([route, isPublic(reflector, ctxFor(cls, proto[route]))]).toEqual([route, true]);
+    }
+    // A route added later (for example POST /auth/invites) is not public unless it says so.
+    expect(
+      isPublic(
+        reflector,
+        ctxFor(cls, function addedLater() {}),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('siteOf (#16 fix)', () => {
+  it('recognises the Super Admin API whatever the letter case, as Express routes it', () => {
+    for (const path of [
+      '/api/v1/admin/me',
+      '/API/V1/ADMIN/me',
+      '/Api/v1/Admin',
+      '/api/v1/admin/',
+    ]) {
+      expect([path, siteOf({ path })]).toEqual([path, 'admin']);
+    }
+    for (const path of ['/api/v1/me', '/api/v1/administrators', '/api/v1/auth/sign-in']) {
+      expect([path, siteOf({ path })]).toEqual([path, 'firm']);
+    }
+  });
+});
+
+describe('SessionService.refresh (#23 review)', () => {
+  const env = loadEnv({
+    NODE_ENV: 'test',
+    AUTH_MODE: 'local',
+    LOCAL_AUTH_SECRET: 'unit-test-secret-unit-test-secret-1234',
+    DATABASE_URL_APP: 'postgresql://unused',
+    APP_BASE_URL: 'http://app.localhost:3000',
+    PORTAL_BASE_URL: 'http://portal.localhost:3000',
+    ADMIN_BASE_URL: 'http://admin.localhost:3000',
+  });
+  const envelopes = new RefreshEnvelopes({
+    STAFF: env.LOCAL_AUTH_SECRET,
+    ADMIN: env.LOCAL_AUTH_SECRET,
+  });
+  const envelope = {
+    userId: 'u1',
+    username: 'cognito-user-1',
+    refreshToken: 'ref-1',
+    pool: 'STAFF' as const,
+  };
+
+  function setup(user: { pool: string } | null, rotated?: string) {
+    const identity = {
+      refresh: vi
+        .fn()
+        .mockResolvedValue({ accessToken: 'acc2', refreshToken: rotated, expiresIn: 900 }),
+      revoke: vi.fn().mockResolvedValue(undefined),
+    };
+    const db = {
+      forPlatform: () => ({
+        user: { findUnique: vi.fn().mockResolvedValue(user) },
+        platformAdmin: { findUnique: vi.fn().mockResolvedValue(null) },
+      }),
+    } as unknown as Database;
+    const cookies: Record<string, { value: string; maxAge?: number }> = {};
+    const res = {
+      cookie: (name: string, value: string, opts: { maxAge?: number }) => {
+        cookies[name] = { value, maxAge: opts.maxAge };
+      },
+      clearCookie: (name: string) => {
+        cookies[name] = { value: '' };
+      },
+    } as unknown as ExpressResponse;
+    const service = new SessionService(identity as never, envelopes, db, env);
+    return { service, identity, cookies, res };
+  }
+
+  it('keeps the original end when Cognito rotates the refresh token', async () => {
+    const end = Math.floor(Date.now() / 1000) + 3600;
+    const { service, cookies, res } = setup({ pool: 'STAFF' }, 'ref-2');
+    const req = { cookies: { fv_refresh: await envelopes.sealUntil(envelope, end) } };
+    await service.refresh(req as never, res, 'firm');
+
+    const maxAge = cookies['fv_refresh']?.maxAge ?? 0;
+    expect(maxAge).toBeLessThanOrEqual(3600 * 1000);
+    expect(maxAge).toBeGreaterThan(3590 * 1000); // not a fresh 7 days
+    const reopened = await envelopes.open(cookies['fv_refresh']?.value ?? '', 'STAFF');
+    expect(reopened).toEqual({ value: { ...envelope, refreshToken: 'ref-2' }, expiresAt: end });
+  });
+
+  it('revokes the token and clears the cookies when the user is gone', async () => {
+    const { service, identity, cookies, res } = setup(null);
+    const req = { cookies: { fv_refresh: await envelopes.seal(envelope, 3600) } };
+    await expect(service.refresh(req as never, res, 'firm')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(identity.revoke).toHaveBeenCalledWith('STAFF', 'ref-1');
+    expect(identity.refresh).not.toHaveBeenCalled();
+    expect(cookies['fv_refresh']).toEqual({ value: '' });
   });
 });
