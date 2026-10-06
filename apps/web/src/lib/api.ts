@@ -3,6 +3,7 @@ import {
   createClientSignUpsClient,
   createRequest,
   createTaxStatusesClient,
+  createTeamClient,
 } from '@firmivra/types';
 
 /** Same origin (/api/v1 on the current host). */
@@ -17,6 +18,8 @@ const request = createRequest(options);
 export const api = {
   ...createApiClient(options),
   taxStatuses: createTaxStatusesClient(request),
+  /** The firm's team: roles, deactivate, resend invites (docs/api/team.yaml). */
+  team: createTeamClient(request),
   /** Pending client sign-ups, approve and decline (docs/api/client-auth.yaml). */
   clientSignUps: createClientSignUpsClient(request),
 };
