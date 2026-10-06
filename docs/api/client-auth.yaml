@@ -71,7 +71,9 @@ info:
     `GET /client-sign-ups` lists verified sign-ups waiting for the firm (or declined ones), oldest
     first, for the owner and admins (`x-business-id` selects the firm). Approve creates the firm's
     client record and opens the portal; decline closes the login. The client gets an email either
-    way.
+    way. Both take only a sign-up in the queue (404 for anything else, such as one that never
+    verified both email and phone); one already approved or declined is `409 NOT_PENDING`, so of
+    two staff acting at once only one changes it.
 
     **Linking an existing client record.** Approve with `clientId` links the login to a record the
     firm already has (added by staff, or from Begin Online) instead of creating a duplicate. That
@@ -451,6 +453,9 @@ paths:
       tags: [sign-ups]
       operationId: declineClientSignUp
       summary: Decline, with an optional reason; the login is closed
+      description: |
+        The client can no longer sign in, and any session they had ends. The reason stays with the
+        firm (`declineReason` in the declined list); the client's email does not include it.
       security: [{ firmCookie: [] }]
       parameters:
         - { $ref: '#/components/parameters/BusinessId' }

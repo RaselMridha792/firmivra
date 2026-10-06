@@ -16,7 +16,7 @@
 - [x] 1. Contract first: `packages/types/src/client-auth` (schemas and client functions) plus mock fixtures on Oct 7, with docs/api/client-auth.yaml, so Nahid builds N02 and N03 against it; the firm's pending sign-ups contract by Oct 8 (Fahad F06)
 - [x] 2. Sign-up on portal/{slug} through our API (no Cognito self sign-up): account status pending
 - [x] 3. Verify email and phone codes (SMS goes to the API log locally and in dev until SNS is registered)
-- [ ] 4. Firm side: list pending sign-ups, approve, decline (owner and admin only), notify the client
+- [x] 4. Firm side: list pending sign-ups, approve, decline (owner and admin only), notify the client
 - [x] 5. Client sign-in, optional MFA, session cookies scoped to the portal
 - [x] 6. Forgot and reset password per firm; the response never reveals whether an account exists
 - [x] 7. Per-firm Terms and Privacy accepted at sign-up and stored with version and time
@@ -38,6 +38,8 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
 - R1: serve `apps/web/src/mocks/client-auth.ts` in mock mode (lands Oct 7).
 - R10 (note, Rasel Oct 7): until R10's client records exist, step 4's approve creates the minimal client record itself (display name, email, phone, account type) in the approve transaction. That insert sits in one small function so R10 can take it over later. Linking an existing record follows the rule below; R10's own linking (for example a staff invite) should use the same check.
 - Fahad, F06 (note): a pending sign-up has `existingClient` (`{ clientId, displayName }` or null). It is set only for a record approve would accept: the record's email is the sign-up's verified email (both lower-cased) and the record has no primary portal login yet. Offer "link to this client" only then: `approve(id, { clientId: existingClient.clientId })`. Approve refuses any other record with 409 `CLIENT_NOT_LINKABLE` (nothing changes; reload the list), and 404 for a record the firm doesn't have. Without a body, approve creates a new record. The body is strict: any other field is 400.
+- R0 (asked Oct 7, step 4): one primary portal login per client record as a database rule: a unique index on `client_accounts (business_id, client_id) WHERE portal_role = 'PRIMARY'`. Approve already locks the record (`SELECT ... FOR UPDATE`) before checking, so this is the second wall for the #37 rule, and it also covers R10's links.
+- R6: the client sender (`ClientCodeSender`) also has `signUpApproved` (with the firm's sign-in link) and `signUpDeclined` (without the reason). Until R6 they are logged only with `AUTH_MODE=local`.
 - R3 itself, step 5 (done): with the per-firm cookies a browser is simply signed out on another firm's portal (401); `guards.e2e.test.ts` now checks that, and keeps 404 for a Bearer token (it reaches the firm check).
 
 ## Progress log
@@ -69,3 +71,10 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
   - Reset failures count per firm and email. Local mode: clients sign in without MFA (the pool's MFA is optional); `POST /dev/token` gives a client their portal's cookie.
   - Docs: apps/api/README.md, auth.yaml, client-auth.yaml. Tests: `test/e2e/portal-sign-in.e2e.test.ts` (11), `test/unit/portal-sign-in.test.ts` (8), the browser case in `guards.e2e.test.ts`; the sign-up e2e visitor now sends the portal's origin.
 - 2026-10-07, steps 2-3 PR branch `rasel/R3-signup` (696df21 plus the #41 branch, which holds main with #32): #32 merged, so the PR opens now (Rasel); its diff shows #41's changes until #41 merges, then main is merged in. Step 7 is part of sign-up: `POST auth/sign-up` refuses outdated versions (409 `TERMS_OUTDATED`) and stores one `legal_acceptances` row each for Terms and Privacy (document id, so its version, plus time, IP and user agent) in the transaction that creates the account.
+- 2026-10-07, step 4 (local branch `rasel/R3-step4`, on steps 5-6):
+  - `GET /client-sign-ups` (`client-auth/client-sign-ups.controller.ts`, owner and admins): verified pending sign-ups (or declined ones), oldest first, keyset cursor; `existingClient` only when exactly one record passes `linkable`.
+  - `POST .../approve`, one transaction: claim the sign-up (conditional update, so of two approvals only one wins), then `createClientFromSignUp` (`client-auth/client-records.ts`, the one insert R10 takes over) or, with `clientId`, lock the record and check `linkable`: the verified email (both lower-cased) and no primary portal login, else 409 `CLIENT_NOT_LINKABLE` (404 for a record the firm doesn't have). The account gets the client id and portal role PRIMARY. Audit `client.created` (new record) and `client_account.approved` (`clientId`, `linked`).
+  - `POST .../decline`: claim, DECLINED with the reason and who declined, then `IdentityProvider.disableUser` (a failure is logged by id; the database already refuses the client). Audit `client_account.declined` (`withReason`).
+  - The client is told through `ClientCodeSender.signUpApproved` (sign-in link) and `signUpDeclined`.
+  - Only sign-ups in the queue: 404 for another firm's, or one that never verified both contacts; 409 `NOT_PENDING` once handled.
+  - Tests: `test/e2e/client-sign-ups.e2e.test.ts` (7: paging and offers, roles and another firm, new record with audit and portal sign-in, linking refusals and success, two approvals at once, unverified, decline), unit tests for `linkable`, the cursor and the notices.
