@@ -35,6 +35,7 @@ type Return = {
   status?: 'IN_PROGRESS' | 'FILED' | 'ACCEPTED' | 'COMPLETED';
   filedOn?: Date;
   documentId?: string;
+  firstFiledAt?: Date;
 };
 /** A new 2024 individual return for client 1 of firm A. */
 const addReturn = (data: Return = {}) =>
@@ -169,7 +170,34 @@ describe('return rules', () => {
     ).rejects.toThrow(/cannot change client/);
   });
 
-  it('only an IN_PROGRESS return can be deleted', async () => {
+  it('a return that was ever filed is never deleted, even after going back to IN_PROGRESS', async () => {
+    const r = await addReturn({ status: 'FILED', filedOn: days(-30) });
+    expect(r.firstFiledAt).not.toBeNull();
+    const back = await firmA().taxReturn.update({
+      where: { id: r.id },
+      data: { status: 'IN_PROGRESS', filedOn: null },
+    });
+    expect(back.firstFiledAt).toEqual(r.firstFiledAt);
+    expect((await firmA().taxReturn.deleteMany({ where: { id: r.id } })).count).toBe(0);
+  });
+
+  it('first_filed_at is set only by the database and never changes or clears', async () => {
+    await expect(addReturn({ firstFiledAt: new Date() })).rejects.toThrow(/set by the database/);
+    const inProgress = await addReturn();
+    expect(inProgress.firstFiledAt).toBeNull();
+    const completed = await firmA().taxReturn.update({
+      where: { id: inProgress.id },
+      data: { status: 'COMPLETED' },
+    });
+    expect(completed.firstFiledAt).not.toBeNull();
+    for (const firstFiledAt of [null, days(-400)]) {
+      await expect(
+        firmA().taxReturn.update({ where: { id: inProgress.id }, data: { firstFiledAt } }),
+      ).rejects.toThrow(/cannot change or be cleared/);
+    }
+  });
+
+  it('only a return that was never filed can be deleted', async () => {
     const remove = async (id: string) =>
       (await firmA().taxReturn.deleteMany({ where: { id } })).count;
     const filed = await addReturn({ status: 'FILED', filedOn: days(-30) });
