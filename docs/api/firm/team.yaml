@@ -1,0 +1,238 @@
+openapi: 3.0.3
+info:
+  title: Firmivra team API
+  version: 0.1.0
+  description: T01 proposed contract for T03. Not implemented or frontend-approved. No invitation
+    creation, acceptance, passwords or auth implementation belongs to this module. Role escalation
+    policy requires Rasel confirmation.
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /business/team:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: listTeamMembers
+      summary: List this firm members
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: &a1
+        - OWNER
+        - ADMIN
+      parameters:
+        - $ref: ./common.yaml#/parameters/Cursor
+        - $ref: ./common.yaml#/parameters/Limit
+        - name: status
+          in: query
+          required: false
+          schema: &a12
+            type: string
+            enum:
+              - INVITED
+              - ACTIVE
+              - DEACTIVATED
+        - name: role
+          in: query
+          required: false
+          schema: &a2
+            type: string
+            enum:
+              - OWNER
+              - ADMIN
+              - STAFF
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Member'
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        '400': &a3
+          $ref: ./common.yaml#/responses/BadRequest
+        '401': &a4
+          $ref: ./common.yaml#/responses/Unauthenticated
+        '403': &a5
+          $ref: ./common.yaml#/responses/Forbidden
+        '404': &a6
+          $ref: ./common.yaml#/responses/NotFound
+        '409': &a7
+          $ref: ./common.yaml#/responses/Conflict
+        '422': &a8
+          $ref: ./common.yaml#/responses/Unprocessable
+        '429': &a9
+          $ref: ./common.yaml#/responses/RateLimited
+        '500': &a10
+          $ref: ./common.yaml#/responses/InternalError
+  /business/team/{id}/role:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: id
+        in: path
+        required: true
+        schema: &a11
+          type: string
+          format: uuid
+    patch:
+      operationId: changeTeamRole
+      summary: Change a member role
+      description:
+        OWNER/ADMIN only. ADMIN may manage STAFF but cannot create/demote OWNER or edit peer
+        ADMIN (proposed escalation policy). At least one ACTIVE OWNER survives a serialized
+        role/deactivation transaction. Foreign membership -> 404; last owner -> 409 LAST_OWNER.
+        Audit old/new role only.
+      x-roles: *a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - role
+              properties:
+                role: *a2
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+  /business/team/{id}/deactivate:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: id
+        in: path
+        required: true
+        schema: *a11
+    post:
+      operationId: deactivateTeamMember
+      summary: Deactivate membership in this firm
+      description:
+        Idempotent DEACTIVATED result. Same owner/escalation checks as role change. Do not
+        disable User globally; no access to other memberships. Session/credential revocation belongs
+        to Rasel.
+      x-roles: *a1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+  /business/team/{id}/resend-invite:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: id
+        in: path
+        required: true
+        schema: *a11
+    post:
+      operationId: resendTeamInvite
+      summary: Request resend using Rasel invite service
+      description:
+        INVITED same-firm target only; active/deactivated target -> 409 INVITE_NOT_PENDING.
+        Delegate revocation/new token, expiry, rate limits and delivery to Rasel. Return no invite
+        token, hash or URL. Blocked until invite service contract is published.
+      x-roles: *a1
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - accepted
+                properties:
+                  accepted:
+                    type: boolean
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas:
+    Member:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - user
+        - role
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id: *a11
+        user:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+            - email
+          properties:
+            id: *a11
+            name:
+              type: string
+              maxLength: 200
+              minLength: 1
+            email:
+              type: string
+              maxLength: 254
+              minLength: 1
+              format: email
+        role: *a2
+        status: *a12
+        createdAt: &a13
+          type: string
+          format: date-time
+        updatedAt: *a13
