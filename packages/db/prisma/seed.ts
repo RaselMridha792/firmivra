@@ -14,6 +14,7 @@ import {
   SEED_WORK_IDS,
   SEED_DOCUMENT_CATEGORIES,
   SEED_DOCUMENT_IDS,
+  SEED_TAX_RETURN_IDS,
   SEED_INTAKE_IDS,
   SEED_NOTIFICATION_IDS,
   SEED_APPOINTMENT_TYPES,
@@ -296,6 +297,10 @@ async function main() {
       SEED_USERS.lvpClient,
       SEED_USERS.lvpStaff.id,
     );
+    await tx.clientProfile.update({
+      where: { clientId: SEED_CLIENT_IDS.lvp },
+      data: { preferredContactMethod: 'EMAIL', referralSource: 'Friend or family' },
+    });
     // At sign-up the client accepted the firm's Terms and Privacy v1.
     const lvpLogin = await tx.clientAccount.findUniqueOrThrow({
       where: { userId: SEED_USERS.lvpClient.id },
@@ -397,6 +402,20 @@ async function main() {
         nextBillingOn: new Date('2026-11-01'),
       },
     });
+    // Last year's return, done and filed.
+    await tx.engagement.upsert({
+      where: { id: SEED_WORK_IDS.lvpTax2024 },
+      update: {},
+      create: {
+        ...lvpWork,
+        id: SEED_WORK_IDS.lvpTax2024,
+        serviceId: service('Annual Tax'),
+        title: '2024 Personal Tax',
+        taxYear: 2024,
+        status: 'COMPLETED',
+        completedAt: new Date('2025-04-12T16:00:00Z'),
+      },
+    });
     await tx.task.upsert({
       where: { id: SEED_WORK_IDS.lvpTask },
       update: {},
@@ -494,6 +513,56 @@ async function main() {
       where: { id: SEED_DOCUMENT_IDS.interestDocument, scanStatus: 'PENDING' },
       data: { scanStatus: 'CLEAN', scannedAt: new Date() },
     });
+
+    // The client's tax returns (portal Taxes tab): 2023 from before the portal (no engagement or
+    // file), 2024 filed with its PDF shared with the client, and 2025 in progress.
+    await tx.document.upsert({
+      where: { id: SEED_DOCUMENT_IDS.return2024 },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        clientId: SEED_CLIENT_IDS.lvp,
+        engagementId: SEED_WORK_IDS.lvpTax2024,
+        categoryId: category('Final return'),
+        id: SEED_DOCUMENT_IDS.return2024,
+        direction: 'FIRM_TO_CLIENT',
+        fileName: '2024 Tax Return (sample).pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 182400,
+        sha256: createHash('sha256').update('sample 2024 return').digest('hex'),
+        s3Key: `tenant/${businesses.lvp}/documents/${SEED_DOCUMENT_IDS.return2024}`,
+        taxYear: 2024,
+        uploadedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.document.updateMany({
+      where: { id: SEED_DOCUMENT_IDS.return2024, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    });
+    const lvpReturn = { businessId: businesses.lvp, clientId: SEED_CLIENT_IDS.lvp };
+    for (const data of [
+      {
+        id: SEED_TAX_RETURN_IDS.lvp2023,
+        taxYear: 2023,
+        status: 'COMPLETED' as const,
+        filedOn: new Date('2024-04-10'),
+      },
+      {
+        id: SEED_TAX_RETURN_IDS.lvp2024,
+        engagementId: SEED_WORK_IDS.lvpTax2024,
+        taxYear: 2024,
+        status: 'ACCEPTED' as const,
+        filedOn: new Date('2025-04-12'),
+        documentId: SEED_DOCUMENT_IDS.return2024,
+      },
+      { id: SEED_TAX_RETURN_IDS.lvp2025, engagementId: SEED_WORK_IDS.lvpTax, taxYear: 2025 },
+    ]) {
+      await tx.taxReturn.upsert({
+        where: { id: data.id },
+        update: {},
+        create: { ...lvpReturn, filingType: 'INDIVIDUAL', formType: '1040', ...data },
+      });
+    }
 
     // A published v1 intake form per service, an in-progress portal intake on the 2025 tax
     // engagement, and a submitted Begin Online lead for Bookkeeping with one clean upload.
