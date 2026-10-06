@@ -1,0 +1,288 @@
+openapi: 3.0.3
+info:
+  title: Firmivra external links API
+  version: 0.1.0
+  description: "T08 implementation: owner/admin per-firm link configuration, approved HTTPS domains
+    and business-client portal projection. New table contract tested using isolated fixtures;
+    production schema/domain approvals remain owner-managed dependencies."
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /business/external-links:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: listFirmExternalLinks
+      summary: List firm resource configuration including inactive links
+      description: Firm resolved by the existing TenantGuard; records are firm-scoped. Audit through
+        AuditService.log; no sensitive metadata.
+      x-roles: &a1
+        - OWNER
+        - ADMIN
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExternalLink"
+                    maxItems: 200
+        "400": &a2
+          $ref: ./common.yaml#/responses/BadRequest
+        "401": &a3
+          $ref: ./common.yaml#/responses/Unauthenticated
+        "403": &a4
+          $ref: ./common.yaml#/responses/Forbidden
+        "404": &a5
+          $ref: ./common.yaml#/responses/NotFound
+        "409": &a6
+          $ref: ./common.yaml#/responses/Conflict
+        "422": &a7
+          $ref: ./common.yaml#/responses/Unprocessable
+        "429": &a8
+          $ref: ./common.yaml#/responses/RateLimited
+        "500": &a9
+          $ref: ./common.yaml#/responses/InternalError
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+    post:
+      operationId: createFirmExternalLink
+      summary: Create approved HTTPS resource configuration
+      description: Validate Rasel-approved destination domain and firm-owned icon key. No fetch, scraping
+        or server redirect. Preserve URLs without adding client/token data. Audit changed field
+        names only.
+      x-roles: *a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalLinkInput"
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalLink"
+        "400": *a2
+        "401": *a3
+        "403": *a4
+        "404": *a5
+        "409": *a6
+        "422": *a7
+        "429": *a8
+        "500": *a9
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /business/external-links/{id}:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Business
+      - name: id
+        in: path
+        required: true
+        schema: &a11
+          type: string
+          format: uuid
+    patch:
+      operationId: updateFirmExternalLink
+      summary: Edit or deactivate resource configuration
+      description: Same URL/domain validation as create; deactivate with active=false. Preserve record
+        id/history references; no hard delete.
+      x-roles: *a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalLinkPatch"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalLink"
+        "400": *a2
+        "401": *a3
+        "403": *a4
+        "404": *a5
+        "409": *a6
+        "422": *a7
+        "429": *a8
+        "500": *a9
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+  /portal/{slug}/external-links:
+    parameters:
+      - $ref: ./common.yaml#/parameters/Slug
+    get:
+      operationId: listPortalExternalLinks
+      summary: Read active approved resources for own portal
+      description: Verified ACTIVE ClientAccount, same firm. BUSINESS-only directory rejects INDIVIDUAL
+        ->403 ACCOUNT_TYPE_FORBIDDEN; generic resources require a separately confirmed route. Return
+        only active approved links; sort section/sortOrder/id. No iframe, redirect or third-party
+        fetch.
+      x-roles:
+        - CLIENT
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PortalExternalLink"
+                    maxItems: 200
+        "400": *a2
+        "401": *a3
+        "403": *a4
+        "404": *a5
+        "409": *a6
+        "422": *a7
+        "429": *a8
+        "500": *a9
+        "503":
+          $ref: ./common.yaml#/responses/Unavailable
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas:
+    ExternalLinkInput:
+      type: object
+      additionalProperties: false
+      required:
+        - section
+        - title
+        - description
+        - url
+        - source
+        - iconKey
+        - sortOrder
+        - active
+        - audience
+      properties: &a10
+        section: &a12
+          type: string
+          enum:
+            - IRS_TAX
+            - FUNDING_FINANCE
+            - PLANNING_RESEARCH
+        title: &a13
+          type: string
+          maxLength: 160
+          minLength: 1
+        description: &a14
+          type: string
+          maxLength: 1000
+          minLength: 1
+        url: &a15
+          type: string
+          maxLength: 2048
+          minLength: 1
+          format: uri
+          pattern: ^https://
+          description: Approved domain only. No userinfo, authentication/client query params or arbitrary
+            redirect destinations.
+        source: &a16
+          type: string
+          maxLength: 120
+          minLength: 1
+        iconKey: &a17
+          type: string
+          maxLength: 1024
+          nullable: true
+        sortOrder: &a18
+          type: integer
+          minimum: 0
+        active: &a19
+          type: boolean
+        audience: &a20
+          type: string
+          enum:
+            - BUSINESS
+            - ALL
+    ExternalLinkPatch:
+      type: object
+      additionalProperties: false
+      properties: *a10
+      minProperties: 1
+    ExternalLink:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - section
+        - title
+        - description
+        - url
+        - source
+        - iconKey
+        - sortOrder
+        - active
+        - audience
+        - createdAt
+        - updatedAt
+      properties:
+        id: *a11
+        section: *a12
+        title: *a13
+        description: *a14
+        url: *a15
+        source: *a16
+        iconKey: *a17
+        sortOrder: *a18
+        active: *a19
+        audience: *a20
+        createdAt: &a21
+          type: string
+          format: date-time
+        updatedAt: *a21
+    PortalExternalLink:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - section
+        - title
+        - description
+        - url
+        - source
+        - sortOrder
+        - iconUrl
+      properties:
+        id: *a11
+        section: *a12
+        title: *a13
+        description: *a14
+        url: *a15
+        source: *a16
+        sortOrder: *a18
+        iconUrl:
+          type: string
+          format: uri
+          nullable: true
