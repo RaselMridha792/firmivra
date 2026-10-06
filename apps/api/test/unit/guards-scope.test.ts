@@ -43,8 +43,20 @@ describe('routeSiteProblems', () => {
     helper() {}
   }
 
+  /** Express routes /api/v1/ADMIN/... to the same handler, and siteOf() ignores case too. */
+  @Controller('Admin/Reports')
+  class MixedCaseAdminRoutes {
+    @Get() @Roles('SUPER_ADMIN') list() {}
+  }
+
   it('reports exactly the routes nobody could reach', () => {
-    expect(routeSiteProblems([AdminRoutes, FirmRoutes], reflector, new MetadataScanner())).toEqual([
+    expect(
+      routeSiteProblems(
+        [AdminRoutes, FirmRoutes, MixedCaseAdminRoutes],
+        reflector,
+        new MetadataScanner(),
+      ),
+    ).toEqual([
       'AdminRoutes.firmRoleOnAdmin (/admin/firms/mixed): firm role on a Super Admin route',
       'FirmRoutes.superAdminOutside (/reports): SUPER_ADMIN outside /admin/',
     ]);
