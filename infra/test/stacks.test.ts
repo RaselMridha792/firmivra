@@ -230,6 +230,17 @@ describe('app', () => {
     }
   });
 
+  it('marks the migrate task as dev, so the one-off link-dev-users command may run there', () => {
+    t('app').hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Family: 'firmivra-dev-migrate',
+      ContainerDefinitions: [
+        Match.objectLike({
+          Environment: Match.arrayWith([{ Name: 'APP_ENV', Value: 'dev' }]),
+        }),
+      ],
+    });
+  });
+
   it('runs 0 tasks while ImageTag is none, then the configured count', () => {
     t('app').hasCondition('HasImage', {
       'Fn::Not': [{ 'Fn::Equals': [{ Ref: 'ImageTag' }, 'none'] }],

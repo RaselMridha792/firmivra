@@ -373,7 +373,8 @@ export class AppStack extends Stack {
         streamPrefix: 'migrate',
         logGroup: this.migrateLogGroup,
       }),
-      environment: { ...database, DB_APP_USER: 'firmivra_app' },
+      // APP_ENV: scripts/link-dev-users.mjs (one-off dev command in this image) runs only in dev.
+      environment: { ...database, DB_APP_USER: 'firmivra_app', APP_ENV: config.envName },
       secrets: {
         DB_OWNER_USER: ecs.Secret.fromSecretsManager(data.ownerSecret, 'username'),
         DB_OWNER_PASSWORD: ecs.Secret.fromSecretsManager(data.ownerSecret, 'password'),
