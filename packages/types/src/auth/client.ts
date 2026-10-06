@@ -22,8 +22,7 @@ import {
 /** Same options as createApiClient. In the browser leave out `token`: the cookies are used. */
 export type AuthClientOptions = ApiClientOptions;
 
-/** Typed GET and POST with the shared error handling. Also used by the client-auth clients. */
-export function createRequests(options: AuthClientOptions) {
+function createRequests(options: AuthClientOptions) {
   const doFetch = options.fetch ?? fetch;
 
   /** Checks the body inside the promise, so a bad body rejects like an API error would. */

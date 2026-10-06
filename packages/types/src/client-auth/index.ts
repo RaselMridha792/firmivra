@@ -4,5 +4,4 @@ export {
   createPortalAuthClient,
   type ClientSignUpsClient,
   type PortalAuthClient,
-  type PortalAuthClientOptions,
 } from './client.js';

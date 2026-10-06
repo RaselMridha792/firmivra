@@ -1,6 +1,7 @@
 import {
   createAdminAuthClient,
   createPortalAuthClient,
+  createRequest,
   createStaffAuthClient,
   type IdentityPool,
 } from '@firmivra/types';
@@ -24,7 +25,7 @@ export const adminAuth = createAdminAuthClient({ baseUrl: '/api/v1' });
  * the portal cookies only go to that firm's API routes, never to page requests.
  */
 export const portalAuth = (firmSlug: string) =>
-  createPortalAuthClient({ baseUrl: '/api/v1', firmSlug });
+  createPortalAuthClient(createRequest({ baseUrl: '/api/v1' }), firmSlug);
 
 /** Local development quick sign-in as a seeded user (POST /api/v1/dev/token). */
 export async function signIn(email: string, pool: IdentityPool): Promise<void> {

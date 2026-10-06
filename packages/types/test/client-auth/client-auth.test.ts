@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ApiRequestError,
   ClientSignUpsQuery,
   createClientSignUpsClient,
   createPortalAuthClient,
+  createRequest,
   Phone,
   portalCookies,
   SignUpRequest,
@@ -82,7 +84,7 @@ describe('createPortalAuthClient', () => {
       publishedAt: '2026-10-01T00:00:00.000Z',
       body: '# Terms',
     });
-    const portal = createPortalAuthClient({ baseUrl: '/api/v1', firmSlug: 'LVP', fetch: fn });
+    const portal = createPortalAuthClient(createRequest({ baseUrl: '/api/v1', fetch: fn }), 'LVP');
     await portal.legal('terms');
     expect(calls[0]?.url).toBe('/api/v1/portal/lvp/legal/terms');
     expect(calls[0]?.init.method).toBe('GET');
@@ -90,7 +92,7 @@ describe('createPortalAuthClient', () => {
 
   it('runs the sign-up steps on the cookie, never a token in the body', async () => {
     const { fn, calls } = fakeFetch(200, state);
-    const portal = createPortalAuthClient({ baseUrl: '', firmSlug: 'lvp', fetch: fn });
+    const portal = createPortalAuthClient(createRequest({ baseUrl: '', fetch: fn }), 'lvp');
     await portal.signUpState();
     await portal.verifyEmail({ code: '123 456' });
     await portal.resendCode({ channel: 'phone' });
@@ -106,9 +108,18 @@ describe('createPortalAuthClient', () => {
     expect(calls.every((c) => c.init.credentials === 'include')).toBe(true);
   });
 
+  it('refuses a bad body with VALIDATION_FAILED, as the API would, before sending', async () => {
+    const { fn, calls } = fakeFetch(200, state);
+    const portal = createPortalAuthClient(createRequest({ baseUrl: '', fetch: fn }), 'lvp');
+    const err = await portal.verifyPhone({ code: '12' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiRequestError);
+    expect(err).toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
+    expect(calls).toHaveLength(0);
+  });
+
   it('signs in on the firm portal path', async () => {
     const { fn, calls } = fakeFetch(200, { status: 'MFA_REQUIRED', session: 's' });
-    await createPortalAuthClient({ baseUrl: '', firmSlug: 'lvp', fetch: fn }).signIn({
+    await createPortalAuthClient(createRequest({ baseUrl: '', fetch: fn }), 'lvp').signIn({
       email: 'john@example.com',
       password: 'x',
     });
@@ -119,7 +130,9 @@ describe('createPortalAuthClient', () => {
 describe('createClientSignUpsClient', () => {
   it('lists, approves and declines in the selected firm', async () => {
     const { fn, calls } = fakeFetch(200, { items: [], nextCursor: null });
-    const signUps = createClientSignUpsClient({ baseUrl: '/api/v1', businessId: 'b1', fetch: fn });
+    const signUps = createClientSignUpsClient(
+      createRequest({ baseUrl: '/api/v1', businessId: 'b1', fetch: fn }),
+    );
     await signUps.list({ cursor: 'c2' });
     expect(calls[0]?.url).toBe(
       '/api/v1/client-sign-ups?status=PENDING_APPROVAL&limit=25&cursor=c2',
@@ -132,7 +145,7 @@ describe('createClientSignUpsClient', () => {
       status: 'DECLINED',
       declinedAt: '2026-10-07T12:00:00.000Z',
     });
-    await createClientSignUpsClient({ baseUrl: '', fetch: decline.fn }).decline(id, {
+    await createClientSignUpsClient(createRequest({ baseUrl: '', fetch: decline.fn })).decline(id, {
       reason: 'Not a client of ours',
     });
     expect(decline.calls[0]?.url).toBe(`/client-sign-ups/${id}/decline`);
