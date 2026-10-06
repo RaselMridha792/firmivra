@@ -37,7 +37,10 @@ import { TokenService } from './token.service.js';
 const ATTEMPTS = { default: { limit: 10, ttl: 60_000 } };
 const REFRESHES = { default: { limit: 30, ttl: 60_000 } };
 
-/** The firm and the Super Admin site have the same routes (docs/api/auth.yaml). */
+/**
+ * The firm and the Super Admin site have the same routes (docs/api/auth.yaml). @Public() sits on
+ * each handler, never on the class, so a route added later is not public by accident.
+ */
 abstract class SignInRoutes {
   constructor(
     private readonly site: AuthSite,
@@ -47,6 +50,7 @@ abstract class SignInRoutes {
   ) {}
 
   @Post('sign-in')
+  @Public()
   @HttpCode(200)
   @Throttle(ATTEMPTS)
   async signIn(
@@ -57,6 +61,7 @@ abstract class SignInRoutes {
   }
 
   @Post('mfa')
+  @Public()
   @HttpCode(200)
   @Throttle(ATTEMPTS)
   async mfa(
@@ -67,6 +72,7 @@ abstract class SignInRoutes {
   }
 
   @Post('mfa/setup')
+  @Public()
   @HttpCode(200)
   @Throttle(ATTEMPTS)
   mfaSetup(
@@ -77,6 +83,7 @@ abstract class SignInRoutes {
 
   /** Public: the access cookie may have expired. Reads only the refresh cookie. */
   @Post('refresh')
+  @Public()
   @HttpCode(200)
   @Throttle(REFRESHES)
   async refresh(
@@ -88,6 +95,7 @@ abstract class SignInRoutes {
   }
 
   @Post('sign-out')
+  @Public()
   @HttpCode(200)
   async signOut(
     @Body(new ZodValidationPipe(SignOutRequest.optional())) body: SignOutRequest | undefined,
@@ -99,6 +107,7 @@ abstract class SignInRoutes {
   }
 
   @Post('forgot-password')
+  @Public()
   @HttpCode(200)
   @Throttle(ATTEMPTS)
   async forgotPassword(
@@ -110,6 +119,7 @@ abstract class SignInRoutes {
   }
 
   @Post('reset-password')
+  @Public()
   @HttpCode(200)
   @Throttle(ATTEMPTS)
   async resetPassword(
@@ -128,7 +138,6 @@ abstract class SignInRoutes {
 
 /** Firm site: /api/v1/auth/* (staff pool). */
 @Controller('auth')
-@Public()
 export class StaffSignInController extends SignInRoutes {
   constructor(signIns: SignInService, sessions: SessionService, me: MeService) {
     super('firm', signIns, sessions, me);
@@ -137,7 +146,6 @@ export class StaffSignInController extends SignInRoutes {
 
 /** Super Admin site: /api/v1/admin/auth/* (admins pool). */
 @Controller('admin/auth')
-@Public()
 export class AdminSignInController extends SignInRoutes {
   constructor(signIns: SignInService, sessions: SessionService, me: MeService) {
     super('admin', signIns, sessions, me);

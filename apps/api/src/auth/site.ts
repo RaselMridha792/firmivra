@@ -6,7 +6,8 @@ import { AUTH_COOKIES, type AuthSite, type IdentityPool } from '@firmivra/types'
  * portal sites. Each site accepts only its own cookie and its own pools, so an admin session can
  * never act on the firm API and a staff session never on the admin API.
  */
-const ADMIN_PATH = /^\/api\/v1\/admin(\/|$)/;
+// Case-insensitive like Express routing: /API/V1/Admin/me reaches the same handler.
+const ADMIN_PATH = /^\/api\/v1\/admin(\/|$)/i;
 
 export function siteOf(req: Pick<Request, 'path'>): AuthSite {
   return typeof req.path === 'string' && ADMIN_PATH.test(req.path) ? 'admin' : 'firm';
