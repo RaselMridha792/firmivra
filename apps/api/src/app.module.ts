@@ -17,6 +17,8 @@ import { DatabaseModule } from './database/database.module.js';
 import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
 import { MeModule } from './me/me.controller.js';
+import { AuditViewerModule } from './audit-viewer/audit-viewer.controller.js';
+import { ExternalLinksModule } from './external-links/external-links.controller.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -60,6 +62,8 @@ export class AppModule {
         MeModule,
         SignInModule,
         BusinessModule,
+        AuditViewerModule,
+        ExternalLinksModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
       ],
       // Run in this order on every request. Each skips @Public() routes.
