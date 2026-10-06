@@ -3,10 +3,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner);
-const db = createDatabase(urls.app);
+const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 const run = randomUUID().slice(0, 8);
 const ids = {
