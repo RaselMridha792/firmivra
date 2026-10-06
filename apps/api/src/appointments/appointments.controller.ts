@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   Body,
+  Headers,
   HttpCode,
   Module,
 } from '@nestjs/common';
@@ -83,10 +84,14 @@ export class FirmAppointmentsController {
     return this.calendar.list(query);
   }
   @Post('appointments') book(
+    @Headers('idempotency-key') key: string,
     @Body(new ZodValidationPipe(DTO.BookFirmAppointmentRequest))
     body: z.output<typeof DTO.BookFirmAppointmentRequest>,
   ) {
-    return this.calendar.book(body);
+    return this.calendar.book(
+      body,
+      new ZodValidationPipe(DTO.AppointmentIdempotencyKey).transform(key),
+    );
   }
   @Get('appointments/:id') detail(@Param('id', idPipe()) id: string) {
     return this.calendar.detail(id);
@@ -146,10 +151,14 @@ export class PortalAppointmentsController {
     return this.calendar.list(query);
   }
   @Post('appointments') book(
+    @Headers('idempotency-key') key: string,
     @Body(new ZodValidationPipe(DTO.BookPortalAppointmentRequest))
     body: z.output<typeof DTO.BookPortalAppointmentRequest>,
   ) {
-    return this.calendar.book(body);
+    return this.calendar.book(
+      body,
+      new ZodValidationPipe(DTO.AppointmentIdempotencyKey).transform(key),
+    );
   }
   @Get('appointments/:id') detail(@Param('id', idPipe()) id: string) {
     return this.calendar.detail(id);

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const AppointmentIdempotencyKey = z.string().min(8).max(128);
+
 // Shared contract for docs/api/firm/appointments.yaml; policy validation also runs in the service.
 export const FirmAppointment = z.strictObject({
   id: z.uuid(),
