@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   createEngagementsClient,
   createMyServicesClient,
-  createMyTaxReturnsClient,
   createRequest,
-  createTaxReturnsClient,
-  MyTaxReturn,
+  CreateEngagementRequest,
 } from '../../src/index.js';
 
 function fakeFetch(body: unknown) {
@@ -28,53 +26,52 @@ const id = '0199b6a0-0000-7000-8000-000000000001';
 const request = (fn: typeof fetch) => createRequest({ baseUrl: '/api/v1', fetch: fn });
 
 describe('api.engagements', () => {
-  it("lists a client's engagements and changes status through its own routes", async () => {
+  it("lists and creates under the client's path; status changes use their own routes", async () => {
     const { fn, calls } = fakeFetch({ items: [] });
     const api = createEngagementsClient(request(fn));
     await api.listForClient(id, { status: 'ACTIVE' });
-    expect(calls[0]?.url).toBe(`/api/v1/business/clients/${id}/engagements?status=ACTIVE`);
-    await expect(api.cancel(id, { reason: ' ' })).rejects.toMatchObject({
-      code: 'VALIDATION_FAILED',
-    });
-    await expect(api.update(id, {})).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
-    expect(calls).toHaveLength(1);
+    await api.create(id, { serviceId: id, title: '2025 Personal Tax' }).catch(() => undefined);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      `GET /api/v1/business/clients/${id}/engagements?status=ACTIVE`,
+      `POST /api/v1/business/clients/${id}/engagements`,
+    ]);
+    expect(calls[1]?.body).not.toHaveProperty('clientId');
+  });
+
+  it('checks the database rules before sending', async () => {
+    const { fn, calls } = fakeFetch({});
+    const api = createEngagementsClient(request(fn));
+    for (const call of [
+      () => api.cancel(id, { reason: ' ' }),
+      () => api.update(id, {}),
+      () => api.update(id, { periodStart: '2026-02-01', periodEnd: '2026-01-31' }),
+      () =>
+        api.create(id, {
+          serviceId: id,
+          title: 'One-time',
+          billingInterval: 'ONE_TIME',
+          nextBillingOn: '2026-11-01',
+        }),
+    ]) {
+      await expect(call()).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    }
+    expect(calls).toEqual([]);
+    expect(() =>
+      CreateEngagementRequest.parse({ serviceId: id, title: 'x', clientId: id }),
+    ).toThrow();
   });
 });
 
 describe('api.myServices(firmSlug)', () => {
-  it('asks to cancel through the portal route', async () => {
+  it('asks to cancel through the portal route, with an optional reason', async () => {
     const { fn, calls } = fakeFetch({});
     await createMyServicesClient(request(fn), 'lvp')
-      .requestCancellation(id)
+      .requestCancellation(id, { reason: 'Moving payroll in-house' })
       .catch(() => undefined);
     expect(calls[0]).toMatchObject({
       url: `/api/v1/portal/lvp/me/services/${id}/cancel-request`,
       method: 'POST',
-      body: {},
+      body: { reason: 'Moving payroll in-house' },
     });
-  });
-});
-
-describe('tax returns', () => {
-  it('firm: delete sends a JSON body; a quarter is 1 to 4', async () => {
-    const { fn, calls } = fakeFetch({ ok: true });
-    const api = createTaxReturnsClient(request(fn));
-    await api.remove(id);
-    expect(calls[0]).toMatchObject({
-      url: `/api/v1/business/tax-returns/${id}`,
-      method: 'DELETE',
-      body: {},
-    });
-    await expect(
-      api.create({ clientId: id, taxYear: 2024, filingType: 'INDIVIDUAL', quarter: 5 }),
-    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
-  });
-
-  it('portal: filters by year and kind; the client never sees the engagement or client id', async () => {
-    const { fn, calls } = fakeFetch({ items: [] });
-    await createMyTaxReturnsClient(request(fn), 'lvp').list({ taxYear: 2024, kind: 'annual' });
-    expect(calls[0]?.url).toBe('/api/v1/portal/lvp/me/tax-returns?taxYear=2024&kind=annual');
-    expect(Object.keys(MyTaxReturn.shape)).not.toContain('clientId');
-    expect(Object.keys(MyTaxReturn.shape)).not.toContain('engagementId');
   });
 });

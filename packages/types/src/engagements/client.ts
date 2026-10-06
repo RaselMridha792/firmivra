@@ -1,6 +1,5 @@
-import { type ApiRequest, parseInput } from '../client.js';
-import { ClientId } from '../clients/schemas.js';
-import { toQuery } from '../clients/client.js';
+import { type ApiRequest, parseInput, toQuery } from '../client.js';
+import { clientPath, portalMe } from '../clients/client.js';
 import {
   CancelEngagementRequest,
   CreateEngagementRequest,
@@ -15,13 +14,12 @@ import {
   UpdateEngagementRequest,
 } from './schemas.js';
 
-const BASE = '/business/engagements';
-const one = (id: string) => `${BASE}/${encodeURIComponent(parseInput(EngagementId, id))}`;
+const one = (id: string) => `/business/engagements/${parseInput(EngagementId, id)}`;
 
 /**
- * `api.engagements` (apps/web/src/lib/api.ts): a client's services and their lifecycle. Owner,
- * Admin and Staff. Another firm's engagement is 404 NOT_FOUND. Bad input rejects with
- * ApiRequestError(400, 'VALIDATION_FAILED') before anything is sent.
+ * `api.engagements` (apps/web/src/lib/api.ts): a client's services and their lifecycle. Owner and
+ * Admin: every client's; Staff: only their own clients' (others are 404 NOT_FOUND, as is another
+ * firm's). Bad input rejects with ApiRequestError(400, 'VALIDATION_FAILED') before anything is sent.
  */
 export function createEngagementsClient(request: ApiRequest) {
   return {
@@ -30,14 +28,13 @@ export function createEngagementsClient(request: ApiRequest) {
       clientId: string,
       query: ListEngagementsQuery = {},
     ): Promise<Engagement[]> => {
-      const id = encodeURIComponent(parseInput(ClientId, clientId));
       const q = toQuery(parseInput(ListEngagementsQuery, query));
-      return (await request(EngagementList, `/business/clients/${id}/engagements${q}`)).items;
+      return (await request(EngagementList, `${clientPath(clientId)}/engagements${q}`)).items;
     },
     get: async (id: string): Promise<Engagement> => request(Engagement, one(id)),
     /** 409 INVALID_STAGE; 404 for another firm's client or service. */
-    create: async (body: CreateEngagementRequest): Promise<Engagement> =>
-      request(Engagement, BASE, {
+    create: async (clientId: string, body: CreateEngagementRequest): Promise<Engagement> =>
+      request(Engagement, `${clientPath(clientId)}/engagements`, {
         method: 'POST',
         body: parseInput(CreateEngagementRequest, body),
       }),
@@ -69,23 +66,22 @@ export type EngagementsClient = ReturnType<typeof createEngagementsClient>;
 
 /** `api.myServices(firmSlug)`: the signed-in client's services at one firm (portal My Services). */
 export function createMyServicesClient(request: ApiRequest, firmSlug: string) {
-  const base = `/portal/${encodeURIComponent(firmSlug.toLowerCase())}/me/services`;
+  const base = () => `${portalMe(firmSlug)}/services`;
   return {
     /** Newest first. The screen groups them: Active, Recurring, Completed, Cancelled. */
-    list: async (): Promise<MyService[]> => (await request(MyServiceList, base)).items,
-    /** Recurring services, at least 14 days before the next billing date. */
+    list: async (): Promise<MyService[]> => (await request(MyServiceList, base())).items,
+    /**
+     * ACTIVE recurring services, on or before `cancelBy`: 409 INVALID_STATUS, NOT_RECURRING or
+     * TOO_LATE_TO_CANCEL otherwise. Asking again returns the service unchanged.
+     */
     requestCancellation: async (
       id: string,
       body: RequestCancellationRequest = {},
     ): Promise<MyService> =>
-      request(
-        MyService,
-        `${base}/${encodeURIComponent(parseInput(EngagementId, id))}/cancel-request`,
-        {
-          method: 'POST',
-          body: parseInput(RequestCancellationRequest, body),
-        },
-      ),
+      request(MyService, `${base()}/${parseInput(EngagementId, id)}/cancel-request`, {
+        method: 'POST',
+        body: parseInput(RequestCancellationRequest, body),
+      }),
   };
 }
 

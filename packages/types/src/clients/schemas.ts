@@ -2,36 +2,47 @@ import { z } from 'zod';
 import { Email } from '../auth/schemas.js';
 import { AccountType, Phone } from '../client-auth/schemas.js';
 import { ClientAccountStatus } from '../schemas.js';
+import { clearable, text } from './text.js';
 
 // Client records (R10): the firm's clients list and record, the client's profile and their tax
 // status per year, plus the client's own My Profile in the portal.
-// Firm routes: /api/v1/business/clients/... (Owner, Admin, Staff; archive: Owner and Admin).
+// Firm routes: /api/v1/business/clients/... Owner and Admin see every client of the firm; Staff
+// see and edit only the clients assigned to them (any other is 404). Only Owner and Admin change
+// the assignee, filter by assignee, archive and restore (403 for Staff).
 // Portal routes: /api/v1/portal/{firmSlug}/me/... (the signed-in client's own record only).
-// SSN: only the last 4 digits ever leave the API. Date of birth: in full to the firm's staff and
-// to the client themself, never in lists.
+// SSN and EIN: only the last 4 digits ever leave the API. Date of birth: in full to the firm's
+// staff and to the client's primary login, never in lists.
+// Responses are plain objects (a field the API adds later is dropped, so an open page keeps
+// working); requests are strict (unknown fields such as businessId are refused).
 
 const DateTime = z.iso.datetime({ offset: true });
 /** A calendar date, YYYY-MM-DD. */
 export const CalendarDate = z.iso.date();
-const text = (max: number, empty = 'Enter a value') =>
-  z.string().trim().min(1, empty).max(max, `Use at most ${max} characters`);
+/** A past (or today's) calendar date, e.g. a date of birth. */
+const PastDate = CalendarDate.refine(
+  (d) => d <= new Date().toISOString().slice(0, 10),
+  'The date cannot be in the future',
+);
 
 /** A client id in a path: anything else gets 400 VALIDATION_FAILED. */
 export const ClientId = z.uuid();
 /** A tax year in a path or body. */
 export const TaxYear = z.coerce.number().int().min(2000).max(2100);
 
+/** INDIVIDUAL or BUSINESS (database enum ClientAccountType; R3's AccountType). */
+export const ClientAccountType = AccountType;
+export type ClientAccountType = z.infer<typeof ClientAccountType>;
 export const ContactMethod = z.enum(['EMAIL', 'PHONE', 'TEXT']);
 export type ContactMethod = z.infer<typeof ContactMethod>;
 /** Who a portal login is on the client's record. */
-export const PortalRole = z.enum(['PRIMARY', 'SPOUSE', 'AUTHORIZED']);
-export type PortalRole = z.infer<typeof PortalRole>;
+export const ClientPortalRole = z.enum(['PRIMARY', 'SPOUSE', 'AUTHORIZED']);
+export type ClientPortalRole = z.infer<typeof ClientPortalRole>;
 
 /** A firm member shown next to a record (assigned to, changed by). */
-export const MemberRef = z.strictObject({ userId: z.uuid(), name: z.string() });
+export const MemberRef = z.object({ userId: z.uuid(), name: z.string() });
 export type MemberRef = z.infer<typeof MemberRef>;
 
-export const Address = z.strictObject({
+export const Address = z.object({
   line1: z.string().nullable(),
   line2: z.string().nullable(),
   city: z.string().nullable(),
@@ -42,11 +53,16 @@ export const Address = z.strictObject({
 });
 export type Address = z.infer<typeof Address>;
 
+const last4 = z
+  .string()
+  .regex(/^\d{4}$/)
+  .nullable();
+
 // ---------- The firm's clients ----------
-/** One row of the clients list (no profile, SSN or date of birth). */
-export const ClientListItem = z.strictObject({
+/** One row of the clients list (no profile, SSN, EIN or date of birth). */
+export const ClientListItem = z.object({
   id: z.uuid(),
-  accountType: AccountType,
+  accountType: ClientAccountType,
   displayName: z.string(),
   email: z.string().nullable(),
   phone: z.string().nullable(),
@@ -58,7 +74,10 @@ export const ClientListItem = z.strictObject({
 });
 export type ClientListItem = z.infer<typeof ClientListItem>;
 
-/** GET /business/clients. Search matches the name, email and phone. Newest first. */
+/**
+ * GET /business/clients. Search matches the name, email and phone. Newest first. Staff get only
+ * their own clients; `assignedUserId` is for Owner and Admin (403 for Staff).
+ */
 export const ListClientsQuery = z.strictObject({
   search: z.string().trim().max(100).optional(),
   status: z.enum(['active', 'archived', 'all']).optional().default('active'),
@@ -69,7 +88,7 @@ export const ListClientsQuery = z.strictObject({
 });
 export type ListClientsQuery = z.input<typeof ListClientsQuery>;
 
-export const ListClientsResponse = z.strictObject({
+export const ListClientsResponse = z.object({
   items: z.array(ClientListItem).max(100),
   /** Null on the last page. */
   nextCursor: z.string().nullable(),
@@ -77,7 +96,7 @@ export const ListClientsResponse = z.strictObject({
 export type ListClientsResponse = z.infer<typeof ListClientsResponse>;
 
 /** The profile as the firm sees it. */
-export const ClientProfile = z.strictObject({
+export const ClientProfile = z.object({
   firstName: z.string().nullable(),
   middleName: z.string().nullable(),
   lastName: z.string().nullable(),
@@ -87,10 +106,9 @@ export const ClientProfile = z.strictObject({
   entityType: z.string().nullable(),
   dateOfBirth: CalendarDate.nullable(),
   /** The only part of the SSN the API ever returns. */
-  ssnLast4: z
-    .string()
-    .regex(/^\d{4}$/)
-    .nullable(),
+  ssnLast4: last4,
+  /** BUSINESS clients: the only part of the EIN the API ever returns. */
+  einLast4: last4,
   address: Address,
   preferredContactMethod: ContactMethod.nullable(),
   referralSource: z.string().nullable(),
@@ -103,10 +121,10 @@ export type ClientProfile = z.infer<typeof ClientProfile>;
 export const ClientRecord = ClientListItem.extend({
   profile: ClientProfile,
   portalLogins: z.array(
-    z.strictObject({
+    z.object({
       clientAccountId: z.uuid(),
       email: z.string(),
-      portalRole: PortalRole,
+      portalRole: ClientPortalRole,
       status: ClientAccountStatus,
     }),
   ),
@@ -114,79 +132,79 @@ export const ClientRecord = ClientListItem.extend({
 });
 export type ClientRecord = z.infer<typeof ClientRecord>;
 
-const nullable = <S extends z.ZodType>(schema: S) => schema.nullable().optional();
 const AddressInput = z.strictObject({
-  line1: nullable(text(200)),
-  line2: nullable(text(200)),
-  city: nullable(text(100)),
-  state: nullable(text(50)),
-  postalCode: nullable(
-    z
-      .string()
-      .trim()
-      .regex(/^[A-Za-z0-9 -]{3,10}$/, 'Enter a valid ZIP code'),
-  ),
+  line1: clearable(text(200)),
+  line2: clearable(text(200)),
+  city: clearable(text(100)),
+  state: clearable(text(50)),
+  postalCode: clearable(z.string().regex(/^[A-Za-z0-9 -]{3,10}$/, 'Enter a valid ZIP code')),
   country: z
     .string()
     .trim()
+    .toUpperCase()
     .regex(/^[A-Z]{2}$/, 'Use a two-letter country code')
     .optional(),
 });
 
+const digits = (count: number, message: string) =>
+  z
+    .string()
+    .transform((s) => s.replace(/[\s-]/g, ''))
+    .pipe(z.string().regex(new RegExp(`^\\d{${count}}$`), message));
+
 /**
- * PUT /business/clients/{id}/profile (firm). Send only the fields to change; null clears one.
- * `ssn` (9 digits, dashes allowed) and `dateOfBirth` are stored encrypted and never returned
- * except as ssnLast4 and dateOfBirth.
+ * PUT /business/clients/{id}/profile (firm). Send only the fields to change; `null` or `''`
+ * clears one. `ssn`, `ein` (9 digits, dashes allowed) and `dateOfBirth` are stored encrypted and
+ * come back only as ssnLast4, einLast4 and dateOfBirth.
  */
 export const UpdateClientProfileRequest = z.strictObject({
-  firstName: nullable(text(100)),
-  middleName: nullable(text(100)),
-  lastName: nullable(text(100)),
-  preferredName: nullable(text(100)),
-  businessName: nullable(text(200)),
-  entityType: nullable(text(50)),
-  dateOfBirth: nullable(CalendarDate),
-  ssn: nullable(
-    z
-      .string()
-      .transform((s) => s.replace(/[\s-]/g, ''))
-      .pipe(z.string().regex(/^\d{9}$/, 'Enter the 9-digit SSN')),
-  ),
+  firstName: clearable(text(100)),
+  middleName: clearable(text(100)),
+  lastName: clearable(text(100)),
+  preferredName: clearable(text(100)),
+  businessName: clearable(text(200)),
+  entityType: clearable(text(50)),
+  dateOfBirth: clearable(PastDate),
+  ssn: clearable(digits(9, 'Enter the 9-digit SSN')),
+  ein: clearable(digits(9, 'Enter the 9-digit EIN')),
   address: AddressInput.optional(),
-  preferredContactMethod: nullable(ContactMethod),
-  referralSource: nullable(text(200)),
-  additionalInfo: nullable(text(2000)),
+  preferredContactMethod: clearable(ContactMethod),
+  referralSource: clearable(text(200)),
+  additionalInfo: clearable(text(2000, 'many')),
 });
 export type UpdateClientProfileRequest = z.input<typeof UpdateClientProfileRequest>;
 
-/** POST /business/clients: a client with no portal login yet. Unknown fields are refused. */
+/**
+ * POST /business/clients: a client with no portal login yet. `assignedUserId` is for Owner and
+ * Admin; a client Staff create is assigned to them.
+ */
 export const CreateClientRequest = z.strictObject({
-  accountType: AccountType.optional().default('INDIVIDUAL'),
-  displayName: text(200, 'Enter a name'),
-  email: Email.optional(),
-  phone: Phone.optional(),
+  accountType: ClientAccountType.optional().default('INDIVIDUAL'),
+  displayName: text(200, 'one', 'Enter a name'),
+  email: clearable(Email),
+  phone: clearable(Phone),
   assignedUserId: z.uuid().optional(),
   profile: UpdateClientProfileRequest.optional(),
 });
 export type CreateClientRequest = z.input<typeof CreateClientRequest>;
 
-/** PATCH /business/clients/{id}. Null clears email, phone or the assigned member. */
+/** PATCH /business/clients/{id}. `null` or `''` clears email or phone; the assignee is Owner/Admin. */
 export const UpdateClientRequest = z
   .strictObject({
-    accountType: AccountType.optional(),
-    displayName: text(200, 'Enter a name').optional(),
-    email: nullable(Email),
-    phone: nullable(Phone),
-    assignedUserId: nullable(z.uuid()),
+    accountType: ClientAccountType.optional(),
+    displayName: text(200, 'one', 'Enter a name').optional(),
+    email: clearable(Email),
+    phone: clearable(Phone),
+    assignedUserId: z.uuid().nullable().optional(),
   })
-  .refine((body) => Object.keys(body).length > 0, 'Change at least one field');
+  .refine((body) => Object.values(body).some((v) => v !== undefined), 'Change at least one field');
 export type UpdateClientRequest = z.input<typeof UpdateClientRequest>;
 
 // ---------- Tax status per year (firm) ----------
-export const TaxStatusRef = z.strictObject({ id: z.uuid(), name: z.string() });
+export const TaxStatusRef = z.object({ id: z.uuid(), name: z.string() });
 
 /** One tax year of a client: the firm's status for it and the note the client sees. */
-export const ClientTaxYear = z.strictObject({
+export const ClientTaxYear = z.object({
   taxYear: z.number().int(),
   status: TaxStatusRef,
   /** Shown to the client in the portal. */
@@ -197,19 +215,19 @@ export const ClientTaxYear = z.strictObject({
 export type ClientTaxYear = z.infer<typeof ClientTaxYear>;
 
 /** GET /business/clients/{id}/tax-years: newest year first. */
-export const ClientTaxYearList = z.strictObject({ items: z.array(ClientTaxYear) });
+export const ClientTaxYearList = z.object({ items: z.array(ClientTaxYear) });
 
 /** PUT /business/clients/{id}/tax-years/{year}: sets (or first adds) that year's status. */
 export const SetClientTaxYearRequest = z.strictObject({
   taxStatusId: z.uuid(),
-  clientNote: nullable(text(1000)),
+  clientNote: clearable(text(1000, 'many')),
 });
 export type SetClientTaxYearRequest = z.input<typeof SetClientTaxYearRequest>;
 
 /** GET /business/clients/{id}/tax-years/{year}/history: newest first. */
-export const ClientTaxYearHistory = z.strictObject({
+export const ClientTaxYearHistory = z.object({
   items: z.array(
-    z.strictObject({
+    z.object({
       status: TaxStatusRef,
       clientNote: z.string().nullable(),
       changedBy: MemberRef.nullable(),
@@ -220,8 +238,13 @@ export const ClientTaxYearHistory = z.strictObject({
 export type ClientTaxYearHistory = z.infer<typeof ClientTaxYearHistory>;
 
 // ---------- The client's own record (portal) ----------
-/** GET /portal/{firmSlug}/me/profile (mockup "My Profile"). Name and date of birth are locked. */
-export const MyProfile = z.strictObject({
+/**
+ * GET /portal/{firmSlug}/me/profile (mockup "My Profile"). Name and date of birth are locked.
+ * Spouse and authorized logins see the record without the date of birth (null) and cannot edit
+ * it (`portalRole` tells the screen to hide the controls).
+ */
+export const MyProfile = z.object({
+  portalRole: ClientPortalRole,
   fullName: z.string(),
   dateOfBirth: CalendarDate.nullable(),
   /** The login email; changing it is an account (sign-in) change, not a profile edit. */
@@ -234,29 +257,32 @@ export const MyProfile = z.strictObject({
 });
 export type MyProfile = z.infer<typeof MyProfile>;
 
-/** PATCH /portal/{firmSlug}/me/profile ("Save Changes"). Name and date of birth are not here. */
+/**
+ * PATCH /portal/{firmSlug}/me/profile ("Save Changes"), the primary login only (403 otherwise).
+ * Name and date of birth are not here. `null` or `''` clears a field.
+ */
 export const UpdateMyProfileRequest = z
   .strictObject({
-    phone: nullable(Phone),
+    phone: clearable(Phone),
     address: AddressInput.optional(),
-    preferredContactMethod: nullable(ContactMethod),
-    referralSource: nullable(text(200)),
-    additionalInfo: nullable(text(2000)),
+    preferredContactMethod: clearable(ContactMethod),
+    referralSource: clearable(text(200)),
+    additionalInfo: clearable(text(2000, 'many')),
   })
-  .refine((body) => Object.keys(body).length > 0, 'Change at least one field');
+  .refine((body) => Object.values(body).some((v) => v !== undefined), 'Change at least one field');
 export type UpdateMyProfileRequest = z.input<typeof UpdateMyProfileRequest>;
 
-/** POST /portal/{firmSlug}/me/profile/name-change: creates a task for the firm's staff. */
+/** POST /portal/{firmSlug}/me/profile/name-change: a task for the firm's staff (primary login). */
 export const RequestNameChangeRequest = z.strictObject({
-  newName: text(200, 'Enter the new name'),
-  reason: nullable(text(500)),
+  newName: text(200, 'one', 'Enter the new name'),
+  reason: clearable(text(500, 'many')),
 });
 export type RequestNameChangeRequest = z.input<typeof RequestNameChangeRequest>;
 
 /** GET /portal/{firmSlug}/me/tax-years: the status name and note per year, newest first. */
-export const MyTaxYearList = z.strictObject({
+export const MyTaxYearList = z.object({
   items: z.array(
-    z.strictObject({
+    z.object({
       taxYear: z.number().int(),
       status: z.string(),
       clientNote: z.string().nullable(),
