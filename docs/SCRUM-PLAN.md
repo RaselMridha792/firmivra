@@ -6,7 +6,7 @@ Live version: https://claude.ai/code/artifact/529efdc5-49d1-4878-93b7-cbafed6014
 
 ## Overview
 
-Five people build Firmivra Phase 1 (beta) in 2-week sprints: a Sprint 0 where Rasel sets up AWS, the repo, foundations and CI/CD, then 6 feature sprints that deliver the firm workspace, the client portal and the minimal Super Admin for the first beta firm, LVP Accounting & Taxes. Beta goes live on Jan 8, 2027.
+Five people build Firmivra Phase 1 (beta) in 2-week sprints: a Sprint 0 where Rasel sets up AWS, the repo, foundations and CI/CD, then 6 feature sprints that deliver the firm workspace, the client portal and the minimal Super Admin for the first beta firm, LVP Accounting & Taxes. Delivery: Oct 18, 2026.
 
 - **Product:** a multi-tenant platform. Super Admin approves businesses, each business works in its own firm workspace, and its clients log in to a branded client portal. Every business sees only its own data.
 - **Apps:** admin.firmivra.com (Super Admin), app.firmivra.com (firm workspace), portal.firmivra.com/{firm} (client portal). Dev runs on dev.firmivra.com.
@@ -109,7 +109,7 @@ Rasel builds the base everyone else codes on; the four developers spend Sprint 0
 
 ## Sprint roadmap
 
-Six feature sprints take Firmivra from login to an LVP beta on Jan 8, 2027. Beta also covers Octavia's missing requirements: appointments, My Services, the notification center, portal sign-in and password reset, the calculator, per-firm Terms and Privacy, and the Bookkeeping and Tax Planning workspaces. Payroll operations, the Advisory workspace and Google/Outlook calendar sync start right after beta.
+Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oct 6: the work follows the 15-day plan in `docs/work/README.md`. Delivery: Oct 18, 2026. Beta also covers Octavia's missing requirements: appointments, My Services, the notification center, portal sign-in and password reset, the calculator, per-firm Terms and Privacy, and the Bookkeeping and Tax Planning workspaces. Payroll operations, the Advisory workspace and Google/Outlook calendar sync start right after beta.
 
 | Sprint | Dates | Theme |
 | --- | --- | --- |
@@ -119,7 +119,7 @@ Six feature sprints take Firmivra from login to an LVP beta on Jan 8, 2027. Beta
 | 3 | Nov 16 to Nov 27 | Documents, services, notifications |
 | 4 | Nov 30 to Dec 11 | Intake, taxes, service workspaces |
 | 5 | Dec 14 to Dec 25 | Appointments, messages, billing, calculator |
-| 6 | Dec 28 to Jan 8 | Hardening, Octavia's acceptance, LVP launch |
+| 6 | after Sprint 5 | Hardening, Octavia's acceptance, LVP launch |
 
 ### Sprint 1: sign-in and firm approval (Oct 19 to Oct 30)
 
@@ -178,7 +178,7 @@ Six feature sprints take Firmivra from login to an LVP beta on Jan 8, 2027. Beta
 
 This is the heaviest sprint and it includes Dec 25. If Sprint 2's velocity shows we are behind, the calculator and the resource dashboards move after beta first.
 
-### Sprint 6: beta hardening and LVP launch (Dec 28 to Jan 8)
+### Sprint 6: hardening and LVP launch
 
 **Goal:** LVP goes live on production.
 
@@ -188,7 +188,7 @@ This is the heaviest sprint and it includes Dec 25. If Sprint 2's velocity shows
 - [ ] Octavia's acceptance testing on dev, fixes
 - [ ] Production deploy, LVP account set up, first real clients invited
 
-### Right after beta (from Jan 11, 2027)
+### Right after the LVP launch
 
 - Payroll operations: employees, payroll runs, approvals, filings, W-2/W-3/1099, once the payroll provider is chosen
 - Advisory workspace (goals and deliverables) on the same workspace template
@@ -214,7 +214,7 @@ This is the heaviest sprint and it includes Dec 25. If Sprint 2's velocity shows
 | --- | --- | --- |
 | Data leaks between businesses | Critical | Row-level security in PostgreSQL, tenant guard in the API, isolation tests in CI from Sprint 1 |
 | Rasel is the only reviewer and the only owner of database and infra | High | Peer pre-review before Rasel, PRs under 400 lines, two fixed review slots a day, schema and infra requests filed a sprint ahead |
-| Beta scope grew but the date stayed Jan 8 | High | Track velocity from Sprint 1; if behind after Sprint 2, move the calculator and resource dashboards after beta first |
+| Scope grew but the date stayed fixed | High | Track velocity from Sprint 1; if behind after Sprint 2, move the calculator and resource dashboards after beta first |
 | Screens drift from Octavia's mockups | High | Design system first; frontend PRs include a screenshot next to the mockup |
 | New screens have no mockups yet | High | Ask Octavia in Sprint 0; otherwise Fahad designs them from the design system and Octavia approves in the sprint demo |
 | Calculator formulas or LVP legal documents arrive late | Medium | Build the screens with placeholders; they block launch, not development |
@@ -225,7 +225,7 @@ This is the heaviest sprint and it includes Dec 25. If Sprint 2's velocity shows
 
 | Topic | Decision |
 | --- | --- |
-| Beta date and scope | Keep Jan 8, 2027. Payroll operations, Advisory and calendar sync come right after beta; all other missing requirements are in beta |
+| Delivery date and scope | Delivery: Oct 18, 2026. Payroll operations, Advisory and calendar sync come right after beta; all other missing requirements are in beta |
 | AWS region | us-east-1 (N. Virginia) |
 | AWS setup | One Firmivra setup for all firms, isolated per firm |
 | Client accounts | Clients sign up on the firm's portal; the firm approves the account afterwards |
