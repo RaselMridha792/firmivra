@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ApiRequestError,
+  type ApproveSignUpRequest,
   ClientSignUpsQuery,
   createClientSignUpsClient,
   createPortalAuthClient,
@@ -152,6 +153,14 @@ describe('createClientSignUpsClient', () => {
     });
     expect(approve.calls[0]?.url).toBe(`/client-sign-ups/${id}/approve`);
     expect(bodyOf(approve.calls[0]?.init)).toEqual({ clientId: existing });
+
+    // Strict: an unknown field is refused before anything is sent.
+    const strict = fakeFetch(200, {});
+    const sent = createClientSignUpsClient(createRequest({ baseUrl: '', fetch: strict.fn }));
+    await expect(
+      sent.approve(id, { clientId: existing, force: true } as ApproveSignUpRequest),
+    ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
+    expect(strict.calls).toHaveLength(0);
 
     const decline = fakeFetch(200, {
       clientAccountId: id,

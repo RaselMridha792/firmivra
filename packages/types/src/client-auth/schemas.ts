@@ -147,8 +147,9 @@ export const ClientSignUp = z.object({
   declinedAt: z.iso.datetime({ offset: true }).nullable(),
   declineReason: z.string().nullable(),
   /**
-   * A client record of this firm with the same email, if there is one (added by staff, or from
-   * Begin Online): approve can link to it (`clientId`) instead of creating a duplicate.
+   * A client record of this firm that approve can link this login to (`clientId`) instead of
+   * creating a duplicate, or null. Only a record that approve would accept: its email is the
+   * sign-up's verified email (both lower-cased) and it has no primary portal login yet.
    */
   existingClient: z.object({ clientId: z.uuid(), displayName: z.string() }).nullable(),
 });
@@ -163,10 +164,12 @@ export type ClientSignUpList = z.infer<typeof ClientSignUpList>;
 
 /**
  * POST /client-sign-ups/{clientAccountId}/approve. Without `clientId` it creates the firm's client
- * record from the sign-up; with it, it links the login to that existing record of this firm
- * (404 if the firm has no such client).
+ * record from the sign-up. With it, it links the login to that existing record of this firm, and
+ * only if the record's email is the sign-up's verified email (both lower-cased) and the record
+ * has no primary portal login yet; else 409 CLIENT_NOT_LINKABLE (404 if the firm has no such
+ * client). Any other field is refused (400), so a typo never approves the wrong way.
  */
-export const ApproveSignUpRequest = z.object({ clientId: z.uuid().optional() });
+export const ApproveSignUpRequest = z.strictObject({ clientId: z.uuid().optional() });
 export type ApproveSignUpRequest = z.input<typeof ApproveSignUpRequest>;
 
 /** The client can use the portal. */
@@ -209,5 +212,10 @@ export const ClientAuthErrorCode = z.enum([
   'WRONG_STEP',
   /** 409: approve or decline a sign-up that is no longer pending. */
   'NOT_PENDING',
+  /**
+   * 409: approve with a `clientId` whose record has another email than the sign-up's verified
+   * one, or already has a primary portal login. Nothing changed; reload the list.
+   */
+  'CLIENT_NOT_LINKABLE',
 ]);
 export type ClientAuthErrorCode = z.infer<typeof ClientAuthErrorCode>;
