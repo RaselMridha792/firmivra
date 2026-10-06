@@ -166,3 +166,7 @@ export type ContentKind = z.infer<typeof ContentKind>;
 
 export const LegalDocumentKind = z.enum(['TERMS', 'PRIVACY']);
 export type LegalDocumentKind = z.infer<typeof LegalDocumentKind>;
+
+/** Where a sign-up verification code was sent. */
+export const VerificationChannel = z.enum(['EMAIL', 'PHONE']);
+export type VerificationChannel = z.infer<typeof VerificationChannel>;
