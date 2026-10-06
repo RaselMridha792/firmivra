@@ -9,6 +9,7 @@
 import {
   ApiError,
   ApiRequestError,
+  ApproveSignUpRequest,
   ApproveSignUpResponse,
   ChangeEmailRequest,
   ChangePhoneRequest,
@@ -135,8 +136,12 @@ const signUpItem = (n: number, fields: Partial<ClientSignUp>): ClientSignUp => (
   signedUpAt: '2026-10-07T12:03:00.000Z',
   declinedAt: null,
   declineReason: null,
+  existingClient: null,
   ...fields,
 });
+
+/** A client record the mock firm already has (Jane Roe, added by staff before she signed up). */
+const JANE_CLIENT_ID = '00000000-0000-4000-a000-000000000402';
 
 /** GET /api/v1/client-sign-ups */
 export const pendingSignUps = ClientSignUpList.parse({
@@ -148,6 +153,7 @@ export const pendingSignUps = ClientSignUpList.parse({
       phone: '+14045550188',
       accountType: 'BUSINESS',
       signedUpAt: '2026-10-07T13:20:00.000Z',
+      existingClient: { clientId: JANE_CLIENT_ID, displayName: 'Jane Roe' },
     }),
   ],
   nextCursor: null,
@@ -413,6 +419,7 @@ export function createPortalAuthMock(
 /**
  * An in-memory `api.clientSignUps` with the API's rules: approve and decline only pending
  * sign-ups (409 NOT_PENDING), unknown ids 404, and `role: 'STAFF'` gets 403 FORBIDDEN.
+ * Jane Roe's sign-up has an `existingClient`: approve with its `clientId` links to it.
  * Pages of two, so a screen can try `nextCursor`.
  */
 export function createClientSignUpsMock(
@@ -461,14 +468,17 @@ export function createClientSignUpsMock(
       const next = start + size < matching.length ? String(start + size) : null;
       return { items, nextCursor: next };
     },
-    approve: async (clientAccountId) => {
+    approve: async (clientAccountId, body = {}) => {
       await pause();
       allowed();
+      const { clientId } = parseInput(ApproveSignUpRequest, body);
       const row = pending(clientAccountId);
+      // The mock firm has one existing client record: Jane Roe's.
+      if (clientId && clientId !== JANE_CLIENT_ID) throw fail(404, error('NOT_FOUND', 'Not found'));
       rows = rows.filter((r) => r !== row);
       return {
         clientAccountId: row.clientAccountId,
-        clientId: `00000000-0000-4000-a000-${String(nextClient++).padStart(12, '0')}`,
+        clientId: clientId ?? `00000000-0000-4000-a000-${String(nextClient++).padStart(12, '0')}`,
         status: 'ACTIVE',
         approvedAt: new Date().toISOString(),
       };

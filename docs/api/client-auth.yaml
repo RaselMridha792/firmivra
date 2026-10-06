@@ -399,11 +399,19 @@ paths:
     post:
       tags: [sign-ups]
       operationId: approveClientSignUp
-      summary: Approve; creates the client record and opens the portal
+      summary: Approve; creates the client record (or links an existing one) and opens the portal
+      description: |
+        Without a body it creates the firm's client record from the sign-up. With `clientId` (for
+        example `existingClient` from the list) it links the login to that record instead, so the
+        firm gets no duplicate; 404 if the firm has no such client.
       security: [{ firmCookie: [] }]
       parameters:
         - { $ref: '#/components/parameters/BusinessId' }
         - { $ref: '#/components/parameters/ClientAccountId' }
+      requestBody:
+        required: false
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/ApproveSignUpRequest' } }
       responses:
         '200':
           description: Approved; the client gets an email
@@ -633,6 +641,7 @@ components:
         - signedUpAt
         - declinedAt
         - declineReason
+        - existingClient
       properties:
         clientAccountId: { type: string, format: uuid }
         name: { type: string }
@@ -643,18 +652,34 @@ components:
         signedUpAt: { $ref: '#/components/schemas/Timestamp' }
         declinedAt: { oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }] }
         declineReason: { type: [string, 'null'] }
+        existingClient:
+          description: A client record of this firm with the same email; approve can link to it
+          oneOf:
+            - type: object
+              required: [clientId, displayName]
+              properties:
+                clientId: { type: string, format: uuid }
+                displayName: { type: string }
+            - { type: 'null' }
     ClientSignUpList:
       type: object
       required: [items, nextCursor]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/ClientSignUp' } }
         nextCursor: { type: [string, 'null'], description: Pass as `cursor`; null on the last page }
+    ApproveSignUpRequest:
+      type: object
+      properties:
+        clientId:
+          type: string
+          format: uuid
+          description: Link to this existing client record of the firm instead of creating one
     ApproveSignUpResponse:
       type: object
       required: [clientAccountId, clientId, status, approvedAt]
       properties:
         clientAccountId: { type: string, format: uuid }
-        clientId: { type: string, format: uuid, description: The new client record }
+        clientId: { type: string, format: uuid, description: The client record, new or linked }
         status: { const: ACTIVE }
         approvedAt: { $ref: '#/components/schemas/Timestamp' }
     DeclineSignUpRequest:
