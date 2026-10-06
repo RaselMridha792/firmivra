@@ -2,8 +2,9 @@ openapi: 3.0.3
 info:
   title: Firmivra audit log viewer API
   version: 0.1.0
-  description: T01 proposed contract for T08. Not implemented or frontend-approved. Existing
-    append-only AuditLog. No edit/delete/export endpoint. Support grant adapter is Rasel-owned.
+  description: 'T08 implementation: owner firm audit viewer and Super Admin support route using a
+    required Rasel support-grant adapter. No auth/support guard implementation. Safe allowlisted
+    audit metadata and scoped cursors.'
 servers:
   - url: /api/v1
 security:
@@ -89,6 +90,8 @@ paths:
           $ref: ./common.yaml#/responses/RateLimited
         '500': &a11
           $ref: ./common.yaml#/responses/InternalError
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /admin/support/businesses/{businessId}/audit-logs:
     parameters:
       - name: businessId
@@ -138,6 +141,8 @@ paths:
         '422': *a9
         '429': *a10
         '500': *a11
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
 components:
   securitySchemes:
     FirmCookie:
