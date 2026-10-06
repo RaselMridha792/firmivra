@@ -267,6 +267,29 @@ async function main() {
       SEED_USERS.lvpClient,
       SEED_USERS.lvpStaff.id,
     );
+    // At sign-up the client accepted the firm's Terms and Privacy v1.
+    const lvpLogin = await tx.clientAccount.findUniqueOrThrow({
+      where: { userId: SEED_USERS.lvpClient.id },
+    });
+    for (const kind of ['TERMS', 'PRIVACY'] as const) {
+      const doc = await tx.firmLegalDocument.findUniqueOrThrow({
+        where: { businessId_kind_version: { businessId: businesses.lvp, kind, version: 1 } },
+      });
+      await tx.legalAcceptance.upsert({
+        where: {
+          clientAccountId_legalDocumentId: {
+            clientAccountId: lvpLogin.id,
+            legalDocumentId: doc.id,
+          },
+        },
+        update: {},
+        create: {
+          businessId: businesses.lvp,
+          clientAccountId: lvpLogin.id,
+          legalDocumentId: doc.id,
+        },
+      });
+    }
     const inPreparation = await tx.taxStatus.findUniqueOrThrow({
       where: { businessId_name: { businessId: businesses.lvp, name: 'In preparation' } },
     });

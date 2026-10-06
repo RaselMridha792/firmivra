@@ -304,10 +304,11 @@ model ClientAccount {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
-  user     User     @relation(fields: [userId], references: [id])
-  client   Client?  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  invites  Invite[]
+  business         Business          @relation(fields: [businessId], references: [id])
+  user             User              @relation(fields: [userId], references: [id])
+  client           Client?           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  invites          Invite[]
+  legalAcceptances LegalAcceptance[]
 
   @@unique([businessId, email])
   @@unique([businessId, id])
@@ -437,9 +438,12 @@ model FirmLegalDocument {
   publishedByUserId String            @map("published_by_user_id") @db.Uuid
   publishedAt       DateTime          @default(now()) @map("published_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
+  business    Business          @relation(fields: [businessId], references: [id])
+  acceptances LegalAcceptance[]
 
   @@unique([businessId, kind, version])
+  // Target of same-firm foreign keys (legal acceptances).
+  @@unique([businessId, id])
   @@map("firm_legal_documents")
 }
 
@@ -1083,4 +1087,25 @@ model NotificationPreference {
 
   @@unique([businessId, userId, category])
   @@map("notification_preferences")
+}
+
+/// A client's acceptance of one exact version of the firm's Terms or Privacy (portal sign-up
+/// writes one row for each). Insert-only: an acceptance is never changed or deleted. The client
+/// can see their own; the firm sees its clients'.
+model LegalAcceptance {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  /// The client's portal login at this firm.
+  clientAccountId String   @map("client_account_id") @db.Uuid
+  legalDocumentId String   @map("legal_document_id") @db.Uuid
+  acceptedAt      DateTime @default(now()) @map("accepted_at") @db.Timestamptz(3)
+  ip              String?  @db.Inet
+  userAgent       String?  @map("user_agent")
+
+  clientAccount ClientAccount     @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  legalDocument FirmLegalDocument @relation(fields: [businessId, legalDocumentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([clientAccountId, legalDocumentId])
+  @@index([businessId, clientAccountId])
+  @@map("legal_acceptances")
 }

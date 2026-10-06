@@ -69,7 +69,7 @@ export async function prepareTestDatabase(
       firm_legal_documents, tax_statuses, invites, clients, client_profiles, client_tax_statuses,
       client_tax_status_history, services, engagements, engagement_status_history, tasks, notes,
       engagement_reports, document_categories, documents, document_requests, intake_forms, intakes,
-      intake_submissions, leads, lead_uploads, notifications, notification_deliveries,
+      intake_submissions, leads, lead_uploads, notifications, notification_deliveries, legal_acceptances,
       notification_preferences CASCADE`);
   } finally {
     await owner.end();
