@@ -141,3 +141,24 @@ export const SEED_WORK_IDS = {
   lvpNote: '00000000-0000-4000-d000-000000000021',
   lvpReport: '00000000-0000-4000-d000-000000000031',
 } as const;
+
+/** Each firm's document categories, in display order. retentionYears null = kept for good. */
+export const SEED_DOCUMENT_CATEGORIES = {
+  lvp: [
+    { name: 'W-2 and 1099', retentionYears: 7 },
+    { name: 'ID', retentionYears: 7 },
+    { name: 'Prior-year returns', retentionYears: 7 },
+    { name: 'Bank statements', retentionYears: 7 },
+    { name: 'Payroll', retentionYears: 4 },
+    { name: 'Formation', retentionYears: null },
+    { name: 'Final return', retentionYears: 7 },
+  ],
+  testFirmB: [{ name: 'Tax documents', retentionYears: 7 }],
+} as const;
+
+/** Fixed ids of seeded document requests and documents, so re-seeding keeps one of each. */
+export const SEED_DOCUMENT_IDS = {
+  w2Request: '00000000-0000-4000-e000-000000000001',
+  interestRequest: '00000000-0000-4000-e000-000000000002',
+  interestDocument: '00000000-0000-4000-e000-000000000011',
+} as const;
