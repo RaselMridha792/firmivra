@@ -1,6 +1,8 @@
 import {
   ApiRequestError,
   ChangeTeamRoleRequest,
+  CreateInviteRequest,
+  type InviteResponse,
   parseInput,
   type TeamClient,
   TeamMember,
@@ -52,12 +54,18 @@ const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 const INVITE_DAYS = 7;
 
+/** `staffAuth.createInvite` (R2) in mock mode: invites land in the same team list. */
+export type CreateInviteMock = (body: CreateInviteRequest) => Promise<InviteResponse>;
+
 /**
  * An in-memory `api.team` with the same functions, rules and errors as the API. `role` is the
  * signed-in person (default OWNER, who is Olivia): ADMIN is Adam, who manages Staff only;
- * STAFF gets 403 FORBIDDEN on every call.
+ * STAFF gets 403 FORBIDDEN on every call. `createInvite` follows R2's invite rules on the same
+ * rows, so the web kit can use it as `staffAuth.createInvite` and a screen can invite, then reload.
  */
-export function createTeamMock(options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {}): TeamClient {
+export function createTeamMock(
+  options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {},
+): TeamClient & { createInvite: CreateInviteMock } {
   const role = options.role ?? 'OWNER';
   const youId = role === 'ADMIN' ? id(2) : id(1);
   // Rows are replaced, never edited, and callers always get copies, like a real API response.
@@ -96,6 +104,19 @@ export function createTeamMock(options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } =
     }
   };
   const order = { OWNER: 0, ADMIN: 1, STAFF: 2 } as const;
+  const newInvite = () => {
+    const sent = new Date();
+    const expires = new Date(sent.getTime() + INVITE_DAYS * 24 * 60 * 60 * 1000);
+    return { sentAt: sent.toISOString(), expiresAt: expires.toISOString() };
+  };
+  /** R2's rule: Owners invite Admins and Staff, Admins invite Staff; only the platform, Owners. */
+  const mayInvite = (wanted: TeamMember['role']) => {
+    const allowedRoles = role === 'OWNER' ? ['ADMIN', 'STAFF'] : ['STAFF'];
+    if (!allowedRoles.includes(wanted)) {
+      throw fail(403, 'FORBIDDEN', 'You cannot invite this role');
+    }
+  };
+  let nextId = 50;
 
   return {
     list: async () => {
@@ -110,6 +131,9 @@ export function createTeamMock(options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } =
       const { role: next } = parseInput(ChangeTeamRoleRequest, body);
       const row = find(memberId);
       manageable(row);
+      if (row.status !== 'ACTIVE') {
+        throw fail(409, 'NOT_ACTIVE', 'Invite this person again to change their role');
+      }
       if (row.role === next) return copy(row);
       if (next !== 'OWNER') keepsAnOwner(row);
       return replace({ ...row, role: next });
@@ -127,14 +151,42 @@ export function createTeamMock(options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } =
       const row = find(memberId);
       manageable(row);
       if (row.status !== 'INVITED') {
-        throw fail(409, 'NOT_INVITED', 'This person has already activated their account');
+        throw fail(409, 'NOT_INVITED', 'This person has no open invite');
       }
-      const sent = new Date();
-      const expires = new Date(sent.getTime() + INVITE_DAYS * 24 * 60 * 60 * 1000);
-      return replace({
-        ...row,
-        invite: { sentAt: sent.toISOString(), expiresAt: expires.toISOString() },
-      });
+      mayInvite(row.role);
+      return replace({ ...row, invite: newInvite() });
+    },
+    createInvite: async (body) => {
+      await allowed();
+      const input = parseInput(CreateInviteRequest, body);
+      mayInvite(input.role);
+      const existing = rows.find((r) => r.user.email === input.email);
+      if (existing?.status === 'ACTIVE') {
+        throw fail(409, 'ALREADY_MEMBER', 'This person already works at this firm');
+      }
+      if (existing) mayInvite(existing.role);
+      const invite = newInvite();
+      const row: TeamMember = existing
+        ? { ...existing, role: input.role, status: 'INVITED', invite }
+        : {
+            id: id(nextId),
+            user: { id: id(100 + nextId++), name: input.name, email: input.email },
+            role: input.role,
+            status: 'INVITED',
+            invite,
+            isYou: false,
+            createdAt: invite.sentAt,
+          };
+      if (existing) replace(row);
+      else rows = [...rows, row];
+      return {
+        id: id(900 + nextId),
+        membershipId: row.id,
+        email: row.user.email,
+        name: input.name,
+        role: input.role === 'ADMIN' ? 'ADMIN' : 'STAFF',
+        expiresAt: invite.expiresAt,
+      };
     },
   };
 }

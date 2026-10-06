@@ -13,7 +13,7 @@ const one = (id: string) => `${BASE}/${parseInput(TeamMemberId, id)}`;
 export function createTeamClient(request: ApiRequest) {
   return {
     list: async (): Promise<TeamMember[]> => (await request(ListTeamResponse, BASE)).items,
-    /** Owners only. 409 LAST_ACTIVE_OWNER or CANNOT_CHANGE_SELF; 404 for an unknown id. */
+    /** Owners only, ACTIVE members only. 409 NOT_ACTIVE, CANNOT_CHANGE_SELF; 404 unknown id. */
     changeRole: async (id: string, body: ChangeTeamRoleRequest): Promise<TeamMember> =>
       request(TeamMember, one(id), {
         method: 'PATCH',

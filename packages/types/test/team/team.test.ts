@@ -40,7 +40,16 @@ describe('team contract', () => {
   });
 
   it('keeps working when the API adds a field to a member', () => {
-    const parsed = ListTeamResponse.parse({ items: [{ ...member, lastSeenAt: null }] });
+    const parsed = ListTeamResponse.parse({
+      items: [
+        {
+          ...member,
+          lastSeenAt: null,
+          user: { ...member.user, phone: null },
+          invite: { ...member.invite, invitedBy: 'x' },
+        },
+      ],
+    });
     expect(parsed.items[0]).toEqual(member);
   });
 });

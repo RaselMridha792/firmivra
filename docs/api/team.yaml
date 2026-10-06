@@ -14,7 +14,10 @@ info:
 
     ## Rules (until Rasel decides otherwise)
 
-    - **Owners** manage everyone: change a role (Owner, Admin, Staff), deactivate, resend.
+    - **Owners** manage everyone: change the role (Owner, Admin, Staff) of an ACTIVE member,
+      deactivate, resend. An invited person's role changes by inviting them again
+      (`staffAuth.createInvite`; `409 NOT_ACTIVE` here), so a link never grants a role its inviter
+      could not. Only the platform invites Owners and resends their links (`403` here).
     - **Admins** manage Staff only (deactivate, resend; `403 FORBIDDEN` on an Owner or Admin)
       and change no roles, as they invite Staff only.
     - **Nobody** changes their own role or deactivates themselves (`409 CANNOT_CHANGE_SELF`;
@@ -27,8 +30,9 @@ info:
       tokens never appear in responses.
     - **During setup:** every route also works while the firm is Pending Setup (the wizard's
       "Team and access" step); R2's `POST /auth/invites` needs the same for that step to invite.
-    - **Errors in order:** 403 for staff, 400 for bad input, 404 for an unknown member or one of
-      another firm, then 403 (an Admin on an Owner or Admin) and 409.
+    - **Errors in order:** 403 for staff (and for Admins on a role change), 400 for bad input,
+      404 for an unknown member or one of another firm, then 403 (an Admin on an Owner or Admin)
+      and 409.
     - **Writes:** from the app site only (`403 ORIGIN_NOT_ALLOWED`; see "Calling the API from
       the web app" in auth.yaml). Every change is audited without names or emails.
 
@@ -139,7 +143,7 @@ components:
       description: '`NOT_FOUND`: no active membership in that firm, or no such member in it'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Conflict:
-      description: '`LAST_ACTIVE_OWNER`, `CANNOT_CHANGE_SELF` or `NOT_INVITED`'
+      description: '`LAST_ACTIVE_OWNER` (a safety net, met only in a race), `CANNOT_CHANGE_SELF`, `NOT_INVITED` (resend) or `NOT_ACTIVE` (role change of a member who is not ACTIVE)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     UnsupportedMediaType:
       description: '`UNSUPPORTED_MEDIA_TYPE`: the body is not JSON'
@@ -177,7 +181,7 @@ components:
       type: object
       required: [items]
       properties:
-        items: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/TeamMember' } }
+        items: { type: array, items: { $ref: '#/components/schemas/TeamMember' } }
     ChangeTeamRoleRequest:
       type: object
       additionalProperties: false
