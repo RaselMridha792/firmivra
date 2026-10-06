@@ -27,7 +27,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
     <div className="flex flex-col gap-6 lg:flex-row">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div>
-          <p className="text-3xl font-semibold text-text">My Client Portal</p>
+          <p className="text-2xl font-semibold text-text">My Client Portal</p>
           <p className="text-muted">
             Access your forms, documents, and resources anytime, anywhere.
           </p>

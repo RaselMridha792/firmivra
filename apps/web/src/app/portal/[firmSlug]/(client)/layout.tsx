@@ -42,7 +42,7 @@ const sections = (slug: string): NavSections => [
 export default function ClientLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
   return (
-    <SignedIn site="portal" signInPath={`/${firmSlug}/sign-in`}>
+    <SignedIn site="portal" signInPath={`/${firmSlug}/sign-in`} firmSlug={firmSlug}>
       <ClientArea slug={firmSlug}>{children}</ClientArea>
     </SignedIn>
   );
@@ -55,7 +55,8 @@ function ClientArea({ slug, children }: { slug: string; children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   // A client still waiting for the firm's approval sees the "account created" page instead.
   const pending =
-    me.clientAccounts.find((c) => c.business.slug === slug)?.status === 'PENDING_APPROVAL';
+    me.clientAccounts.find((c) => c.business.slug.toLowerCase() === slug.toLowerCase())?.status ===
+    'PENDING_APPROVAL';
 
   useEffect(() => {
     if (pending) {
@@ -96,7 +97,7 @@ function ClientArea({ slug, children }: { slug: string; children: ReactNode }) {
       roleLabel="Client"
       greeting={`Welcome back, ${firstName}!`}
       footer={
-        <footer className="flex flex-wrap gap-4 bg-brand-900 px-6 py-3 text-xs text-white">
+        <footer className="flex flex-wrap gap-4 bg-firm-primary px-6 py-3 text-xs text-surface">
           <span>
             © {YEAR} <span data-testid="firm-name">{firm.name}</span>
           </span>

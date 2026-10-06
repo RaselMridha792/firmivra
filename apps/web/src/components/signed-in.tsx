@@ -5,7 +5,7 @@ import { Button } from '@firmivra/ui';
 import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, use, useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { adminAuth, AUTH_MODE, signOut as devSignOut, staffAuth } from '../lib/auth';
+import { adminAuth, AUTH_MODE, portalAuth, signOut as devSignOut, staffAuth } from '../lib/auth';
 
 export type Site = 'admin' | 'firm' | 'portal';
 
@@ -35,10 +35,13 @@ type State =
 export function SignedIn({
   site,
   signInPath,
+  firmSlug,
   children,
 }: {
   site: Site;
   signInPath: string;
+  /** The portal's firm (portal only): its sign-out ends that firm's session. */
+  firmSlug?: string;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -64,9 +67,9 @@ export function SignedIn({
     if (AUTH_MODE === 'local') await devSignOut();
     else if (site === 'admin') await adminAuth.signOut();
     else if (site === 'firm') await staffAuth.signOut();
-    // Portal clients sign out through R3's client auth once it's on main.
+    else if (firmSlug) await portalAuth(firmSlug).signOut();
     router.replace(signInPath);
-  }, [site, signInPath, router]);
+  }, [site, signInPath, firmSlug, router]);
 
   if (state.status === 'loading') {
     return (

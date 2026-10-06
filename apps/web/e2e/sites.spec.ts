@@ -48,6 +48,7 @@ test.describe('local sign-in works end to end (/api/v1/me)', () => {
     // Same browser, another firm's signed-in portal: the session is per host and the firm is not theirs.
     await page.goto(site('portal', '/test-firm-b/home'));
     await expect(page.getByTestId('firm-error')).toContainText('NOT_FOUND');
+    await expect(page.getByTestId('page-title')).toHaveCount(0);
   });
 
   test('Super Admin in the admin console', async ({ page }) => {

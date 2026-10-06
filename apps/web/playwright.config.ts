@@ -14,8 +14,8 @@ const apiPort = process.env['API_PORT'] ?? '4000';
 export default defineConfig({
   testDir: 'e2e',
   fullyParallel: false,
-  // The dev server compiles each page on its first visit, which can take several seconds.
-  timeout: 90_000,
+  // The dev server compiles each page on its first visit, which can take several seconds;
+  // specs that open many pages set a longer test timeout themselves.
   expect: { timeout: 15_000 },
   retries: process.env['CI'] ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],

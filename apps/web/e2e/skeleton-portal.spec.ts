@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 // Every LVP portal page from docs/junior/PAGE-MAP.md opens in its layout with its title.
+// These tests open many pages; in `next dev` each compiles on its first visit.
+test.describe.configure({ timeout: 240_000 });
+
 const port = process.env['WEB_PORT'] ?? '3000';
 const portal = (path: string) => `http://portal.localhost:${port}/lvp${path}`;
 
@@ -62,5 +65,19 @@ test('every signed-in portal page opens in the client shell', async ({ page }) =
   for (const [path, title] of clientPages) {
     await page.goto(portal(path));
     await expect(page.getByTestId('page-title')).toHaveText(title);
+  }
+});
+
+test('an encoded slash or backslash as the firm slug is a 404, never a redirect', async ({
+  request,
+}) => {
+  for (const path of ['/%2Fevil.com/home', '/%5Cevil.com/home', '/%2F%2Fevil.com/sign-in']) {
+    // Node can't resolve *.localhost (the browser can), so send the portal host as a header.
+    const res = await request.get(`http://localhost:${port}${path}`, {
+      headers: { host: `portal.localhost:${port}` },
+      maxRedirects: 0,
+    });
+    expect(res.status(), path).toBe(404);
+    expect(res.headers()['location'], path).toBeUndefined();
   }
 });
