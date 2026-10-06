@@ -20,8 +20,8 @@
 - [x] 4b. Unique `users (pool, email)` for sign-in (R2): partial, STAFF and ADMIN only, because a client has one user per firm (AUTH-DESIGN)
 - [x] 5. Documents, document categories, document requests
 - [x] 5a. Review fixes for PR #22 (lead, changes requested): see the Oct 6 entry in the Progress log
-- [ ] 6. Intake form definitions and submissions (6 Begin Online services), leads
-- [ ] 7. Notifications (per user, read/unread, link to record), notification preferences
+- [x] 6. Intake form definitions and submissions (6 Begin Online services), leads
+- [x] 7. Notifications (per user, read/unread, link to record), notification preferences
 - [ ] 8. Appointments, staff availability, working hours, blocked time (unique constraint that blocks double booking)
 - [ ] 9. Message threads, messages, firm notes
 - [ ] 10. Invoices, invoice lines, payments (Stripe ids), external links, calculator definitions
@@ -44,6 +44,12 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
   - The key is fixed once the row exists (the database refuses a change). Record the scan result on the row and never move objects; if R5 ever needs to move objects, it asks R0 first.
   - Create the row as `PENDING`; the scanner sets `scan_status` and `scanned_at` once.
   - A hard delete of a `documents` row must also remove the object's old versions, because the documents bucket is versioned. The alternative is a lifecycle rule that expires noncurrent versions.
+  - Begin Online uploads (`lead_uploads`) follow the same rules: `tenant/<business_id>/...` (e.g. `tenant/<id>/leads/<uuid>`), start `PENDING`, scan result set once, key fixed. At lead conversion the API inserts a `documents` row with `lead_upload_id` and the same key, file and scan result; the object stays where it is.
+- R6 (email and SMS sender): `notification_deliveries` is the outbox.
+  - Process each firm's QUEUED rows in that firm's business scope; there is no cross-firm scope for firm data.
+  - Look up the address or number at send time; the table stores neither, nor any content.
+  - Mark SENT with `sent_at` and the provider message id, or FAILED with a short error code and `attempts + 1`, then back to QUEUED to retry. Mark SKIPPED when the person's preference is off or there is no address or number.
+  - ACCOUNT notices ignore preferences.
 
 ## Progress log
 
@@ -65,3 +71,5 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
   3. `retention_until` may only move later, and NULL (keep forever) never becomes a date. Clearing `legal_hold` stays allowed (the API limits it to managers and audits it); with this rule it can no longer unlock an early delete.
   4. From #17: a report that was ever published can never be deleted. Unpublishing stays allowed, but keep a record (e.g. `first_published_at`, which can't be cleared) and refuse DELETE when it is set.
 - Oct 6, step 5a: migration `r0_documents_review` (a new migration in #22, because the local DBs had already applied `r0_documents`): (1) prefix CHECK `tenant/<business_id>/`; (2) `s3_key` and `content_type` join the immutable upload columns; (3) `retention_until` only moves later, NULL never becomes a date; (4) `engagement_reports.first_published_at`, set by trigger on first publication and never changed or cleared, and DELETE only when it is NULL; backfill for reports already published runs per firm with business scope (checked as `firmivra_app` without RLS bypass). A test for each. Seed key and R5 note updated. Locally: deleted the one seeded document with the old key and truncated the test database's documents so the new CHECK could apply (the seed recreates it). Commit "fix: review fixes for documents and reports (R0)".
+- Oct 6, step 6: migration `r0_intake` (branch `rasel/R0-intake`, stacked on #22): `intake_forms` (versioned per service; published never changes, only retired; drafts deletable), `intakes` (engagement or lead; published form of that service; lead fixed, engagement set once from the converted lead), `intake_submissions` (one draft at a time, versions in order, locked on submit, signature name/time/IP/browser), `leads` (Begin Online in business scope; resume token SHA-256, 30 days by DB clock; conversion sets client and an engagement of the lead's service once, final), `lead_uploads` (document file rules, only while the lead is a draft), `documents.lead_upload_id` (carried-over upload keeps key, file and scan result). Decisions (Rasel): lead first and convert at review, draft plus locked versions, lead_uploads then documents, 30-day resume link. Seed: forms for LVP's six services, a portal intake draft, a submitted Begin Online lead with a clean upload. Smart App Control off: root lint, typecheck and test pass again locally (API tests too). Commit "feat: intake forms, submissions and Begin Online leads tables (R0)".
+- Oct 6, step 7: migration `r0_notifications` (branch `rasel/R0-notifications`, stacked on step 6): `notifications` (firm staff and clients only, checked by `app_is_firm_user`; record link required; dotted type key; payload a flat object of at most 2 KB; only `read_at` changes; no DELETE), `notification_deliveries` (email and SMS outbox for R6: QUEUED, SENT, FAILED, SKIPPED; SENT and SKIPPED final; attempts only up; no address or content stored), `notification_preferences` (per person, firm and category; email on and SMS off by default; never ACCOUNT). Decisions (Rasel): firm users only, deliveries table now, preferences per category. Seed: a client W-2 notification (email sent, SMS skipped), a staff lead notification (email queued), one client preference. Commit "feat: notifications, deliveries and notification preferences tables (R0)".
