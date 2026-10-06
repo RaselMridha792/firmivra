@@ -35,8 +35,9 @@ export function stepsOf(progress: unknown): SetupStep[] {
   return SetupStep.options.filter((step) => done[step] === true);
 }
 
+/** Once setup is finished every step counts as done (seeded firms have no step progress). */
 const toSetup = (steps: SetupStep[], completedAt: Date | null): FirmSetup => ({
-  completedSteps: steps,
+  completedSteps: completedAt ? [...SetupStep.options] : steps,
   completedAt: completedAt?.toISOString() ?? null,
 });
 
@@ -75,14 +76,16 @@ export class SettingsService {
     const fields = Object.keys(patch).sort();
     const settings = { ...rest, ...(primaryColor !== undefined && { brandColor: primaryColor }) };
     const result = await this.inFirm(businessId, async (tx) => {
-      if (name !== undefined)
-        await tx.business.update({ where: { id: businessId }, data: { name } });
+      // The settings row before the business row, the same order as Finish: no deadlock.
       if (Object.keys(settings).length > 0) {
         await tx.businessSettings.upsert({
           where: { businessId },
           create: { businessId, ...settings },
           update: settings,
         });
+      }
+      if (name !== undefined) {
+        await tx.business.update({ where: { id: businessId }, data: { name } });
       }
       return this.view(tx, businessId);
     });
@@ -125,7 +128,11 @@ export class SettingsService {
     const { setup, changed } = await this.inFirm(businessId, async (tx) => {
       const row = await this.lockSetup(tx, businessId);
       const steps = stepsOf(row.progress);
-      if (row.completedAt) return { setup: toSetup(steps, row.completedAt), changed: false };
+      if (row.completedAt) {
+        // Finished before: make sure the firm is Active too, then answer the first finish.
+        await this.activate(tx, businessId);
+        return { setup: toSetup(steps, row.completedAt), changed: false };
+      }
       const missing = SetupStep.options.filter((s) => !steps.includes(s));
       if (missing.length > 0) {
         throw new ConflictException({
@@ -138,11 +145,7 @@ export class SettingsService {
         data: { setupCompletedAt: new Date() },
         select: { setupCompletedAt: true },
       });
-      // The database lets a firm move itself only from PENDING_SETUP to ACTIVE, once setup is done.
-      await tx.business.updateMany({
-        where: { id: businessId, status: 'PENDING_SETUP' },
-        data: { status: 'ACTIVE' },
-      });
+      await this.activate(tx, businessId);
       return { setup: toSetup(steps, setupCompletedAt), changed: true };
     });
     if (changed) await this.audit.log('setup.finished', { type: 'business', id: businessId });
@@ -157,11 +160,14 @@ export class SettingsService {
         orderBy: { version: 'desc' },
         select: { version: true, publishedAt: true },
       });
-      const current = await tx.firmLegalDocument.findFirst({
-        where,
-        orderBy: { version: 'desc' },
-        select: documentSelect,
-      });
+      // The newest listed version, by key, so `current` and `versions` always agree.
+      const newest = versions[0];
+      const current = newest
+        ? await tx.firmLegalDocument.findUnique({
+            where: { businessId_kind_version: { ...where, version: newest.version } },
+            select: documentSelect,
+          })
+        : null;
       return {
         current: current ? toDocument(kind, current) : null,
         versions: versions.map((v) => ({
@@ -220,9 +226,21 @@ export class SettingsService {
     return toDocument(kind, doc);
   }
 
+  /** The database lets a firm move itself only from PENDING_SETUP to ACTIVE, once setup is done. */
+  private async activate(tx: TxClient, businessId: string): Promise<void> {
+    await tx.business.updateMany({
+      where: { id: businessId, status: 'PENDING_SETUP' },
+      data: { status: 'ACTIVE' },
+    });
+  }
+
   /** The firm's settings row, created if missing and locked until the transaction ends. */
   private async lockSetup(tx: TxClient, businessId: string) {
-    await tx.businessSettings.upsert({ where: { businessId }, create: { businessId }, update: {} });
+    // ON CONFLICT DO NOTHING, not Prisma's upsert: with an empty update it reads, then inserts,
+    // so two first saves at once would collide on the primary key.
+    await tx.$executeRaw`
+      INSERT INTO business_settings (business_id, updated_at) VALUES (${businessId}::uuid, now())
+      ON CONFLICT (business_id) DO NOTHING`;
     const [row] = await tx.$queryRaw<{ progress: unknown; completedAt: Date | null }[]>`
       SELECT setup_progress AS progress, setup_completed_at AS "completedAt"
       FROM business_settings WHERE business_id = ${businessId}::uuid FOR UPDATE`;

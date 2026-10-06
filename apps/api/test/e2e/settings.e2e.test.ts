@@ -24,8 +24,10 @@ const people = {
   clientA: person('client-a'),
   ownerB: person('owner-b'),
   ownerPending: person('owner-pending'),
+  ownerRace: person('owner-race'),
+  ownerStuck: person('owner-stuck'),
 };
-const firms = {} as Record<'a' | 'b' | 'pending', { id: string; slug: string }>;
+const firms = {} as Record<'a' | 'b' | 'pending' | 'race' | 'stuck', { id: string; slug: string }>;
 
 let app: INestApplication;
 const tokens = new Map<string, string>();
@@ -87,6 +89,8 @@ beforeAll(async () => {
     await make('a', 'ACTIVE');
     await make('b', 'ACTIVE');
     await make('pending', 'PENDING_SETUP');
+    await make('race', 'PENDING_SETUP');
+    await make('stuck', 'PENDING_SETUP');
   });
   const members = [
     [firms.a.id, people.ownerA.id, 'OWNER'],
@@ -94,6 +98,8 @@ beforeAll(async () => {
     [firms.a.id, people.staffA.id, 'STAFF'],
     [firms.b.id, people.ownerB.id, 'OWNER'],
     [firms.pending.id, people.ownerPending.id, 'OWNER'],
+    [firms.race.id, people.ownerRace.id, 'OWNER'],
+    [firms.stuck.id, people.ownerStuck.id, 'OWNER'],
   ] as const;
   for (const [businessId, userId, role] of members) {
     await runInScope(owner, { kind: 'business', businessId }, (tx) =>
@@ -108,6 +114,12 @@ beforeAll(async () => {
         email: people.clientA.email,
         status: 'ACTIVE',
       },
+    }),
+  );
+  // Finished before, but still Pending Setup (and no step progress, like a seeded firm).
+  await runInScope(owner, { kind: 'business', businessId: firms.stuck.id }, (tx) =>
+    tx.businessSettings.create({
+      data: { businessId: firms.stuck.id, setupCompletedAt: new Date('2026-10-01T09:00:00Z') },
     }),
   );
   await owner.$disconnect();
@@ -204,7 +216,9 @@ describe('GET and PATCH /business/settings', () => {
     expect(other).toMatchObject({ name: firms.b.slug, contactEmail: null, primaryColor: null });
 
     const audits = await auditRows(firms.a.id, 'settings.updated');
-    expect(audits.map((a) => a.metadata)).toEqual([
+    // Sorted by size: two writes in one millisecond would otherwise come back in either order.
+    const metadata = audits.map((a) => a.metadata as { fields: string[] });
+    expect(metadata.sort((x, y) => y.fields.length - x.fields.length)).toEqual([
       {
         fields: [
           'accentColor',
@@ -220,7 +234,9 @@ describe('GET and PATCH /business/settings', () => {
       },
       { fields: ['portalName', 'website'] },
     ]);
-    expect(audits[0]?.actorUserId).toBe(people.adminA.id);
+    expect(audits.map((a) => a.actorUserId).sort()).toEqual(
+      [people.adminA.id, people.ownerA.id].sort(),
+    );
     expect(JSON.stringify(audits)).not.toContain('office@t02.test');
   });
 
@@ -294,6 +310,40 @@ describe('setup wizard', () => {
     expect((await setup('post', '/complete')).body).toEqual(finished);
     expect((await setup('put', '/steps/team')).body).toEqual(finished);
     expect(await auditRows(firms.pending.id, 'setup.finished')).toHaveLength(1);
+  });
+
+  it('saves at the same moment never fail: first steps, and Save Draft with Finish', async () => {
+    const race = (method: Method, path: string, body?: object) =>
+      call(method, path, people.ownerRace, firms.race.id, body);
+    // No settings row yet: four first saves at once must all land.
+    const steps = ['branding', 'businessDetails', 'team', 'clientPortal'];
+    const saved = await Promise.all(steps.map((step) => race('put', `/setup/steps/${step}`)));
+    expect(saved.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    expect((await race('get', '/setup')).body).toMatchObject({ completedSteps: steps });
+
+    for (const n of [1, 2, 3, 4, 5]) {
+      const results = await Promise.all([
+        race('patch', '/settings', { name: `Race firm ${n}`, portalName: `Portal ${n}` }),
+        race('post', '/setup/complete'),
+      ]);
+      expect(results.map((r) => r.status)).toEqual([200, 200]);
+    }
+    const after = FirmSettings.parse((await race('get', '/settings')).body);
+    expect([after.business.status, after.name]).toEqual(['ACTIVE', 'Race firm 5']);
+  });
+
+  it('a firm finished before reports every step; Finish activates it if still Pending', async () => {
+    const stuck = (method: Method, path: string) =>
+      call(method, path, people.ownerStuck, firms.stuck.id);
+    const before = FirmSetup.parse((await stuck('get', '/setup')).body);
+    expect(before).toEqual({
+      completedSteps: ['branding', 'businessDetails', 'team', 'clientPortal'],
+      completedAt: '2026-10-01T09:00:00.000Z',
+    });
+    expect((await stuck('post', '/setup/complete')).body).toEqual(before);
+    const settings = FirmSettings.parse((await stuck('get', '/settings')).body);
+    expect(settings.business.status).toBe('ACTIVE');
+    expect(await auditRows(firms.stuck.id, 'setup.finished')).toHaveLength(0);
   });
 
   it('is not open to staff or to another firm', async () => {
