@@ -25,6 +25,8 @@ info:
     - **Resend** sends a new activation link and the old one stops working; only for someone still
       `INVITED` (`409 NOT_INVITED`), and `429 RATE_LIMITED` when called too often. Links and
       tokens never appear in responses.
+    - **During setup:** every route also works while the firm is Pending Setup (the wizard's
+      "Team and access" step); R2's `POST /auth/invites` needs the same for that step to invite.
     - **Errors in order:** 403 for staff, 400 for bad input, 404 for an unknown member or one of
       another firm, then 403 (an Admin on an Owner or Admin) and 409.
     - **Writes:** from the app site only (`403 ORIGIN_NOT_ALLOWED`; see "Calling the API from
@@ -131,7 +133,7 @@ components:
       description: '`UNAUTHENTICATED`: not signed in'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Forbidden:
-      description: '`FORBIDDEN` (staff; an Admin on an Owner or Admin; an Admin changing a role), `BUSINESS_INACTIVE`, `BUSINESS_SETUP_REQUIRED` or `ORIGIN_NOT_ALLOWED`'
+      description: '`FORBIDDEN` (staff; an Admin on an Owner or Admin; an Admin changing a role), `BUSINESS_INACTIVE` (suspended or closed) or `ORIGIN_NOT_ALLOWED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no active membership in that firm, or no such member in it'

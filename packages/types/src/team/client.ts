@@ -5,7 +5,8 @@ const BASE = '/business/team';
 const one = (id: string) => `${BASE}/${parseInput(TeamMemberId, id)}`;
 
 /**
- * `api.team` (apps/web/src/lib/api.ts): the firm's team for Owner and Admin (403 for staff).
+ * `api.team` (apps/web/src/lib/api.ts): the firm's team for Owner and Admin (403 for staff),
+ * also while the firm is Pending Setup (the setup wizard's Team and access step).
  * Invite with `staffAuth.createInvite` (R2), then reload the list. Bad input rejects with
  * ApiRequestError(400, 'VALIDATION_FAILED') before anything is sent.
  */
