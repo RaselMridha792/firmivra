@@ -26,7 +26,7 @@ import {
   SessionService,
 } from '../../src/auth/session.service.js';
 import { AdminSignInController, StaffSignInController } from '../../src/auth/sign-in.controller.js';
-import { otpauthUri } from '../../src/auth/sign-in.service.js';
+import { otpauthUri, SignInService } from '../../src/auth/sign-in.service.js';
 import { siteOf } from '../../src/auth/site.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -619,5 +619,44 @@ describe('SessionService.refresh (#23 review)', () => {
     expect(identity.revoke).toHaveBeenCalledWith('STAFF', 'ref-1');
     expect(identity.refresh).not.toHaveBeenCalled();
     expect(cookies['fv_refresh']).toEqual({ value: '' });
+  });
+});
+
+describe('SignInService: MFA is never skipped for staff and Super Admins (#16 item 7)', () => {
+  const env = loadEnv({
+    NODE_ENV: 'test',
+    AUTH_MODE: 'local',
+    LOCAL_AUTH_SECRET: 'unit-test-secret-unit-test-secret-1234',
+    DATABASE_URL_APP: 'postgresql://unused',
+    APP_BASE_URL: 'http://app.localhost:3000',
+    PORTAL_BASE_URL: 'http://portal.localhost:3000',
+    ADMIN_BASE_URL: 'http://admin.localhost:3000',
+  });
+
+  it.each(['firm', 'admin'] as const)('refuses tokens without MFA on the %s site', async (site) => {
+    const user = { id: 'u1', cognitoSub: 'sub-1' };
+    const db = {
+      forPlatform: () => ({
+        user: { findMany: vi.fn().mockResolvedValue([user]) },
+        platformAdmin: { findUnique: vi.fn().mockResolvedValue({ userId: 'u1' }) },
+      }),
+    } as unknown as Database;
+    const identity = {
+      signIn: vi.fn().mockResolvedValue({
+        kind: 'tokens',
+        username: 'cognito-user-1',
+        tokens: { accessToken: 'acc', refreshToken: 'ref', expiresIn: 900 },
+      }),
+      revoke: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new SignInService(
+      db,
+      identity as never,
+      ChallengeSessions.fromEnv(env),
+      { log: vi.fn() } as never,
+      env,
+    );
+    await expect(service.signIn(site, 'owner@lvp.test', 'pw')).rejects.toThrow(/skipped MFA/);
+    expect(identity.revoke).toHaveBeenCalledWith(site === 'admin' ? 'ADMIN' : 'STAFF', 'ref');
   });
 });
