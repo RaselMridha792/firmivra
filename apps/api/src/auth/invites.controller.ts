@@ -15,7 +15,14 @@ import {
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { MeService } from '../me/me.service.js';
-import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Public, Roles } from './decorators.js';
+import {
+  AllowBusinessStatuses,
+  CurrentAuth,
+  CurrentTenant,
+  FIRM_MANAGERS,
+  Public,
+  Roles,
+} from './decorators.js';
 import { InvitesService } from './invites.service.js';
 import { SessionService } from './session.service.js';
 import { SignInService } from './sign-in.service.js';
@@ -34,8 +41,10 @@ export class InvitesController {
     private readonly me: MeService,
   ) {}
 
+  /** Also while the firm is in setup: the setup wizard's "Team and access" step (T03). */
   @Post('invites')
   @Roles(...FIRM_MANAGERS)
+  @AllowBusinessStatuses('PENDING_SETUP', 'ACTIVE')
   @Throttle(INVITES)
   async create(
     @Body(new ZodValidationPipe(CreateInviteRequest)) body: z.output<typeof CreateInviteRequest>,

@@ -80,4 +80,6 @@ export interface IdentityProvider {
   setPassword(pool: IdentityPool, sub: string, password: string): Promise<void>;
   /** Whether the login has a password, i.e. the person can already sign in. */
   hasPassword(pool: IdentityPool, sub: string): Promise<boolean>;
+  /** Disables the login: it can no longer sign in, and its tokens stop working. */
+  disableUser(pool: IdentityPool, sub: string): Promise<void>;
 }
