@@ -3,6 +3,7 @@ export {
   ApiRequestError,
   createApiClient,
   createRequest,
+  parseInput,
   type ApiClient,
   type ApiClientOptions,
   type ApiRequest,

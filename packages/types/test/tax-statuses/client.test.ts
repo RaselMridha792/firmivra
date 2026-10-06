@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ApiRequestError, createRequest, createTaxStatusesClient } from '../../src/index.js';
+import {
+  ApiRequestError,
+  createRequest,
+  createTaxStatusesClient,
+  parseInput,
+  TaxStatusName,
+} from '../../src/index.js';
 
 function fakeFetch(status: number, body: unknown) {
   const calls: { url: string; init: RequestInit }[] = [];
@@ -27,6 +33,25 @@ const row = {
 };
 const client = (fn: typeof fetch) =>
   createTaxStatusesClient(createRequest({ baseUrl: '/api/v1', fetch: fn }));
+
+describe('parseInput', () => {
+  it('returns the parsed value, or throws ApiRequestError 400 with the first message', () => {
+    expect(parseInput(TaxStatusName, '  Filed ')).toBe('Filed');
+    const error = (() => {
+      try {
+        parseInput(TaxStatusName, '');
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect(error).toMatchObject({
+      status: 400,
+      code: 'VALIDATION_FAILED',
+      message: 'Enter a name',
+    });
+  });
+});
 
 describe('api.taxStatuses', () => {
   it('lists active statuses, or all with includeArchived, and returns the rows', async () => {
@@ -60,11 +85,30 @@ describe('api.taxStatuses', () => {
     expect(bodyOf(list.calls[0]?.init)).toEqual({ ids: [id] });
   });
 
-  it('rejects bad input before any request', async () => {
+  it('rejects bad input before any request, with the same error as the API', async () => {
     const { fn, calls } = fakeFetch(200, row);
-    await expect(client(fn).create({ name: '   ' })).rejects.toThrow();
-    await expect(client(fn).reorder([id, id])).rejects.toThrow();
+    for (const attempt of [
+      client(fn).create({ name: '   ' }),
+      client(fn).rename(id, { name: 'x'.repeat(121) }),
+      client(fn).reorder([id, id]),
+      client(fn).reorder(['not-an-id']),
+    ]) {
+      const error = await attempt.catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ApiRequestError);
+      expect((error as ApiRequestError).status).toBe(400);
+      expect((error as ApiRequestError).code).toBe('VALIDATION_FAILED');
+    }
     expect(calls).toHaveLength(0);
+  });
+
+  it('sends the cleaned rename body and encodes the id in the path', async () => {
+    const { fn, calls } = fakeFetch(200, row);
+    await client(fn).rename(id, { name: '  In review  ' });
+    expect(bodyOf(calls[0]?.init)).toEqual({ name: 'In review' });
+    await client(fn)
+      .archive('a/b?c')
+      .catch(() => undefined);
+    expect(calls[1]?.url).toBe('/api/v1/business/tax-statuses/a%2Fb%3Fc/archive');
   });
 
   it('turns API errors into ApiRequestError with the code', async () => {

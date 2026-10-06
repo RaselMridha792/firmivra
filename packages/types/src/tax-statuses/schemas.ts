@@ -5,7 +5,14 @@ import { z } from 'zod';
 // API: /api/v1/business/tax-statuses (lead's T04, from Tumit's design).
 
 /** 1 to 120 characters after trimming. Unique within the firm, ignoring case (archived ones too). */
-export const TaxStatusName = z.string().trim().min(1, 'Enter a name').max(120);
+export const TaxStatusName = z
+  .string()
+  .trim()
+  .min(1, 'Enter a name')
+  .max(120, 'Use at most 120 characters');
+
+/** A status id in a path: anything else gets 400 VALIDATION_FAILED. */
+export const TaxStatusId = z.uuid();
 
 export const TaxStatus = z.strictObject({
   id: z.uuid(),
@@ -28,7 +35,7 @@ export const ListTaxStatusesQuery = z.strictObject({
     .optional()
     .default(false),
 });
-export type ListTaxStatusesQuery = z.input<typeof ListTaxStatusesQuery>;
+export type ListTaxStatusesQuery = { includeArchived?: boolean };
 
 /** The list and the result of a reorder, in display order (at most 500 per firm). */
 export const ListTaxStatusesResponse = z.strictObject({
@@ -47,7 +54,7 @@ export type RenameTaxStatusRequest = z.input<typeof RenameTaxStatusRequest>;
 /** PUT /order: every active status's id exactly once, in the new order. */
 export const OrderTaxStatusesRequest = z.strictObject({
   ids: z
-    .array(z.uuid())
+    .array(TaxStatusId)
     .min(1)
     .max(500)
     .refine((ids) => new Set(ids).size === ids.length, 'Each status only once'),

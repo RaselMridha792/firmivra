@@ -22,6 +22,20 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * Checks a client function's input before anything is sent. Bad input throws the same
+ * ApiRequestError(400, 'VALIDATION_FAILED') the API would send, so screens handle one error type
+ * (and mocks, which use this too, fail the same way).
+ */
+export function parseInput<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    const message = result.error.issues[0]?.message ?? 'The request is not valid';
+    throw new ApiRequestError(400, 'VALIDATION_FAILED', message);
+  }
+  return result.data;
+}
+
 export interface ApiClientOptions {
   /** For example '/api/v1' in the browser (same origin) or 'http://localhost:4000/api/v1' on the server. */
   baseUrl: string;
