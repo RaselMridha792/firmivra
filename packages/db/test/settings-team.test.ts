@@ -100,6 +100,22 @@ describe('business settings and tax statuses', () => {
         .taxStatus.create({ data: { businessId: ids.firmB, name: 'Filed' } }),
     ).resolves.toMatchObject({ name: 'Filed' });
   });
+
+  it('keeps the setup wizard portal text short (name, header, welcome)', async () => {
+    const save = (data: object) =>
+      firmA().businessSettings.update({ where: { businessId: ids.firmA }, data });
+    for (const data of [
+      { portalName: ' ' },
+      { portalName: 'x'.repeat(121) },
+      { portalHeader: 'x'.repeat(201) },
+      { welcomeMessage: 'x'.repeat(2001) },
+    ]) {
+      await expect(save(data)).rejects.toThrow(/check constraint/i);
+    }
+    await expect(
+      save({ portalName: 'LVP Client Portal', welcomeMessage: 'Welcome!' }),
+    ).resolves.toMatchObject({ portalName: 'LVP Client Portal' });
+  });
 });
 
 describe('firm Terms and Privacy', () => {

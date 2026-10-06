@@ -427,6 +427,10 @@ model BusinessSettings {
   /// Module keys switched on for this firm (docs/SYSTEM-DESIGN.md, Modules & packs).
   enabledModules      String[]  @default([]) @map("enabled_modules")
   clientSignUpEnabled Boolean   @default(true) @map("client_sign_up_enabled")
+  /// Setup wizard, client portal step: the portal's name (null: the firm's name), header and welcome text.
+  portalName          String?   @map("portal_name")
+  portalHeader        String?   @map("portal_header")
+  welcomeMessage      String?   @map("welcome_message")
   /// Setup wizard steps done so far, e.g. { "profile": true }.
   setupProgress       Json      @default("{}") @map("setup_progress")
   setupCompletedAt    DateTime? @map("setup_completed_at") @db.Timestamptz(3)
@@ -1041,6 +1045,9 @@ model Notification {
   entityType      String               @map("entity_type")
   entityId        String               @map("entity_id") @db.Uuid
   payload         Json                 @default("{}")
+  /// The producer's stable key, so a retried job never creates a second bell item (unique per
+  /// recipient when set).
+  eventKey        String?              @map("event_key")
   readAt          DateTime?            @map("read_at") @db.Timestamptz(3)
   createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -1048,6 +1055,7 @@ model Notification {
   deliveries NotificationDelivery[]
 
   @@unique([businessId, id])
+  @@unique([businessId, recipientUserId, eventKey])
   @@index([businessId, recipientUserId, createdAt])
   @@map("notifications")
 }
