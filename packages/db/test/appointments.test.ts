@@ -201,6 +201,19 @@ describe('appointment lifecycle', () => {
     ).rejects.toThrow(/kept by the database/);
   });
 
+  it('a reschedule clears reminder_sent_at so the new time gets its own reminder', async () => {
+    const day = freshDay();
+    const a = await book(day, '15:00', '15:30');
+    const update = (data: object) => firmA().appointment.update({ where: { id: a.id }, data });
+    await update({ reminderSentAt: new Date() });
+    await expect(update({ locationDetails: 'New link' })).resolves.toMatchObject({
+      reminderSentAt: expect.any(Date),
+    });
+    await expect(
+      update({ startsAt: at(day, '16:00'), endsAt: at(day, '16:30') }),
+    ).resolves.toMatchObject({ reminderSentAt: null, rescheduleCount: 1 });
+  });
+
   it('cancelled is final, needs cancelled_at, and nothing is deleted', async () => {
     const day = freshDay();
     const a = await book(day, '15:00', '15:30');
