@@ -1,12 +1,23 @@
+'use client';
+
 import { type InputHTMLAttributes, useId } from 'react';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   error?: string;
+  hint?: string;
 }
 
 /** A labelled text input. The label is always visible (WCAG 2.1 AA, docs/PROJECT-DRAFT-v2.md). */
-export function Input({ label, error, id, className = '', ...props }: InputProps) {
+export function Input({
+  label,
+  error,
+  hint,
+  id,
+  className = '',
+  'aria-describedby': describedBy,
+  ...props
+}: InputProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const errorId = `${inputId}-error`;
@@ -18,10 +29,19 @@ export function Input({ label, error, id, className = '', ...props }: InputProps
       <input
         id={inputId}
         aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
-        className={`rounded-control border bg-surface px-3 py-2 text-base text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500 ${error ? 'border-danger' : 'border-border'} ${className}`}
+        aria-describedby={
+          [describedBy, error ? errorId : '', hint ? `${inputId}-hint` : '']
+            .filter(Boolean)
+            .join(' ') || undefined
+        }
+        className={`min-w-0 rounded-control border bg-surface px-3 py-2 text-base text-text placeholder:text-muted disabled:bg-disabled focus:outline-2 focus:outline-focus ${error ? 'border-danger' : 'border-control-border'} ${className}`}
         {...props}
       />
+      {hint ? (
+        <p id={`${inputId}-hint`} className="text-sm text-muted">
+          {hint}
+        </p>
+      ) : null}
       {error ? (
         <p id={errorId} className="text-xs text-danger">
           {error}

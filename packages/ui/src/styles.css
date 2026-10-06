@@ -1,48 +1,57 @@
-/*
- * Firmivra design tokens: the single source of colours, type, spacing, radius and shadow.
- * Tailwind 4 turns each token into a CSS variable and a utility (bg-brand-700, rounded-card, ...).
- *
- * TODO(Fahad, FIR-S0-F1): the values below are placeholders. Extract the real ones from
- * docs/mockups (Firmivra screens: navy, blue and teal) and replace them here only.
- * Firm branding on client pages overrides --color-firm-* at runtime.
- */
-@theme {
-  /* Firmivra brand (placeholder navy) */
-  --color-brand-50: #eef3fa;
-  --color-brand-100: #d6e2f2;
-  --color-brand-500: #2f5f9e;
-  --color-brand-600: #244c82;
-  --color-brand-700: #1b3a66;
-  --color-brand-900: #0f2140;
+@import './tokens.css';
+@import './mockup.css';
 
-  /* Accent (placeholder teal) */
-  --color-accent-500: #14a3a3;
-  --color-accent-600: #0f8787;
-
-  /* Firm colours on client pages; set per firm from its branding settings */
-  --color-firm-primary: var(--color-brand-700);
-  --color-firm-accent: var(--color-accent-500);
-
-  /* Neutrals and status */
-  --color-surface: #ffffff;
-  --color-canvas: #f6f8fb;
-  --color-border: #d9e0ea;
-  --color-text: #1a2433;
-  --color-muted: #5b6b80;
-  --color-danger: #c0392b;
-  --color-success: #1e8e5a;
-
-  /* Type */
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.375rem;
-  --text-2xl: 1.75rem;
-
-  /* Shape */
-  --radius-control: 0.5rem;
-  --radius-card: 0.875rem;
-  --shadow-card: 0 1px 2px rgb(15 33 64 / 0.06), 0 4px 16px rgb(15 33 64 / 0.06);
+@layer base {
+  :focus-visible {
+    outline: var(--container-focus) solid var(--color-focus);
+    outline-offset: var(--container-focus);
+  }
+  button:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+  input,
+  select,
+  textarea {
+    min-height: var(--container-control);
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    min-height: auto;
+    accent-color: var(--color-action);
+  }
+  dialog::backdrop {
+    background: var(--color-overlay);
+  }
+}
+@layer components {
+  .ui-sidebar {
+    width: var(--container-sidebar);
+  }
+  .ui-header {
+    min-height: var(--container-header);
+  }
+  .ui-dialog {
+    width: min(calc(100% - var(--space-8)), var(--container-modal));
+    max-height: calc(100% - var(--space-8));
+  }
+  .ui-auth {
+    max-width: var(--container-auth);
+  }
+  .ui-content {
+    max-width: var(--container-content);
+  }
+  .ui-calendar {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+  .ui-skeleton {
+    background: var(--color-disabled);
+  }
+  .ui-nav-active {
+    background: var(--color-navigation-hover);
+    box-shadow: inset var(--space-1) 0 var(--color-accent);
+  }
+  .ui-login-art {
+    background: linear-gradient(135deg, var(--color-navigation), var(--color-navigation-hover));
+  }
 }

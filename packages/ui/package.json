@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "tokens": "node scripts/tokens.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "storybook": "storybook dev -p 6006 --no-open",
@@ -26,6 +27,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./tokens": "./src/tokens.ts",
     "./styles.css": "./src/styles.css"
   },
   "sideEffects": [
