@@ -1,0 +1,496 @@
+openapi: 3.0.3
+info:
+  title: Firmivra notification center API
+  version: 0.1.0
+  description: 'T01 proposed contract for T06. Not implemented or frontend-approved. Creation is an
+    internal scoped service call, not a public HTTP endpoint. Proposed internal create: verified
+    business context, recipientUserId, category, eventKey, title, message and optional typed entity
+    target. Delegate sending to R6 NotifyService.'
+servers:
+  - url: /api/v1
+security:
+  - FirmCookie: []
+paths:
+  /business/notifications:
+    parameters: &a1
+      - &a11
+        $ref: ./common.yaml#/parameters/Business
+    get:
+      operationId: listFirmNotifications
+      summary: Page current user notification history
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content.
+      x-roles: &a2
+        - OWNER
+        - ADMIN
+        - STAFF
+      parameters:
+        - &a12
+          $ref: ./common.yaml#/parameters/Cursor
+        - &a13
+          $ref: ./common.yaml#/parameters/Limit
+        - name: read
+          in: query
+          required: false
+          schema: &a14
+            type: boolean
+        - name: category
+          in: query
+          required: false
+          schema: &a15
+            type: string
+            enum:
+              - APPOINTMENT
+              - DOCUMENT
+              - SERVICE
+              - BILLING
+              - SECURITY
+              - LEGAL
+              - MARKETING
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        '400': &a3
+          $ref: ./common.yaml#/responses/BadRequest
+        '401': &a4
+          $ref: ./common.yaml#/responses/Unauthenticated
+        '403': &a5
+          $ref: ./common.yaml#/responses/Forbidden
+        '404': &a6
+          $ref: ./common.yaml#/responses/NotFound
+        '409': &a7
+          $ref: ./common.yaml#/responses/Conflict
+        '422': &a8
+          $ref: ./common.yaml#/responses/Unprocessable
+        '429': &a9
+          $ref: ./common.yaml#/responses/RateLimited
+        '500': &a10
+          $ref: ./common.yaml#/responses/InternalError
+  /business/notifications/unread-count:
+    parameters: *a1
+    get:
+      operationId: countFirmUnreadNotifications
+      summary: Count current user unread notifications
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content.
+      x-roles: *a2
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - count
+                properties:
+                  count:
+                    type: integer
+                    minimum: 0
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+  /business/notifications/{id}/read:
+    parameters:
+      - *a11
+      - name: id
+        in: path
+        required: true
+        schema: &a19
+          type: string
+          format: uuid
+    post:
+      operationId: readFirmNotification
+      summary: Mark one own notification read idempotently
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content.
+      x-roles: *a2
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+  /business/notification-preferences:
+    parameters: *a1
+    get:
+      operationId: getFirmNotificationPreferences
+      summary: Read preferences and supported channel policy
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content.
+      x-roles: *a2
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceResponse'
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+    put:
+      operationId: saveFirmNotificationPreferences
+      summary: Replace supplied category preferences for current user
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content. Reject duplicate categories or unavailable
+        channels. Preferences never override consent/opt-outs or mandatory security/legal/billing
+        notices; R6 publishes that policy. Other categories retained. No sender/provider API here.
+      x-roles: *a2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - preferences
+              properties:
+                preferences:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Preference'
+                  maxItems: 7
+                  minItems: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceResponse'
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+  /portal/{slug}/notifications:
+    parameters: &a16
+      - &a18
+        $ref: ./common.yaml#/parameters/Slug
+    get:
+      operationId: listPortalNotifications
+      summary: Page current user notification history
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content.
+      x-roles: &a17
+        - CLIENT
+      parameters:
+        - *a12
+        - *a13
+        - name: read
+          in: query
+          required: false
+          schema: *a14
+        - name: category
+          in: query
+          required: false
+          schema: *a15
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                    maxItems: 100
+                  nextCursor:
+                    type: string
+                    maxLength: 500
+                    nullable: true
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+  /portal/{slug}/notifications/unread-count:
+    parameters: *a16
+    get:
+      operationId: countPortalUnreadNotifications
+      summary: Count current user unread notifications
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content.
+      x-roles: *a17
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - count
+                properties:
+                  count:
+                    type: integer
+                    minimum: 0
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+  /portal/{slug}/notifications/{id}/read:
+    parameters:
+      - *a18
+      - name: id
+        in: path
+        required: true
+        schema: *a19
+    post:
+      operationId: readPortalNotification
+      summary: Mark one own notification read idempotently
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content.
+      x-roles: *a17
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+  /portal/{slug}/notification-preferences:
+    parameters: *a16
+    get:
+      operationId: getPortalNotificationPreferences
+      summary: Read preferences and supported channel policy
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content.
+      x-roles: *a17
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceResponse'
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+    put:
+      operationId: savePortalNotificationPreferences
+      summary: Replace supplied category preferences for current user
+      description: Current authenticated recipient only, inside verified firm. Never accept
+        userId/clientId in body/query. Target returned only if recipient may still view it;
+        inaccessible target=null, no foreign details. Generic notification text only. Audit
+        read/mark actions without message content. Reject duplicate categories or unavailable
+        channels. Preferences never override consent/opt-outs or mandatory security/legal/billing
+        notices; R6 publishes that policy. Other categories retained. No sender/provider API here.
+      x-roles: *a17
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - preferences
+              properties:
+                preferences:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Preference'
+                  maxItems: 7
+                  minItems: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceResponse'
+        '400': *a3
+        '401': *a4
+        '403': *a5
+        '404': *a6
+        '409': *a7
+        '422': *a8
+        '429': *a9
+        '500': *a10
+components:
+  securitySchemes:
+    FirmCookie:
+      type: apiKey
+      in: cookie
+      name: fv_access
+    AdminCookie:
+      type: apiKey
+      in: cookie
+      name: fv_admin_access
+  schemas:
+    Notification:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - category
+        - title
+        - message
+        - target
+        - readAt
+        - createdAt
+      properties:
+        id: *a19
+        category: *a15
+        title:
+          type: string
+          maxLength: 160
+          minLength: 1
+        message:
+          type: string
+          maxLength: 1000
+          minLength: 1
+        target:
+          type: object
+          additionalProperties: false
+          required:
+            - entityType
+            - entityId
+          properties:
+            entityType:
+              type: string
+              enum:
+                - appointment
+                - document
+                - engagement
+                - invoice
+                - externalLink
+            entityId: *a19
+          nullable: true
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    Preference:
+      type: object
+      additionalProperties: false
+      required:
+        - category
+        - inApp
+        - email
+        - sms
+      properties:
+        category: *a15
+        inApp: *a14
+        email: *a14
+        sms: *a14
+    PreferenceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - preferences
+        - supportedChannels
+        - mandatoryCategories
+      properties:
+        preferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/Preference'
+          maxItems: 7
+        supportedChannels:
+          type: array
+          items:
+            type: string
+            enum:
+              - IN_APP
+              - EMAIL
+              - SMS
+          maxItems: 3
+        mandatoryCategories:
+          type: array
+          items: *a15
+          maxItems: 7
+          description: Rasel-owned policy; not writable.
