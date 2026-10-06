@@ -146,6 +146,11 @@ export const ClientSignUp = z.object({
   signedUpAt: z.iso.datetime({ offset: true }),
   declinedAt: z.iso.datetime({ offset: true }).nullable(),
   declineReason: z.string().nullable(),
+  /**
+   * A client record of this firm with the same email, if there is one (added by staff, or from
+   * Begin Online): approve can link to it (`clientId`) instead of creating a duplicate.
+   */
+  existingClient: z.object({ clientId: z.uuid(), displayName: z.string() }).nullable(),
 });
 export type ClientSignUp = z.infer<typeof ClientSignUp>;
 
@@ -156,10 +161,18 @@ export const ClientSignUpList = z.object({
 });
 export type ClientSignUpList = z.infer<typeof ClientSignUpList>;
 
-/** POST /client-sign-ups/{clientAccountId}/approve: the client can use the portal. */
+/**
+ * POST /client-sign-ups/{clientAccountId}/approve. Without `clientId` it creates the firm's client
+ * record from the sign-up; with it, it links the login to that existing record of this firm
+ * (404 if the firm has no such client).
+ */
+export const ApproveSignUpRequest = z.object({ clientId: z.uuid().optional() });
+export type ApproveSignUpRequest = z.input<typeof ApproveSignUpRequest>;
+
+/** The client can use the portal. */
 export const ApproveSignUpResponse = z.object({
   clientAccountId: z.uuid(),
-  /** The firm's client record created for this person. */
+  /** The firm's client record: the one created, or the existing one it was linked to. */
   clientId: z.uuid(),
   status: ClientAccountStatus.extract(['ACTIVE']),
   approvedAt: z.iso.datetime({ offset: true }),
