@@ -2,9 +2,9 @@ openapi: 3.0.3
 info:
   title: Firmivra external links API
   version: 0.1.0
-  description: T01 proposed contract for T08. Not implemented or frontend-approved. Data-driven
-    directory from FirmVora_External_Links_Directions.docx. New ExternalLink table requested; no
-    global mixed-tenant links.
+  description: 'T08 implementation: owner/admin per-firm link configuration, approved HTTPS domains
+    and business-client portal projection. New table contract tested using isolated fixtures;
+    production schema/domain approvals remain owner-managed dependencies.'
 servers:
   - url: /api/v1
 security:
@@ -53,6 +53,8 @@ paths:
           $ref: ./common.yaml#/responses/RateLimited
         '500': &a9
           $ref: ./common.yaml#/responses/InternalError
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     post:
       operationId: createFirmExternalLink
       summary: Create approved HTTPS resource configuration
@@ -82,6 +84,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/external-links/{id}:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -119,6 +123,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/external-links:
     parameters:
       - $ref: ./common.yaml#/parameters/Slug
@@ -156,6 +162,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
 components:
   securitySchemes:
     FirmCookie:
