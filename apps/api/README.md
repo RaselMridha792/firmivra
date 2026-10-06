@@ -26,13 +26,13 @@ The response also sets that site's HttpOnly access cookie (`fv_admin_access` for
 2. `crossSiteGuard`: POST, PUT, PATCH and DELETE need a JSON body (415 `UNSUPPORTED_MEDIA_TYPE`) and, from a browser, an `Origin` of the route's own site, from `ADMIN_BASE_URL` for `/api/v1/admin/*` and `APP_BASE_URL` or `PORTAL_BASE_URL` otherwise (403 `ORIGIN_NOT_ALLOWED`). No CORS: each site calls the API on its own host.
 3. `ThrottlerGuard`: rate limit (300 a minute per viewer IP; stricter on sensitive routes). Behind CloudFront and the ALB the viewer IP is the second address from the right in `X-Forwarded-For` (`trust proxy` 2).
 4. `AuthGuard`: token from the site's access cookie or `Authorization: Bearer`, verified (Cognito, or the local key), user loaded by Cognito `sub`. Skipped for `@Public()`.
-5. `TenantGuard`: for routes with a firm role, finds the firm (`:slug` route param, else `x-business-id` header, else the caller's only firm) and the caller's role from `Membership` or `ClientAccount`. No link to the firm: **404**. Several firms and no header: 400 `BUSINESS_REQUIRED`. Firm not `ACTIVE`: 403 `BUSINESS_SETUP_REQUIRED` (still in setup) or `BUSINESS_INACTIVE` (suspended or closed), unless the route allows that status.
+5. `TenantGuard`: for routes with a firm role, finds the firm (on `portal/:firmSlug/...` routes the `:firmSlug` param and nothing else; elsewhere the `x-business-id` header, else the caller's only firm) and the caller's role from `Membership` or `ClientAccount`. For clients the context also holds their own `clientAccountId`: portal routes take the client from it, never from the URL. No link to the firm: **404**. Several firms and no header: 400 `BUSINESS_REQUIRED`. Firm not `ACTIVE`: 403 `BUSINESS_SETUP_REQUIRED` (still in setup) or `BUSINESS_INACTIVE` (suspended or closed), unless the route allows that status.
 6. `RolesGuard`: **default deny**. Every non-public route needs `@Roles(...)`. Wrong role: **403**.
 
 ### Two sites, two kinds of session
 
 - Routes under `/api/v1/admin/` belong to the Super Admin site: they read only the `fv_admin_*` cookies and accept only Super Admins. Every other route reads only the `fv_*` cookies and never accepts a Super Admin session, not even as a Bearer token.
-- So `@Roles('SUPER_ADMIN')` goes only on routes under `admin/`, and firm roles never do. The API refuses to start otherwise and names the route.
+- So `@Roles('SUPER_ADMIN')` goes only on routes under `admin/`, and firm roles and `'AUTHENTICATED'` never do (`AUTHENTICATED` would let a removed Super Admin in until their token expires). A route never has both `@Public()` and `@Roles()`: `@Public()` would win, also from the class. The API refuses to start otherwise and names the route.
 - Roles always come from the database on every request (no cache): removing someone from a firm takes effect at once.
 
 Errors always look like `{ "error": { "code", "message", "requestId", "details?" } }`.
@@ -76,7 +76,7 @@ export class ClientsController {
 }
 ```
 
-- Roles: `FIRM_STAFF` (owner, admin, staff), `FIRM_MANAGERS` (owner, admin), `'CLIENT'` on portal routes (`:slug`), `'SUPER_ADMIN'` on `admin/` routes, `'AUTHENTICATED'` for anyone signed in.
+- Roles: `FIRM_STAFF` (owner, admin, staff), `FIRM_MANAGERS` (owner, admin), `'CLIENT'` on portal routes (`portal/:firmSlug/...`), `'SUPER_ADMIN'` on `admin/` routes, `'AUTHENTICATED'` for anyone signed in.
 - Firm status: firm routes work only for `ACTIVE` firms. A route a firm needs before that (the setup wizard after approval) says so: `@AllowBusinessStatuses('PENDING_SETUP', 'ACTIVE')`.
 - Database: `TenantPrisma.db` for firm data (never `businessId` from the body or query). Super Admin routes use `PlatformPrisma.db` for platform tables; it throws unless `RolesGuard` verified a Super Admin for this request. `@Inject(DATABASE)` with `forPlatform()` is for the auth guards and sign-in only; Rasel reviews any other use.
 - Request bodies: a zod schema in `packages/types` and `@Body(new ZodValidationPipe(Schema))`.

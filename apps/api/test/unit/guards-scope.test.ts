@@ -29,7 +29,7 @@ describe('routeSiteProblems', () => {
   @Controller('admin/firms')
   class AdminRoutes {
     @Get() @Roles('SUPER_ADMIN') list() {}
-    @Get('me') @Roles('AUTHENTICATED') me() {}
+    @Get('me') @Roles('SUPER_ADMIN') me() {}
     @Get('mixed') @Roles('OWNER') firmRoleOnAdmin() {}
   }
 
@@ -179,5 +179,104 @@ describe('PlatformPrisma', () => {
     requestContext.run({ requestId: 'r2', platform: { role: 'SUPER_ADMIN' } }, () =>
       expect(platform.db).toBe(platformClient),
     );
+  });
+});
+
+describe('routeSiteProblems (#25 review)', () => {
+  @Controller('admin/reports')
+  class AdminAuthenticated {
+    @Get() @Roles('AUTHENTICATED') list() {}
+  }
+
+  @Controller('things')
+  @Public()
+  class PublicClassWithRoles {
+    @Get() @Roles(...FIRM_STAFF) list() {}
+  }
+
+  @Controller('others')
+  @Roles(...FIRM_STAFF)
+  class RolesClassWithPublicHandler {
+    @Get('open') @Public() open() {}
+  }
+
+  it('refuses AUTHENTICATED on Super Admin routes and routes with both @Public and @Roles', () => {
+    expect(
+      routeSiteProblems(
+        [AdminAuthenticated, PublicClassWithRoles, RolesClassWithPublicHandler],
+        reflector,
+        new MetadataScanner(),
+      ),
+    ).toEqual([
+      'AdminAuthenticated.list (/admin/reports): AUTHENTICATED on a Super Admin route (use SUPER_ADMIN)',
+      'PublicClassWithRoles.list (/things): both @Public() and @Roles()',
+      'RolesClassWithPublicHandler.open (/others/open): both @Public() and @Roles()',
+    ]);
+  });
+});
+
+describe('TenantGuard: firm from the portal slug only, client account in the context (#25)', () => {
+  class Routes {
+    @Roles('CLIENT') portal() {}
+    @Roles(...FIRM_STAFF) staffWithSlug() {}
+  }
+  const OTHER_FIRM = '0190a000-0000-7000-8000-000000000002';
+  const client = { userId: 'c1', cognitoSub: 'sc', pool: 'CLIENT' };
+
+  function guardWith(findBusiness: ReturnType<typeof vi.fn>) {
+    const db = {
+      forPlatform: () => ({ business: { findUnique: findBusiness } }),
+      forBusiness: () => ({
+        clientAccount: { findFirst: vi.fn().mockResolvedValue({ id: 'client-account-1' }) },
+        membership: { findFirst: vi.fn().mockResolvedValue({ role: 'STAFF' }) },
+      }),
+      forUser: () => ({
+        membership: { findMany: vi.fn().mockResolvedValue([{ businessId: FIRM }]) },
+      }),
+    } as unknown as Database;
+    return new TenantGuard(reflector, db);
+  }
+
+  function ctxFor(method: keyof Routes, req: Record<string, unknown>): ExecutionContext {
+    const request = Object.assign(req, { get: () => undefined });
+    return {
+      getHandler: () => Routes.prototype[method],
+      getClass: () => Routes,
+      switchToHttp: () => ({ getRequest: () => request }),
+    } as unknown as ExecutionContext;
+  }
+
+  it('puts the client account id from the database into the context', async () => {
+    const find = vi.fn(({ where }: { where: { slug?: string } }) =>
+      Promise.resolve(where.slug ? { id: FIRM } : { id: FIRM, status: 'ACTIVE' }),
+    );
+    const req: Record<string, unknown> = {
+      auth: client,
+      path: '/api/v1/portal/LVP/documents',
+      params: { firmSlug: 'LVP' },
+    };
+    await expect(guardWith(find).canActivate(ctxFor('portal', req))).resolves.toBe(true);
+    expect(find).toHaveBeenCalledWith(expect.objectContaining({ where: { slug: 'lvp' } }));
+    expect(req['tenant']).toEqual({
+      businessId: FIRM,
+      role: 'CLIENT',
+      kind: 'client',
+      clientAccountId: 'client-account-1',
+    });
+  });
+
+  it('never lets a :slug param on a staff route choose the firm', async () => {
+    const find = vi.fn().mockResolvedValue({ id: FIRM, status: 'ACTIVE' });
+    const req: Record<string, unknown> = {
+      auth: { userId: 's1', cognitoSub: 'ss', pool: 'STAFF' },
+      path: '/api/v1/things/other-firm',
+      params: { slug: 'other-firm', firmSlug: 'other-firm' },
+    };
+    await expect(guardWith(find).canActivate(ctxFor('staffWithSlug', req))).resolves.toBe(true);
+    expect(find).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: { slug: expect.anything() } }),
+    );
+    expect((req['tenant'] as { businessId: string }).businessId).toBe(FIRM);
+    expect(OTHER_FIRM).not.toBe(FIRM);
   });
 });

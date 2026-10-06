@@ -44,11 +44,27 @@ class FirmProbe {
     return tenant;
   }
 
+  /** A staff route with a `:slug` of its own: it must never choose the firm. */
+  @Get('by-slug/:slug')
+  @Roles(...FIRM_STAFF)
+  bySlug(@CurrentTenant() tenant: TenantContext) {
+    return tenant;
+  }
+
   /** A firm route reaching for platform tables: PlatformPrisma must refuse. */
   @Get('platform-misuse')
   @Roles(...FIRM_STAFF)
   async misuse() {
     return { businesses: await this.platform.db.business.count() };
+  }
+}
+
+@Controller('portal/:firmSlug/probe')
+class PortalProbe {
+  @Get()
+  @Roles('CLIENT')
+  get(@CurrentTenant() tenant: TenantContext) {
+    return tenant;
   }
 }
 
@@ -150,7 +166,7 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  app = await createApp([FirmProbe, AdminProbe]);
+  app = await createApp([FirmProbe, AdminProbe, PortalProbe]);
 });
 
 afterAll(async () => {
@@ -202,6 +218,36 @@ describe('firm routes', () => {
   it('never hands platform tables to a firm route', async () => {
     const res = await call('/api/v1/probe/platform-misuse', fx.users.ownerA.email, fx.firmA.id);
     expect([res.status, codeOf(res)]).toEqual([500, 'INTERNAL_ERROR']);
+  });
+});
+
+describe('firm from the portal slug only; client id from the session (#25 review)', () => {
+  it("gives a client their own ClientAccount id, whatever the slug's letter case", async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const account = await runInScope(owner, { kind: 'business', businessId: fx.firmA.id }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({
+        where: { userId: fx.users.clientA.id },
+        select: { id: true },
+      }),
+    );
+    await owner.$disconnect();
+    for (const slug of [fx.firmA.slug, fx.firmA.slug.toUpperCase()]) {
+      const res = await call(`/api/v1/portal/${slug}/probe`, fx.users.clientA.email);
+      expect(res.body).toEqual({
+        businessId: fx.firmA.id,
+        role: 'CLIENT',
+        kind: 'client',
+        clientAccountId: account.id,
+      });
+    }
+    expect(
+      (await call(`/api/v1/portal/${fx.firmB.slug}/probe`, fx.users.clientA.email)).status,
+    ).toBe(404);
+  });
+
+  it("never lets a staff route's own :slug switch the firm", async () => {
+    const res = await call(`/api/v1/probe/by-slug/${fx.firmB.slug}`, fx.users.ownerA.email);
+    expect(res.body).toEqual({ businessId: fx.firmA.id, role: 'OWNER', kind: 'staff' });
   });
 });
 
