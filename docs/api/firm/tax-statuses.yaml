@@ -2,8 +2,9 @@ openapi: 3.0.3
 info:
   title: Firmivra tax status configuration API
   version: 0.1.0
-  description: T01 proposed contract for T04. Not implemented or frontend-approved. Reads by staff;
-    configuration changes by owner/admin. Reuses the existing TaxStatus table.
+  description:
+    'T04 implementation: owner/admin create/rename/order/archive, staff read, transactional
+    ordering and same-firm ids. Uses existing TaxStatus table; frontend review pending.'
 servers:
   - url: /api/v1
 security:
@@ -60,6 +61,8 @@ paths:
           $ref: ./common.yaml#/responses/RateLimited
         '500': &a8
           $ref: ./common.yaml#/responses/InternalError
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     post:
       operationId: createTaxStatus
       summary: Create a firm-defined status
@@ -98,6 +101,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/tax-statuses/order:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -151,6 +156,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/tax-statuses/{id}:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -193,6 +200,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/tax-statuses/{id}/archive:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -222,6 +231,8 @@ paths:
         '422': *a6
         '429': *a7
         '500': *a8
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
 components:
   securitySchemes:
     FirmCookie:
