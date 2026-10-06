@@ -203,6 +203,19 @@ enum DeliveryStatus {
   SKIPPED
 }
 
+enum AppointmentStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum LocationKind {
+  IN_PERSON
+  PHONE
+  VIDEO
+}
+
 enum LegalDocumentKind {
   TERMS
   PRIVACY
@@ -234,6 +247,7 @@ model Business {
   documentCategories  DocumentCategory[]
   notifications       Notification[]
   notificationPrefs   NotificationPreference[]
+  appointmentTypes    AppointmentType[]
 
   @@map("businesses")
 }
@@ -268,12 +282,15 @@ model Membership {
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business            Business     @relation(fields: [businessId], references: [id])
-  user                User         @relation(fields: [userId], references: [id])
+  business            Business       @relation(fields: [businessId], references: [id])
+  user                User           @relation(fields: [userId], references: [id])
   invites             Invite[]
   assignedClients     Client[]
   assignedEngagements Engagement[]
   assignedTasks       Task[]
+  workingHours        WorkingHours[]
+  blockedTimes        BlockedTime[]
+  appointments        Appointment[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -509,6 +526,7 @@ model Client {
   engagements      Engagement[]
   tasks            Task[]
   notes            Note[]
+  appointments     Appointment[]
 
   @@unique([businessId, id])
   @@index([businessId, displayName])
@@ -659,6 +677,7 @@ model Engagement {
   documentRequests DocumentRequest[]
   intakes          Intake[]
   leads            Lead[]
+  appointments     Appointment[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -1075,4 +1094,102 @@ model NotificationPreference {
 
   @@unique([businessId, userId, category])
   @@map("notification_preferences")
+}
+
+/// A kind of appointment the firm offers ("Tax consultation", 30 minutes, video). Clients can
+/// book only types marked clientBookable. Archived, not deleted, once used.
+model AppointmentType {
+  id              String       @id @default(uuid(7)) @db.Uuid
+  businessId      String       @map("business_id") @db.Uuid
+  name            String
+  durationMinutes Int          @map("duration_minutes")
+  locationKind    LocationKind @default(VIDEO) @map("location_kind")
+  clientBookable  Boolean      @default(false) @map("client_bookable")
+  sortOrder       Int          @default(0) @map("sort_order")
+  archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  appointments Appointment[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("appointment_types")
+}
+
+/// A staff member's regular working hours: one row per range, several a day allowed (a lunch
+/// break). Times of day in the firm's timezone (business_settings.timezone); weekday 0 = Sunday.
+model WorkingHours {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  weekday    Int
+  startsAt   DateTime @map("starts_at") @db.Time(0)
+  endsAt     DateTime @map("ends_at") @db.Time(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, userId, weekday])
+  @@map("working_hours")
+}
+
+/// Time a staff member is not available (holiday, training), or the whole firm when userId is
+/// null. An appointment cannot overlap it.
+model BlockedTime {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
+  startsAt        DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime @map("ends_at") @db.Timestamptz(3)
+  /// Internal; never shown to clients.
+  reason          String?
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership? @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, userId, startsAt])
+  @@map("blocked_times")
+}
+
+/// One meeting between a staff member and a client; staff and client booking write the same
+/// record. The database blocks double booking (no two overlapping live appointments for the
+/// same staff member, or for the same client) and overlap with blocked time. A reschedule
+/// updates the times in place; the database counts it. Cancelled is final; never deleted.
+model Appointment {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  clientId        String            @map("client_id") @db.Uuid
+  engagementId    String?           @map("engagement_id") @db.Uuid
+  staffUserId     String            @map("staff_user_id") @db.Uuid
+  typeId          String?           @map("type_id") @db.Uuid
+  startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime          @map("ends_at") @db.Timestamptz(3)
+  status          AppointmentStatus @default(SCHEDULED)
+  locationKind    LocationKind      @map("location_kind")
+  /// The address, phone number or video link.
+  locationDetails String?           @map("location_details")
+  bookedByUserId  String?           @map("booked_by_user_id") @db.Uuid
+  /// True when the client booked it in the portal.
+  bookedByClient  Boolean           @default(false) @map("booked_by_client")
+  /// Set by the database when the times change.
+  rescheduledAt   DateTime?         @map("rescheduled_at") @db.Timestamptz(3)
+  rescheduleCount Int               @default(0) @map("reschedule_count")
+  cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  cancelReason    String?           @map("cancel_reason")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  staff      Membership       @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
+  type       AppointmentType? @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, staffUserId, startsAt])
+  @@index([businessId, clientId, startsAt])
+  @@map("appointments")
 }

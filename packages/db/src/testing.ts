@@ -70,7 +70,7 @@ export async function prepareTestDatabase(
       client_tax_status_history, services, engagements, engagement_status_history, tasks, notes,
       engagement_reports, document_categories, documents, document_requests, intake_forms, intakes,
       intake_submissions, leads, lead_uploads, notifications, notification_deliveries,
-      notification_preferences CASCADE`);
+      notification_preferences, appointment_types, working_hours, blocked_times, appointments CASCADE`);
   } finally {
     await owner.end();
   }

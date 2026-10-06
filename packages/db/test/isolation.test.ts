@@ -40,6 +40,7 @@ const ids = {
   leadUploadA: '',
   notificationA: '',
   preferenceA: '',
+  appointmentA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -203,6 +204,36 @@ beforeAll(async () => {
       const pref = await tx.notificationPreference.create({
         data: { businessId: firm, userId: clientId, category: 'DOCUMENTS' },
       });
+      const apptType = await tx.appointmentType.create({
+        data: { businessId: firm, name: 'Consultation', durationMinutes: 30 },
+      });
+      await tx.workingHours.create({
+        data: {
+          businessId: firm,
+          userId: ownerId,
+          weekday: 1,
+          startsAt: new Date('1970-01-01T09:00:00Z'),
+          endsAt: new Date('1970-01-01T17:00:00Z'),
+        },
+      });
+      await tx.blockedTime.create({
+        data: {
+          businessId: firm,
+          userId: ownerId,
+          startsAt: new Date('2026-12-24T00:00:00Z'),
+          endsAt: new Date('2026-12-26T00:00:00Z'),
+        },
+      });
+      const appt = await tx.appointment.create({
+        data: {
+          ...work,
+          staffUserId: ownerId,
+          typeId: apptType.id,
+          startsAt: new Date('2026-11-02T15:00:00Z'),
+          endsAt: new Date('2026-11-02T15:30:00Z'),
+          locationKind: 'VIDEO',
+        },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -233,6 +264,7 @@ beforeAll(async () => {
         ids.leadUploadA = leadUpload.id;
         ids.notificationA = note2.id;
         ids.preferenceA = pref.id;
+        ids.appointmentA = appt.id;
       }
     });
   }
@@ -285,6 +317,10 @@ describe('no scope set', () => {
     expect(await unscopedApp.notification.findMany()).toEqual([]);
     expect(await unscopedApp.notificationDelivery.findMany()).toEqual([]);
     expect(await unscopedApp.notificationPreference.findMany()).toEqual([]);
+    expect(await unscopedApp.appointmentType.findMany()).toEqual([]);
+    expect(await unscopedApp.workingHours.findMany()).toEqual([]);
+    expect(await unscopedApp.blockedTime.findMany()).toEqual([]);
+    expect(await unscopedApp.appointment.findMany()).toEqual([]);
   });
 });
 
@@ -325,6 +361,10 @@ describe('business scope: firm B', () => {
       await b().notification.findMany(),
       await b().notificationDelivery.findMany(),
       await b().notificationPreference.findMany(),
+      await b().appointmentType.findMany(),
+      await b().workingHours.findMany(),
+      await b().blockedTime.findMany(),
+      await b().appointment.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -382,6 +422,15 @@ describe('business scope: firm B', () => {
     ).toBe(0);
     expect(
       (await b().notificationPreference.deleteMany({ where: { id: ids.preferenceA } })).count,
+    ).toBe(0);
+    expect(await b().appointment.findUnique({ where: { id: ids.appointmentA } })).toBeNull();
+    expect(
+      (
+        await b().appointment.updateMany({
+          where: { id: ids.appointmentA },
+          data: { status: 'CANCELLED', cancelledAt: new Date() },
+        })
+      ).count,
     ).toBe(0);
     expect(
       await b().engagementStatusHistory.findMany({ where: { engagementId: ids.engagementA } }),
@@ -515,6 +564,10 @@ describe('platform scope', () => {
     expect(await p.notification.findMany()).toEqual([]);
     expect(await p.notificationDelivery.findMany()).toEqual([]);
     expect(await p.notificationPreference.findMany()).toEqual([]);
+    expect(await p.appointmentType.findMany()).toEqual([]);
+    expect(await p.workingHours.findMany()).toEqual([]);
+    expect(await p.blockedTime.findMany()).toEqual([]);
+    expect(await p.appointment.findMany()).toEqual([]);
   });
 });
 
