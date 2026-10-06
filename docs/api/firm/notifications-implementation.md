@@ -2,7 +2,11 @@
 
 Ten guarded firm/portal routes list, count, mark read and manage only the current user's
 preferences. Record targets are typed and reauthorized by NotificationTargets on each read;
-the default hides every unresolved target. No arbitrary URL or recipient-selection HTTP route.
+ScopedNotificationTargets rechecks appointment client/provider/module access and external-link
+business-client/active/approved-URL access using the same firm-scoped DB permissions as those APIs.
+Archived clients, another provider's calendar, Individual resource users and foreign firms cannot
+receive usable targets. Document, invoice and engagement targets remain hidden until their owning
+modules provide authorization adapters. No arbitrary URL or recipient-selection HTTP route.
 
 Internal create requires a verified request context and a currently active same-firm recipient.
 The database unique event key deduplicates retries/concurrent events. The `in_app` snapshot hides
@@ -20,4 +24,4 @@ NOTIFY_NOT_READY; frontend preferences and internal creation need the real adapt
 Database.withScope provides transaction-local tenant scope. New notifications/preferences tables
 require Rasel migrations with forced RLS and the indexed unique/page keys in the isolated test
 fixture. Missing or unprotected schema fails 503 SCHEMA_NOT_READY. Fixture code is test-only,
-not a production migration. R6/Fahad must confirm policy, target-access adapters and DTOs.
+not a production migration. R6/Fahad must confirm policy, remaining record adapters and DTOs.
