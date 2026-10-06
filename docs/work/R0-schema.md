@@ -35,6 +35,7 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
 
 ## Needs from others
 
+- FYI from R1 (step 13, Rasel's go Oct 6): `packages/db/src/link-users.ts`, `packages/db/scripts/link-dev-users.mjs` and `packages/db/test/link-users.test.ts` use `createPrismaClient` and `runInScope`, and write `businesses`, `business_settings`, `users`, `platform_admins`, `memberships` and `audit_logs`. `packages/db/Dockerfile` now builds `@firmivra/db` and ships `dist`. If you move or rename those helpers, or change those tables, tell R1.
 - apps/api (owner of `apps/api/test/global-setup.ts`): create a `Client` and pass `clientId` when creating client accounts, so `client_accounts.client_id` can become NOT NULL (R0 step 12).
 - R2: invites are ready for the activation flow: create the user and an INVITED membership, then an `invites` row with the token's SHA-256; the signed-out accept step reads it with `db.forInvite(tokenHash)`, then works in business scope.
 - I02 (Ibrahim, client profile API): `client_profiles.dob_enc` and `ssn_enc` hold encrypted values only, never plain SSN or date of birth. Write them only through the KMS-backed encrypt helper (Rasel assigns that helper to R5); keep only `ssn_last4` in plain text.

@@ -12,17 +12,22 @@ import type { Request } from 'express';
 import type { Database } from '@firmivra/db';
 import { type AuthContext, requestContext, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
-import { isPublic, rolesFor, TENANT_ROLES } from './decorators.js';
+import { businessStatusesFor, isPublic, rolesFor, TENANT_ROLES } from './decorators.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Client portal routes: /api/v1/portal/:firmSlug/... (any case, like routing). */
+const PORTAL_PATH = /^\/api\/v1\/portal\//i;
 
 // 404, never 403, when the caller has no place in the firm: the firm's existence must not leak.
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 
 /**
  * Global guard 2: for routes with a firm role, resolves the firm and the caller's role in it.
- * Firm: the `:slug` route param (portal), else the `x-business-id` header (selected firm),
- * else the caller's only firm. Role: the Membership (staff) or ClientAccount (client) row.
+ * Firm: on portal routes the `:firmSlug` route param, and nothing else; on other routes the
+ * `x-business-id` header (selected firm), else the caller's only firm. A `:slug` param of some
+ * other route never picks the firm. Role: the Membership (staff) or ClientAccount (client) row;
+ * for clients the ClientAccount id goes into the tenant context too.
+ * The firm must be in a status the route allows: ACTIVE unless @AllowBusinessStatuses() says more.
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -49,11 +54,14 @@ export class TenantGuard implements CanActivate {
 
     const tenant = await this.membership(auth, business.id);
     if (!tenant) throw notFound();
-    if (business.status === 'SUSPENDED' || business.status === 'CLOSED') {
-      throw new ForbiddenException({
-        code: 'BUSINESS_INACTIVE',
-        message: 'This firm is not active',
-      });
+    // Only after the membership check, so the status of someone else's firm never shows.
+    if (!businessStatusesFor(this.reflector, ctx).includes(business.status)) {
+      throw business.status === 'PENDING_SETUP'
+        ? new ForbiddenException({
+            code: 'BUSINESS_SETUP_REQUIRED',
+            message: 'This firm has not finished setting up',
+          })
+        : new ForbiddenException({ code: 'BUSINESS_INACTIVE', message: 'This firm is not active' });
     }
 
     req.tenant = tenant;
@@ -63,11 +71,12 @@ export class TenantGuard implements CanActivate {
   }
 
   private async resolveBusinessId(req: Request, auth: AuthContext): Promise<string | undefined> {
-    const slug = req.params['slug'];
-    if (typeof slug === 'string' && slug.length > 0) {
+    if (typeof req.path === 'string' && PORTAL_PATH.test(req.path)) {
+      const slug = req.params['firmSlug'];
+      if (typeof slug !== 'string' || slug.length === 0) return undefined;
       const b = await this.db
         .forPlatform()
-        .business.findUnique({ where: { slug }, select: { id: true } });
+        .business.findUnique({ where: { slug: slug.toLowerCase() }, select: { id: true } });
       return b?.id;
     }
 
@@ -112,7 +121,7 @@ export class TenantGuard implements CanActivate {
         where: { userId: auth.userId, status: 'ACTIVE' },
         select: { id: true },
       });
-      return c ? { businessId, role: 'CLIENT', kind: 'client' } : undefined;
+      return c ? { businessId, role: 'CLIENT', kind: 'client', clientAccountId: c.id } : undefined;
     }
     // ADMIN: firm data only through an owner-approved support grant (Tumit, Sprint 3).
     return undefined;

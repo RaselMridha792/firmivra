@@ -9,6 +9,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import type { Database } from '@firmivra/db';
+import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { isPublic, rolesFor } from './decorators.js';
 
@@ -41,7 +42,14 @@ export class RolesGuard implements CanActivate {
       const admin = await this.db
         .forPlatform()
         .platformAdmin.findUnique({ where: { userId: req.auth.userId }, select: { role: true } });
-      if (admin) return true;
+      // The role itself, so a future platform role never gets Super Admin rights by accident.
+      if (admin?.role === 'SUPER_ADMIN') {
+        const platform = { role: admin.role };
+        req.platform = platform;
+        const store = requestContext.getStore();
+        if (store) store.platform = platform;
+        return true;
+      }
     }
     throw forbidden();
   }

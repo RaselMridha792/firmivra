@@ -18,10 +18,16 @@
 - [ ] 4. Owner activation ends at first-time setup; business status active
 - [ ] 5. Emails through NotifyService (log until R6 merges)
 - [ ] 6. Audit every action; e2e test of the whole path
+- [ ] 7. Plus T05 (Oct 6): applications list with filters and paging, detail and status history (Super Admin through `forAdmin()`), dashboard counts, firms list (Active, Pending Setup, Inactive). Contract by Oct 8 (Tumit F04b, N04)
 
 ## Done when
 
 Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
+
+## Rules
+
+- Contract first for every module (Rasel, Oct 6): the module's first PR is its zod schemas and client functions in `packages/types`, registered on `api` in `apps/web/src/lib/api.ts`, plus typed mock fixtures in `apps/web/src/mocks/<module>.ts`. The developers build the screen against it the same day.
+- Never edit screens: in apps/web change only `src/mocks/<module>.ts` and your lines in `src/lib/api.ts`.
 
 ## Needs from others
 

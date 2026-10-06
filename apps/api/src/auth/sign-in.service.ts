@@ -22,6 +22,8 @@ const RESET_FAILED = 'auth.password_reset_failed';
 export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
 /** HKDF label for the key that turns an email into the pseudonymous key the limit counts by. */
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
+/** Staff and Super Admins always pass MFA; the pools require it, and so does the API. */
+const MFA_REQUIRED: ReadonlySet<IdentityPool> = new Set(['STAFF', 'ADMIN']);
 
 const TOTP_ISSUER: Record<AuthSite, string> = { firm: 'Firmivra', admin: 'Firmivra Admin' };
 
@@ -171,6 +173,12 @@ export class SignInService {
 
   private async next(step: AuthStep, userId: string, pool: IdentityPool): Promise<SignInOutcome> {
     if (step.kind === 'tokens') {
+      if (MFA_REQUIRED.has(pool)) {
+        // Defence in depth: only the pool setting makes Cognito ask for MFA. If it ever signs
+        // someone in without it, end that session and answer 500 (a configuration fault).
+        if (step.tokens.refreshToken) await this.identity.revoke(pool, step.tokens.refreshToken);
+        throw new Error(`Refused a ${pool} sign-in that skipped MFA: check the pool's MFA setting`);
+      }
       return { kind: 'signed-in', userId, username: step.username, tokens: step.tokens };
     }
     const session = await this.challenges.seal({
