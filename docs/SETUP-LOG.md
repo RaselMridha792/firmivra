@@ -212,13 +212,13 @@ Links people who already exist in Cognito to the dev database:
 - `platform_admins` for the Super Admin;
 - an ACTIVE membership in LVP for staff.
 
-If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and empty `business_settings`; contact details, legal documents and tax statuses come from the setup wizard. It is safe to run again. It refuses to move a user to another pool, and it runs only where `APP_ENV=dev` (set on the dev migrate task). Code: `packages/db/src/link-users.ts`, `packages/db/scripts/link-dev-users.mjs`.
+If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and empty `business_settings`; contact details, legal documents and tax statuses come from the setup wizard. It is safe to run again. It refuses to move a user to another pool. A firm always keeps an active owner (R0's `LAST_ACTIVE_OWNER` rule): to change an owner's role, list the new owner first in `LINK_USERS`. It runs only where `APP_ENV=dev` (set on the dev migrate task). Code: `packages/db/src/link-users.ts`, `packages/db/scripts/link-dev-users.mjs`.
 
-**No emails or names in the repo, the task input or the logs.** ECS task overrides are recorded in CloudTrail, so the input `LINK_USERS` holds only Cognito subs and roles; any other key is refused. The task reads each email and name from Cognito with `AdminGetUser`, the migrate task role's only Cognito permission, limited to the staff and admins pools. The task log shows user ids and roles only.
+**No emails or names in the repo, the task input or the logs.** ECS task overrides are recorded in CloudTrail, so the input `LINK_USERS` holds only Cognito subs and roles; any other key is refused. The task reads each email and name from Cognito with `ListUsers` and the filter `sub = "<sub>"`. That is the migrate task role's only Cognito permission, limited to the staff and admins pools. Our pools sign in by username, and `AdminGetUser` does not take the sub there (Oct 7). The task log shows user ids and roles only.
 
 1. **Cognito logins** (R2's sign-in finds the user by email in our database, then by `sub` in Cognito, and does not support Cognito's temporary-password step):
    - username: a random UUID;
-   - attributes: `email`, `email_verified=true`, `name`;
+   - attributes: `email`, `email_verified=true`, `name`. In PowerShell put each one in double quotes (`"Name=email,Value=$email"`): bare, aws.exe receives the literal text `$email`;
    - no invite email (`--message-action SUPPRESS`);
    - then `admin-set-user-password --permanent`.
 
