@@ -1,6 +1,6 @@
 # SNS SMS registration (US toll-free number, us-east-1)
 
-> **Status: send before beta (Jan 8, 2027); needs company details from Octavia.**
+> **Status: send before delivery (Oct 18, 2026); needs company details from Octavia.**
 > Not sent. Review takes about 2 to 3 weeks and the number cannot send until it is approved. The earlier target was to submit by Oct 16 so that SMS works by Sprint 2 (Nov 2). Until then the API writes SMS to its log in dev.
 
 The console clicks are in `docs/SETUP-LOG.md` under "SNS SMS steps". This page lists what the registration asks for.
