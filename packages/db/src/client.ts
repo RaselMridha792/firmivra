@@ -100,6 +100,12 @@ export type ScopedClient = ReturnType<typeof scopedClient>;
 export interface ClientOptions {
   /** Size of the connection pool (pg default when unset). Tests use 1 to force connection reuse. */
   maxConnections?: number;
+  /**
+   * Interactive transactions (runInScope, withScope): how long to wait to start one and how long
+   * one may run, in ms. Prisma's defaults (2000 and 5000) apply when unset. Tests raise them,
+   * because several suites on one machine can keep a transaction from starting within 2 s.
+   */
+  transactionOptions?: { maxWait?: number; timeout?: number };
 }
 
 export function createPrismaClient(
@@ -109,7 +115,10 @@ export function createPrismaClient(
   const pool = options.maxConnections
     ? { connectionString, max: options.maxConnections }
     : { connectionString };
-  return new PrismaClient({ adapter: new PrismaPg(pool) });
+  return new PrismaClient({
+    adapter: new PrismaPg(pool),
+    ...(options.transactionOptions ? { transactionOptions: options.transactionOptions } : {}),
+  });
 }
 
 /**
