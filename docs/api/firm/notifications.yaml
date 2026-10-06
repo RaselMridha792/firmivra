@@ -2,10 +2,10 @@ openapi: 3.0.3
 info:
   title: Firmivra notification center API
   version: 0.1.0
-  description: 'T01 proposed contract for T06. Not implemented or frontend-approved. Creation is an
-    internal scoped service call, not a public HTTP endpoint. Proposed internal create: verified
-    business context, recipientUserId, category, eventKey, title, message and optional typed entity
-    target. Delegate sending to R6 NotifyService.'
+  description: 'T06 implementation: current-user firm/portal notifications, count/read/preferences,
+    internal scoped creation and Rasel sending port. Database contract tested with isolated
+    fixtures; production migrations and R6 NotifyService/consent policy are owner-managed
+    dependencies.'
 servers:
   - url: /api/v1
 security:
@@ -86,6 +86,8 @@ paths:
           $ref: ./common.yaml#/responses/RateLimited
         '500': &a10
           $ref: ./common.yaml#/responses/InternalError
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/notifications/unread-count:
     parameters: *a1
     get:
@@ -118,6 +120,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/notifications/{id}/read:
     parameters:
       - *a11
@@ -150,6 +154,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/notification-preferences:
     parameters: *a1
     get:
@@ -175,6 +181,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     put:
       operationId: saveFirmNotificationPreferences
       summary: Replace supplied category preferences for current user
@@ -216,6 +224,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/notifications:
     parameters: &a16
       - &a18
@@ -269,6 +279,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/notifications/unread-count:
     parameters: *a16
     get:
@@ -301,6 +313,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/notifications/{id}/read:
     parameters:
       - *a18
@@ -331,6 +345,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/notification-preferences:
     parameters: *a16
     get:
@@ -356,6 +372,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     put:
       operationId: savePortalNotificationPreferences
       summary: Replace supplied category preferences for current user
@@ -397,6 +415,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
 components:
   securitySchemes:
     FirmCookie:
