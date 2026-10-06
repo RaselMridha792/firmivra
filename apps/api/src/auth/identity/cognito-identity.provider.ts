@@ -1,12 +1,15 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import {
-  AdminGetUserCommand,
+  AdminCreateUserCommand,
+  AdminSetUserPasswordCommand,
   AdminInitiateAuthCommand,
   AdminRespondToAuthChallengeCommand,
   AdminUserGlobalSignOutCommand,
   AssociateSoftwareTokenCommand,
   type AuthenticationResultType,
   type CognitoIdentityProviderClient,
+  ListUsersCommand,
+  type UserType,
   ConfirmForgotPasswordCommand,
   ForgotPasswordCommand,
   RevokeTokenCommand,
@@ -90,8 +93,9 @@ const errorName = (e: unknown) => (e instanceof Error ? e.name : 'unknown error'
 
 /**
  * Cognito user pools through the API's confidential app clients (ADMIN_USER_PASSWORD_AUTH with
- * the client secret). Usernames are UUIDs Cognito knows; we store the `sub`, which AdminGetUser
- * accepts in place of the username.
+ * the client secret). Usernames are UUIDs and the username is the pools' sign-in attribute, so the
+ * Admin* calls need the username itself, not the `sub` we store (AdminGetUser takes a sub only
+ * where the username is not a sign-in attribute). ListUsers finds the username by sub.
  */
 export class CognitoIdentityProvider implements IdentityProvider {
   private readonly logger = new Logger(CognitoIdentityProvider.name);
@@ -290,15 +294,65 @@ export class CognitoIdentityProvider implements IdentityProvider {
     await this.signOutEverywhere(pool, username);
   }
 
+  async createUser(pool: IdentityPool, email: string): Promise<string> {
+    const p = this.pool(pool);
+    const out = await this.client.send(
+      new AdminCreateUserCommand({
+        UserPoolId: p.userPoolId,
+        Username: randomUUID(),
+        UserAttributes: [
+          { Name: 'email', Value: email },
+          { Name: 'email_verified', Value: 'true' },
+        ],
+        // Our API sends the activation email (docs/AUTH-DESIGN.md); Cognito sends nothing.
+        MessageAction: 'SUPPRESS',
+      }),
+    );
+    const sub = out.User?.Attributes?.find((a) => a.Name === 'sub')?.Value;
+    if (!sub) throw new Error('Cognito created a user without a sub');
+    return sub;
+  }
+
+  async setPassword(pool: IdentityPool, sub: string, password: string): Promise<void> {
+    const p = this.pool(pool);
+    const username = await this.usernameFor(p, sub);
+    if (!username) throw new Error('No Cognito user for this invite');
+    await this.client
+      .send(
+        new AdminSetUserPasswordCommand({
+          UserPoolId: p.userPoolId,
+          Username: username,
+          Password: password,
+          Permanent: true,
+        }),
+      )
+      .catch((e: unknown) => fail(e, { InvalidPasswordException: 'PASSWORD_REJECTED' }));
+  }
+
+  async hasPassword(pool: IdentityPool, sub: string): Promise<boolean> {
+    const p = this.pool(pool);
+    const user = await this.userBySub(p, sub);
+    // Invited users wait in FORCE_CHANGE_PASSWORD (the generated password nobody knows).
+    return !!user && !['FORCE_CHANGE_PASSWORD', 'UNCONFIRMED'].includes(user.UserStatus ?? '');
+  }
+
   /** The Cognito username for a sub, or undefined for an unknown or disabled user. */
   private async usernameFor(p: CognitoPool, sub: string): Promise<string | undefined> {
-    const user = await this.client
-      .send(new AdminGetUserCommand({ UserPoolId: p.userPoolId, Username: sub }))
-      .catch((e: unknown) => {
-        if (e instanceof Error && e.name === 'UserNotFoundException') return undefined;
-        return fail(e, {});
-      });
+    const user = await this.userBySub(p, sub);
     return user?.Enabled === false ? undefined : user?.Username;
+  }
+
+  /**
+   * The user with this sub (ListUsers, filter `sub = "..."`, one result). Unknown and random subs
+   * make the same single call, so timing stays the same for unknown emails.
+   */
+  private async userBySub(p: CognitoPool, sub: string): Promise<UserType | undefined> {
+    // Subs are UUIDs; anything else could break out of the filter's quotes, so it finds no one.
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(sub)) return undefined;
+    const out = await this.client
+      .send(new ListUsersCommand({ UserPoolId: p.userPoolId, Filter: `sub = "${sub}"`, Limit: 1 }))
+      .catch((e: unknown) => fail(e, {}));
+    return out.Users?.[0];
   }
 
   private signedIn(result: AuthenticationResultType | undefined): SessionTokens {
