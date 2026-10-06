@@ -2,9 +2,11 @@ openapi: 3.0.3
 info:
   title: Firmivra business settings and setup API
   version: 0.1.0
-  description: T01 proposed contract for T02. Not implemented or frontend-approved. Missing
-    portalName/header/welcome fields are proposed in docs/schema-requests/tumit-fields.md. Storage
-    and firm approval are Rasel-owned.
+  description: 'T02 implementation: existing firm profile/settings, versioned legal documents and
+    validated setup progress. Frontend review pending. Portal content field writes, logo storage and
+    activation of modules outside the configured set return 503 until Rasel publishes their
+    schema/services. Existing values and clearing/disabling work now. Database legal body maps to
+    API bodyMarkdown.'
 servers:
   - url: /api/v1
 security:
@@ -44,6 +46,8 @@ paths:
           $ref: ./common.yaml#/responses/RateLimited
         '500': &a9
           $ref: ./common.yaml#/responses/InternalError
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     patch:
       operationId: updateBusinessSettings
       summary: Update allowlisted firm profile and settings
@@ -73,6 +77,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/setup:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -97,6 +103,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     patch:
       operationId: saveBusinessSetup
       summary: Save draft step completion
@@ -140,6 +148,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/setup/complete:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -165,6 +175,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /business/legal/{kind}:
     parameters:
       - $ref: ./common.yaml#/parameters/Business
@@ -205,6 +217,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
     post:
       operationId: publishFirmLegalVersion
       summary: Append a versioned firm Terms or Privacy document
@@ -241,6 +255,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/settings:
     parameters:
       - $ref: ./common.yaml#/parameters/Slug
@@ -268,6 +284,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /portal/{slug}/legal/{kind}:
     parameters:
       - $ref: ./common.yaml#/parameters/Slug
@@ -301,6 +319,8 @@ paths:
         '422': *a7
         '429': *a8
         '500': *a9
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
 components:
   securitySchemes:
     FirmCookie:
