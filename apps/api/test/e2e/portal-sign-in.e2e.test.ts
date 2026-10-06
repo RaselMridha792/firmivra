@@ -65,7 +65,7 @@ async function client(
   verified: { email: boolean; phone: boolean } = { email: true, phone: true },
 ) {
   const id = randomUUID();
-  const email = `r3-${key}-${id.slice(0, 6)}@example.com`;
+  const email = `r3-${key.toLowerCase()}-${id.slice(0, 6)}@example.com`;
   await asOwner({ kind: 'platform' }, (tx) =>
     tx.user.create({ data: { id, cognitoSub: id, pool: 'CLIENT', email, name: `Fake ${key}` } }),
   );

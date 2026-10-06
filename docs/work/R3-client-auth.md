@@ -17,8 +17,8 @@
 - [x] 2. Sign-up on portal/{slug} through our API (no Cognito self sign-up): account status pending
 - [x] 3. Verify email and phone codes (SMS goes to the API log locally and in dev until SNS is registered)
 - [ ] 4. Firm side: list pending sign-ups, approve, decline (owner and admin only), notify the client
-- [ ] 5. Client sign-in, optional MFA, session cookies scoped to the portal
-- [ ] 6. Forgot and reset password per firm; the response never reveals whether an account exists
+- [x] 5. Client sign-in, optional MFA, session cookies scoped to the portal
+- [x] 6. Forgot and reset password per firm; the response never reveals whether an account exists
 - [ ] 7. Per-firm Terms and Privacy accepted at sign-up and stored with version and time
 - [ ] 8. e2e tests, including a client of firm A trying firm B's portal
 
@@ -38,7 +38,7 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
 - R1: serve `apps/web/src/mocks/client-auth.ts` in mock mode (lands Oct 7).
 - R10 (note, Rasel Oct 7): until R10's client records exist, step 4's approve creates the minimal client record itself (display name, email, phone, account type) in the approve transaction. That insert sits in one small function so R10 can take it over later. Linking an existing record follows the rule below; R10's own linking (for example a staff invite) should use the same check.
 - Fahad, F06 (note): a pending sign-up has `existingClient` (`{ clientId, displayName }` or null). It is set only for a record approve would accept: the record's email is the sign-up's verified email (both lower-cased) and the record has no primary portal login yet. Offer "link to this client" only then: `approve(id, { clientId: existingClient.clientId })`. Approve refuses any other record with 409 `CLIENT_NOT_LINKABLE` (nothing changes; reload the list), and 404 for a record the firm doesn't have. Without a body, approve creates a new record. The body is strict: any other field is 400.
-- R3 itself, step 5: when the portal switches to the per-firm cookies, the e2e test that expects 404 on another firm's portal changes: there the visitor is simply signed out (401).
+- R3 itself, step 5 (done): with the per-firm cookies a browser is simply signed out on another firm's portal (401); `guards.e2e.test.ts` now checks that, and keeps 404 for a Bearer token (it reaches the firm check).
 
 ## Progress log
 
@@ -61,3 +61,10 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
   - Tests: `test/e2e/sign-up.e2e.test.ts` (7), `test/unit/client-auth.test.ts`.
 - 2026-10-07, step 4 contract (Rasel): approve takes an optional `{ clientId }` to link the login to an existing client record of the firm (404 if the firm has none with that id); `ClientSignUp.existingClient` shows a record with the same email. Types, client, YAML and mocks updated (Jane Roe's mock sign-up has an `existingClient`); notes above for R10 and F06.
 - 2026-10-07, #37 fix (lead took #37 off the ready list: linking any record would let one wrong click give a stranger another client's tax records): approve links only a record whose email is the sign-up's verified email (both lower-cased) and that has no primary portal login yet, else 409 `CLIENT_NOT_LINKABLE`; `existingClient` shows only such a record; `ApproveSignUpRequest` is strict. In the zod schemas, client-auth.yaml ("Linking an existing client record"), the F06 note and the mocks (John Doe's record has his email but already a login, so it is refused). Step 4's API enforces the same rule in the approve transaction.
+- 2026-10-07, steps 5-6 (local branch `rasel/R3-step2`, on steps 2-3; Rasel: go):
+  - `portal/{firmSlug}/auth/sign-in`, `mfa`, `mfa/setup`, `refresh`, `sign-out`, `forgot-password`, `reset-password` (`client-auth/portal-sign-in.controller.ts`): the staff routes (`SignInRoutes`, now exported) with a `SignInPlace` (pool, cookies, authenticator issuer, firm) instead of a site name. Only ACTIVE firms (404 otherwise); sign-out always succeeds and clears that slug's cookies.
+  - `GET portal/{firmSlug}/me` (`AUTHENTICATED`, so a pending client reads it): only this firm's account in `clientAccounts`; 401 once the client may no longer sign in.
+  - Who may sign in, one rule in `auth/portal-clients.ts`: an ACTIVE client of the firm, or a PENDING_APPROVAL one with email and phone verified. Declined, disabled, invited and unfinished sign-ups get `INVALID_CREDENTIALS` like a wrong password. Refresh checks the same rule.
+  - Per-firm cookies `fv_portal_{slug}_*` on `/api/v1/portal/{slug}/`. The challenge and the refresh envelope carry the firm and open only on its portal. `AuthGuard` reads that firm's cookie on portal routes and takes only the clients pool; `crossSiteGuard` takes only the portal's origin on portal routes and counts the portal cookies (sign-up included) as session cookies.
+  - Reset failures count per firm and email. Local mode: clients sign in without MFA (the pool's MFA is optional); `POST /dev/token` gives a client their portal's cookie.
+  - Docs: apps/api/README.md, auth.yaml, client-auth.yaml. Tests: `test/e2e/portal-sign-in.e2e.test.ts` (11), `test/unit/portal-sign-in.test.ts` (8), the browser case in `guards.e2e.test.ts`; the sign-up e2e visitor now sends the portal's origin.

@@ -23,15 +23,17 @@ The response also sets that site's HttpOnly access cookie (`fv_admin_access` for
 ## Every request
 
 1. `requestContextMiddleware`: request id (`x-request-id`), IP and user agent in an AsyncLocalStorage context.
-2. `crossSiteGuard`: POST, PUT, PATCH and DELETE need a JSON body (415 `UNSUPPORTED_MEDIA_TYPE`) and, from a browser, an `Origin` of the route's own site, from `ADMIN_BASE_URL` for `/api/v1/admin/*` and `APP_BASE_URL` or `PORTAL_BASE_URL` otherwise (403 `ORIGIN_NOT_ALLOWED`). No CORS: each site calls the API on its own host.
+2. `crossSiteGuard`: POST, PUT, PATCH and DELETE need a JSON body (415 `UNSUPPORTED_MEDIA_TYPE`) and, from a browser, an `Origin` of the route's own site: `ADMIN_BASE_URL` for `/api/v1/admin/*`, `PORTAL_BASE_URL` for `/api/v1/portal/*`, `APP_BASE_URL` or `PORTAL_BASE_URL` otherwise (403 `ORIGIN_NOT_ALLOWED`). No CORS: each site calls the API on its own host.
 3. `ThrottlerGuard`: rate limit (300 a minute per viewer IP; stricter on sensitive routes). Behind CloudFront and the ALB the viewer IP is the second address from the right in `X-Forwarded-For` (`trust proxy` 2).
-4. `AuthGuard`: token from the site's access cookie or `Authorization: Bearer`, verified (Cognito, or the local key), user loaded by Cognito `sub`. Skipped for `@Public()`.
+4. `AuthGuard`: token from the route's access cookie (the site's, or on `portal/{slug}/` routes that firm's `fv_portal_{slug}_access`) or `Authorization: Bearer`, verified (Cognito, or the local key), user loaded by Cognito `sub`. Portal routes take only the clients pool. Skipped for `@Public()`.
 5. `TenantGuard`: for routes with a firm role, finds the firm (on `portal/:firmSlug/...` routes the `:firmSlug` param and nothing else; elsewhere the `x-business-id` header, else the caller's only firm) and the caller's role from `Membership` or `ClientAccount`. For clients the context also holds their own `clientAccountId`: portal routes take the client from it, never from the URL. No link to the firm: **404**. Several firms and no header: 400 `BUSINESS_REQUIRED`. Firm not `ACTIVE`: 403 `BUSINESS_SETUP_REQUIRED` (still in setup) or `BUSINESS_INACTIVE` (suspended or closed), unless the route allows that status.
 6. `RolesGuard`: **default deny**. Every non-public route needs `@Roles(...)`. Wrong role: **403**.
 
-### Two sites, two kinds of session
+### Two sites, two kinds of session, and a session per portal
 
 - Routes under `/api/v1/admin/` belong to the Super Admin site: they read only the `fv_admin_*` cookies and accept only Super Admins. Every other route reads only the `fv_*` cookies and never accepts a Super Admin session, not even as a Bearer token.
+- Routes under `/api/v1/portal/{slug}/` read only that firm's `fv_portal_{slug}_*` cookies (paths `/api/v1/portal/{slug}/`) and accept only clients. A client has a login per firm; their sign-in challenge and refresh envelope are sealed with the firm and never open on another firm's portal. On another firm's portal a client is simply signed out (401).
+- Portal sign-in (`client-auth/portal-sign-in.controller.ts`) reuses the staff sign-in routes (`SignInRoutes`) with a `SignInPlace` (pool, cookies, firm). Who may sign in is one rule in `auth/portal-clients.ts`: an ACTIVE client of the firm, or a pending one who verified email and phone. `GET portal/{slug}/me` is `AUTHENTICATED` (a pending client reads it too) and checks that rule itself.
 - So `@Roles('SUPER_ADMIN')` goes only on routes under `admin/`, and firm roles and `'AUTHENTICATED'` never do (`AUTHENTICATED` would let a removed Super Admin in until their token expires). A route never has both `@Public()` and `@Roles()`: `@Public()` would win, also from the class. The API refuses to start otherwise and names the route.
 - Roles always come from the database on every request (no cache): removing someone from a firm takes effect at once.
 
