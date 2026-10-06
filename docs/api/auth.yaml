@@ -369,7 +369,10 @@ components:
       name: x-business-id
       in: header
       required: false
-      description: The firm to act in, for staff with more than one firm (from the firm picker).
+      description: |
+        The firm to act in, for staff with more than one firm (from the firm picker). The API
+        checks it against the caller's ACTIVE membership in that firm and answers 404 NOT_FOUND
+        otherwise, also for a firm that does not exist, so it can never reach another firm.
       schema: { type: string, format: uuid }
 
   requestBodies:
