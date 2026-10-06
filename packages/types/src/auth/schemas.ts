@@ -175,9 +175,12 @@ export type ActivateRequest = z.input<typeof ActivateRequest>;
 // ---------- Errors ----------
 /** Stable `error.code` values of the auth endpoints, besides the generic ones in ApiError. */
 export const AuthErrorCode = z.enum([
-  /** 400: Cognito refused the new password (policy, or a known leaked password). */
+  /** 400: activation: Cognito refused the new password (for example a known leaked password). */
   'PASSWORD_REJECTED',
-  /** 400: wrong or expired reset code. Same answer when the account does not exist. */
+  /**
+   * 400: reset-password failed: wrong or expired code, unknown email, or a password Cognito
+   * refused. One answer for all, so real accounts never show.
+   */
   'RESET_CODE_INVALID',
   /** 401: email or password is incorrect. Same answer when the account does not exist. */
   'INVALID_CREDENTIALS',

@@ -351,6 +351,22 @@ describe('content and calculators', () => {
     ).resolves.toBeDefined();
   });
 
+  it('an external link icon is a design-system icon name, never a URL', async () => {
+    const link = (iconKey: string) =>
+      firmA().contentItem.create({
+        data: {
+          ...A(),
+          kind: 'EXTERNAL_LINK',
+          category: 'IRS & Business Taxes',
+          title: 'IRS EIN',
+          url: 'https://www.irs.gov/ein',
+          iconKey,
+        },
+      });
+    await expect(link('https://evil.test/icon.png')).rejects.toThrow(/check constraint/i);
+    await expect(link('irs')).resolves.toMatchObject({ iconKey: 'irs' });
+  });
+
   it('a calculator needs a disclaimer and a key, once per firm', async () => {
     const calc = (key: string, disclaimer: string) =>
       firmA().calculatorDefinition.create({ data: { ...A(), key, title: 'Calc', disclaimer } });

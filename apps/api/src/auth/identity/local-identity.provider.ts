@@ -10,20 +10,25 @@ import { AuthFlowError, type AuthStep, type IdentityProvider } from './identity-
  */
 export const LOCAL_PASSWORD = 'Firmivra-local-1';
 export const LOCAL_MFA_CODE = '000000';
+/** The reset code for every forgot-password request (nothing is emailed locally). */
+export const LOCAL_RESET_CODE = '000000';
 /** A well-known example TOTP key, so the setup screen has a real QR code to show. */
 export const LOCAL_TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
 
 /**
  * Local stand-in for Cognito: same steps and errors, so the screens run end to end without AWS.
  * Each user's first sign-in after the API starts asks for authenticator setup; later ones for a code.
+ * A reset password lasts until the API restarts. Refresh tokens are not revoked locally.
  */
 export class LocalIdentityProvider implements IdentityProvider {
   private readonly mfaReady = new Set<string>();
+  /** Passwords changed with reset-password, by sub. */
+  private readonly passwords = new Map<string, string>();
 
   constructor(private readonly tokens: TokenService) {}
 
   signIn(_pool: IdentityPool, sub: string | undefined, password: string): Promise<AuthStep> {
-    if (!sub || password !== LOCAL_PASSWORD) {
+    if (!sub || password !== (this.passwords.get(sub) ?? LOCAL_PASSWORD)) {
       return Promise.reject(new AuthFlowError('INVALID_CREDENTIALS'));
     }
     const step = this.mfaReady.has(sub) ? 'MFA' : 'MFA_SETUP';
@@ -55,8 +60,39 @@ export class LocalIdentityProvider implements IdentityProvider {
     return this.issue(username, pool);
   }
 
+  async refresh(pool: IdentityPool, username: string): Promise<SessionTokens> {
+    const { token, expiresIn } = await this.tokens.signLocal(username, pool);
+    return { accessToken: token, expiresIn };
+  }
+
+  revoke(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  signOutEverywhere(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  forgotPassword(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  resetPassword(
+    _pool: IdentityPool,
+    sub: string | undefined,
+    code: string,
+    password: string,
+  ): Promise<void> {
+    if (!sub || code !== LOCAL_RESET_CODE) {
+      return Promise.reject(new AuthFlowError('RESET_CODE_INVALID'));
+    }
+    this.passwords.set(sub, password);
+    return Promise.resolve();
+  }
+
   private async issue(sub: string, pool: IdentityPool): Promise<SessionTokens> {
     const { token, expiresIn } = await this.tokens.signLocal(sub, pool);
-    return { accessToken: token, expiresIn };
+    // The refresh token only has to exist: the sealed envelope around it is what is checked.
+    return { accessToken: token, refreshToken: `local-${randomUUID()}`, expiresIn };
   }
 }
