@@ -5,6 +5,7 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Prisma, type Database, type TxClient } from '@firmivra/db';
 import {
   FirmAppointment,
@@ -48,6 +49,8 @@ export type AppointmentRow = FirmAppointment & {
   bufferBeforeMinutes: number;
   bufferAfterMinutes: number;
   createdByUserId: string;
+  requestKey: string;
+  requestFingerprint: string;
 };
 type HoursRow = FirmWorkingHours & { id: string; providerMembershipId: string };
 type Actor = Awaited<ReturnType<typeof currentActor>>;
@@ -527,17 +530,8 @@ export class AppointmentsService {
         message: 'Appointment overlap protection is unavailable',
       });
   }
-  async book(body: BookFirmAppointmentRequest | BookPortalAppointmentRequest) {
+  async book(body: BookFirmAppointmentRequest | BookPortalAppointmentRequest, key: string) {
     const row = await this.scoped(true, async (tx, records, ctx, actor, timezone) => {
-      await this.ensureExclusion(tx);
-      const provider = await this.provider(tx, ctx, actor, body.providerMembershipId);
-      await this.lockProvider(tx, ctx.businessId, provider.id);
-      const type = await this.type(records, body.typeId, actor);
-      if (!type.allowedMethods.includes(body.method))
-        throw new BadRequestException({
-          code: 'INVALID_MEETING_METHOD',
-          message: 'Method is not available for this type',
-        });
       const clientId =
         actor.role === 'CLIENT' ? actor.clientId : 'clientId' in body ? body.clientId : null;
       const client = clientId
@@ -548,6 +542,38 @@ export class AppointmentsService {
         : null;
       if (!client) throw missing();
       if (actor.role === 'STAFF' && client.assignedUserId !== ctx.userId) throw missing();
+      const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+      const requestKey = digest(key);
+      const requestFingerprint = digest(
+        JSON.stringify({
+          clientId: client.id,
+          typeId: body.typeId,
+          providerMembershipId: body.providerMembershipId,
+          startsAt: new Date(body.startsAt).toISOString(),
+          method: body.method,
+        }),
+      );
+      const [previous] = await records.many<AppointmentRow>(
+        'appointments',
+        Prisma.sql`AND created_by_user_id=${ctx.userId}::uuid AND request_key=${requestKey}`,
+        Prisma.sql`id`,
+        1,
+      );
+      if (previous) {
+        if (previous.requestFingerprint !== requestFingerprint)
+          throw conflict('IDEMPOTENCY_CONFLICT', 'Key was used for another booking request');
+        await this.visible(tx, ctx, actor, previous);
+        return previous;
+      }
+      await this.ensureExclusion(tx);
+      const provider = await this.provider(tx, ctx, actor, body.providerMembershipId);
+      await this.lockProvider(tx, ctx.businessId, provider.id);
+      const type = await this.type(records, body.typeId, actor);
+      if (!type.allowedMethods.includes(body.method))
+        throw new BadRequestException({
+          code: 'INVALID_MEETING_METHOD',
+          message: 'Method is not available for this type',
+        });
       const slot = await this.freeSlot(records, provider.id, type, body.startsAt, timezone);
       const booked = await this.protectSlot(() =>
         records.insert<AppointmentRow>('appointments', {
@@ -565,6 +591,8 @@ export class AppointmentsService {
           status: 'BOOKED',
           version: 1,
           createdByUserId: ctx.userId,
+          requestKey,
+          requestFingerprint,
         }),
       );
       await this.historyWrite(records, ctx, booked, 'BOOKED');

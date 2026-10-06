@@ -8,7 +8,7 @@ const fields = {
   working_hours: 'id business_id provider_membership_id weekday start_minute end_minute',
   blocked_times: 'id business_id provider_membership_id starts_at ends_at reason created_at',
   appointments:
-    'id business_id client_id client_name provider_membership_id provider_name type_id type_name starts_at ends_at occupied_starts_at occupied_ends_at buffer_before_minutes buffer_after_minutes timezone method location meeting_url instructions status version created_by_user_id created_at updated_at',
+    'id business_id client_id client_name provider_membership_id provider_name type_id type_name starts_at ends_at occupied_starts_at occupied_ends_at buffer_before_minutes buffer_after_minutes timezone method location meeting_url instructions status version created_by_user_id request_key request_fingerprint created_at updated_at',
   appointment_histories:
     'id business_id appointment_id action actor_user_id previous_starts_at previous_ends_at previous_status new_starts_at new_ends_at new_status reason created_at',
   appointment_reminders:
