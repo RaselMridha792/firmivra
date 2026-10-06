@@ -2,9 +2,9 @@ openapi: 3.0.3
 info:
   title: Firmivra Super Admin application data API
   version: 0.1.0
-  description: T01 proposed contract for T05. Not implemented or frontend-approved. Read-only.
-    Approve/request-info/decline and writes to application/history belong to Rasel R4. Detail form
-    shape proposed pending R4 mapping.
+  description: T05 read-only platform application list/detail/history implementation. Existing
+    application data is allowlisted; history schema depends on R4/R0. Approval/decline/request-info
+    actions remain Rasel-owned; frontend detail mapping review pending.
 servers:
   - url: /api/v1
 security:
@@ -90,6 +90,8 @@ paths:
           $ref: ./common.yaml#/responses/RateLimited
         '500': &a10
           $ref: ./common.yaml#/responses/InternalError
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /admin/applications/{id}:
     parameters:
       - name: id
@@ -123,6 +125,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
   /admin/applications/{id}/history:
     parameters:
       - name: id
@@ -171,6 +175,8 @@ paths:
         '422': *a8
         '429': *a9
         '500': *a10
+        '503':
+          $ref: ./common.yaml#/responses/Unavailable
 components:
   securitySchemes:
     FirmCookie:
