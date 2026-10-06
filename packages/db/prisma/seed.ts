@@ -21,6 +21,7 @@ import {
   SEED_MESSAGE_IDS,
   SEED_BILLING_IDS,
   SEED_STRIPE_ACCOUNT_ID,
+  SEED_PLATFORM_IDS,
   SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
@@ -909,6 +910,83 @@ async function main() {
     });
   });
 
+  // LVP's firm application (submitted publicly, approved by the Super Admin, then linked to the
+  // firm at provisioning), LVP's platform fields, a pending support request, and one platform and
+  // one firm audit event. Each step runs in the scope the app uses for it.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    await tx.business.update({
+      where: { id: businesses.lvp },
+      data: { businessType: 'Tax and accounting firm', pack: 'TAX_ACCOUNTING' },
+    });
+    if (
+      !(await tx.firmApplication.findUnique({ where: { id: SEED_PLATFORM_IDS.lvpApplication } }))
+    ) {
+      await tx.firmApplication.create({
+        data: {
+          id: SEED_PLATFORM_IDS.lvpApplication,
+          legalName: 'LVP Accounting & Taxes LLC (fake)',
+          dbaName: SEED_BUSINESSES.lvp.name,
+          contactName: SEED_USERS.lvpOwner.name,
+          contactEmail: SEED_USERS.lvpOwner.email,
+          data: { businessType: 'Tax and accounting firm' },
+        },
+      });
+    }
+  });
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    await tx.firmApplication.updateMany({
+      where: { id: SEED_PLATFORM_IDS.lvpApplication, status: 'PENDING_REVIEW' },
+      data: {
+        status: 'APPROVED',
+        reviewedByUserId: SEED_USERS.superAdmin.id,
+        reviewedAt: new Date(),
+        decisionReason: 'Sample approval for local development.',
+      },
+    });
+    if (
+      !(await tx.supportAccessGrant.findUnique({ where: { id: SEED_PLATFORM_IDS.supportRequest } }))
+    ) {
+      await tx.supportAccessGrant.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportRequest,
+          businessId: businesses.lvp,
+          adminUserId: SEED_USERS.superAdmin.id,
+          reason: 'Sample request: help with the portal settings.',
+        },
+      });
+    }
+    if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.platformEvent } }))) {
+      await tx.auditLog.create({
+        data: {
+          id: SEED_PLATFORM_IDS.platformEvent,
+          actorUserId: SEED_USERS.superAdmin.id,
+          action: 'firm_application.approved',
+          entityType: 'firm_application',
+          entityId: SEED_PLATFORM_IDS.lvpApplication,
+        },
+      });
+    }
+  });
+  await runInScope(prisma, { kind: 'platform' }, (tx) =>
+    tx.firmApplication.updateMany({
+      where: { id: SEED_PLATFORM_IDS.lvpApplication, businessId: null },
+      data: { businessId: businesses.lvp },
+    }),
+  );
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
+    if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.firmEvent } }))) {
+      await tx.auditLog.create({
+        data: {
+          id: SEED_PLATFORM_IDS.firmEvent,
+          businessId: businesses.lvp,
+          actorUserId: SEED_USERS.lvpOwner.id,
+          action: 'client_account.approved',
+          entityType: 'client_account',
+        },
+      });
+    }
+  });
+
   // The client's private note: written as the client, the only one the database shows it to.
   await runInScope(
     prisma,
@@ -995,7 +1073,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar, messages, invoices, content and a calculator.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request and sample audit events.`,
   );
 }
 

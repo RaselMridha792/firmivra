@@ -253,3 +253,11 @@ export const SEED_BILLING_IDS = {
 
 /** LVP's Stripe connected account for local development: fake, never a real account id. */
 export const SEED_STRIPE_ACCOUNT_ID = 'acct_1LvpLocalSeed0001';
+
+/** Fixed ids of LVP's firm application, a support request and sample audit events. */
+export const SEED_PLATFORM_IDS = {
+  lvpApplication: '00000000-0000-4000-5000-000000000001',
+  supportRequest: '00000000-0000-4000-5000-000000000002',
+  platformEvent: '00000000-0000-4000-5000-000000000011',
+  firmEvent: '00000000-0000-4000-5000-000000000012',
+} as const;

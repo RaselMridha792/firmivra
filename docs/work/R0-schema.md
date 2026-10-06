@@ -26,7 +26,7 @@
 - [x] 9. Message threads, messages, firm notes
 - [x] 10. Invoices, invoice lines, payments (Stripe ids), external links, calculator definitions
 - [x] 11. Firm applications (if not already there) and support access grants (already there: check)
-- [ ] 12. RLS policy + grant for every new table; the coverage test passes; LVP seed data covers every table
+- [x] 12. RLS policy + grant for every new table; the coverage test passes; LVP seed data covers every table
 - [ ] 13. Generate Prisma client and export types in packages/types; PR per two or three groups so developers get tables early (first PR by Oct 7 morning: business settings, team, tax statuses, clients)
 
 ## Done when
@@ -96,3 +96,5 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
   - step 8: `appointments.reminder_sent_at`, cleared by the database on a reschedule (`r0_appointment_reminder`);
   - step 10: `content_items.icon_key`, a design-system icon name (`r0_content_icon`).
   The follow-up migrations are timestamped right after their step's migration, so the order stays right as the stacked PRs merge; the drift check on the final branch is empty. Also covered: firm application history is step 11's `firm_application_status_history` (platform table, written by a trigger when R4 changes an application's status, so R4 need not insert it; read through `forAdmin()`), and client note reminders already exist (`client_note_reminders.remind_at`, `reminded_at`). Dropped per Rasel: buffers, booking retry key, appointment history table, content source and audience. The earlier combined migration `r0_field_requests` was never pushed: it was rolled back locally and split up. Plan change: after steps 11–13 this session becomes R10 (client records API), then R11 (intake, Begin Online, leads, messages).
+- Oct 6: PR #27 (steps 6, 7, with the event key, portal text and legal acceptances follow-ups) merged; PR #32 (steps 8, 9) opened, CI green. Legal acceptances (R2/R3 request): `legal_acceptances` on `client_account_id` (one login per firm), insert-only, step 2 follow-up in #27. `accent_color` not added: needs Rasel's yes (R3 sends a default meanwhile).
+- Oct 6, step 12: every one of the 51 tables has RLS forced, a policy and grants (coverage test), and the seed now fills every table: LVP's firm application (submitted, approved by the Super Admin in admin scope, linked at provisioning; its history written by the trigger), LVP's platform fields, a pending support request, and a platform and a firm audit event. New `test/seed.test.ts` runs the real seed twice against the test database and fails if any table, or any firm table for LVP, is empty. Commit "test: seed covers every table, checked in CI (R0)".
