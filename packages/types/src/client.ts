@@ -32,10 +32,14 @@ export interface ApiClientOptions {
   fetch?: typeof fetch;
 }
 
-export function createApiClient(options: ApiClientOptions) {
+/**
+ * The request function every module client is built on (`createTaxStatusesClient(request)`):
+ * same headers, cookie and error handling everywhere. Parses the response with `schema`.
+ */
+export function createRequest(options: ApiClientOptions) {
   const doFetch = options.fetch ?? fetch;
 
-  async function request<S extends z.ZodType>(
+  return async function request<S extends z.ZodType>(
     schema: S,
     path: string,
     init: { method?: string; body?: unknown } = {},
@@ -63,7 +67,13 @@ export function createApiClient(options: ApiClientOptions) {
       );
     }
     return schema.parse(json);
-  }
+  };
+}
+
+export type ApiRequest = ReturnType<typeof createRequest>;
+
+export function createApiClient(options: ApiClientOptions) {
+  const request = createRequest(options);
 
   return {
     health: () => request(HealthResponse, '/health'),
