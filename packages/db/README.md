@@ -74,7 +74,8 @@ From the repo root:
 pnpm db:migrate   # apply migrations to local Postgres (prisma migrate dev)
 pnpm db:seed      # Super Admin, LVP (owner, staff, client), Test Firm B (owner, client)
 pnpm db:studio
-pnpm --filter @firmivra/db test   # isolation tests, against <database>_test
+pnpm --filter @firmivra/db test   # isolation, rules, seed and enum checks, against <database>_test
+pnpm --filter @firmivra/db gen:enums   # after changing an enum: regenerate packages/types/src/db-enums.ts
 ```
 
 Seeded users (fake): `superadmin@firmivra.test`, `owner@lvp.test`, `staff@lvp.test`, `client@lvp.test`, `owner@firm-b.test`, `client@firm-b.test`.
