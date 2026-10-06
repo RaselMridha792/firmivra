@@ -191,3 +191,12 @@ export const SAMPLE_FORM_DEFINITION = {
     { id: 'sign', title: 'Review and sign', fields: [] },
   ],
 };
+
+/** Fixed ids of seeded notifications and their deliveries, so re-seeding keeps one of each. */
+export const SEED_NOTIFICATION_IDS = {
+  clientW2: '00000000-0000-4000-9000-000000000001',
+  clientW2Email: '00000000-0000-4000-9000-000000000002',
+  clientW2Sms: '00000000-0000-4000-9000-000000000003',
+  staffLead: '00000000-0000-4000-9000-000000000011',
+  staffLeadEmail: '00000000-0000-4000-9000-000000000012',
+} as const;

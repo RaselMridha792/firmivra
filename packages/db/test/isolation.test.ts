@@ -38,6 +38,8 @@ const ids = {
   leadA: '',
   intakeA: '',
   leadUploadA: '',
+  notificationA: '',
+  preferenceA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -185,6 +187,22 @@ beforeAll(async () => {
           s3Key: `tenant/${firm}/leads/${randomUUID()}`,
         },
       });
+      const note2 = await tx.notification.create({
+        data: {
+          businessId: firm,
+          recipientUserId: clientId,
+          category: 'DOCUMENTS',
+          type: 'document_request.created',
+          entityType: 'document_request',
+          entityId: req.id,
+        },
+      });
+      await tx.notificationDelivery.create({
+        data: { businessId: firm, notificationId: note2.id, channel: 'EMAIL' },
+      });
+      const pref = await tx.notificationPreference.create({
+        data: { businessId: firm, userId: clientId, category: 'DOCUMENTS' },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -213,6 +231,8 @@ beforeAll(async () => {
         ids.leadA = lead.id;
         ids.intakeA = intake.id;
         ids.leadUploadA = leadUpload.id;
+        ids.notificationA = note2.id;
+        ids.preferenceA = pref.id;
       }
     });
   }
@@ -262,6 +282,9 @@ describe('no scope set', () => {
     expect(await unscopedApp.intakeSubmission.findMany()).toEqual([]);
     expect(await unscopedApp.lead.findMany()).toEqual([]);
     expect(await unscopedApp.leadUpload.findMany()).toEqual([]);
+    expect(await unscopedApp.notification.findMany()).toEqual([]);
+    expect(await unscopedApp.notificationDelivery.findMany()).toEqual([]);
+    expect(await unscopedApp.notificationPreference.findMany()).toEqual([]);
   });
 });
 
@@ -299,6 +322,9 @@ describe('business scope: firm B', () => {
       await b().intakeSubmission.findMany(),
       await b().lead.findMany(),
       await b().leadUpload.findMany(),
+      await b().notification.findMany(),
+      await b().notificationDelivery.findMany(),
+      await b().notificationPreference.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -342,6 +368,21 @@ describe('business scope: firm B', () => {
     expect(await b().leadUpload.findUnique({ where: { id: ids.leadUploadA } })).toBeNull();
     expect(await b().intakeSubmission.findMany({ where: { intakeId: ids.intakeA } })).toEqual([]);
     expect((await b().leadUpload.deleteMany({ where: { id: ids.leadUploadA } })).count).toBe(0);
+    expect(await b().notification.findUnique({ where: { id: ids.notificationA } })).toBeNull();
+    expect(
+      await b().notificationDelivery.findMany({ where: { notificationId: ids.notificationA } }),
+    ).toEqual([]);
+    expect(
+      (
+        await b().notification.updateMany({
+          where: { id: ids.notificationA },
+          data: { readAt: new Date() },
+        })
+      ).count,
+    ).toBe(0);
+    expect(
+      (await b().notificationPreference.deleteMany({ where: { id: ids.preferenceA } })).count,
+    ).toBe(0);
     expect(
       await b().engagementStatusHistory.findMany({ where: { engagementId: ids.engagementA } }),
     ).toEqual([]);
@@ -471,6 +512,9 @@ describe('platform scope', () => {
     expect(await p.intake.findMany()).toEqual([]);
     expect(await p.lead.findMany()).toEqual([]);
     expect(await p.leadUpload.findMany()).toEqual([]);
+    expect(await p.notification.findMany()).toEqual([]);
+    expect(await p.notificationDelivery.findMany()).toEqual([]);
+    expect(await p.notificationPreference.findMany()).toEqual([]);
   });
 });
 

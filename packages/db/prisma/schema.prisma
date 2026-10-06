@@ -178,6 +178,31 @@ enum LeadStatus {
   EXPIRED
 }
 
+/// Groups notifications for preferences. ACCOUNT (security) notices ignore preferences.
+enum NotificationCategory {
+  ACCOUNT
+  DOCUMENTS
+  INTAKE
+  SERVICES
+  MESSAGES
+  APPOINTMENTS
+  BILLING
+}
+
+enum DeliveryChannel {
+  EMAIL
+  SMS
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  /// Retried by the sender (back to QUEUED) until it gives up.
+  FAILED
+  /// Not sent: the preference is off, or there is no address or number.
+  SKIPPED
+}
+
 enum LegalDocumentKind {
   TERMS
   PRIVACY
@@ -207,6 +232,8 @@ model Business {
   clients             Client[]
   services            Service[]
   documentCategories  DocumentCategory[]
+  notifications       Notification[]
+  notificationPrefs   NotificationPreference[]
 
   @@map("businesses")
 }
@@ -978,4 +1005,74 @@ model LeadUpload {
   @@unique([businessId, id])
   @@index([businessId, leadId])
   @@map("lead_uploads")
+}
+
+/// One notification for one person in one firm (the bell and the Notification Center). It
+/// always names the record it opens. The payload holds only safe values for the text (a due
+/// date, a count), never SSNs, amounts, document content or message text. The recipient must
+/// be a member or client account of the firm. After insert only readAt changes; never deleted.
+model Notification {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  businessId      String               @map("business_id") @db.Uuid
+  recipientUserId String               @map("recipient_user_id") @db.Uuid
+  category        NotificationCategory
+  /// Event key, e.g. "document_request.created".
+  type            String
+  /// The record the notification opens, e.g. "document_request" and its id.
+  entityType      String               @map("entity_type")
+  entityId        String               @map("entity_id") @db.Uuid
+  payload         Json                 @default("{}")
+  readAt          DateTime?            @map("read_at") @db.Timestamptz(3)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business   Business               @relation(fields: [businessId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@unique([businessId, id])
+  @@index([businessId, recipientUserId, createdAt])
+  @@map("notifications")
+}
+
+/// The email or SMS copy of a notification: an outbox for the sender (R6). One row per
+/// notification and channel. No address and no content are stored: the sender looks them up
+/// when it sends. QUEUED -> SENT, FAILED (retried back to QUEUED) or SKIPPED; SENT and SKIPPED
+/// are final.
+model NotificationDelivery {
+  id                String          @id @default(uuid(7)) @db.Uuid
+  businessId        String          @map("business_id") @db.Uuid
+  notificationId    String          @map("notification_id") @db.Uuid
+  channel           DeliveryChannel
+  status            DeliveryStatus  @default(QUEUED)
+  attempts          Int             @default(0)
+  /// The provider's message id (SES or SNS), for support and bounce handling.
+  providerMessageId String?         @map("provider_message_id")
+  /// A short error code from the provider, never message content.
+  lastError         String?         @map("last_error")
+  sentAt            DateTime?       @map("sent_at") @db.Timestamptz(3)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  notification Notification @relation(fields: [businessId, notificationId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, notificationId, channel])
+  @@index([businessId, status, createdAt])
+  @@map("notification_deliveries")
+}
+
+/// A person's email and SMS choice for one category in one firm. No row means the defaults
+/// (email on, SMS off). The bell is always on, and ACCOUNT notices cannot be switched off.
+model NotificationPreference {
+  id         String               @id @default(uuid(7)) @db.Uuid
+  businessId String               @map("business_id") @db.Uuid
+  userId     String               @map("user_id") @db.Uuid
+  category   NotificationCategory
+  email      Boolean              @default(true)
+  sms        Boolean              @default(false)
+  createdAt  DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, userId, category])
+  @@map("notification_preferences")
 }

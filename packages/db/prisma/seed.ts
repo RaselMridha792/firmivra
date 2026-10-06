@@ -15,6 +15,7 @@ import {
   SEED_DOCUMENT_CATEGORIES,
   SEED_DOCUMENT_IDS,
   SEED_INTAKE_IDS,
+  SEED_NOTIFICATION_IDS,
   SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
@@ -524,6 +525,68 @@ async function main() {
       where: { id: SEED_INTAKE_IDS.lead, status: 'DRAFT' },
       data: { status: 'SUBMITTED', submittedAt: signedAt },
     });
+
+    // Notifications: the client is asked for a W-2 (email sent, SMS skipped); staff hear about
+    // the Begin Online lead (email queued). Payloads hold only safe values.
+    const notify = async (
+      id: string,
+      recipientUserId: string,
+      data: {
+        category: 'DOCUMENTS' | 'INTAKE';
+        type: string;
+        entityType: string;
+        entityId: string;
+        payload?: Record<string, string>;
+      },
+    ) => {
+      await tx.notification.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, recipientUserId, ...data, payload: data.payload ?? {} },
+      });
+    };
+    const deliver = async (id: string, notificationId: string, channel: 'EMAIL' | 'SMS') => {
+      await tx.notificationDelivery.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, notificationId, channel },
+      });
+    };
+    await notify(SEED_NOTIFICATION_IDS.clientW2, SEED_USERS.lvpClient.id, {
+      category: 'DOCUMENTS',
+      type: 'document_request.created',
+      entityType: 'document_request',
+      entityId: SEED_DOCUMENT_IDS.w2Request,
+      payload: { dueOn: '2026-10-31' },
+    });
+    await deliver(SEED_NOTIFICATION_IDS.clientW2Email, SEED_NOTIFICATION_IDS.clientW2, 'EMAIL');
+    await tx.notificationDelivery.updateMany({
+      where: { id: SEED_NOTIFICATION_IDS.clientW2Email, status: 'QUEUED' },
+      data: { status: 'SENT', attempts: 1, sentAt: new Date(), providerMessageId: 'local-sample' },
+    });
+    await deliver(SEED_NOTIFICATION_IDS.clientW2Sms, SEED_NOTIFICATION_IDS.clientW2, 'SMS');
+    await tx.notificationDelivery.updateMany({
+      where: { id: SEED_NOTIFICATION_IDS.clientW2Sms, status: 'QUEUED' },
+      data: { status: 'SKIPPED' },
+    });
+    await notify(SEED_NOTIFICATION_IDS.staffLead, SEED_USERS.lvpStaff.id, {
+      category: 'INTAKE',
+      type: 'lead.submitted',
+      entityType: 'lead',
+      entityId: SEED_INTAKE_IDS.lead,
+    });
+    await deliver(SEED_NOTIFICATION_IDS.staffLeadEmail, SEED_NOTIFICATION_IDS.staffLead, 'EMAIL');
+    await tx.notificationPreference.upsert({
+      where: {
+        businessId_userId_category: {
+          businessId: businesses.lvp,
+          userId: SEED_USERS.lvpClient.id,
+          category: 'DOCUMENTS',
+        },
+      },
+      update: {},
+      create: { ...lvp, userId: SEED_USERS.lvpClient.id, category: 'DOCUMENTS', sms: true },
+    });
   });
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
@@ -581,7 +644,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms and a Begin Online lead.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead and notifications.`,
   );
 }
 
