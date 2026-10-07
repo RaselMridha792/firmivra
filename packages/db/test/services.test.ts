@@ -4,10 +4,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner);
-const db = createDatabase(urls.app);
+const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 const run = randomUUID().slice(0, 8);
 const ids = {
@@ -240,6 +241,36 @@ describe('workspace tasks, notes and reports', () => {
     await expect(firmA().task.delete({ where: { id: t.id } })).resolves.toMatchObject({
       id: t.id,
     });
+  });
+
+  it('a client has at most one open name change request', async () => {
+    const task = (kind: 'GENERAL' | 'NAME_CHANGE') =>
+      firmA().task.create({
+        data: { businessId: ids.firmA, clientId: ids.client1, kind, title: 'Change my name' },
+      });
+    const first = await task('NAME_CHANGE');
+    await expect(task('NAME_CHANGE')).rejects.toThrow(/unique constraint/i);
+    await expect(task('GENERAL')).resolves.toMatchObject({ kind: 'GENERAL' });
+    await firmA().task.update({
+      where: { id: first.id },
+      data: { status: 'DONE', completedAt: new Date() },
+    });
+    await expect(task('NAME_CHANGE')).resolves.toMatchObject({ kind: 'NAME_CHANGE' });
+  });
+
+  it("the client's cancellation reason comes only with a cancellation request", async () => {
+    const e = await engagement();
+    const set = (data: { cancelRequestReason?: string; cancelRequestedAt?: Date }) =>
+      firmA().engagement.update({ where: { id: e.id }, data });
+    await expect(set({ cancelRequestReason: 'Moving in-house' })).rejects.toThrow(
+      /check constraint/i,
+    );
+    await expect(set({ cancelRequestReason: ' ', cancelRequestedAt: new Date() })).rejects.toThrow(
+      /check constraint/i,
+    );
+    await expect(
+      set({ cancelRequestReason: 'Moving in-house', cancelRequestedAt: new Date() }),
+    ).resolves.toMatchObject({ cancelRequestReason: 'Moving in-house' });
   });
 
   it('a published report needs published_at and is never deleted; a draft can be', async () => {
