@@ -21,6 +21,7 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { lockClientEmails } from '../client-auth/client-records.js';
 
 type ListQuery = z.output<typeof ListClientsQuery>;
 type CreateBody = z.output<typeof CreateClientRequest>;
@@ -295,13 +296,13 @@ export class ClientsService {
     if (actor.role === 'STAFF' && body.assignedUserId !== undefined) throw forbidden();
     const data = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
     const row = await this.write(businessId, async (tx) => {
-      const current = await this.find(tx, businessId, actor, id);
+      const current = await this.findForChange(tx, businessId, actor, id);
       if (current.archivedAt) throw archived();
       if (body.assignedUserId) await this.activeMember(tx, businessId, body.assignedUserId);
       if (body.email !== undefined && body.email !== current.email) {
         await this.uniqueEmail(tx, businessId, body.email);
       }
-      await tx.client.update({ where: { id }, data });
+      await tx.client.update({ where: { businessId_id: { businessId, id } }, data });
       return this.find(tx, businessId, actor, id);
     });
     await this.audit.log(
@@ -328,9 +329,12 @@ export class ClientsService {
     archive: boolean,
   ): Promise<ClientRecord> {
     const { row, changed } = await this.inFirm(businessId, async (tx) => {
-      const current = await this.find(tx, businessId, actor, id);
+      const current = await this.findForChange(tx, businessId, actor, id);
       if (!!current.archivedAt === archive) return { row: current, changed: false };
-      await tx.client.update({ where: { id }, data: { archivedAt: archive ? new Date() : null } });
+      await tx.client.update({
+        where: { businessId_id: { businessId, id } },
+        data: { archivedAt: archive ? new Date() : null },
+      });
       return { row: await this.find(tx, businessId, actor, id), changed: true };
     });
     if (changed) {
@@ -363,6 +367,25 @@ export class ClientsService {
     return row;
   }
 
+  /**
+   * `find` for a change: the client's row is locked first, so an archive or a reassignment at
+   * the same time waits for this change (or has committed and is seen here). Without it, a
+   * change read before an archive or reassignment could still land after it. FOR NO KEY UPDATE,
+   * not FOR UPDATE: it does not conflict with the FOR KEY SHARE that adding a row under the
+   * client takes (the foreign key check), so neither waits for the other.
+   */
+  private async findForChange(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+  ): Promise<RecordRow> {
+    await tx.$queryRaw`
+      SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
+      FOR NO KEY UPDATE`;
+    return this.find(tx, businessId, actor, id);
+  }
+
   /** The assignee is an active member of this firm (another firm's or a former member is 404). */
   private async activeMember(tx: TxClient, businessId: string, userId: string): Promise<void> {
     const member = await tx.membership.findFirst({
@@ -378,8 +401,7 @@ export class ClientsService {
    */
   private async uniqueEmail(tx: TxClient, businessId: string, email: string | null): Promise<void> {
     if (!email) return;
-    const key = `clients_email:${businessId}`;
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+    await lockClientEmails(tx, businessId);
     const taken = await tx.client.findFirst({ where: { businessId, email }, select: { id: true } });
     if (taken) throw duplicateEmail();
   }

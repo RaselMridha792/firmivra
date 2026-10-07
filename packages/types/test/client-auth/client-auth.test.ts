@@ -34,6 +34,19 @@ const state = {
   resendAvailableAt: '2026-10-07T12:00:45.000Z',
 };
 
+describe('SignUpState: CONTACT_FIRM (Rasel, Oct 8, q13)', () => {
+  it('takes the step with no resend time', async () => {
+    const { SignUpState, SIGN_UP_WRONG_EMAIL_CODES } = await import('../../src/index.js');
+    const state = {
+      step: 'CONTACT_FIRM',
+      email: 'jane@example.com',
+      phoneMasked: '(770) ***-0123',
+    };
+    expect(SignUpState.parse({ ...state, resendAvailableAt: null }).step).toBe('CONTACT_FIRM');
+    expect(SIGN_UP_WRONG_EMAIL_CODES).toBe(5);
+  });
+});
+
 describe('#72 review: one-line names, strict queue requests', () => {
   it('refuses control characters in the sign-up name and the decline reason, and extra fields', async () => {
     const { SignUpRequest, DeclineSignUpRequest, ClientSignUpsQuery } =

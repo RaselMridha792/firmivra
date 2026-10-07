@@ -8,7 +8,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope } from '@firmivra/db';
+import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import { ClientListItem as ListShape, ClientRecord as RecordShape } from '@firmivra/types';
@@ -381,5 +381,119 @@ describe('audit', () => {
     expect(rows.find((r) => r.action === 'client.updated')?.metadata).toEqual({
       fields: ['displayName'],
     });
+  });
+});
+
+/**
+ * Runs `change` in a firm transaction and keeps it open (with the client's row locked) until
+ * the request is waiting on it, then commits. Before the fix the request read first and only
+ * waited at its write, so the change it had not seen still let it through.
+ */
+async function whileChanging(
+  change: (tx: TxClient) => Promise<unknown>,
+  send: () => Promise<Response>,
+): Promise<Response> {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  let letGo!: () => void;
+  const released = new Promise<void>((resolve) => (letGo = resolve));
+  let held!: (pid: number) => void;
+  const holding = new Promise<number>((resolve) => (held = resolve));
+  const holder = runInScope(owner, { kind: 'business', businessId: firms.a.id }, async (tx) => {
+    await change(tx);
+    const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+    held(row!.pid);
+    await released;
+  });
+  try {
+    const pid = await holding;
+    const pending = send();
+    for (let i = 0; ; i++) {
+      const [row] = await owner.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE ${pid}::int = ANY (pg_blocking_pids(pid))`;
+      if (row!.n > 0) break;
+      if (i === 500) throw new Error('the request never waited on the change');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    letGo();
+    await holder;
+    return await pending;
+  } finally {
+    letGo();
+    await owner.$disconnect();
+  }
+}
+
+describe('changes at the same time', () => {
+  it('an update that waited on an archive is 409 CLIENT_ARCHIVED and writes nothing', async () => {
+    const { id } = await create({ displayName: `Race archive ${run}` });
+    const res = await whileChanging(
+      (tx) => tx.client.update({ where: { id }, data: { archivedAt: new Date() } }),
+      () => call('patch', `/${id}`, people.ownerA, 'a', { displayName: 'Changed' }),
+    );
+    expect([res.status, codeOf(res)]).toEqual([409, 'CLIENT_ARCHIVED']);
+    const after = Record_.parse((await call('get', `/${id}`, people.ownerA)).body);
+    expect(after.displayName).toBe(`Race archive ${run}`);
+  });
+
+  it('a Staff update that waited on a reassignment away is 404 and writes nothing', async () => {
+    const { id } = await create({
+      displayName: `Race reassign ${run}`,
+      assignedUserId: people.staffA.id,
+    });
+    const res = await whileChanging(
+      (tx) => tx.client.update({ where: { id }, data: { assignedUserId: people.staffA2.id } }),
+      () => call('patch', `/${id}`, people.staffA, 'a', { displayName: 'Changed' }),
+    );
+    expect([res.status, codeOf(res)]).toEqual([404, 'NOT_FOUND']);
+    const after = Record_.parse((await call('get', `/${id}`, people.ownerA)).body);
+    expect(after.displayName).toBe(`Race reassign ${run}`);
+  });
+
+  it('an archive that waited on another archive is not archived twice (one audit row)', async () => {
+    const { id } = await create({ displayName: `Race twice ${run}` });
+    const res = await whileChanging(
+      (tx) => tx.client.update({ where: { id }, data: { archivedAt: new Date() } }),
+      () => call('post', `/${id}/archive`, people.ownerA, 'a', {}),
+    );
+    expect(res.status).toBe(200);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const rows = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.auditLog.count({ where: { action: 'client.archived', entityId: id } }),
+    );
+    await owner.$disconnect();
+    expect(rows).toBe(0);
+  });
+
+  it('an update does not wait for a row being added under the client (FOR KEY SHARE)', async () => {
+    const { id } = await create({ displayName: `Race key share ${run}` });
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    let letGo!: () => void;
+    const released = new Promise<void>((resolve) => (letGo = resolve));
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => (held = resolve));
+    // What adding a tax year, service or return for the client holds until it commits: the
+    // foreign key check's FOR KEY SHARE on the client's row. FOR UPDATE would wait for it.
+    const holder = runInScope(owner, { kind: 'business', businessId: firms.a.id }, async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM clients WHERE id = ${id}::uuid FOR KEY SHARE`;
+      held();
+      await released;
+    });
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await holding;
+      const res = await Promise.race([
+        call('patch', `/${id}`, people.ownerA, 'a', { displayName: 'Changed' }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('the update waited on FOR KEY SHARE')), 3_000);
+        }),
+      ]);
+      expect([res.status, Record_.parse(res.body).displayName]).toEqual([200, 'Changed']);
+    } finally {
+      clearTimeout(timer);
+      letGo();
+      await holder;
+      await owner.$disconnect();
+    }
   });
 });
