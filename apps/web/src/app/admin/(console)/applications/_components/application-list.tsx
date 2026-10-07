@@ -1,133 +1,164 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
-import Link from 'next/link';
-import { Button, Card, Input } from '@firmivra/ui';
-import { useMe } from '../../../../../components/signed-in';
 import {
-  listApplications,
-  revision,
-  subscribe,
-  type Application,
-  type Status,
-} from './application-data';
-import { dateParts, MetricCards, StatusPill } from './application-ui';
+  ENTITY_TYPES,
+  FIRM_PLANS,
+  FIRM_SERVICES,
+  PRACTICE_TYPES,
+  type FirmApplicationReviewStatus,
+  type ListFirmApplicationsQuery,
+} from '@firmivra/types';
+import { Button, Card, Input } from '@firmivra/ui';
+import { useState } from 'react';
+import Link from 'next/link';
+import { useMe } from '../../../../../components/signed-in';
+import { api } from '../../../../../lib/api';
+import { useApiQuery } from '../../../../../lib/query';
+import { applicationCountsKey, applicationListKey } from './application-data';
+import {
+  ApplicationPageState,
+  dateParts,
+  MetricCards,
+  NoApplicationPermission,
+  StatusPill,
+} from './application-ui';
 
-type Tab = 'all' | 'pending' | 'approved' | 'declined';
-const tabs: Tab[] = ['all', 'pending', 'approved', 'declined'];
-const labels: Record<Tab, string> = {
-  all: 'All Applications',
-  pending: 'Pending',
-  approved: 'Approved',
-  declined: 'Declined',
-};
-const statuses: (Status | 'all')[] = [
-  'all',
-  'Pending Review',
-  'Information Requested',
-  'Approved',
-  'Declined',
+type Tab = 'all' | FirmApplicationReviewStatus;
+type DateRange = 'all' | '7' | '30' | 'month';
+type StatusFilter = '' | FirmApplicationReviewStatus;
+const tabs: { id: Tab; label: string }[] = [
+  { id: 'all', label: 'All Applications' },
+  { id: 'PENDING_REVIEW', label: 'Pending' },
+  { id: 'APPROVED', label: 'Approved' },
+  { id: 'DECLINED', label: 'Declined' },
 ];
-const columns = [
-  ['Business name', 'w-2/12'],
-  ['Business type', 'w-1/12'],
-  ['Owner / contact', 'w-2/12'],
-  ['Email', 'w-2/12'],
-  ['Services', 'w-1/12'],
-  ['Requested plan', 'w-1/12'],
-  ['Submitted', 'w-1/12'],
-  ['Status', 'w-1/12'],
-  ['Action', 'w-1/12'],
+const statuses: { value: StatusFilter; label: string }[] = [
+  { value: '', label: 'All statuses' },
+  { value: 'PENDING_REVIEW', label: 'Pending Review' },
+  { value: 'APPROVED', label: 'Approved' },
+  { value: 'DECLINED', label: 'Declined' },
 ];
-const matchesTab = (a: Application, tab: Tab) =>
-  tab === 'all' ||
-  (tab === 'pending'
-    ? a.status === 'Pending Review' || a.status === 'Information Requested'
-    : a.status.toLowerCase() === tab);
-const matches = (a: Application, q: string, status: string, date: string) => {
-  const found = [a.name, a.owner, a.email].some((s) =>
-    s.toLowerCase().includes(q.trim().toLowerCase()),
-  );
-  const time = new Date(a.submittedAt),
-    now = new Date();
-  const inDateRange =
-    date === 'all' ||
-    (date === 'month'
-      ? time.getMonth() === now.getMonth() && time.getFullYear() === now.getFullYear()
-      : time >= new Date(now.getTime() - Number(date) * 86400000));
-  return found && (status === 'all' || a.status === status) && inDateRange;
-};
+const pageSize = 5;
+
+function rangeBounds(value: DateRange): Pick<ListFirmApplicationsQuery, 'from' | 'to'> {
+  if (value === 'all') return {};
+  const today = new Date();
+  const start =
+    value === 'month'
+      ? new Date(today.getFullYear(), today.getMonth(), 1)
+      : new Date(today.getFullYear(), today.getMonth(), today.getDate() - Number(value) + 1);
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
 
 export function ApplicationList() {
   const { me } = useMe();
-  useSyncExternalStore(subscribe, revision, revision);
-  const apps = listApplications();
-  const [tab, setTab] = useState<Tab>('all'),
-    [query, setQuery] = useState(''),
-    [status, setStatus] = useState('all'),
-    [date, setDate] = useState('all'),
-    [page, setPage] = useState(1);
-  const filtered = apps.filter((a) => matchesTab(a, tab) && matches(a, query, status, date));
-  const pageCount = Math.max(1, Math.ceil(filtered.length / 5)),
-    current = Math.min(page, pageCount);
-  const rows = filtered.slice((current - 1) * 5, current * 5);
-  const setFilter = (setter: (value: string) => void, value: string) => {
-    setter(value);
-    setPage(1);
+  const [tab, setTab] = useState<Tab>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
+  const [search, setSearch] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange>('all');
+  const [dates, setDates] = useState<Pick<ListFirmApplicationsQuery, 'from' | 'to'>>({});
+  const [page, setPage] = useState(1);
+  const counts = useApiQuery(applicationCountsKey, () => api.firmApplications.counts());
+  const query: ListFirmApplicationsQuery = {
+    page,
+    pageSize,
+    order: 'newest',
+    ...(search.trim() ? { search: search.trim() } : {}),
+    ...(statusFilter || (tab === 'all' ? undefined : tab)
+      ? { status: statusFilter || (tab === 'all' ? undefined : tab) }
+      : {}),
+    ...dates,
   };
-  if (!me.platformAdmin)
-    return <p role="alert">You do not have permission to review firm applications.</p>;
+  const applications = useApiQuery(applicationListKey(query), () =>
+    api.firmApplications.list(query),
+  );
+  const count = counts.data;
+  const pageCount = Math.max(1, Math.ceil((applications.data?.total ?? 0) / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const first = applications.data?.total ? (currentPage - 1) * pageSize + 1 : 0;
+  const last = Math.min(currentPage * pageSize, applications.data?.total ?? 0);
+
+  if (!me.platformAdmin) return <NoApplicationPermission />;
+
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <div className="mx-auto flex max-w-7xl flex-col gap-5">
       <header>
-        <h1 data-testid="page-title" className="text-3xl font-semibold tracking-tight text-text">
+        <h1
+          data-testid="page-title"
+          className="font-serif text-4xl font-semibold tracking-tight text-text"
+        >
           Firm Applications
         </h1>
         <p className="mt-2 text-muted">
           Review and manage new firm applications. Approve firms to activate their accounts.
         </p>
       </header>
-      <MetricCards apps={apps} />
+
+      <ApplicationPageState query={counts}>
+        {(data) => <MetricCards counts={data} />}
+      </ApplicationPageState>
+
       <Card className="!p-0" aria-label="Applications">
         <div
           role="tablist"
           aria-label="Application status"
           className="flex gap-5 overflow-x-auto border-b border-border px-5"
         >
-          {tabs.map((id) => (
-            <button
-              key={id}
-              role="tab"
-              aria-selected={id === tab}
-              onClick={() => {
-                setTab(id);
-                setPage(1);
-              }}
-              className={`shrink-0 border-b-2 px-1 py-4 text-sm ${id === tab ? 'border-brand-700 font-semibold text-brand-700' : 'border-transparent text-muted'}`}
-            >
-              {labels[id]} ({apps.filter((a) => matchesTab(a, id)).length})
-            </button>
-          ))}
+          {tabs.map(({ id, label }) => {
+            const value =
+              id === 'all'
+                ? count?.all
+                : id === 'PENDING_REVIEW'
+                  ? count?.pendingReview
+                  : id === 'APPROVED'
+                    ? count?.approved
+                    : count?.declined;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={id === tab}
+                onClick={() => {
+                  setTab(id);
+                  setStatusFilter('');
+                  setPage(1);
+                }}
+                className={`shrink-0 border-b-2 px-1 py-4 text-sm ${id === tab ? 'border-brand-700 font-semibold text-brand-700' : 'border-transparent text-muted'}`}
+              >
+                {label} ({value ?? '…'})
+              </button>
+            );
+          })}
         </div>
+
         <div className="grid gap-4 border-b border-border p-5 md:grid-cols-3">
           <Input
             label="Search applications"
             type="search"
-            value={query}
-            onChange={(e) => setFilter(setQuery, e.target.value)}
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             placeholder="Business name, owner, or email"
           />
           <label className="flex flex-col gap-1 text-sm font-medium text-text">
             Status
             <select
               aria-label="Filter by status"
-              value={status}
-              onChange={(e) => setFilter(setStatus, e.target.value)}
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value as StatusFilter);
+                setTab('all');
+                setPage(1);
+              }}
               className="h-10 rounded-control border border-border bg-surface px-3 text-base font-normal"
             >
-              {statuses.map((s) => (
-                <option key={s} value={s}>
-                  {s === 'all' ? 'All statuses' : s}
+              {statuses.map(({ value, label }) => (
+                <option key={value || 'all'} value={value}>
+                  {label}
                 </option>
               ))}
             </select>
@@ -136,114 +167,132 @@ export function ApplicationList() {
             Date range
             <select
               aria-label="Filter by date range"
-              value={date}
-              onChange={(e) => setFilter(setDate, e.target.value)}
+              value={dateRange}
+              onChange={(event) => {
+                const value = event.target.value as DateRange;
+                setDateRange(value);
+                setDates(rangeBounds(value));
+                setPage(1);
+              }}
               className="h-10 rounded-control border border-border bg-surface px-3 text-base font-normal"
             >
-              {[
-                ['all', 'All time'],
-                ['7', 'Last 7 days'],
-                ['30', 'Last 30 days'],
-                ['month', 'This month'],
-              ].map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
+              <option value="all">All time</option>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="month">This month</option>
             </select>
           </label>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-5xl table-fixed text-left text-xs">
-            <colgroup>
-              {columns.map(([label, width]) => (
-                <col key={label} className={width} />
-              ))}
-            </colgroup>
-            <thead className="bg-canvas">
-              <tr>
-                {columns.map(([n]) => (
-                  <th key={n} className="whitespace-nowrap px-2 py-4 font-medium">
-                    {n}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rows.map((a) => {
-                const [day, time] = dateParts(a.submittedAt);
-                return (
-                  <tr key={a.id} className="align-top hover:bg-canvas/70">
-                    <th
-                      scope="row"
-                      className="min-w-32 break-words px-2 py-4 text-left font-semibold"
-                    >
-                      {a.name}
-                    </th>
-                    <td className="px-2 py-4">
-                      {a.sections['Business Information']?.['Business type']}
-                    </td>
-                    <td className="min-w-32 break-words px-2 py-4">
-                      {a.owner}
-                      <span className="block text-muted">{a.phone}</span>
-                    </td>
-                    <td className="break-all px-2 py-4">{a.email}</td>
-                    <td className="break-words px-2 py-4">{a.services.join(', ')}</td>
-                    <td className="px-2 py-4">
-                      {a.sections['Account Details']?.['Requested plan']}
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-4 text-muted">
-                      {day}
-                      <span className="block">{time}</span>
-                    </td>
-                    <td className="px-2 py-4">
-                      <StatusPill status={a.status} />
-                    </td>
-                    <td className="px-2 py-4">
-                      <Link
-                        aria-label={`Open application for ${a.name}`}
-                        className="inline-flex rounded-control bg-brand-700 px-3 py-2 font-medium text-white"
-                        href={`/applications/${a.id}`}
-                      >
-                        Open
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {!filtered.length && (
-          <p role="status" className="p-8 text-center text-sm text-muted">
-            No applications match these filters.
-          </p>
-        )}
-        <footer className="flex flex-col gap-3 border-t border-border p-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted">
-            Showing {filtered.length ? (current - 1) * 5 + 1 : 0}–
-            {Math.min(current * 5, filtered.length)} of {filtered.length} applications
-          </p>
-          <nav aria-label="Application pages" className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              disabled={current === 1}
-              onClick={() => setPage(current - 1)}
-            >
-              Previous
-            </Button>
-            <span aria-current="page">
-              {current} / {pageCount}
-            </span>
-            <Button
-              variant="secondary"
-              disabled={current === pageCount}
-              onClick={() => setPage(current + 1)}
-            >
-              Next
-            </Button>
-          </nav>
-        </footer>
+
+        <ApplicationPageState
+          query={applications}
+          empty="No applications match these filters."
+          isEmpty={(data) => data.total === 0}
+        >
+          {(data) => (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-5xl table-fixed text-left text-xs">
+                  <thead className="bg-canvas">
+                    <tr>
+                      {[
+                        'Business name',
+                        'Business type',
+                        'Owner / contact',
+                        'Email',
+                        'Services',
+                        'Requested plan',
+                        'Submitted',
+                        'Status',
+                        'Action',
+                      ].map((label) => (
+                        <th key={label} className="whitespace-nowrap px-2 py-4 font-medium">
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {data.items.map((application) => {
+                      const [day, time] = dateParts(application.submittedAt);
+                      return (
+                        <tr
+                          key={application.id}
+                          data-testid="application-row"
+                          className="align-top hover:bg-canvas/70"
+                        >
+                          <th
+                            scope="row"
+                            className="min-w-32 break-words px-2 py-4 text-left font-semibold"
+                          >
+                            {application.legalName}
+                          </th>
+                          <td className="px-2 py-4">
+                            {PRACTICE_TYPES[application.practiceType]} ·{' '}
+                            {ENTITY_TYPES[application.entityType]}
+                          </td>
+                          <td className="min-w-32 break-words px-2 py-4">
+                            {application.contactName}
+                            <span className="block text-muted">{application.contactPhone}</span>
+                          </td>
+                          <td className="break-all px-2 py-4">{application.contactEmail}</td>
+                          <td className="break-words px-2 py-4">
+                            {application.services
+                              .map((service) => FIRM_SERVICES[service])
+                              .join(', ')}
+                          </td>
+                          <td className="px-2 py-4">{FIRM_PLANS[application.requestedPlan]}</td>
+                          <td className="whitespace-nowrap px-2 py-4 text-muted">
+                            {day}
+                            <span className="block">{time}</span>
+                          </td>
+                          <td className="px-2 py-4">
+                            <StatusPill status={application.status} />
+                          </td>
+                          <td className="px-2 py-4">
+                            <Link
+                              aria-label={`Open application for ${application.legalName}`}
+                              className="inline-flex rounded-control bg-brand-700 px-3 py-2 font-medium text-white"
+                              href={`/applications/${application.id}`}
+                            >
+                              Open Application
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <footer className="flex flex-col gap-3 border-t border-border p-5 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted">
+                  Showing {first}–{last} of {data.total} applications
+                </p>
+                <nav aria-label="Application pages" className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    aria-label="Previous applications page"
+                    disabled={currentPage === 1}
+                    onClick={() => setPage(currentPage - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span aria-current="page">
+                    {currentPage} / {pageCount}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    aria-label="Next applications page"
+                    disabled={currentPage === pageCount}
+                    onClick={() => setPage(currentPage + 1)}
+                  >
+                    Next
+                  </Button>
+                </nav>
+              </footer>
+            </>
+          )}
+        </ApplicationPageState>
       </Card>
     </div>
   );
