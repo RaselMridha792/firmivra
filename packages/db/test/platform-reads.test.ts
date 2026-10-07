@@ -178,23 +178,35 @@ describe('owner invites: the Super Admin reads activation links, nothing else', 
 });
 
 describe('dashboard: staff and client logins per day', () => {
-  const today = async () => {
-    const rows = await admin().platformUserSignups.findMany();
-    const sum = (pool: string) =>
-      rows.filter((r) => r.pool === pool).reduce((n, r) => n + r.users, 0);
-    return { staff: sum('STAFF'), client: sum('CLIENT'), pools: new Set(rows.map((r) => r.pool)) };
+  // Other test files add users at the same time, so compare the counts with the users table in
+  // one statement (one snapshot), as the owner, rather than before and after.
+  const counted = async () => {
+    const [row] = await owner.$queryRaw<
+      { staff: number; client: number; admin: number; staffUsers: number; clientUsers: number }[]
+    >`SELECT
+        (SELECT coalesce(sum(users), 0)::int FROM platform_user_signups WHERE pool = 'STAFF') AS staff,
+        (SELECT coalesce(sum(users), 0)::int FROM platform_user_signups WHERE pool = 'CLIENT') AS client,
+        (SELECT count(*)::int FROM platform_user_signups WHERE pool = 'ADMIN') AS admin,
+        (SELECT count(*)::int FROM users WHERE pool = 'STAFF') AS "staffUsers",
+        (SELECT count(*)::int FROM users WHERE pool = 'CLIENT') AS "clientUsers"`;
+    return row!;
   };
 
-  it('counts new staff and client logins, not admins; a removed client login counts down', async () => {
-    const before = await today();
+  it('counts every staff and client login, never admins; a removed client login counts down', async () => {
     await newUser('STAFF');
     const client = await newUser('CLIENT');
     await newUser('ADMIN');
-    const after = await today();
-    expect([after.staff - before.staff, after.client - before.client]).toEqual([1, 1]);
-    expect(after.pools.has('ADMIN')).toBe(false);
+    const after = await counted();
+    expect([after.staff, after.client, after.admin]).toEqual([
+      after.staffUsers,
+      after.clientUsers,
+      0,
+    ]);
+    expect(after.client).toBeGreaterThan(0);
     await platform().user.delete({ where: { id: client.id } });
-    expect((await today()).client).toBe(before.client);
+    const removed = await counted();
+    expect([removed.staff, removed.client]).toEqual([removed.staffUsers, removed.clientUsers]);
+    expect(await admin().platformUserSignups.count()).toBeGreaterThan(0);
   });
 
   it('only the admin reads it, and nobody writes it outside the trigger', async () => {
