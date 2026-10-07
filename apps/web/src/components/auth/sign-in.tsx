@@ -126,7 +126,7 @@ export function SignIn({ site }: { site: 'firm' | 'admin' }) {
                   mutation.mutate(() => signIn(user.email, site === 'admin' ? 'ADMIN' : 'STAFF'))
                 }
               >
-                {user.label} ({user.email})
+                Quick sign-in: {user.email}
               </Button>
             ))}
           </div>
