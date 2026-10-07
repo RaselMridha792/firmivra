@@ -63,6 +63,16 @@ export const MeResponse = z.object({
 });
 export type MeResponse = z.infer<typeof MeResponse>;
 
+/**
+ * A firm's portal address (portal.firmivra.com/{slug}): lower-case letters, digits and inner
+ * hyphens. Portal clients check it before building a path, so `..` or `/` never reach a URL.
+ */
+export const FirmSlug = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/, 'Not a valid firm address');
+
 // ---------- Local development sign-in (AUTH_MODE=local only) ----------
 /** POST /api/v1/dev/token: sign in as a seeded user. Never available outside local development. */
 export const DevTokenRequest = z.object({
