@@ -32,13 +32,20 @@ info:
     - **Order:** verify the email, then the phone (`409 WRONG_STEP` otherwise). Change Email and
       Change Phone work until that item is verified (`409 ALREADY_VERIFIED`). Resend works from
       `resendAvailableAt` (45 s; `429 RATE_LIMITED` before).
+    - **Changed email or phone.** The 45 s gap counts from the last code, whatever its address.
+      A change inside the gap sends no code yet, and the code sent to the old address stops
+      working: show the countdown from `resendAvailableAt`, then Resend.
     - **Never reveals an account.** Sign-up answers the same for an email that already has an
-      account at this firm. That person gets an email saying so instead of a code, and the codes
-      never match. Sign-in, forgot and reset password answer as in auth.yaml.
+      account at this firm: the same answers, the same cookie and the same timing. That person
+      gets an email saying so (at most one an hour) instead of a code, and the codes never match.
+      Signing up again over a sign-up nobody finished is allowed; the new attempt gets the
+      account only by verifying the email with its own code. Sign-in, forgot and reset password
+      answer as in auth.yaml.
     - **After verify-phone** the account waits for the firm (`PENDING_APPROVAL`). A pending client
       can sign in; `GET me` shows `clientAccounts[0].status: PENDING_APPROVAL`, and the portal
-      layout sends them to `/{firm}/sign-up/done`. A declined or disabled client gets
-      `401 INVALID_CREDENTIALS` at sign-in.
+      layout sends them to `/{firm}/sign-up/done`. A declined or disabled client, or one who has
+      not verified both email and phone, gets `401 INVALID_CREDENTIALS` at sign-in, exactly like
+      a wrong password.
     - **MFA is optional** for clients: sign-in usually answers `SIGNED_IN` straight away;
       `MFA_REQUIRED` only for clients who turned it on.
 
@@ -54,6 +61,12 @@ info:
     | refresh | `fv_portal_{slug}_refresh` | `/api/v1/portal/{slug}/auth` | 30 days | Strict |
     | sign-up | `fv_portal_{slug}_signup` | `/api/v1/portal/{slug}/auth/sign-up` | 30 min | Strict |
 
+    **Changes come only from the browser.** Every POST sends JSON from the site's own pages
+    (`415 UNSUPPORTED_MEDIA_TYPE` otherwise, for example an HTML form; `403 ORIGIN_NOT_ALLOWED`
+    for another origin, or a call with a portal cookie but no `Origin`). Server-side code (Next.js
+    server components, route handlers, server actions) only reads; see "Calling the API from the
+    web app" in auth.yaml.
+
     One firm's cookies never reach another firm's routes: on another firm's portal the visitor is
     simply signed out. They never reach page requests either, so portal pages read the session in
     the browser (`GET me`), not on the server. Bodies are JSON and come from the portal's own
@@ -66,6 +79,14 @@ info:
     client record and opens the portal; decline closes the login. The client gets an email either
     way.
 
+    **Linking an existing client record.** Approve with `clientId` links the login to a record the
+    firm already has (added by staff, or from Begin Online) instead of creating a duplicate. That
+    login then sees the record's tax files, so approve links only if the record's email is the
+    sign-up's verified email (both lower-cased) and the record has no primary portal login yet.
+    Otherwise it answers `409 CLIENT_NOT_LINKABLE` and changes nothing (`404` if the firm has no
+    such record). `existingClient` in the list shows only a record that passes this check; offer
+    linking only for that one.
+
     ## Local development
 
     With `AUTH_MODE=local`, every verification code is `000000` and nothing is sent. The sign-in
@@ -74,7 +95,12 @@ info:
     ## Rate limits
 
     `sign-up`, `verify-email`, `verify-phone`, `resend`, `change-email`, `change-phone`, and the
-    sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email).
+    sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email):
+    - at most 5 sign-ups (or changes to that email) for one email at a firm in a day;
+    - at most 10 code requests (sign-up, resend, changes) in one sign-up session.
+
+    Codes to one address, and for one account, are capped daily; above the cap nothing is sent
+    and the answer stays the same.
 
 servers:
   - url: /api/v1
@@ -132,12 +158,13 @@ paths:
         '200': { $ref: '#/components/responses/SignUpState' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '403':
-          description: '`SIGN_UP_CLOSED`: the firm takes no sign-ups now'
+          description: '`SIGN_UP_CLOSED` (the firm takes no sign-ups now) or `ORIGIN_NOT_ALLOWED` (not sent from the site''s own pages)'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: '`TERMS_OUTDATED`: reload `info` and show the current versions'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
     get:
       tags: [sign-up]
@@ -157,8 +184,10 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/SignUpState' }
         '400': { $ref: '#/components/responses/CodeInvalid' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
         '409': { $ref: '#/components/responses/WrongStep' }
         '410': { $ref: '#/components/responses/SignUpExpired' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/sign-up/verify-phone:
@@ -171,8 +200,10 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/SignUpState' }
         '400': { $ref: '#/components/responses/CodeInvalid' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
         '409': { $ref: '#/components/responses/WrongStep' }
         '410': { $ref: '#/components/responses/SignUpExpired' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/sign-up/resend:
@@ -186,8 +217,10 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/ResendCodeRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/SignUpState' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
         '409': { $ref: '#/components/responses/AlreadyVerified' }
         '410': { $ref: '#/components/responses/SignUpExpired' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/sign-up/change-email:
@@ -203,8 +236,10 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/SignUpState' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
         '409': { $ref: '#/components/responses/AlreadyVerified' }
         '410': { $ref: '#/components/responses/SignUpExpired' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/sign-up/change-phone:
@@ -220,8 +255,10 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/SignUpState' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
         '409': { $ref: '#/components/responses/AlreadyVerified' }
         '410': { $ref: '#/components/responses/SignUpExpired' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/sign-in:
@@ -232,7 +269,9 @@ paths:
       summary: Sign in to this firm's portal
       description: |
         As `/auth/sign-in` in auth.yaml, with the firm's own login. `SIGNED_IN` sets the firm's
-        portal cookies. A declined or disabled client gets `401 INVALID_CREDENTIALS`.
+        portal cookies, and `me.clientAccounts` holds only this firm's account. A declined or
+        disabled client, or a sign-up that never verified email and phone, gets
+        `401 INVALID_CREDENTIALS`, the same as a wrong password or an unknown email.
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: './auth.yaml#/components/schemas/SignInRequest' } } }
@@ -240,6 +279,8 @@ paths:
         '200': { $ref: '#/components/responses/SignInResult' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/mfa:
@@ -254,6 +295,8 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/SignInResult' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/mfa/setup:
@@ -270,6 +313,8 @@ paths:
           description: The key to add to the authenticator app, and a new session
           content: { application/json: { schema: { $ref: './auth.yaml#/components/schemas/MfaSetupResponse' } } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/refresh:
@@ -281,6 +326,8 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
   /portal/{firmSlug}/auth/sign-out:
     parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
@@ -293,6 +340,8 @@ paths:
         content: { application/json: { schema: { $ref: './auth.yaml#/components/schemas/SignOutRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
   /portal/{firmSlug}/auth/forgot-password:
     parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
@@ -307,6 +356,8 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/auth/reset-password:
@@ -324,6 +375,8 @@ paths:
         '400':
           description: '`VALIDATION_FAILED` or `RESET_CODE_INVALID` (as in auth.yaml)'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /portal/{firmSlug}/me:
@@ -333,7 +386,8 @@ paths:
       summary: The signed-in client of this firm
       description: |
         `clientAccounts` holds this firm's account. Status `PENDING_APPROVAL`: show
-        `/{firm}/sign-up/done`. Status `ACTIVE`: the portal.
+        `/{firm}/sign-up/done`. Status `ACTIVE`: the portal. `401` without this firm's session,
+        or once the client may no longer sign in (for example declined).
       parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
       security: [{ portalCookie: [] }]
       responses:
@@ -368,20 +422,40 @@ paths:
     post:
       tags: [sign-ups]
       operationId: approveClientSignUp
-      summary: Approve; creates the client record and opens the portal
+      summary: Approve; creates the client record (or links an existing one) and opens the portal
+      description: |
+        Without a body it creates the firm's client record from the sign-up. With `clientId` (for
+        example `existingClient` from the list) it links the login to that record instead, so the
+        firm gets no duplicate, but only if the record's email is the sign-up's verified email
+        (both lower-cased) and the record has no primary portal login yet. Otherwise
+        `409 CLIENT_NOT_LINKABLE` and nothing changes; `404` if the firm has no such record. Any
+        other body field is `400 VALIDATION_FAILED`.
       security: [{ firmCookie: [] }]
       parameters:
         - { $ref: '#/components/parameters/BusinessId' }
         - { $ref: '#/components/parameters/ClientAccountId' }
+      requestBody:
+        required: false
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/ApproveSignUpRequest' } }
       responses:
         '200':
           description: Approved; the client gets an email
           content:
             application/json: { schema: { $ref: '#/components/schemas/ApproveSignUpResponse' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
+        '403':
+          description: '`FORBIDDEN` (only the owner and admins) or `ORIGIN_NOT_ALLOWED` (not sent from the site''s own pages)'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/NotPending' }
+        '409':
+          description: |
+            `NOT_PENDING` (someone already approved or declined it) or `CLIENT_NOT_LINKABLE` (the
+            record's email is not the sign-up's verified email, or the record already has a
+            primary portal login)
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
   /client-sign-ups/{clientAccountId}/decline:
     post:
@@ -403,9 +477,12 @@ paths:
             application/json: { schema: { $ref: '#/components/schemas/DeclineSignUpResponse' } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
-        '403': { $ref: '#/components/responses/Forbidden' }
+        '403':
+          description: '`FORBIDDEN` (only the owner and admins) or `ORIGIN_NOT_ALLOWED` (not sent from the site''s own pages)'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/NotPending' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
 components:
   parameters:
@@ -476,6 +553,12 @@ components:
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     SignUpExpired:
       description: '`SIGN_UP_EXPIRED`: no sign-up in progress; back to /{firm}/sign-up'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    UnsupportedMediaType:
+      description: '`UNSUPPORTED_MEDIA_TYPE`: the body is not JSON (an HTML form, for example)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    OriginNotAllowed:
+      description: '`ORIGIN_NOT_ALLOWED`: not sent from the site''s own pages in the browser'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotPending:
       description: '`NOT_PENDING`: someone already approved or declined it'
@@ -590,6 +673,7 @@ components:
         - signedUpAt
         - declinedAt
         - declineReason
+        - existingClient
       properties:
         clientAccountId: { type: string, format: uuid }
         name: { type: string }
@@ -600,18 +684,41 @@ components:
         signedUpAt: { $ref: '#/components/schemas/Timestamp' }
         declinedAt: { oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }] }
         declineReason: { type: [string, 'null'] }
+        existingClient:
+          description: |
+            A client record of this firm that approve would link to (`clientId`): its email is the
+            sign-up's verified email (both lower-cased) and it has no primary portal login yet.
+            Null when there is none.
+          oneOf:
+            - type: object
+              required: [clientId, displayName]
+              properties:
+                clientId: { type: string, format: uuid }
+                displayName: { type: string }
+            - { type: 'null' }
     ClientSignUpList:
       type: object
       required: [items, nextCursor]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/ClientSignUp' } }
         nextCursor: { type: [string, 'null'], description: Pass as `cursor`; null on the last page }
+    ApproveSignUpRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        clientId:
+          type: string
+          format: uuid
+          description: |
+            Link to this existing client record of the firm instead of creating one. Only a record
+            whose email is the sign-up's verified email (both lower-cased) and that has no primary
+            portal login yet.
     ApproveSignUpResponse:
       type: object
       required: [clientAccountId, clientId, status, approvedAt]
       properties:
         clientAccountId: { type: string, format: uuid }
-        clientId: { type: string, format: uuid, description: The new client record }
+        clientId: { type: string, format: uuid, description: The client record, new or linked }
         status: { const: ACTIVE }
         approvedAt: { $ref: '#/components/schemas/Timestamp' }
     DeclineSignUpRequest:
@@ -629,6 +736,7 @@ components:
     ApiError:
       allOf: [{ $ref: './auth.yaml#/components/schemas/ApiError' }]
       description: |
-        Codes of these routes: SIGN_UP_CLOSED (403), TERMS_OUTDATED (409), SIGN_UP_EXPIRED (410),
-        CODE_INVALID (400), ALREADY_VERIFIED (409), WRONG_STEP (409), NOT_PENDING (409), plus
-        the auth and generic codes in auth.yaml.
+        Codes of these routes: SIGN_UP_CLOSED (403), ORIGIN_NOT_ALLOWED (403),
+        UNSUPPORTED_MEDIA_TYPE (415), TERMS_OUTDATED (409), SIGN_UP_EXPIRED (410),
+        CODE_INVALID (400), ALREADY_VERIFIED (409), WRONG_STEP (409), NOT_PENDING (409),
+        CLIENT_NOT_LINKABLE (409), plus the auth and generic codes in auth.yaml.

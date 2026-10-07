@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ApiRequestError,
+  type ApproveSignUpRequest,
   ClientSignUpsQuery,
   createClientSignUpsClient,
   createPortalAuthClient,
@@ -140,6 +141,27 @@ describe('createClientSignUpsClient', () => {
     expect((calls[0]?.init.headers as Record<string, string>)['x-business-id']).toBe('b1');
 
     const id = '0190a000-0000-7000-8000-0000000000aa';
+    const existing = '0190a000-0000-7000-8000-0000000000bb';
+    const approve = fakeFetch(200, {
+      clientAccountId: id,
+      clientId: existing,
+      status: 'ACTIVE',
+      approvedAt: '2026-10-07T12:00:00.000Z',
+    });
+    await createClientSignUpsClient(createRequest({ baseUrl: '', fetch: approve.fn })).approve(id, {
+      clientId: existing,
+    });
+    expect(approve.calls[0]?.url).toBe(`/client-sign-ups/${id}/approve`);
+    expect(bodyOf(approve.calls[0]?.init)).toEqual({ clientId: existing });
+
+    // Strict: an unknown field is refused before anything is sent.
+    const strict = fakeFetch(200, {});
+    const sent = createClientSignUpsClient(createRequest({ baseUrl: '', fetch: strict.fn }));
+    await expect(
+      sent.approve(id, { clientId: existing, force: true } as ApproveSignUpRequest),
+    ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
+    expect(strict.calls).toHaveLength(0);
+
     const decline = fakeFetch(200, {
       clientAccountId: id,
       status: 'DECLINED',

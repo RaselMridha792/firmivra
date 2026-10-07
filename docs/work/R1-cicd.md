@@ -31,7 +31,7 @@
 - [x] 10. Find why Windows blocks turbo.exe on Rasel's machine ("An Application Control policy has blocked this file", Oct 5; the SWC binding was blocked at times too) and fix it so `pnpm lint`, `pnpm typecheck` and `pnpm test` work from the repo root again; make sure ci.yml runs them from the root through turbo. Until then build the packages first, as turbo would (`pnpm --filter @firmivra/types --filter @firmivra/db run build`), then use `pnpm -r run <script>`. Never turn off a Windows security feature without Rasel's yes.
 - [x] 11. CLAUDE.md and README.md still say dev runs on `*.cloudfront.net`; change them to `admin.`, `app.` and `portal.dev.firmivra.com`. The lead's go (Oct 5): this step may change CLAUDE.md and README.md.
 - [x] 12. Cognito refresh token validity per pool: staff 7 days, admins 1 day, clients 30 days (Rasel, Oct 5). Show the `cdk diff` of firmivra-dev-auth, deploy with Rasel's yes, and tell R2 the new values.
-- [ ] 13. One-off "link dev users" command in the migrate image, run as an ECS task by Rasel after the first deploy is healthy. Cognito subs, emails, names and roles come in as task overrides (`LINK_USERS`), never committed. It creates the `users` rows (`SUPER_ADMIN` in the ADMIN pool; `OWNER`, `ADMIN` or `STAFF` in the STAFF pool), `platform_admins` for the Super Admin, and an ACTIVE membership in LVP for staff. LVP itself gets only the `businesses` row (ACTIVE) and `business_settings`; legal documents and tax statuses come through the setup wizard on dev. Code: `packages/db/src/link-users.ts` (uses `runInScope`), `packages/db/scripts/link-dev-users.mjs`, a test against the test database, and `packages/db/Dockerfile` ships `dist`. Guard: the migrate task gets `APP_ENV=dev` and the script refuses any other value. No CLIENT role until R3 asks. Rasel's go (Oct 5) for those `packages/db` paths; tell R0 in R0's "Needs from others".
+- [x] 13. One-off "link dev users" command in the migrate image, run as an ECS task by Rasel after the first deploy is healthy. Cognito subs, emails, names and roles come in as task overrides (`LINK_USERS`), never committed. It creates the `users` rows (`SUPER_ADMIN` in the ADMIN pool; `OWNER`, `ADMIN` or `STAFF` in the STAFF pool), `platform_admins` for the Super Admin, and an ACTIVE membership in LVP for staff. LVP itself gets only the `businesses` row (ACTIVE) and `business_settings`; legal documents and tax statuses come through the setup wizard on dev. Code: `packages/db/src/link-users.ts` (uses `runInScope`), `packages/db/scripts/link-dev-users.mjs`, a test against the test database, and `packages/db/Dockerfile` ships `dist`. Guard: the migrate task gets `APP_ENV=dev` and the script refuses any other value. No CLIENT role until R3 asks. Rasel's go (Oct 5) for those `packages/db` paths; tell R0 in R0's "Needs from others".
 
 ## Done when
 
@@ -88,3 +88,56 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   - `cdk diff` app: the new policy and the migrate task's env (APP_ENV, AWS_REGION, two pool ids). Auth: no differences (the pool ARN outputs already exist).
   - The `:none` api and web images in `cdk diff` (also in the pipeline's diff step) only show the parameter defaults. `cdk deploy` keeps the previous values: `MigrateImageTag` stayed d62849a through the `ImageTag`-only step.
   - The stray remote branch rasel/R1-refresh-tokens was deleted (Rasel's yes) after checking that its commits are in main (#21) or #26.
+- 2026-10-06, step 13: #26 merged (7fb588c) and is deployed: run 37489456004, after #28, green. Rasel runs the Cognito and run-task commands (subs and roles only); then tick step 13.
+- 2026-10-06, new work from Rasel (plan change: the developers build only screens and tests).
+  - **Web kit** (KIT-TASK.md) started on rasel/R1-web-kit: aa85e02, local, not pushed. It has the data hooks, `errorMessage`, PageState, RequireRole, QrCode, the uploadFile stub, mock mode and the module pattern in packages/types/README.md. The packages @tanstack/react-query, react-hook-form, @hookform/resolvers and qrcode.react are Rasel's yes. It's paused for the skeleton.
+  - **Page skeleton** (SKELETON-TASK.md, PAGE-MAP.md), lucide-react for icons (Rasel's yes):
+    - Super Admin with the shared app shell, SignedIn/useMe and PagePlaceholder: PR #33, open.
+    - Client portal: 127db60 on rasel/R1-skeleton-portal, local and stacked on #33; 324 lines without placeholders; e2e 17/17.
+  - The kit folder from Rasel still has an extra level (F:/firmivra-junior-kit/firmivra-junior-kit/). The files there are the evening versions I built from.
+- Next steps (Oct 7):
+  1. After #33 merges, merge origin/main into rasel/R1-skeleton-portal, check the e2e tests, and push the portal PR (ask first). Re-read the kit files if they move to the top-level folder.
+  2. Firm workspace skeleton (rasel/R1-skeleton-firm, from main):
+     - `(workspace)/layout.tsx` with the firm menu (Owner and Admin see Sign-ups, Team and Settings);
+     - the `clients/[id]`, `settings` and `setup` layouts and the placeholders;
+     - then delete session-panel.tsx.
+  3. Kit: rebase onto the skeleton (SignedIn/useMe), add the reference screen on T04 (#29 merged: api.taxStatuses, mocks/tax-statuses.ts) with its mock-mode e2e, then the path guard PR (pull_request_target, lists from PAGE-MAP "Your files").
+  4. Then the remaining R1 steps (7: deploy-prod.yml, disabled until R8), then R4.
+- 2026-10-06 late, step 13: Rasel created both dev logins (Super Admin sub 74d81428-… in the admins pool, LVP owner sub 9478c4d8-… in the staff pool). The first link run stopped before writing anything: UserNotFoundException.
+  - Cause, confirmed read-only: our pools sign in by username, so AdminGetUser does not take the sub. ListUsers with `sub = "<sub>"` finds the username, and the migrate task's pool ids are right.
+  - Both users' `name` set to "Rasel Mridha" (Rasel's yes).
+  - Fix committed locally: b9f9014 on rasel/R1-cognito-listusers, not pushed. ListUsers for the API role (three pools) and the migrate role (in place of AdminGetUser); the link lookup uses ListUsers; SETUP-LOG notes the PowerShell quoting and LAST_ACTIVE_OWNER. `cdk diff`: only those two IAM policies. Read-only test against the real pools: one match each, email present, name right.
+  - Option B (store the Cognito username in `users`) waits until sign-in volume needs it.
+- Next steps (Oct 7), in this order:
+  1. Push rasel/R1-cognito-listusers and open its PR.
+  2. When it and R2's #34 are deployed, ask Rasel's yes, run the link task with the two subs (SUPER_ADMIN, OWNER), show him the log lines, and tick step 13.
+  3. Then the earlier list: the portal PR after #33 merges, the firm skeleton, the kit, the path guard.
+- 2026-10-07 (night, Rasel: keep working), step 13 done:
+  - #35 (ListUsers for the API and migrate roles) and R2's #34 were merged and deployed: #30's run included #35, then #34's run. The live task roles were checked read-only.
+  - The link task ran with Rasel's yes (subs and roles only), exit 0:
+    - "Firm lvp: 01a11307-637d-… (created, ACTIVE)";
+    - "Created user 01a11307-644a-… as SUPER_ADMIN";
+    - "Created user 01a11307-651a-… as OWNER".
+
+    The overrides file was deleted. Rasel's first sign-in on admin.dev and app.dev sets up MFA.
+- 2026-10-07, skeleton:
+  - #33 (Super Admin) merged and deployed, green.
+  - Portal: PR #36. `main` merged in; signed-in.tsx and the shell files were add/add conflicts, resolved with the portal versions; e2e 17/17.
+  - Firm workspace: 75b5715 on rasel/R1-skeleton-firm, stacked on #36. The Owner and Admin menu is in place; session-panel.tsx is deleted; e2e 20/20.
+  - PAGE-MAP and GUIDE in the repo (#28) are identical to the spec I built from.
+- 2026-10-07, dev tooling: Next 16's on-disk Turbopack dev cache kept stale routes ("Page not found" for pages that exist) after routes were added or moved. `turbopackFileSystemCacheForDev: false` in next.config.ts: PR #43 from main, and the same line in the firm PR. The e2e smoke specs get 240 s (cold compiles in dev).
+- Kit notes from R3 (Oct 7): the portal client is `portalAuth(slug)` in lib/auth.ts, mocked by `createPortalAuthMock(firmSlug, options)` in mocks/client-auth.ts, with state per instance, so keep one per slug across navigation. The firm's sign-ups are `api.clientSignUps`, mocked by `createClientSignUpsMock`.
+- 2026-10-07 (early morning), lead review fixes, each pushed to its own PR:
+  - #36: the proxy returns 404 unless the portal's first path segment is a slug (open redirect; e2e fails without the check); the portal signs out through `portalAuth(slug)`; case-insensitive pending check; token fixes. Merged as 4ff2b6c, deployed green.
+  - #44: firm errors route to /setup, to sign-in, or to a message with Sign out; `encodeURIComponent`; sign-out on /setup; new e2e. Approved.
+  - #45: query cache cleared per person and per firm, and on sign-out; one shared refresh on a 401, then sign-in (e2e/session.spec.ts); 403s handled by code. Approved.
+- 2026-10-07, link task re-run after #32's green deploy (Rasel's yes): exit 0. Same firm and user ids ("Updated user … as SUPER_ADMIN / OWNER"), so the re-run is idempotent.
+- 2026-10-07, dev tooling (correction): #43 alone didn't stop the phantom "Page not found". It came back once with the cache off. One run logged EPERM while renaming a `.next/dev` manifest on Windows, so the likely cause is a file lock from antivirus or the indexer. Excluding `.next` from scanning is Rasel's call.
+- 2026-10-07, #45 merged (8be5b28) after two main merges (layout: ours; api.ts: both sides, with R10's lines). R4 contract #61 merged (848b43c); R4's progress is in R4-firm-onboarding.md.
+- 2026-10-07, reference screen: branch `rasel/R1-reference-screen` from main, with c687885 cherry-picked (the old local branch was never pushed). New `apps/web/e2e/cache.spec.ts`: two firm owners on one tab, and the second person's list held back. It shows loading, never the first firm's rows. With both cache clears switched off it fails, so it tests the fix. Local runs pass: cache, skeleton-firm, session, and the mock suite. CI runs no Playwright.
+- 2026-10-07, lazy mock fixtures (the follow-up Rasel and the lead agreed after #45). A production build showed fixtures in `.next/static`: tax-statuses (3 chunks) and client-auth's portal info and error bodies. They are parsed when the file loads, so the bundler kept them although `dev && mocked()` is false. Now every mock builds its fixtures on first use: `taxStatusFixtures()`, `clientFixtures()` (plus `firstClientId`), `engagementFixtures()`, `taxReturnFixtures()`, `clientAuthFixtures()`. `apps/web/eslint.config.mjs` refuses a call at a mock file's top level. After the change the build has no mock strings or code in `.next/static`. Branch `rasel/R1-lazy-mocks`.
+- 2026-10-07, portal session (R3's need "serve mocks/client-auth.ts in mock mode", plus a fix):
+  - The portal's sign-in check read `GET /me`, but portal cookies reach only `/api/v1/portal/{slug}/` (client-auth.yaml), so on dev it would never see a session. After #62, local sign-in sets the same cookies. Now `SignedIn` reads `portalAuth(slug).me()` and signs out through `portalAuth(slug).signOut()`.
+  - Mock mode: `portalAuth(slug)` is one `createPortalAuthMock` per firm (signed in as an active client; `NEXT_PUBLIC_API_MOCK_CLIENT` sets another start), and the `me` mock answers `api.portalBusiness`.
+  - e2e: `mock/portal-session.spec.ts`; `sites.spec.ts` now expects a client on another firm's portal to be signed out (R3's rule), and checks portal sign-out.
+  - With #62 merged locally (a scratch branch, never pushed): sites and skeleton-portal 11/11, mock suite 3/3. It must merge right after #62. Branch `rasel/R1-portal-session`.

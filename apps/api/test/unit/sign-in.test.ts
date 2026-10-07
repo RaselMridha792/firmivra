@@ -5,6 +5,7 @@ import { type ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Database } from '@firmivra/db';
+import { LogActivationMailer } from '../../src/auth/activation-mailer.js';
 import { AuthGuard } from '../../src/auth/auth.guard.js';
 import {
   CHALLENGE_KEY_LABEL,
@@ -27,7 +28,7 @@ import {
 } from '../../src/auth/session.service.js';
 import { AdminSignInController, StaffSignInController } from '../../src/auth/sign-in.controller.js';
 import { otpauthUri, SignInService } from '../../src/auth/sign-in.service.js';
-import { siteOf } from '../../src/auth/site.js';
+import { siteOf, sitePlace } from '../../src/auth/site.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -64,7 +65,9 @@ const expectedHash = (username: string) =>
     .update(username + STAFF_POOL.clientId)
     .digest('base64');
 
-const knownUser = () => ({ Username: 'cognito-user-1', Enabled: true });
+/** ListUsers by sub: the username is the pools' sign-in attribute, so Admin calls cannot take a sub. */
+const knownUser = () => ({ Users: [{ Username: 'cognito-user-1', Enabled: true }] });
+const noUser = () => ({ Users: [] });
 const tokens = { AccessToken: 'acc', IdToken: 'id', RefreshToken: 'ref', ExpiresIn: 900 };
 
 async function flowError(p: Promise<unknown>): Promise<string> {
@@ -79,7 +82,7 @@ async function flowError(p: Promise<unknown>): Promise<string> {
 describe('CognitoIdentityProvider: sign-in', () => {
   it('signs in with the username for the sub and the secret hash, then asks for the code', async () => {
     const { provider, sent } = fakeCognito({
-      AdminGetUser: knownUser,
+      ListUsers: knownUser,
       AdminInitiateAuth: () => ({ ChallengeName: 'SOFTWARE_TOKEN_MFA', Session: 'cog-s1' }),
     });
     await expect(provider.signIn('STAFF', 'sub-1', 'pw')).resolves.toEqual({
@@ -89,8 +92,8 @@ describe('CognitoIdentityProvider: sign-in', () => {
       session: 'cog-s1',
     });
     expect(sent[0]).toEqual({
-      command: 'AdminGetUser',
-      input: { UserPoolId: STAFF_POOL.userPoolId, Username: 'sub-1' },
+      command: 'ListUsers',
+      input: { UserPoolId: STAFF_POOL.userPoolId, Filter: 'sub = "sub-1"', Limit: 1 },
     });
     expect(sent[1]?.input).toMatchObject({
       AuthFlow: 'ADMIN_USER_PASSWORD_AUTH',
@@ -105,7 +108,7 @@ describe('CognitoIdentityProvider: sign-in', () => {
 
   it('asks for first-time MFA setup', async () => {
     const { provider } = fakeCognito({
-      AdminGetUser: knownUser,
+      ListUsers: knownUser,
       AdminInitiateAuth: () => ({ ChallengeName: 'MFA_SETUP', Session: 'cog-s1' }),
     });
     await expect(provider.signIn('STAFF', 'sub-1', 'pw')).resolves.toMatchObject({
@@ -115,20 +118,18 @@ describe('CognitoIdentityProvider: sign-in', () => {
 
   it('makes the same two calls for an unknown email and answers INVALID_CREDENTIALS', async () => {
     const { provider, sent } = fakeCognito({
-      AdminGetUser: () => {
-        throw awsError('UserNotFoundException');
-      },
+      ListUsers: noUser,
       AdminInitiateAuth: () => {
         throw awsError('NotAuthorizedException');
       },
     });
     expect(await flowError(provider.signIn('STAFF', undefined, 'pw'))).toBe('INVALID_CREDENTIALS');
-    expect(sent.map((s) => s.command)).toEqual(['AdminGetUser', 'AdminInitiateAuth']);
+    expect(sent.map((s) => s.command)).toEqual(['ListUsers', 'AdminInitiateAuth']);
   });
 
   it('never signs in a disabled user, even with the right password', async () => {
     const { provider, sent } = fakeCognito({
-      AdminGetUser: () => ({ Username: 'cognito-user-1', Enabled: false }),
+      ListUsers: () => ({ Users: [{ Username: 'cognito-user-1', Enabled: false }] }),
       AdminInitiateAuth: () => {
         throw awsError('NotAuthorizedException');
       },
@@ -138,13 +139,27 @@ describe('CognitoIdentityProvider: sign-in', () => {
     expect(params.USERNAME).not.toBe('cognito-user-1');
   });
 
+  it('never puts anything but a plain id into the ListUsers filter', async () => {
+    const { provider, sent } = fakeCognito({
+      ListUsers: knownUser,
+      AdminInitiateAuth: () => {
+        throw awsError('NotAuthorizedException');
+      },
+    });
+    expect(await flowError(provider.signIn('STAFF', 'x" or sub = "y', 'pw'))).toBe(
+      'INVALID_CREDENTIALS',
+    );
+    // No lookup at all: a random username goes to Cognito, as for an unknown email.
+    expect(sent.map((s) => s.command)).toEqual(['AdminInitiateAuth']);
+  });
+
   it.each([
     ['NotAuthorizedException', 'INVALID_CREDENTIALS'],
     ['PasswordResetRequiredException', 'INVALID_CREDENTIALS'],
     ['TooManyRequestsException', 'RATE_LIMITED'],
   ])('maps %s to %s', async (name, code) => {
     const { provider } = fakeCognito({
-      AdminGetUser: knownUser,
+      ListUsers: knownUser,
       AdminInitiateAuth: () => {
         throw awsError(name);
       },
@@ -154,7 +169,7 @@ describe('CognitoIdentityProvider: sign-in', () => {
 
   it('lets unexpected Cognito errors through as 500s', async () => {
     const { provider } = fakeCognito({
-      AdminGetUser: knownUser,
+      ListUsers: knownUser,
       AdminInitiateAuth: () => {
         throw awsError('InternalErrorException');
       },
@@ -164,7 +179,7 @@ describe('CognitoIdentityProvider: sign-in', () => {
 
   it('refuses challenges we do not support', async () => {
     const { provider } = fakeCognito({
-      AdminGetUser: knownUser,
+      ListUsers: knownUser,
       AdminInitiateAuth: () => ({ ChallengeName: 'NEW_PASSWORD_REQUIRED', Session: 's' }),
     });
     expect(await flowError(provider.signIn('STAFF', 'sub-1', 'pw'))).toBe('INVALID_CREDENTIALS');
@@ -411,28 +426,26 @@ describe('CognitoIdentityProvider: sessions and password reset', () => {
 
   it('asks Cognito for a reset code the same way for unknown emails, and never fails', async () => {
     const { provider, sent } = fakeCognito({
-      AdminGetUser: () => {
-        throw awsError('UserNotFoundException');
-      },
+      ListUsers: noUser,
       ForgotPassword: () => {
         throw awsError('LimitExceededException');
       },
     });
     await expect(provider.forgotPassword('STAFF', undefined)).resolves.toBeUndefined();
-    expect(sent.map((s) => s.command)).toEqual(['AdminGetUser', 'ForgotPassword']);
+    expect(sent.map((s) => s.command)).toEqual(['ListUsers', 'ForgotPassword']);
     const username = sent[1]?.input['Username'] as string;
     expect(sent[1]?.input['SecretHash']).toBe(expectedHash(username));
   });
 
   it('resets the password, then ends every session', async () => {
     const { provider, sent } = fakeCognito({
-      AdminGetUser: knownUser,
+      ListUsers: knownUser,
       ConfirmForgotPassword: () => ({}),
       AdminUserGlobalSignOut: () => ({}),
     });
     await provider.resetPassword('STAFF', 'sub-1', '123456', 'New-password-12');
     expect(sent.map((s) => s.command)).toEqual([
-      'AdminGetUser',
+      'ListUsers',
       'ConfirmForgotPassword',
       'AdminUserGlobalSignOut',
     ]);
@@ -455,7 +468,7 @@ describe('CognitoIdentityProvider: sessions and password reset', () => {
     'InternalErrorException',
   ])('answers a reset failure %s with RESET_CODE_INVALID and keeps the sessions', async (name) => {
     const { provider, sent } = fakeCognito({
-      AdminGetUser: knownUser,
+      ListUsers: knownUser,
       ConfirmForgotPassword: () => {
         throw awsError(name);
       },
@@ -601,7 +614,7 @@ describe('SessionService.refresh (#23 review)', () => {
     const end = Math.floor(Date.now() / 1000) + 3600;
     const { service, cookies, res } = setup({ pool: 'STAFF' }, 'ref-2');
     const req = { cookies: { fv_refresh: await envelopes.sealUntil(envelope, end) } };
-    await service.refresh(req as never, res, 'firm');
+    await service.refresh(req as never, res, sitePlace('firm'));
 
     const maxAge = cookies['fv_refresh']?.maxAge ?? 0;
     expect(maxAge).toBeLessThanOrEqual(3600 * 1000);
@@ -613,7 +626,7 @@ describe('SessionService.refresh (#23 review)', () => {
   it('revokes the token and clears the cookies when the user is gone', async () => {
     const { service, identity, cookies, res } = setup(null);
     const req = { cookies: { fv_refresh: await envelopes.seal(envelope, 3600) } };
-    await expect(service.refresh(req as never, res, 'firm')).rejects.toBeInstanceOf(
+    await expect(service.refresh(req as never, res, sitePlace('firm'))).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
     expect(identity.revoke).toHaveBeenCalledWith('STAFF', 'ref-1');
@@ -656,7 +669,113 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
       { log: vi.fn() } as never,
       env,
     );
-    await expect(service.signIn(site, 'owner@lvp.test', 'pw')).rejects.toThrow(/skipped MFA/);
+    await expect(service.signIn(sitePlace(site), 'owner@lvp.test', 'pw')).rejects.toThrow(
+      /skipped MFA/,
+    );
     expect(identity.revoke).toHaveBeenCalledWith(site === 'admin' ? 'ADMIN' : 'STAFF', 'ref');
+  });
+});
+
+describe('CognitoIdentityProvider: invites and activation (step 6)', () => {
+  it('disables a login found by sub, and skips one that is unknown or already disabled', async () => {
+    const enabled = fakeCognito({ ListUsers: knownUser, AdminDisableUser: () => ({}) });
+    await enabled.provider.disableUser('STAFF', 'sub-1');
+    expect(enabled.sent[1]).toEqual({
+      command: 'AdminDisableUser',
+      input: { UserPoolId: STAFF_POOL.userPoolId, Username: 'cognito-user-1' },
+    });
+    for (const list of [
+      noUser,
+      () => ({ Users: [{ Username: 'cognito-user-1', Enabled: false }] }),
+    ]) {
+      const other = fakeCognito({ ListUsers: list });
+      await other.provider.disableUser('STAFF', 'sub-1');
+      expect(other.sent.map((c) => c.command)).toEqual(['ListUsers']);
+    }
+  });
+
+  it('creates a login with a verified email and no Cognito email, and returns its sub', async () => {
+    const { provider, sent } = fakeCognito({
+      AdminCreateUser: () => ({ User: { Attributes: [{ Name: 'sub', Value: 'new-sub' }] } }),
+    });
+    await expect(provider.createUser('STAFF', 'new@lvp.test')).resolves.toBe('new-sub');
+    expect(sent[0]?.input).toMatchObject({
+      UserPoolId: STAFF_POOL.userPoolId,
+      MessageAction: 'SUPPRESS',
+      UserAttributes: [
+        { Name: 'email', Value: 'new@lvp.test' },
+        { Name: 'email_verified', Value: 'true' },
+      ],
+    });
+    expect(sent[0]?.input['Username']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('sets a permanent first password; a refused one is PASSWORD_REJECTED', async () => {
+    const ok = fakeCognito({ ListUsers: knownUser, AdminSetUserPassword: () => ({}) });
+    await ok.provider.setPassword('STAFF', 'sub-1', 'New-password-12');
+    expect(ok.sent[1]).toEqual({
+      command: 'AdminSetUserPassword',
+      input: {
+        UserPoolId: STAFF_POOL.userPoolId,
+        Username: 'cognito-user-1',
+        Password: 'New-password-12',
+        Permanent: true,
+      },
+    });
+
+    const refused = fakeCognito({
+      ListUsers: knownUser,
+      AdminSetUserPassword: () => {
+        throw awsError('InvalidPasswordException');
+      },
+    });
+    expect(await flowError(refused.provider.setPassword('STAFF', 'sub-1', 'p'))).toBe(
+      'PASSWORD_REJECTED',
+    );
+  });
+
+  it.each([
+    ['CONFIRMED', true],
+    ['RESET_REQUIRED', true],
+    ['FORCE_CHANGE_PASSWORD', false],
+    ['UNCONFIRMED', false],
+  ])('a login in status %s has a password: %s', async (status, expected) => {
+    const { provider } = fakeCognito({
+      ListUsers: () => ({ Users: [{ Username: 'u', Enabled: true, UserStatus: status }] }),
+    });
+    await expect(provider.hasPassword('STAFF', 'sub-1')).resolves.toBe(expected);
+  });
+
+  it('an unknown login has no password', async () => {
+    const { provider } = fakeCognito({
+      ListUsers: noUser,
+    });
+    await expect(provider.hasPassword('STAFF', 'sub-1')).resolves.toBe(false);
+  });
+});
+
+describe('LogActivationMailer (until R6)', () => {
+  const email = {
+    inviteId: 'invite-1',
+    to: 'new@lvp.test',
+    name: 'New',
+    businessName: 'LVP',
+    link: 'https://app.dev.firmivra.com/activate#token=SECRET-TOKEN',
+    expiresAt: new Date(),
+  };
+
+  it('logs the link only in local mode', async () => {
+    const logger = { log: vi.fn(), warn: vi.fn() };
+    await new LogActivationMailer(true, logger).send(email);
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('#token=SECRET-TOKEN'));
+  });
+
+  it('never logs the token or the address anywhere else', async () => {
+    const logger = { log: vi.fn(), warn: vi.fn() };
+    await new LogActivationMailer(false, logger).send(email);
+    const logged = JSON.stringify([...logger.log.mock.calls, ...logger.warn.mock.calls]);
+    expect(logged).toContain('invite-1');
+    expect(logged).not.toContain('SECRET-TOKEN');
+    expect(logged).not.toContain('new@lvp.test');
   });
 });

@@ -67,7 +67,12 @@ describe('row-level security coverage', () => {
                    ('document_requests', 'DELETE'),
                    ('intakes', 'DELETE'), ('intake_submissions', 'DELETE'),
                    ('leads', 'DELETE'),
-                   ('notifications', 'DELETE'), ('notification_deliveries', 'DELETE')) AS p(tbl, privilege)`);
+                   ('notifications', 'DELETE'), ('notification_deliveries', 'DELETE'),
+                   ('appointments', 'DELETE'),
+                   ('message_threads', 'DELETE'), ('messages', 'DELETE'),
+                   ('message_attachments', 'UPDATE'), ('message_attachments', 'DELETE'),
+                   ('client_private_notes', 'UPDATE'), ('client_private_notes', 'DELETE'),
+                   ('invoices', 'DELETE'), ('payments', 'DELETE'), ('payment_events', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

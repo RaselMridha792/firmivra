@@ -1,18 +1,21 @@
 'use client';
 
 import { Bell, ChevronDown, Menu, Search } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { useMe } from '../signed-in';
 import { initials } from './types';
 
-/** Top bar: menu button (below 768 px), search (Super Admin only), bell, user menu. */
+/** Top bar: menu button (below 768 px), search (Super Admin) or greeting (portal), bell, user menu. */
 export function Header({
   search,
+  greeting,
   roleLabel,
   onOpenMenu,
 }: {
   /** Placeholder text for the search box; no box without it. */
   search?: string;
+  /** Centre text instead of a search box, for example "Welcome back, John!" in the portal. */
+  greeting?: ReactNode;
   roleLabel: string;
   onOpenMenu: () => void;
 }) {
@@ -42,6 +45,7 @@ export function Header({
           />
         </label>
       ) : null}
+      {greeting ? <p className="text-lg font-semibold text-text">{greeting}</p> : null}
 
       <div className="ml-auto flex items-center gap-2">
         <button
