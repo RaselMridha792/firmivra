@@ -20,3 +20,4 @@ export * from './firm-applications/index.js';
 export * from './appointments/index.js';
 export * from './content/index.js';
 export * from './calculators/index.js';
+export * from './documents/index.js';

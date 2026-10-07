@@ -5,9 +5,11 @@ import {
   createAvailabilityClient,
   createCalculatorsClient,
   createContentClient,
+  createDocumentsClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
+  createMyDocumentsClient,
   createClientsClient,
   createClientSignUpsClient,
   createEngagementsClient,
@@ -29,6 +31,7 @@ import {
 import { createCalculatorsMock, createMyCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, createMyContentMock } from '../mocks/content';
+import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createSettingsMock } from '../mocks/settings';
@@ -111,6 +114,16 @@ export const api = {
     dev && mocked('myCalculators')
       ? createMyCalculatorsMock()
       : createMyCalculatorsClient(request, firmSlug),
+  /** Documents (R5): a client's files and document requests, for the firm. Upload with uploadFile(). */
+  documents:
+    dev && mocked('documents')
+      ? createDocumentsMock({ role: MOCK_ROLE })
+      : createDocumentsClient(request),
+  /** Documents (R5): the signed-in client's own files and requests, per firm (portal). */
+  myDocuments: (firmSlug: string) =>
+    dev && mocked('myDocuments')
+      ? myDocumentsMock(firmSlug)
+      : createMyDocumentsClient(request, firmSlug),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:
     dev && mocked('firmApplications')
