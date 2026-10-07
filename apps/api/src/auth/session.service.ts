@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { Database } from '@firmivra/db';
-import { type AuthSite, IdentityPool } from '@firmivra/types';
+import { IdentityPool } from '@firmivra/types';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -12,13 +12,14 @@ import {
   IDENTITY_PROVIDER,
   type IdentityProvider,
 } from './identity/identity-provider.js';
+import { portalClient } from './portal-clients.js';
 import { type Opened, type PoolSecrets, Sealer } from './sealed.js';
 import {
   clearSessionCookies,
   readCookie,
   REFRESH_TOKEN_DAYS,
   type SessionTokens,
-  SIGN_IN_POOL,
+  type SignInPlace,
   writeSessionCookies,
 } from './site.js';
 
@@ -31,6 +32,8 @@ const RefreshEnvelope = z.object({
   username: z.string(),
   refreshToken: z.string(),
   pool: IdentityPool,
+  /** Client portal sessions: the firm. The envelope opens only on that firm's portal. */
+  businessId: z.string().optional(),
 });
 export type RefreshEnvelope = z.infer<typeof RefreshEnvelope>;
 
@@ -47,7 +50,10 @@ export class RefreshEnvelopes extends Sealer<RefreshEnvelope> {
 const DAY_SECONDS = 24 * 60 * 60;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-/** The site's session cookies: set after sign-in, renewed by refresh, ended by sign-out. */
+/**
+ * The session cookies of a site or of one firm's portal: set after sign-in, renewed by refresh,
+ * ended by sign-out.
+ */
 @Injectable()
 export class SessionService {
   private readonly secure: boolean;
@@ -63,11 +69,11 @@ export class SessionService {
 
   async start(
     res: Response,
-    site: AuthSite,
+    place: SignInPlace,
     session: { userId: string; username: string; tokens: SessionTokens },
   ): Promise<void> {
     const { tokens } = session;
-    const pool = SIGN_IN_POOL[site];
+    const { pool, businessId } = place;
     const refresh = tokens.refreshToken
       ? {
           value: {
@@ -75,50 +81,54 @@ export class SessionService {
             username: session.username,
             refreshToken: tokens.refreshToken,
             pool,
+            ...(businessId ? { businessId } : {}),
           },
           expiresAt: nowSeconds() + REFRESH_TOKEN_DAYS[pool] * DAY_SECONDS,
         }
       : undefined;
-    await this.write(res, site, tokens, refresh);
+    await this.write(res, place, tokens, refresh);
   }
 
   /**
    * New access and id cookies. The person must still be allowed in (our database, not only
    * Cognito); otherwise, or without a valid refresh cookie: token revoked, cookies cleared, 401.
    */
-  async refresh(req: Request, res: Response, site: AuthSite): Promise<void> {
-    const opened = await this.envelope(req, site);
-    if (!opened) throw this.signedOut(res, site);
+  async refresh(req: Request, res: Response, place: SignInPlace): Promise<void> {
+    const opened = await this.envelope(req, place);
+    if (!opened) throw this.signedOut(res, place);
     const envelope = opened.value;
     if (!(await this.stillAllowed(envelope))) {
       await this.identity.revoke(envelope.pool, envelope.refreshToken);
-      throw this.signedOut(res, site);
+      throw this.signedOut(res, place);
     }
     let tokens: SessionTokens;
     try {
       tokens = await this.identity.refresh(envelope.pool, envelope.username, envelope.refreshToken);
     } catch (e) {
       if (!(e instanceof AuthFlowError)) throw e;
-      throw e.code === 'SESSION_EXPIRED' ? this.signedOut(res, site) : httpError(e.code);
+      throw e.code === 'SESSION_EXPIRED' ? this.signedOut(res, place) : httpError(e.code);
     }
     // Cognito returns a new refresh token only when rotation is on; otherwise the cookie stays.
     // A rotated one keeps the session's original end: refreshing never makes a session longer.
     const rotated = tokens.refreshToken
       ? { value: { ...envelope, refreshToken: tokens.refreshToken }, expiresAt: opened.expiresAt }
       : undefined;
-    await this.write(res, site, tokens, rotated);
+    await this.write(res, place, tokens, rotated);
   }
 
   /** Always succeeds: clears the cookies, revokes this device's refresh token, optionally all. */
-  async end(req: Request, res: Response, site: AuthSite, everywhere: boolean): Promise<void> {
-    const envelope = (await this.envelope(req, site))?.value;
-    clearSessionCookies(res, site, this.secure);
+  async end(req: Request, res: Response, place: SignInPlace, everywhere: boolean): Promise<void> {
+    const envelope = (await this.envelope(req, place))?.value;
+    clearSessionCookies(res, place.cookies, this.secure);
     if (!envelope) return;
     await this.identity.revoke(envelope.pool, envelope.refreshToken);
     if (everywhere) await this.identity.signOutEverywhere(envelope.pool, envelope.username);
   }
 
-  /** Same rule as sign-in: the user row of this pool exists; on the admin site, a Super Admin. */
+  /**
+   * Same rule as sign-in: the user row of this pool exists; on the admin site, a Super Admin; on
+   * a portal, a client of that firm who may sign in (src/auth/portal-clients.ts).
+   */
   private async stillAllowed(envelope: RefreshEnvelope): Promise<boolean> {
     const platform = this.db.forPlatform();
     const user = await platform.user.findUnique({
@@ -126,6 +136,10 @@ export class SessionService {
       select: { pool: true },
     });
     if (user?.pool !== envelope.pool) return false;
+    if (envelope.pool === 'CLIENT') {
+      if (!envelope.businessId) return false;
+      return !!(await portalClient(this.db, envelope.businessId, { userId: envelope.userId }));
+    }
     if (envelope.pool !== 'ADMIN') return true;
     const admin = await platform.platformAdmin.findUnique({
       where: { userId: envelope.userId },
@@ -134,29 +148,31 @@ export class SessionService {
     return admin?.role === 'SUPER_ADMIN';
   }
 
+  /** The envelope in the place's refresh cookie, if it was sealed for this pool and firm. */
   private async envelope(
     req: Request,
-    site: AuthSite,
+    place: SignInPlace,
   ): Promise<Opened<RefreshEnvelope> | undefined> {
-    const sealed = readCookie(req, site, 'refresh');
-    return sealed ? this.envelopes.open(sealed, SIGN_IN_POOL[site]) : undefined;
+    const sealed = readCookie(req, place.cookies, 'refresh');
+    const opened = sealed ? await this.envelopes.open(sealed, place.pool) : undefined;
+    return opened?.value.businessId === place.businessId ? opened : undefined;
   }
 
-  private signedOut(res: Response, site: AuthSite) {
-    clearSessionCookies(res, site, this.secure);
+  private signedOut(res: Response, place: SignInPlace) {
+    clearSessionCookies(res, place.cookies, this.secure);
     return httpError('SESSION_EXPIRED');
   }
 
   /** `refresh`: the envelope to seal and the session's end; the cookie expires with it. */
   private async write(
     res: Response,
-    site: AuthSite,
+    place: SignInPlace,
     tokens: SessionTokens,
     refresh: Opened<RefreshEnvelope> | undefined,
   ): Promise<void> {
     writeSessionCookies(
       res,
-      site,
+      place.cookies,
       {
         access: tokens.accessToken,
         id: tokens.idToken,

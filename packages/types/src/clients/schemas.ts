@@ -1,8 +1,12 @@
 import { z } from 'zod';
 import { Email } from '../auth/schemas.js';
-import { AccountType, Phone } from '../client-auth/schemas.js';
+import { Phone } from '../client-auth/schemas.js';
+import { ClientAccountType, ClientPortalRole, ContactMethod } from '../db-enums.js';
 import { ClientAccountStatus } from '../schemas.js';
 import { clearable, text } from './text.js';
+
+// Database enums, also exported from here as before db-enums.ts (other modules import them).
+export { ClientAccountType, ClientPortalRole, ContactMethod };
 
 // Client records (R10): the firm's clients list and record, the client's profile and their tax
 // status per year, plus the client's own My Profile in the portal.
@@ -26,17 +30,19 @@ const PastDate = CalendarDate.refine(
 
 /** A client id in a path: anything else gets 400 VALIDATION_FAILED. */
 export const ClientId = z.uuid();
-/** A tax year in a path or body. */
-export const TaxYear = z.coerce.number().int().min(2000).max(2100);
+/** A tax year, 2000-2100: a number, or exactly four digits in a path (not 02026, 2026.0 or 0x7EA). */
+export const TaxYear = z
+  .union([
+    z.number(),
+    z
+      .string()
+      .regex(/^\d{4}$/)
+      .transform(Number),
+  ])
+  .pipe(z.number().int().min(2000).max(2100));
 
-/** INDIVIDUAL or BUSINESS (database enum ClientAccountType; R3's AccountType). */
-export const ClientAccountType = AccountType;
-export type ClientAccountType = z.infer<typeof ClientAccountType>;
-export const ContactMethod = z.enum(['EMAIL', 'PHONE', 'TEXT']);
-export type ContactMethod = z.infer<typeof ContactMethod>;
-/** Who a portal login is on the client's record. */
-export const ClientPortalRole = z.enum(['PRIMARY', 'SPOUSE', 'AUTHORIZED']);
-export type ClientPortalRole = z.infer<typeof ClientPortalRole>;
+// INDIVIDUAL or BUSINESS, EMAIL / PHONE / TEXT, PRIMARY / SPOUSE / AUTHORIZED: the database
+// enums, generated into db-enums.ts (exported from the package there).
 
 /** A firm member shown next to a record (assigned to, changed by). */
 export const MemberRef = z.object({ userId: z.uuid(), name: z.string() });

@@ -28,6 +28,8 @@ const at = '2026-10-01T09:00:00.000Z';
 /** The signed-in staff member in the STAFF role; clients 1 and 2 are assigned to them. */
 export const mockStaff = { userId: '0199b6a0-0000-7000-8000-0000000000f1', name: 'Sam Staff' };
 const clientId = (n: number) => `0199b6a1-0000-7000-8000-${String(n).padStart(12, '0')}`;
+/** Client 1's id (`clientId(1)`): the signed-in portal client in mock mode. */
+export const firstClientId = '0199b6a1-0000-7000-8000-000000000001';
 const emptyAddress = {
   line1: null,
   line2: null,
@@ -73,49 +75,57 @@ const fixture = (n: number, data: Fixture): ClientRecord =>
     },
   });
 
-/** The signed-in portal client in mock mode is the first one. */
-export const clientFixtures: readonly ClientRecord[] = [
-  fixture(1, {
-    displayName: 'Jamie Sample',
-    email: 'jamie.sample@example.test',
-    phone: '+14045550123',
-    assignedTo: mockStaff,
-    portalStatus: 'ACTIVE',
-    portalLogins: [
-      {
-        clientAccountId: '0199b6a1-0000-7000-8000-0000000000a1',
-        email: 'jamie.sample@example.test',
-        portalRole: 'PRIMARY',
-        status: 'ACTIVE',
+let fixtures: readonly ClientRecord[] | undefined;
+
+/**
+ * The signed-in portal client in mock mode is the first one. Built on first use: importing this
+ * file runs nothing.
+ */
+export function clientFixtures(): readonly ClientRecord[] {
+  fixtures ??= [
+    fixture(1, {
+      displayName: 'Jamie Sample',
+      email: 'jamie.sample@example.test',
+      phone: '+14045550123',
+      assignedTo: mockStaff,
+      portalStatus: 'ACTIVE',
+      portalLogins: [
+        {
+          clientAccountId: '0199b6a1-0000-7000-8000-0000000000a1',
+          email: 'jamie.sample@example.test',
+          portalRole: 'PRIMARY',
+          status: 'ACTIVE',
+        },
+      ],
+      profile: {
+        firstName: 'Jamie',
+        lastName: 'Sample',
+        dateOfBirth: '1985-04-12',
+        ssnLast4: '0001',
+        address: {
+          ...emptyAddress,
+          line1: '123 Main Street',
+          city: 'Atlanta',
+          state: 'GA',
+          postalCode: '30301',
+        },
+        preferredContactMethod: 'EMAIL',
+        updatedAt: at,
       },
-    ],
-    profile: {
-      firstName: 'Jamie',
-      lastName: 'Sample',
-      dateOfBirth: '1985-04-12',
-      ssnLast4: '0001',
-      address: {
-        ...emptyAddress,
-        line1: '123 Main Street',
-        city: 'Atlanta',
-        state: 'GA',
-        postalCode: '30301',
-      },
-      preferredContactMethod: 'EMAIL',
-      updatedAt: at,
-    },
-  }),
-  fixture(2, {
-    displayName: 'Acme Widgets LLC (fake)',
-    accountType: 'BUSINESS',
-    email: 'books@acme.example.test',
-    assignedTo: mockStaff,
-    portalStatus: 'PENDING_APPROVAL',
-    profile: { businessName: 'Acme Widgets LLC', entityType: 'LLC', einLast4: '0002' },
-  }),
-  fixture(3, { displayName: 'Riley Example', email: 'riley@example.test' }),
-  fixture(4, { displayName: 'Pat Archived', archivedAt: at }),
-];
+    }),
+    fixture(2, {
+      displayName: 'Acme Widgets LLC (fake)',
+      accountType: 'BUSINESS',
+      email: 'books@acme.example.test',
+      assignedTo: mockStaff,
+      portalStatus: 'PENDING_APPROVAL',
+      profile: { businessName: 'Acme Widgets LLC', entityType: 'LLC', einLast4: '0002' },
+    }),
+    fixture(3, { displayName: 'Riley Example', email: 'riley@example.test' }),
+    fixture(4, { displayName: 'Pat Archived', archivedAt: at }),
+  ];
+  return fixtures;
+}
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
@@ -123,7 +133,7 @@ const fail = (status: number, code: string, message: string) =>
 const forbidden = () => fail(403, 'FORBIDDEN', 'This action is not permitted');
 const now = () => new Date().toISOString();
 const statusRef = (id: string) => {
-  const s = taxStatusFixtures.find((t) => t.id === id);
+  const s = taxStatusFixtures().find((t) => t.id === id);
   if (!s) throw fail(404, 'NOT_FOUND', 'Not found');
   if (s.archivedAt) throw fail(409, 'TAX_STATUS_ARCHIVED', 'This tax status is archived');
   return { id: s.id, name: s.name };
@@ -139,12 +149,12 @@ export type MockFirmRole = 'OWNER' | 'ADMIN' | 'STAFF';
  */
 export function createClientsMock(options: { role?: MockFirmRole } = {}): ClientsClient {
   const staffOnly = options.role === 'STAFF';
-  let rows: ClientRecord[] = clientFixtures.map((r) => structuredClone(r));
+  let rows: ClientRecord[] = clientFixtures().map((r) => structuredClone(r));
   let years: (ClientTaxYear & { clientId: string })[] = [
     {
       clientId: clientId(1),
       taxYear: 2025,
-      status: statusRef(taxStatusFixtures[2]!.id),
+      status: statusRef(taxStatusFixtures()[2]!.id),
       clientNote: 'We are preparing your return.',
       updatedBy: mockStaff,
       updatedAt: at,
@@ -322,7 +332,7 @@ export function createMyProfileMock(
 ): MyProfileClient {
   const portalRole = options.portalRole ?? 'PRIMARY';
   const primary = portalRole === 'PRIMARY';
-  const c = clientFixtures[0]!;
+  const c = clientFixtures()[0]!;
   let me: MyProfile = MyProfile.parse({
     portalRole,
     fullName: c.displayName,
@@ -371,11 +381,11 @@ export function createMyProfileMock(
       return [
         {
           taxYear: 2025,
-          status: taxStatusFixtures[2]!.name,
+          status: taxStatusFixtures()[2]!.name,
           clientNote: 'We are preparing your return.',
           updatedAt: at,
         },
-        { taxYear: 2024, status: taxStatusFixtures[5]!.name, clientNote: null, updatedAt: at },
+        { taxYear: 2024, status: taxStatusFixtures()[5]!.name, clientNote: null, updatedAt: at },
       ];
     },
   };
