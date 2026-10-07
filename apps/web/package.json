@@ -29,11 +29,15 @@
   "dependencies": {
     "@firmivra/types": "workspace:*",
     "@firmivra/ui": "workspace:*",
+    "@hookform/resolvers": "^5.9.1",
+    "@tanstack/react-query": "^5.104.1",
     "lucide-react": "^1.52.0",
     "next": "^16.3.8",
     "qrcode": "^1.5.4",
+    "qrcode.react": "^4.2.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "react-hook-form": "^7.89.0"
   },
   "type": "module"
 }
