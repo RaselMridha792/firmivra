@@ -204,16 +204,36 @@ export function ApplicationTable({
 }) {
   const { preview } = useWorkspace();
   const count = preview && visible ? 1 : 0;
+  const widths = compact
+    ? {
+        sequence: 5,
+        name: 15,
+        owner: 13,
+        email: 18,
+        phone: 12,
+        submitted: 13,
+        status: 12,
+        action: 12,
+      }
+    : {
+        selection: 3,
+        name: 11,
+        type: 10,
+        owner: 10,
+        email: 14.5,
+        services: 12,
+        plan: 9,
+        submitted: 9,
+        status: 11,
+        action: 10.5,
+      };
   return (
     <>
       <div className="ref-table-region">
         <table className="ref-table" aria-label="Firm applications">
           <colgroup>
-            {(compact
-              ? [5, 15, 13, 18, 12, 13, 12, 12]
-              : [3, 11, 10, 10, 14.5, 12, 9, 9, 11, 10.5]
-            ).map((width, index) => (
-              <col key={index} style={{ width: `${width}%` }} />
+            {Object.entries(widths).map(([id, width]) => (
+              <col key={id} style={{ width: `${width}%` }} />
             ))}
           </colgroup>
           <thead>

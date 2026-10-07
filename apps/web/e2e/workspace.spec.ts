@@ -238,3 +238,54 @@ test('desktop and mobile review screenshots', async ({ page }) => {
     });
   }
 });
+
+test('real team data is firm scoped and role changes persist through the reused API', async ({
+  page,
+}) => {
+  await quick(page, 'app', 'owner@lvp.test');
+  await page.goto(site('app', '/team'));
+  const member = page.getByRole('row').filter({ hasText: 'staff@lvp.test' });
+  await expect(member).toContainText('STAFF');
+  await expect(page.getByText('owner@firm-b.test', { exact: true })).toHaveCount(0);
+  try {
+    await member.getByRole('button', { name: 'Change role', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Change member role' });
+    await dialog.getByLabel('New role').selectOption('ADMIN');
+    await dialog.getByRole('button', { name: 'Save role' }).click();
+    await expect(page.getByText('Member role saved.', { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(member).toContainText('ADMIN');
+  } finally {
+    await page.goto(site('app', '/team'));
+    await member.getByRole('button', { name: 'Change role', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Change member role' });
+    await dialog.getByLabel('New role').selectOption('STAFF');
+    await dialog.getByRole('button', { name: 'Save role' }).click();
+    await expect(member).toContainText('STAFF');
+  }
+});
+
+test('settings save survives reload without changing other firms', async ({ page }) => {
+  await quick(page, 'app', 'owner@lvp.test');
+  await page.goto(site('app', '/settings'));
+  const city = page.getByLabel('City', { exact: true });
+  await expect(city).toBeVisible();
+  const original = await city.inputValue();
+  try {
+    await city.fill('Synthetic review city');
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await expect(page.getByText('Profile changes saved.', { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(city).toHaveValue('Synthetic review city');
+    await quick(page, 'app', 'owner@firm-b.test');
+    await page.goto(site('app', '/settings'));
+    await expect(city).not.toHaveValue('Synthetic review city');
+  } finally {
+    await quick(page, 'app', 'owner@lvp.test');
+    await page.goto(site('app', '/settings'));
+    await expect(city).toBeVisible();
+    await city.fill(original);
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await expect(page.getByText('Profile changes saved.', { exact: true })).toBeVisible();
+  }
+});

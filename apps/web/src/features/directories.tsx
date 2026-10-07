@@ -40,29 +40,6 @@ const clients = [
     tax: 'Completed',
   },
 ];
-const members = [
-  {
-    id: 'sample-owner',
-    name: 'Casey Taylor',
-    email: 'casey@example.test',
-    role: 'Owner',
-    status: 'Active',
-  },
-  {
-    id: 'sample-staff',
-    name: 'Riley Jordan',
-    email: 'riley@example.test',
-    role: 'Staff',
-    status: 'Active',
-  },
-  {
-    id: 'sample-invite',
-    name: 'Sam Parker',
-    email: 'sam@example.test',
-    role: 'Staff',
-    status: 'Invited',
-  },
-];
 const pending = [
   {
     id: 'sample-signup',
@@ -208,62 +185,7 @@ export function Clients({ id }: { id?: string }) {
     </>
   );
 }
-export function Team() {
-  const { preview } = useWorkspace();
-  return (
-    <OwnerOnly>
-      <PageHeading
-        title="Team"
-        description="Manage the people who can access your firm workspace."
-        action={
-          <UnavailableAction label="Invite member">
-            <ContactFields includeRole />
-          </UnavailableAction>
-        }
-      />
-      <DataNotice />
-      <Card>
-        <Table
-          caption="Team members"
-          rows={preview ? members : []}
-          rowKey={(r) => r.id}
-          columns={[
-            { id: 'name', label: 'Name', cell: (r) => r.name, sortValue: (r) => r.name },
-            { id: 'email', label: 'Email', cell: (r) => r.email },
-            { id: 'role', label: 'Role', cell: (r) => r.role },
-            { id: 'status', label: 'Status', cell: (r) => <Status value={r.status} /> },
-            {
-              id: 'actions',
-              label: 'Actions',
-              cell: (r) =>
-                r.role === 'Owner' ? (
-                  <span className="text-xs text-muted">Owner access protected</span>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    <UnavailableAction label="Change role">
-                      <Select
-                        label="New role"
-                        options={[
-                          { value: 'STAFF', label: 'Staff' },
-                          { value: 'ADMIN', label: 'Administrator' },
-                        ]}
-                      />
-                    </UnavailableAction>
-                    {r.status === 'Invited' ? (
-                      <UnavailableAction label="Resend invite" />
-                    ) : (
-                      <ReasonAction label="Deactivate" danger />
-                    )}
-                  </div>
-                ),
-            },
-          ]}
-          emptyTitle="No team members loaded"
-        />
-      </Card>
-    </OwnerOnly>
-  );
-}
+export { Team } from './team';
 export function PendingSignups() {
   const { preview } = useWorkspace();
   return (
