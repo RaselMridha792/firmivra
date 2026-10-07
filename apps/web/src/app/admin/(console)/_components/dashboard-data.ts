@@ -66,7 +66,7 @@ export const dashboardStats = [
   ['Monthly Revenue', '$0.00', undefined, CreditCard, 'gold'],
 ] as const;
 export const attentionItems = [
-  ['Firm application pending review', pendingApplicationCount, FileText],
+  ['Firm application pending review', pendingApplicationCount, FileText, '/applications'],
   ['Payment issues', 0, TriangleAlert],
   ['Open support tickets', 0, Headset],
   ['New users this week', 0, Users],

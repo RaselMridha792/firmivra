@@ -270,7 +270,7 @@ export function DashboardOverview({ today }: { today: string }) {
             <Card className="!p-4">
               <SectionTitle icon={CircleCheck}>Tasks Requiring Attention</SectionTitle>
               <ul className="divide-y divide-border">
-                {attentionItems.map(([label, count, Icon], index) => (
+                {attentionItems.map(([label, count, Icon, href], index) => (
                   <li
                     key={label}
                     className="flex items-center gap-3 border-b border-border py-0.5 first:pt-0 last:border-0 last:pb-0"
@@ -290,8 +290,18 @@ export function DashboardOverview({ today }: { today: string }) {
                       <Icon aria-hidden className="size-5" />
                     </span>
                     <span className="font-semibold text-text">{count}</span>
-                    <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
-                    <ChevronRight aria-hidden className="size-4 text-muted" />
+                    {href && count > 0 ? (
+                      <Link
+                        href={href}
+                        aria-label={`Open ${label}`}
+                        className="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-text hover:text-brand-700"
+                      >
+                        {label}
+                        <ChevronRight aria-hidden className="size-4 shrink-0 text-muted" />
+                      </Link>
+                    ) : (
+                      <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
+                    )}
                   </li>
                 ))}
               </ul>
