@@ -47,6 +47,12 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
 - History without a new table: each book, reschedule, cancel, complete and no-show writes an audit row with who did it and the old and new times; the appointment detail returns them as its history.
 - Owners: notes are R11's; tasks and reports (including the client's read of published reports in My Services) are R12's; R10 step 4 still creates the NAME_CHANGE task row; documents come from R5's list.
 - Contract-only PRs don't count toward the 2-PR limit; one at a time from fresh main: appointments, content and calculators first, then workspaces and the audit viewer.
+- Staff calendar access (#68's open question). Owner and Admin see and change everything. Staff:
+  - see an appointment in full only when they are its staff member or its client is assigned to them (`clients.assigned_user_id`), the clients API's rule (#63);
+  - see every other appointment only as Busy (`restricted: true`: time, staff member and status; no client, type, location, engagement, cancel reason or history); its detail is 404;
+  - get 404 for a `clientId` filter on a client not assigned to them, so a Busy entry cannot be traced to a client;
+  - book only for clients assigned to them, and reschedule, cancel, complete or mark no-show only appointments they see in full (404 otherwise);
+  - still get every member's free slots (times and staff names only).
 - Audit log viewer (#71 review): Owner and Admin, by the roles matrix (SYSTEM-DESIGN.md:211, PROJECT-DRAFT-v2.md:352); the lead asked Rasel to confirm.
   - A Super Admin's action through a support grant is written to both logs (SYSTEM-DESIGN.md:162). In the firm's log it shows as "Firmivra Support", with no user id and no IP.
   - Reading the log is logged: the first page of each read writes `audit_log.viewed` with the filters, never the rows (R10's "audit every read of client data").
@@ -86,3 +92,9 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
   - Lists are paged: `reports(engagementId, query)` and `myReports(slug).list(engagementId, query)` return `{ items, nextCursor }`; the workspace detail is the engagement and its stages, with tasks and reports from their own lists. The workspaces search refuses control characters.
   - Tasks: Staff create only for their assigned clients; `NAME_CHANGE_PENDING` on reopening a second name change.
   - Mocks: ids are checked as the real client checks them (400); a bad cursor is 400; `ENGAGEMENT_MISMATCH`, `NOT_A_MEMBER`, `DOCUMENT_MISMATCH`, `INTERNAL_DOCUMENT` and `ENGAGEMENT_CLOSED` are raised; the workspaces list filters by assignee and pages; the audit log answers 403 before anything else. A completed 2025 Tax Planning engagement and a Firmivra Support row were added.
+- 2026-10-07, Staff calendar access (Rasel's decision on #68's open question; #68 was already merged, so this is a contract follow-up from fresh main, branch `rasel/R12-staff-calendar`):
+  - `AppointmentList` items are `CalendarAppointment`: the whole appointment (`restricted: false`) or `BusyAppointment` (`restricted: true`: id, staff member, times, status). The Busy shape has no client fields, so the parser drops any sent by mistake.
+  - The rules are in the module comment, the calendar client's doc, `AppointmentsQuery` (the `clientId` 404) and `BookAppointmentRequest` (assigned clients only).
+  - Mock: `role: 'STAFF'` is Sam Staff, as in `mocks/clients.ts`; Riley Example's appointment with Mock User is Busy for Sam. Booking checks the client record (404 for an unknown or, for Staff, an unassigned one). The availability mock's "own" hours follow the same signed-in member. `api.appointments` passes `MOCK_ROLE`.
+  - The portal mocks are kept per firm (R1's request, as in #75): `api.myAppointments(slug)`, `api.myContent(slug)` and `api.myCalculators(slug)` reuse one mock per lower-cased slug, built on first use.
+  - The R12 API (step 2) is built with this rule.
