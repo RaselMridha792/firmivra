@@ -4,9 +4,12 @@ import { clearable, text } from '../clients/text.js';
 
 // Tasks (R12): the firm's to-dos for a client, optionally within one of that client's engagements
 // (the client record's Tasks tab and the service workspaces). Never shown to clients.
-// Firm routes: /api/v1/business/tasks. Owner and Admin see every task of the firm; Staff see the
-// tasks of clients assigned to them and tasks assigned to them (any other is 404, like client
-// records). R10 creates the client's NAME_CHANGE task; it is listed and closed here like any other.
+// Firm routes: /api/v1/business/tasks. Owner and Admin see and change every task of the firm.
+// Staff, by the calendar's rule (R12 Decisions):
+// - see and change the tasks of clients assigned to them and the tasks assigned to them; any other
+//   task is 404, like client records;
+// - create tasks only for clients assigned to them (404 otherwise), assigned to anyone at the firm.
+// R10 creates the client's NAME_CHANGE task; it is listed and closed here like any other.
 // Responses are plain objects; requests are strict.
 
 const DateTime = z.iso.datetime({ offset: true });
@@ -57,12 +60,12 @@ export const TaskList = z.object({
 });
 export type TaskList = z.infer<typeof TaskList>;
 
-/** A new GENERAL task. The engagement, when given, must be this client's. */
+/** A new GENERAL task. The engagement, when given, must be this client's. '' or null: no details. */
 export const CreateTaskRequest = z.strictObject({
   clientId: z.uuid(),
   engagementId: z.uuid().optional(),
   title: text(200),
-  details: text(5_000, 'many').optional(),
+  details: clearable(text(5_000, 'many')),
   dueOn: CalendarDate.optional(),
   assignedUserId: z.uuid().optional(),
 });
@@ -85,5 +88,7 @@ export const TaskErrorCode = z.enum([
   'ENGAGEMENT_MISMATCH',
   /** 409: the assignee is not an active member of the firm. */
   'NOT_A_MEMBER',
+  /** 409: reopening a NAME_CHANGE task while the client has another open one. */
+  'NAME_CHANGE_PENDING',
 ]);
 export type TaskErrorCode = z.infer<typeof TaskErrorCode>;

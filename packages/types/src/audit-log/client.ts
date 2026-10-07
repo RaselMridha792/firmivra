@@ -1,7 +1,7 @@
 import { type ApiRequest, parseInput, toQuery } from '../client.js';
 import { AuditLogPage, AuditLogQuery } from './schemas.js';
 
-/** `api.auditLog`: the firm's audit log, newest first, for the firm's Owner (403 otherwise). */
+/** `api.auditLog`: the firm's audit log, newest first, for the firm's Owner and Admins (403 for Staff). */
 export function createAuditLogClient(request: ApiRequest) {
   return {
     /** One page; pass `nextCursor` back as `cursor` for the next. */

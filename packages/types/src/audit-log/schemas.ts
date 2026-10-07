@@ -1,36 +1,57 @@
 import { z } from 'zod';
 
 // Audit log viewer (R12): the firm's own audit log, read-only, newest first.
-// Firm route: /api/v1/business/audit-log, Owner only (403 FORBIDDEN for Admin and Staff).
-// Super Admin route: /api/v1/admin/firms/{businessId}/audit-log, only with an active support
-// grant for that firm (R8); until R8 it answers 403 SUPPORT_GRANT_REQUIRED. Never another firm's.
+// Firm route: /api/v1/business/audit-log, Owner and Admin (the roles matrix; 403 FORBIDDEN for
+// Staff). Super Admin route: /api/v1/admin/firms/{businessId}/audit-log, only with an active
+// support grant for that firm (R8); until R8 it answers 403 SUPPORT_GRANT_REQUIRED. Never another
+// firm's.
+// - A Super Admin's action in the firm through a support grant is written to both logs: the
+//   firm's, where it shows as "Firmivra Support" (no user id, no IP), and the platform's, with
+//   the person.
+// - Reading this log is logged too: the first page of each read writes `audit_log.viewed` with
+//   the filters (never the rows), as client reads write `client.viewed` and `clients.listed`.
 // Metadata is what the action recorded: ids and hashes, never passwords, codes, tokens, SSNs or
-// document content (CLAUDE.md rule 4).
+// document content (CLAUDE.md rule 4); `{}` when the action recorded none.
 // Responses are plain objects; requests are strict.
 
 const DateTime = z.iso.datetime({ offset: true });
 const DAY_MS = 24 * 60 * 60_000;
+/** One line of at most `max` characters, without control characters. */
+const oneLine = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .regex(/^[^\p{Cc}]+$/u, 'Remove the special characters');
 
 export const AuditActorKind = z.enum(['STAFF', 'CLIENT', 'PLATFORM']);
 export type AuditActorKind = z.infer<typeof AuditActorKind>;
+
+/** Who did it: a person of the firm or a client, or Firmivra Support (never the person). */
+export const AuditActor = z.discriminatedUnion('kind', [
+  z.object({ kind: z.enum(['STAFF', 'CLIENT']), userId: z.uuid(), name: z.string() }),
+  /** A Super Admin through a support grant: always named "Firmivra Support". */
+  z.object({ kind: z.literal('PLATFORM'), userId: z.null(), name: z.string() }),
+]);
+export type AuditActor = z.infer<typeof AuditActor>;
 
 export const AuditEntry = z.object({
   id: z.uuid(),
   at: DateTime,
   /** For example "client_account.approved", "appointment.rescheduled". */
   action: z.string(),
-  /** Who did it, or null for the system and signed-out requests. */
-  actor: z.object({ userId: z.uuid(), name: z.string(), kind: AuditActorKind }).nullable(),
+  /** Null for the system and signed-out requests. */
+  actor: AuditActor.nullable(),
   entity: z.object({ type: z.string(), id: z.string().nullable() }),
   metadata: z.record(z.string(), z.unknown()),
+  /** The request's IP; null for Firmivra Support and the system. */
   ip: z.string().nullable(),
   requestId: z.string().nullable(),
 });
 export type AuditEntry = z.infer<typeof AuditEntry>;
 
 /**
- * Filters: a date range (at most 366 days; the last 30 by default), an action or its prefix
- * ("appointment." for every appointment action), the person, and the record.
+ * Filters: a date range, both ends or neither (then the last 30 days), at most 366 days; an action
+ * or its prefix ("appointment." for every appointment action); the person; the record.
  */
 export const AuditLogQuery = z
   .strictObject({
@@ -47,9 +68,13 @@ export const AuditLogQuery = z
       .regex(/^[a-z_]+$/)
       .max(40)
       .optional(),
-    entityId: z.string().max(100).optional(),
+    entityId: oneLine(100).optional(),
     cursor: z.string().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  })
+  .refine((q) => (q.from === undefined) === (q.to === undefined), {
+    message: 'Give both from and to, or neither',
+    path: ['to'],
   })
   .refine(
     (q) =>
@@ -57,7 +82,7 @@ export const AuditLogQuery = z
       !q.to ||
       (Date.parse(q.to) >= Date.parse(q.from) &&
         Date.parse(q.to) - Date.parse(q.from) <= 366 * DAY_MS),
-    'Use a range of at most 366 days',
+    { message: 'Use a range of at most 366 days', path: ['to'] },
   );
 export type AuditLogQuery = z.input<typeof AuditLogQuery>;
 

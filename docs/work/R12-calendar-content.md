@@ -1,6 +1,6 @@
 # R12: Appointments, content, audit viewer, calculators and workspaces API (Oct 10-13)
 
-**Goal:** Firms and clients book appointments without double booking; firms publish resources and external links; owners read their audit log; clients use the calculators; staff work in the Bookkeeping and Tax Planning workspaces. Former developer tickets T07, T08 (Tumit) and I11 (Ibrahim), moved here on Oct 6.
+**Goal:** Firms and clients book appointments without double booking; firms publish resources and external links; owners and admins read their audit log; clients use the calculators; staff work in the Bookkeeping and Tax Planning workspaces. Former developer tickets T07, T08 (Tumit) and I11 (Ibrahim), moved here on Oct 6.
 
 **Owned paths (change only these):**
 - `apps/api/src/appointments/**`, `apps/api/src/content/**`, `apps/api/src/audit-viewer/**`, `apps/api/src/calculators/**`, `apps/api/src/workspaces/**` (map them to the real layout once)
@@ -15,7 +15,7 @@
 - [ ] 1. Contract first, by Oct 10: schemas, client functions and mock fixtures for all five modules (Tumit F09 and N08, Nahid N09 and N10, Fahad F11)
 - [ ] 2. Appointments: working hours, blocked time, appointment types, free slots, book (by staff or by the client), reschedule, cancel; R0's constraint stops double booking, so return a clear SLOT_TAKEN error; confirmations and reminders through R6 (`reminder_sent_at`)
 - [ ] 3. Content: resources, tips and external links per firm (`content_items`, `icon_key`), the firm's editor and the portal's read; seed LVP's links
-- [ ] 4. Audit log viewer: firm owners read their firm's audit log with filters and paging; a Super Admin only through an active support grant
+- [ ] 4. Audit log viewer: the firm's Owner and Admins read their firm's audit log with filters and paging; a Super Admin only through an active support grant
 - [ ] 5. Calculators: the Tax Return Calculator first, with validated inputs and the disclaimer; definitions as data (placeholders until Octavia sends the list)
 - [ ] 6. Service workspaces: Bookkeeping and Tax Planning per engagement: status, tasks, documents, notes, reports
 - [ ] 7. Audit and e2e, including isolation
@@ -47,6 +47,20 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
 - History without a new table: each book, reschedule, cancel, complete and no-show writes an audit row with who did it and the old and new times; the appointment detail returns them as its history.
 - Owners: notes are R11's; tasks and reports (including the client's read of published reports in My Services) are R12's; R10 step 4 still creates the NAME_CHANGE task row; documents come from R5's list.
 - Contract-only PRs don't count toward the 2-PR limit; one at a time from fresh main: appointments, content and calculators first, then workspaces and the audit viewer.
+- Audit log viewer (#71 review): Owner and Admin, by the roles matrix (SYSTEM-DESIGN.md:211, PROJECT-DRAFT-v2.md:352); the lead asked Rasel to confirm.
+  - A Super Admin's action through a support grant is written to both logs (SYSTEM-DESIGN.md:162). In the firm's log it shows as "Firmivra Support", with no user id and no IP.
+  - Reading the log is logged: the first page of each read writes `audit_log.viewed` with the filters, never the rows (R10's "audit every read of client data").
+- Report files (#71 review): never an INTERNAL document (firm only, schema.prisma:133-134). Attach and publish answer 409 `INTERNAL_DOCUMENT`. The client downloads only through R5's portal document route, which serves CLEAN files only.
+- Not settled by the docs; the contract uses these defaults until Rasel answers (asked through the lead, Oct 7):
+  - Who changes reports: whoever sees the workspace drafts, edits, publishes and unpublishes (Owner, Admin, and Staff on their assigned clients). This follows R10's "Staff see and edit only their assigned clients (and those clients' services and returns)"; the matrix's nearest row is "Change status: Staff if allowed".
+  - No notice to the client on publish: R6 has no report template. If one is added, it carries no amounts (PROJECT-DRAFT-v2.md:415) and opens the report.
+  - SPOUSE and AUTHORIZED logins see a service's published reports wherever My Services shows them the service. The schema has no per-member permissions yet.
+  - Closed engagements: reports change only while the engagement is PENDING or ACTIVE. On COMPLETED or CANCELLED, create, edit and publish are 409 `ENGAGEMENT_CLOSED`; unpublish always works. The client sees published reports for as long as My Services shows the service.
+  - Tasks follow the calendar rule. Staff see their assigned clients' tasks and the tasks assigned to them, and create tasks only for their assigned clients, like booking. Still open: the lead's stricter rule, that a client's task can go to a Staff member only when that client is assigned to them.
+- Not R12 (told the lead):
+  - Export: screen 27 is "Audit log and export", but no workstream owns export and no doc specifies it beyond "data export".
+  - The client's own login history is only in the roles matrix: no screen, spec or builder.
+  - PAGE-MAP has no firm audit-log page (screen 27) and no Super Admin one (screen 12).
 - Resources and external links are business-only (System Wiring G): an INDIVIDUAL client gets 403 `BUSINESS_ONLY` for them, checked on the server from the client record's account type; tips are for everyone.
 
 ## Progress log
@@ -65,3 +79,10 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
   - `packages/types/src/workspaces`: the list of Bookkeeping and Tax Planning engagements (open tasks, next due date), the detail (stages, open tasks, reports), reports (create as draft, edit, publish, unpublish, delete only if never published; kinds per workspace in `REPORT_KINDS`; figures as label and amount lines), and the client's published reports in My Services. Status and stage go through R10's `api.engagements`; notes come from R11, documents from R5.
   - `packages/types/src/audit-log`: the firm Owner's log with filters (dates, action or prefix, person, record) and paging; the Super Admin version answers 403 `SUPPORT_GRANT_REQUIRED` until R8.
   - Mocks `apps/web/src/mocks/{tasks,workspaces,audit-log}.ts` (the workspaces reuse R10's Bookkeeping engagement fixture); `api.tasks`, `api.workspaces`, `api.myReports(slug)`, `api.auditLog`.
+- 2026-10-07, #71 review fixes (lead, head d55c3d1), after merging main (#38's settings lines kept in `api.ts`):
+  - Reports never attach an INTERNAL document (409 `INTERNAL_DOCUMENT` on attach and publish); the client downloads through R5's portal route only. Changes need an open engagement (409 `ENGAGEMENT_CLOSED`, unpublish excepted).
+  - Audit log: Owner and Admin; Firmivra Support rows carry no user id or IP (`AuditActor` union); both logs and `audit_log.viewed` stated; dates both or neither; no control characters in `entityId`.
+  - Optional create text reads `''` as none (task details, report period, summary and notes). Report amounts are whole cents (`amountCents`), and client-visible report text is plain text.
+  - Lists are paged: `reports(engagementId, query)` and `myReports(slug).list(engagementId, query)` return `{ items, nextCursor }`; the workspace detail is the engagement and its stages, with tasks and reports from their own lists. The workspaces search refuses control characters.
+  - Tasks: Staff create only for their assigned clients; `NAME_CHANGE_PENDING` on reopening a second name change.
+  - Mocks: ids are checked as the real client checks them (400); a bad cursor is 400; `ENGAGEMENT_MISMATCH`, `NOT_A_MEMBER`, `DOCUMENT_MISMATCH`, `INTERNAL_DOCUMENT` and `ENGAGEMENT_CLOSED` are raised; the workspaces list filters by assignee and pages; the audit log answers 403 before anything else. A completed 2025 Tax Planning engagement and a Firmivra Support row were added.

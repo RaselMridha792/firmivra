@@ -6,9 +6,11 @@ import {
   CreateReportRequest,
   ListWorkspacesQuery,
   MyReportList,
+  MyReportsQuery,
   Report,
   ReportId,
   ReportList,
+  ReportsQuery,
   UpdateReportRequest,
   Workspace,
   WorkspaceList,
@@ -29,8 +31,11 @@ export function createWorkspacesClient(request: ApiRequest) {
     },
     get: async (engagementId: string): Promise<Workspace> =>
       request(Workspace, workspace(engagementId)),
-    reports: async (engagementId: string): Promise<ReportList['items']> =>
-      (await request(ReportList, `${workspace(engagementId)}/reports`)).items,
+    /** One page, newest first; pass `nextCursor` back as `cursor` for the next. */
+    reports: async (engagementId: string, query: ReportsQuery = {}): Promise<ReportList> => {
+      const path = `${workspace(engagementId)}/reports`;
+      return request(ReportList, `${path}${toQuery(parseInput(ReportsQuery, query))}`);
+    },
     createReport: async (engagementId: string, body: CreateReportRequest): Promise<Report> =>
       request(Report, `${workspace(engagementId)}/reports`, {
         method: 'POST',
@@ -52,13 +57,11 @@ export type WorkspacesClient = ReturnType<typeof createWorkspacesClient>;
 /** `api.myReports(slug)`: the published reports of one of the signed-in client's services. */
 export function createMyReportsClient(request: ApiRequest, firmSlug: string) {
   return {
-    list: async (engagementId: string): Promise<MyReportList['items']> =>
-      (
-        await request(
-          MyReportList,
-          `${portalMe(firmSlug)}/services/${parseInput(EngagementId, engagementId)}/reports`,
-        )
-      ).items,
+    /** One page, newest first; pass `nextCursor` back as `cursor` for the next. */
+    list: async (engagementId: string, query: MyReportsQuery = {}): Promise<MyReportList> => {
+      const path = `${portalMe(firmSlug)}/services/${parseInput(EngagementId, engagementId)}/reports`;
+      return request(MyReportList, `${path}${toQuery(parseInput(MyReportsQuery, query))}`);
+    },
   };
 }
 export type MyReportsClient = ReturnType<typeof createMyReportsClient>;

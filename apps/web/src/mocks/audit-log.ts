@@ -7,10 +7,12 @@ import {
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { firstClientId, type MockFirmRole, mockStaff } from './clients';
+import { mockOffset } from './tasks';
 
 /**
- * Mock data for `api.auditLog` (R12): a few synthetic entries of the kinds the API writes. Owner
- * only, as in the API: any other role gets 403 FORBIDDEN.
+ * Mock data for `api.auditLog` (R12): a few synthetic entries of the kinds the API writes, one of
+ * them by Firmivra Support. Owner and Admin, as in the API: Staff get 403 FORBIDDEN, before any
+ * other check.
  */
 const owner = {
   userId: '00000000-0000-4000-8000-000000000101',
@@ -66,21 +68,29 @@ export function auditFixtures(): readonly AuditEntry[] {
       entity: { type: 'membership', id: '0199b6a0-0000-7000-8000-0000000000e1' },
       metadata: { role: 'STAFF', resent: false },
     }),
+    // A Super Admin's read through a support grant: never the person or their IP.
+    entry(6, {
+      action: 'client.viewed',
+      entity: { type: 'client', id: firstClientId },
+      actor: { userId: null, name: 'Firmivra Support', kind: 'PLATFORM' },
+      metadata: { via: 'support_grant' },
+      ip: null,
+    }),
   ];
   return fixtures;
 }
 
 const copy = <T>(value: T): T => structuredClone(value);
 
-/** An in-memory `api.auditLog`; only `role: 'OWNER'` (the default) reads it. */
+/** An in-memory `api.auditLog`; Owner (the default) and Admin read it. */
 export function createAuditLogMock(options: { role?: MockFirmRole } = {}): AuditLogClient {
   return {
     list: async (query = {}) => {
       await mockDelay();
-      const q = parseInput(AuditLogQuery, query);
-      if ((options.role ?? 'OWNER') !== 'OWNER') {
-        throw new ApiRequestError(403, 'FORBIDDEN', 'Only the firm owner reads the audit log');
+      if (options.role === 'STAFF') {
+        throw new ApiRequestError(403, 'FORBIDDEN', 'Only the Owner and Admins read the audit log');
       }
+      const q = parseInput(AuditLogQuery, query);
       const all = auditFixtures().filter(
         (e) =>
           (!q.action ||
@@ -91,7 +101,7 @@ export function createAuditLogMock(options: { role?: MockFirmRole } = {}): Audit
           (!q.from || e.at >= q.from) &&
           (!q.to || e.at < q.to),
       );
-      const start = q.cursor ? Number(q.cursor) : 0;
+      const start = mockOffset(q.cursor);
       const items = all.slice(start, start + q.limit);
       return copy({
         items,

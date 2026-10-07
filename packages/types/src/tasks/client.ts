@@ -12,7 +12,8 @@ const BASE = '/business/tasks';
 
 /**
  * `api.tasks`: the firm's to-dos for its clients (client record Tasks tab, workspaces). Staff see
- * their clients' tasks and tasks assigned to them; anything else is 404 NOT_FOUND.
+ * their clients' tasks and tasks assigned to them, and create tasks only for their clients;
+ * anything else is 404 NOT_FOUND.
  */
 export function createTasksClient(request: ApiRequest) {
   return {
