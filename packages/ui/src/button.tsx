@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes } from 'react';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline' | 'dark';
 
 const variants: Record<ButtonVariant, string> = {
   primary:
@@ -8,6 +8,11 @@ const variants: Record<ButtonVariant, string> = {
   secondary:
     'border border-border bg-surface text-text hover:bg-canvas disabled:text-muted disabled:hover:bg-surface',
   ghost: 'text-link hover:bg-folder-surface disabled:text-muted',
+  /** "Create an Account" on the portal landing page. */
+  outline:
+    'border border-action bg-surface text-action hover:bg-accent-soft disabled:border-border disabled:text-muted disabled:hover:bg-surface',
+  /** The navy buttons in Begin Online. */
+  dark: 'bg-navigation text-on-action hover:bg-navigation-hover disabled:bg-disabled disabled:text-disabled-text disabled:hover:bg-disabled',
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
