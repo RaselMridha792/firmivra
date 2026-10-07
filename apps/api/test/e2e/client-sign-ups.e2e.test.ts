@@ -51,10 +51,7 @@ const signUps = {} as Record<
   | 'notice',
   SignUp
 >;
-const records = {} as Record<
-  'jane' | 'johnLinked' | 'samA' | 'samB' | 'other' | 'ofY' | 'archived',
-  string
->;
+const records = {} as Record<'jane' | 'johnLinked' | 'other' | 'ofY' | 'archived', string>;
 /** When true, the client notices fail (a mail outage). */
 let noticesFail = false;
 
@@ -235,9 +232,7 @@ beforeAll(async () => {
       },
     }),
   );
-  // Two records with Sam's email: neither is offered, but staff may pick one.
-  await record('samA', firmX, signUps.sam.email);
-  await record('samB', firmX, signUps.sam.email);
+  // Sam has no record. (A firm never holds two records with one email: #52's unique index.)
   await record('other', firmX, `r3-q-someone-else-${tag}@example.com`);
   // Firm Y's record with Jane's email: never linkable from firm X.
   await record('ofY', firmY, signUps.jane.email);
@@ -296,7 +291,7 @@ describe('the queue', () => {
       declinedAt: null,
       existingClient: { clientId: records.jane, displayName: 'Record jane' },
     });
-    // John's record has a login; Sam has two records; Plain has none.
+    // John's record has a login; Plain and Sam have none.
     for (const i of [0, 2, 3]) expect(page1.items[i]?.existingClient).toBeNull();
 
     const second = await as(staff.adminX, 'get', `?limit=4&cursor=${page1.nextCursor ?? ''}`);
@@ -438,12 +433,6 @@ describe('approve', () => {
     expect(linked.status).toBe(200);
     expect((linked.body as ApproveSignUpResponse).clientId).toBe(records.jane);
     expect(await account(signUps.jane)).toMatchObject({ status: 'ACTIVE', clientId: records.jane });
-
-    // Of Sam's two records, staff may pick one deliberately; never a third.
-    const third = await approve(signUps.sam);
-    expect([third.status, codeOf(third)]).toEqual([409, 'DUPLICATE_EMAIL']);
-    const sam = await approve(signUps.sam, { clientId: records.samB });
-    expect((sam.body as ApproveSignUpResponse).clientId).toBe(records.samB);
 
     const after = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
       tx.client.count({ where: { businessId: firmX.id } }),
