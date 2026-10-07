@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { SignOutButton } from '../../../components/sign-out-button';
 import { SignedIn } from '../../../components/signed-in';
+import { WorkspaceProvider } from '../../../components/workspace-context';
 
 /** First-time setup (F05): signed in, the Firmivra logo, no sidebar. */
 export default function SetupLayout({ children }: { children: ReactNode }) {
@@ -10,7 +11,9 @@ export default function SetupLayout({ children }: { children: ReactNode }) {
         <p className="text-xl font-bold text-brand-900">Firmivra</p>
         <SignOutButton />
       </header>
-      <main className="mx-auto w-full max-w-3xl p-6">{children}</main>
+      <main className="mx-auto w-full max-w-3xl p-6">
+        <WorkspaceProvider site="firm">{children}</WorkspaceProvider>
+      </main>
     </SignedIn>
   );
 }

@@ -5,11 +5,8 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
   FirmSettings,
-  FirmLegalDocument,
   FirmSetup,
-  UpdateBusinessSettingsRequest,
-  PublishFirmLegalVersionRequest,
-  SaveBusinessSetupRequest,
+  UpdateFirmSettingsRequest,
   ApiRequestError,
 } from '@firmivra/types';
 import {
@@ -26,7 +23,8 @@ import {
 } from '@firmivra/ui';
 import { OwnerOnly, useWorkspace } from '../components/workspace-context';
 import { ContactFields, DataNotice, PageHeading, UnavailableAction } from './screen-kit';
-import { workspaceError, workspaceRequest } from '../lib/workspace-api';
+import { workspaceError } from '../lib/workspace-api';
+import { api } from '../lib/api';
 import { TaxStatuses } from './tax-statuses';
 
 const steps = [
@@ -48,6 +46,7 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
   const router = useRouter();
   const businessId = business?.id ?? '';
   const [record, setRecord] = useState<FirmSettings | null>(null);
+  const [setup, setSetup] = useState<FirmSetup | null>(null);
   const [loadState, setLoadState] = useState(preview ? 'ready' : 'loading');
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState('');
@@ -90,24 +89,23 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
     const controller = new AbortController();
     async function load() {
       try {
-        const response = await workspaceRequest(businessId, '/business/settings', FirmSettings, {
-          signal: controller.signal,
-        });
+        const [response, progress] = await Promise.all([
+          api.settings.get(),
+          api.settings.getSetup(),
+        ]);
         const legal = await Promise.allSettled(
-          ['TERMS', 'PRIVACY'].map((kind) =>
-            workspaceRequest(businessId, `/business/legal/${kind}`, FirmLegalDocument, {
-              signal: controller.signal,
-            }),
-          ),
+          (['terms', 'privacy'] as const).map((kind) => api.settings.getLegal(kind)),
         );
         if (controller.signal.aborted) return;
         setRecord(response);
-        setFeatures(response.enabledModules);
+        setSetup(progress);
+        setFeatures([]);
         setDraft((current) => ({
           ...current,
-          displayName: response.profile.name,
+          displayName: response.name,
           portalName: response.portalName ?? '',
-          primary: response.brandColor ?? tokens.palettes.lvp.navy,
+          primary: response.primaryColor ?? tokens.palettes.lvp.navy,
+          secondary: response.accentColor ?? tokens.palettes.lvp.gold,
           email: response.contactEmail ?? '',
           phone: response.contactPhone ?? '',
           website: response.website ?? '',
@@ -118,8 +116,8 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
           country: response.country,
           timezone: response.timezone,
           welcome: response.welcomeMessage ?? '',
-          terms: legal[0]?.status === 'fulfilled' ? legal[0].value.bodyMarkdown : '',
-          privacy: legal[1]?.status === 'fulfilled' ? legal[1].value.bodyMarkdown : '',
+          terms: legal[0]?.status === 'fulfilled' ? (legal[0].value.current?.body ?? '') : '',
+          privacy: legal[1]?.status === 'fulfilled' ? (legal[1].value.current?.body ?? '') : '',
         }));
         const failure = legal.find(
           (result) =>
@@ -148,7 +146,8 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
     const mapping = {
       displayName: 'name',
       portalName: 'portalName',
-      primary: 'brandColor',
+      primary: 'primaryColor',
+      secondary: 'accentColor',
       email: 'contactEmail',
       phone: 'contactPhone',
       website: 'website',
@@ -168,10 +167,7 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
           (['name', 'country', 'timezone'].includes(field) ? '' : null);
     }
     if (!Object.keys(patch).length) return record;
-    const saved = await workspaceRequest(businessId, '/business/settings', FirmSettings, {
-      method: 'PATCH',
-      body: UpdateBusinessSettingsRequest.parse(patch),
-    });
+    const saved = await api.settings.update(UpdateFirmSettingsRequest.parse(patch));
     setRecord(saved);
     setDirty((fields) => new Set([...fields].filter((key) => !(key in mapping))));
     return saved;
@@ -185,6 +181,7 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
         'displayName',
         'portalName',
         'primary',
+        'secondary',
         'email',
         'phone',
         'website',
@@ -201,18 +198,8 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
         const keys = ['branding', 'businessDetails', 'team', 'clientPortal'] as const;
         const current = keys[step];
         if (current) {
-          const setup = await workspaceRequest(businessId, '/business/setup', FirmSetup, {
-            method: 'PATCH',
-            body: SaveBusinessSetupRequest.parse({
-              completedSteps: [
-                ...new Set([
-                  ...saved.setup.completedSteps.filter((key) => key !== 'finish'),
-                  current,
-                ]),
-              ],
-            }),
-          });
-          setRecord({ ...saved, setup });
+          const progress = await api.settings.completeStep(current);
+          setSetup(progress);
           setStep((value) => value + 1);
         }
       }
@@ -234,17 +221,9 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
     setError('');
     setNotice('');
     try {
-      const document = await workspaceRequest(
-        businessId,
-        `/business/legal/${kind}`,
-        FirmLegalDocument,
-        {
-          method: 'POST',
-          body: PublishFirmLegalVersionRequest.parse({
-            bodyMarkdown: kind === 'TERMS' ? draft.terms : draft.privacy,
-          }),
-        },
-      );
+      const document = await api.settings.publishLegal(kind === 'TERMS' ? 'terms' : 'privacy', {
+        body: kind === 'TERMS' ? draft.terms : draft.privacy,
+      });
       setNotice(
         `${kind === 'TERMS' ? 'Terms' : 'Privacy policy'} version ${document.version} published.`,
       );
@@ -265,7 +244,7 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
     setError('');
     try {
       await saveProfile();
-      await workspaceRequest(businessId, '/business/setup/complete', FirmSetup, { method: 'POST' });
+      await api.settings.finishSetup();
       router.push('/admin/dashboard');
       router.refresh();
     } catch (failure) {
@@ -286,7 +265,7 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
         <div className="space-y-4">
           <Input
             label="Approved legal name"
-            value={record?.profile.legalName ?? business?.name ?? ''}
+            value={record?.business.legalName ?? business?.name ?? ''}
             readOnly
           />
           <Input
@@ -313,7 +292,6 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
           />
           <Input
             label="Secondary colour (HEX)"
-            disabled={!preview}
             value={draft.secondary}
             onChange={(e) => update('secondary', e.target.value)}
             error={validSecondary ? undefined : 'Use a six-digit HEX colour'}
@@ -354,7 +332,11 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
   const details = (
     <Card title="Business details">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Input label="Legal firm name" value={business?.name ?? ''} readOnly />
+        <Input
+          label="Legal firm name"
+          value={record?.business.legalName ?? business?.name ?? ''}
+          readOnly
+        />
         <Input
           label="DBA / display name"
           value={draft.displayName}
@@ -550,14 +532,10 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
         ))}
       </ul>
       <div className="mt-6">
-        <Alert
-          title={
-            record?.setup.completedAt ? 'Setup is complete' : 'Complete the setup requirements'
-          }
-        >
+        <Alert title={setup?.completedAt ? 'Setup is complete' : 'Complete the setup requirements'}>
           {preview
             ? 'This local preview cannot complete server setup.'
-            : 'The server verifies branding, contact details, an active owner and published Terms and Privacy before completion.'}
+            : 'Complete all four setup steps before Finish activates the firm. The server checks permission and completion.'}
         </Alert>
       </div>
     </Card>
@@ -646,7 +624,7 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
             </Button>
           ) : wizard ? (
             <Button
-              disabled={preview || busy || !!record?.setup.completedAt}
+              disabled={preview || busy || !!setup?.completedAt}
               onClick={() => void complete()}
             >
               Complete setup
