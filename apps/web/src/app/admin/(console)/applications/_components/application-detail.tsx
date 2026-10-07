@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, Contact, FileText } from 'lucide-react';
+import { Building2, Contact, FileCheck2, FileText, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { Card } from '@firmivra/ui';
 import type { FirmApplication } from './application-data';
@@ -69,6 +69,37 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
             <Field label="Requested start">{application.requestedStart}</Field>
             <Field label="Additional information">{application.additionalInfo}</Field>
           </dl>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <SectionTitle icon={FileCheck2}>Documents Submitted</SectionTitle>
+          {application.documents.length ? (
+            <ul className="mt-4 list-inside list-disc text-sm text-text">
+              {application.documents.map((document) => (
+                <li key={document}>{document}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 rounded-control bg-canvas px-4 py-5 text-center text-sm text-muted">
+              No documents uploaded.
+            </p>
+          )}
+        </Card>
+        <Card>
+          <SectionTitle icon={ShieldCheck}>Automated Checks</SectionTitle>
+          {application.checks.length ? (
+            <ul className="mt-4 list-inside list-disc text-sm text-text">
+              {application.checks.map((check) => (
+                <li key={check}>{check}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 rounded-control bg-canvas px-4 py-5 text-center text-sm text-muted">
+              No automated checks returned by mock data.
+            </p>
+          )}
         </Card>
       </div>
     </div>
