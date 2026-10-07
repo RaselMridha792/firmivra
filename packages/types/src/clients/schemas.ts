@@ -5,6 +5,9 @@ import { ClientAccountType, ClientPortalRole, ContactMethod } from '../db-enums.
 import { ClientAccountStatus } from '../schemas.js';
 import { clearable, text } from './text.js';
 
+// Also imported from here by other modules (firm applications).
+export { ContactMethod };
+
 // Client records (R10): the firm's clients list and record, the client's profile and their tax
 // status per year, plus the client's own My Profile in the portal.
 // Firm routes: /api/v1/business/clients/... Owner and Admin see every client of the firm; Staff

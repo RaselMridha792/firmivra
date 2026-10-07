@@ -20,3 +20,7 @@ export * from './firm-applications/index.js';
 export * from './appointments/index.js';
 export * from './content/index.js';
 export * from './calculators/index.js';
+// The same values as the database enums in db-enums.ts (exported through ./schemas.js). These
+// modules define their own copies, so name the ones the root exports.
+export { AppointmentStatus, LocationKind } from './appointments/index.js';
+export { ContentKind } from './content/index.js';
