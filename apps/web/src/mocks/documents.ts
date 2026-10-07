@@ -32,12 +32,20 @@ import { engagementFixtures } from './engagements';
  * downloads only after a clean scan, and INTERNAL files never in the portal. A mock upload needs
  * no storage: its ticket URL starts with `mock:` and `uploadFile()` skips the PUT. A new upload
  * is CHECKING for a few seconds, then READY. Nothing is built until the first call.
+ * To show the Excel and Word errors on a screen, upload an .xlsx or .docx whose name contains
+ * "password" (confirm answers 409 FILE_PASSWORD_PROTECTED) or "macro" (409 FILE_HAS_MACROS); the
+ * mock sees only the name, the API reads the stored bytes. The portal's FILE_BLOCKED says the
+ * file couldn't be checked, never that it failed the malware scan.
  */
 const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T15:00:00.000Z`;
 const docId = (n: number) => `0199b6a5-0000-7000-8000-${String(n).padStart(12, '0')}`;
 const requestId = (n: number) => `0199b6a6-0000-7000-8000-${String(n).padStart(12, '0')}`;
 const categoryId = (n: number) => `0199b6a7-0000-7000-8000-${String(n).padStart(12, '0')}`;
 const SCAN_MS = 4000;
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+/** What the portal says for a BLOCKED file (INFECTED or FAILED for the firm). */
+const PORTAL_BLOCKED = "This file couldn't be checked. Please upload it again.";
 
 interface Fixtures {
   categories: DocumentCategory[];
@@ -105,6 +113,15 @@ export function documentFixtures(): Readonly<Fixtures> {
     }),
     doc(7, { fileName: 'Preparer_Worksheet.pdf', direction: 'INTERNAL', uploadedBy: staff }),
     doc(8, { fileName: 'Scanned_Receipt.pdf', scanStatus: 'INFECTED', category: null }),
+    doc(9, { fileName: 'Rental_Income_2025.xlsx', contentType: XLSX, sizeBytes: 48_640 }),
+    // The scan couldn't read it: FAILED for the firm, BLOCKED in the portal.
+    doc(10, {
+      fileName: 'Office_Lease.docx',
+      contentType: DOCX,
+      service: service(2),
+      category: category(2),
+      scanStatus: 'FAILED',
+    }),
   ];
   const request = (
     n: number,
@@ -154,6 +171,24 @@ export function documentFixtures(): Readonly<Fixtures> {
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
+/**
+ * What the API finds inside a stored Excel or Word file, read here from its name only: "password"
+ * is a file saved with a password, "macro" one with macros. Either way nothing is saved.
+ */
+const checkOfficeFile = (body: Record<string, unknown>) => {
+  if (body['contentType'] !== XLSX && body['contentType'] !== DOCX) return;
+  const name = String(body['fileName']).toLowerCase();
+  if (name.includes('password')) {
+    throw fail(409, 'FILE_PASSWORD_PROTECTED', 'Remove the password and upload the file again.');
+  }
+  if (name.includes('macro')) {
+    throw fail(
+      409,
+      'FILE_HAS_MACROS',
+      'Save it as a regular .xlsx or .docx without macros and upload again.',
+    );
+  }
+};
 const now = () => new Date().toISOString();
 /** Requests the client can still answer. */
 const isOpen = (r: { status: string }) => r.status === 'REQUESTED' || r.status === 'REJECTED';
@@ -236,7 +271,10 @@ function store() {
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
       };
     },
-    /** Step 3: the pending upload becomes a document (scan running); its request is answered. */
+    /**
+     * Step 3: the pending upload becomes a document (scan running); its request is answered. An
+     * Excel or Word file the API would refuse is not saved (the upload is used up either way).
+     */
     confirm: (
       token: string,
       make: (p: { clientId: string; body: Record<string, unknown> }, id: string) => FirmDocument,
@@ -244,6 +282,7 @@ function store() {
       const p = pending.get(token);
       if (!p) throw fail(410, 'UPLOAD_EXPIRED', 'This upload has expired. Please try again.');
       pending.delete(token);
+      checkOfficeFile(p.body);
       const d = make(p, docId(next++));
       readyAt.set(d.id, Date.now() + SCAN_MS);
       documents = [d, ...documents];
@@ -273,10 +312,20 @@ function store() {
       requests = requests.map((x) => (x.id === r.id ? r : x));
       return structuredClone(r);
     },
-    download: (d: FirmDocument) => {
+    /**
+     * A link for a CLEAN file, else 409. The firm's FILE_BLOCKED names the scan result; the
+     * portal's says only that the file couldn't be checked.
+     */
+    download: (d: FirmDocument, side: 'firm' | 'portal') => {
       const scan = scanOf(d);
       if (scan === 'PENDING') throw fail(409, 'SCAN_PENDING', 'The file is still being checked');
-      if (scan !== 'CLEAN') throw fail(409, 'FILE_BLOCKED', 'This file failed the security check');
+      if (scan !== 'CLEAN') {
+        const firm =
+          scan === 'INFECTED'
+            ? 'This file failed the malware scan'
+            : "This file couldn't be scanned";
+        throw fail(409, 'FILE_BLOCKED', side === 'portal' ? PORTAL_BLOCKED : firm);
+      }
       return {
         url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock file: ${d.fileName}`)}`,
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
@@ -375,7 +424,7 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
     },
     download: async (id) => {
       await mockDelay();
-      return s.download(findDoc(id));
+      return s.download(findDoc(id), 'firm');
     },
     categories: async () => {
       await mockDelay();
@@ -448,6 +497,7 @@ export function myDocumentsMock(firmSlug: string): MyDocumentsClient {
 export function createMyDocumentsMock(): MyDocumentsClient {
   const s = store();
   const me = firstClientId;
+  // The client never learns which: BLOCKED shows as "couldn't be checked" (PORTAL_BLOCKED).
   const STATUS = {
     PENDING: 'CHECKING',
     CLEAN: 'READY',
@@ -549,7 +599,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     },
     download: async (id) => {
       await mockDelay();
-      return s.download(findMine(id));
+      return s.download(findMine(id), 'portal');
     },
     categories: async () => {
       await mockDelay();

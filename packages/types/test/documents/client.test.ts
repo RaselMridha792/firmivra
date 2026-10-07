@@ -4,6 +4,8 @@ import {
   createDocumentsClient,
   createMyDocumentsClient,
   createRequest,
+  DocumentErrorCode,
+  FirmDocument,
   MyDocument,
   UPLOAD_LIMITS,
   UploadContentType,
@@ -88,7 +90,7 @@ describe('api.documents (firm)', () => {
   });
 
   it.each([
-    ['a type outside PDF, JPG and PNG', { contentType: 'application/zip' }],
+    ['a type that is not allowed', { contentType: 'application/zip' }],
     ['a file over 10 MB', { sizeBytes: UPLOAD_LIMITS.maxBytes + 1 }],
     ['an empty file', { sizeBytes: 0 }],
     ['a checksum that is not SHA-256 hex', { sha256: 'ABC' }],
@@ -210,5 +212,123 @@ describe('api.myDocuments(slug) (portal)', () => {
 
   it('keeps the upload types and the picker endings together', () => {
     expect(UploadContentType.options).toEqual(Object.keys(UPLOAD_LIMITS.types));
+  });
+});
+
+describe('Excel and Word files (both sides)', () => {
+  const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const clients = (fn: typeof fetch) => {
+    const firm = createDocumentsClient(request(fn));
+    const portal = createMyDocumentsClient(request(fn), 'lvp');
+    return {
+      createUpload: (change: Record<string, unknown>) => [
+        firm.createUpload(id, { serviceId: id, ...facts, ...change } as never),
+        portal.createUpload({ serviceId: id, ...facts, ...change } as never),
+      ],
+      confirmUpload: () => [
+        firm.confirmUpload({ uploadToken: 'token' }),
+        portal.confirmUpload({ uploadToken: 'token' }),
+      ],
+    };
+  };
+
+  it.each([
+    ['an .xlsx', XLSX, 'Rental_Income_2025.xlsx'],
+    ['a .docx', DOCX, 'Office_Lease.docx'],
+    ['an ending in capitals', XLSX, 'BUDGET.XLSX'],
+  ])('sends %s upload with its type', async (_, contentType, fileName) => {
+    const { fn, calls } = fakeFetch(500, {});
+    await Promise.allSettled(clients(fn).createUpload({ contentType, fileName }));
+    expect(calls.map((c) => (c.body as { contentType: string }).contentType)).toEqual([
+      contentType,
+      contentType,
+    ]);
+  });
+
+  it.each([
+    ['.xls', 'application/vnd.ms-excel', 'Budget.xls'],
+    ['.xlsm', 'application/vnd.ms-excel.sheet.macroEnabled.12', 'Budget.xlsm'],
+    ['.doc', 'application/msword', 'Letter.doc'],
+    ['.docm', 'application/vnd.ms-word.document.macroEnabled.12', 'Letter.docm'],
+    ['.csv', 'text/csv', 'Transactions.csv'],
+  ])('refuses a %s file by its type before sending', async (_, contentType, fileName) => {
+    const { fn, calls } = fakeFetch(200, {});
+    const errors = await Promise.all(
+      clients(fn).createUpload({ contentType, fileName }).map(rejection),
+    );
+    expect(errors.map((e) => [e.code, e.message])).toEqual([
+      ['VALIDATION_FAILED', 'Upload a PDF, JPG, PNG, Excel (.xlsx) or Word (.docx) file'],
+      ['VALIDATION_FAILED', 'Upload a PDF, JPG, PNG, Excel (.xlsx) or Word (.docx) file'],
+    ]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['an .xlsm name', XLSX, 'Budget.xlsm', '.xlsx'],
+    ['an .xls name', XLSX, 'Budget.xls', '.xlsx'],
+    ['a .csv name', XLSX, 'Transactions.csv', '.xlsx'],
+    ['a .docm name', DOCX, 'Letter.docm', '.docx'],
+    ['a .doc name', DOCX, 'Letter.doc', '.docx'],
+    ['an .xlsx name', DOCX, 'Budget.xlsx', '.docx'],
+  ])('refuses %s declared as %s before sending', async (_, contentType, fileName, ending) => {
+    const { fn, calls } = fakeFetch(200, {});
+    const errors = await Promise.all(
+      clients(fn).createUpload({ contentType, fileName }).map(rejection),
+    );
+    expect(errors.map((e) => [e.code, e.message])).toEqual([
+      ['VALIDATION_FAILED', `The file name must end in ${ending}`],
+      ['VALIDATION_FAILED', `The file name must end in ${ending}`],
+    ]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each(['FILE_PASSWORD_PROTECTED', 'FILE_HAS_MACROS', 'UPLOAD_MISMATCH'])(
+    'passes %s from confirm through',
+    async (code) => {
+      expect(DocumentErrorCode.options).toContain(code);
+      const { fn } = fakeFetch(409, { error: { code, message: 'Refused' } });
+      const errors = await Promise.all(clients(fn).confirmUpload().map(rejection));
+      expect(errors.map((e) => [e.status, e.code])).toEqual([
+        [409, code],
+        [409, code],
+      ]);
+    },
+  );
+
+  it('parses Excel and Word documents for the firm, and BLOCKED ones for the portal', () => {
+    const firmDoc = {
+      id,
+      clientId: id,
+      service: { id, title: '2025 Personal Tax' },
+      category: null,
+      requestId: null,
+      direction: 'CLIENT_TO_FIRM',
+      fileName: 'Rental_Income_2025.xlsx',
+      contentType: XLSX,
+      sizeBytes: 48_640,
+      taxYear: 2025,
+      scanStatus: 'CLEAN',
+      uploadedBy: { name: 'Jamie Sample', byClient: true },
+      createdAt: at,
+    };
+    expect(FirmDocument.parse(firmDoc).contentType).toBe(XLSX);
+    const failed = { ...firmDoc, fileName: 'Office_Lease.docx', contentType: DOCX };
+    expect(FirmDocument.parse({ ...failed, scanStatus: 'FAILED' }).scanStatus).toBe('FAILED');
+    const mine = {
+      id,
+      source: 'MINE',
+      service: firmDoc.service,
+      category: null,
+      requestId: null,
+      fileName: failed.fileName,
+      contentType: DOCX,
+      sizeBytes: 1,
+      taxYear: 2025,
+      status: 'BLOCKED',
+      uploadedAt: at,
+    };
+    expect(MyDocument.parse(mine).status).toBe('BLOCKED');
+    expect(MyDocument.safeParse({ ...mine, status: 'FAILED' }).success).toBe(false);
   });
 });

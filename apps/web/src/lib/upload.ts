@@ -1,7 +1,8 @@
 import {
   ApiRequestError,
+  fileNameFitsType,
   UPLOAD_LIMITS,
-  type UploadContentType,
+  uploadContentTypeFor,
   type UploadFileFacts,
   type UploadTicket,
 } from '@firmivra/types';
@@ -25,8 +26,6 @@ const hex = (bytes: ArrayBuffer) =>
 const invalid = (message: string) => new ApiRequestError(400, 'VALIDATION_FAILED', message);
 const failed = (status: number) =>
   new ApiRequestError(status, 'UPLOAD_FAILED', 'The upload did not go through.');
-const isAllowed = (type: string): type is UploadContentType =>
-  Object.hasOwn(UPLOAD_LIMITS.types, type);
 /** Stops before the next step once the caller has cancelled. */
 const checkAborted = (signal?: AbortSignal) => {
   if (signal?.aborted) throw new DOMException('Upload cancelled', 'AbortError');
@@ -37,10 +36,11 @@ const PUT_TIMEOUT_MS = 10 * 60_000;
 /**
  * Uploads one file from the browser in the three steps of docs/api/documents.yaml: ask the API
  * for an upload ticket, PUT the file straight to storage, then confirm. Resolves with the saved
- * document. Checks the type (PDF, JPG, PNG) and size (10 MB) first, and rejects with
- * ApiRequestError like an API error, so `errorMessage(error)` shows every failure (a cancel via
- * `signal` rejects with an AbortError). It sends no credentials to storage, only the ticket's URL
- * and headers:
+ * document. Checks the type (PDF, JPG, PNG, Excel .xlsx or Word .docx), the name's ending and
+ * the size (10 MB) first. A browser may give an .xlsx or .docx no type: the name's ending then
+ * decides (`uploadContentTypeFor`). Rejects with ApiRequestError like an API error, so
+ * `errorMessage(error)` shows every failure (a cancel via `signal` rejects with an AbortError).
+ * It sends no credentials to storage, only the ticket's URL and headers:
  *
  *   const saved = await uploadFile(file, {
  *     start: (facts) => api.myDocuments(slug).createUpload({ serviceId, requestId, ...facts }),
@@ -49,8 +49,11 @@ const PUT_TIMEOUT_MS = 10 * 60_000;
  *   });
  */
 export async function uploadFile<T>(file: File, steps: UploadSteps<T>): Promise<T> {
-  const contentType = file.type;
-  if (!isAllowed(contentType)) throw invalid('Upload a PDF, JPG or PNG file');
+  const contentType = uploadContentTypeFor(file.name, file.type);
+  if (!contentType) throw invalid(`Upload a ${UPLOAD_LIMITS.typeNames} file`);
+  if (!fileNameFitsType(file.name, contentType)) {
+    throw invalid(`The file name must end in ${UPLOAD_LIMITS.types[contentType].join(' or ')}`);
+  }
   if (file.size === 0) throw invalid('The file is empty');
   if (file.size > UPLOAD_LIMITS.maxBytes) throw invalid('The file is larger than 10 MB');
 

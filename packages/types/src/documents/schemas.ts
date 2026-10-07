@@ -14,30 +14,69 @@ import { clearable, text } from '../clients/text.js';
 //   2. The browser PUTs the file to `ticket.url` with exactly `ticket.headers` (straight to
 //      storage, under the firm's own prefix and key; the API never streams the file).
 //   3. `confirmUpload` with `ticket.uploadToken`: the API checks the stored file (size, type,
-//      checksum), saves the document and starts the malware scan.
+//      checksum; an Excel or Word file must be a real Office package without macros or a
+//      password), saves the document and starts the malware scan.
 // A file can be downloaded only once its scan is clean: `download` answers a link that works for
-// 5 minutes, or 409 SCAN_PENDING / FILE_BLOCKED.
-// The portal never sees INTERNAL documents, and never another client's.
+// 5 minutes, always as an attachment, or 409 SCAN_PENDING / FILE_BLOCKED.
+// The portal never sees INTERNAL documents, and never another client's. There are no delete
+// routes at launch.
 // Responses are plain objects (a field the API adds later is dropped, so an open page keeps
 // working); requests are strict (unknown fields such as businessId are refused).
 
 const DateTime = z.iso.datetime({ offset: true });
 
-/** What a file may be: PDF, JPG or PNG, at most 10 MB (docs/SYSTEM-DESIGN.md, "Uploads"). */
+/**
+ * What a file may be, for clients and staff alike: PDF, JPG, PNG, Excel (.xlsx) or Word (.docx),
+ * at most 10 MB (docs/SYSTEM-DESIGN.md "Uploads"; Excel and Word from Rasel, Oct 8). Office files
+ * only without macros: .xls, .xlsm, .doc, .docm and .csv stay refused (their types are not here,
+ * and a name's ending must fit its declared type).
+ */
 export const UPLOAD_LIMITS = {
   maxBytes: 10 * 1024 * 1024,
+  /** The types in words, for the picker's hint and the messages. */
+  typeNames: 'PDF, JPG, PNG, Excel (.xlsx) or Word (.docx)',
   /** Content type and the file name endings that go with it (for the picker's `accept`). */
   types: {
     'application/pdf': ['.pdf'],
     'image/jpeg': ['.jpg', '.jpeg'],
     'image/png': ['.png'],
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   },
 } as const;
 export const UploadContentType = z.enum(
   Object.keys(UPLOAD_LIMITS.types) as [keyof typeof UPLOAD_LIMITS.types],
-  'Upload a PDF, JPG or PNG file',
+  `Upload a ${UPLOAD_LIMITS.typeNames} file`,
 );
 export type UploadContentType = z.infer<typeof UploadContentType>;
+
+/**
+ * True when the file name (trimmed, in any case) ends in an ending of `contentType` with a name
+ * before it: "Budget.XLSX" fits Excel; "Budget.xlsm", "Budget.xls" and ".xlsx" do not.
+ */
+export function fileNameFitsType(fileName: string, contentType: UploadContentType): boolean {
+  const endings: readonly string[] = UPLOAD_LIMITS.types[contentType];
+  const name = fileName.trim().toLowerCase();
+  return endings.some((ending) => name.endsWith(ending) && name.length > ending.length);
+}
+
+/** What a browser says when it has no type for a file (some do for .xlsx and .docx). */
+const NO_TYPE: readonly string[] = ['', 'application/octet-stream'];
+
+/**
+ * The content type to declare for a picked file (`uploadFile()` uses it): the browser's type when
+ * it is one of ours; when the browser gives none ('' or application/octet-stream), the type whose
+ * ending the file name has, in any case ("Budget.xlsx" is Excel). Otherwise null: refuse the file.
+ * A type the browser gives must still fit the name (`fileNameFitsType`, as `createUpload` checks).
+ */
+export function uploadContentTypeFor(
+  fileName: string,
+  browserType: string,
+): UploadContentType | null {
+  if (Object.hasOwn(UPLOAD_LIMITS.types, browserType)) return browserType as UploadContentType;
+  if (!NO_TYPE.includes(browserType)) return null;
+  return UploadContentType.options.find((type) => fileNameFitsType(fileName, type)) ?? null;
+}
 
 /**
  * Tax services take tax documents ("Upload more tax documents for my tax preparer"); every other
@@ -108,13 +147,11 @@ const nameFitsType = (
   body: { fileName: string; contentType: UploadContentType },
   ctx: z.RefinementCtx,
 ) => {
-  const endings: readonly string[] = UPLOAD_LIMITS.types[body.contentType];
-  const name = body.fileName.toLowerCase();
-  if (!endings.some((ending) => name.endsWith(ending) && name.length > ending.length)) {
+  if (!fileNameFitsType(body.fileName, body.contentType)) {
     ctx.addIssue({
       code: 'custom',
       path: ['fileName'],
-      message: `The file name must end in ${endings.join(' or ')}`,
+      message: `The file name must end in ${UPLOAD_LIMITS.types[body.contentType].join(' or ')}`,
     });
   }
 };
@@ -134,11 +171,17 @@ export const UploadTicket = z.object({
 });
 export type UploadTicket = z.infer<typeof UploadTicket>;
 
-/** Step 3: POST .../documents/uploads/confirm. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH. */
+/**
+ * Step 3: POST .../documents/uploads/confirm. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH,
+ * FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS (the API checks the stored bytes).
+ */
 export const ConfirmUploadRequest = z.strictObject({ uploadToken: z.string().min(1).max(4000) });
 export type ConfirmUploadRequest = z.input<typeof ConfirmUploadRequest>;
 
-/** GET .../documents/{id}/download: a link for one download, valid for 5 minutes. */
+/**
+ * GET .../documents/{id}/download: a link for one download, valid for 5 minutes. Always an
+ * attachment (the browser saves the file; it never opens inline), whatever the type.
+ */
 export const DownloadLink = z.object({ url: z.string(), expiresAt: DateTime });
 export type DownloadLink = z.infer<typeof DownloadLink>;
 
@@ -156,7 +199,11 @@ export const FirmDocument = z.object({
   contentType: z.string(),
   sizeBytes: z.number().int(),
   taxYear: z.number().int().nullable(),
-  /** Download works only when CLEAN. */
+  /**
+   * The exact scan result; download works only when CLEAN. PENDING: still being checked (also
+   * while a scan that broke on our side waits for its rescan). INFECTED: malware found. FAILED:
+   * the file itself couldn't be scanned. INFECTED and FAILED are final: the file is uploaded again.
+   */
   scanStatus: Scan,
   /** Who uploaded it: the client (`byClient`) or a firm member. Null for a carried-over file. */
   uploadedBy: z.object({ name: z.string(), byClient: z.boolean() }).nullable(),
@@ -280,7 +327,11 @@ export const MyDocument = z.object({
   sizeBytes: z.number().int(),
   /** Null shows as "N/A". */
   taxYear: z.number().int().nullable(),
-  /** CHECKING: the scan is running (no download yet); BLOCKED: it failed the scan. */
+  /**
+   * CHECKING: the scan is running (no download yet). READY: it can be downloaded. BLOCKED: it
+   * can't be downloaded (INFECTED or FAILED for the firm); the screen shows "This file couldn't
+   * be checked. Please upload it again." and never says it failed the malware scan.
+   */
   status: z.enum(['CHECKING', 'READY', 'BLOCKED']),
   /** When the file was stored ("Upload Date"). */
   uploadedAt: DateTime,
@@ -383,13 +434,33 @@ export const DocumentErrorCode = z.enum([
   'CATEGORY_ARCHIVED',
   /** 410: the upload ticket is too old or was used; start the upload again. */
   'UPLOAD_EXPIRED',
-  /** 409: the stored file is not what `createUpload` described (size, type or checksum). */
+  /**
+   * 409 (confirm): the stored file is not what `createUpload` described: its size or checksum
+   * differs, or its bytes are not its type (a renamed file, or an Office file that isn't a real
+   * .xlsx or .docx package).
+   */
   'UPLOAD_MISMATCH',
+  /**
+   * 409 (confirm): an Excel or Word file saved with a password. Office then saves an encrypted
+   * container, not a ZIP, so nothing in it can be checked. Tell the user: "Remove the password and
+   * upload the file again."
+   */
+  'FILE_PASSWORD_PROTECTED',
+  /**
+   * 409 (confirm): the Excel or Word file holds macros (a vbaProject part or a macro-enabled
+   * content type). Tell the user: "Save it as a regular .xlsx or .docx without macros and upload
+   * again."
+   */
+  'FILE_HAS_MACROS',
   /** The browser could not PUT the file to storage (from `uploadFile()`, not the API). */
   'UPLOAD_FAILED',
   /** 409: the malware scan has not finished; try again in a moment. */
   'SCAN_PENDING',
-  /** 409: the file failed the malware scan and cannot be downloaded. */
+  /**
+   * 409: the file can't be downloaded: malware was found (INFECTED) or it couldn't be scanned
+   * (FAILED). The portal's message is "This file couldn't be checked. Please upload it again.",
+   * never that it failed the malware scan.
+   */
   'FILE_BLOCKED',
 ]);
 export type DocumentErrorCode = z.infer<typeof DocumentErrorCode>;

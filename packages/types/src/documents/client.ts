@@ -57,13 +57,16 @@ export function createDocumentsClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(CreateFirmUploadRequest, body),
       }),
-    /** Step 3: saves the document. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH. */
+    /**
+     * Step 3: saves the document. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED
+     * or FILE_HAS_MACROS.
+     */
     confirmUpload: async (body: ConfirmUploadRequest): Promise<FirmDocument> =>
       request(FirmDocument, '/business/documents/uploads/confirm', {
         method: 'POST',
         body: parseInput(ConfirmUploadRequest, body),
       }),
-    /** A 5-minute link. 409 SCAN_PENDING or FILE_BLOCKED. */
+    /** A 5-minute link, always a download (never inline). 409 SCAN_PENDING or FILE_BLOCKED. */
     download: async (id: string): Promise<DownloadLink> =>
       request(DownloadLink, `${doc(id)}/download`),
 
@@ -136,13 +139,19 @@ export function createMyDocumentsClient(request: ApiRequest, firmSlug: string) {
         method: 'POST',
         body: parseInput(CreateMyUploadRequest, body),
       }),
-    /** Step 3. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH. */
+    /**
+     * Step 3. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS
+     * (DocumentErrorCode says what to tell the client).
+     */
     confirmUpload: async (body: ConfirmUploadRequest): Promise<MyDocument> =>
       request(MyDocument, `${base()}/uploads/confirm`, {
         method: 'POST',
         body: parseInput(ConfirmUploadRequest, body),
       }),
-    /** A 5-minute link. 409 SCAN_PENDING or FILE_BLOCKED. */
+    /**
+     * A 5-minute link, always a download (never inline). 409 SCAN_PENDING, or FILE_BLOCKED: "This
+     * file couldn't be checked. Please upload it again."
+     */
     download: async (id: string): Promise<DownloadLink> =>
       request(DownloadLink, `${one(id)}/download`),
     /** The firm's active categories, for the upload pop-up and the filter. */
