@@ -118,6 +118,7 @@ export function Header({
                     <Link
                       id={`shell-search-${item.id}`}
                       href={item.href}
+                      onClick={() => setSearchTerm('')}
                       role="option"
                       aria-selected={selectedSearchIndex === searchResults.indexOf(item)}
                       className={`block rounded-control px-3 py-2 hover:bg-canvas ${selectedSearchIndex === searchResults.indexOf(item) ? 'bg-canvas' : ''}`}
