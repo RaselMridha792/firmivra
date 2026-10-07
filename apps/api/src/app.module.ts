@@ -22,6 +22,7 @@ import { HealthModule } from './health/health.controller.js';
 import { MeModule } from './me/me.controller.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
+import { SettingsModule } from './settings/settings.controller.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -65,6 +66,7 @@ export class AppModule {
         MeModule,
         TaxStatusesModule,
         ClientsModule,
+        SettingsModule,
         SignInModule,
         PortalInfoModule,
         SignUpModule,

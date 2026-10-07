@@ -1,0 +1,171 @@
+name: Path guard
+
+# A developer's PR may change only the files listed under their name in docs/junior/PAGE-MAP.md
+# ("Your files"). Keep the lists below in step with it.
+#
+# pull_request_target runs this file and its lists as they are on main, so a PR cannot loosen its
+# own check. It never checks out or runs the PR's code: it reads only the PR's file names (through
+# the API) and its author and branch (through env, never pasted into a command).
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  paths:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: List the changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$REPO/pulls/$PR/files" --paginate \
+            --jq '.[] | {filename, previous_filename}' > "$RUNNER_TEMP/files.jsonl"
+
+      - name: Check them against docs/junior/PAGE-MAP.md
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          FILES: ${{ runner.temp }}/files.jsonl
+        run: |
+          cat > "$RUNNER_TEMP/guard.mjs" <<'JS'
+          import { readFileSync } from 'node:fs';
+
+          const RASEL = ['RaselMridha792'];
+          const WEB = 'apps/web/src/app/';
+          const DEVELOPERS = {
+            fahad: {
+              logins: ['Sefat-Ullah-Fahad'],
+              files: [
+                'packages/ui/',
+                'apps/web/src/components/auth/',
+                'apps/web/src/components/sign-in-panel.tsx',
+                'apps/web/src/components/notification-bell.tsx',
+                ...['sign-in/', 'forgot-password/', 'reset-password/'].map((p) => `${WEB}admin/${p}`),
+                ...['sign-in/', 'forgot-password/', 'reset-password/', 'activate/'].map(
+                  (p) => `${WEB}firm/${p}`,
+                ),
+                ...[
+                  'layout.tsx',
+                  'page.tsx',
+                  '_components/',
+                  'clients/',
+                  'sign-ups/',
+                  'messages/',
+                  'invoices/',
+                  'workspaces/',
+                ].map((p) => `${WEB}firm/(workspace)/${p}`),
+              ],
+            },
+            tumit: {
+              logins: ['tumit-h-r-75'],
+              files: [
+                'apps/web/src/components/app-shell/',
+                `${WEB}admin/(console)/`,
+                ...['welcome/', 'apply/', 'setup/'].map((p) => `${WEB}firm/${p}`),
+                ...[
+                  'team/',
+                  'calendar/',
+                  'settings/profile/',
+                  'settings/branding/',
+                  'settings/portal/',
+                  'settings/legal/',
+                  'settings/availability/',
+                ].map((p) => `${WEB}firm/(workspace)/${p}`),
+                `${WEB}portal/[firmSlug]/(client)/appointments/`,
+              ],
+            },
+            nahid: {
+              logins: [],
+              files: [
+                `${WEB}portal/[firmSlug]/layout.tsx`,
+                `${WEB}portal/[firmSlug]/(public)/`,
+                `${WEB}portal/[firmSlug]/(client)/`,
+              ],
+              except: [
+                `${WEB}portal/[firmSlug]/(public)/begin/`,
+                `${WEB}portal/[firmSlug]/(client)/appointments/`,
+                `${WEB}portal/[firmSlug]/(client)/home/`,
+              ],
+            },
+            ibrahim: {
+              logins: [],
+              files: [
+                `${WEB}portal/[firmSlug]/(public)/begin/`,
+                `${WEB}firm/(workspace)/leads/`,
+                'apps/web/e2e/',
+              ],
+            },
+          };
+          // Everyone: their own tests (also the mock-mode ones) and their task file.
+          for (const [name, dev] of Object.entries(DEVELOPERS)) {
+            dev.files.push(
+              `apps/web/e2e/${name}-*.spec.ts`,
+              `apps/web/e2e/mock/${name}-*.spec.ts`,
+              `docs/tasks/${name.toUpperCase()}.md`,
+            );
+          }
+
+          /** 'dir/' matches everything inside; one '*' matches within a path segment; else exactly. */
+          const matches = (pattern, file) => {
+            if (pattern.endsWith('/')) return file.startsWith(pattern);
+            const [start, end, ...more] = pattern.split('*');
+            if (end === undefined) return file === pattern;
+            if (more.length) throw new Error(`One * at most: ${pattern}`);
+            const middle = file.slice(start.length, file.length - end.length);
+            return (
+              file.length >= start.length + end.length &&
+              file.startsWith(start) &&
+              file.endsWith(end) &&
+              !middle.includes('/')
+            );
+          };
+
+          const { AUTHOR: author = '', BRANCH: branch = '', FILES: filesPath } = process.env;
+          if (RASEL.includes(author)) {
+            console.log(`${author}: not a developer PR, nothing to check.`);
+            process.exit(0);
+          }
+          // The login decides when it is known; otherwise the branch prefix (fahad/FIR-42-...).
+          const name =
+            Object.keys(DEVELOPERS).find((n) => DEVELOPERS[n].logins.includes(author)) ??
+            Object.keys(DEVELOPERS).find((n) => branch.startsWith(`${n}/`));
+          if (!name) {
+            console.log(
+              `::error::${author}: start the branch with your name (fahad/, tumit/, nahid/ or ibrahim/).`,
+            );
+            process.exit(1);
+          }
+          const dev = DEVELOPERS[name];
+          const allowed = (file) =>
+            dev.files.some((p) => matches(p, file)) && !(dev.except ?? []).some((p) => matches(p, file));
+          // A rename changes two paths: both must be the developer's.
+          const changed = readFileSync(filesPath, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line))
+            .flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]));
+          const outside = [...new Set(changed.filter((f) => !allowed(f)))];
+          if (outside.length === 0) {
+            console.log(`${name}: all ${changed.length} changed files are in your list.`);
+            process.exit(0);
+          }
+          for (const f of outside) {
+            console.log(
+              `::error file=${f}::${f} is not in ${name}'s files (docs/junior/PAGE-MAP.md, "Your files"). Ask Rasel.`,
+            );
+          }
+          process.exit(1);
+          JS
+          node "$RUNNER_TEMP/guard.mjs"
