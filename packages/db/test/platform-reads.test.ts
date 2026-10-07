@@ -177,6 +177,23 @@ describe('owner invites: the Super Admin reads activation links, nothing else', 
   });
 });
 
+describe('platform admins: names in decisions', () => {
+  it("reads another platform admin's user row, never firm staff or clients", async () => {
+    const other = await newUser('ADMIN');
+    // Super Admins are added outside the app (platform scope only reads them).
+    await runInScope(owner, { kind: 'platform' }, (tx) =>
+      tx.platformAdmin.create({ data: { userId: other.id } }),
+    );
+    const staff = await newUser('STAFF');
+    const client = await newUser('CLIENT');
+    const seen = await admin().user.findMany({
+      where: { id: { in: [other.id, staff.id, client.id] } },
+      select: { id: true, name: true },
+    });
+    expect(seen).toEqual([{ id: other.id, name: 'Fake' }]);
+  });
+});
+
 describe('dashboard: staff and client logins per day', () => {
   // Other test files add users at the same time, so compare the counts with the users table in
   // one statement (one snapshot), as the owner, rather than before and after.

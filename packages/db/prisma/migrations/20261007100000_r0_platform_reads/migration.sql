@@ -108,6 +108,13 @@ CREATE POLICY invites_admin_owner_invites ON invites FOR SELECT
                      WHERE m.business_id = invites.business_id AND m.id = invites.membership_id
                        AND m.role = 'OWNER'));
 
+-- ==================== Platform admins: their names in decisions and history (R4) ====================
+-- Admin scope already reads the platform_admins list; it may now read those people's user rows
+-- too (whole rows; the API returns only the name), so another Super Admin's decision shows who
+-- made it. Firm staff and clients stay out of reach.
+CREATE POLICY users_admin_platform_admins ON users FOR SELECT
+  USING (app_is_admin() AND EXISTS (SELECT 1 FROM platform_admins pa WHERE pa.user_id = users.id));
+
 -- ==================== Dashboard: staff and client logins per day (R4) ====================
 -- Super Admin can't read the users of firms, so the database counts them: one row per UTC day
 -- and pool, kept by a trigger on users. Backfilled first, then locked.
