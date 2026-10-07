@@ -222,6 +222,12 @@ describe('users: only the platform or the person themself can update', () => {
     }
   });
 
+  it('nobody changes the pool of a login, not even the platform', async () => {
+    await expect(
+      platform().user.update({ where: { id: ids.staffA }, data: { pool: 'CLIENT' } }),
+    ).rejects.toThrow(/pool of a login never changes/);
+  });
+
   it('the platform can update any user', async () => {
     await expect(
       platform().user.update({
@@ -229,6 +235,33 @@ describe('users: only the platform or the person themself can update', () => {
         data: { email: `renamed-${run}@p.test` },
       }),
     ).resolves.toMatchObject({ email: `renamed-${run}@p.test` });
+  });
+});
+
+describe('users: only client logins nothing points at are deleted, in platform scope', () => {
+  const login = async (pool: 'CLIENT' | 'STAFF') => {
+    const id = randomUUID();
+    await platform().user.create({
+      data: { id, cognitoSub: id, pool, email: `gone-${id}@p.test`, name: 'Fake Gone' },
+    });
+    return id;
+  };
+
+  it('the platform removes an unused client login; nobody else removes any login', async () => {
+    const id = await login('CLIENT');
+    expect((await firmA().user.deleteMany({ where: { id } })).count).toBe(0);
+    expect((await db.forUser(id).user.deleteMany({ where: { id } })).count).toBe(0);
+    expect((await platform().user.deleteMany({ where: { id } })).count).toBe(1);
+  });
+
+  it('staff logins and client logins with an account stay', async () => {
+    const staff = await login('STAFF');
+    expect((await platform().user.deleteMany({ where: { id: staff } })).count).toBe(0);
+    const client = await login('CLIENT');
+    await firmA().clientAccount.create({
+      data: { businessId: ids.firmA, userId: client, email: `gone-${client}@p.test` },
+    });
+    await expect(platform().user.deleteMany({ where: { id: client } })).rejects.toThrow();
   });
 });
 
@@ -340,6 +373,15 @@ describe('setup wizard Finish and the locked legal name (T02)', () => {
       await expect(setStatus(await newFirm(status, true), 'ACTIVE')).rejects.toThrow(
         /platform scope/,
       );
+    }
+  });
+
+  it('the firm never changes its KMS key, business type or pack', async () => {
+    const firm = await newFirm('ACTIVE', true);
+    for (const data of [{ kmsKeyId: 'alias/other' }, { businessType: 'Other' }]) {
+      await expect(
+        db.forBusiness(firm).business.update({ where: { id: firm }, data }),
+      ).rejects.toThrow(/change only in platform scope/);
     }
   });
 

@@ -8,6 +8,7 @@ export {
   type Database,
   type Scope,
   type ScopedClient,
+  type TransactionLimits,
   type TxClient,
 } from './client.js';
 export { DB_ERRORS, databaseErrorCode, isDbError, type DbErrorName } from './errors.js';

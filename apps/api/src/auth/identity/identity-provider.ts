@@ -18,6 +18,21 @@ export type AuthFlowErrorCode =
   | 'RESET_CODE_INVALID'
   | 'PASSWORD_REJECTED';
 
+export interface NewUserContact {
+  /** E.164. */
+  phone?: string;
+  /** Default true (staff invites). */
+  emailVerified?: boolean;
+}
+
+export interface ContactUpdate {
+  email?: string;
+  emailVerified?: boolean;
+  /** E.164. */
+  phone?: string;
+  phoneVerified?: boolean;
+}
+
 /** An expected sign-in failure. Anything else a provider throws is a 500. */
 export class AuthFlowError extends Error {
   constructor(readonly code: AuthFlowErrorCode) {
@@ -74,4 +89,17 @@ export interface IdentityProvider {
     code: string,
     password: string,
   ): Promise<void>;
+  /**
+   * A new login with no usable password yet. Sends no email or SMS. Returns its `sub`.
+   * Staff invites: the email counts as verified. Client sign-up: unverified until our codes match.
+   */
+  createUser(pool: IdentityPool, email: string, contact?: NewUserContact): Promise<string>;
+  /** Changes the login's email or phone, or marks them verified (client sign-up). */
+  updateContact(pool: IdentityPool, sub: string, contact: ContactUpdate): Promise<void>;
+  /** Sets the first password (activation). Throws PASSWORD_REJECTED. */
+  setPassword(pool: IdentityPool, sub: string, password: string): Promise<void>;
+  /** Whether the login has a password, i.e. the person can already sign in. */
+  hasPassword(pool: IdentityPool, sub: string): Promise<boolean>;
+  /** Disables the login: it can no longer sign in, and its tokens stop working. */
+  disableUser(pool: IdentityPool, sub: string): Promise<void>;
 }

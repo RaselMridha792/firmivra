@@ -248,3 +248,25 @@ export const SEED_MESSAGE_IDS = {
   clientNote: '00000000-0000-4000-7000-000000000021',
   clientNoteReminder: '00000000-0000-4000-7000-000000000022',
 } as const;
+
+/** Fixed ids of seeded billing and content records, so re-seeding keeps one of each. */
+export const SEED_BILLING_IDS = {
+  paidInvoice: '00000000-0000-4000-6000-000000000001',
+  paidPayment: '00000000-0000-4000-6000-000000000002',
+  openInvoice: '00000000-0000-4000-6000-000000000011',
+  refundLink: '00000000-0000-4000-6000-000000000021',
+  transcriptLink: '00000000-0000-4000-6000-000000000022',
+  recordKeeping: '00000000-0000-4000-6000-000000000023',
+  receiptsTip: '00000000-0000-4000-6000-000000000024',
+} as const;
+
+/** LVP's Stripe connected account for local development: fake, never a real account id. */
+export const SEED_STRIPE_ACCOUNT_ID = 'acct_1LvpLocalSeed0001';
+
+/** Fixed ids of LVP's firm application, a support request and sample audit events. */
+export const SEED_PLATFORM_IDS = {
+  lvpApplication: '00000000-0000-4000-5000-000000000001',
+  supportRequest: '00000000-0000-4000-5000-000000000002',
+  platformEvent: '00000000-0000-4000-5000-000000000011',
+  firmEvent: '00000000-0000-4000-5000-000000000012',
+} as const;

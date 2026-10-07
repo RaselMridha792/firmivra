@@ -37,65 +37,9 @@ import {
   VerifyCodeRequest,
 } from '@firmivra/types';
 
-// ---------- Fixtures (parsed, so one that breaks the contract fails as soon as this loads) ----------
+// ---------- Fixtures (parsed on first use, so one that breaks the contract fails then) ----------
 const LVP_ID = '00000000-0000-4000-a000-000000000101';
 const lvp = { id: LVP_ID, slug: 'lvp', name: 'LVP Accounting & Taxes', status: 'ACTIVE' } as const;
-
-/** GET /api/v1/portal/lvp/info */
-export const portalInfo = PortalInfo.parse({
-  business: { slug: 'lvp', name: 'LVP Accounting & Taxes' },
-  branding: {
-    logoUrl: null,
-    primaryColor: '#1F3A6B',
-    accentColor: '#C9A227',
-    portalName: 'LVP Accounting & Taxes Client Portal',
-    header: 'Your Documents. Your Information. All in One Place.',
-    welcomeMessage: 'Secure. Convenient. Designed for You.',
-  },
-  signUpOpen: true,
-  legal: {
-    terms: { version: 2, publishedAt: '2026-10-01T09:00:00.000Z' },
-    privacy: { version: 1, publishedAt: '2026-09-20T09:00:00.000Z' },
-  },
-});
-
-/** GET /api/v1/portal/lvp/legal/terms */
-export const termsDocument = LegalDocument.parse({
-  kind: 'terms',
-  version: 2,
-  publishedAt: '2026-10-01T09:00:00.000Z',
-  body: '# Terms of Service\n\nSample terms for the mock portal.',
-});
-
-/** GET /api/v1/portal/lvp/legal/privacy */
-export const privacyDocument = LegalDocument.parse({
-  kind: 'privacy',
-  version: 1,
-  publishedAt: '2026-09-20T09:00:00.000Z',
-  body: '# Privacy Policy\n\nSample privacy policy for the mock portal.',
-});
-
-/** POST .../auth/sign-up, GET .../auth/sign-up on /sign-up/verify-email */
-export const signUpVerifyEmail = SignUpState.parse({
-  step: 'VERIFY_EMAIL',
-  email: 'john@example.com',
-  phoneMasked: '(770) ***-0123',
-  resendAvailableAt: '2026-10-07T12:00:45.000Z',
-});
-
-/** POST .../auth/sign-up/verify-email, GET .../auth/sign-up on /sign-up/verify-phone */
-export const signUpVerifyPhone = SignUpState.parse({
-  ...signUpVerifyEmail,
-  step: 'VERIFY_PHONE',
-  resendAvailableAt: '2026-10-07T12:01:30.000Z',
-});
-
-/** POST .../auth/sign-up/verify-phone, GET .../auth/sign-up on /sign-up/done */
-export const signUpDone = SignUpState.parse({
-  ...signUpVerifyEmail,
-  step: 'DONE',
-  resendAvailableAt: null,
-});
 
 const clientUser = {
   id: '00000000-0000-4000-a000-000000000201',
@@ -103,28 +47,6 @@ const clientUser = {
   name: 'John Doe',
   pool: 'CLIENT',
 } as const;
-
-/** GET .../me for an approved client: open /{firm}/home. */
-export const meActive = MeResponse.parse({
-  user: clientUser,
-  memberships: [],
-  clientAccounts: [{ business: lvp, status: 'ACTIVE' }],
-  platformAdmin: false,
-});
-
-/** GET .../me while the firm has not approved yet: the layout sends the client to /sign-up/done. */
-export const mePending = MeResponse.parse({
-  ...meActive,
-  clientAccounts: [{ business: lvp, status: 'PENDING_APPROVAL' }],
-});
-
-/** POST .../auth/sign-in: MFA is optional for clients, so most sign in straight away. */
-export const signInActive = SignInResult.parse({ status: 'SIGNED_IN', me: meActive });
-export const signInPending = SignInResult.parse({ status: 'SIGNED_IN', me: mePending });
-export const signInMfa = SignInResult.parse({
-  status: 'MFA_REQUIRED',
-  session: 'mock-mfa-session',
-});
 
 const signUpItem = (n: number, fields: Partial<ClientSignUp>): ClientSignUp => ({
   clientAccountId: `00000000-0000-4000-a000-${String(300 + n).padStart(12, '0')}`,
@@ -150,9 +72,11 @@ interface MockClientRecord {
   displayName: string;
   email: string | null;
   hasPrimaryLogin: boolean;
+  /** Archived records are restored first: never linkable. */
+  archived?: boolean;
 }
 const JANE_CLIENT_ID = '00000000-0000-4000-a000-000000000402';
-const JOHN_CLIENT_ID = '00000000-0000-4000-a000-000000000403';
+const SAM_CLIENT_ID = '00000000-0000-4000-a000-000000000403';
 const CLIENT_RECORDS: readonly MockClientRecord[] = [
   // Added by staff before Jane signed up: linkable to Jane's sign-up.
   {
@@ -161,84 +85,184 @@ const CLIENT_RECORDS: readonly MockClientRecord[] = [
     email: 'Jane@Example.com',
     hasPrimaryLogin: false,
   },
-  // Same email as John's sign-up, but it already has a portal login: never linkable.
+  // Same email as Sam's sign-up, but it already has a portal login: never linkable, and Sam's
+  // sign-up cannot be approved as a new client either (DUPLICATE_EMAIL).
   {
-    clientId: JOHN_CLIENT_ID,
-    displayName: 'John Doe',
-    email: 'john@example.com',
+    clientId: SAM_CLIENT_ID,
+    displayName: 'Sam Poe',
+    email: 'sam@example.com',
     hasPrimaryLogin: true,
   },
 ];
 const linkable = (signUp: { email: string }, record: MockClientRecord) =>
-  !record.hasPrimaryLogin && record.email?.toLowerCase() === signUp.email.toLowerCase();
+  !record.hasPrimaryLogin &&
+  !record.archived &&
+  record.email?.toLowerCase() === signUp.email.toLowerCase();
 const existingClientFor = (email: string): ClientSignUp['existingClient'] => {
   const record = CLIENT_RECORDS.find((r) => linkable({ email }, r));
   return record ? { clientId: record.clientId, displayName: record.displayName } : null;
 };
 
-/** GET /api/v1/client-sign-ups */
-export const pendingSignUps = ClientSignUpList.parse({
-  items: [
-    signUpItem(1, {}),
-    signUpItem(2, {
-      name: 'Jane Roe',
-      email: 'jane@example.com',
-      phone: '+14045550188',
-      accountType: 'BUSINESS',
-      signedUpAt: '2026-10-07T13:20:00.000Z',
-      existingClient: existingClientFor('jane@example.com'),
-    }),
-  ],
-  nextCursor: null,
-});
-
-/** POST /api/v1/client-sign-ups/{id}/approve */
-export const approvedSignUp = ApproveSignUpResponse.parse({
-  clientAccountId: '00000000-0000-4000-a000-000000000301',
-  clientId: '00000000-0000-4000-a000-000000000401',
-  status: 'ACTIVE',
-  approvedAt: '2026-10-07T15:00:00.000Z',
-});
-
-/** POST /api/v1/client-sign-ups/{id}/decline */
-export const declinedSignUp = DeclineSignUpResponse.parse({
-  clientAccountId: '00000000-0000-4000-a000-000000000302',
-  status: 'DECLINED',
-  declinedAt: '2026-10-07T15:05:00.000Z',
-});
-
-// ---------- Error bodies the screens must handle ----------
+// Error bodies the screens must handle: `errors` in the fixtures below.
 const error = (code: string, message: string) =>
   ApiError.parse({ error: { code, message, requestId: 'mock-request' } });
 
-export const errors = {
-  /** 400 on verify-email and verify-phone: stay on the page. */
-  codeInvalid: error('CODE_INVALID', 'That code is not right or has expired'),
-  /** 410 on any sign-up step: back to /{firm}/sign-up. */
-  signUpExpired: error('SIGN_UP_EXPIRED', 'Your sign-up timed out. Please start again.'),
-  /** 409 on sign-up: reload info and show the current Terms and Privacy. */
-  termsOutdated: error(
-    'TERMS_OUTDATED',
-    'The Terms or Privacy policy changed. Please review them.',
-  ),
-  /** 403 on sign-up: the firm takes no sign-ups now. */
-  signUpClosed: error('SIGN_UP_CLOSED', 'This firm is not taking new sign-ups right now'),
-  /** 409 on change-email or change-phone after that step is verified. */
-  alreadyVerified: error('ALREADY_VERIFIED', 'This is already verified'),
-  /** 409 on a sign-up call out of order. */
-  wrongStep: error('WRONG_STEP', 'Please follow the steps in order'),
-  /** 401 on sign-in, also for an unknown email or a declined account. */
-  invalidCredentials: error('INVALID_CREDENTIALS', 'Email or password is incorrect'),
-  /** 429 on any rate-limited call. */
-  rateLimited: error('RATE_LIMITED', 'Too many attempts. Wait a few minutes and try again.'),
-  /** 409 on approve or decline when someone else already handled the sign-up. */
-  notPending: error('NOT_PENDING', 'This sign-up was already handled'),
-  /** 409 on approve with a client record that has another email or already has a login. */
-  clientNotLinkable: error(
-    'CLIENT_NOT_LINKABLE',
-    'This client record cannot be linked to this sign-up',
-  ),
-} as const;
+let fixtures: ReturnType<typeof buildFixtures> | undefined;
+
+/** Every answer the mocks give. Built on first use: importing this file runs nothing. */
+export function clientAuthFixtures() {
+  return (fixtures ??= buildFixtures());
+}
+
+function buildFixtures() {
+  /** GET /api/v1/portal/lvp/info */
+  const portalInfo = PortalInfo.parse({
+    business: { slug: 'lvp', name: 'LVP Accounting & Taxes' },
+    branding: {
+      logoUrl: null,
+      primaryColor: '#1F3A6B',
+      accentColor: '#C9A227',
+      portalName: 'LVP Accounting & Taxes Client Portal',
+      header: 'Your Documents. Your Information. All in One Place.',
+      welcomeMessage: 'Secure. Convenient. Designed for You.',
+    },
+    signUpOpen: true,
+    legal: {
+      terms: { version: 2, publishedAt: '2026-10-01T09:00:00.000Z' },
+      privacy: { version: 1, publishedAt: '2026-09-20T09:00:00.000Z' },
+    },
+  });
+  /** GET /api/v1/portal/lvp/legal/terms */
+  const termsDocument = LegalDocument.parse({
+    kind: 'terms',
+    version: 2,
+    publishedAt: '2026-10-01T09:00:00.000Z',
+    body: '# Terms of Service\n\nSample terms for the mock portal.',
+  });
+  /** GET /api/v1/portal/lvp/legal/privacy */
+  const privacyDocument = LegalDocument.parse({
+    kind: 'privacy',
+    version: 1,
+    publishedAt: '2026-09-20T09:00:00.000Z',
+    body: '# Privacy Policy\n\nSample privacy policy for the mock portal.',
+  });
+  /** POST .../auth/sign-up, GET .../auth/sign-up on /sign-up/verify-email */
+  const signUpVerifyEmail = SignUpState.parse({
+    step: 'VERIFY_EMAIL',
+    email: 'john@example.com',
+    phoneMasked: '(770) ***-0123',
+    resendAvailableAt: '2026-10-07T12:00:45.000Z',
+  });
+  /** POST .../auth/sign-up/verify-email, GET .../auth/sign-up on /sign-up/verify-phone */
+  const signUpVerifyPhone = SignUpState.parse({
+    ...signUpVerifyEmail,
+    step: 'VERIFY_PHONE',
+    resendAvailableAt: '2026-10-07T12:01:30.000Z',
+  });
+  /** POST .../auth/sign-up/verify-phone, GET .../auth/sign-up on /sign-up/done */
+  const signUpDone = SignUpState.parse({
+    ...signUpVerifyEmail,
+    step: 'DONE',
+    resendAvailableAt: null,
+  });
+  /** GET .../me for an approved client: open /{firm}/home. */
+  const meActive = MeResponse.parse({
+    user: clientUser,
+    memberships: [],
+    clientAccounts: [{ business: lvp, status: 'ACTIVE' }],
+    platformAdmin: false,
+  });
+  /** GET .../me while the firm has not approved yet: the layout sends the client to /sign-up/done. */
+  const mePending = MeResponse.parse({
+    ...meActive,
+    clientAccounts: [{ business: lvp, status: 'PENDING_APPROVAL' }],
+  });
+  /** POST .../auth/sign-in: MFA is optional for clients, so most sign in straight away. */
+  const signInActive = SignInResult.parse({ status: 'SIGNED_IN', me: meActive });
+  const signInPending = SignInResult.parse({ status: 'SIGNED_IN', me: mePending });
+  const signInMfa = SignInResult.parse({
+    status: 'MFA_REQUIRED',
+    session: 'mock-mfa-session',
+  });
+  /** GET /api/v1/client-sign-ups */
+  const pendingSignUps = ClientSignUpList.parse({
+    items: [
+      signUpItem(1, {}),
+      signUpItem(2, {
+        name: 'Jane Roe',
+        email: 'jane@example.com',
+        phone: '+14045550188',
+        accountType: 'BUSINESS',
+        signedUpAt: '2026-10-07T13:20:00.000Z',
+        existingClient: existingClientFor('jane@example.com'),
+      }),
+    ],
+    nextCursor: null,
+  });
+  /** POST /api/v1/client-sign-ups/{id}/approve */
+  const approvedSignUp = ApproveSignUpResponse.parse({
+    clientAccountId: '00000000-0000-4000-a000-000000000301',
+    clientId: '00000000-0000-4000-a000-000000000401',
+    status: 'ACTIVE',
+    approvedAt: '2026-10-07T15:00:00.000Z',
+  });
+  /** POST /api/v1/client-sign-ups/{id}/decline */
+  const declinedSignUp = DeclineSignUpResponse.parse({
+    clientAccountId: '00000000-0000-4000-a000-000000000302',
+    status: 'DECLINED',
+    declinedAt: '2026-10-07T15:05:00.000Z',
+  });
+  const errors = {
+    /** 400 on verify-email and verify-phone: stay on the page. */
+    codeInvalid: error('CODE_INVALID', 'That code is not right or has expired'),
+    /** 410 on any sign-up step: back to /{firm}/sign-up. */
+    signUpExpired: error('SIGN_UP_EXPIRED', 'Your sign-up timed out. Please start again.'),
+    /** 409 on sign-up: reload info and show the current Terms and Privacy. */
+    termsOutdated: error(
+      'TERMS_OUTDATED',
+      'The Terms or Privacy policy changed. Please review them.',
+    ),
+    /** 403 on sign-up: the firm takes no sign-ups now. */
+    signUpClosed: error('SIGN_UP_CLOSED', 'This firm is not taking new sign-ups right now'),
+    /** 409 on change-email or change-phone after that step is verified. */
+    alreadyVerified: error('ALREADY_VERIFIED', 'This is already verified'),
+    /** 409 on a sign-up call out of order. */
+    wrongStep: error('WRONG_STEP', 'Please follow the steps in order'),
+    /** 401 on sign-in, also for an unknown email or a declined account. */
+    invalidCredentials: error('INVALID_CREDENTIALS', 'Email or password is incorrect'),
+    /** 429 on any rate-limited call. */
+    rateLimited: error('RATE_LIMITED', 'Too many attempts. Wait a few minutes and try again.'),
+    /** 409 on approve or decline when someone else already handled the sign-up. */
+    notPending: error('NOT_PENDING', 'This sign-up was already handled'),
+    /** 409 on approve with a client record that has another email or already has a login. */
+    clientNotLinkable: error(
+      'CLIENT_NOT_LINKABLE',
+      'This client record cannot be linked to this sign-up',
+    ),
+    /** 409 on approve without clientId when a client of the firm already has the email. */
+    duplicateEmail: error(
+      'DUPLICATE_EMAIL',
+      'A client of this firm already has this email. Link the sign-up to that record.',
+    ),
+  } as const;
+  return {
+    portalInfo,
+    termsDocument,
+    privacyDocument,
+    signUpVerifyEmail,
+    signUpVerifyPhone,
+    signUpDone,
+    meActive,
+    mePending,
+    signInActive,
+    signInPending,
+    signInMfa,
+    pendingSignUps,
+    approvedSignUp,
+    declinedSignUp,
+    errors,
+  };
+}
 
 // ---------- Mock clients ----------
 /** The code that works everywhere in the mocks (as in AUTH_MODE=local). */
@@ -270,18 +294,51 @@ export interface PortalAuthMockOptions {
 /**
  * An in-memory `portalAuth(slug)`. Only the `lvp` portal exists (other slugs answer 404).
  * Walk a sign-up: signUp, then verifyEmail and verifyPhone with MOCK_CODE (any other code is
- * CODE_INVALID); signing in afterwards answers the pending account, as the API does. Sign-in
- * works with any password except MOCK_WRONG_PASSWORD; `signedIn` starts with a session.
+ * CODE_INVALID); signing in afterwards answers the pending account, as the API does. As in the
+ * API, a changed email or phone gets its code only once the 45 s gap since the last code has
+ * passed (until then the old code no longer works: press Resend), and a session has 10 code
+ * requests. Sign-in works with any password except MOCK_WRONG_PASSWORD; `signedIn` starts with a
+ * session.
  */
 export function createPortalAuthMock(
   firmSlug: string,
   options: PortalAuthMockOptions = {},
 ): PortalAuthClient {
+  const { portalInfo, termsDocument, privacyDocument, meActive, mePending, errors } =
+    clientAuthFixtures();
   const known = firmSlug.toLowerCase() === 'lvp';
-  let signUp: { step: SignUpState['step']; email: string; phone: string; resendAt: number } | null =
-    options.signUpStep
-      ? { step: options.signUpStep, email: 'john@example.com', phone: '+17705550123', resendAt: 0 }
-      : null;
+  type Walk = {
+    step: SignUpState['step'];
+    email: string;
+    phone: string;
+    /** When the last code went out. */
+    resendAt: number;
+    /** Whether the current step's code was sent to the current address. */
+    codeSent: boolean;
+    sends: number;
+  };
+  let signUp: Walk | null = options.signUpStep
+    ? {
+        step: options.signUpStep,
+        email: 'john@example.com',
+        phone: '+17705550123',
+        resendAt: 0,
+        codeSent: true,
+        sends: 1,
+      }
+    : null;
+  const SENDS_PER_SESSION = 10;
+  /** A changed address gets its code now if the gap has passed; otherwise after Resend. */
+  const changed = (s: Walk, fields: Partial<Walk>) => {
+    if (s.sends >= SENDS_PER_SESSION) throw fail(429, errors.rateLimited);
+    const now = Date.now();
+    const sendNow = now >= s.resendAt + RESEND_GAP_MS;
+    Object.assign(s, fields, {
+      codeSent: sendNow,
+      resendAt: sendNow ? now : s.resendAt,
+      sends: s.sends + 1,
+    });
+  };
   let me: MeResponse | null =
     options.signedIn === 'ACTIVE' ? meActive : options.signedIn ? mePending : null;
   /** Accounts made by a finished sign-up in this mock: they sign in as pending. */
@@ -343,6 +400,8 @@ export function createPortalAuthMock(
         email: input.email,
         phone: input.phone,
         resendAt: Date.now(),
+        codeSent: true,
+        sends: 1,
       };
       return state();
     },
@@ -355,16 +414,18 @@ export function createPortalAuthMock(
       await pause();
       const { code } = parseInput(VerifyCodeRequest, body);
       const s = at('VERIFY_EMAIL');
-      if (code !== MOCK_CODE) throw fail(400, errors.codeInvalid);
+      if (code !== MOCK_CODE || !s.codeSent) throw fail(400, errors.codeInvalid);
       s.step = 'VERIFY_PHONE';
-      s.resendAt = Date.now();
+      // The SMS code goes out when the gap allows, as in the API.
+      s.codeSent = Date.now() >= s.resendAt + RESEND_GAP_MS;
+      if (s.codeSent) s.resendAt = Date.now();
       return state();
     },
     verifyPhone: async (body) => {
       await pause();
       const { code } = parseInput(VerifyCodeRequest, body);
       const s = at('VERIFY_PHONE');
-      if (code !== MOCK_CODE) throw fail(400, errors.codeInvalid);
+      if (code !== MOCK_CODE || !s.codeSent) throw fail(400, errors.codeInvalid);
       s.step = 'DONE';
       signedUp.add(s.email);
       return state();
@@ -378,23 +439,28 @@ export function createPortalAuthMock(
         throw fail(409, errors.alreadyVerified);
       }
       if (s.step !== wanted) throw fail(409, errors.wrongStep);
+      if (signUp && signUp.sends >= SENDS_PER_SESSION) throw fail(429, errors.rateLimited);
       if (signUp && Date.now() < signUp.resendAt + RESEND_GAP_MS)
         throw fail(429, errors.rateLimited);
-      if (signUp) signUp.resendAt = Date.now();
+      if (signUp)
+        Object.assign(signUp, { resendAt: Date.now(), codeSent: true, sends: signUp.sends + 1 });
       return state();
     },
     changeEmail: async (body) => {
       await pause();
       const { email } = parseInput(ChangeEmailRequest, body);
       if (state().step !== 'VERIFY_EMAIL') throw fail(409, errors.alreadyVerified);
-      if (signUp) Object.assign(signUp, { email, resendAt: Date.now() });
+      if (signUp) changed(signUp, { email });
       return state();
     },
     changePhone: async (body) => {
       await pause();
       const { phone } = parseInput(ChangePhoneRequest, body);
-      if (state().step === 'DONE') throw fail(409, errors.alreadyVerified);
-      if (signUp) Object.assign(signUp, { phone, resendAt: Date.now() });
+      const step = state().step;
+      if (step === 'DONE') throw fail(409, errors.alreadyVerified);
+      // Before the phone step a new number only changes the login; no SMS is due yet.
+      if (signUp && step === 'VERIFY_PHONE') changed(signUp, { phone });
+      else if (signUp) Object.assign(signUp, { phone, sends: signUp.sends + 1 });
       return state();
     },
 
@@ -457,13 +523,16 @@ export function createPortalAuthMock(
 /**
  * An in-memory `api.clientSignUps` with the API's rules: approve and decline only pending
  * sign-ups (409 NOT_PENDING), unknown ids 404, and `role: 'STAFF'` gets 403 FORBIDDEN.
- * Jane Roe's sign-up has an `existingClient`: approve with its `clientId` links to it. Any other
- * record is 409 CLIENT_NOT_LINKABLE (for example John Doe's, which already has a login), and an
- * unknown `clientId` 404. Pages of two, so a screen can try `nextCursor`.
+ * Jane Roe's sign-up has an `existingClient`: approve with its `clientId` links to it, and
+ * approve without one is 409 DUPLICATE_EMAIL. Any other record is 409 CLIENT_NOT_LINKABLE (for
+ * example Sam Poe's, which already has a login, so Sam's sign-up cannot be approved), and an
+ * unknown `clientId` 404. John Doe's sign-up approves as a new client. Pages of two, so a screen
+ * can try `nextCursor`.
  */
 export function createClientSignUpsMock(
   options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {},
 ): ClientSignUpsClient {
+  const { pendingSignUps, errors } = clientAuthFixtures();
   let rows: ClientSignUp[] = [
     ...pendingSignUps.items,
     signUpItem(3, {
@@ -518,6 +587,8 @@ export function createClientSignUpsMock(
         if (!record) throw fail(404, error('NOT_FOUND', 'Not found'));
         if (!linkable(row, record)) throw fail(409, errors.clientNotLinkable);
         record.hasPrimaryLogin = true;
+      } else if (records.some((r) => r.email?.toLowerCase() === row.email.toLowerCase())) {
+        throw fail(409, errors.duplicateEmail);
       }
       rows = rows.filter((r) => r !== row);
       return {

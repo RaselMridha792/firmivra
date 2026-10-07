@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import {
+  BusinessStatus,
+  ClientAccountStatus,
+  IdentityPool,
+  MembershipRole,
+  MembershipStatus,
+} from './db-enums.js';
 
 // ---------- Errors ----------
 /** Every API error has this shape. Codes are stable; messages are for people. */
@@ -23,25 +30,11 @@ export const HealthResponse = z.object({
 });
 export type HealthResponse = z.infer<typeof HealthResponse>;
 
+// ---------- Database enums ----------
+// Every database enum, generated from the Prisma schema (db-enums.ts), so values never drift.
+export * from './db-enums.js';
+
 // ---------- Identity ----------
-export const IdentityPool = z.enum(['STAFF', 'CLIENT', 'ADMIN']);
-export type IdentityPool = z.infer<typeof IdentityPool>;
-
-export const MembershipRole = z.enum(['OWNER', 'ADMIN', 'STAFF']);
-export type MembershipRole = z.infer<typeof MembershipRole>;
-
-export const BusinessStatus = z.enum(['PENDING_SETUP', 'ACTIVE', 'SUSPENDED', 'CLOSED']);
-export type BusinessStatus = z.infer<typeof BusinessStatus>;
-
-export const ClientAccountStatus = z.enum([
-  'INVITED',
-  'PENDING_APPROVAL',
-  'ACTIVE',
-  'DECLINED',
-  'DISABLED',
-]);
-export type ClientAccountStatus = z.infer<typeof ClientAccountStatus>;
-
 export const BusinessSummary = z.object({
   id: z.uuid(),
   slug: z.string(),
@@ -62,13 +55,23 @@ export const MeResponse = z.object({
     z.object({
       business: BusinessSummary,
       role: MembershipRole,
-      status: z.enum(['INVITED', 'ACTIVE', 'DEACTIVATED']),
+      status: MembershipStatus,
     }),
   ),
   clientAccounts: z.array(z.object({ business: BusinessSummary, status: ClientAccountStatus })),
   platformAdmin: z.boolean(),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
+
+/**
+ * A firm's portal address (portal.firmivra.com/{slug}): lower-case letters, digits and inner
+ * hyphens. Portal clients check it before building a path, so `..` or `/` never reach a URL.
+ */
+export const FirmSlug = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/, 'Not a valid firm address');
 
 // ---------- Local development sign-in (AUTH_MODE=local only) ----------
 /** POST /api/v1/dev/token: sign in as a seeded user. Never available outside local development. */
