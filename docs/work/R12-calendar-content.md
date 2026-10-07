@@ -30,12 +30,36 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
 
 ## Needs from others
 
-(none yet)
+- R0 (asked Oct 7, Rasel approved): `appointment_types.cancel_cutoff_hours` integer, not null, default 24, 0 to 720 (0 = clients may change until the start). Clients reschedule or cancel only until that many hours before the start; staff always can.
+- R0 (Rasel: R0 seeds them): LVP's starter external links, `content_items` kind `EXTERNAL_LINK`, published, from FirmVora_External_Links_Directions.docx section 3 (category = section, icon_key = source, sort_order as listed):
+  - IRS & Business Taxes (`irs`): IRS Small Business & Self-Employed Tax Center, https://www.irs.gov/businesses/small-businesses-self-employed; IRS Employer Identification Number (EIN), https://www.irs.gov/ein (the doc's URL; the mockup shows /businesses/employer-identification-number); IRS - Pay Business Taxes from Your Bank Account, https://www.irs.gov/payments/pay-business-taxes-from-your-bank-account.
+  - Funding & Financial Resources (`sba`): SBA Loans, https://www.sba.gov/loans/; SBA Lender Match, https://www.sba.gov/loans/lender-match/; SBA - Plan Your Business, https://www.sba.gov/counseling/plan-your-business/.
+  - Business Planning & Market Research: FDIC Money Smart for Small Business (`fdic`), https://www.fdic.gov/consumer-resource-center/money-smart-small-business; U.S. Census - Census Business Builder (`census`), https://www.census.gov/data/data-tools/cbb.html.
+  - Each description is the doc's "Client-Facing Description" (also in `apps/web/src/mocks/content.ts`). The resource pages' text and the calculator figures wait for Octavia.
+- R11 (Rasel): workspaces read notes through R11's notes API with an engagement filter (`engagementId`), not their own copy.
+- R1 (Rasel): R5's documents list with an engagement filter, for the workspace page.
+- R6: appointment confirmations, change and cancellation notices, and reminders (`reminder_sent_at`), as configured (System Wiring section 2 and the notification table).
+
+## Decisions (Rasel, Oct 7)
+
+- Portal booking: only types with `client_bookable`; the client picks a type and a time. The staff member is the client's assigned one if free, otherwise the free member with the fewest appointments that day.
+- The client's cutoff for reschedule and cancel is per appointment type (`cancel_cutoff_hours`, above); after it, 409 `CHANGE_WINDOW_CLOSED` (contact the firm).
+- History without a new table: each book, reschedule, cancel, complete and no-show writes an audit row with who did it and the old and new times; the appointment detail returns them as its history.
+- Owners: notes are R11's; tasks and reports (including the client's read of published reports in My Services) are R12's; R10 step 4 still creates the NAME_CHANGE task row; documents come from R5's list.
+- Contract-only PRs don't count toward the 2-PR limit; one at a time from fresh main: appointments, content and calculators first, then workspaces and the audit viewer.
+- Resources and external links are business-only (System Wiring G): an INDIVIDUAL client gets 403 `BUSINESS_ONLY` for them, checked on the server from the client record's account type; tips are for everyone.
 
 ## Progress log
 
 (newest last: date, step, what changed, commit)
 
+- 2026-10-07, step 1 part 1 (contract PR from fresh main, branch `rasel/R12-contract-appointments`): appointments, content and calculators.
+  - `packages/types/src/appointments`: types, availability (working hours, blocked time), the calendar (list, detail with history, slots, book, reschedule, cancel, complete, no-show) and the client's own (types, slots, book, reschedule, cancel). Error codes `SLOT_TAKEN`, `SLOT_UNAVAILABLE`, `CHANGE_WINDOW_CLOSED`, `APPOINTMENT_CLOSED`, `TYPE_ARCHIVED`, `BLOCKS_APPOINTMENT`, `DUPLICATE_NAME`.
+  - `packages/types/src/content`: the firm's editor (drafts, publish, unpublish, delete) and the portal's published read; page keys for the four resource pages; https-only links; `BUSINESS_ONLY`.
+  - `packages/types/src/calculators`: the Tax Return Calculator definition (placeholder figures, `config.placeholder`), the firm's on/off and disclaimer, and `estimateTaxReturn`, a pure function the screen and tests share.
+  - Mocks `apps/web/src/mocks/{appointments,content,calculators}.ts` with the API's rules; `api.appointmentTypes`, `api.availability`, `api.appointments`, `api.myAppointments(slug)`, `api.content`, `api.myContent(slug)`, `api.calculators`, `api.myCalculators(slug)`.
+  - Routes follow R10: firm `/api/v1/business/...`, portal `/api/v1/portal/{firmSlug}/me/...`. No YAML: the zod files are the contract (as R10).
+- 2026-10-07, #68 review fixes (lead): `HttpsUrl` normalizes (`HTTPS://` and spaces) and refuses credentials, IP addresses and localhost; optional text reads `''` as none (reasons, location details, content description, category, body, URL); a RESOURCE category is one of `ResourcePage`; `contentKindProblem` checks an edited item (API and mock); the client cutoff is documented for appointments without a type (24 hours) and non-bookable types (their own); slot queries take `excludeAppointmentId` for a reschedule; content states the Markdown rules (raw HTML and images off, https and mailto links only). Open, for Rasel (asked by the lead): staff reading the whole calendar and booking for any client vs "Staff see only assigned clients".
 - 2026-10-07, step 1 part 2 (contract, prepared on `rasel/R12-contract-workspaces` from fresh main; opens after part 1, #68, merges): tasks, workspaces with reports, and the audit log viewer.
   - `packages/types/src/tasks`: list (by client, engagement, assignee, status; paged), create, update (status, due date, assignee; `null` clears). Staff see their clients' tasks and tasks assigned to them. R10 creates the NAME_CHANGE task.
   - `packages/types/src/workspaces`: the list of Bookkeeping and Tax Planning engagements (open tasks, next due date), the detail (stages, open tasks, reports), reports (create as draft, edit, publish, unpublish, delete only if never published; kinds per workspace in `REPORT_KINDS`; figures as label and amount lines), and the client's published reports in My Services. Status and stage go through R10's `api.engagements`; notes come from R11, documents from R5.

@@ -2,7 +2,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { AUTH_COOKIES, type AuthSite } from '@firmivra/types';
 import { requestContext } from '../common/request-context.js';
 import type { Env } from '../config/env.js';
-import { siteOf } from './site.js';
+import { portalSlugOf, siteOf } from './site.js';
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const JSON_TYPE = /^application\/json\s*(;|$)/i;
@@ -11,16 +11,23 @@ const DEV_PATH = /^\/api\/v1\/dev(\/|$)/i;
 const SESSION_COOKIES = new Set<string>(
   Object.values(AUTH_COOKIES).flatMap((c) => [c.access, c.id, c.refresh]),
 );
+/** Each firm's portal cookies (portalCookies() in packages/types), the sign-up one included. */
+const PORTAL_COOKIE = /^fv_portal_.+_(access|id|refresh|signup)$/;
+const isSessionCookie = (name: string) => SESSION_COOKIES.has(name) || PORTAL_COOKIE.test(name);
 
 /**
  * The origins each site's pages run on, from config (ADMIN_BASE_URL, APP_BASE_URL,
- * PORTAL_BASE_URL: https:// and the configured site host). Never the Host header.
+ * PORTAL_BASE_URL: https:// and the configured site host). Never the Host header. Portal routes
+ * (/api/v1/portal/...) are called only by the portal's pages.
  */
-export function siteOrigins(env: Env): Record<AuthSite, readonly string[]> {
+export function siteOrigins(
+  env: Env,
+): Record<AuthSite, readonly string[]> & { portal: readonly string[] } {
   const origin = (url: string) => new URL(url).origin;
   return {
     admin: [origin(env.ADMIN_BASE_URL)],
     firm: [origin(env.APP_BASE_URL), origin(env.PORTAL_BASE_URL)],
+    portal: [origin(env.PORTAL_BASE_URL)],
   };
 }
 
@@ -57,7 +64,11 @@ export function crossSiteGuard(env: Env): RequestHandler {
       return reject(res, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Send the request body as JSON');
     }
 
-    const allowed = DEV_PATH.test(req.path) ? anySite : origins[siteOf(req)];
+    const allowed = DEV_PATH.test(req.path)
+      ? anySite
+      : portalSlugOf(req)
+        ? origins.portal
+        : origins[siteOf(req)];
     const origin = req.get('origin');
     const fetchSite = req.get('sec-fetch-site');
     const cookies = (req.cookies ?? {}) as Record<string, unknown>;
@@ -66,7 +77,7 @@ export function crossSiteGuard(env: Env): RequestHandler {
         ? !allowed.includes(origin)
         : fetchSite !== undefined
           ? fetchSite !== 'same-origin'
-          : Object.keys(cookies).some((name) => SESSION_COOKIES.has(name));
+          : Object.keys(cookies).some(isSessionCookie);
     if (crossSite) {
       return reject(res, 403, 'ORIGIN_NOT_ALLOWED', 'This request must come from the site itself');
     }

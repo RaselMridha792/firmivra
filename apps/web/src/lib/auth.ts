@@ -4,8 +4,11 @@ import {
   createRequest,
   createStaffAuthClient,
   type IdentityPool,
+  type PortalAuthClient,
 } from '@firmivra/types';
+import { createPortalAuthMock, type PortalAuthMockOptions } from '../mocks/client-auth';
 import { api } from './api';
+import { mocked } from './mock';
 
 /**
  * Sign-in for the three sites (docs/AUTH-DESIGN.md, contract in docs/api/auth.yaml). Our
@@ -24,8 +27,31 @@ export const adminAuth = createAdminAuthClient({ baseUrl: '/api/v1' });
  * (/api/v1/portal/{firmSlug}, contract in docs/api/client-auth.yaml). Call it in the browser:
  * the portal cookies only go to that firm's API routes, never to page requests.
  */
-export const portalAuth = (firmSlug: string) =>
-  createPortalAuthClient(createRequest({ baseUrl: '/api/v1' }), firmSlug);
+export const portalAuth = (firmSlug: string): PortalAuthClient =>
+  process.env.NODE_ENV !== 'production' && mocked('portalAuth')
+    ? portalAuthMock(firmSlug)
+    : createPortalAuthClient(createRequest({ baseUrl: '/api/v1' }), firmSlug);
+
+/** Mock mode: one mock per firm, so a sign-up or a sign-in lasts while the visitor moves around. */
+const portalMocks = new Map<string, PortalAuthClient>();
+const CLIENT_SESSIONS = ['ACTIVE', 'PENDING_APPROVAL', 'SIGNED_OUT'] as const;
+const clientSession = process.env.NEXT_PUBLIC_API_MOCK_CLIENT;
+
+/**
+ * The mock client's starting session: NEXT_PUBLIC_API_MOCK_CLIENT=ACTIVE (default, a signed-in
+ * client), PENDING_APPROVAL (waiting for the firm) or SIGNED_OUT. A page load starts it again.
+ */
+function portalAuthMock(firmSlug: string): PortalAuthClient {
+  const slug = firmSlug.toLowerCase();
+  let mock = portalMocks.get(slug);
+  if (!mock) {
+    const start = CLIENT_SESSIONS.find((s) => s === clientSession) ?? 'ACTIVE';
+    const signedIn: PortalAuthMockOptions['signedIn'] = start === 'SIGNED_OUT' ? undefined : start;
+    mock = createPortalAuthMock(slug, { signedIn });
+    portalMocks.set(slug, mock);
+  }
+  return mock;
+}
 
 /** Local development quick sign-in as a seeded user (POST /api/v1/dev/token). */
 export async function signIn(email: string, pool: IdentityPool): Promise<void> {

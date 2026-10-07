@@ -1,22 +1,38 @@
 import {
   createApiClient,
+  createAppointmentsClient,
+  createAppointmentTypesClient,
   createAuditLogClient,
-  createMyReportsClient,
-  createTasksClient,
-  createWorkspacesClient,
+  createAvailabilityClient,
+  createCalculatorsClient,
   createClientsClient,
   createClientSignUpsClient,
+  createContentClient,
   createEngagementsClient,
   createFirmApplicationsClient,
+  createMyAppointmentsClient,
+  createMyCalculatorsClient,
+  createMyContentClient,
   createMyProfileClient,
+  createMyReportsClient,
   createMyServicesClient,
   createMyTaxReturnsClient,
   createRequest,
+  createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
+  createWorkspacesClient,
 } from '@firmivra/types';
+import {
+  createAppointmentsMock,
+  createAppointmentTypesMock,
+  createAvailabilityMock,
+  createMyAppointmentsMock,
+} from '../mocks/appointments';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createCalculatorsMock, createMyCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
+import { createContentMock, createMyContentMock } from '../mocks/content';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createTasksMock } from '../mocks/tasks';
@@ -63,6 +79,38 @@ export const api = {
   myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
   myServices: (firmSlug: string) => createMyServicesClient(request, firmSlug),
   myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
+  /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
+  appointmentTypes:
+    dev && mocked('appointmentTypes')
+      ? createAppointmentTypesMock({ role: MOCK_ROLE })
+      : createAppointmentTypesClient(request),
+  availability:
+    dev && mocked('availability')
+      ? createAvailabilityMock({ role: MOCK_ROLE })
+      : createAvailabilityClient(request),
+  appointments:
+    dev && mocked('appointments') ? createAppointmentsMock() : createAppointmentsClient(request),
+  /** Appointments (R12): the signed-in client's own, per firm (portal). */
+  myAppointments: (firmSlug: string) =>
+    dev && mocked('myAppointments')
+      ? createMyAppointmentsMock()
+      : createMyAppointmentsClient(request, firmSlug),
+  /** Content (R12): resources, tips and external links; the portal reads published ones. */
+  content:
+    dev && mocked('content')
+      ? createContentMock({ role: MOCK_ROLE })
+      : createContentClient(request),
+  myContent: (firmSlug: string) =>
+    dev && mocked('myContent') ? createMyContentMock() : createMyContentClient(request, firmSlug),
+  /** Calculators (R12): the firm's settings, and the portal's enabled calculators. */
+  calculators:
+    dev && mocked('calculators')
+      ? createCalculatorsMock({ role: MOCK_ROLE })
+      : createCalculatorsClient(request),
+  myCalculators: (firmSlug: string) =>
+    dev && mocked('myCalculators')
+      ? createMyCalculatorsMock()
+      : createMyCalculatorsClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */

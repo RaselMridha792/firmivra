@@ -9,6 +9,9 @@ import { AuthGuard } from './auth/auth.guard.js';
 import { AuthModule } from './auth/auth.module.js';
 import { RolesGuard } from './auth/roles.guard.js';
 import { SignInModule } from './auth/sign-in.controller.js';
+import { PortalInfoModule } from './client-auth/portal-info.controller.js';
+import { PortalSignInModule } from './client-auth/portal-sign-in.controller.js';
+import { SignUpModule } from './client-auth/sign-up.controller.js';
 import { TenantGuard } from './auth/tenant.guard.js';
 import { BusinessModule } from './business/business.controller.js';
 import { ConfigModule } from './config/config.module.js';
@@ -61,6 +64,9 @@ export class AppModule {
         MeModule,
         ClientsModule,
         SignInModule,
+        PortalInfoModule,
+        SignUpModule,
+        PortalSignInModule,
         BusinessModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
       ],
