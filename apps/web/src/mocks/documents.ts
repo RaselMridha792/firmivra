@@ -5,6 +5,7 @@ import {
   CreateFirmUploadRequest,
   CreateMyUploadRequest,
   type DocumentCategory,
+  DOCUMENT_ERRORS,
   DocumentId,
   DocumentRequestId,
   type DocumentsClient,
@@ -18,6 +19,7 @@ import {
   type MyDocumentsClient,
   NotAvailableRequest,
   parseInput,
+  PORTAL_BLOCKED_TEXT,
   RejectDocumentRequestRequest,
   TAX_SERVICE_KINDS,
   type UploadTicket,
@@ -35,7 +37,9 @@ import { engagementFixtures } from './engagements';
  * To show the Excel and Word errors on a screen, upload an .xlsx or .docx whose name contains
  * "password" (confirm answers 409 FILE_PASSWORD_PROTECTED) or "macro" (409 FILE_HAS_MACROS); the
  * mock sees only the name, the API reads the stored bytes. The portal's FILE_BLOCKED says the
- * file couldn't be checked, never that it failed the malware scan.
+ * file couldn't be checked (PORTAL_BLOCKED_TEXT, by source), never that it failed the malware
+ * scan. Request 2's file came back FAILED, so the request is REQUESTED again; accepting a request
+ * answers 409 SCAN_PENDING while its newest file is being checked (request 5).
  */
 const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T15:00:00.000Z`;
 const docId = (n: number) => `0199b6a5-0000-7000-8000-${String(n).padStart(12, '0')}`;
@@ -44,8 +48,9 @@ const categoryId = (n: number) => `0199b6a7-0000-7000-8000-${String(n).padStart(
 const SCAN_MS = 4000;
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-/** What the portal says for a BLOCKED file (INFECTED or FAILED for the firm). */
-const PORTAL_BLOCKED = "This file couldn't be checked. Please upload it again.";
+/** The portal's `source` of a document: the client's own upload, or one the firm shared. */
+const sourceOf = (d: FirmDocument): MyDocument['source'] =>
+  d.direction === 'CLIENT_TO_FIRM' ? 'MINE' : 'FIRM';
 
 interface Fixtures {
   categories: DocumentCategory[];
@@ -92,7 +97,9 @@ export function documentFixtures(): Readonly<Fixtures> {
   const documents = [
     doc(1, { fileName: 'W-2_2025.pdf', requestId: requestId(1) }),
     doc(2, { fileName: 'Business_Expenses_Q3.pdf', service: service(2), category: category(2) }),
-    doc(3, { fileName: '1099-NEC_2025.pdf', scanStatus: 'PENDING' }),
+    // Still being checked (as every new upload on dev until GuardDuty is there): request 5
+    // can't be accepted yet.
+    doc(3, { fileName: '1099-NEC_2025.pdf', requestId: requestId(5), scanStatus: 'PENDING' }),
     doc(4, {
       fileName: 'Driver_License.jpg',
       contentType: 'image/jpeg',
@@ -122,6 +129,15 @@ export function documentFixtures(): Readonly<Fixtures> {
       category: category(2),
       scanStatus: 'FAILED',
     }),
+    // Sent for request 2 and FAILED too, so request 2 is REQUESTED again.
+    doc(11, { fileName: '1099-INT_2025.pdf', requestId: requestId(2), scanStatus: 'FAILED' }),
+    // Shared by the firm and FAILED: the portal asks the client to have the firm share it again.
+    doc(12, {
+      fileName: 'Tax_Organizer_2025.pdf',
+      direction: 'FIRM_TO_CLIENT',
+      uploadedBy: staff,
+      scanStatus: 'FAILED',
+    }),
   ];
   const request = (
     n: number,
@@ -147,9 +163,11 @@ export function documentFixtures(): Readonly<Fixtures> {
       status: 'SUBMITTED',
       documents: [{ id: docId(1), fileName: 'W-2_2025.pdf', createdAt: at(11) }],
     }),
+    // Its file came back FAILED: the request is back to REQUESTED, so the client is asked again.
     request(2, {
       title: '1099-INT from your bank',
       instructions: 'One for each bank account that paid interest.',
+      documents: [{ id: docId(11), fileName: '1099-INT_2025.pdf', createdAt: at(21) }],
     }),
     request(3, {
       title: 'Bank statements for September',
@@ -162,6 +180,12 @@ export function documentFixtures(): Readonly<Fixtures> {
       title: 'Childcare receipts',
       status: 'NOT_AVAILABLE',
       statusNote: 'We had no childcare costs this year.',
+    }),
+    // Accept answers 409 SCAN_PENDING: its file is still being checked.
+    request(5, {
+      title: '1099-NEC for your contract work',
+      status: 'SUBMITTED',
+      documents: [{ id: docId(3), fileName: '1099-NEC_2025.pdf', createdAt: at(13) }],
     }),
   ];
   fixtures = { categories, documents, requests };
@@ -179,15 +203,9 @@ const checkOfficeFile = (body: Record<string, unknown>) => {
   if (body['contentType'] !== XLSX && body['contentType'] !== DOCX) return;
   const name = String(body['fileName']).toLowerCase();
   if (name.includes('password')) {
-    throw fail(409, 'FILE_PASSWORD_PROTECTED', 'Remove the password and upload the file again.');
+    throw fail(409, 'FILE_PASSWORD_PROTECTED', DOCUMENT_ERRORS.FILE_PASSWORD_PROTECTED);
   }
-  if (name.includes('macro')) {
-    throw fail(
-      409,
-      'FILE_HAS_MACROS',
-      'Save it as a regular .xlsx or .docx without macros and upload again.',
-    );
-  }
+  if (name.includes('macro')) throw fail(409, 'FILE_HAS_MACROS', DOCUMENT_ERRORS.FILE_HAS_MACROS);
 };
 const now = () => new Date().toISOString();
 /** Requests the client can still answer. */
@@ -314,7 +332,7 @@ function store() {
     },
     /**
      * A link for a CLEAN file, else 409. The firm's FILE_BLOCKED names the scan result; the
-     * portal's says only that the file couldn't be checked.
+     * portal's says only that the file couldn't be checked, and who sends it again.
      */
     download: (d: FirmDocument, side: 'firm' | 'portal') => {
       const scan = scanOf(d);
@@ -324,7 +342,8 @@ function store() {
           scan === 'INFECTED'
             ? 'This file failed the malware scan'
             : "This file couldn't be scanned";
-        throw fail(409, 'FILE_BLOCKED', side === 'portal' ? PORTAL_BLOCKED : firm);
+        const portal = PORTAL_BLOCKED_TEXT[sourceOf(d)];
+        throw fail(409, 'FILE_BLOCKED', side === 'portal' ? portal : firm);
       }
       return {
         url: `data:text/plain;charset=utf-8,${encodeURIComponent(`Mock file: ${d.fileName}`)}`,
@@ -369,6 +388,15 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
     }
     if (change.status !== 'CANCELLED' && r.status !== 'SUBMITTED') {
       throw fail(409, 'NOTHING_SUBMITTED', 'Nothing has been uploaded for this request yet');
+    }
+    if (change.status === 'ACCEPTED') {
+      // Only a clean newest file is accepted (a blocked one puts the request back to REQUESTED).
+      const newest = s.documents.find((d) => d.id === r.documents[0]?.id);
+      const scan = newest && s.scanOf(newest);
+      if (scan === 'PENDING') throw fail(409, 'SCAN_PENDING', 'The file is still being checked');
+      if (scan !== 'CLEAN') {
+        throw fail(409, 'NOTHING_SUBMITTED', 'Nothing has been uploaded for this request yet');
+      }
     }
     return s.replaceRequest({ ...r, ...change });
   };
@@ -497,7 +525,7 @@ export function myDocumentsMock(firmSlug: string): MyDocumentsClient {
 export function createMyDocumentsMock(): MyDocumentsClient {
   const s = store();
   const me = firstClientId;
-  // The client never learns which: BLOCKED shows as "couldn't be checked" (PORTAL_BLOCKED).
+  // The client never learns which: BLOCKED shows as "couldn't be checked" (PORTAL_BLOCKED_TEXT).
   const STATUS = {
     PENDING: 'CHECKING',
     CLEAN: 'READY',
@@ -508,7 +536,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
   const mine = () => s.documents.filter((d) => d.clientId === me && d.direction !== 'INTERNAL');
   const toMine = (d: FirmDocument): MyDocument => ({
     id: d.id,
-    source: d.direction === 'CLIENT_TO_FIRM' ? 'MINE' : 'FIRM',
+    source: sourceOf(d),
     service: { ...d.service },
     category: d.category && { ...d.category },
     requestId: d.requestId,

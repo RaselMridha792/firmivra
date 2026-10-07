@@ -94,7 +94,10 @@ export function createDocumentsClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(CreateDocumentRequestRequest, body),
       }),
-    /** Accept the uploaded file. 409 NOTHING_SUBMITTED or REQUEST_CLOSED. */
+    /**
+     * Accept the uploaded file. 409 NOTHING_SUBMITTED, SCAN_PENDING (its newest file is still
+     * being checked) or REQUEST_CLOSED.
+     */
     acceptRequest: async (id: string): Promise<FirmDocumentRequest> =>
       request(FirmDocumentRequest, `${req(id)}/accept`, { method: 'POST', body: {} }),
     /** "Mark missing": the client is asked again. 409 NOTHING_SUBMITTED or REQUEST_CLOSED. */
@@ -141,7 +144,7 @@ export function createMyDocumentsClient(request: ApiRequest, firmSlug: string) {
       }),
     /**
      * Step 3. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS
-     * (DocumentErrorCode says what to tell the client).
+     * (DOCUMENT_ERRORS has what to tell the client).
      */
     confirmUpload: async (body: ConfirmUploadRequest): Promise<MyDocument> =>
       request(MyDocument, `${base()}/uploads/confirm`, {
@@ -149,8 +152,8 @@ export function createMyDocumentsClient(request: ApiRequest, firmSlug: string) {
         body: parseInput(ConfirmUploadRequest, body),
       }),
     /**
-     * A 5-minute link, always a download (never inline). 409 SCAN_PENDING, or FILE_BLOCKED: "This
-     * file couldn't be checked. Please upload it again."
+     * A 5-minute link, always a download (never inline). 409 SCAN_PENDING, or FILE_BLOCKED (show
+     * `PORTAL_BLOCKED_TEXT[source]`, never that it failed the malware scan).
      */
     download: async (id: string): Promise<DownloadLink> =>
       request(DownloadLink, `${one(id)}/download`),

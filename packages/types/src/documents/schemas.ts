@@ -20,6 +20,8 @@ import { clearable, text } from '../clients/text.js';
 // 5 minutes, always as an attachment, or 409 SCAN_PENDING / FILE_BLOCKED.
 // The portal never sees INTERNAL documents, and never another client's. There are no delete
 // routes at launch.
+// Screens show this module's errors with `errorMessage(error, DOCUMENT_ERRORS)`: errorMessage()
+// alone (apps/web/src/lib/errors.ts) knows only the generic codes.
 // Responses are plain objects (a field the API adds later is dropped, so an open page keeps
 // working); requests are strict (unknown fields such as businessId are refused).
 
@@ -96,7 +98,10 @@ const Direction = z.enum([
 const Scan = z.enum(['PENDING', 'CLEAN', 'INFECTED', 'FAILED']);
 const RequestStatus = z.enum([
   'REQUESTED',
-  /** The client uploaded a file for it ("Received"). */
+  /**
+   * The client uploaded a file for it ("Received"). If that file comes back INFECTED or FAILED,
+   * the API puts the request back to REQUESTED: the client is asked again.
+   */
   'SUBMITTED',
   'ACCEPTED',
   /** The firm marked the upload missing (`statusNote`: why); the client is asked again. */
@@ -329,14 +334,25 @@ export const MyDocument = z.object({
   taxYear: z.number().int().nullable(),
   /**
    * CHECKING: the scan is running (no download yet). READY: it can be downloaded. BLOCKED: it
-   * can't be downloaded (INFECTED or FAILED for the firm); the screen shows "This file couldn't
-   * be checked. Please upload it again." and never says it failed the malware scan.
+   * can't be downloaded (INFECTED or FAILED for the firm); the screen shows
+   * `PORTAL_BLOCKED_TEXT[source]` and never says it failed the malware scan.
    */
   status: z.enum(['CHECKING', 'READY', 'BLOCKED']),
   /** When the file was stored ("Upload Date"). */
   uploadedAt: DateTime,
 });
 export type MyDocument = z.infer<typeof MyDocument>;
+
+/**
+ * What the portal shows for a BLOCKED document, by its `source`: on its row and for its
+ * FILE_BLOCKED. Never that it failed the malware scan (Rasel, Oct 8).
+ */
+export const PORTAL_BLOCKED_TEXT = {
+  /** The client's own upload: they upload it again. */
+  MINE: "This file couldn't be checked. Please upload it again.",
+  /** A file the firm shared: the client can't upload it, the firm shares it again. */
+  FIRM: "This file couldn't be checked. Ask your firm to share it again.",
+} as const satisfies Record<MyDocument['source'], string>;
 
 /** GET /portal/{firmSlug}/me/documents. "View My Uploads" is `source: 'MINE'` (the default). */
 export const ListMyDocumentsQuery = z.strictObject({
@@ -364,7 +380,10 @@ const UploadTarget = z.object({
   serviceId: z.uuid(),
   title: z.string(),
   taxYear: z.number().int().nullable(),
-  /** REQUESTED or REJECTED requests: an upload for one answers it. */
+  /**
+   * REQUESTED or REJECTED requests: an upload for one answers it. A SUBMITTED request is back
+   * here (REQUESTED) once its newest file comes back INFECTED or FAILED.
+   */
   openRequests: z.array(
     z.object({ id: z.uuid(), title: z.string(), dueOn: CalendarDate.nullable() }),
   ),
@@ -383,8 +402,10 @@ export type UploadTargets = z.infer<typeof UploadTargets>;
 /**
  * POST /portal/{firmSlug}/me/documents/uploads. 404 for a service, request or category that
  * isn't the client's or their firm's; then 409 NO_OPEN_SERVICE (service not ACTIVE),
- * REQUEST_CLOSED (request of another service or no longer open) or CATEGORY_ARCHIVED. An upload
- * with a `requestId` answers it (SUBMITTED).
+ * REQUEST_CLOSED (request of another service, or not open: a SUBMITTED request takes no second
+ * file until the firm marks it missing or its newest file comes back INFECTED or FAILED) or
+ * CATEGORY_ARCHIVED. An upload with a `requestId` answers it (SUBMITTED). A replacement is a new
+ * upload for the same request; the old file stays.
  */
 export const CreateMyUploadRequest = z
   .strictObject({
@@ -428,7 +449,10 @@ export const DocumentErrorCode = z.enum([
   'NO_OPEN_SERVICE',
   /** 409: the request is not open (accepted, cancelled, or the client said not available). */
   'REQUEST_CLOSED',
-  /** 409: accept or "Mark missing" needs an uploaded file (status SUBMITTED). */
+  /**
+   * 409: accept or "Mark missing" needs an uploaded file (status SUBMITTED). A request whose
+   * newest file came back INFECTED or FAILED is REQUESTED again.
+   */
   'NOTHING_SUBMITTED',
   /** 409: the category is archived. */
   'CATEGORY_ARCHIVED',
@@ -437,7 +461,7 @@ export const DocumentErrorCode = z.enum([
   /**
    * 409 (confirm): the stored file is not what `createUpload` described: its size or checksum
    * differs, or its bytes are not its type (a renamed file, or an Office file that isn't a real
-   * .xlsx or .docx package).
+   * .xlsx or .docx package). A renamed .xlsm or .docm is FILE_HAS_MACROS instead.
    */
   'UPLOAD_MISMATCH',
   /**
@@ -447,20 +471,55 @@ export const DocumentErrorCode = z.enum([
    */
   'FILE_PASSWORD_PROTECTED',
   /**
-   * 409 (confirm): the Excel or Word file holds macros (a vbaProject part or a macro-enabled
-   * content type). Tell the user: "Save it as a regular .xlsx or .docx without macros and upload
-   * again."
+   * 409 (confirm): the Excel or Word file holds macros: a vbaProject or vbaData part, or a
+   * macro-enabled content type (so also an .xlsm or .docm renamed to .xlsx or .docx). Tell the
+   * user: "Save it as a regular .xlsx or .docx without macros and upload again."
    */
   'FILE_HAS_MACROS',
+  /**
+   * 400 from `uploadFile()`, before anything is sent (the API answers VALIDATION_FAILED for the
+   * same): the file is not a PDF, JPG, PNG, .xlsx or .docx by its type and its name's ending.
+   */
+  'FILE_TYPE_NOT_ALLOWED',
+  /** 400 from `uploadFile()`, before anything is sent: the file is empty. */
+  'FILE_EMPTY',
+  /** 400 from `uploadFile()`, before anything is sent: the file is larger than 10 MB. */
+  'FILE_TOO_LARGE',
   /** The browser could not PUT the file to storage (from `uploadFile()`, not the API). */
   'UPLOAD_FAILED',
-  /** 409: the malware scan has not finished; try again in a moment. */
+  /**
+   * 409: the malware scan has not finished (a download, or accepting a request whose newest file
+   * is still being checked); try again in a moment.
+   */
   'SCAN_PENDING',
   /**
    * 409: the file can't be downloaded: malware was found (INFECTED) or it couldn't be scanned
-   * (FAILED). The portal's message is "This file couldn't be checked. Please upload it again.",
-   * never that it failed the malware scan.
+   * (FAILED). The portal never says it failed the malware scan: it shows
+   * `PORTAL_BLOCKED_TEXT[source]`.
    */
   'FILE_BLOCKED',
 ]);
 export type DocumentErrorCode = z.infer<typeof DocumentErrorCode>;
+
+/**
+ * What users see for this module's codes: `errorMessage(error, DOCUMENT_ERRORS)` on the upload
+ * pop-up, My Documents and the firm's Documents tab. FILE_BLOCKED here is safe for both sides; on
+ * the portal show `PORTAL_BLOCKED_TEXT[source]` for that document instead, and the firm's screen
+ * may name its exact scanStatus.
+ */
+export const DOCUMENT_ERRORS = {
+  NO_OPEN_SERVICE: 'This service is not open, so nothing can be uploaded or requested for it.',
+  REQUEST_CLOSED: 'This request is no longer open. Reload and try again.',
+  NOTHING_SUBMITTED: 'Nothing has been uploaded for this request yet.',
+  CATEGORY_ARCHIVED: 'This category is archived. Choose another one.',
+  UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
+  UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
+  FILE_PASSWORD_PROTECTED: 'Remove the password and upload the file again.',
+  FILE_HAS_MACROS: 'Save it as a regular .xlsx or .docx without macros and upload again.',
+  FILE_TYPE_NOT_ALLOWED: `Upload a ${UPLOAD_LIMITS.typeNames} file.`,
+  FILE_EMPTY: 'This file is empty. Choose another file.',
+  FILE_TOO_LARGE: 'This file is larger than 10 MB. Choose a smaller file.',
+  UPLOAD_FAILED: 'The upload did not go through. Check your connection and try again.',
+  SCAN_PENDING: 'This file is still being checked. Try again in a moment.',
+  FILE_BLOCKED: "This file couldn't be checked, so it can't be downloaded.",
+} as const satisfies Record<DocumentErrorCode, string>;
