@@ -9,3 +9,4 @@ export * from './auth/index.js';
 export * from './firm-team.js';
 export * from './firm-settings.js';
 export * from './firm-tax-statuses.js';
+export * from './firm-applications.js';

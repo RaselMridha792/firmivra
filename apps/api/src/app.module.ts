@@ -20,6 +20,7 @@ import { MeModule } from './me/me.controller.js';
 import { TeamModule } from './team/team.controller.js';
 import { SettingsModule } from './settings/settings.controller.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
+import { ApplicationsModule } from './applications/applications.controller.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -66,6 +67,7 @@ export class AppModule {
         TeamModule,
         SettingsModule,
         TaxStatusesModule,
+        ApplicationsModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
       ],
       // Run in this order on every request. Each skips @Public() routes.

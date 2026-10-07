@@ -1,4 +1,4 @@
-parameters:
+﻿parameters:
   Business:
     name: x-business-id
     in: header

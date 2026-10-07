@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+﻿import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { TxClient } from '@firmivra/db';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
