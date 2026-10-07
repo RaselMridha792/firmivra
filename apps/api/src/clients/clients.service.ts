@@ -262,7 +262,7 @@ export class ClientsService {
       });
       // Sealed to the new client's id, in the same transaction: no client is left half-saved.
       const secrets = body.profile
-        ? await secretColumns(this.fe, businessId, client.id, body.profile)
+        ? await secretColumns(this.fe, tx, businessId, client.id, body.profile)
         : {};
       await tx.clientProfile.create({
         data: {
@@ -327,7 +327,7 @@ export class ClientsService {
       if (current.archivedAt) throw archived();
       const data = {
         ...profileData(body),
-        ...(await secretColumns(this.fe, businessId, id, body)),
+        ...(await secretColumns(this.fe, tx, businessId, current.id, body)),
       };
       await tx.clientProfile.upsert({
         where: { clientId: id },
