@@ -1,19 +1,24 @@
 'use client';
 
 import { Bell, ChevronDown, Menu, Search } from 'lucide-react';
+import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
 import { useMe } from '../signed-in';
-import { initials } from './types';
+import { initials, type ShellNotification, type ShellSearchItem } from './types';
 
 /** Top bar: menu button (below 768 px), search (Super Admin) or greeting (portal), bell, user menu. */
 export function Header({
   search,
+  searchItems,
+  notifications,
   greeting,
   roleLabel,
   onOpenMenu,
 }: {
   /** Placeholder text for the search box; no box without it. */
   search?: string;
+  searchItems?: readonly ShellSearchItem[];
+  notifications?: readonly ShellNotification[];
   /** Centre text instead of a search box, for example "Welcome back, John!" in the portal. */
   greeting?: ReactNode;
   roleLabel: string;
@@ -21,6 +26,17 @@ export function Header({
 }) {
   const { me, signOut } = useMe();
   const [open, setOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [readNotifications, setReadNotifications] = useState<string[]>([]);
+  const unreadCount = (notifications ?? []).filter(
+    (notification) => !readNotifications.includes(notification.id),
+  ).length;
+  const searchResults = (searchItems ?? []).filter((item) =>
+    `${item.kind} ${item.label} ${item.detail}`
+      .toLowerCase()
+      .includes(searchTerm.trim().toLowerCase()),
+  );
   const displayRole = me.platformAdmin ? 'Super Admin' : roleLabel;
 
   return (
@@ -35,17 +51,42 @@ export function Header({
       </button>
 
       {search ? (
-        // No search yet: the box is here so the layout matches the mockup.
-        <label className="hidden w-full max-w-xs flex-1 items-center gap-2 rounded-control border border-border bg-surface px-3 py-2 text-sm text-muted md:ml-auto md:flex">
-          <Search aria-hidden className="size-4" />
-          <input
-            type="search"
-            placeholder={search}
-            aria-label="Search"
-            readOnly
-            className="w-full bg-transparent outline-none"
-          />
-        </label>
+        <div className="relative hidden w-full max-w-xs flex-1 md:ml-auto md:block">
+          <label className="flex items-center gap-2 rounded-control border border-border bg-surface px-3 py-2 text-sm text-muted">
+            <Search aria-hidden className="size-4" />
+            <input
+              type="search"
+              placeholder={search}
+              aria-label="Search firms, applications, users"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              className="w-full bg-transparent outline-none"
+            />
+          </label>
+          {searchTerm.trim() ? (
+            <ul
+              aria-label="Search results"
+              className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-card border border-border bg-surface p-1 shadow-card"
+            >
+              {searchResults.length ? (
+                searchResults.map((item) => (
+                  <li key={item.id}>
+                    <Link
+                      href={item.href}
+                      className="block rounded-control px-3 py-2 hover:bg-canvas"
+                    >
+                      <span className="block text-xs text-muted">{item.kind}</span>
+                      <span className="block text-sm font-medium text-text">{item.label}</span>
+                      <span className="block truncate text-xs text-muted">{item.detail}</span>
+                    </Link>
+                  </li>
+                ))
+              ) : (
+                <li className="px-3 py-3 text-sm text-muted">No matching mock records.</li>
+              )}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
       {greeting ? <p className="text-lg font-semibold text-text">{greeting}</p> : null}
 
@@ -54,14 +95,79 @@ export function Header({
           search ? 'ml-auto flex items-center gap-2 md:ml-5' : 'ml-auto flex items-center gap-2'
         }
       >
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="relative rounded-control p-2 text-text hover:bg-canvas"
-        >
-          <Bell aria-hidden className="size-5" />
-          <span aria-hidden className="absolute right-2 top-2 size-2 rounded-full bg-danger" />
-        </button>
+        {notifications ? (
+          <div className="relative">
+            <button
+              type="button"
+              aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
+              aria-expanded={notificationsOpen}
+              onClick={() => setNotificationsOpen((value) => !value)}
+              className="relative rounded-control p-2 text-text hover:bg-canvas"
+            >
+              <Bell aria-hidden className="size-5" />
+              {unreadCount ? (
+                <span className="absolute -right-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white">
+                  {unreadCount}
+                </span>
+              ) : null}
+            </button>
+            {notificationsOpen ? (
+              <section
+                aria-label="Notifications panel"
+                className="absolute right-0 z-30 mt-2 w-80 rounded-card border border-border bg-surface p-3 shadow-card"
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h2 className="font-semibold text-text">Notifications</h2>
+                  <button
+                    type="button"
+                    disabled={!unreadCount}
+                    onClick={() => setReadNotifications((notifications ?? []).map(({ id }) => id))}
+                    className="text-xs text-brand-700 hover:underline disabled:text-muted disabled:no-underline"
+                  >
+                    Mark all read
+                  </button>
+                </div>
+                <ul className="grid gap-1">
+                  {notifications.length ? (
+                    notifications.map((notification) => {
+                      const isRead = readNotifications.includes(notification.id);
+                      return (
+                        <li key={notification.id}>
+                          <Link
+                            href={notification.href}
+                            onClick={() => {
+                              setReadNotifications((ids) => [
+                                ...new Set([...ids, notification.id]),
+                              ]);
+                              setNotificationsOpen(false);
+                            }}
+                            className={`block rounded-control px-3 py-2 hover:bg-canvas ${isRead ? 'opacity-70' : 'bg-brand-50'}`}
+                          >
+                            <span className="block text-sm font-medium text-text">
+                              {notification.title}
+                            </span>
+                            <span className="block text-xs text-muted">{notification.detail}</span>
+                          </Link>
+                        </li>
+                      );
+                    })
+                  ) : (
+                    <li className="px-3 py-4 text-sm text-muted">You&apos;re all caught up.</li>
+                  )}
+                </ul>
+              </section>
+            ) : null}
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-label="Notifications"
+            className="relative rounded-control p-2 text-text hover:bg-canvas"
+          >
+            <Bell aria-hidden className="size-5" />
+            <span aria-hidden className="absolute right-2 top-2 size-2 rounded-full bg-danger" />
+          </button>
+        )}
 
         <div className="relative">
           <button
