@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, Contact, FileCheck2, FileText, ShieldCheck } from 'lucide-react';
+import { Building2, Contact, FileCheck2, FileText, History, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { Card } from '@firmivra/ui';
 import type { FirmApplication } from './application-data';
@@ -102,6 +102,25 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
           )}
         </Card>
       </div>
+
+      <Card>
+        <SectionTitle icon={History}>Application History</SectionTitle>
+        <ol className="mt-5 space-y-5 border-l border-border pl-5">
+          {application.history.map((event, index) => (
+            <li key={`${event.at}-${index}`} className="relative">
+              <span
+                aria-hidden
+                className="absolute -left-[1.56rem] top-1 size-3 rounded-full bg-brand-700 ring-4 ring-surface"
+              />
+              <p className="text-sm font-semibold text-text">{event.title}</p>
+              <p className="mt-1 text-sm text-muted">{event.detail}</p>
+              <time className="mt-1 block text-xs text-muted" dateTime={event.at}>
+                {formatDate(event.at)}
+              </time>
+            </li>
+          ))}
+        </ol>
+      </Card>
     </div>
   );
 }
