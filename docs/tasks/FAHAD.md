@@ -68,6 +68,14 @@ Checklist:
 - [ ] The existing Playwright sign-in tests still pass
 - [ ] Split sign-in and activate into two PRs if it goes over 400 lines
 
+F02 implementation ready for review (Oct 7): shared auth layout, sign-in/MFA,
+password recovery and fragment activation are isolated into four sub-400-line reviews.
+Local checks: 23 browser regressions passed; 16 auth/sign-in checks passed again.
+Real activation smoke passed against unchanged `rasel/R2-step6` (synthetic invite,
+QR, MFA, workspace and replay refusal). R1 web kit, F01 tokens and R2 activation
+must merge before dev verification. Tumit/Rasel visual review and merge remain pending;
+the checklist is intentionally not marked Done before those steps.
+
 ### F03 · Oct 8 · Firm dashboard and menu
 
 - **Pages:** the dashboard in `firm/(workspace)/page.tsx`, and the firm's menu in `firm/(workspace)/layout.tsx`. R1 made the shell (sign-in check, sidebar, header). Its look lives in `apps/web/src/components/app-shell/` and is Tumit's: he matches it to the Super Admin mockup on Oct 7, so the firm site gets the same look.
