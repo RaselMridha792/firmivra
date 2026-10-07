@@ -1,10 +1,11 @@
-import type { BusinessSummary, MeResponse } from '@firmivra/types';
+import { ApiRequestError, type BusinessSummary, type MeResponse } from '@firmivra/types';
 import { MOCK_ROLE, mockDelay } from '../lib/mock';
 
 /**
- * Mock of the signed-in staff user and their firm (`api.me`, `api.currentBusiness`), for
- * <RequireRole> and screens in mock mode. Synthetic data only. Pick the role with
- * NEXT_PUBLIC_API_MOCK_ROLE=OWNER | ADMIN | STAFF to check what each role sees.
+ * Mock of the signed-in staff user and their firm (`api.me`, `api.currentBusiness`), and the
+ * portal's firm (`api.portalBusiness`), for <RequireRole> and screens in mock mode. Synthetic data
+ * only. Pick the role with NEXT_PUBLIC_API_MOCK_ROLE=OWNER | ADMIN | STAFF to check what each role
+ * sees.
  */
 export const mockBusiness: BusinessSummary = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -28,5 +29,13 @@ export function createMeMock() {
   return {
     me: async () => (await mockDelay(), me),
     currentBusiness: async () => (await mockDelay(), mockBusiness),
+    /** The portal's firm: only `lvp` exists, as in the portal mock (mocks/client-auth.ts). */
+    portalBusiness: async (slug: string) => {
+      await mockDelay();
+      if (slug.toLowerCase() !== mockBusiness.slug) {
+        throw new ApiRequestError(404, 'NOT_FOUND', 'Not found');
+      }
+      return mockBusiness;
+    },
   };
 }

@@ -18,6 +18,8 @@ import {
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { type ClientsActor, ClientsService } from './clients.service.js';
+import { ClientTaxYearsController, MyTaxYearsController } from './tax-years.controller.js';
+import { TaxYearsService } from './tax-years.service.js';
 
 const idPipe = new ZodValidationPipe(ClientId);
 
@@ -100,5 +102,8 @@ export class ClientsController {
   }
 }
 
-@Module({ controllers: [ClientsController], providers: [ClientsService] })
+@Module({
+  controllers: [ClientsController, ClientTaxYearsController, MyTaxYearsController],
+  providers: [ClientsService, TaxYearsService],
+})
 export class ClientsModule {}

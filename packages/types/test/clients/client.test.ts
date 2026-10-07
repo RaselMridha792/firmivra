@@ -6,6 +6,7 @@ import {
   createMyProfileClient,
   createRequest,
   FirmSlug,
+  TaxYear,
   toQuery,
   UpdateClientProfileRequest,
 } from '../../src/index.js';
@@ -114,6 +115,14 @@ describe('api.clients', () => {
       await expect(call()).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
     }
     expect(calls).toEqual([]);
+  });
+
+  it('takes a tax year as a number or exactly four digits, 2000 to 2100', () => {
+    expect(TaxYear.parse(2026)).toBe(2026);
+    expect(TaxYear.parse('2026')).toBe(2026);
+    for (const bad of ['02026', '2026.0', '0x7EA', '2.026e3', ' 2026', '1999', 2101, 2025.5]) {
+      expect(TaxYear.safeParse(bad).success).toBe(false);
+    }
   });
 
   it('text: one line refuses control characters, notes keep line breaks, "" clears a field', () => {
