@@ -18,6 +18,7 @@ import {
   createMyServicesClient,
   createMyTaxReturnsClient,
   createRequest,
+  createSettingsClient,
   createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
@@ -35,6 +36,7 @@ import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, createMyContentMock } from '../mocks/content';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
+import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { createMyReportsMock, createWorkspacesMock } from '../mocks/workspaces';
@@ -66,6 +68,11 @@ export const api = {
     dev && mocked('taxStatuses')
       ? createTaxStatusesMock({ role: MOCK_ROLE })
       : createTaxStatusesClient(request),
+  /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
+  settings:
+    dev && mocked('settings')
+      ? createSettingsMock({ role: MOCK_ROLE })
+      : createSettingsClient(request),
   /** Pending client sign-ups, approve and decline (docs/api/client-auth.yaml). */
   clientSignUps:
     dev && mocked('clientSignUps')
