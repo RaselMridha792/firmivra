@@ -45,13 +45,13 @@ On Oct 15-16 you and Ibrahim test everything on dev.
   2. Header with the search box (no search yet), the bell and the user menu.
   3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Leave Platform Growth as an empty card saying "Coming soon" (a chart needs a package; ask Rasel later).
 
-**Status (Oct 8, 2026):** Review fixes pushed to PR #58 (`66aa5f7`, synced with `main` at `b205833`); mock-mode UI checks pass. Awaiting CI, local authenticated API check, screenshot attachment and the firm-shell visual check.
+**Status (Oct 8, 2026):** Review fixes pushed to PR #58 (`f95d7c1`), synced with `main` at `b205833`; CI and mock UI checks pass. Dashboard and shared firm shell were checked at desktop/mobile sizes. Local authenticated API E2E and PR screenshot attachment remain open.
 
 Checklist:
 
-- [ ] Close to the mockup at desktop
+- [x] Close to the mockup at desktop
 - [x] At 375 px, the sidebar opens as a drawer and the page has no horizontal overflow (mock-mode Playwright)
-- [ ] The firm site (app.localhost) still looks right with the same shell
+- [x] The firm site (app.localhost) still looks right with the same shell at desktop and 375 px (mock mode)
 - [x] Signed-in loading, error and retry states (mock-mode Playwright)
 - [x] Playwright: the dashboard loads in mock mode
 
