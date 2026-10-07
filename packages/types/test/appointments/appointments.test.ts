@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   ApiRequestError,
-  AppointmentList,
   BookAppointmentRequest,
   CancelAppointmentRequest,
   CreateAppointmentTypeRequest,
@@ -99,49 +98,6 @@ describe('appointment schemas (#68 review)', () => {
     expect(CancelAppointmentRequest.parse({ reason: '' })).toEqual({ reason: null });
     const query = { typeId: id, from: '2026-10-13', to: '2026-10-20', excludeAppointmentId: id };
     expect(SlotsQuery.parse(query)).toMatchObject({ excludeAppointmentId: id });
-  });
-});
-
-describe('calendar entries (Staff access, Rasel Oct 7)', () => {
-  const busy = {
-    restricted: true,
-    id,
-    staff: member,
-    startsAt: at,
-    endsAt: appointment.endsAt,
-    status: 'SCHEDULED',
-  };
-
-  it('reads a whole appointment and a Busy one; a Busy one never keeps client fields', () => {
-    const list = AppointmentList.parse({
-      items: [
-        { ...appointment, restricted: false },
-        // Sent by mistake with the client's details: the Busy shape drops them.
-        { ...appointment, restricted: true },
-      ],
-    });
-    expect(list.items[0]).toMatchObject({ restricted: false, client: appointment.client });
-    expect(list.items[1]).toEqual(busy);
-    // Every entry says which it is.
-    expect(AppointmentList.safeParse({ items: [appointment] }).success).toBe(false);
-    // A whole appointment needs all its fields.
-    expect(AppointmentList.safeParse({ items: [{ ...busy, restricted: false }] }).success).toBe(
-      false,
-    );
-  });
-
-  it('the calendar list returns both kinds', async () => {
-    const listed = fakeFetch(200, { items: [{ ...appointment, restricted: false }, busy] });
-    const items = await createAppointmentsClient(
-      createRequest({ baseUrl: '', fetch: listed.fn }),
-    ).list({ from: at, to: '2026-10-20T14:00:00.000Z', clientId: appointment.client.id });
-    expect(listed.calls[0]?.url).toBe(
-      `/business/appointments?from=${encodeURIComponent(at)}&to=${encodeURIComponent('2026-10-20T14:00:00.000Z')}&clientId=${appointment.client.id}`,
-    );
-    expect(items.map((a) => (a.restricted ? 'busy' : a.client.displayName))).toEqual([
-      'Jamie Sample',
-      'busy',
-    ]);
   });
 });
 

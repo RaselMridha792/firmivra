@@ -14,7 +14,6 @@ import {
   BlockedTimesQuery,
   BookAppointmentRequest,
   BookMyAppointmentRequest,
-  type CalendarAppointment,
   CancelAppointmentRequest,
   CancelMyAppointmentRequest,
   CreateAppointmentTypeRequest,
@@ -34,15 +33,13 @@ import {
   type WorkingHoursRange,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
-import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
+import { firstClientId, type MockFirmRole, mockStaff } from './clients';
 
 /**
  * Mock data for `api.appointmentTypes`, `api.availability`, `api.appointments` and
  * `api.myAppointments(slug)` (R12). Synthetic data only. Same input checks, rules and error codes
  * as the API: roles, 15-minute slots within working hours, SLOT_TAKEN on any overlap, the client's
  * cutoff (CHANGE_WINDOW_CLOSED), final statuses (APPOINTMENT_CLOSED) and the history of changes.
- * `role: 'STAFF'` is Sam Staff, as in mocks/clients.ts: Sam sees in full his own appointments and
- * those of clients 1 and 2 (assigned to him); Riley Example's appointment with Mock User is Busy.
  * The firm's timezone is America/New_York; the mock treats it as a fixed UTC-4 (EDT).
  */
 const TIMEZONE = 'America/New_York';
@@ -55,11 +52,7 @@ export const mockMe: MemberRef = {
   userId: '00000000-0000-4000-8000-000000000101',
   name: 'Mock User',
 };
-/** Who is signed in: Sam Staff in the STAFF role (as in mocks/clients.ts), else Mock User. */
-const signedIn = (role?: MockFirmRole): MemberRef => (role === 'STAFF' ? mockStaff : mockMe);
 const client = { id: firstClientId, displayName: 'Jamie Sample' };
-/** Client 3 in mocks/clients.ts: not assigned to Sam Staff. */
-const riley = { id: '0199b6a1-0000-7000-8000-000000000003', displayName: 'Riley Example' };
 const id = (prefix: string, n: number) =>
   `0199b6c${prefix}-0000-7000-8000-${String(n).padStart(12, '0')}`;
 
@@ -183,9 +176,6 @@ function seed(): Store {
       cancelledAt: at,
       cancelReason: 'Client asked',
     }),
-    // Riley is not Sam's client: Busy for Sam with Mock User, in full where Sam is the staff member.
-    appointment(4, 0, '14:00', { client: riley, staff: mockMe }),
-    appointment(5, 4, '11:00', { client: riley }),
   ];
   const booked = (a: Appointment): AppointmentEvent => ({
     at,
@@ -389,9 +379,8 @@ export function createAppointmentTypesMock(
 
 /** An in-memory `api.availability`; Staff change only their own hours and blocks. */
 export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): AvailabilityClient {
-  const me = signedIn(options.role);
   const mayChange = (userId: string | null) => {
-    if (options.role === 'STAFF' && userId !== me.userId) throw errors.forbidden();
+    if (options.role === 'STAFF' && userId !== mockMe.userId) throw errors.forbidden();
   };
   return {
     get: async () => {
@@ -445,7 +434,7 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         reason: input.reason ?? null,
-        createdBy: me,
+        createdBy: mockMe,
       };
       s.blocks.push(created);
       return copy(created);
@@ -462,32 +451,11 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
   };
 }
 
-/**
- * An in-memory `api.appointments` (the firm's calendar). Firm users change appointments at any
- * time; `role: 'STAFF'` sees and changes in full only Sam's own and his clients' (Busy otherwise).
- */
-export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): AppointmentsClient {
-  const staffOnly = options.role === 'STAFF';
-  const me = signedIn(options.role);
-  const staffBy = { kind: 'STAFF' as const, name: me.name };
-  const assigned = (clientId: string) =>
-    clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === me.userId);
-  const inFull = (a: Appointment) =>
-    !staffOnly || a.staff.userId === me.userId || assigned(a.client.id);
-  const entry = (a: Appointment): CalendarAppointment =>
-    inFull(a)
-      ? { ...a, restricted: false }
-      : {
-          restricted: true,
-          id: a.id,
-          staff: a.staff,
-          startsAt: a.startsAt,
-          endsAt: a.endsAt,
-          status: a.status,
-        };
-  /** Staff: a Busy appointment is 404, like a client record that is not theirs. */
+/** An in-memory `api.appointments` (the firm's calendar). Staff can always change appointments. */
+export function createAppointmentsMock(): AppointmentsClient {
+  const staffBy = { kind: 'STAFF' as const, name: mockMe.name };
   const find = (appointmentId: string) => {
-    const a = db().appointments.find((x) => x.id === appointmentId && inFull(x));
+    const a = db().appointments.find((x) => x.id === appointmentId);
     if (!a) throw errors.notFound();
     return a;
   };
@@ -507,7 +475,6 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
     list: async (query) => {
       await mockDelay();
       const q = parseInput(AppointmentsQuery, query);
-      if (staffOnly && q.clientId && !assigned(q.clientId)) throw errors.notFound();
       return copy(
         db()
           .appointments.filter(
@@ -517,8 +484,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
               (!q.clientId || a.client.id === q.clientId) &&
               (!q.status || a.status === q.status),
           )
-          .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-          .map(entry),
+          .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
       );
     },
     get: async (appointmentId) => {
@@ -549,8 +515,6 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       await mockDelay();
       const input = parseInput(BookAppointmentRequest, body);
       const s = db();
-      const booked = clientFixtures().find((c) => c.id === input.clientId);
-      if (!booked || (staffOnly && !assigned(booked.id))) throw errors.notFound();
       const staff = member(input.staffUserId);
       const t = input.typeId ? s.types.find((x) => x.id === input.typeId) : undefined;
       if (!staff || (input.typeId && !t)) throw errors.notFound();
@@ -559,7 +523,8 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       assertFree(s, { startsAt: input.startsAt, endsAt }, staff.userId, input.clientId);
       const created: Appointment = {
         id: id('3', s.next++),
-        client: { id: booked.id, displayName: booked.displayName },
+        client:
+          input.clientId === client.id ? client : { id: input.clientId, displayName: 'Client' },
         staff,
         type: t ? { id: t.id, name: t.name } : null,
         engagementId: input.engagementId ?? null,

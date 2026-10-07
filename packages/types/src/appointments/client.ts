@@ -107,11 +107,8 @@ export function createAvailabilityClient(request: ApiRequest) {
 export type AvailabilityClient = ReturnType<typeof createAvailabilityClient>;
 
 /**
- * `api.appointments`: the firm's calendar. Owner and Admin see and change everything. Staff see in
- * full only their own appointments and their assigned clients'; the rest of the list is Busy
- * entries (`restricted: true`: time, staff member and status), and anything else they ask for
- * about those is 404. A time someone just took is 409 SLOT_TAKEN (show "someone else just took
- * this time" and reload the slots).
+ * `api.appointments`: the firm's calendar. Everyone at the firm reads and books; a time someone
+ * just took is 409 SLOT_TAKEN (show "someone else just took this time" and reload the slots).
  */
 export function createAppointmentsClient(request: ApiRequest) {
   return {
@@ -119,7 +116,7 @@ export function createAppointmentsClient(request: ApiRequest) {
       const q = parseInput(AppointmentsQuery, query);
       return (await request(AppointmentList, `${APPOINTMENTS}${toQuery(q)}`)).items;
     },
-    /** One appointment with its history (book, reschedules, cancel...). Staff: 404 for a Busy one. */
+    /** One appointment with its history (book, reschedules, cancel...). */
     get: async (id: string): Promise<AppointmentDetail> =>
       request(AppointmentDetail, appointment(id)),
     slots: async (query: SlotsQuery): Promise<SlotList> => {
