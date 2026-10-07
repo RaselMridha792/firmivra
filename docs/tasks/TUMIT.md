@@ -45,7 +45,7 @@ On Oct 15-16 you and Ibrahim test everything on dev.
   2. Header search filters local sample firm/application/user records, supports arrow keys, Enter, Escape and clear, and links results to existing routes. The bell opens the sample notification panel with unread/read behavior; keep the user menu.
   3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Match the mockup's static Platform Growth chart and legend with inline SVG; do not add a chart package. The growth-period selector changes the displayed sample date window and chart.
 
-**Status (Oct 7, 2026):** F04a is pushed to `tumit/FIR-F04a-admin-dashboard`, synchronized with the latest `main`, and open as [PR #58](https://github.com/RaselMridha792/firmivra/pull/58) with title `feat: super admin dashboard (F04a)`. CI is in progress; Fahad's pre-review and Rasel's final review are requested. Dashboard values remain local sample fixtures. This ticket PR has not been merged.
+**Status (Oct 7, 2026):** F04a is pushed through `f9c525c` to `tumit/FIR-F04a-admin-dashboard`, synchronized with the latest `main`, and open as [PR #58](https://github.com/RaselMridha792/firmivra/pull/58) with title `feat: super admin dashboard (F04a)`. GitHub CI is green. Fahad's pre-review and Rasel's final review are requested and still pending. Dashboard values remain local sample fixtures. This ticket PR has not been merged.
 
 Checklist:
 
@@ -66,6 +66,7 @@ The dashboard controls below work against the F04a sample fixtures; they do not 
 
 #### F04a verification record (Oct 7, 2026)
 
+- GitHub CI for PR #58 passed formatting, lint, typecheck, repository tests and production build. The first run exposed the logo's missing static-image type declaration on a clean runner; `apps/web/src/components/app-shell/next-image.d.ts` fixes it.
 - TypeScript check passed: `node node_modules/typescript/bin/tsc --noEmit` from `apps/web`.
 - ESLint passed for the changed shell, dashboard, layout, data and Playwright files.
 - Playwright coverage includes desktop/mobile layout, search, notification read state, chart range selection, settings preview, pending-task navigation, and loading/error/retry states. After the latest-main merge, all 7 cases reported `ok` in Chromium against the local F04a dev server on port 3001. The temporary runner did not exit during dev-server teardown and was interrupted after all cases completed; rerun with the standard repository command before final merge. The temporary Playwright config was removed after verification.
