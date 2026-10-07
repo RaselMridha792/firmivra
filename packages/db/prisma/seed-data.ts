@@ -66,6 +66,8 @@ export const SEED_TAX_STATUSES = {
 
 /** Fixed id so re-seeding keeps a single open invite for lvpInvited. */
 export const SEED_INVITE_ID = '00000000-0000-4000-b000-000000000001';
+/** Fixed id of the activation link Firmivra sent LVP's owner on approval (accepted). */
+export const SEED_OWNER_INVITE_ID = '00000000-0000-4000-b000-000000000002';
 
 /** Fixed ids of the firms' client records, linked to the seeded client logins. */
 export const SEED_CLIENT_IDS = {
