@@ -3,6 +3,7 @@ import {
   createClientsClient,
   createClientSignUpsClient,
   createEngagementsClient,
+  createFirmApplicationsClient,
   createMyProfileClient,
   createMyServicesClient,
   createMyTaxReturnsClient,
@@ -11,6 +12,7 @@ import {
   createTaxStatusesClient,
 } from '@firmivra/types';
 import { createClientSignUpsMock } from '../mocks/client-auth';
+import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { MOCK_ROLE, mocked } from './mock';
@@ -54,4 +56,9 @@ export const api = {
   myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
   myServices: (firmSlug: string) => createMyServicesClient(request, firmSlug),
   myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
+  /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
+  firmApplications:
+    dev && mocked('firmApplications')
+      ? createFirmApplicationsMock()
+      : createFirmApplicationsClient(request),
 };
