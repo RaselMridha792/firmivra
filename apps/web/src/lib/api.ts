@@ -93,7 +93,9 @@ export const api = {
       ? createAvailabilityMock({ role: MOCK_ROLE })
       : createAvailabilityClient(request),
   appointments:
-    dev && mocked('appointments') ? createAppointmentsMock() : createAppointmentsClient(request),
+    dev && mocked('appointments')
+      ? createAppointmentsMock({ role: MOCK_ROLE })
+      : createAppointmentsClient(request),
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')
