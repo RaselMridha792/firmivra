@@ -358,3 +358,16 @@ export function createMyReportsMock(): MyReportsClient {
     },
   };
 }
+
+let mine: Map<string, MyReportsClient> | undefined;
+
+/** `api.myReports(slug)` in mock mode: one mock per firm (by lower-cased slug), kept for the page. */
+export function myReportsMock(firmSlug: string): MyReportsClient {
+  mine ??= new Map();
+  const key = firmSlug.toLowerCase();
+  const found = mine.get(key);
+  if (found) return found;
+  const created = createMyReportsMock();
+  mine.set(key, created);
+  return created;
+}

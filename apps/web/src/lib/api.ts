@@ -39,7 +39,7 @@ import { createMeMock } from '../mocks/me';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
-import { createMyReportsMock, createWorkspacesMock } from '../mocks/workspaces';
+import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked } from './mock';
 import { sessionFetch } from './session';
 
@@ -127,7 +127,7 @@ export const api = {
       : createWorkspacesClient(request),
   /** Workspaces (R12): a client's published reports in My Services, per firm (portal). */
   myReports: (firmSlug: string) =>
-    dev && mocked('myReports') ? createMyReportsMock() : createMyReportsClient(request, firmSlug),
+    dev && mocked('myReports') ? myReportsMock(firmSlug) : createMyReportsClient(request, firmSlug),
   /** Audit log viewer (R12): the firm's own log, for the Owner. */
   auditLog:
     dev && mocked('auditLog')
