@@ -10,9 +10,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
-import type { ActivationCheckResponse, MembershipRole } from '@firmivra/types';
+import {
+  type ActivationCheckResponse,
+  CreateInviteRequest,
+  type MembershipRole,
+} from '@firmivra/types';
 import { AuditService, type AuditEntity } from '../audit/audit.service.js';
 import { type AuthContext, requestContext } from '../common/request-context.js';
+import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -58,6 +63,43 @@ export interface InviteResult {
   name: string;
   role: MembershipRole;
   expiresAt: string;
+}
+
+/** Who a link goes to, and as what: the details an invite stores and emails. */
+interface InviteDetails {
+  name: string;
+  email: string;
+  role: MembershipRole;
+}
+
+/**
+ * What a new link is for: an invite, with the details the inviter gave, or a resend of a
+ * membership's open invite, which takes them from the membership in the invite transaction.
+ */
+type NewLink =
+  ({ kind: 'invite' } & InviteDetails) | { kind: 'resend'; membershipId: string; userId: string };
+
+/**
+ * The route's rules for the typed name and email (CreateInviteRequest, which follows the
+ * invites CHECKs): callers without the route (R4) get its 400 VALIDATION_FAILED too.
+ */
+const typedRules = new ZodValidationPipe(CreateInviteRequest.pick({ name: true, email: true }));
+
+/** invites.name's limit (#52), in UTF-16 units as CreateInviteRequest counts it. */
+const NAME_MAX = 120;
+
+/**
+ * A user row's name made to fit invites.name, for an invite made before #52: users.name took
+ * up to 200 characters and control characters. Each run of control characters becomes one
+ * space, and the name is cut to NAME_MAX, between characters. Empty when nothing else is left.
+ */
+function fitName(name: string): string {
+  let fitted = '';
+  for (const char of name.replace(/\p{Cc}+/gu, ' ').trim()) {
+    if (fitted.length + char.length > NAME_MAX) break;
+    fitted += char;
+  }
+  return fitted.trim();
 }
 
 const inviteInvalid = () =>
@@ -140,24 +182,30 @@ export class InvitesService {
    * a new link (the old one stops working); a deactivated member is invited again; an active
    * member is 409 ALREADY_MEMBER. The answer never shows whether the person has a login elsewhere.
    * The firm must be in setup or active (403 BUSINESS_INACTIVE), also for callers without the
-   * route's guard (R4, the Team API), and within INVITE_LIMITS (429 RATE_LIMITED).
+   * route's guard (R4, the Team API), and within INVITE_LIMITS (429 RATE_LIMITED). The name and
+   * email follow the route's rules for every caller (400 VALIDATION_FAILED), checked before a
+   * login is created.
    */
-  createInvite(input: CreateInviteInput): Promise<InviteResult> {
-    return this.invite(input);
+  async createInvite(input: CreateInviteInput): Promise<InviteResult> {
+    const { name, email } = typedRules.transform({ name: input.name, email: input.email });
+    return this.invite(input.businessId, input.invitedBy, {
+      kind: 'invite',
+      name,
+      email,
+      role: input.role,
+    });
   }
 
   /**
-   * createInvite, and resendInvite's new link: then `onlyIfInvited` names the membership and its
-   * person, and the link is made only while that membership is still INVITED (409 NOT_INVITED).
+   * Makes a link for `link`: createInvite's, or resendInvite's for a membership, made only while
+   * that membership is still INVITED (409 NOT_INVITED).
    */
   private async invite(
-    input: CreateInviteInput,
-    onlyIfInvited?: { membershipId: string; userId: string },
+    businessId: string,
+    invitedBy: Inviter | null,
+    link: NewLink,
   ): Promise<InviteResult> {
-    const email = input.email.trim().toLowerCase();
-    const name = input.name.trim();
-    const { businessId, role, invitedBy } = input;
-    assertMayInvite(invitedBy, role);
+    if (link.kind === 'invite') assertMayInvite(invitedBy, link.role);
 
     const firm = this.db.forBusiness(businessId);
     const business = await firm.business.findUnique({
@@ -173,13 +221,14 @@ export class InvitesService {
     if (sentToday >= INVITE_LIMITS.perFirm) throw tooManyInvites();
 
     // A resend's person is its membership's: never looked up, or created, by email.
-    const userId = onlyIfInvited?.userId ?? (await this.staffUserFor(email, name));
+    const userId =
+      link.kind === 'resend' ? link.userId : await this.staffUserFor(link.email, link.name);
 
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_DAYS * DAY_MS);
     // Retried once if a parallel invite created the membership first (then it is a resend), or
     // an activation or a deactivation changed it meanwhile (then the new state decides).
-    const { inviteId, membershipId, resent } = await retryOnConflict(() =>
+    const { inviteId, membershipId, resent, name, email, role } = await retryOnConflict(() =>
       this.db.withScope({ kind: 'business', businessId }, async (tx) => {
         // Invites to one person at one firm run one at a time, so each revokes the link made by
         // the one before. Only invites take this lock, before any row: no new lock order.
@@ -189,13 +238,18 @@ export class InvitesService {
           where: { userId },
           select: { id: true, status: true, role: true },
         });
-        // A resend checks again here (and on the retry): a deactivation or an activation that
-        // committed since resendInvite read the membership wins.
-        if (
-          onlyIfInvited &&
-          (existing?.id !== onlyIfInvited.membershipId || existing.status !== 'INVITED')
-        ) {
-          throw notInvited();
+        let details: InviteDetails;
+        if (link.kind === 'resend') {
+          // Checked again here (and on the retry): a deactivation or an activation that
+          // committed since resendInvite read the membership wins.
+          if (existing?.id !== link.membershipId || existing.status !== 'INVITED') {
+            throw notInvited();
+          }
+          // What the membership has now, read under the lock: a re-invite that committed
+          // meanwhile (another role, a corrected name) is kept, never written back over.
+          details = { role: existing.role, ...(await this.typedDetails(tx, existing.id, userId)) };
+        } else {
+          details = { name: link.name, email: link.email, role: link.role };
         }
         if (existing?.status === 'ACTIVE') throw alreadyMember();
         // Re-inviting changes an existing membership: the inviter must be allowed its role too.
@@ -207,9 +261,9 @@ export class InvitesService {
           if (toThisPerson >= INVITE_LIMITS.perPerson) throw tooManyInvites();
         }
         const membership = existing
-          ? await this.reinvite(tx, existing, role)
+          ? await this.reinvite(tx, existing, details.role)
           : await tx.membership.create({
-              data: { businessId, userId, role, status: 'INVITED' },
+              data: { businessId, userId, role: details.role, status: 'INVITED' },
               select: { id: true },
             });
         const invite = await tx.invite.create({
@@ -218,8 +272,8 @@ export class InvitesService {
             membershipId: membership.id,
             tokenHash: sha256(token),
             // What the inviter typed (#52): the firm sees this, never the person's user row.
-            name,
-            email,
+            name: details.name,
+            email: details.email,
             expiresAt,
             invitedByUserId: invitedBy?.userId ?? null,
           },
@@ -229,6 +283,7 @@ export class InvitesService {
           inviteId: invite.id,
           membershipId: membership.id,
           resent: existing?.status === 'INVITED',
+          ...details,
         };
       }),
     );
@@ -260,15 +315,16 @@ export class InvitesService {
   }
 
   /**
-   * Back to INVITED with the new role, only if the membership is still as read: an activation
-   * that committed meanwhile is never flipped back (#41 review). Its open links are revoked
-   * first: the invite rows, then the membership, the order activation (`use`) and the Team API's
-   * deactivate lock them in. In the other order, an activation holding the link and waiting for
-   * the membership, and this holding the membership and waiting for the link, deadlock.
+   * Back to INVITED with the new role, only if the membership is still as read (status and
+   * role): an activation that committed meanwhile is never flipped back (#41 review). Its open
+   * links are revoked first: the invite rows, then the membership, the order activation (`use`)
+   * and the Team API's deactivate lock them in. In the other order, an activation holding the
+   * link and waiting for the membership, and this holding the membership and waiting for the
+   * link, deadlock.
    */
   private async reinvite(
     tx: TxClient,
-    existing: { id: string; status: string },
+    existing: { id: string; status: string; role: MembershipRole },
     role: MembershipRole,
   ): Promise<{ id: string }> {
     await tx.invite.updateMany({
@@ -276,7 +332,11 @@ export class InvitesService {
       data: { revokedAt: new Date() },
     });
     const moved = await tx.membership.updateMany({
-      where: { id: existing.id, status: existing.status as 'INVITED' | 'DEACTIVATED' },
+      where: {
+        id: existing.id,
+        status: existing.status as 'INVITED' | 'DEACTIVATED',
+        role: existing.role,
+      },
       data: { status: 'INVITED', role },
     });
     if (moved.count !== 1) throw new MembershipChanged();
@@ -314,8 +374,9 @@ export class InvitesService {
   /**
    * A new link for an open invite (Team API), to the name and email typed for it, never the
    * person's user row (staff users are shared across firms: it may hold the name they use at
-   * another firm). 409 NOT_INVITED unless the membership is INVITED, checked here and again
-   * where the link is made, so a deactivation or an activation that commits first wins.
+   * another firm), with the role the membership has. 409 NOT_INVITED unless the membership is
+   * INVITED. The membership and those details are read again where the link is made, so a
+   * deactivation, an activation or a re-invite that commits first wins.
    */
   async resendInvite(input: {
     businessId: string;
@@ -324,41 +385,43 @@ export class InvitesService {
   }): Promise<InviteResult> {
     const membership = await this.db.forBusiness(input.businessId).membership.findUnique({
       where: { id: input.membershipId },
-      select: {
-        userId: true,
-        role: true,
-        status: true,
-        invites: {
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 1,
-          select: { name: true, email: true },
-        },
-      },
+      select: { userId: true, role: true, status: true },
     });
     if (!membership) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
     if (membership.status !== 'INVITED') throw notInvited();
-    const typed = await this.typedDetails(input.businessId, membership);
-    return this.invite(
-      { businessId: input.businessId, ...typed, role: membership.role, invitedBy: input.invitedBy },
-      { membershipId: input.membershipId, userId: membership.userId },
-    );
+    // Checked again on the role the membership has in the invite transaction.
+    assertMayInvite(input.invitedBy, membership.role);
+    return this.invite(input.businessId, input.invitedBy, {
+      kind: 'resend',
+      membershipId: input.membershipId,
+      userId: membership.userId,
+    });
   }
 
   /**
    * The name and email typed for the membership's newest invite. Invites made before #52 have
-   * none: then the person's user row, as before, only for what is missing.
+   * none: then the person's user row, only for what is missing, its name made to fit the rule
+   * (or, if nothing of it is left, the email address).
    */
   private async typedDetails(
-    businessId: string,
-    membership: { userId: string; invites: { name: string | null; email: string | null }[] },
+    tx: TxClient,
+    membershipId: string,
+    userId: string,
   ): Promise<{ name: string; email: string }> {
-    const latest = membership.invites[0];
-    if (latest?.name && latest.email) return { name: latest.name, email: latest.email };
-    const user = await this.db.forBusiness(businessId).user.findUniqueOrThrow({
-      where: { id: membership.userId },
+    const latest = await tx.invite.findFirst({
+      where: { membershipId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { name: true, email: true },
     });
-    return { name: latest?.name ?? user.name, email: latest?.email ?? user.email };
+    if (latest?.name && latest.email) return { name: latest.name, email: latest.email };
+    const user = await tx.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { name: true, email: true },
+    });
+    return {
+      name: latest?.name ?? (fitName(user.name) || fitName(user.email)),
+      email: latest?.email ?? user.email,
+    };
   }
 
   /** What the activation screen shows. 404 INVITE_INVALID, 410 INVITE_EXPIRED. */

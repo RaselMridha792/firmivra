@@ -708,20 +708,23 @@ describe('resend, deactivation and activation races, and the typed details (#57 
     });
 
   /**
-   * Holds the membership row as an update would, so the next writer of it waits. `waiting(n)`
-   * resolves once n backends wait on the holder, directly or behind each other.
+   * A transaction in the firm that takes what `take` locks, so the next one to want it waits.
+   * `waiting(n)` resolves once n backends wait on the holder, directly or behind each other;
+   * `release(work)` runs `work` in the holder's transaction, then commits.
    */
-  async function holdMembership(businessId: string, membershipId: string) {
-    let release!: () => void;
-    const released = new Promise<void>((resolve) => (release = resolve));
+  async function hold(businessId: string, take: (tx: TxClient) => Promise<void>) {
+    type Work = ((tx: TxClient) => Promise<unknown>) | undefined;
+    let release!: (work: Work) => void;
+    const released = new Promise<Work>((resolve) => (release = resolve));
     let holding!: (pid: number) => void;
     const pid = new Promise<number>((resolve) => (holding = resolve));
     const done = inFirm(businessId, async (tx) => {
-      const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid
-        FROM memberships WHERE id = ${membershipId}::uuid FOR NO KEY UPDATE`;
-      if (!row) throw new Error('no membership to hold');
+      await take(tx);
+      const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+      if (!row) throw new Error('no backend');
       holding(row.pid);
-      await released;
+      const work = await released;
+      await work?.(tx);
     });
     const holder = await Promise.race([pid, done.then(() => Promise.reject(new Error('ended')))]);
     const waiting = async (n: number) => {
@@ -735,16 +738,53 @@ describe('resend, deactivation and activation races, and the typed details (#57 
           SELECT count(*)::int AS n FROM waiting`;
         if ((row?.n ?? 0) >= n) return;
       }
-      throw new Error(`fewer than ${n} waiting for the membership`);
+      throw new Error(`fewer than ${n} waiting for the holder`);
     };
     return {
       waiting,
-      release: () => {
-        release();
+      release: (work?: (tx: TxClient) => Promise<unknown>) => {
+        release(work);
         return done;
       },
     };
   }
+
+  /** Holds the membership row as an update would, so the next writer of it waits. */
+  const holdMembership = (businessId: string, membershipId: string) =>
+    hold(businessId, async (tx) => {
+      const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM memberships
+        WHERE id = ${membershipId}::uuid FOR NO KEY UPDATE`;
+      if (rows.length !== 1) throw new Error('no membership to hold');
+    });
+
+  /** Holds InvitesService's lock on invites to this person at this firm (its key). */
+  const holdInviteLock = (businessId: string, userId: string) =>
+    hold(businessId, async (tx) => {
+      const key = `staff-invite:${businessId}:${userId}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+    });
+
+  /** An invite made before #52: no typed name or email, as R2's code wrote them then. */
+  const legacyInvite = (
+    firm: { id: string; owner: { userId: string } },
+    person: { id: string },
+    role: 'ADMIN' | 'STAFF' = 'STAFF',
+  ) =>
+    inFirm(firm.id, async (tx) => {
+      const { id } = await tx.membership.create({
+        data: { businessId: firm.id, userId: person.id, role, status: 'INVITED' },
+      });
+      await tx.invite.create({
+        data: {
+          businessId: firm.id,
+          membershipId: id,
+          tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+          expiresAt: new Date(Date.now() + 86_400_000),
+          invitedByUserId: firm.owner.userId,
+        },
+      });
+      return id;
+    });
 
   it('a resend never re-invites a member deactivated first: 200 or 409 NOT_INVITED, never 500', async () => {
     const firm = await newFirm('rd');
@@ -865,6 +905,83 @@ describe('resend, deactivation and activation races, and the typed details (#57 
     expect(failures).toEqual([]);
   }, 60_000);
 
+  it('a resend that waited for a re-invite keeps what the re-invite set: role and typed name', async () => {
+    const firm = await newFirm('stale');
+    const rounds: unknown[] = [];
+    for (const before52 of [false, true]) {
+      // Already staff at another firm. Invited as an admin under a misspelt name, or before #52
+      // (no typed details, so a resend falls back to the user row).
+      const person = await newPerson('stale', 'Name At Another Firm');
+      const membershipId = before52
+        ? await legacyInvite(firm, person, 'ADMIN')
+        : (
+            await service.createInvite({
+              businessId: firm.id,
+              email: person.email,
+              name: 'Old Typo Nmae',
+              role: 'ADMIN',
+              invitedBy: firm.owner,
+            })
+          ).membershipId;
+      // Another owner invites them again as staff, the name corrected, as createInvite does it
+      // and under its lock: the resend has read the membership by then, and waits for the lock.
+      const reinvite = await holdInviteLock(firm.id, person.id);
+      const resend = settle(
+        service.resendInvite({ businessId: firm.id, membershipId, invitedBy: firm.owner }),
+      );
+      await reinvite.waiting(1);
+      await reinvite.release(async (tx) => {
+        await tx.invite.updateMany({
+          where: { membershipId, acceptedAt: null, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        await tx.membership.update({ where: { id: membershipId }, data: { role: 'STAFF' } });
+        await tx.invite.create({
+          data: {
+            businessId: firm.id,
+            membershipId,
+            tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+            name: 'Fixed Name',
+            email: person.email,
+            expiresAt: new Date(Date.now() + 86_400_000),
+            invitedByUserId: firm.owner.userId,
+          },
+        });
+      });
+      const said = await resend;
+      const after = await inFirm(firm.id, async (tx) => ({
+        member: await tx.membership.findUniqueOrThrow({
+          where: { id: membershipId },
+          select: { role: true },
+        }),
+        open: await tx.invite.findMany({
+          where: { membershipId, acceptedAt: null, revokedAt: null },
+          select: { name: true, email: true },
+        }),
+      }));
+      const mail = outbox.at(-1);
+      rounds.push({
+        before52,
+        answer:
+          said.status === 'fulfilled'
+            ? { role: said.value.role, name: said.value.name }
+            : answer(said),
+        member: after.member.role,
+        open: after.open.map((i) => [i.name, i.email === person.email]),
+        emailed: mail?.to === person.email ? mail.name : null,
+      });
+    }
+    expect(rounds).toEqual(
+      [false, true].map((before52) => ({
+        before52,
+        answer: { role: 'STAFF', name: 'Fixed Name' },
+        member: 'STAFF',
+        open: [['Fixed Name', true]],
+        emailed: 'Fixed Name',
+      })),
+    );
+  });
+
   it("keeps the typed name and email; a resend sends those, never the person's user row", async () => {
     const firm = await newFirm('typed');
     // Already staff at another firm, under the name they use there.
@@ -901,21 +1018,7 @@ describe('resend, deactivation and activation races, and the typed details (#57 
   it('resends an invite from before #52 (no typed details) to the user row, kept from then on', async () => {
     const firm = await newFirm('legacy');
     const person = await newPerson('legacy', 'Legacy Row Name');
-    const membershipId = await inFirm(firm.id, async (tx) => {
-      const { id } = await tx.membership.create({
-        data: { businessId: firm.id, userId: person.id, role: 'STAFF', status: 'INVITED' },
-      });
-      await tx.invite.create({
-        data: {
-          businessId: firm.id,
-          membershipId: id,
-          tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
-          expiresAt: new Date(Date.now() + 86_400_000),
-          invitedByUserId: firm.owner.userId,
-        },
-      });
-      return id;
-    });
+    const membershipId = await legacyInvite(firm, person);
     const resent = await service.resendInvite({
       businessId: firm.id,
       membershipId,
@@ -930,6 +1033,33 @@ describe('resend, deactivation and activation races, and the typed details (#57 
       }),
     );
     expect(stored).toEqual(fromRow);
+  });
+
+  it('fits a user row name invites.name would refuse, for an invite from before #52', async () => {
+    const firm = await newFirm('fit');
+    // users.name took up to 200 characters and control characters (it has no CHECK).
+    const rows = [
+      { rowName: 'N'.repeat(150), fitted: 'N'.repeat(120) },
+      { rowName: 'Tab\tName\u0007', fitted: 'Tab Name' },
+    ];
+    const got: unknown[] = [];
+    for (const { rowName } of rows) {
+      const person = await newPerson('fit', rowName);
+      const membershipId = await legacyInvite(firm, person);
+      const said = await settle(
+        service.resendInvite({ businessId: firm.id, membershipId, invitedBy: firm.owner }),
+      );
+      if (said.status === 'rejected') {
+        got.push(answer(said));
+        continue;
+      }
+      const stored = await inFirm(firm.id, (tx) =>
+        tx.invite.findUniqueOrThrow({ where: { id: said.value.id }, select: { name: true } }),
+      );
+      // Answered, stored and emailed.
+      got.push([said.value.name, stored.name, outbox.at(-1)?.name]);
+    }
+    expect(got).toEqual(rows.map(({ fitted }) => [fitted, fitted, fitted]));
   });
 
   it("the platform's owner invite (R4, invitedBy null) keeps the typed details too", async () => {
@@ -956,6 +1086,45 @@ describe('resend, deactivation and activation races, and the typed details (#57 
       }),
     );
     expect(stored).toEqual({ name: 'Primary Admin', email, invitedByUserId: null });
+  });
+
+  it("holds the platform's owner invite (R4) to the route's rules: 400, and no login is made", async () => {
+    const slug = `r2-r4-bad-${randomUUID().slice(0, 8)}`;
+    const { id: businessId } = await runInScope(ownerDb, { kind: 'platform' }, (tx) =>
+      tx.business.create({
+        data: { slug, name: slug, status: 'PENDING_SETUP' },
+        select: { id: true },
+      }),
+    );
+    const email = `r2-r4-bad-${randomUUID()}@race.test`;
+    const notAnEmail = `r2-r4-not-an-email-${randomUUID()}`;
+    // R4's application takes a primary admin's full name of up to 200 characters.
+    const cases = [
+      { name: 'x'.repeat(121) },
+      { name: 'x'.repeat(200) },
+      { name: 'Bell\u0007Name' },
+      { email: notAnEmail },
+    ];
+    const said: string[] = [];
+    for (const bad of cases) {
+      const result = await settle(
+        service.createInvite({
+          businessId,
+          email,
+          name: 'Primary Admin',
+          ...bad,
+          role: 'OWNER',
+          invitedBy: null,
+        }),
+      );
+      said.push(answer(result));
+    }
+    expect(said).toEqual(cases.map(() => '400 VALIDATION_FAILED'));
+    const users = await runInScope(ownerDb, { kind: 'platform' }, (tx) =>
+      tx.user.count({ where: { email: { in: [email, notAnEmail] } } }),
+    );
+    expect(users).toBe(0);
+    expect(outbox.filter((m) => m.to === email || m.to === notAnEmail)).toEqual([]);
   });
 
   it('refuses a name the database would refuse with 400, before writing anything', async () => {
