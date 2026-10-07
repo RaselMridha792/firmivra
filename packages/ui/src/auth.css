@@ -164,6 +164,8 @@
   color: var(--auth-ink);
 }
 .auth-form input:not([type='checkbox']) {
+  width: 100%;
+  min-width: 0;
   height: var(--auth-control-height);
   border-color: var(--auth-line);
   border-radius: var(--auth-control-radius);
