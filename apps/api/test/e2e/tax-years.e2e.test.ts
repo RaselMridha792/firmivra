@@ -353,27 +353,17 @@ describe('audit', () => {
 });
 
 /**
- * Holds what a change of this year waits for: the service's lock and the year's row (fea6692's
- * PUT waited on the row after its reads). `during` runs in the holding transaction.
+ * Runs `change` in a firm A transaction and keeps it open, with the locks it took, until
+ * released: a change at the same time as a PUT, committed while the PUT waits on it.
  */
-async function holdYear(
-  clientId: string,
-  taxYear: number,
-  during?: (tx: TxClient) => Promise<unknown>,
-) {
+async function holdChange(change: (tx: TxClient) => Promise<unknown>) {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
   let letGo!: () => void;
   const released = new Promise<void>((resolve) => (letGo = resolve));
   let held!: (pid: number) => void;
   const pid = new Promise<number>((resolve) => (held = resolve));
   const holder = runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
-    const key = taxYearLockKey(ids.firmA, clientId, taxYear);
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
-    await tx.$executeRaw`
-      SELECT 1 FROM client_tax_statuses
-      WHERE business_id = ${ids.firmA}::uuid AND client_id = ${clientId}::uuid AND tax_year = ${taxYear}
-      FOR UPDATE`;
-    await during?.(tx);
+    await change(tx);
     const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
     held(row!.pid);
     await released;
@@ -389,7 +379,7 @@ async function holdYear(
         if (row!.n > 0) return;
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      throw new Error('nothing waited on the held year');
+      throw new Error('nothing waited on the held change');
     },
     async release() {
       letGo();
@@ -397,6 +387,22 @@ async function holdYear(
       await owner.$disconnect();
     },
   };
+}
+
+/**
+ * Holds what a change of this year waits for: the service's lock and the year's row (fea6692's
+ * PUT waited on the row after its reads). `during` runs in the holding transaction.
+ */
+function holdYear(clientId: string, taxYear: number, during?: (tx: TxClient) => Promise<unknown>) {
+  return holdChange(async (tx) => {
+    const key = taxYearLockKey(ids.firmA, clientId, taxYear);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+    await tx.$executeRaw`
+      SELECT 1 FROM client_tax_statuses
+      WHERE business_id = ${ids.firmA}::uuid AND client_id = ${clientId}::uuid AND tax_year = ${taxYear}
+      FOR UPDATE`;
+    await during?.(tx);
+  });
 }
 
 async function inFirmA<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -470,6 +476,35 @@ describe('changes at the same time', () => {
       tx.clientTaxStatus.findFirst({ where: { clientId: ids.client3, taxYear: 2025 } }),
     );
     expect(row?.taxStatusId).toBe(ids.filed);
+  });
+
+  it('a Staff change that waited on a reassignment away is 404, nothing written', async () => {
+    const { id } = await inFirmA((tx) =>
+      tx.client.create({
+        data: {
+          businessId: ids.firmA,
+          displayName: 'Reassigned',
+          assignedUserId: people.staffA.id,
+        },
+        select: { id: true },
+      }),
+    );
+    // Not yet committed when staffA's PUT reads the client, so only the locked read sees it.
+    const reassigning = await holdChange((tx) =>
+      tx.client.update({ where: { id }, data: { assignedUserId: people.staffA2.id } }),
+    );
+    const put = firm('put', `/${id}/tax-years/2025`, people.staffA, ids.firmA, {
+      taxStatusId: ids.filed,
+    });
+    await reassigning.waitedOn();
+    await reassigning.release();
+    const res = await put;
+    expect([res.status, codeOf(res)]).toEqual([404, 'NOT_FOUND']);
+    const written = await inFirmA(async (tx) => [
+      await tx.clientTaxStatus.count({ where: { clientId: id } }),
+      await tx.clientTaxStatusHistory.count({ where: { clientId: id } }),
+    ]);
+    expect(written).toEqual([0, 0]);
   });
 
   it('a change that changes nothing writes nothing', async () => {
