@@ -10,7 +10,7 @@ import { EngagementStatus } from '../engagements/schemas.js';
 // records). Whoever sees a workspace drafts, edits, publishes and unpublishes its reports (R12
 // Decisions). Reports change only while the engagement is open (PENDING or ACTIVE): on a
 // COMPLETED or CANCELLED one, create, edit and publish are 409 ENGAGEMENT_CLOSED; unpublish
-// always works. Publishing sends the client no notice for now (R12 Decisions).
+// always works, and so does deleting a draft that was never published (the client never saw it). Publishing sends the client no notice for now (R12 Decisions).
 // The client side follows My Services: the logins that see a service there see its published
 // reports, for as long as the service is shown. What each part uses:
 // - status and stage: R10's `api.engagements` (update, complete, cancel), not a copy;

@@ -259,8 +259,10 @@ export function createWorkspacesMock(options: { role?: MockFirmRole } = {}): Wor
     },
     reports: async (engagementId, query = {}) => {
       await mockDelay();
-      const w = workspace(engagementId);
+      // Bad input is 400 before an unknown id is 404, as in the API.
       const q = parseInput(ReportsQuery, query);
+      mockOffset(q.cursor);
+      const w = workspace(engagementId);
       const all = reportStore()
         .filter((r) => r.engagementId === w.engagementId && (!q.status || r.status === q.status))
         .sort(newestFirst);
@@ -268,8 +270,8 @@ export function createWorkspacesMock(options: { role?: MockFirmRole } = {}): Wor
     },
     createReport: async (engagementId, body) => {
       await mockDelay();
-      const w = workspace(engagementId);
       const input = parseInput(CreateReportRequest, body);
+      const w = workspace(engagementId);
       open(w);
       if (!REPORT_KINDS[w.kind].includes(input.kind)) {
         throw fail(409, 'WRONG_REPORT_KIND', 'That report kind does not belong to this workspace');
@@ -291,8 +293,8 @@ export function createWorkspacesMock(options: { role?: MockFirmRole } = {}): Wor
     },
     updateReport: async (id, body) => {
       await mockDelay();
-      const { r, w } = find(id);
       const input = parseInput(UpdateReportRequest, body);
+      const { r, w } = find(id);
       open(w);
       attachable(w.engagementId, input.documentId);
       return copy(touch(r, input));
@@ -339,6 +341,7 @@ export function createMyReportsMock(): MyReportsClient {
       await mockDelay();
       const engagementId = parseInput(EngagementId, id);
       const q = parseInput(MyReportsQuery, query);
+      mockOffset(q.cursor);
       if (!base.some((w) => w.engagementId === engagementId && w.client.id === client.id)) {
         throw notFound();
       }

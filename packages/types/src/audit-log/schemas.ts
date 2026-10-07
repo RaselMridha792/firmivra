@@ -29,24 +29,29 @@ export type AuditActorKind = z.infer<typeof AuditActorKind>;
 /** Who did it: a person of the firm or a client, or Firmivra Support (never the person). */
 export const AuditActor = z.discriminatedUnion('kind', [
   z.object({ kind: z.enum(['STAFF', 'CLIENT']), userId: z.uuid(), name: z.string() }),
-  /** A Super Admin through a support grant: always named "Firmivra Support". */
-  z.object({ kind: z.literal('PLATFORM'), userId: z.null(), name: z.string() }),
+  /** A Super Admin through a support grant: never their id or name. */
+  z.object({ kind: z.literal('PLATFORM'), userId: z.null(), name: z.literal('Firmivra Support') }),
 ]);
 export type AuditActor = z.infer<typeof AuditActor>;
 
-export const AuditEntry = z.object({
-  id: z.uuid(),
-  at: DateTime,
-  /** For example "client_account.approved", "appointment.rescheduled". */
-  action: z.string(),
-  /** Null for the system and signed-out requests. */
-  actor: AuditActor.nullable(),
-  entity: z.object({ type: z.string(), id: z.string().nullable() }),
-  metadata: z.record(z.string(), z.unknown()),
-  /** The request's IP; null for Firmivra Support and the system. */
-  ip: z.string().nullable(),
-  requestId: z.string().nullable(),
-});
+export const AuditEntry = z
+  .object({
+    id: z.uuid(),
+    at: DateTime,
+    /** For example "client_account.approved", "appointment.rescheduled". */
+    action: z.string(),
+    /** Null for the system and signed-out requests. */
+    actor: AuditActor.nullable(),
+    entity: z.object({ type: z.string(), id: z.string().nullable() }),
+    metadata: z.record(z.string(), z.unknown()),
+    /** The request's IP; always null for Firmivra Support. */
+    ip: z.string().nullable(),
+    requestId: z.string().nullable(),
+  })
+  .refine((e) => e.actor?.kind !== 'PLATFORM' || e.ip === null, {
+    message: 'A Firmivra Support row has no IP',
+    path: ['ip'],
+  });
 export type AuditEntry = z.infer<typeof AuditEntry>;
 
 /**

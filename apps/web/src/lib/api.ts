@@ -134,7 +134,7 @@ export const api = {
   /** Workspaces (R12): a client's published reports in My Services, per firm (portal). */
   myReports: (firmSlug: string) =>
     dev && mocked('myReports') ? myReportsMock(firmSlug) : createMyReportsClient(request, firmSlug),
-  /** Audit log viewer (R12): the firm's own log, for the Owner. */
+  /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
   auditLog:
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })

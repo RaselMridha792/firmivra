@@ -77,6 +77,13 @@ export function taskFixtures(): readonly Task[] {
       details: 'Requested: Jamie Q. Sample',
     }),
     fixture(5, { title: 'Send the engagement letter', status: 'DONE', completedAt: at }),
+    // An earlier name change, closed: reopening it while task 4 is open is NAME_CHANGE_PENDING.
+    fixture(7, {
+      title: 'Update the client name',
+      kind: 'NAME_CHANGE',
+      details: 'Requested: Jamie Sample-Smith',
+      status: 'CANCELLED',
+    }),
     fixture(6, {
       title: "Another staff member's client",
       client: other,

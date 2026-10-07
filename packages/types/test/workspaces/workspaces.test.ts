@@ -120,6 +120,10 @@ describe('#71 review', () => {
     expect(AuditEntry.safeParse(withPerson).success).toBe(false);
     const staffWithout = { ...entry, actor: { kind: 'STAFF', userId: null, name: 'Sam' } };
     expect(AuditEntry.safeParse(staffWithout).success).toBe(false);
+    // Nor a person's name or an IP.
+    const named = { ...entry, actor: { ...entry.actor, name: 'Pat Admin' } };
+    expect(AuditEntry.safeParse(named).success).toBe(false);
+    expect(AuditEntry.safeParse({ ...entry, ip: '203.0.113.10' }).success).toBe(false);
   });
 });
 
