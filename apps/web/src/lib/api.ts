@@ -1,7 +1,13 @@
 import {
   createApiClient,
+  createClientsClient,
   createClientSignUpsClient,
+  createEngagementsClient,
+  createMyProfileClient,
+  createMyServicesClient,
+  createMyTaxReturnsClient,
   createRequest,
+  createTaxReturnsClient,
   createTaxStatusesClient,
 } from '@firmivra/types';
 import { createClientSignUpsMock } from '../mocks/client-auth';
@@ -40,4 +46,12 @@ export const api = {
     dev && mocked('clientSignUps')
       ? createClientSignUpsMock({ role: MOCK_ROLE })
       : createClientSignUpsClient(request),
+  /** Client records (R10): firm side. */
+  clients: createClientsClient(request),
+  engagements: createEngagementsClient(request),
+  taxReturns: createTaxReturnsClient(request),
+  /** Client records (R10): the signed-in client's own, per firm (portal). */
+  myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
+  myServices: (firmSlug: string) => createMyServicesClient(request, firmSlug),
+  myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
 };
