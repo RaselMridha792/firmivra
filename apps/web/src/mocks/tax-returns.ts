@@ -11,14 +11,14 @@ import {
   type TaxReturnsClient,
   UpdateTaxReturnRequest,
 } from '@firmivra/types';
-import { clientFixtures, mockStaff, type MockFirmRole } from './clients';
+import { clientFixtures, firstClientId, mockStaff, type MockFirmRole } from './clients';
 
 /**
  * Mock data for `api.taxReturns` and `api.myTaxReturns(slug)` (R10), shaped like the Taxes tab
  * mockup. Synthetic data only. Same input checks, rules and error codes as the API.
  */
 const at = '2026-10-01T09:00:00.000Z';
-const client = clientFixtures[0]!.id;
+const client = firstClientId;
 const fixture = (n: number, data: Partial<TaxReturn> & { taxYear: number }): TaxReturn =>
   TaxReturn.parse({
     id: `0199b6a3-0000-7000-8000-${String(n).padStart(12, '0')}`,
@@ -39,27 +39,33 @@ const pdf = (n: number, taxYear: number) => ({
   fileName: `${taxYear} Tax Return.pdf`,
 });
 
-export const taxReturnFixtures: readonly TaxReturn[] = [
-  fixture(1, { taxYear: 2025, status: 'IN_PROGRESS' }),
-  fixture(2, {
-    taxYear: 2025,
-    quarter: 3,
-    formType: '1040-ES',
-    status: 'FILED',
-    filedOn: '2025-09-15',
-  }),
-  ...(
-    [
-      [2024, '2025-04-12'],
-      [2023, '2024-04-10'],
-      [2022, '2023-03-28'],
-      [2021, '2022-03-15'],
-      [2020, '2021-03-20'],
-    ] as const
-  ).map(([taxYear, filedOn], i) =>
-    fixture(10 + i, { taxYear, filedOn, document: pdf(i, taxYear) }),
-  ),
-];
+let fixtures: readonly TaxReturn[] | undefined;
+
+/** The first portal client's returns. Built on first use: importing this file runs nothing. */
+export function taxReturnFixtures(): readonly TaxReturn[] {
+  fixtures ??= [
+    fixture(1, { taxYear: 2025, status: 'IN_PROGRESS' }),
+    fixture(2, {
+      taxYear: 2025,
+      quarter: 3,
+      formType: '1040-ES',
+      status: 'FILED',
+      filedOn: '2025-09-15',
+    }),
+    ...(
+      [
+        [2024, '2025-04-12'],
+        [2023, '2024-04-10'],
+        [2022, '2023-03-28'],
+        [2021, '2022-03-15'],
+        [2020, '2021-03-20'],
+      ] as const
+    ).map(([taxYear, filedOn], i) =>
+      fixture(10 + i, { taxYear, filedOn, document: pdf(i, taxYear) }),
+    ),
+  ];
+  return fixtures;
+}
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
@@ -85,11 +91,11 @@ const documentRef = (documentId: string | null | undefined, current: TaxReturn['
 /** An in-memory `api.taxReturns`. `role: 'STAFF'` reaches only Sam Staff's clients. */
 export function createTaxReturnsMock(options: { role?: MockFirmRole } = {}): TaxReturnsClient {
   const clients = new Set(
-    clientFixtures
+    clientFixtures()
       .filter((c) => options.role !== 'STAFF' || c.assignedTo?.userId === mockStaff.userId)
       .map((c) => c.id),
   );
-  let rows: TaxReturn[] = taxReturnFixtures.map((r) => structuredClone(r));
+  let rows: TaxReturn[] = taxReturnFixtures().map((r) => structuredClone(r));
   /** Returns that ever left IN_PROGRESS (the database's first_filed_at). */
   const everFiled = new Set(rows.filter((r) => r.status !== 'IN_PROGRESS').map((r) => r.id));
   let nextId = 100;
@@ -169,7 +175,7 @@ export function createMyTaxReturnsMock(): MyTaxReturnsClient {
     list: async (query = {}) => {
       await pause();
       const q = parseInput(MyTaxReturnsQuery, query);
-      return taxReturnFixtures
+      return taxReturnFixtures()
         .filter((r) => r.clientId === client)
         .filter((r) => q.taxYear === undefined || r.taxYear === q.taxYear)
         .filter((r) => !q.kind || (q.kind === 'quarterly') === (r.quarter !== null))

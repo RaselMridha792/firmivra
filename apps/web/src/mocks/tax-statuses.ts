@@ -17,7 +17,7 @@ import {
  */
 const at = '2026-10-06T09:00:00.000Z';
 const fixture = (n: number, name: string, archived = false): TaxStatus =>
-  // Parsed, so a fixture that breaks the contract fails as soon as the mock loads.
+  // Parsed, so a fixture that breaks the contract fails on first use.
   TaxStatus.parse({
     id: `0199b6a0-0000-7000-8000-${String(n).padStart(12, '0')}`,
     name,
@@ -27,15 +27,21 @@ const fixture = (n: number, name: string, archived = false): TaxStatus =>
     updatedAt: at,
   });
 
-export const taxStatusFixtures: readonly TaxStatus[] = [
-  fixture(1, 'Waiting for documents'),
-  fixture(2, 'Documents received'),
-  fixture(3, 'In preparation'),
-  fixture(4, 'Ready for review'),
-  fixture(5, 'Filed'),
-  fixture(6, 'Accepted'),
-  fixture(7, 'Extension filed', true),
-];
+let fixtures: readonly TaxStatus[] | undefined;
+
+/** Six active statuses and one archived. Built on first use: importing this file runs nothing. */
+export function taxStatusFixtures(): readonly TaxStatus[] {
+  fixtures ??= [
+    fixture(1, 'Waiting for documents'),
+    fixture(2, 'Documents received'),
+    fixture(3, 'In preparation'),
+    fixture(4, 'Ready for review'),
+    fixture(5, 'Filed'),
+    fixture(6, 'Accepted'),
+    fixture(7, 'Extension filed', true),
+  ];
+  return fixtures;
+}
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
@@ -51,7 +57,7 @@ export function createTaxStatusesMock(
   options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {},
 ): TaxStatusesClient {
   // Rows are replaced, never edited, and callers always get copies, like a real API response.
-  let rows: TaxStatus[] = taxStatusFixtures.map((row) => ({ ...row }));
+  let rows: TaxStatus[] = taxStatusFixtures().map((row) => ({ ...row }));
   let nextId = 100;
   const now = () => new Date().toISOString();
   const active = () => rows.filter((row) => !row.archivedAt).sort(byOrder);
