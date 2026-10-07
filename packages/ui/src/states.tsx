@@ -11,9 +11,6 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-card border border-border bg-surface p-8 text-center">
-      <span aria-hidden="true" className="text-3xl text-muted">
-        ◇
-      </span>
       <h2 className="text-lg font-semibold text-heading">{title}</h2>
       <p className="max-w-auth text-sm text-muted">{description}</p>
       {action}
@@ -24,7 +21,7 @@ export function Skeleton({ className = '', ...props }: HTMLAttributes<HTMLDivEle
   return (
     <div
       aria-hidden="true"
-      className={`ui-skeleton h-4 animate-pulse rounded-control motion-reduce:animate-none ${className}`}
+      className={`h-4 animate-pulse rounded-control bg-disabled motion-reduce:animate-none ${className}`}
       {...props}
     />
   );
