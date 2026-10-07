@@ -1,5 +1,5 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
 import { poolSecrets, deriveKey } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
@@ -20,12 +20,15 @@ const DAY_MS = 24 * 60 * 60_000;
  * - perAccountPerDay / perTargetPerDay: codes a day for one account and channel, and to one
  *   address at the firm. Above them nothing is sent, and the answer stays the same.
  * - maxAttempts: wrong or right guesses per code, counted before comparing.
+ * - smsPerFirmPerDay: SMS codes one firm sends in a day (#51 re-review); above it nothing is sent,
+ *   the answer stays the same, and a warning is logged. R6 adds a platform-wide daily cap.
  */
 export const CODE_LIMITS = {
   resendGapMs: 45_000,
   perAccountPerDay: 10,
   perTargetPerDay: 10,
   maxAttempts: 5,
+  smsPerFirmPerDay: 200,
 };
 /** HKDF label for the key that hashes codes; a new label (v2) voids every open code. */
 const CODE_KEY_LABEL = 'fv-client-code-v2';
@@ -52,6 +55,7 @@ const refusedByDatabase = (e: unknown) =>
 export class VerificationCodesService {
   private readonly key: Uint8Array;
   private readonly localMode: boolean;
+  private readonly logger = new Logger(VerificationCodesService.name);
 
   constructor(
     @Inject(DATABASE) private readonly db: Database,
@@ -89,6 +93,17 @@ export class VerificationCodesService {
       ]);
       if (forAccount >= CODE_LIMITS.perAccountPerDay || forTarget >= CODE_LIMITS.perTargetPerDay) {
         return { sent: false, reason: 'cap' };
+      }
+      if (channel === 'PHONE') {
+        // The firm's scope: its own SMS codes only.
+        const smsToday = await tx.verificationCode.count({
+          where: { channel: 'PHONE', createdAt: { gt: since } },
+        });
+        if (smsToday >= CODE_LIMITS.smsPerFirmPerDay) {
+          // Each refused SMS, ids only (hard rule 4). R8 turns this line into an alarm.
+          this.logger.warn(`Firm ${businessId} is at its daily SMS cap; a code was not sent`);
+          return { sent: false, reason: 'cap' };
+        }
       }
       const code = this.localMode ? LOCAL_CODE : String(randomInt(0, 1_000_000)).padStart(6, '0');
       await tx.verificationCode.create({

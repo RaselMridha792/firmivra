@@ -11,14 +11,16 @@ import { z } from 'zod';
 import { AccountType, portalCookies } from '@firmivra/types';
 import { type PoolSecrets, Sealer } from '../auth/sealed.js';
 
-/** HKDF label for sign-up session keys; v2 ends every v1 sign-up (#51 review: new shape). */
-export const SIGN_UP_KEY_LABEL = 'fv-portal-signup-v2';
+/** HKDF label for sign-up session keys; v3 ends every earlier sign-up (the shape changed). */
+export const SIGN_UP_KEY_LABEL = 'fv-portal-signup-v3';
 /** A sign-up has 30 minutes from its first page to its last. */
 export const SIGN_UP_SECONDS = 30 * 60;
 
 /**
  * What the sign-up cookie holds between the sign-up pages. The same fields, of the same length,
- * on every path (#51 review: a cookie must not show whether the email has an account):
+ * on every path (#51 review: a cookie must not show whether the email has an account). The
+ * resend gap and the request count live on the server, per attempt, so replaying an older cookie
+ * resets nothing:
  * - `userId`: this attempt's own login (its password, name and phone), made for every sign-up.
  *   It doubles as the attempt id: codes are bound to it, and an older attempt's cookie never
  *   acts for a newer one.
@@ -34,10 +36,11 @@ const SignUpSession = z.object({
   email: z.string(),
   phone: z.string(),
   accountType: AccountType,
-  /** When "Resend Code" works again on the paths without codes (ms since epoch). */
-  resendAt: z.number(),
-  /** Code requests in this session, sign-up included; capped alike on every path. */
-  sends: z.number(),
+  /**
+   * The Terms and Privacy ids this attempt accepted. Written for the account when the attempt
+   * creates it, or when it takes over an unfinished one, never onto someone else's account before.
+   */
+  documents: z.array(z.uuid()).length(2),
 });
 export type SignUpSession = z.infer<typeof SignUpSession>;
 

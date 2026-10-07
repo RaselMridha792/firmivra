@@ -27,7 +27,8 @@ const outbox: Sent[] = [];
 let portalOrigin = '';
 
 let lastViewer = 0;
-const newViewer = () => `198.18.0.${++lastViewer}`;
+/** Each visitor on its own /24 network, so the per-network limit only applies where tested. */
+const newViewer = () => `198.18.${++lastViewer}.1`;
 const base = (s = slug) => `/api/v1/portal/${s}/auth/sign-up`;
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 const emailFor = (name: string) => `r3-${name}-${randomUUID().slice(0, 6)}@example.com`;
@@ -39,6 +40,14 @@ const cookieValue = (res: Response) =>
     ?.split('=')
     .slice(1)
     .join('=');
+/** An email that already has a verified account at the firm. */
+async function registeredEmail(): Promise<string> {
+  const email = emailFor('known');
+  const v = visitor();
+  await v.signUp(form(email));
+  await v.post('/verify-email', { code: '000000' });
+  return email;
+}
 /** Runs `work` with no resend gap, as if 45 s had passed between the steps. */
 async function withoutGap<T>(work: () => Promise<T>): Promise<T> {
   const gap = CODE_LIMITS.resendGapMs;
@@ -339,13 +348,33 @@ describe('client sign-up', () => {
     const first = visitor();
     await first.signUp(form(taken));
     await first.post('/verify-email', { code: '000000' });
-    for (const email of [taken, emailFor('limitnew')]) {
-      const already = email === taken ? 1 : 0;
-      for (let i = already; i < SIGN_UP_LIMITS.perEmailPerDay; i += 1) {
-        expect((await visitor().signUp(form(email))).status).toBe(200);
+    // Per email from one network: someone elsewhere is not blocked by it.
+    for (const [n, email] of [
+      [1, taken],
+      [2, emailFor('limitnew')],
+    ] as const) {
+      const network = (i: number) => `203.0.${n}.${i + 1}`;
+      for (let i = 0; i < SIGN_UP_LIMITS.perEmailNetworkPerDay; i += 1) {
+        expect((await visitor(slug, network(i)).signUp(form(email))).status).toBe(200);
       }
-      const over = await visitor().signUp(form(email));
+      const over = await visitor(slug, network(9)).signUp(form(email));
       expect([email, over.status, codeOf(over)]).toEqual([email, 429, 'RATE_LIMITED']);
+      expect((await visitor().signUp(form(email))).status).toBe(200);
+    }
+    // Per email overall, from any network.
+    const perEmail = SIGN_UP_LIMITS.perEmailPerDay;
+    SIGN_UP_LIMITS.perEmailPerDay = 2;
+    try {
+      for (const email of [taken, emailFor('limitall')]) {
+        const used = email === taken ? 2 : 0; // `taken` already has more than 2 today
+        for (let i = used; i < SIGN_UP_LIMITS.perEmailPerDay; i += 1) {
+          expect((await visitor().signUp(form(email))).status).toBe(200);
+        }
+        const over = await visitor().signUp(form(email));
+        expect([email, over.status, codeOf(over)]).toEqual([email, 429, 'RATE_LIMITED']);
+      }
+    } finally {
+      SIGN_UP_LIMITS.perEmailPerDay = perEmail;
     }
 
     await withoutGap(async () => {
@@ -492,8 +521,127 @@ describe('client sign-up', () => {
       tx.user.findUnique({ where: { id: before.userId } }),
     );
     expect(oldLogin).toBeNull();
-    // The first attempt's cookie no longer acts.
-    expect(codeOf(await abandoned.post('/verify-phone', { code: '000000' }))).toBe('WRONG_STEP');
+    // The first attempt's login is gone, so its cookie has expired.
+    expect(codeOf(await abandoned.post('/verify-phone', { code: '000000' }))).toBe(
+      'SIGN_UP_EXPIRED',
+    );
+  });
+
+  it('shows the same resend time on every path, from the server (#51 re-review)', async () => {
+    const taken = emailFor('oracle');
+    const owner = visitor();
+    await owner.signUp(form(taken));
+    await owner.post('/verify-email', { code: '000000' });
+    // A second sign-up inside the gap: a new email and a registered one show the same wait.
+    const fresh = await visitor().signUp(form(emailFor('oraclex')));
+    const known = await visitor().signUp(form(taken));
+    const wait = (r: Response) =>
+      Date.parse((r.body as { resendAvailableAt: string }).resendAvailableAt) - Date.now();
+    expect(Math.abs(wait(fresh) - wait(known))).toBeLessThan(2_000);
+    expect(wait(known)).toBeGreaterThan(40_000);
+  });
+
+  it('sends nothing on a change of email inside the gap, on every path (#51 re-review)', async () => {
+    const registered = emailFor('regd');
+    const done = visitor();
+    await done.signUp(form(registered));
+    await done.post('/verify-email', { code: '000000' });
+    const unfinishedEmail = emailFor('unfin');
+    await visitor().signUp(form(unfinishedEmail));
+    const sentBefore = outbox.length;
+    for (const target of [emailFor('newone'), registered, unfinishedEmail]) {
+      const v = visitor();
+      await v.signUp(form(emailFor('start')));
+      const start = outbox.length;
+      const res = await v.post('/change-email', { email: target });
+      expect([target, res.status]).toEqual([target, 200]);
+      expect([target, outbox.length - start]).toEqual([target, 0]);
+    }
+    expect(outbox.length).toBeGreaterThan(sentBefore);
+  });
+
+  it('keeps the gap and the request count on the server: an older cookie resets nothing', async () => {
+    for (const email of [emailFor('replaynew'), await registeredEmail()]) {
+      const v = visitor();
+      await v.signUp(form(email));
+      const firstCookie = v.cookie;
+      await withoutGap(async () => {
+        expect((await v.post('/resend', { channel: 'email' })).status).toBe(200);
+      });
+      // Replay the first cookie: the gap from the resend just now still holds, on both paths.
+      v.cookie = firstCookie;
+      const replayed = await v.post('/resend', { channel: 'email' });
+      expect([email, replayed.status, codeOf(replayed)]).toEqual([email, 429, 'RATE_LIMITED']);
+    }
+  });
+
+  it("answers SIGN_UP_EXPIRED, not 500, for a taken-over attempt's cookie (#51 re-review)", async () => {
+    const email = emailFor('retired');
+    const first = visitor();
+    await first.signUp(form(email));
+    await withoutGap(async () => {
+      const again = visitor();
+      await again.signUp(form(email));
+      await again.post('/verify-email', { code: '000000' });
+    });
+    for (const [path, body] of [
+      ['/change-phone', { phone: '+14045550123' }],
+      ['/change-email', { email: emailFor('elsewhere') }],
+    ] as const) {
+      const res = await first.post(path, body);
+      expect([path, res.status, codeOf(res)]).toEqual([path, 410, 'SIGN_UP_EXPIRED']);
+    }
+  });
+
+  it('answers CODE_INVALID, not 500, when a replayed cookie would give one login two accounts', async () => {
+    const pending = emailFor('pend');
+    await visitor().signUp(form(pending));
+    const v = visitor();
+    await withoutGap(async () => {
+      await v.signUp(form(pending)); // this attempt is for the unfinished account
+      const forPending = v.cookie;
+      await v.post('/change-email', { email: emailFor('ownnew') }); // it now owns a new account
+      v.cookie = forPending;
+      const res = await v.post('/verify-email', { code: '000000' });
+      expect([res.status, codeOf(res)]).toEqual([400, 'CODE_INVALID']);
+    });
+  });
+
+  it('limits one network per hour, and only logs a busy firm instead of closing it', async () => {
+    const perNetwork = SIGN_UP_LIMITS.perNetworkPerHour;
+    const firmAlert = SIGN_UP_LIMITS.firmAlertPerDay;
+    SIGN_UP_LIMITS.perNetworkPerHour = 3;
+    SIGN_UP_LIMITS.firmAlertPerDay = 1;
+    try {
+      for (let i = 1; i <= 3; i += 1) {
+        expect((await visitor(slug, `192.0.2.${i}`).signUp(form(emailFor('net')))).status).toBe(
+          200,
+        );
+      }
+      const over = await visitor(slug, '192.0.2.9').signUp(form(emailFor('net')));
+      expect([over.status, codeOf(over)]).toEqual([429, 'RATE_LIMITED']);
+      // Another network still signs up, far past the firm's alert level.
+      expect((await visitor().signUp(form(emailFor('netother')))).status).toBe(200);
+    } finally {
+      SIGN_UP_LIMITS.perNetworkPerHour = perNetwork;
+      SIGN_UP_LIMITS.firmAlertPerDay = firmAlert;
+    }
+  });
+
+  it("sends no SMS past the firm's daily cap, and answers the same", async () => {
+    const cap = CODE_LIMITS.smsPerFirmPerDay;
+    CODE_LIMITS.smsPerFirmPerDay = 0;
+    try {
+      const email = emailFor('smscap');
+      const v = visitor();
+      await v.signUp(form(email));
+      const before = outbox.filter((m) => m.kind === 'sms').length;
+      const res = await v.post('/verify-email', { code: '000000' });
+      expect(res.body).toMatchObject({ step: 'VERIFY_PHONE' });
+      expect(outbox.filter((m) => m.kind === 'sms').length).toBe(before);
+    } finally {
+      CODE_LIMITS.smsPerFirmPerDay = cap;
+    }
   });
 
   it("needs this firm's own sign-up cookie", async () => {
