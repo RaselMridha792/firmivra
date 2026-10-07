@@ -20,6 +20,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { MeModule } from '../me/me.controller.js';
 import { MeService } from '../me/me.service.js';
+import { ACTIVATION_MAILER, LogActivationMailer } from './activation-mailer.js';
 import { ChallengeSessions } from './challenge-session.js';
 import { Public } from './decorators.js';
 import {
@@ -28,6 +29,8 @@ import {
 } from './identity/cognito-identity.provider.js';
 import { IDENTITY_PROVIDER } from './identity/identity-provider.js';
 import { LocalIdentityProvider } from './identity/local-identity.provider.js';
+import { InvitesController } from './invites.controller.js';
+import { InvitesService } from './invites.service.js';
 import { poolSecrets } from './sealed.js';
 import { RefreshEnvelopes, SessionService } from './session.service.js';
 import { type SignInOutcome, SignInService } from './sign-in.service.js';
@@ -157,10 +160,16 @@ export class AdminSignInController extends SignInRoutes {
 
 @Module({
   imports: [MeModule],
-  controllers: [StaffSignInController, AdminSignInController],
+  controllers: [StaffSignInController, AdminSignInController, InvitesController],
   providers: [
     SignInService,
     SessionService,
+    InvitesService,
+    {
+      provide: ACTIVATION_MAILER,
+      inject: [ENV],
+      useFactory: (env: Env) => new LogActivationMailer(env.AUTH_MODE === 'local'),
+    },
     {
       provide: RefreshEnvelopes,
       inject: [ENV],
@@ -183,5 +192,7 @@ export class AdminSignInController extends SignInRoutes {
             ),
     },
   ],
+  // For R4 (a new firm's owner on approval) and the Team API (resend): import SignInModule.
+  exports: [InvitesService],
 })
 export class SignInModule {}
