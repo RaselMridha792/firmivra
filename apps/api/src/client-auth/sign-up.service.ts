@@ -38,6 +38,8 @@ type Step = SignUpState['step'];
 type Firm = { id: string; slug: string; name: string };
 /** An attempt's code requests so far, and when the next code may go out (ms since epoch). */
 type AttemptState = { requests: number; resendAt: number };
+/** A request let through (with the attempt's state as it was before it), or refused. */
+type Admission = { ok: true; before: AttemptState | null } | { ok: false };
 
 /**
  * Sign-up limits counted in the database (#51 and #70 reviews), the same on every path. Each is
@@ -101,11 +103,18 @@ const ACCOUNT = {
   userId: true,
 } as const;
 
-/** A sign-up nobody finished: another attempt may take it over, once it proves the email. */
-const unfinished = (a: Pick<AccountRow, 'status' | 'emailVerifiedAt' | 'clientId'>) =>
-  a.status === 'PENDING_APPROVAL' && !a.emailVerifiedAt && !a.clientId;
+/**
+ * A sign-up nobody finished: no phone proof yet (with or without the email's), pending, no client
+ * record. Another attempt may take it over, once it proves the email with its own code, so a
+ * sign-up stopped after the email step (a closed tab, a refused SMS) can always be resumed.
+ */
+const unfinished = (a: Pick<AccountRow, 'status' | 'phoneVerifiedAt' | 'clientId'>) =>
+  a.status === 'PENDING_APPROVAL' && !a.phoneVerifiedAt && !a.clientId;
 const stepOf = (a: AccountRow): Step =>
   !a.emailVerifiedAt ? 'VERIFY_EMAIL' : !a.phoneVerifiedAt ? 'VERIFY_PHONE' : 'DONE';
+/** The step for this attempt: one that doesn't own the account yet must prove the email first. */
+const stepFor = (s: SignUpSession, a: AccountRow | null): Step =>
+  a && a.userId === s.userId ? stepOf(a) : 'VERIFY_EMAIL';
 
 /** "(770) ***-0123" for US numbers, "+44 *** 0123" elsewhere. */
 export function maskPhone(phone: string): string {
@@ -147,9 +156,15 @@ export function networkOf(ip: string | undefined): string {
   return `${canonical.split(':').slice(0, 3).join(':')}::/48`;
 }
 
-/** A transaction-scoped advisory lock on `key`: parallel holders of the same key run one by one. */
-async function lock(tx: TxClient, key: string): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+/**
+ * A transaction-scoped advisory lock on `key`, without waiting (#70 re-review): false when another
+ * request holds it. Waiting would hold a pooled connection, so a burst could starve every firm;
+ * a contended key is a burst anyway, answered like any limit.
+ */
+async function tryLock(tx: TxClient, key: string): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ ok: boolean }[]>`
+    SELECT pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) AS ok`;
+  return row?.ok === true;
 }
 
 /** Runs `work`, then waits until at least `ms` have passed, also when it fails. */
@@ -226,27 +241,29 @@ export class SignUpService {
         accountType: input.accountType,
         documents,
       };
-      await this.writeSession(res, session, Math.floor(Date.now() / 1000) + SIGN_UP_SECONDS);
-      return this.stateOf(session);
+      const expiresAt = Math.floor(Date.now() / 1000) + SIGN_UP_SECONDS;
+      await this.writeSession(res, session, expiresAt);
+      return this.stateOf(session, expiresAt);
     });
   }
 
   async state(firmSlug: string, req: Request): Promise<SignUpState> {
-    const { session } = await this.session(firmSlug, req);
-    return this.stateOf(session);
+    const { session, expiresAt } = await this.session(firmSlug, req);
+    return this.stateOf(session, expiresAt);
   }
 
   /**
-   * The email code. On success this attempt owns the account (taking over an unfinished sign-up
-   * replaces its login, which is then disabled), and the SMS code is sent: a recorded request,
-   * within the attempt's count and the IP limits (else it waits for Resend).
+   * The email code. On success this attempt owns the account (taking over an unfinished sign-up,
+   * also one stopped after its email step, replaces its login, which is then disabled), and the
+   * SMS code is sent: a recorded request within the IP limits, not held to the attempt's own
+   * count (else it waits for Resend). Once the email is proved, nothing fails the answer.
    */
   verifyEmail(firmSlug: string, code: string, req: Request): Promise<SignUpState> {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s } = await this.session(firmSlug, req);
+      const { session: s, expiresAt } = await this.session(firmSlug, req);
       const account = await this.attemptAccount(s);
       if (!account) throw signUpErrors.codeInvalid();
-      if (account.emailVerifiedAt) throw signUpErrors.wrongStep();
+      if (account.userId === s.userId && account.emailVerifiedAt) throw signUpErrors.wrongStep();
       // A login owns one account: an attempt that already owns another (a replayed older cookie)
       // can never take this one.
       const owns = await this.db.forBusiness(s.businessId).clientAccount.findUnique({
@@ -262,11 +279,26 @@ export class SignUpService {
       const tookOver = account.userId !== s.userId;
       try {
         await this.db.withScope({ kind: 'business', businessId: s.businessId }, async (tx) => {
+          // Exactly the account as it was read: same login, same email proof, still unfinished.
           const proved = await tx.clientAccount.updateMany({
-            where: { id: account.id, status: 'PENDING_APPROVAL', emailVerifiedAt: null },
+            where: {
+              id: account.id,
+              status: 'PENDING_APPROVAL',
+              userId: account.userId,
+              emailVerifiedAt: account.emailVerifiedAt,
+              phoneVerifiedAt: null,
+              clientId: null,
+            },
             data: { emailVerifiedAt: new Date(), userId: s.userId, accountType: s.accountType },
           });
           if (proved.count !== 1) throw signUpErrors.codeInvalid();
+          await this.audit.logIn(
+            tx,
+            'client_account.email_verified',
+            { type: 'client_account', id: account.id },
+            { tookOver },
+            { businessId: s.businessId, actorUserId: s.userId },
+          );
           // In the transaction: if Cognito fails, the account is not marked verified either.
           await this.identity.updateContact('CLIENT', user.cognitoSub, { emailVerified: true });
         });
@@ -275,14 +307,22 @@ export class SignUpService {
         throw e;
       }
       if (tookOver) await this.retireLogin(account.userId);
-      await this.log(s.businessId, s.userId, 'client_account.email_verified', account.id, {
-        tookOver,
-      });
-      if (await this.admitRequest(s.userId, { soft: true })) {
-        const firm = await this.portal.activeFirm(s.firmSlug);
-        await this.sendCode(owner, 'PHONE', user.phone ?? s.phone, firm);
+      // The email is proved: a busy database or a refused SMS never turns this into an error.
+      try {
+        const admitted = await this.admitRequest(s.userId, { soft: true, uncounted: true });
+        if (admitted.ok) {
+          const firm = await this.portal.activeFirm(s.firmSlug);
+          await this.sendCode(owner, 'PHONE', user.phone ?? s.phone, firm);
+        }
+      } catch {
+        this.logger.warn(`The first SMS code of client account ${account.id} was not sent`);
       }
-      return this.stateOf(s);
+      return this.stateOf(s, expiresAt).catch(() => ({
+        step: 'VERIFY_PHONE' as const,
+        email: s.email,
+        phoneMasked: maskPhone(s.phone),
+        resendAvailableAt: new Date(Date.now() + CODE_LIMITS.resendGapMs).toISOString(),
+      }));
     });
   }
 
@@ -293,10 +333,10 @@ export class SignUpService {
    */
   verifyPhone(firmSlug: string, code: string, req: Request): Promise<SignUpState> {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s } = await this.session(firmSlug, req);
+      const { session: s, expiresAt } = await this.session(firmSlug, req);
       const account = await this.attemptAccount(s);
-      // Without an account this session looks like the email step, as a real one would.
-      if (!account?.emailVerifiedAt || account.phoneVerifiedAt) throw signUpErrors.wrongStep();
+      // Without its own account this session is in the email step, as a real one would be.
+      if (stepFor(s, account) !== 'VERIFY_PHONE' || !account) throw signUpErrors.wrongStep();
       const user = await this.attemptUser(s.userId);
       const owner = this.owner(s.businessId, account.id, s.userId);
       if (!(await this.codes.check(owner, 'PHONE', user.phone ?? s.phone, code))) {
@@ -315,7 +355,7 @@ export class SignUpService {
         await this.identity.updateContact('CLIENT', user.cognitoSub, { phoneVerified: true });
       });
       await this.log(s.businessId, s.userId, 'client_account.verified', account.id);
-      return this.stateOf(s);
+      return this.stateOf(s, expiresAt);
     });
   }
 
@@ -332,7 +372,7 @@ export class SignUpService {
     return atLeast(this.minResponseMs, async () => {
       const { session: s, expiresAt } = await this.session(firmSlug, req);
       const account = await this.attemptAccount(s);
-      const step = account ? stepOf(account) : 'VERIFY_EMAIL';
+      const step = stepFor(s, account);
       if (channel === 'email' ? step !== 'VERIFY_EMAIL' : step === 'DONE') {
         throw signUpErrors.alreadyVerified();
       }
@@ -349,7 +389,7 @@ export class SignUpService {
       }
       // Same cookie behaviour on every path.
       await this.writeSession(res, s, expiresAt);
-      return this.stateOf(s);
+      return this.stateOf(s, expiresAt);
     });
   }
 
@@ -362,7 +402,7 @@ export class SignUpService {
    */
   changeEmail(firmSlug: string, email: string, req: Request, res: Response) {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s, attempt, expiresAt } = await this.session(firmSlug, req);
+      const { session: s, expiresAt } = await this.session(firmSlug, req);
       const firm = await this.portal.activeFirm(s.firmSlug);
       const scope = this.db.forBusiness(firm.id);
       const owned = await scope.clientAccount.findUnique({
@@ -370,9 +410,9 @@ export class SignUpService {
         select: ACCOUNT,
       });
       if (owned?.emailVerifiedAt) throw signUpErrors.alreadyVerified();
-      // Inside the attempt's wait (before this request) the change sends nothing, on every path.
-      const sendNow = Date.now() >= attempt.resendAt;
-      await this.admitRequest(s.userId);
+      // Inside the attempt's wait (read under its lock, before this request) the change sends
+      // nothing, on every path.
+      const sendNow = this.waitedOut(await this.admitRequest(s.userId));
       await this.admitEmail(firm.id, email);
 
       let accountId: string | null;
@@ -410,22 +450,21 @@ export class SignUpService {
       }
       const next: SignUpSession = { ...s, clientAccountId: accountId ?? randomUUID(), email };
       await this.writeSession(res, next, expiresAt);
-      return this.stateOf(next);
+      return this.stateOf(next, expiresAt);
     });
   }
 
   /** A different phone, until it is verified: the attempt's own login only. */
   changePhone(firmSlug: string, phone: string, req: Request, res: Response) {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s, attempt, expiresAt } = await this.session(firmSlug, req);
+      const { session: s, expiresAt } = await this.session(firmSlug, req);
       const owned = await this.db.forBusiness(s.businessId).clientAccount.findUnique({
         where: { userId: s.userId },
         select: ACCOUNT,
       });
       if (owned?.phoneVerifiedAt) throw signUpErrors.alreadyVerified();
       // Every change is a request (IP limits, the attempt's count; the wait restarts).
-      const sendNow = Date.now() >= attempt.resendAt;
-      await this.admitRequest(s.userId);
+      const sendNow = this.waitedOut(await this.admitRequest(s.userId));
       const user = await this.attemptUser(s.userId);
       if (user.phone !== phone) {
         await this.db.forPlatform().user.update({ where: { id: s.userId }, data: { phone } });
@@ -444,7 +483,7 @@ export class SignUpService {
       }
       const next = { ...s, phone };
       await this.writeSession(res, next, expiresAt);
-      return this.stateOf(next);
+      return this.stateOf(next, expiresAt);
     });
   }
 
@@ -479,8 +518,9 @@ export class SignUpService {
 
   /**
    * Which account an attempt is for: a new pending account it owns, an unfinished sign-up it may
-   * take over (left unchanged), or none (null) when the email belongs to any other account, whose
-   * owner then gets one email (when `notify`). Legal acceptances wait for the end of the sign-up.
+   * take over (left unchanged until it proves the email), or none (null) when the email belongs
+   * to any other account, whose owner then gets one email (when `notify`). Legal acceptances wait
+   * for the end of the sign-up.
    */
   private async attach(
     firm: Firm,
@@ -567,12 +607,11 @@ export class SignUpService {
    * day each. The row holds the keyed hash, never the email; the same on every path.
    */
   private async admitEmail(businessId: string, email: string): Promise<void> {
-    const emailKey = createHmac('sha256', this.emailKeySecret)
-      .update(`${businessId}:${email}`)
-      .digest('hex');
+    const emailKey = this.emailKeyOf(businessId, email);
     const net = networkOf(requestContext.getStore()?.ip);
     const refused = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await lock(tx, `fv-sign-up-email:${emailKey}`);
+      // Busy: another request for this email right now (a burst), answered like the limit.
+      if (!(await tryLock(tx, `fv-sign-up-email:${emailKey}`))) return true;
       const today = {
         businessId,
         action: SIGN_UP_ATTEMPT,
@@ -600,9 +639,12 @@ export class SignUpService {
           `An email (key ${emailKey.slice(0, 12)}) at firm ${businessId} reached ${SIGN_UP_LIMITS.emailAlertPerDay} portal sign-ups in a day`,
         );
       }
-      if ((await tx.auditLog.count({ where: today })) >= SIGN_UP_LIMITS.firmAlertPerDay) {
-        // Taken after the email's lock, never before it.
-        await lock(tx, `fv-sign-up-firm:${businessId}`);
+      // The firm's lock is taken after the email's, never before; busy means another request is
+      // logging this firm's warning right now.
+      if (
+        (await tx.auditLog.count({ where: today })) >= SIGN_UP_LIMITS.firmAlertPerDay &&
+        (await tryLock(tx, `fv-sign-up-firm:${businessId}`))
+      ) {
         await this.alertOnce(
           tx,
           businessId,
@@ -638,55 +680,102 @@ export class SignUpService {
   }
 
   /**
-   * One request that may send a code, in one platform transaction under advisory locks (the
-   * network's, then the attempt's): the IP and network limits across every firm (SMS cost guard),
-   * then, for an attempt, its request count and, when `gap`, its wait; then the row is written.
+   * One request that may send a code, in one platform transaction under advisory try-locks (the
+   * network's, then the attempt's; a busy one is refused, never waited for): the IP and network
+   * limits across every firm (SMS cost guard), then, for an attempt, its request count (not for
+   * `uncounted`, the phone step's first SMS) and, when `gap`, its wait; then the row is written.
    * Keyed by address only, so it shows nothing about any email; the IP is req.ip (trust proxy),
-   * never a raw header. 429 when refused, or false when `soft` (the phone step's first SMS).
+   * never a raw header. Refused: 429, or `{ ok: false }` when `soft`.
    */
   private async admitRequest(
     attemptUserId: string | null,
-    options: { gap?: boolean; soft?: boolean } = {},
-  ): Promise<boolean> {
+    options: { gap?: boolean; soft?: boolean; uncounted?: boolean } = {},
+  ): Promise<Admission> {
     const rawIp = requestContext.getStore()?.ip;
     const ip = canonicalIp(rawIp);
     const net = networkOf(rawIp);
-    const refused = await this.db.withScope({ kind: 'platform' }, async (tx) => {
-      await lock(tx, `fv-sign-up-net:${net}`);
-      if (attemptUserId) await lock(tx, `fv-sign-up-attempt:${attemptUserId}`);
-      const lastHour = {
-        businessId: null,
-        action: CODE_REQUEST,
-        createdAt: { gt: new Date(Date.now() - HOUR_MS) },
-      };
-      const fromIp = await tx.auditLog.count({
-        where: { ...lastHour, metadata: { path: ['ip'], equals: ip } },
+    const admission = await this.db.withScope(
+      { kind: 'platform' },
+      async (tx): Promise<Admission> => {
+        if (!(await tryLock(tx, `fv-sign-up-net:${net}`))) return { ok: false };
+        if (attemptUserId && !(await tryLock(tx, `fv-sign-up-attempt:${attemptUserId}`))) {
+          return { ok: false };
+        }
+        const lastHour = {
+          businessId: null,
+          action: CODE_REQUEST,
+          createdAt: { gt: new Date(Date.now() - HOUR_MS) },
+        };
+        const fromIp = await tx.auditLog.count({
+          where: { ...lastHour, metadata: { path: ['ip'], equals: ip } },
+        });
+        const fromNetwork = await tx.auditLog.count({
+          where: { ...lastHour, metadata: { path: ['net'], equals: net } },
+        });
+        if (
+          fromIp >= SIGN_UP_LIMITS.perIpPerHour ||
+          fromNetwork >= SIGN_UP_LIMITS.perNetworkPerHour
+        ) {
+          return { ok: false };
+        }
+        let before: AttemptState | null = null;
+        if (attemptUserId) {
+          before = await this.attemptState(attemptUserId, tx);
+          if (!before) return { ok: false };
+          if (!options.uncounted && before.requests >= SIGN_UP_LIMITS.sendsPerSession) {
+            return { ok: false };
+          }
+          if (options.gap && Date.now() < before.resendAt) return { ok: false };
+        }
+        await this.audit.logIn(
+          tx,
+          CODE_REQUEST,
+          { type: 'sign_up' },
+          { ip, net },
+          attemptUserId ? { actorUserId: attemptUserId } : {},
+        );
+        return { ok: true, before };
+      },
+    );
+    if (!admission.ok && !options.soft) throw signUpErrors.rateLimited();
+    return admission;
+  }
+
+  /** Whether the attempt's wait had passed when this request was let in (read under its lock). */
+  private waitedOut(admission: Admission): boolean {
+    return admission.ok && admission.before !== null && Date.now() >= admission.before.resendAt;
+  }
+
+  /**
+   * When this viewer's IP and network may make another request: the moment the oldest request
+   * that keeps them at their hourly limit leaves the window (0 when they may now).
+   */
+  private async limitsOpenAt(): Promise<number> {
+    const rawIp = requestContext.getStore()?.ip;
+    const platform = this.db.forPlatform();
+    const opensAt = async (key: 'ip' | 'net', value: string, limit: number) => {
+      const row = await platform.auditLog.findFirst({
+        where: {
+          businessId: null,
+          action: CODE_REQUEST,
+          createdAt: { gt: new Date(Date.now() - HOUR_MS) },
+          metadata: { path: [key], equals: value },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: limit - 1,
+        select: { createdAt: true },
       });
-      const fromNetwork = await tx.auditLog.count({
-        where: { ...lastHour, metadata: { path: ['net'], equals: net } },
-      });
-      if (
-        fromIp >= SIGN_UP_LIMITS.perIpPerHour ||
-        fromNetwork >= SIGN_UP_LIMITS.perNetworkPerHour
-      ) {
-        return true;
-      }
-      if (attemptUserId) {
-        const attempt = await this.attemptState(attemptUserId, tx);
-        if (!attempt || attempt.requests >= SIGN_UP_LIMITS.sendsPerSession) return true;
-        if (options.gap && Date.now() < attempt.resendAt) return true;
-      }
-      await this.audit.logIn(
-        tx,
-        CODE_REQUEST,
-        { type: 'sign_up' },
-        { ip, net },
-        attemptUserId ? { actorUserId: attemptUserId } : {},
-      );
-      return false;
-    });
-    if (refused && !options.soft) throw signUpErrors.rateLimited();
-    return !refused;
+      return row ? row.createdAt.getTime() + HOUR_MS : 0;
+    };
+    return Math.max(
+      await opensAt('ip', canonicalIp(rawIp), SIGN_UP_LIMITS.perIpPerHour),
+      await opensAt('net', networkOf(rawIp), SIGN_UP_LIMITS.perNetworkPerHour),
+    );
+  }
+
+  /** The keyed hash of an email at a firm: limits and notices count it, never the email. */
+  private emailKeyOf(businessId: string, email: string): string {
+    return createHmac('sha256', this.emailKeySecret).update(`${businessId}:${email}`).digest('hex');
   }
 
   /**
@@ -744,24 +833,39 @@ export class SignUpService {
     return issued;
   }
 
-  /** "You already have an account here" to the owner of a registered email, at most hourly. */
+  /**
+   * "You already have an account here" to the owner of a registered email, at most hourly: counted
+   * and recorded in one firm transaction under the email key's try-lock (busy: another request is
+   * handling this email now, so this one sends nothing). Best effort: a failed send is logged.
+   */
   private async notifyRegistered(firm: Firm, accountId: string, email: string): Promise<void> {
-    const recent = await this.db.forBusiness(firm.id).auditLog.count({
-      where: {
-        businessId: firm.id,
-        action: REGISTERED_NOTICE,
-        entityId: accountId,
-        createdAt: { gt: new Date(Date.now() - SIGN_UP_LIMITS.noticeGapMs) },
-      },
+    const emailKey = this.emailKeyOf(firm.id, email);
+    const send = await this.db.withScope({ kind: 'business', businessId: firm.id }, async (tx) => {
+      if (!(await tryLock(tx, `fv-sign-up-email:${emailKey}`))) return false;
+      const recent = await tx.auditLog.count({
+        where: {
+          businessId: firm.id,
+          action: REGISTERED_NOTICE,
+          entityId: accountId,
+          createdAt: { gt: new Date(Date.now() - SIGN_UP_LIMITS.noticeGapMs) },
+        },
+      });
+      if (recent > 0) return false;
+      await this.audit.logIn(
+        tx,
+        REGISTERED_NOTICE,
+        { type: 'client_account', id: accountId },
+        {},
+        { businessId: firm.id },
+      );
+      return true;
     });
-    if (recent > 0) return;
-    await this.audit.log(
-      REGISTERED_NOTICE,
-      { type: 'client_account', id: accountId },
-      {},
-      { businessId: firm.id },
-    );
-    await this.sender.alreadyRegistered({ to: email, businessName: firm.name });
+    if (!send) return;
+    try {
+      await this.sender.alreadyRegistered({ to: email, businessName: firm.name });
+    } catch {
+      this.logger.warn(`Could not send the "already registered" notice for account ${accountId}`);
+    }
   }
 
   private async noticeIfRegistered(firm: Firm, email: string): Promise<void> {
@@ -797,14 +901,20 @@ export class SignUpService {
       .then((sealed) => writeSignUpCookie(res, session.firmSlug, sealed, expiresAt, this.secure));
   }
 
-  /** What the pages show; `resendAvailableAt` is the attempt's, from the server, on every path. */
-  private async stateOf(s: SignUpSession): Promise<SignUpState> {
+  /**
+   * What the pages show. `resendAvailableAt` is when Resend really works again, from the server
+   * and the same on every path: after the attempt's wait and once this IP and network are under
+   * their hourly limits; the sign-up's end (`expiresAt`) when the attempt has used its requests.
+   */
+  private async stateOf(s: SignUpSession, expiresAt: number): Promise<SignUpState> {
     const shown = { email: s.email, phoneMasked: maskPhone(s.phone) };
-    const account = await this.attemptAccount(s);
-    const step = account ? stepOf(account) : 'VERIFY_EMAIL';
+    const step = stepFor(s, await this.attemptAccount(s));
     if (step === 'DONE') return { step, ...shown, resendAvailableAt: null };
     const attempt = await this.attemptState(s.userId);
-    const at = attempt ? attempt.resendAt : Date.now();
+    const at =
+      attempt && attempt.requests >= SIGN_UP_LIMITS.sendsPerSession
+        ? expiresAt * 1000
+        : Math.max(attempt ? attempt.resendAt : Date.now(), await this.limitsOpenAt());
     return { step, ...shown, resendAvailableAt: new Date(at).toISOString() };
   }
 

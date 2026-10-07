@@ -1,6 +1,6 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Database } from '@firmivra/db';
+import type { Database, TxClient } from '@firmivra/db';
 import { poolSecrets, deriveKey } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -42,6 +42,13 @@ export interface CodeOwner {
 
 export type Issued = { sent: true; code: string } | { sent: false; reason: 'gap' | 'cap' };
 
+/** A transaction-scoped advisory lock on `key` if free now; never waits (#70 re-review). */
+async function tryLock(tx: TxClient, key: string): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ ok: boolean }[]>`
+    SELECT pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) AS ok`;
+  return row?.ok === true;
+}
+
 /** A refusal from R0's verification_codes trigger (expired, or no longer the newest). */
 const refusedByDatabase = (e: unknown) =>
   e instanceof Error && e.message.includes('verification codes:');
@@ -70,12 +77,15 @@ export class VerificationCodesService {
   /**
    * A new code for `target`, unless the gap since the last code for this account and channel has
    * not passed (`gap`) or a daily cap is reached (`cap`). Issues for one account and channel run
-   * one at a time (a transaction-scoped advisory lock), so parallel resends send one code.
+   * one at a time under a transaction-scoped advisory try-lock, never waited for (a waiting lock
+   * holds a pooled connection): a parallel issue for the same account sends nothing (`gap`), and
+   * a busy firm SMS count sends nothing this time (`cap`); either way the answer stays the same.
    */
   issue(owner: CodeOwner, channel: Channel, target: string): Promise<Issued> {
     const { businessId, clientAccountId } = owner;
     return this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${clientAccountId}:${channel}`}, 0))`;
+      if (!(await tryLock(tx, `${clientAccountId}:${channel}`)))
+        return { sent: false, reason: 'gap' };
       const latest = await tx.verificationCode.findFirst({
         where: { clientAccountId, channel },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -95,9 +105,10 @@ export class VerificationCodesService {
         return { sent: false, reason: 'cap' };
       }
       if (channel === 'PHONE') {
-        // Counted under the firm's lock (after the account's), so parallel sends to different
+        // Counted under the firm's try-lock (after the account's), so parallel sends to different
         // accounts cannot pass the cap together. The firm's scope: its own SMS codes only.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`fv-sms-firm:${businessId}`}, 0))`;
+        if (!(await tryLock(tx, `fv-sms-firm:${businessId}`)))
+          return { sent: false, reason: 'cap' };
         const smsToday = await tx.verificationCode.count({
           where: { channel: 'PHONE', createdAt: { gt: since } },
         });

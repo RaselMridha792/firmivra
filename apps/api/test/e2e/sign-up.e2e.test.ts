@@ -27,6 +27,9 @@ const outbox: Sent[] = [];
 let portalOrigin = '';
 
 let lastViewer = 0;
+let lastPhone = 1000;
+/** A fresh US number per sign-up, so no single number reaches its daily SMS cap here. */
+const phoneFor = () => `+1770555${++lastPhone}`;
 /** Each visitor on its own /24 network, so the per-network limit only applies where tested. */
 const newViewer = () => `198.18.${++lastViewer}.1`;
 const base = (s = slug) => `/api/v1/portal/${s}/auth/sign-up`;
@@ -40,12 +43,13 @@ const cookieValue = (res: Response) =>
     ?.split('=')
     .slice(1)
     .join('=');
-/** An email that already has a verified account at the firm. */
+/** An email whose sign-up at the firm is finished (email and phone verified). */
 async function registeredEmail(): Promise<string> {
   const email = emailFor('known');
   const v = visitor();
   await v.signUp(form(email));
   await v.post('/verify-email', { code: '000000' });
+  await v.post('/verify-phone', { code: '000000' });
   return email;
 }
 /** Runs `work` with no resend gap, as if 45 s had passed between the steps. */
@@ -94,7 +98,7 @@ function visitor(firmSlug = slug, viewer = newViewer()) {
 const form = (email: string, fields: Record<string, unknown> = {}) => ({
   name: 'Jane Client',
   email,
-  phone: '+1 (770) 555-0199',
+  phone: phoneFor(),
   password: 'Client-password-1',
   accountType: 'INDIVIDUAL',
   accepted: { termsVersion: 1, privacyVersion: 1 },
@@ -176,7 +180,7 @@ describe('client sign-up', () => {
     const email = emailFor('happy');
     const v = visitor();
     const res = await v
-      .signUp(form(email.toUpperCase(), { accountType: 'BUSINESS' }))
+      .signUp(form(email.toUpperCase(), { accountType: 'BUSINESS', phone: '+1 (770) 555-0199' }))
       .then((r) => r);
     expect(res.status).toBe(200);
     expect(SignUpState.parse(res.body)).toMatchObject({
@@ -244,6 +248,7 @@ describe('client sign-up', () => {
     const first = visitor();
     await first.signUp(form(email));
     await first.post('/verify-email', { code: '000000' });
+    await first.post('/verify-phone', { code: '000000' });
 
     const fresh = await visitor().signUp(form(emailFor('fresh')));
     const v = visitor();
@@ -322,6 +327,7 @@ describe('client sign-up', () => {
     const owner = visitor();
     await owner.signUp(form(taken));
     await owner.post('/verify-email', { code: '000000' });
+    await owner.post('/verify-phone', { code: '000000' });
 
     await withoutGap(async () => {
       for (const email of [taken, emailFor('other')]) {
@@ -462,7 +468,7 @@ describe('client sign-up', () => {
   it("a second sign-up over someone's pending one never gets the account", async () => {
     const email = emailFor('victim');
     const victim = visitor();
-    await victim.signUp(form(email, { name: 'Victim' }));
+    await victim.signUp(form(email, { name: 'Victim', phone: '+1 (770) 555-0199' }));
     // The attacker signs up with the same email, inside the resend gap.
     const attacker = visitor();
     await attacker.signUp(form(email, { name: 'Attacker', phone: '+14045550100' }));
@@ -485,7 +491,7 @@ describe('client sign-up', () => {
   it("an attacker's newer code never verifies for the victim, and the victim still wins", async () => {
     const email = emailFor('race');
     const victim = visitor();
-    await victim.signUp(form(email, { name: 'Victim' }));
+    await victim.signUp(form(email, { name: 'Victim', phone: '+1 (770) 555-0199' }));
     await withoutGap(async () => {
       const attacker = visitor();
       await attacker.signUp(form(email, { name: 'Attacker' }));
@@ -538,6 +544,7 @@ describe('client sign-up', () => {
     const owner = visitor();
     await owner.signUp(form(taken));
     await owner.post('/verify-email', { code: '000000' });
+    await owner.post('/verify-phone', { code: '000000' });
     // A second sign-up inside the gap: a new email and a registered one show the same wait.
     const fresh = await visitor().signUp(form(emailFor('oraclex')));
     const known = await visitor().signUp(form(taken));
@@ -552,6 +559,7 @@ describe('client sign-up', () => {
     const done = visitor();
     await done.signUp(form(registered));
     await done.post('/verify-email', { code: '000000' });
+    await done.post('/verify-phone', { code: '000000' });
     const unfinishedEmail = emailFor('unfin');
     await visitor().signUp(form(unfinishedEmail));
     const sentBefore = outbox.length;
@@ -656,9 +664,12 @@ describe('client sign-up', () => {
           visitor(slug, `100.64.7.${i + 1}`).signUp(form(emailFor('burst'))),
         ),
       );
-      const statuses = results.map((r) => r.status).sort();
-      expect(statuses.filter((x) => x === 200)).toHaveLength(5);
-      expect(statuses.filter((x) => x === 429)).toHaveLength(15);
+      // A busy network key is refused like the limit (try-locks), so at most 5 pass, never a 500.
+      const statuses = results.map((r) => r.status);
+      const passed = statuses.filter((x) => x === 200).length;
+      expect(passed).toBeGreaterThanOrEqual(1);
+      expect(passed).toBeLessThanOrEqual(5);
+      expect(statuses.filter((x) => x !== 200 && x !== 429)).toEqual([]);
     } finally {
       SIGN_UP_LIMITS.perNetworkPerHour = perNetwork;
     }
@@ -668,10 +679,110 @@ describe('client sign-up', () => {
       Array.from({ length: 12 }, (_, i) => visitor(slug, `100.64.8.${i + 1}`).signUp(form(email))),
     );
     const sameStatuses = same.map((r) => r.status);
-    expect(sameStatuses.filter((x) => x === 200)).toHaveLength(
-      SIGN_UP_LIMITS.perEmailNetworkPerDay,
-    );
+    const samePassed = sameStatuses.filter((x) => x === 200).length;
+    expect(samePassed).toBeGreaterThanOrEqual(1);
+    expect(samePassed).toBeLessThanOrEqual(SIGN_UP_LIMITS.perEmailNetworkPerDay);
     expect(sameStatuses.filter((x) => x !== 200 && x !== 429)).toEqual([]);
+  });
+
+  it('answers a burst bigger than the pool with 429s, never 500, and other firms stay up (#70 re-review)', async () => {
+    const otherFirmInfo = () =>
+      request(app.getHttpServer()).get(`/api/v1/portal/${fx.firmA.slug}/info`);
+    const [burst, others] = await Promise.all([
+      Promise.all(
+        Array.from({ length: 120 }, (_, i) =>
+          visitor(slug, `100.65.9.${(i % 250) + 1}`).signUp(form(emailFor('flood'))),
+        ),
+      ),
+      Promise.all(Array.from({ length: 15 }, () => otherFirmInfo())),
+    ]);
+    const statuses = burst.map((r) => r.status);
+    expect(statuses.filter((x) => x !== 200 && x !== 429)).toEqual([]);
+    expect(statuses.filter((x) => x === 200).length).toBeLessThanOrEqual(
+      SIGN_UP_LIMITS.perNetworkPerHour,
+    );
+    expect(others.map((r) => r.status)).toEqual(Array<number>(15).fill(200));
+  });
+
+  it('resumes a sign-up stopped after the email step, once the email is proved again (#70 re-review)', async () => {
+    const email = emailFor('resume');
+    const first = visitor();
+    await first.signUp(form(email));
+    await first.post('/verify-email', { code: '000000' });
+    // The tab closes before the SMS code. A new sign-up for the same email goes on.
+    await withoutGap(async () => {
+      const again = visitor();
+      const started = await again.signUp(form(email, { name: 'Same Person' }));
+      expect(started.body).toMatchObject({ step: 'VERIFY_EMAIL' });
+      expect(sentTo(email)).not.toContain('registered');
+      // Not before the email is proved again by this attempt.
+      expect(codeOf(await again.post('/verify-phone', { code: '000000' }))).toBe('WRONG_STEP');
+      expect((await again.post('/verify-email', { code: '000000' })).body).toMatchObject({
+        step: 'VERIFY_PHONE',
+      });
+      expect((await again.post('/verify-phone', { code: '000000' })).body).toMatchObject({
+        step: 'DONE',
+      });
+    });
+    // The first attempt's login was retired with its cookie.
+    expect(codeOf(await first.state())).toBe('SIGN_UP_EXPIRED');
+    const account = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({ where: { email }, include: { user: true } }),
+    );
+    expect(account.user.name).toBe('Same Person');
+    expect(account.phoneVerifiedAt).not.toBeNull();
+  });
+
+  it('sends the first SMS even after the attempt used its requests, and shows the real wait (#70 re-review)', async () => {
+    const perIp = SIGN_UP_LIMITS.perIpPerHour;
+    SIGN_UP_LIMITS.perIpPerHour = 50;
+    try {
+      await withoutGap(async () => {
+        const v = visitor();
+        await v.signUp(form(emailFor('usedup')));
+        for (let i = 1; i < SIGN_UP_LIMITS.sendsPerSession; i += 1) {
+          expect((await v.post('/resend', { channel: 'email' })).status).toBe(200);
+        }
+        const before = outbox.filter((m) => m.kind === 'sms').length;
+        const verified = await v.post('/verify-email', { code: '000000' });
+        expect(verified.body).toMatchObject({ step: 'VERIFY_PHONE' });
+        expect(outbox.filter((m) => m.kind === 'sms').length).toBe(before + 1);
+        // No request left in this attempt: Resend works again only after the sign-up ends.
+        const wait =
+          Date.parse((verified.body as { resendAvailableAt: string }).resendAvailableAt) -
+          Date.now();
+        expect(wait).toBeGreaterThan(20 * 60_000);
+      });
+    } finally {
+      SIGN_UP_LIMITS.perIpPerHour = perIp;
+    }
+
+    // An IP at its hourly limit: no SMS, and the wait shown is when the IP may ask again.
+    SIGN_UP_LIMITS.perIpPerHour = 2;
+    try {
+      const ip = newViewer();
+      const v = visitor(slug, ip);
+      await v.signUp(form(emailFor('ipfull')));
+      await visitor(slug, ip).signUp(form(emailFor('ipfull2')));
+      const before = outbox.filter((m) => m.kind === 'sms').length;
+      const verified = await v.post('/verify-email', { code: '000000' });
+      expect(verified.body).toMatchObject({ step: 'VERIFY_PHONE' });
+      expect(outbox.filter((m) => m.kind === 'sms').length).toBe(before);
+      const wait =
+        Date.parse((verified.body as { resendAvailableAt: string }).resendAvailableAt) - Date.now();
+      expect(wait).toBeGreaterThan(50 * 60_000);
+      expect(codeOf(await v.post('/resend', { channel: 'phone' }))).toBe('RATE_LIMITED');
+    } finally {
+      SIGN_UP_LIMITS.perIpPerHour = perIp;
+    }
+  });
+
+  it('sends at most one "already registered" email for parallel sign-ups (#70 re-review)', async () => {
+    const email = await registeredEmail();
+    await Promise.all(
+      Array.from({ length: 12 }, (_, i) => visitor(slug, `100.66.${i + 1}.7`).signUp(form(email))),
+    );
+    expect(sentTo(email).filter((k) => k === 'registered').length).toBeLessThanOrEqual(1);
   });
 
   it('counts an address by its network, whatever its written form (#70 review)', async () => {

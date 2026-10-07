@@ -31,7 +31,9 @@ info:
       `/{firm}/sign-up`.
     - **Order:** verify the email, then the phone (`409 WRONG_STEP` otherwise). Change Email and
       Change Phone work until that item is verified (`409 ALREADY_VERIFIED`). Resend works from
-      `resendAvailableAt` (45 s; `429 RATE_LIMITED` before).
+      `resendAvailableAt` (`429 RATE_LIMITED` before): the 45 s gap, or later when this IP or
+      network is at its hourly limit, or the sign-up's end when the session has used its 10
+      requests (then sign up again: the sign-up resumes, see below).
     - **Changed email or phone.** The 45 s gap counts from the sign-up session's last request
       (sign-up, resend, a change, or the SMS sent after verify-email), whatever its address, and is
       kept on the server (an older cookie resets nothing). Every change starts the gap again. A
@@ -40,9 +42,10 @@ info:
     - **Never reveals an account.** Sign-up answers the same for an email that already has an
       account at this firm: the same answers, the same cookie and the same timing. That person
       gets an email saying so (at most one an hour) instead of a code, and the codes never match.
-      Signing up again over a sign-up nobody finished is allowed; the new attempt gets the
-      account only by verifying the email with its own code. Sign-in, forgot and reset password
-      answer as in auth.yaml.
+      Signing up again over a sign-up nobody finished (no verified phone yet, also one stopped
+      after its email step) is allowed; the new attempt gets the account only by verifying the
+      email with its own code, then goes on to the phone. So a closed tab or a refused SMS never
+      strands a sign-up. Sign-in, forgot and reset password answer as in auth.yaml.
     - **After verify-phone** the account waits for the firm (`PENDING_APPROVAL`). A pending client
       can sign in; `GET me` shows `clientAccounts[0].status: PENDING_APPROVAL`, and the portal
       layout sends them to `/{firm}/sign-up/done`. A declined or disabled client, or one who has
@@ -123,11 +126,17 @@ info:
 
     The answer is the same for every limit and every email: "Too many attempts. Please try again
     later." (some limits last a day). Each limit is counted and recorded in one database
-    transaction, so parallel requests cannot pass it together. Neither a person's nor a firm's
+    transaction under a lock that is never waited for: a request that arrives while another for the
+    same network, email or sign-up session is being counted gets the same 429 at once, so parallel
+    requests cannot pass a limit together and a burst never ties up the database. A busy database
+    answers `503 SERVICE_BUSY` with `Retry-After` (auth.yaml). Neither a person's nor a firm's
     sign-up closes for volume: 20 sign-ups for one email, or 200 at a firm, in a day only raise an
     alert (once a day). Codes to one address, for one account, and a firm's SMS codes (200 a day)
-    are capped; above a cap nothing is sent and the answer stays the same. When the SMS after
-    verify-email is over a limit, verify-email still succeeds and the code waits for Resend.
+    are capped; above a cap nothing is sent and the answer stays the same. The SMS after
+    verify-email is not held to the session's own 10 requests; when it is over the IP or network
+    limit, verify-email still succeeds and the code waits for Resend (`resendAvailableAt` says
+    when). At most one "already registered" email goes to an account an hour, also under parallel
+    sign-ups.
 
 servers:
   - url: /api/v1
