@@ -154,3 +154,4 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   5. Then R4 submit (needs R0's ein columns; otherwise approve first), request info, decline and notes, then approve (KMS and invite: to Rasel before pushing).
   6. Open for Rasel: R5 file types and replacements; R6 password-reset email; the lead's other R5 questions (FAILED rescans, deferred deletes, uploads to PENDING engagements).
   7. Keep watching every Deploy dev run.
+- 2026-10-08: #75 merged (4a9f707) with main merged in first (36c4d02); its Deploy dev run succeeded, as did #71's and #77's. A watcher that died on a network error had only been waiting. Next step 2 above: the R6 PR, opened now from fresh main.
