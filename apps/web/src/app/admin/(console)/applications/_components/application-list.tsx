@@ -1,7 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { listApplications } from './application-data';
+import { useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  getApplicationsVersion,
+  listApplications,
+  subscribeApplications,
+} from './application-data';
 import {
   ApplicationFilters,
   matchesFilters,
@@ -13,7 +17,12 @@ import { ApplicationTable } from './application-table';
 import { MetricCards } from './application-ui';
 
 export function ApplicationList() {
-  const [applications] = useState(listApplications);
+  const version = useSyncExternalStore(
+    subscribeApplications,
+    getApplicationsVersion,
+    getApplicationsVersion,
+  );
+  const applications = useMemo(() => listApplications(), [version]);
   const [tab, setTab] = useState<ApplicationTab>('all');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
@@ -27,7 +36,9 @@ export function ApplicationList() {
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
       <header>
-        <h1 className="text-3xl font-semibold tracking-tight text-text">Firm Applications</h1>
+        <h1 data-testid="page-title" className="text-3xl font-semibold tracking-tight text-text">
+          Firm Applications
+        </h1>
         <p className="mt-2 max-w-3xl text-muted">
           Review and manage new firm applications. Approve firms to activate their accounts.
         </p>

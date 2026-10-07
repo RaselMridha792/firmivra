@@ -86,6 +86,19 @@ const records: FirmApplication[] = Array.from({ length: 13 }, (_, index) => {
   };
 });
 
+let version = 0;
+const listeners = new Set<() => void>();
+
+export const getApplicationsVersion = () => version;
+export function subscribeApplications(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+function notifyApplicationsChanged() {
+  version += 1;
+  listeners.forEach((listener) => listener());
+}
+
 const copy = (row: FirmApplication): FirmApplication => ({
   ...row,
   services: [...row.services],
@@ -121,6 +134,7 @@ export async function decideApplication(id: string, action: ApplicationAction, d
       at: new Date().toISOString(),
     },
   ];
+  notifyApplicationsChanged();
   return copy(row);
 }
 
@@ -134,5 +148,6 @@ export async function addApplicationNote(id: string, note: string) {
     ...row.history,
     { title: 'Internal Note Added', detail: note, at: new Date().toISOString() },
   ];
+  notifyApplicationsChanged();
   return copy(row);
 }

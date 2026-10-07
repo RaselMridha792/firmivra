@@ -2,16 +2,28 @@
 
 import { Building2, Contact, FileCheck2, FileText, History, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
-import { Card } from '@firmivra/ui';
-import { addApplicationNote, type FirmApplication } from './application-data';
+import { Button, Card } from '@firmivra/ui';
+import {
+  addApplicationNote,
+  decideApplication,
+  type ApplicationAction,
+  type FirmApplication,
+} from './application-data';
+import { ApplicationActionDialog } from './application-action-dialog';
 import { ApplicationNotes } from './application-notes';
 import { Field, formatDate, SectionTitle, StatusPill } from './application-ui';
 import { useState } from 'react';
 
 export function ApplicationDetail({ application: initial }: { application: FirmApplication }) {
   const [application, setApplication] = useState(initial);
+  const [action, setAction] = useState<ApplicationAction | null>(null);
   const saveNote = async (note: string) =>
     setApplication(await addApplicationNote(application.id, note));
+  const runAction = async (detail: string) => {
+    if (!action) return;
+    setApplication(await decideApplication(application.id, action, detail));
+    setAction(null);
+  };
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5">
@@ -24,6 +36,9 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-3">
+            <span data-testid="page-title" className="sr-only">
+              Firm application
+            </span>
             <h1 className="font-serif text-3xl font-semibold text-text">
               {application.businessName}
             </h1>
@@ -31,6 +46,12 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
           </div>
           <p className="mt-2 text-sm text-muted">Submitted {formatDate(application.submittedAt)}</p>
         </div>
+        {application.status === 'Pending Review' ||
+        application.status === 'Information Requested' ? (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setAction('Approve')}>Approve application</Button>
+          </div>
+        ) : null}
       </header>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -110,8 +131,8 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
       <Card>
         <SectionTitle icon={History}>Application History</SectionTitle>
         <ol className="mt-5 space-y-5 border-l border-border pl-5">
-          {application.history.map((event, index) => (
-            <li key={`${event.at}-${index}`} className="relative">
+          {application.history.map((event) => (
+            <li key={`${event.at}-${event.title}-${event.detail}`} className="relative">
               <span
                 aria-hidden
                 className="absolute -left-[1.56rem] top-1 size-3 rounded-full bg-brand-700 ring-4 ring-surface"
@@ -131,6 +152,13 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
           <ApplicationNotes notes={application.notes} onSave={saveNote} />
         </div>
       </Card>
+      {action ? (
+        <ApplicationActionDialog
+          action={action}
+          onClose={() => setAction(null)}
+          onConfirm={runAction}
+        />
+      ) : null}
     </div>
   );
 }
