@@ -16,3 +16,4 @@ export * from './settings/index.js';
 export * from './clients/index.js';
 export * from './engagements/index.js';
 export * from './tax-returns/index.js';
+export * from './firm-applications/index.js';

@@ -14,12 +14,15 @@ import {
   Users,
   UsersRound,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useState } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
 import type { NavItem } from '../../../components/app-shell/types';
+import { FirmContext } from '../../../components/firm-context';
 import { SignedIn, useMe } from '../../../components/signed-in';
 import { api } from '../../../lib/api';
+import { claimCache } from '../../../lib/session';
 
 // The firm's menu (docs/junior/PAGE-MAP.md; Fahad owns this list, F03). Items marked `managers`
 // show only to Owner and Admin; the API still checks every request.
@@ -62,13 +65,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
 function FirmArea({ children }: { children: ReactNode }) {
   const { me, signOut } = useMe();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [firm, setFirm] = useState<BusinessSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     api.currentBusiness().then(
-      (b) => active && setFirm(b),
+      (b) => {
+        if (!active) return;
+        // Another firm than last time on this tab starts with an empty data cache.
+        claimCache(queryClient, 'firm', b.id);
+        setFirm(b);
+      },
       (e: unknown) => {
         if (!active) return;
         const code = e instanceof ApiRequestError ? e.code : 'ERROR';
@@ -81,7 +90,7 @@ function FirmArea({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [router, queryClient]);
 
   if (error) {
     return (
@@ -116,7 +125,8 @@ function FirmArea({ children }: { children: ReactNode }) {
       roleLabel={role ? ROLE_LABEL[role] : 'Staff'}
       greeting={<span data-testid="firm-name">{firm.name}</span>}
     >
-      {children}
+      {/* Pages read the firm and the role with useFirm() (and <RequireRole>). */}
+      <FirmContext value={{ firm, role }}>{children}</FirmContext>
     </AppShell>
   );
 }
