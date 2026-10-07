@@ -5,7 +5,9 @@
 --   page shows them for invited members). One line, length-limited, email lower-case.
 -- - memberships.joined_at: set by the database the first time a membership is ACTIVE; never
 --   changes. Deactivating an invite before it was accepted does not count as joining.
--- - users_select: in business scope, a staff member's user row is readable only once they joined.
+-- Staged (R2's #41 merged first): this adds the columns and joined_at. A follow-up migration then
+-- requires the typed name and email on staff invites and hides an invited person's user row from
+-- the firm until they join, once R2's invite code writes and shows the typed details.
 
 -- AlterTable
 ALTER TABLE "invites" ADD COLUMN     "email" TEXT,
@@ -43,32 +45,3 @@ $$;
 CREATE TRIGGER memberships_joined_at
   BEFORE INSERT OR UPDATE ON memberships
   FOR EACH ROW EXECUTE FUNCTION memberships_joined_at();
-
--- A new staff invite carries the typed name and email (client invites point at a client record,
--- which has its own name).
-CREATE FUNCTION invites_typed_details() RETURNS trigger
-  LANGUAGE plpgsql
-  AS $$
-BEGIN
-  IF NEW.membership_id IS NOT NULL AND (NEW.name IS NULL OR NEW.email IS NULL) THEN
-    RAISE EXCEPTION 'invites: a staff invite needs the name and email the inviter typed'
-      USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NEW;
-END
-$$;
-
-CREATE TRIGGER invites_typed_details
-  BEFORE INSERT ON invites
-  FOR EACH ROW EXECUTE FUNCTION invites_typed_details();
-
--- Staff users are shared across firms: a firm reads a member's user row only once they joined.
--- Client users are one per firm, so a firm's client logins stay readable.
-DROP POLICY users_select ON users;
-CREATE POLICY users_select ON users FOR SELECT
-  USING (app_scope() = 'platform'
-         OR id = app_current_user_id()
-         OR (app_scope() = 'business'
-             AND (EXISTS (SELECT 1 FROM memberships m
-                          WHERE m.user_id = users.id AND m.joined_at IS NOT NULL)
-                  OR EXISTS (SELECT 1 FROM client_accounts c WHERE c.user_id = users.id))));

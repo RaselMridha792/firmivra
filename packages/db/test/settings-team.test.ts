@@ -241,19 +241,13 @@ describe('invites', () => {
   });
 });
 
-describe('invited staff: the typed name until they join', () => {
+describe('invited staff: the typed name and joined_at', () => {
   /** A new STAFF user invited to firm A (membership INVITED). */
   const invitee = async () => {
     const id = randomUUID();
     await runInScope(owner, { kind: 'platform' }, (tx) =>
       tx.user.create({
-        data: {
-          id,
-          cognitoSub: id,
-          pool: 'STAFF',
-          email: `${id}@s.test`,
-          name: 'Real Name Elsewhere',
-        },
+        data: { id, cognitoSub: id, pool: 'STAFF', email: `${id}@s.test`, name: 'Fake' },
       }),
     );
     const m = await firmA().membership.create({
@@ -262,51 +256,43 @@ describe('invited staff: the typed name until they join', () => {
     return { userId: id, membershipId: m.id };
   };
 
-  it('a staff invite needs the name and email the inviter typed', async () => {
+  it('keeps the name and email the inviter typed: one line, up to 120, email lower-case', async () => {
     const { membershipId } = await invitee();
-    const base = {
-      businessId: ids.firmA,
-      membershipId,
-      tokenHash: newTokenHash(),
-      expiresAt: days(7),
-    };
-    await expect(firmA().invite.create({ data: base })).rejects.toThrow(
-      /name and email the inviter typed/,
-    );
+    const base = { businessId: ids.firmA, membershipId, expiresAt: days(7) };
     for (const bad of [
       { ...typed, name: 'Tab\tName' },
       { ...typed, name: 'x'.repeat(121) },
+      { ...typed, name: ' ' },
       { ...typed, email: 'Upper@S.test' },
     ]) {
       await expect(
         firmA().invite.create({ data: { ...base, ...bad, tokenHash: newTokenHash() } }),
       ).rejects.toThrow(/check constraint/i);
     }
-    await expect(firmA().invite.create({ data: { ...base, ...typed } })).resolves.toMatchObject({
-      name: 'Fake Invitee',
-    });
+    await expect(
+      firmA().invite.create({ data: { ...base, ...typed, tokenHash: newTokenHash() } }),
+    ).resolves.toMatchObject({ name: 'Fake Invitee', email: typed.email });
   });
 
-  it("the firm can't read an invited person's user row until they join", async () => {
-    const { userId, membershipId } = await invitee();
-    expect(await firmA().user.findUnique({ where: { id: userId } })).toBeNull();
+  it('joined_at is set the first time the membership is ACTIVE, not by deactivating an invite', async () => {
+    const declined = await invitee();
+    const left = await firmA().membership.update({
+      where: { id: declined.membershipId },
+      data: { status: 'DEACTIVATED' },
+    });
+    expect(left.joinedAt).toBeNull();
+
+    const joining = await invitee();
     const joined = await firmA().membership.update({
-      where: { id: membershipId },
+      where: { id: joining.membershipId },
       data: { status: 'ACTIVE' },
     });
     expect(joined.joinedAt).not.toBeNull();
-    expect(await firmA().user.findUnique({ where: { id: userId } })).toMatchObject({
-      name: 'Real Name Elsewhere',
-    });
-  });
-
-  it('deactivating an invite before it was accepted reveals nothing', async () => {
-    const { userId, membershipId } = await invitee();
-    await firmA().membership.update({
-      where: { id: membershipId },
+    const away = await firmA().membership.update({
+      where: { id: joining.membershipId },
       data: { status: 'DEACTIVATED' },
     });
-    expect(await firmA().user.findUnique({ where: { id: userId } })).toBeNull();
+    expect(away.joinedAt).toEqual(joined.joinedAt);
   });
 
   it('joined_at is set only by the database and never changes', async () => {
