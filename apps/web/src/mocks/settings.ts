@@ -19,43 +19,56 @@ import {
  */
 const at = '2026-10-06T09:00:00.000Z';
 
-// Parsed, so a fixture that breaks the contract fails as soon as the mock loads.
-export const settingsFixture: FirmSettings = FirmSettings.parse({
-  business: {
-    id: '0199b6a0-0000-7000-8000-0000000000a1',
-    slug: 'lvp',
-    legalName: 'Sample Legal Name LLC',
-    status: 'PENDING_SETUP',
-  },
-  name: 'LVP Accounting & Taxes',
-  contactEmail: 'office@lvp.test',
-  contactPhone: '(555) 010-0100',
-  website: null,
-  addressLine1: '100 Sample Road',
-  addressLine2: null,
-  city: 'Springfield',
-  state: 'GA',
-  postalCode: '30000',
-  country: 'US',
-  timezone: 'America/New_York',
-  logoUrl: null,
-  primaryColor: null,
-  accentColor: null,
-  portalName: null,
-  portalHeader: null,
-  welcomeMessage: null,
-  clientSignUpEnabled: true,
-  updatedAt: at,
-});
+let settingsCache: FirmSettings | undefined;
+let legalCache: readonly LegalDocument[] | undefined;
+
+/**
+ * The sample firm (LVP, Pending Setup). Built on first use, so importing this file runs nothing
+ * and a production build drops it; parsed, so a fixture that breaks the contract fails then.
+ */
+export function settingsFixture(): FirmSettings {
+  settingsCache ??= FirmSettings.parse({
+    business: {
+      id: '0199b6a0-0000-7000-8000-0000000000a1',
+      slug: 'lvp',
+      legalName: 'Sample Legal Name LLC',
+      status: 'PENDING_SETUP',
+    },
+    name: 'LVP Accounting & Taxes',
+    contactEmail: 'office@lvp.test',
+    contactPhone: '(555) 010-0100',
+    website: null,
+    addressLine1: '100 Sample Road',
+    addressLine2: null,
+    city: 'Springfield',
+    state: 'GA',
+    postalCode: '30000',
+    country: 'US',
+    timezone: 'America/New_York',
+    logoUrl: null,
+    primaryColor: null,
+    accentColor: null,
+    portalName: null,
+    portalHeader: null,
+    welcomeMessage: null,
+    clientSignUpEnabled: true,
+    updatedAt: at,
+  });
+  return settingsCache;
+}
 
 const document = (kind: LegalKind, version: number, body: string): LegalDocument =>
   LegalDocument.parse({ kind, version, publishedAt: at, body });
 
-export const legalFixtures: readonly LegalDocument[] = [
-  document('terms', 1, '# Terms of Service\n\nSample terms for testing. Not a real agreement.'),
-  document('terms', 2, '# Terms of Service\n\nSample terms, version 2. Not a real agreement.'),
-  document('privacy', 1, '# Privacy Policy\n\nSample policy for testing. Not a real policy.'),
-];
+/** Terms versions 1 and 2 and Privacy version 1. Built on first use. */
+export function legalFixtures(): readonly LegalDocument[] {
+  legalCache ??= [
+    document('terms', 1, '# Terms of Service\n\nSample terms for testing. Not a real agreement.'),
+    document('terms', 2, '# Terms of Service\n\nSample terms, version 2. Not a real agreement.'),
+    document('privacy', 1, '# Privacy Policy\n\nSample policy for testing. Not a real policy.'),
+  ];
+  return legalCache;
+}
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
@@ -76,17 +89,18 @@ export function createSettingsMock(
   options: { role?: 'OWNER' | 'ADMIN' | 'STAFF'; setupDone?: boolean } = {},
 ): SettingsClient {
   // State is replaced, never edited, and callers always get copies, like a real API response.
+  const sample = settingsFixture();
   let settings: FirmSettings = {
-    ...settingsFixture,
+    ...sample,
     business: {
-      ...settingsFixture.business,
+      ...sample.business,
       status: options.setupDone ? 'ACTIVE' : 'PENDING_SETUP',
     },
   };
   let setup: FirmSetup = options.setupDone
     ? { completedSteps: [...SetupStep.options], completedAt: at }
     : { completedSteps: [], completedAt: null };
-  let documents: LegalDocument[] = legalFixtures.map((doc) => ({ ...doc }));
+  let documents: LegalDocument[] = legalFixtures().map((doc) => ({ ...doc }));
   const now = () => new Date().toISOString();
   const copySettings = () => ({ ...settings, business: { ...settings.business } });
   const copySetup = () => ({ ...setup, completedSteps: [...setup.completedSteps] });

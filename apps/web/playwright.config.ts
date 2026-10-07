@@ -13,6 +13,8 @@ const apiPort = process.env['API_PORT'] ?? '4000';
  */
 export default defineConfig({
   testDir: 'e2e',
+  // Mock-mode tests run with their own config and server (playwright.mock.config.ts).
+  testIgnore: 'mock/**',
   fullyParallel: false,
   // The dev server compiles each page on its first visit, which can take several seconds;
   // specs that open many pages set a longer test timeout themselves.
