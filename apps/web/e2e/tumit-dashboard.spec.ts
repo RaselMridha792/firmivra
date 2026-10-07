@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const port = process.env['WEB_PORT'] ?? '3000';
 const admin = 'http://admin.localhost:' + port;
@@ -14,15 +14,16 @@ const mockMe = {
   platformAdmin: true,
 };
 
-test.beforeEach(async ({ page }) => {
+async function mockAdminMe(page: Page) {
   await page.route('**/api/v1/admin/me', (route) => route.fulfill({ status: 200, json: mockMe }));
-});
+}
 
 test('Super Admin dashboard and navigation fit desktop and 375 px screens', async ({ page }) => {
+  await mockAdminMe(page);
   await page.goto(admin + '/');
   await expect(page.getByRole('heading', { name: 'Welcome back, Alex!' })).toBeVisible();
   await expect(page.getByTestId('dashboard-date')).toHaveText(/\w+, \w+ \d{1,2}, \d{4}/);
-  await expect(page.getByRole('link', { name: 'Review' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toBeVisible();
   const navigation = page.getByRole('navigation', { name: 'Main' });
   await expect(navigation.getByRole('link', { name: 'Firm Applications 1' })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Growth date range' })).toHaveValue('month');
@@ -37,15 +38,17 @@ test('Super Admin dashboard and navigation fit desktop and 375 px screens', asyn
 });
 
 test('dashboard search filters local records and opens a result with Enter', async ({ page }) => {
+  await mockAdminMe(page);
   await page.goto(admin + '/');
   const search = page.getByRole('combobox', { name: 'Search firms, applications, users' });
   await search.fill('octavia');
-  await expect(page.getByRole('option', { name: /Octavia Holder/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Application LVP Accounting/ })).toBeVisible();
   await search.press('Enter');
   await expect(page).toHaveURL(/\/applications\/00000000-0000-4000-8000-000000000001$/);
 });
 
 test('notification panel marks the pending application as read', async ({ page }) => {
+  await mockAdminMe(page);
   await page.goto(admin + '/');
   await page.getByRole('button', { name: 'Notifications, 1 unread' }).click();
   const panel = page.getByRole('region', { name: 'Notifications panel' });
@@ -55,6 +58,7 @@ test('notification panel marks the pending application as read', async ({ page }
 });
 
 test('growth period selection updates the mock chart window', async ({ page }) => {
+  await mockAdminMe(page);
   await page.goto(admin + '/');
   const range = page.getByRole('combobox', { name: 'Growth date range' });
   await range.selectOption('week');
@@ -68,6 +72,7 @@ test('growth period selection updates the mock chart window', async ({ page }) =
 });
 
 test('Platform Settings quick action explains its current preview state', async ({ page }) => {
+  await mockAdminMe(page);
   await page.goto(admin + '/');
   await page.getByRole('button', { name: 'Platform Settings' }).click();
   await expect(page.getByRole('status')).toContainText('currently uses sample data');
@@ -78,7 +83,33 @@ test('Platform Settings quick action explains its current preview state', async 
 });
 
 test('pending attention task opens the application review queue', async ({ page }) => {
+  await mockAdminMe(page);
   await page.goto(admin + '/');
   await page.getByRole('link', { name: 'Open Firm application pending review' }).click();
   await expect(page).toHaveURL(/\/applications$/);
+});
+
+test('dashboard sign-in check shows loading and can recover from an error', async ({ page }) => {
+  let attempts = 0;
+  let retryRequested = false;
+  await page.route('**/api/v1/admin/me', async (route) => {
+    attempts += 1;
+    if (!retryRequested) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({
+        status: 500,
+        json: { error: { code: 'SERVER_ERROR', message: 'Synthetic test error' } },
+      });
+      return;
+    }
+    await route.fulfill({ status: 200, json: mockMe });
+  });
+
+  await page.goto(admin + '/');
+  await expect(page.getByText('Loading…')).toBeVisible();
+  await expect(page.getByText("We couldn't load your account (SERVER_ERROR).")).toBeVisible();
+  retryRequested = true;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('heading', { name: 'Welcome back, Alex!' })).toBeVisible();
+  expect(attempts).toBeGreaterThanOrEqual(2);
 });
