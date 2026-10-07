@@ -32,13 +32,20 @@ info:
     - **Order:** verify the email, then the phone (`409 WRONG_STEP` otherwise). Change Email and
       Change Phone work until that item is verified (`409 ALREADY_VERIFIED`). Resend works from
       `resendAvailableAt` (45 s; `429 RATE_LIMITED` before).
+    - **Changed email or phone.** The 45 s gap counts from the last code, whatever its address.
+      A change inside the gap sends no code yet, and the code sent to the old address stops
+      working: show the countdown from `resendAvailableAt`, then Resend.
     - **Never reveals an account.** Sign-up answers the same for an email that already has an
-      account at this firm. That person gets an email saying so instead of a code, and the codes
-      never match. Sign-in, forgot and reset password answer as in auth.yaml.
+      account at this firm: the same answers, the same cookie and the same timing. That person
+      gets an email saying so (at most one an hour) instead of a code, and the codes never match.
+      Signing up again over a sign-up nobody finished is allowed; the new attempt gets the
+      account only by verifying the email with its own code. Sign-in, forgot and reset password
+      answer as in auth.yaml.
     - **After verify-phone** the account waits for the firm (`PENDING_APPROVAL`). A pending client
       can sign in; `GET me` shows `clientAccounts[0].status: PENDING_APPROVAL`, and the portal
-      layout sends them to `/{firm}/sign-up/done`. A declined or disabled client gets
-      `401 INVALID_CREDENTIALS` at sign-in.
+      layout sends them to `/{firm}/sign-up/done`. A declined or disabled client, or one who has
+      not verified both email and phone, gets `401 INVALID_CREDENTIALS` at sign-in, exactly like
+      a wrong password.
     - **MFA is optional** for clients: sign-in usually answers `SIGNED_IN` straight away;
       `MFA_REQUIRED` only for clients who turned it on.
 
@@ -88,7 +95,12 @@ info:
     ## Rate limits
 
     `sign-up`, `verify-email`, `verify-phone`, `resend`, `change-email`, `change-phone`, and the
-    sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email).
+    sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email):
+    - at most 5 sign-ups (or changes to that email) for one email at a firm in a day;
+    - at most 10 code requests (sign-up, resend, changes) in one sign-up session.
+
+    Codes to one address, and for one account, are capped daily; above the cap nothing is sent
+    and the answer stays the same.
 
 servers:
   - url: /api/v1
@@ -257,7 +269,9 @@ paths:
       summary: Sign in to this firm's portal
       description: |
         As `/auth/sign-in` in auth.yaml, with the firm's own login. `SIGNED_IN` sets the firm's
-        portal cookies. A declined or disabled client gets `401 INVALID_CREDENTIALS`.
+        portal cookies, and `me.clientAccounts` holds only this firm's account. A declined or
+        disabled client, or a sign-up that never verified email and phone, gets
+        `401 INVALID_CREDENTIALS`, the same as a wrong password or an unknown email.
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: './auth.yaml#/components/schemas/SignInRequest' } } }
@@ -372,7 +386,8 @@ paths:
       summary: The signed-in client of this firm
       description: |
         `clientAccounts` holds this firm's account. Status `PENDING_APPROVAL`: show
-        `/{firm}/sign-up/done`. Status `ACTIVE`: the portal.
+        `/{firm}/sign-up/done`. Status `ACTIVE`: the portal. `401` without this firm's session,
+        or once the client may no longer sign in (for example declined).
       parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
       security: [{ portalCookie: [] }]
       responses:

@@ -8,7 +8,8 @@
     "start": "node scripts/next.mjs start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test && playwright test -c playwright.mock.config.ts",
+    "test:e2e:mock": "playwright test -c playwright.mock.config.ts"
   },
   "devDependencies": {
     "@firmivra/config-eslint": "workspace:*",
@@ -27,10 +28,14 @@
   "dependencies": {
     "@firmivra/types": "workspace:*",
     "@firmivra/ui": "workspace:*",
+    "@hookform/resolvers": "^5.9.1",
+    "@tanstack/react-query": "^5.104.1",
     "lucide-react": "^1.52.0",
     "next": "^16.3.8",
+    "qrcode.react": "^4.2.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "react-hook-form": "^7.89.0"
   },
   "type": "module"
 }

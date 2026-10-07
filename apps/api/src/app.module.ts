@@ -9,6 +9,9 @@ import { AuthGuard } from './auth/auth.guard.js';
 import { AuthModule } from './auth/auth.module.js';
 import { RolesGuard } from './auth/roles.guard.js';
 import { SignInModule } from './auth/sign-in.controller.js';
+import { PortalInfoModule } from './client-auth/portal-info.controller.js';
+import { PortalSignInModule } from './client-auth/portal-sign-in.controller.js';
+import { SignUpModule } from './client-auth/sign-up.controller.js';
 import { TenantGuard } from './auth/tenant.guard.js';
 import { BusinessModule } from './business/business.controller.js';
 import { ConfigModule } from './config/config.module.js';
@@ -17,6 +20,8 @@ import { DatabaseModule } from './database/database.module.js';
 import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
 import { MeModule } from './me/me.controller.js';
+import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
+import { ClientsModule } from './clients/clients.controller.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -58,7 +63,12 @@ export class AppModule {
         AuditModule,
         HealthModule,
         MeModule,
+        TaxStatusesModule,
+        ClientsModule,
         SignInModule,
+        PortalInfoModule,
+        SignUpModule,
+        PortalSignInModule,
         BusinessModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
       ],
