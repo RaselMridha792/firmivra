@@ -50,6 +50,9 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
         application.status === 'Information Requested' ? (
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => setAction('Approve')}>Approve application</Button>
+            <Button variant="secondary" onClick={() => setAction('Request Information')}>
+              Request information
+            </Button>
           </div>
         ) : null}
       </header>
