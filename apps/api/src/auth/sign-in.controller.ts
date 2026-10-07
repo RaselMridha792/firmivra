@@ -4,7 +4,6 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import {
-  type AuthSite,
   ForgotPasswordRequest,
   MfaRequest,
   MfaSetupRequest,
@@ -34,6 +33,7 @@ import { InvitesService } from './invites.service.js';
 import { poolSecrets } from './sealed.js';
 import { RefreshEnvelopes, SessionService } from './session.service.js';
 import { type SignInOutcome, SignInService } from './sign-in.service.js';
+import { type SignInPlace, sitePlace } from './site.js';
 import { TokenService } from './token.service.js';
 
 /** Per client IP (the viewer's, see configure-app.ts). Step 7 adds per-email limits. */
@@ -41,16 +41,24 @@ const ATTEMPTS = { default: { limit: 10, ttl: 60_000 } };
 const REFRESHES = { default: { limit: 30, ttl: 60_000 } };
 
 /**
- * The firm and the Super Admin site have the same routes (docs/api/auth.yaml). @Public() sits on
- * each handler, never on the class, so a route added later is not public by accident.
+ * The firm site, the Super Admin site and each firm's portal have the same routes
+ * (docs/api/auth.yaml, client-auth.yaml); each subclass says where its sign-in happens. @Public()
+ * sits on each handler, never on the class, so a route added later is not public by accident.
  */
-abstract class SignInRoutes {
+export abstract class SignInRoutes {
   constructor(
-    private readonly site: AuthSite,
     private readonly signIns: SignInService,
     private readonly sessions: SessionService,
     private readonly me: MeService,
   ) {}
+
+  /** Where this request signs in: the site, or the firm's portal (404 if it has none). */
+  protected abstract place(req: Request): Promise<SignInPlace>;
+
+  /** Sign-out always succeeds, so it may need a place even where `place` would refuse. */
+  protected signOutPlace(req: Request): Promise<SignInPlace> {
+    return this.place(req);
+  }
 
   @Post('sign-in')
   @Public()
@@ -58,9 +66,11 @@ abstract class SignInRoutes {
   @Throttle(ATTEMPTS)
   async signIn(
     @Body(new ZodValidationPipe(SignInRequest)) body: z.output<typeof SignInRequest>,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SignInResult> {
-    return this.finish(res, await this.signIns.signIn(this.site, body.email, body.password));
+    const place = await this.place(req);
+    return this.finish(res, place, await this.signIns.signIn(place, body.email, body.password));
   }
 
   @Post('mfa')
@@ -69,19 +79,22 @@ abstract class SignInRoutes {
   @Throttle(ATTEMPTS)
   async mfa(
     @Body(new ZodValidationPipe(MfaRequest)) body: z.output<typeof MfaRequest>,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SignInResult> {
-    return this.finish(res, await this.signIns.mfa(this.site, body.session, body.code));
+    const place = await this.place(req);
+    return this.finish(res, place, await this.signIns.mfa(place, body.session, body.code));
   }
 
   @Post('mfa/setup')
   @Public()
   @HttpCode(200)
   @Throttle(ATTEMPTS)
-  mfaSetup(
+  async mfaSetup(
     @Body(new ZodValidationPipe(MfaSetupRequest)) body: z.output<typeof MfaSetupRequest>,
+    @Req() req: Request,
   ): Promise<MfaSetupResponse> {
-    return this.signIns.startMfaSetup(this.site, body.session);
+    return this.signIns.startMfaSetup(await this.place(req), body.session);
   }
 
   /** Public: the access cookie may have expired. Reads only the refresh cookie. */
@@ -93,7 +106,7 @@ abstract class SignInRoutes {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<OkResponse> {
-    await this.sessions.refresh(req, res, this.site);
+    await this.sessions.refresh(req, res, await this.place(req));
     return { ok: true };
   }
 
@@ -108,7 +121,7 @@ abstract class SignInRoutes {
     // Sign-out always succeeds; a body it cannot read only means "not everywhere".
     const parsed = SignOutRequest.optional().safeParse(body);
     const everywhere = parsed.success && parsed.data?.everywhere === true;
-    await this.sessions.end(req, res, this.site, everywhere);
+    await this.sessions.end(req, res, await this.signOutPlace(req), everywhere);
     return { ok: true };
   }
 
@@ -119,8 +132,9 @@ abstract class SignInRoutes {
   async forgotPassword(
     @Body(new ZodValidationPipe(ForgotPasswordRequest))
     body: z.output<typeof ForgotPasswordRequest>,
+    @Req() req: Request,
   ): Promise<OkResponse> {
-    await this.signIns.forgotPassword(this.site, body.email);
+    await this.signIns.forgotPassword(await this.place(req), body.email);
     return { ok: true };
   }
 
@@ -130,23 +144,36 @@ abstract class SignInRoutes {
   @Throttle(ATTEMPTS)
   async resetPassword(
     @Body(new ZodValidationPipe(ResetPasswordRequest)) body: z.output<typeof ResetPasswordRequest>,
+    @Req() req: Request,
   ): Promise<OkResponse> {
-    await this.signIns.resetPassword(this.site, body.email, body.code, body.password);
+    const place = await this.place(req);
+    await this.signIns.resetPassword(place, body.email, body.code, body.password);
     return { ok: true };
   }
 
-  private async finish(res: Response, outcome: SignInOutcome): Promise<SignInResult> {
+  private async finish(
+    res: Response,
+    place: SignInPlace,
+    outcome: SignInOutcome,
+  ): Promise<SignInResult> {
     if (outcome.kind === 'step') return outcome.result;
-    await this.sessions.start(res, this.site, outcome);
-    return { status: 'SIGNED_IN', me: await this.me.load(outcome.userId) };
+    await this.sessions.start(res, place, outcome);
+    return { status: 'SIGNED_IN', me: await this.me.load(outcome.userId, place.businessId) };
   }
 }
+
+const FIRM = sitePlace('firm');
+const ADMIN = sitePlace('admin');
 
 /** Firm site: /api/v1/auth/* (staff pool). */
 @Controller('auth')
 export class StaffSignInController extends SignInRoutes {
   constructor(signIns: SignInService, sessions: SessionService, me: MeService) {
-    super('firm', signIns, sessions, me);
+    super(signIns, sessions, me);
+  }
+
+  protected place(): Promise<SignInPlace> {
+    return Promise.resolve(FIRM);
   }
 }
 
@@ -154,7 +181,11 @@ export class StaffSignInController extends SignInRoutes {
 @Controller('admin/auth')
 export class AdminSignInController extends SignInRoutes {
   constructor(signIns: SignInService, sessions: SessionService, me: MeService) {
-    super('admin', signIns, sessions, me);
+    super(signIns, sessions, me);
+  }
+
+  protected place(): Promise<SignInPlace> {
+    return Promise.resolve(ADMIN);
   }
 }
 
@@ -193,7 +224,7 @@ export class AdminSignInController extends SignInRoutes {
     },
   ],
   // For R4 (a new firm's owner on approval) and the Team API (resend), and R3's client sign-up
-  // (the identity provider): import SignInModule.
-  exports: [InvitesService, IDENTITY_PROVIDER],
+  // and portal sign-in (identity provider, sign-in and sessions): import SignInModule.
+  exports: [InvitesService, IDENTITY_PROVIDER, SignInService, SessionService],
 })
 export class SignInModule {}

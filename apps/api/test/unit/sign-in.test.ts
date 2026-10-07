@@ -28,7 +28,7 @@ import {
 } from '../../src/auth/session.service.js';
 import { AdminSignInController, StaffSignInController } from '../../src/auth/sign-in.controller.js';
 import { otpauthUri, SignInService } from '../../src/auth/sign-in.service.js';
-import { siteOf } from '../../src/auth/site.js';
+import { siteOf, sitePlace } from '../../src/auth/site.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -614,7 +614,7 @@ describe('SessionService.refresh (#23 review)', () => {
     const end = Math.floor(Date.now() / 1000) + 3600;
     const { service, cookies, res } = setup({ pool: 'STAFF' }, 'ref-2');
     const req = { cookies: { fv_refresh: await envelopes.sealUntil(envelope, end) } };
-    await service.refresh(req as never, res, 'firm');
+    await service.refresh(req as never, res, sitePlace('firm'));
 
     const maxAge = cookies['fv_refresh']?.maxAge ?? 0;
     expect(maxAge).toBeLessThanOrEqual(3600 * 1000);
@@ -626,7 +626,7 @@ describe('SessionService.refresh (#23 review)', () => {
   it('revokes the token and clears the cookies when the user is gone', async () => {
     const { service, identity, cookies, res } = setup(null);
     const req = { cookies: { fv_refresh: await envelopes.seal(envelope, 3600) } };
-    await expect(service.refresh(req as never, res, 'firm')).rejects.toBeInstanceOf(
+    await expect(service.refresh(req as never, res, sitePlace('firm'))).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
     expect(identity.revoke).toHaveBeenCalledWith('STAFF', 'ref-1');
@@ -669,7 +669,9 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
       { log: vi.fn() } as never,
       env,
     );
-    await expect(service.signIn(site, 'owner@lvp.test', 'pw')).rejects.toThrow(/skipped MFA/);
+    await expect(service.signIn(sitePlace(site), 'owner@lvp.test', 'pw')).rejects.toThrow(
+      /skipped MFA/,
+    );
     expect(identity.revoke).toHaveBeenCalledWith(site === 'admin' ? 'ADMIN' : 'STAFF', 'ref');
   });
 });
