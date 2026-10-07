@@ -3,7 +3,7 @@
 import { Bell, ChevronDown, Menu, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useMe } from '../signed-in';
 import { initials, type ShellNotification, type ShellSearchItem } from './types';
 
@@ -27,6 +27,7 @@ export function Header({
 }) {
   const { me, signOut } = useMe();
   const router = useRouter();
+  const headerRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
@@ -42,8 +43,31 @@ export function Header({
   );
   const displayRole = me.platformAdmin ? 'Super Admin' : roleLabel;
 
+  useEffect(() => {
+    function closePopovers(event: PointerEvent) {
+      if (!headerRef.current?.contains(event.target as Node)) {
+        setSearchTerm('');
+        setNotificationsOpen(false);
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', closePopovers);
+    return () => document.removeEventListener('pointerdown', closePopovers);
+  }, []);
+
   return (
-    <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2 md:px-6">
+    <header
+      ref={headerRef}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          setSearchTerm('');
+          setNotificationsOpen(false);
+          setOpen(false);
+        }
+      }}
+      className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2 md:px-6"
+    >
       <button
         type="button"
         onClick={onOpenMenu}
