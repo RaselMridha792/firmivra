@@ -74,7 +74,7 @@ export function SignIn({ site }: { site: 'firm' | 'admin' }) {
               />
               <Mail
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-4 left-5 h-6 w-6 text-muted"
+                className="pointer-events-none absolute top-12 left-5 h-6 w-6 text-muted"
               />
             </div>
             <div className="auth-field relative">
@@ -88,10 +88,10 @@ export function SignIn({ site }: { site: 'firm' | 'admin' }) {
               />
               <LockKeyhole
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-4 left-5 h-6 w-6 text-muted"
+                className="pointer-events-none absolute top-12 left-5 h-6 w-6 text-muted"
               />
               <Button
-                className="absolute bottom-2 right-2"
+                className="absolute top-10 right-2"
                 variant="ghost"
                 aria-label={show ? 'Hide password' : 'Show password'}
                 aria-pressed={show}
