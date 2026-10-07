@@ -53,6 +53,9 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
             <Button variant="secondary" onClick={() => setAction('Request Information')}>
               Request information
             </Button>
+            <Button variant="ghost" className="text-danger" onClick={() => setAction('Decline')}>
+              Decline application
+            </Button>
           </div>
         ) : null}
       </header>
