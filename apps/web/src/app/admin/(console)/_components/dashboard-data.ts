@@ -54,6 +54,11 @@ export const dashboardNotifications: readonly ShellNotification[] = [
     href: '/applications/' + '00000000-0000-4000-8000-000000000001',
   },
 ];
+export const growthPeriods = {
+  week: { label: 'Last 7 Days', dates: ['Sep 22', 'Sep 24', 'Sep 26', 'Sep 28'] },
+  month: { label: 'Last 30 Days', dates: ['Sep 1', 'Sep 8', 'Sep 15', 'Sep 22', 'Sep 28'] },
+  quarter: { label: 'Last 90 Days', dates: ['Jul 1', 'Jul 22', 'Aug 12', 'Sep 4', 'Sep 28'] },
+} as const;
 export const dashboardStats = [
   ['Pending Applications', pendingApplicationCount, '/applications', FileText, 'blue'],
   ['Active Firms', '0', '/firms', Building, 'green'],
