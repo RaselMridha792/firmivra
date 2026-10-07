@@ -143,6 +143,14 @@ BEGIN
   ELSIF NEW.sent_by_platform IS DISTINCT FROM OLD.sent_by_platform THEN
     RAISE EXCEPTION 'invites: sent_by_platform is set by the database'
       USING ERRCODE = 'insufficient_privilege';
+  ELSIF app_scope() = 'platform'
+        AND (NEW.accepted_at IS DISTINCT FROM OLD.accepted_at
+             OR NEW.expires_at IS DISTINCT FROM OLD.expires_at
+             OR NEW.token_hash IS DISTINCT FROM OLD.token_hash
+             OR NEW.membership_id IS DISTINCT FROM OLD.membership_id
+             OR NEW.name IS DISTINCT FROM OLD.name OR NEW.email IS DISTINCT FROM OLD.email) THEN
+    RAISE EXCEPTION 'invites: platform scope only revokes the links it sent'
+      USING ERRCODE = 'insufficient_privilege';
   END IF;
   RETURN NEW;
 END
@@ -312,8 +320,8 @@ ALTER TABLE business_settings ADD CONSTRAINT business_settings_description
 
 -- ==================== Encrypted columns hold the helper's ciphertext ====================
 -- What the field-encryption helper writes: version 1, mode 1 (local) or 2 (KMS), the wrapped
--- key's length, the wrapped key, a 12-byte IV, a 16-byte tag and at least one byte of
--- ciphertext. Plain digits or any other bytes are refused.
+-- key's length (at least 1), the wrapped key, a 12-byte IV, a 16-byte tag and the ciphertext.
+-- Plain digits or any other bytes are refused. (The API stores an empty value as NULL.)
 CREATE FUNCTION sealed_value_ok(blob bytea) RETURNS boolean
   LANGUAGE sql IMMUTABLE
   AS $$
@@ -321,7 +329,8 @@ CREATE FUNCTION sealed_value_ok(blob bytea) RETURNS boolean
     WHEN blob IS NULL THEN true
     WHEN octet_length(blob) < 33 THEN false
     ELSE get_byte(blob, 0) = 1 AND get_byte(blob, 1) IN (1, 2)
-         AND octet_length(blob) >= 33 + get_byte(blob, 2) * 256 + get_byte(blob, 3)
+         AND get_byte(blob, 2) * 256 + get_byte(blob, 3) >= 1
+         AND octet_length(blob) >= 32 + get_byte(blob, 2) * 256 + get_byte(blob, 3)
   END
 $$;
 ALTER TABLE business_settings ADD CONSTRAINT business_settings_ein_sealed
@@ -359,6 +368,14 @@ END
 $$;
 
 -- The history is written only by its trigger, running as the table owner: the app can't add a
--- row of its own (with any seq, time or author) on top of a year's history.
+-- row of its own (with any seq or time) on top of a year's history. The author is still the
+-- tax-year row's updated_by_user_id, which the API sets from the signed-in member.
 ALTER FUNCTION client_tax_statuses_history() SECURITY DEFINER SET search_path = public, pg_temp;
 REVOKE INSERT ON client_tax_status_history FROM firmivra_app;
+
+-- ==================== The owner-run trigger functions are triggers only ====================
+-- They run as the table owner, so nobody calls them directly (defense in depth: the app role
+-- can't create tables to attach them to anyway).
+REVOKE EXECUTE ON FUNCTION invites_platform_copy() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION users_count_signups() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION client_tax_statuses_history() FROM PUBLIC;
