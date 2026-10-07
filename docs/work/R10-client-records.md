@@ -17,7 +17,7 @@
 
 - [x] 1. Contract first, by Oct 8 morning: zod schemas and client functions in packages/types, registered on `api`, plus typed mock fixtures in apps/web/src/mocks; one small PR, so Fahad (F06) and Nahid (N05, N06) build their screens in mock mode
 - [x] 2. Field-encryption helper (KMS in AWS, `LOCAL_KMS_KEY` locally) for SSN and date of birth; R5 reuses it
-- [ ] 3. Clients: list with search and paging, get, create, update, archive (archive: Owner and Admin); client record overview
+- [x] 3. Clients: list with search and paging, get, create, update, archive (archive: Owner and Admin); client record overview
 - [ ] 4. Client profile: the firm's view and the client's own view in the portal; name and date of birth locked for the client ("Request Name Change" creates a task for staff); SSN, EIN and DOB stored only through the helper; SSN and EIN returned only as their last 4, DOB in full to the firm's staff and the client's primary login (Rasel, Oct 7)
 - [ ] 5. Client tax status per year with the firm's statuses (T04): firm updates, history, the client reads their own
 - [ ] 6. Services and engagements: Active, Recurring, Completed, Cancelled; the client's My Services
@@ -64,3 +64,4 @@ Fahad's clients screens and Nahid's My Profile, My Services and Taxes tabs work 
   - Enum names as in the database (`ClientPortalRole`, `ClientAccountType`). `FirmSlug` (shared, in `schemas.ts`) is checked before any portal path. `toQuery` is in `client.ts`. Tax-return tests are in `test/tax-returns/`. Test SSNs are 9xx.
   - Mocks: input checks before 404s, `structuredClone` everywhere, CLIENT_ARCHIVED on profile and tax-year changes.
   - Not split (Rasel).
+- Oct 7, step 3: `apps/api/src/clients/` (`ClientsModule`, controller at `/business/clients`, service), registered in `app.module.ts`; branch `rasel/R10-clients-api`. List (search by name, email or phone with LIKE wildcards as plain characters, since Prisma does not escape them; active, archived or all; assignee filter; keyset paging, newest first, opaque cursor), get, create (client plus profile in one transaction), update, archive and restore (Owner and Admin). Staff reach only clients assigned to them (others 404); only Owner and Admin set the assignee or filter by it (403); a client Staff create is theirs; the assignee must be an active member (404). SSN, EIN or date of birth in a request answer 501 NOT_IMPLEMENTED until step 4 (Rasel). One email per firm under a per-firm lock, a unique violation also 409 DUPLICATE_EMAIL (index in R0 #52). Audit: clients.listed (count), client.viewed, created, updated (field names), archived, restored; never names or emails. Tests: `apps/api/test/e2e/clients.e2e.test.ts` (11), `test/unit/clients.test.ts`.
