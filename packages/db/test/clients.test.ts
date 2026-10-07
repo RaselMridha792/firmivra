@@ -126,6 +126,11 @@ describe('clients', () => {
         data: { clientId: c.id, businessId: ids.firmA, ssnLast4: '12345' },
       }),
     ).rejects.toThrow(/check constraint/i);
+    await expect(
+      firmA().clientProfile.create({
+        data: { clientId: c.id, businessId: ids.firmA, einLast4: '12-34' },
+      }),
+    ).rejects.toThrow(/check constraint/i);
   });
 
   it("keeps the client's additional information short (My Profile)", async () => {
