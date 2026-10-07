@@ -11,7 +11,7 @@
 
 ## Steps
 
-- [ ] 1. Publish the NotifyService interface by Oct 9 (Tumit T06 and other streams call it)
+- [x] 1. Publish the NotifyService interface by Oct 9 (Tumit T06 and other streams call it)
 - [ ] 2. Email via SES on dev, Mailpit locally; SMS via SNS on dev only after registration, otherwise written to the API log
 - [ ] 3. Templates: invite, approval, decline, request info, sign-up approved, password reset, document requested, appointment booked/changed/reminder, invoice sent, payment received
 - [ ] 4. Firm branding in client emails (name, logo, colours); no secrets or SSNs in messages
@@ -28,10 +28,15 @@ Every flow above sends a real email to a verified address on dev.
 - Contract first for every module (Rasel, Oct 6): the module's first PR is its zod schemas and client functions in `packages/types`, registered on `api` in `apps/web/src/lib/api.ts`, plus typed mock fixtures in `apps/web/src/mocks/<module>.ts`. The developers build the screen against it the same day.
 - Never edit screens: in apps/web change only `src/mocks/<module>.ts` and your lines in `src/lib/api.ts`.
 
+## Open (Rasel)
+
+- Password reset: Cognito's ForgotPassword sends its own code email today (staff and clients). Keep Cognito's email (configured to send through SES), or move it to a custom email sender that calls this service (needs a Cognito trigger Lambda: an AWS change)?
+
 ## Needs from others
 
-(none yet)
+- R2, R3: when step 2 lands, `ActivationMailer` and `ClientCodeSender` become thin wrappers over NotifyService (step 6), or their callers switch to it directly.
 
 ## Progress log
 
 (newest last: date, step, what changed, commit)
+- 2026-10-07, step 1: `apps/api/src/notify/` with `NotifyService` (`send({ template, to, businessId, recipient, replyTo, data })`), the typed templates (`NotifyTemplates`: staff invite; client sign-up codes, already registered, approved, declined; firm application received, info requested, approved, declined; document requested; appointment booked, changed, reminder; invoice sent, payment received), `TEMPLATE_CHANNEL` (only the SMS code goes by SMS), `ALWAYS_SENT` (codes and decisions ignore preferences), the `NOTIFY_SERVICE` token in a global `NotifyModule`, and `LogNotifyService` until step 2 (whole message only with AUTH_MODE=local; otherwise template and firm only). "Email and SMS" in apps/api/README.md. Unit tests `apps/api/test/unit/notify.test.ts`. Branch `rasel/R6-notify-interface`.

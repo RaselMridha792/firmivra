@@ -130,5 +130,7 @@ export class SignUpController {
       useFactory: (env: Env) => new LogClientCodeSender(env.AUTH_MODE === 'local'),
     },
   ],
+  // The firm's sign-ups queue (step 4) sends its notices through the same sender.
+  exports: [CLIENT_CODE_SENDER],
 })
 export class SignUpModule {}

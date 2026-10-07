@@ -3,7 +3,7 @@
 // no scope and therefore no rows.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope, scopedClient } from '../src/client.js';
+import { createDatabase, createPrismaClient, runInScope, scopedClient } from '../src/client.js';
 import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
@@ -85,5 +85,25 @@ describe('scope does not outlive its transaction on a pooled connection', () => 
       }),
     ).rejects.toThrow('boom');
     await expectNoScopeLeft();
+  });
+});
+
+describe('per-call transaction limits', () => {
+  it('a limit passed to withScope applies to that call only', async () => {
+    const limited = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
+    try {
+      const slow = (tx: { $executeRaw: (q: TemplateStringsArray) => Promise<number> }) =>
+        tx.$executeRaw`SELECT pg_sleep(0.3)`;
+      await expect(
+        limited.withScope({ kind: 'platform' }, slow, { timeout: 100 }),
+      ).rejects.toThrow();
+      await expect(limited.withScope({ kind: 'platform' }, slow)).resolves.toBeDefined();
+      // Not a number: ignored, so the default applies (NaN never reaches Prisma).
+      await expect(
+        limited.withScope({ kind: 'platform' }, slow, { timeout: Number.NaN }),
+      ).resolves.toBeDefined();
+    } finally {
+      await limited.disconnect();
+    }
   });
 });

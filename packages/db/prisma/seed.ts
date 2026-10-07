@@ -22,6 +22,7 @@ import {
   SEED_MESSAGE_IDS,
   SEED_BILLING_IDS,
   SEED_STRIPE_ACCOUNT_ID,
+  SEED_PLATFORM_IDS,
   SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
@@ -29,7 +30,11 @@ config({ path: '../../.env', quiet: true });
 
 const url = process.env['DATABASE_URL'];
 if (!url) throw new Error('DATABASE_URL is not set (copy .env.example to .env)');
-const prisma = createPrismaClient(url);
+// The seed runs a few large transactions, sometimes next to the test suites (seed.test.ts): give
+// them time to start and finish.
+const prisma = createPrismaClient(url, {
+  transactionOptions: { maxWait: 15_000, timeout: 60_000 },
+});
 
 /** Settings, Terms and Privacy v1 and tax statuses for one firm (business scope). */
 async function seedFirmBasics(
@@ -300,6 +305,8 @@ async function main() {
         id: SEED_INVITE_ID,
         businessId: businesses.lvp,
         membershipId: invited.id,
+        name: SEED_USERS.lvpInvited.name,
+        email: SEED_USERS.lvpInvited.email,
         // Random and never printed: the invite shows in the team list, but its link cannot be used.
         tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
         expiresAt: new Date(Date.now() + 6 * 86_400_000),
@@ -939,6 +946,43 @@ async function main() {
         data: { status: 'PAID', paidAt },
       });
     }
+    // A $50 goodwill refund the firm made in its own Stripe dashboard, confirmed by Stripe's event.
+    const refundEvent = await tx.paymentEvent.upsert({
+      where: {
+        processor_processorEventId: {
+          processor: 'STRIPE',
+          processorEventId: 'evt_test_seed_refund_1000',
+        },
+      },
+      update: {},
+      create: {
+        ...lvp,
+        processorEventId: 'evt_test_seed_refund_1000',
+        accountId: SEED_STRIPE_ACCOUNT_ID,
+        type: 'charge.refunded',
+        paymentId: SEED_BILLING_IDS.paidPayment,
+        processedAt: new Date(),
+      },
+    });
+    await tx.paymentRefund.upsert({
+      where: {
+        processor_processorRefundId: {
+          processor: 'STRIPE',
+          processorRefundId: 're_testseed1000',
+        },
+      },
+      update: {},
+      create: {
+        ...lvp,
+        paymentId: SEED_BILLING_IDS.paidPayment,
+        processorRefundId: 're_testseed1000',
+        accountId: SEED_STRIPE_ACCOUNT_ID,
+        amountCents: 5000,
+        status: 'SUCCEEDED',
+        eventId: refundEvent.id,
+        refundedAt: new Date(),
+      },
+    });
     await invoice(SEED_BILLING_IDS.openInvoice, {
       number: 'INV-1001',
       engagementId: SEED_WORK_IDS.lvpTax,
@@ -999,6 +1043,83 @@ async function main() {
         disclaimer: 'This is an estimate only, not tax advice. Your actual result may differ.',
       },
     });
+  });
+
+  // LVP's firm application (submitted publicly, approved by the Super Admin, then linked to the
+  // firm at provisioning), LVP's platform fields, a pending support request, and one platform and
+  // one firm audit event. Each step runs in the scope the app uses for it.
+  await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    await tx.business.update({
+      where: { id: businesses.lvp },
+      data: { businessType: 'Tax and accounting firm', pack: 'TAX_ACCOUNTING' },
+    });
+    if (
+      !(await tx.firmApplication.findUnique({ where: { id: SEED_PLATFORM_IDS.lvpApplication } }))
+    ) {
+      await tx.firmApplication.create({
+        data: {
+          id: SEED_PLATFORM_IDS.lvpApplication,
+          legalName: 'LVP Accounting & Taxes LLC (fake)',
+          dbaName: SEED_BUSINESSES.lvp.name,
+          contactName: SEED_USERS.lvpOwner.name,
+          contactEmail: SEED_USERS.lvpOwner.email,
+          data: { businessType: 'Tax and accounting firm' },
+        },
+      });
+    }
+  });
+  await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
+    await tx.firmApplication.updateMany({
+      where: { id: SEED_PLATFORM_IDS.lvpApplication, status: 'PENDING_REVIEW' },
+      data: {
+        status: 'APPROVED',
+        reviewedByUserId: SEED_USERS.superAdmin.id,
+        reviewedAt: new Date(),
+        decisionReason: 'Sample approval for local development.',
+      },
+    });
+    if (
+      !(await tx.supportAccessGrant.findUnique({ where: { id: SEED_PLATFORM_IDS.supportRequest } }))
+    ) {
+      await tx.supportAccessGrant.create({
+        data: {
+          id: SEED_PLATFORM_IDS.supportRequest,
+          businessId: businesses.lvp,
+          adminUserId: SEED_USERS.superAdmin.id,
+          reason: 'Sample request: help with the portal settings.',
+        },
+      });
+    }
+    if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.platformEvent } }))) {
+      await tx.auditLog.create({
+        data: {
+          id: SEED_PLATFORM_IDS.platformEvent,
+          actorUserId: SEED_USERS.superAdmin.id,
+          action: 'firm_application.approved',
+          entityType: 'firm_application',
+          entityId: SEED_PLATFORM_IDS.lvpApplication,
+        },
+      });
+    }
+  });
+  await runInScope(prisma, { kind: 'platform' }, (tx) =>
+    tx.firmApplication.updateMany({
+      where: { id: SEED_PLATFORM_IDS.lvpApplication, businessId: null },
+      data: { businessId: businesses.lvp },
+    }),
+  );
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
+    if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.firmEvent } }))) {
+      await tx.auditLog.create({
+        data: {
+          id: SEED_PLATFORM_IDS.firmEvent,
+          businessId: businesses.lvp,
+          actorUserId: SEED_USERS.lvpOwner.id,
+          action: 'client_account.approved',
+          entityType: 'client_account',
+        },
+      });
+    }
   });
 
   // The client's private note: written as the client, the only one the database shows it to.
@@ -1087,7 +1208,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar, messages, invoices, content and a calculator.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request and sample audit events.`,
   );
 }
 
