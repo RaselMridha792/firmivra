@@ -18,7 +18,7 @@
 - [ ] 4. Owner activation ends at first-time setup; business status active
 - [ ] 5. Emails through NotifyService (log until R6 merges)
 - [ ] 6. Audit every action; e2e test of the whole path
-- [ ] 7. Plus T05 (Oct 6): applications list with filters and paging, detail and status history (Super Admin through `forAdmin()`), dashboard counts, firms list (Active, Pending Setup, Inactive). Contract by Oct 8 (Tumit F04b, N04)
+- [x] 7. Plus T05 (Oct 6): applications list with filters and paging, detail and status history (Super Admin through `forAdmin()`), dashboard counts, firms list (Active, Pending Setup, Inactive). Contract by Oct 8 (Tumit F04b, N04)
 
 ## Done when
 
@@ -63,7 +63,9 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 
 - R0 (schema): on `firm_applications`, an `ein_last4` column and an indexed `ein_hash` column (keyed hash, for the duplicate check), in R0's small PR right after #52 (Rasel, Oct 7).
 - R0: a platform-readable record when a firm becomes `ACTIVE` (setup Finish runs in firm scope, which admin scope can't read), for the history's `FIRM_ACTIVATED` and the firms list. The same goes for the owner's invite status (`ownerInvite`, `OWNER_INVITED`), unless admin scope may read that firm's owner invite.
-- R0: dashboard `totalUsers` and `newUsersThisWeek` count member and client rows that `forAdmin()` can't read: a platform count or an aggregate R0 provides.
+- R0: dashboard `totalUsers` and `newUsersThisWeek` count member and client rows that `forAdmin()` can't read: a platform count or an aggregate R0 provides. Until then the API answers `null` for both (contract changed to nullable).
+- R0 (seed): LVP's seeded firm application has `data: { businessType }`, not the stored form (`StoredApplication` in `apps/api/src/firm-applications/firm-applications.service.ts`: the review page's business, primaryAdmin, account and credentials groups). Locally the applications list answers 500 for it until the seed writes the stored shape (synthetic values). Dev has no applications, so it is not affected.
+- R0: admin scope reads only the signed-in admin's own user row, so another Super Admin's name in a decision or the history shows as "Firmivra admin". Let admin scope read platform admins' names (users of `platform_admins`).
 - R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API.
 - R5: uploads for an application before any account exists (the spec's "credentials and uploads"). Until then `documents` is always empty.
 - R6: four emails: application received (applicant), information requested (the message; reply-to support), approved (the owner's activation link, through R2's activation mailer), declined (with the reason, Rasel Oct 7).
@@ -84,3 +86,11 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - test EINs start with 00;
   - the mock follows #52's rules (same request message: no entry; a decline reason must differ from the last request), cuts slugs before trimming hyphens, and uses Example/Sample firm names.
 - 2026-10-07, contract tweak (Rasel's answers): `honeypot` on `SubmitFirmApplicationRequest` (sent as it is; a filled one is answered `received` and dropped, the mock too), the decline reason documented as sent to the applicant, and the evening decisions above. Branch `rasel/R4-contract-honeypot`.
+- 2026-10-08, step 7 (T05, the read side), on #52's admin scope:
+  - `GET /admin/firm-applications` (status, search, from/to, order, pages; an information request reads as pending), `/counts` ("this month" in US Eastern time), `/{id}` (the review page: the stored form, history from `firm_application_status_history` newest first, decision with the reason only when declined, checks for duplicate name and email and the email domain, the suggested portal address);
+  - `GET /admin/firms`, `/counts`, `/{id}` (owner: the active owner's contact, else the application's primary administrator);
+  - `GET /admin/dashboard` (pending applications, active firms; user counts null until R0).
+  - `AdminPrisma` (`forAdmin` as the signed-in admin) lives in the module. Opening an application or a firm is audited as a platform event (ids only).
+  - Not yet: the EIN check (needs R0's ein columns), `ownerInvite` (recorded by approve, step 3), `FIRM_ACTIVATED` (needs R0's platform record).
+  - Contract: the dashboard user counts are nullable, and the honeypot has no length limit of its own (the lead's nit).
+  - Tests: `apps/api/test/e2e/firm-applications.e2e.test.ts` (15, including that every answer parses with the contract's schemas), `apps/api/test/unit/firm-applications.test.ts`. Branch `rasel/R4-api-read`.

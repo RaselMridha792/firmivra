@@ -213,7 +213,8 @@ export const SubmitFirmApplicationRequest = z
      * `autoComplete="off"`, `aria-hidden`, with an everyday name such as `fax`). Send its value as
      * it is. A filled one gets the same `{ received: true }` and the application is dropped.
      */
-    honeypot: z.string().max(500).optional(),
+    // No length limit of its own (the body limit applies): a 400 naming the field would tip off a bot.
+    honeypot: z.string().optional(),
   })
   .superRefine((body, ctx) => {
     for (const type of REQUIRED_CREDENTIALS[body.business.practiceType]) {
@@ -549,10 +550,13 @@ export type FirmRecord = z.infer<typeof FirmRecord>;
 export const AdminDashboard = z.object({
   pendingApplications: z.number().int().min(0),
   activeFirms: z.number().int().min(0),
-  /** Staff and client logins across every firm (Super Admins not counted). */
-  totalUsers: z.number().int().min(0),
-  /** Of those, created in the last 7 days. */
-  newUsersThisWeek: z.number().int().min(0),
+  /**
+   * Staff and client logins across every firm (Super Admins not counted). Null until R0's
+   * platform count exists (admin scope cannot read members or clients).
+   */
+  totalUsers: z.number().int().min(0).nullable(),
+  /** Of those, created in the last 7 days; null like `totalUsers`. */
+  newUsersThisWeek: z.number().int().min(0).nullable(),
   /** In cents; null until billing exists (R7). */
   monthlyRevenueCents: z.number().int().nullable(),
 });

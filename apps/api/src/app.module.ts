@@ -19,6 +19,7 @@ import type { Env } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
 import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
+import { FirmApplicationsModule } from './firm-applications/firm-applications.controller.js';
 import { MeModule } from './me/me.controller.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
@@ -64,6 +65,7 @@ export class AppModule {
         AuditModule,
         HealthModule,
         MeModule,
+        FirmApplicationsModule,
         TaxStatusesModule,
         ClientsModule,
         SettingsModule,

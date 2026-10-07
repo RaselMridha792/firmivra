@@ -1,0 +1,474 @@
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import type { FirmApplication, Prisma } from '@firmivra/db';
+import {
+  type AdminDashboard,
+  type AdminRef,
+  type BusinessSummary,
+  type FirmApplicationCheck,
+  type FirmApplicationCounts,
+  type FirmApplicationEvent,
+  type FirmApplicationListItem,
+  FirmApplicationRecord,
+  type FirmApplicationReviewStatus,
+  type FirmCounts,
+  type FirmListItem,
+  type FirmRecord,
+  ListFirmApplicationsQuery,
+  type ListFirmApplicationsResponse,
+  ListFirmsQuery,
+  type ListFirmsResponse,
+  RESERVED_FIRM_SLUGS,
+} from '@firmivra/types';
+import { z } from 'zod';
+import { AuditService } from '../audit/audit.service.js';
+import { AdminPrisma } from './admin-prisma.js';
+
+/**
+ * What `firm_applications.data` holds: the review page's groups, as submit (R4 step 2) stores
+ * them. The full EIN is never in it, only `business.einLast4`.
+ */
+const R = FirmApplicationRecord.shape;
+export const StoredApplication = z.object({
+  business: R.business,
+  primaryAdmin: R.primaryAdmin,
+  account: R.account,
+  credentials: R.credentials,
+});
+export type StoredApplication = z.infer<typeof StoredApplication>;
+
+type ListQuery = z.output<typeof ListFirmApplicationsQuery>;
+type FirmsQuery = z.output<typeof ListFirmsQuery>;
+
+/** "This month" on the counts is the calendar month in US Eastern time. */
+const PLATFORM_TIME_ZONE = 'America/New_York';
+/** The decided statuses; INFO_REQUESTED is not used in Phase 1 and reads as pending. */
+const PENDING = ['PENDING_REVIEW', 'INFO_REQUESTED'] as const;
+const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+
+/** The first instant of the current calendar month in `timeZone`. */
+export function startOfMonthIn(timeZone: string, now = new Date()): Date {
+  const part = (type: string, d: Date) =>
+    Number(
+      new Intl.DateTimeFormat('en-US', { timeZone, [type]: 'numeric', hourCycle: 'h23' })
+        .formatToParts(d)
+        .find((p) => p.type === type)?.value,
+    );
+  const guess = new Date(Date.UTC(part('year', now), part('month', now) - 1, 1));
+  // How far the zone's wall clock is from UTC at that moment (e.g. -4 h in New York in summer).
+  const wall = Date.UTC(
+    part('year', guess),
+    part('month', guess) - 1,
+    part('day', guess),
+    part('hour', guess) % 24,
+    part('minute', guess),
+  );
+  return new Date(guess.getTime() - (wall - guess.getTime()));
+}
+
+/** The legal name as a portal address: lower case, single hyphens, at most 56 characters. */
+export function slugBase(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .slice(0, 56)
+      .replace(/^-+|-+$/g, '') || 'firm'
+  );
+}
+
+const reviewStatus = (s: FirmApplication['status']): FirmApplicationReviewStatus =>
+  s === 'APPROVED' || s === 'DECLINED' ? s : 'PENDING_REVIEW';
+const decided = (row: FirmApplication) => row.status === 'APPROVED' || row.status === 'DECLINED';
+
+/**
+ * The Super Admin's read side of R4 (T05): applications with filters and pages, the review page
+ * with history and checks, firms, and the dashboard counts. Admin scope only (AdminPrisma).
+ */
+@Injectable()
+export class FirmApplicationsService {
+  private readonly logger = new Logger(FirmApplicationsService.name);
+
+  constructor(
+    private readonly admin: AdminPrisma,
+    private readonly audit: AuditService,
+  ) {}
+
+  async list(q: ListQuery): Promise<ListFirmApplicationsResponse> {
+    const db = this.admin.db;
+    const where: Prisma.FirmApplicationWhereInput = {
+      ...(q.status === 'PENDING_REVIEW'
+        ? { status: { in: [...PENDING] } }
+        : q.status
+          ? { status: q.status }
+          : {}),
+      ...(q.search
+        ? {
+            OR: (['legalName', 'dbaName', 'contactName', 'contactEmail'] as const).map((f) => ({
+              [f]: { contains: q.search, mode: 'insensitive' as const },
+            })),
+          }
+        : {}),
+      ...(q.from || q.to
+        ? {
+            createdAt: {
+              ...(q.from ? { gte: new Date(q.from) } : {}),
+              ...(q.to ? { lt: new Date(q.to) } : {}),
+            },
+          }
+        : {}),
+    };
+    const dir = q.order === 'oldest' ? 'asc' : 'desc';
+    const [total, rows] = await Promise.all([
+      db.firmApplication.count({ where }),
+      db.firmApplication.findMany({
+        where,
+        orderBy: [{ createdAt: dir }, { id: dir }],
+        skip: (q.page - 1) * q.pageSize,
+        take: q.pageSize,
+      }),
+    ]);
+    return {
+      items: rows.map((r) => this.listItem(r)),
+      total,
+      page: q.page,
+      pageSize: q.pageSize,
+    };
+  }
+
+  async counts(): Promise<FirmApplicationCounts> {
+    const db = this.admin.db;
+    const since = startOfMonthIn(PLATFORM_TIME_ZONE);
+    const count = (where: Prisma.FirmApplicationWhereInput) => db.firmApplication.count({ where });
+    const [all, pendingReview, approved, declined, approvedThisMonth, declinedThisMonth] =
+      await Promise.all([
+        count({}),
+        count({ status: { in: [...PENDING] } }),
+        count({ status: 'APPROVED' }),
+        count({ status: 'DECLINED' }),
+        count({ status: 'APPROVED', reviewedAt: { gte: since } }),
+        count({ status: 'DECLINED', reviewedAt: { gte: since } }),
+      ]);
+    return { all, pendingReview, approved, declined, approvedThisMonth, declinedThisMonth };
+  }
+
+  /** The review page. Opening it is audited (it shows the applicant's personal details). */
+  async get(id: string): Promise<FirmApplicationRecord> {
+    const record = await this.record(id);
+    await this.audit.log('firm_application.viewed', { type: 'firm_application', id });
+    return record;
+  }
+
+  async listFirms(q: FirmsQuery): Promise<ListFirmsResponse> {
+    const items = (await this.firmItems())
+      .filter(
+        (f) =>
+          !q.status ||
+          (q.status === 'INACTIVE'
+            ? f.status === 'SUSPENDED' || f.status === 'CLOSED'
+            : f.status === q.status),
+      )
+      .filter((f) => {
+        if (!q.search) return true;
+        const term = q.search.toLowerCase();
+        return [f.name, f.owner?.name, f.owner?.email].some((v) => v?.toLowerCase().includes(term));
+      });
+    return {
+      items: items.slice((q.page - 1) * q.pageSize, q.page * q.pageSize),
+      total: items.length,
+      page: q.page,
+      pageSize: q.pageSize,
+    };
+  }
+
+  async firmCounts(): Promise<FirmCounts> {
+    const db = this.admin.db;
+    const [active, pendingSetup, inactive, total] = await Promise.all([
+      db.business.count({ where: { status: 'ACTIVE' } }),
+      db.business.count({ where: { status: 'PENDING_SETUP' } }),
+      db.business.count({ where: { status: { in: ['SUSPENDED', 'CLOSED'] } } }),
+      db.business.count(),
+    ]);
+    return { active, pendingSetup, inactive, total };
+  }
+
+  async getFirm(id: string): Promise<FirmRecord> {
+    const item = (await this.firmItems(id))[0];
+    if (!item) throw notFound();
+    const application = await this.admin.db.firmApplication.findUnique({
+      where: { businessId: id },
+      select: { id: true },
+    });
+    const record = { ...item, application: application ? await this.record(application.id) : null };
+    await this.audit.log('business.viewed_by_admin', { type: 'business', id });
+    return record;
+  }
+
+  async dashboard(): Promise<AdminDashboard> {
+    const db = this.admin.db;
+    const [pendingApplications, activeFirms] = await Promise.all([
+      db.firmApplication.count({ where: { status: { in: [...PENDING] } } }),
+      db.business.count({ where: { status: 'ACTIVE' } }),
+    ]);
+    // Admin scope cannot read members or clients: the user counts wait for R0's platform count.
+    return {
+      pendingApplications,
+      activeFirms,
+      totalUsers: null,
+      newUsersThisWeek: null,
+      monthlyRevenueCents: null,
+    };
+  }
+
+  // ---------- Mapping ----------
+
+  /** The stored form, or a clear error for a row written before the stored shape existed. */
+  private stored(row: FirmApplication): StoredApplication {
+    const parsed = StoredApplication.safeParse(row.data);
+    if (!parsed.success) {
+      this.logger.error(`Firm application ${row.id}: data is not in the stored shape`);
+      throw new Error(`Firm application ${row.id} has data in an old shape`);
+    }
+    return parsed.data;
+  }
+
+  private listItem(row: FirmApplication): FirmApplicationListItem {
+    const d = this.stored(row);
+    return {
+      id: row.id,
+      status: reviewStatus(row.status),
+      legalName: row.legalName,
+      dbaName: row.dbaName,
+      practiceType: d.business.practiceType,
+      entityType: d.business.entityType,
+      services: d.business.services,
+      requestedPlan: d.account.requestedPlan,
+      contactName: row.contactName,
+      contactEmail: row.contactEmail,
+      contactPhone: row.contactPhone ?? d.primaryAdmin.phone,
+      submittedAt: row.createdAt.toISOString(),
+      decidedAt: decided(row) && row.reviewedAt ? row.reviewedAt.toISOString() : null,
+    };
+  }
+
+  private async record(id: string): Promise<FirmApplicationRecord> {
+    const db = this.admin.db;
+    const row = await db.firmApplication.findUnique({ where: { id } });
+    if (!row) throw notFound();
+    const d = this.stored(row);
+    const [history, firm] = await Promise.all([
+      db.firmApplicationStatusHistory.findMany({
+        where: { applicationId: id },
+        orderBy: [{ changedAt: 'desc' }, { id: 'desc' }],
+      }),
+      row.businessId
+        ? db.business.findUnique({
+            where: { id: row.businessId },
+            select: { id: true, slug: true, name: true, status: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const admins = await this.adminRefs([
+      row.reviewedByUserId,
+      ...history.map((h) => h.changedByUserId),
+    ]);
+    const by = (userId: string | null) => (userId ? (admins.get(userId) ?? null) : null);
+    return {
+      id: row.id,
+      status: reviewStatus(row.status),
+      submittedAt: row.createdAt.toISOString(),
+      business: d.business,
+      primaryAdmin: d.primaryAdmin,
+      account: d.account,
+      credentials: d.credentials,
+      documents: [],
+      checks: await this.checks(row, d),
+      internalNotes: row.internalNotes,
+      decision:
+        decided(row) && row.reviewedAt
+          ? {
+              by: by(row.reviewedByUserId),
+              at: row.reviewedAt.toISOString(),
+              // An approval keeps the last request's message in decision_reason: not a reason.
+              reason: row.status === 'DECLINED' ? row.decisionReason : null,
+            }
+          : null,
+      suggestedSlug: reviewStatus(row.status) === 'PENDING_REVIEW' ? await this.suggest(row) : null,
+      firm: firm as BusinessSummary | null,
+      // The owner's invite and its expiry are recorded by approve (step 3).
+      ownerInvite: null,
+      history: history.flatMap((h): FirmApplicationEvent[] => {
+        const at = h.changedAt.toISOString();
+        if (h.fromStatus === null) return [{ type: 'SUBMITTED', at, by: null, message: null }];
+        if (h.toStatus === 'APPROVED')
+          return [{ type: 'APPROVED', at, by: by(h.changedByUserId), message: null }];
+        if (h.toStatus === 'DECLINED') {
+          return [{ type: 'DECLINED', at, by: by(h.changedByUserId), message: h.reason }];
+        }
+        // A request for information: a new message on a pending application.
+        if (h.reason) {
+          return [{ type: 'INFO_REQUESTED', at, by: by(h.changedByUserId), message: h.reason }];
+        }
+        return [];
+      }),
+    };
+  }
+
+  /**
+   * Names for the Super Admins in a decision or the history. Admin scope reads only the signed-in
+   * admin's own user row; another admin shows as "Firmivra admin" until R0 lets admins read
+   * each other's names.
+   */
+  private async adminRefs(ids: (string | null)[]): Promise<Map<string, AdminRef>> {
+    const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
+    const users = wanted.length
+      ? await this.admin.db.user.findMany({
+          where: { id: { in: wanted } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const names = new Map(users.map((u) => [u.id, u.name]));
+    return new Map(
+      wanted.map((userId) => [userId, { userId, name: names.get(userId) ?? 'Firmivra admin' }]),
+    );
+  }
+
+  private async checks(
+    row: FirmApplication,
+    d: StoredApplication,
+  ): Promise<FirmApplicationCheck[]> {
+    const db = this.admin.db;
+    const same = (value: string) => ({ equals: value, mode: 'insensitive' as const });
+    const label = (r: { legalName: string; status: FirmApplication['status'] }) =>
+      `${r.legalName} (${reviewStatus(r.status).toLowerCase().replace('_', ' ')})`;
+    const [sameNameApp, sameNameFirm, sameEmail] = await Promise.all([
+      db.firmApplication.findFirst({
+        where: { id: { not: row.id }, legalName: same(row.legalName) },
+        select: { legalName: true, status: true },
+      }),
+      db.business.findFirst({
+        where: {
+          ...(row.businessId ? { id: { not: row.businessId } } : {}),
+          OR: [{ legalName: same(row.legalName) }, { name: same(row.legalName) }],
+        },
+        select: { name: true },
+      }),
+      db.firmApplication.findFirst({
+        where: { id: { not: row.id }, contactEmail: same(row.contactEmail) },
+        select: { legalName: true, status: true },
+      }),
+    ]);
+    const host = d.business.website
+      ? new URL(d.business.website).hostname.replace(/^www\./, '')
+      : null;
+    const domain = row.contactEmail.split('@')[1]?.toLowerCase();
+    return [
+      // The keyed EIN hash arrives with R0's ein columns (step 2).
+      { key: 'DUPLICATE_EIN', result: 'SKIPPED', note: 'The EIN check comes with the EIN fields' },
+      sameNameApp
+        ? { key: 'DUPLICATE_NAME', result: 'WARN', note: `Same name as ${label(sameNameApp)}` }
+        : sameNameFirm
+          ? {
+              key: 'DUPLICATE_NAME',
+              result: 'WARN',
+              note: `Same name as the firm ${sameNameFirm.name}`,
+            }
+          : {
+              key: 'DUPLICATE_NAME',
+              result: 'PASS',
+              note: 'No other application or firm has this name',
+            },
+      sameEmail
+        ? { key: 'DUPLICATE_EMAIL', result: 'WARN', note: `Same email as ${label(sameEmail)}` }
+        : { key: 'DUPLICATE_EMAIL', result: 'PASS', note: 'No other application uses this email' },
+      !host
+        ? { key: 'EMAIL_DOMAIN', result: 'SKIPPED', note: 'No website given' }
+        : host === domain || host.endsWith(`.${domain ?? ''}`)
+          ? { key: 'EMAIL_DOMAIN', result: 'PASS', note: 'The email domain matches the website' }
+          : {
+              key: 'EMAIL_DOMAIN',
+              result: 'WARN',
+              note: "The email domain doesn't match the website",
+            },
+    ];
+  }
+
+  /** The free portal address approve would use: the legal name, then -2, -3... */
+  private async suggest(row: FirmApplication): Promise<string> {
+    const base = slugBase(row.legalName);
+    const taken = new Set(
+      (
+        await this.admin.db.business.findMany({
+          where: { slug: { startsWith: base } },
+          select: { slug: true },
+        })
+      ).map((b) => b.slug),
+    );
+    const free = (slug: string) => !taken.has(slug) && !RESERVED_FIRM_SLUGS.includes(slug);
+    let slug = base;
+    for (let i = 2; !free(slug); i++) slug = `${base}-${i}`;
+    return slug;
+  }
+
+  /**
+   * Every firm as a list row (or just one). The owner is the active owner's contact, or before
+   * activation the application's primary administrator.
+   */
+  private async firmItems(onlyId?: string): Promise<FirmListItem[]> {
+    const db = this.admin.db;
+    const where = onlyId ? { id: onlyId } : {};
+    const [firms, owners, applications] = await Promise.all([
+      db.business.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, slug: true, name: true, status: true, createdAt: true },
+      }),
+      db.membership.findMany({
+        where: { role: 'OWNER', status: 'ACTIVE', ...(onlyId ? { businessId: onlyId } : {}) },
+        orderBy: { createdAt: 'asc' },
+        select: { businessId: true, userId: true },
+      }),
+      db.firmApplication.findMany({
+        where: { businessId: onlyId ?? { not: null } },
+      }),
+    ]);
+    const users = new Map(
+      (
+        await db.user.findMany({
+          where: { id: { in: owners.map((o) => o.userId) } },
+          select: { id: true, name: true, email: true, phone: true },
+        })
+      ).map((u) => [u.id, u]),
+    );
+    const ownerOf = new Map<string, FirmListItem['owner']>();
+    for (const o of owners) {
+      const u = users.get(o.userId);
+      if (u && !ownerOf.has(o.businessId)) {
+        ownerOf.set(o.businessId, { name: u.name, email: u.email, phone: u.phone });
+      }
+    }
+    const applicationOf = new Map(applications.map((a) => [a.businessId, a]));
+    return firms.map((f) => {
+      const a = applicationOf.get(f.id);
+      // Only the owner fallback and the plan come from it, so an older form shape just leaves them out.
+      const d = a ? (StoredApplication.safeParse(a.data).data ?? null) : null;
+      return {
+        id: f.id,
+        slug: f.slug,
+        name: f.name,
+        status: f.status,
+        owner:
+          ownerOf.get(f.id) ??
+          (d
+            ? {
+                name: d.primaryAdmin.fullName,
+                email: d.primaryAdmin.email,
+                phone: d.primaryAdmin.phone,
+              }
+            : null),
+        plan: d?.account.requestedPlan ?? null,
+        approvedAt: a?.reviewedAt && a.status === 'APPROVED' ? a.reviewedAt.toISOString() : null,
+        createdAt: f.createdAt.toISOString(),
+      };
+    });
+  }
+}
