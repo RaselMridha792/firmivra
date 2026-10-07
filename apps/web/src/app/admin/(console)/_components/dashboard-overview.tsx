@@ -6,7 +6,6 @@ import {
   Building,
   CalendarDays,
   ChartColumn,
-  ChevronDown,
   ChevronRight,
   CircleCheck,
   Database,
@@ -16,11 +15,12 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMe } from '../../../../components/signed-in';
 import {
   attentionItems,
   dashboardStats,
+  growthPeriods,
   platformModules,
   recentApplications,
   sampleApplicationId,
@@ -33,13 +33,6 @@ const growthRows = [
   [80, '2'],
   [108, '1'],
   [136, '0'],
-] as const;
-const growthDates = [
-  [30, 'Sep 1'],
-  [105, 'Sep 8'],
-  [180, 'Sep 15'],
-  [255, 'Sep 22'],
-  [330, 'Sep 28'],
 ] as const;
 const growthColumns = [30, 105, 180, 255, 330, 414];
 
@@ -105,7 +98,12 @@ function StatCard({ stat }: { stat: (typeof dashboardStats)[number] }) {
 
 export function DashboardOverview({ today }: { today: string }) {
   const { me } = useMe();
+  const [growthRange, setGrowthRange] = useState<keyof typeof growthPeriods>('month');
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
+  const growthDates = growthPeriods[growthRange].dates.map((label, index, dates) => ({
+    x: 30 + (315 * index) / (dates.length - 1),
+    label,
+  }));
 
   return (
     <div data-testid="dashboard" className="flex flex-col gap-4">
@@ -199,9 +197,23 @@ export function DashboardOverview({ today }: { today: string }) {
               <SectionTitle
                 icon={ChartColumn}
                 action={
-                  <button className="inline-flex items-center gap-2 rounded-control border border-border px-3 py-2 text-xs text-muted">
-                    Last 30 Days <ChevronDown aria-hidden className="size-4" />
-                  </button>
+                  <label className="relative inline-flex items-center">
+                    <span className="sr-only">Growth date range</span>
+                    <select
+                      aria-label="Growth date range"
+                      value={growthRange}
+                      onChange={(event) =>
+                        setGrowthRange(event.target.value as keyof typeof growthPeriods)
+                      }
+                      className="rounded-control border border-border bg-surface px-3 py-2 pr-8 text-xs text-muted"
+                    >
+                      {Object.entries(growthPeriods).map(([key, period]) => (
+                        <option key={key} value={key}>
+                          {period.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 }
               >
                 Platform Growth <span className="text-sm font-normal text-muted">(Beta)</span>
@@ -223,13 +235,13 @@ export function DashboardOverview({ today }: { today: string }) {
                 {growthColumns.map((x) => (
                   <path key={x} d={`M${x} 26V136`} className="stroke-border" />
                 ))}
-                {growthDates.map(([x, label]) => (
+                {growthDates.map(({ x, label }) => (
                   <text key={label} x={x - 12} y="157" className="fill-muted text-xs">
                     {label}
                   </text>
                 ))}
                 <path d="M30 136H345" className="stroke-current" strokeWidth="2" />
-                {growthDates.map(([x]) => (
+                {growthDates.map(({ x }) => (
                   <circle key={x} cx={x} cy="136" r="4" className="fill-current" />
                 ))}
               </svg>
