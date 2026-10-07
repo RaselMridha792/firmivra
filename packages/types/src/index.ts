@@ -25,3 +25,11 @@ export * from './documents/index.js';
 export * from './tasks/index.js';
 export * from './workspaces/index.js';
 export * from './audit-log/index.js';
+// The same values as the database enums in db-enums.ts (exported through ./schemas.js). These
+// modules define their own copies, so name the ones the root exports.
+export { AppointmentStatus, LocationKind } from './appointments/index.js';
+export { ContentKind } from './content/index.js';
+export { TaskKind, TaskStatus } from './tasks/index.js';
+export { ReportKind, ReportStatus } from './workspaces/index.js';
+// Documents exports only the type, with the same six values: the root takes the database enum.
+export { DocumentRequestStatus } from './schemas.js';
