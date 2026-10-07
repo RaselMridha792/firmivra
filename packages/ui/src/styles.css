@@ -46,3 +46,11 @@
   --radius-card: 0.875rem;
   --shadow-card: 0 1px 2px rgb(15 33 64 / 0.06), 0 4px 16px rgb(15 33 64 / 0.06);
 }
+
+.ui-dialog {
+  width: min(calc(100% - var(--space-8)), var(--container-modal));
+  max-height: calc(100% - var(--space-8));
+}
+dialog::backdrop {
+  background: var(--color-overlay);
+}
