@@ -71,6 +71,27 @@ enum IndustryPack {
   TAX_ACCOUNTING
 }
 
+/// Setup Step 2, "Business Details": the firm's legal form.
+enum EntityType {
+  SOLE_PROPRIETOR
+  LLC
+  S_CORP
+  C_CORP
+  PARTNERSHIP
+  NONPROFIT
+  OTHER
+}
+
+/// Setup Step 2: how many people work at the firm (SIZE_2_5 is 2 to 5).
+enum TeamSize {
+  SIZE_1
+  SIZE_2_5
+  SIZE_6_10
+  SIZE_11_25
+  SIZE_26_50
+  SIZE_51_PLUS
+}
+
 enum FirmApplicationStatus {
   PENDING_REVIEW
   INFO_REQUESTED
@@ -294,6 +315,8 @@ model Business {
   businessType String?        @map("business_type")
   /// The industry pack that sets starter modules and wording. Platform only.
   pack         IndustryPack   @default(TAX_ACCOUNTING)
+  /// When the firm first became ACTIVE (setup Finish). Set by the database, never changed.
+  activatedAt  DateTime?      @map("activated_at") @db.Timestamptz(3)
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -337,6 +360,17 @@ model User {
 
   @@index([email])
   @@map("users")
+}
+
+/// Staff and client logins created per day (UTC), for the Super Admin dashboard (R4). Kept by a
+/// trigger on users; admin scope reads it, nobody writes it.
+model PlatformUserSignups {
+  day   DateTime     @db.Date
+  pool  IdentityPool
+  users Int          @default(0)
+
+  @@id([day, pool])
+  @@map("platform_user_signups")
 }
 
 /// A staff user's role in one business.
@@ -475,6 +509,10 @@ model FirmApplication {
   reviewedByUserId String?               @map("reviewed_by_user_id") @db.Uuid
   reviewedAt       DateTime?             @map("reviewed_at") @db.Timestamptz(3)
   businessId       String?               @unique @map("business_id") @db.Uuid
+  /// The EIN's last 4 digits, the only part ever shown. The full EIN is never stored.
+  einLast4         String?               @map("ein_last4")
+  /// HMAC-SHA256 of the EIN with a server-side secret (32 bytes), for the duplicate check.
+  einHash          Bytes?                @map("ein_hash")
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -482,40 +520,50 @@ model FirmApplication {
   statusHistory FirmApplicationStatusHistory[]
 
   @@index([status, createdAt])
+  @@index([einHash])
   @@map("firm_applications")
 }
 
 /// One per firm: contact details, branding, modules and setup wizard progress.
 model BusinessSettings {
-  businessId          String    @id @map("business_id") @db.Uuid
-  contactEmail        String?   @map("contact_email")
-  contactPhone        String?   @map("contact_phone")
+  businessId          String      @id @map("business_id") @db.Uuid
+  contactEmail        String?     @map("contact_email")
+  contactPhone        String?     @map("contact_phone")
   website             String?
-  addressLine1        String?   @map("address_line1")
-  addressLine2        String?   @map("address_line2")
+  addressLine1        String?     @map("address_line1")
+  addressLine2        String?     @map("address_line2")
   city                String?
   state               String?
-  postalCode          String?   @map("postal_code")
-  country             String    @default("US")
-  timezone            String    @default("America/New_York")
+  postalCode          String?     @map("postal_code")
+  country             String      @default("US")
+  timezone            String      @default("America/New_York")
   /// S3 key under the firm's prefix.
-  logoKey             String?   @map("logo_key")
+  logoKey             String?     @map("logo_key")
   /// `#rrggbb`, themes the firm's client portal.
-  brandColor          String?   @map("brand_color")
+  brandColor          String?     @map("brand_color")
   /// Optional second colour (`#rrggbb`) for the portal; the API uses a default when empty.
-  accentColor         String?   @map("accent_color")
+  accentColor         String?     @map("accent_color")
   /// Module keys switched on for this firm (docs/SYSTEM-DESIGN.md, Modules & packs).
-  enabledModules      String[]  @default([]) @map("enabled_modules")
-  clientSignUpEnabled Boolean   @default(true) @map("client_sign_up_enabled")
+  enabledModules      String[]    @default([]) @map("enabled_modules")
+  clientSignUpEnabled Boolean     @default(true) @map("client_sign_up_enabled")
   /// Setup wizard, client portal step: the portal's name (null: the firm's name), header and welcome text.
-  portalName          String?   @map("portal_name")
-  portalHeader        String?   @map("portal_header")
-  welcomeMessage      String?   @map("welcome_message")
+  portalName          String?     @map("portal_name")
+  portalHeader        String?     @map("portal_header")
+  welcomeMessage      String?     @map("welcome_message")
   /// Setup wizard steps done so far, e.g. { "profile": true }.
-  setupProgress       Json      @default("{}") @map("setup_progress")
-  setupCompletedAt    DateTime? @map("setup_completed_at") @db.Timestamptz(3)
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  setupProgress       Json        @default("{}") @map("setup_progress")
+  setupCompletedAt    DateTime?   @map("setup_completed_at") @db.Timestamptz(3)
+  /// Setup Step 2, "Business Details". The DBA or display name is `businesses.name`.
+  entityType          EntityType? @map("entity_type")
+  /// The firm's EIN, encrypted with the firm's KMS key (never plain), and its last 4 digits.
+  einEnc              Bytes?      @map("ein_enc")
+  einLast4            String?     @map("ein_last4")
+  teamSize            TeamSize?   @map("team_size")
+  /// Short names of the services the firm offers (at most 20, each up to 60 characters).
+  services            String[]    @default([])
+  description         String?
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   business Business @relation(fields: [businessId], references: [id])
 
@@ -704,12 +752,16 @@ model ClientTaxStatusHistory {
   taxStatusId     String   @map("tax_status_id") @db.Uuid
   clientNote      String?  @map("client_note")
   changedByUserId String?  @map("changed_by_user_id") @db.Uuid
-  changedAt       DateTime @default(now()) @map("changed_at") @db.Timestamptz(3)
+  /// The time of the change itself (not of its transaction's start).
+  changedAt       DateTime @default(dbgenerated("clock_timestamp()")) @map("changed_at") @db.Timestamptz(3)
+  /// The order the rows were written in: the newest is the year's current state.
+  seq             BigInt   @default(autoincrement())
 
   client    Client    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   taxStatus TaxStatus @relation(fields: [businessId, taxStatusId], references: [businessId, id], onDelete: Restrict)
 
   @@index([businessId, clientId, taxYear, changedAt])
+  @@index([businessId, clientId, taxYear, seq])
   @@map("client_tax_status_history")
 }
 

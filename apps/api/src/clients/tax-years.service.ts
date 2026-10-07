@@ -213,7 +213,8 @@ export class TaxYearsService {
       await this.client(tx, businessId, actor, clientId);
       const rows = await tx.clientTaxStatusHistory.findMany({
         where: { businessId, clientId, taxYear },
-        orderBy: [{ changedAt: 'desc' }, { id: 'desc' }],
+        // `seq` is the order the database wrote them in: the first is the year's current state.
+        orderBy: { seq: 'desc' },
         select: {
           clientNote: true,
           changedByUserId: true,

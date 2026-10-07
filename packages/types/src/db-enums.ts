@@ -38,6 +38,29 @@ export type PlatformRole = z.infer<typeof PlatformRole>;
 export const IndustryPack = z.enum(['TAX_ACCOUNTING']);
 export type IndustryPack = z.infer<typeof IndustryPack>;
 
+/** Setup Step 2, "Business Details": the firm's legal form. */
+export const EntityType = z.enum([
+  'SOLE_PROPRIETOR',
+  'LLC',
+  'S_CORP',
+  'C_CORP',
+  'PARTNERSHIP',
+  'NONPROFIT',
+  'OTHER',
+]);
+export type EntityType = z.infer<typeof EntityType>;
+
+/** Setup Step 2: how many people work at the firm (SIZE_2_5 is 2 to 5). */
+export const TeamSize = z.enum([
+  'SIZE_1',
+  'SIZE_2_5',
+  'SIZE_6_10',
+  'SIZE_11_25',
+  'SIZE_26_50',
+  'SIZE_51_PLUS',
+]);
+export type TeamSize = z.infer<typeof TeamSize>;
+
 export const FirmApplicationStatus = z.enum([
   'PENDING_REVIEW',
   'INFO_REQUESTED',
