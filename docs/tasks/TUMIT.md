@@ -52,6 +52,16 @@ Checklist:
 - [ ] Loading and error states
 - [ ] Playwright: the dashboard loads in mock mode
 
+#### F04a functional preview behavior
+
+The dashboard controls below work against the F04a sample fixtures; they do not call or claim to represent live API data:
+
+- Search filters the local application, firm and user records. Arrow keys and Enter select results; Escape and the clear button close the results.
+- The notification bell opens the sample pending-application alert, shows its unread count and can mark the alert read. Selecting it opens the application review route.
+- The growth selector changes the displayed sample date window and chart. The available fixture contains one sample application; active firms and revenue remain zero.
+- The pending attention item and existing application/firm actions navigate to their current routes. Platform Settings opens an explanation because its route/API is not part of F04a. Metrics with no route/data do not show fake links.
+- Search and notification fixtures live beside the F04a dashboard in `admin/(console)/_components/dashboard-data.ts`. The shared app shell receives these props only from the Super Admin layout, so the firm workspace keeps its existing header behavior.
+
 ### F04b · Oct 8 · Firm applications
 
 - **Pages:** `/applications` and `/applications/[id]`, in `admin/(console)/applications/`.
