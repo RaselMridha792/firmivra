@@ -1,4 +1,5 @@
 'use client';
+import { useAuthReady } from './use-auth-ready';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -20,6 +21,7 @@ export function Mfa({
   setup?: MfaSetupResponse;
   onBack: () => void;
 }) {
+  const ready = useAuthReady();
   const router = useRouter();
   const client = site === 'admin' ? adminAuth : staffAuth;
   const form = useForm<MfaRequest>({
@@ -52,32 +54,34 @@ export function Mfa({
           }),
         )}
       >
-        {setup ? (
-          <div className="space-y-4">
-            <p>Scan with your authenticator app, or enter the setup key.</p>
-            <QrCode value={setup.otpauthUri} label="Authenticator setup QR code" />
-            <p className="break-all font-mono text-sm">{setup.secret}</p>
-          </div>
-        ) : null}
-        <Input
-          label="6-digit code"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
-          error={form.formState.errors.code?.message}
-          {...form.register('code')}
-        />
-        <Button
-          type="submit"
-          className="auth-submit"
-          disabled={mutation.isPending}
-          aria-busy={mutation.isPending}
-        >
-          Verify code
-        </Button>
-        <Button variant="ghost" disabled={mutation.isPending} onClick={onBack}>
-          Back to sign in
-        </Button>
+        <fieldset className="contents" disabled={!ready || mutation.isPending}>
+          {setup ? (
+            <div className="space-y-4">
+              <p>Scan with your authenticator app, or enter the setup key.</p>
+              <QrCode value={setup.otpauthUri} label="Authenticator setup QR code" />
+              <p className="break-all font-mono text-sm">{setup.secret}</p>
+            </div>
+          ) : null}
+          <Input
+            label="6-digit code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            error={form.formState.errors.code?.message}
+            {...form.register('code')}
+          />
+          <Button
+            type="submit"
+            className="auth-submit"
+            disabled={mutation.isPending}
+            aria-busy={mutation.isPending}
+          >
+            Verify code
+          </Button>
+          <Button variant="ghost" disabled={mutation.isPending} onClick={onBack}>
+            Back to sign in
+          </Button>
+        </fieldset>
       </form>
     </AuthFrame>
   );

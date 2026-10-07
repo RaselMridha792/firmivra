@@ -1,6 +1,7 @@
 'use client';
+import { useAuthReady } from './use-auth-ready';
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ForgotPasswordRequest, ResetPasswordRequest } from '@firmivra/types';
 import { AuthFrame, Button, Input } from '@firmivra/ui';
@@ -26,6 +27,7 @@ export function PasswordRecovery({
   );
 }
 function ForgotPassword({ site }: { site: 'firm' | 'admin' }) {
+  const ready = useAuthReady();
   const client = site === 'admin' ? adminAuth : staffAuth;
   const form = useForm<ForgotPasswordRequest>({ resolver: zodResolver(ForgotPasswordRequest) });
   const mutation = useApiMutation((body: ForgotPasswordRequest) => client.forgotPassword(body));
@@ -35,41 +37,45 @@ function ForgotPassword({ site }: { site: 'firm' | 'admin' }) {
       data-testid="forgot-form"
       onSubmit={form.handleSubmit((body) => mutation.mutate(body))}
     >
-      <Input
-        label="Email Address"
-        type="email"
-        autoComplete="email"
-        error={form.formState.errors.email?.message}
-        {...form.register('email')}
-      />
-      {mutation.isError ? (
-        <p role="alert" className="text-sm text-danger">
-          {errorMessage(mutation.error)}
-        </p>
-      ) : null}
-      {mutation.isSuccess ? (
-        <p role="status">
-          If an account matches this email, we sent a reset code.{' '}
-          <a className="text-link" href="/reset-password">
-            Enter your reset code
-          </a>
-        </p>
-      ) : null}
-      <Button
-        type="submit"
-        className="auth-submit"
-        disabled={mutation.isPending}
-        aria-busy={mutation.isPending}
-      >
-        Send reset code
-      </Button>
+      <fieldset className="contents" disabled={!ready || mutation.isPending}>
+        <Input
+          label="Email Address"
+          type="email"
+          autoComplete="email"
+          error={form.formState.errors.email?.message}
+          {...form.register('email')}
+        />
+        {mutation.isError ? (
+          <p role="alert" className="text-sm text-danger">
+            {errorMessage(mutation.error)}
+          </p>
+        ) : null}
+        {mutation.isSuccess ? (
+          <p role="status">
+            If an account matches this email, we sent a reset code.{' '}
+            <a className="text-link" href="/reset-password">
+              Enter your reset code
+            </a>
+          </p>
+        ) : null}
+        <Button
+          type="submit"
+          className="auth-submit"
+          disabled={mutation.isPending}
+          aria-busy={mutation.isPending}
+        >
+          Send reset code
+        </Button>
+      </fieldset>
     </form>
   );
 }
 function ResetPassword({ site }: { site: 'firm' | 'admin' }) {
+  const ready = useAuthReady();
   const client = site === 'admin' ? adminAuth : staffAuth;
   const [confirm, setConfirm] = useState('');
   const form = useForm<ResetPasswordRequest>({ resolver: zodResolver(ResetPasswordRequest) });
+  const password = useWatch({ control: form.control, name: 'password' });
   const mutation = useApiMutation(async (body: ResetPasswordRequest) => {
     await client.resetPassword(body);
     form.reset();
@@ -87,44 +93,46 @@ function ResetPassword({ site }: { site: 'firm' | 'admin' }) {
         mutation.mutate(body);
       })}
     >
-      <Input
-        label="Email Address"
-        type="email"
-        autoComplete="email"
-        error={form.formState.errors.email?.message}
-        {...form.register('email')}
-      />
-      <Input
-        label="6-digit code"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        maxLength={6}
-        error={form.formState.errors.code?.message}
-        {...form.register('code')}
-      />
-      <PasswordFields
-        field={form.register('password')}
-        password={form.watch('password') ?? ''}
-        error={form.formState.errors.password?.message}
-        confirm={confirm}
-        onConfirm={setConfirm}
-      />
-      {mutation.isError ? (
-        <p role="alert" className="text-sm text-danger">
-          {errorMessage(mutation.error)}
-        </p>
-      ) : null}
-      {mutation.isSuccess ? (
-        <p role="status">Your password was reset. Sign in with your new password.</p>
-      ) : null}
-      <Button
-        type="submit"
-        className="auth-submit"
-        disabled={mutation.isPending}
-        aria-busy={mutation.isPending}
-      >
-        Reset password
-      </Button>
+      <fieldset className="contents" disabled={!ready || mutation.isPending}>
+        <Input
+          label="Email Address"
+          type="email"
+          autoComplete="email"
+          error={form.formState.errors.email?.message}
+          {...form.register('email')}
+        />
+        <Input
+          label="6-digit code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          error={form.formState.errors.code?.message}
+          {...form.register('code')}
+        />
+        <PasswordFields
+          field={form.register('password')}
+          password={password ?? ''}
+          error={form.formState.errors.password?.message}
+          confirm={confirm}
+          onConfirm={setConfirm}
+        />
+        {mutation.isError ? (
+          <p role="alert" className="text-sm text-danger">
+            {errorMessage(mutation.error)}
+          </p>
+        ) : null}
+        {mutation.isSuccess ? (
+          <p role="status">Your password was reset. Sign in with your new password.</p>
+        ) : null}
+        <Button
+          type="submit"
+          className="auth-submit"
+          disabled={mutation.isPending}
+          aria-busy={mutation.isPending}
+        >
+          Reset password
+        </Button>
+      </fieldset>
     </form>
   );
 }

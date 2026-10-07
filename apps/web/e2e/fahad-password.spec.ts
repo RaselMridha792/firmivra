@@ -11,12 +11,18 @@ for (const site of ['app', 'admin']) {
       await expect(page.getByRole('status')).toContainText('If an account matches this email');
       await page.getByRole('link', { name: 'Enter your reset code' }).click();
       await page.getByLabel('Email Address').fill(email);
-      await page.getByLabel('6-digit code').fill('000000');
+      await page.getByLabel('6-digit code').fill('999999');
       await page.getByLabel('New password', { exact: true }).fill('Firmivra-local-1');
       await page.getByLabel('Confirm new password').fill('mismatch');
       await page.getByRole('button', { name: 'Reset password', exact: true }).click();
       await expect(page.getByText('The passwords do not match.')).toBeVisible();
       await page.getByLabel('Confirm new password').fill('Firmivra-local-1');
+      await page.getByRole('button', { name: 'Reset password', exact: true }).click();
+      await expect(page.getByTestId('auth-screen').getByRole('alert')).toHaveText(
+        'That code is not right or has expired.',
+      );
+      if (email !== known) continue;
+      await page.getByLabel('6-digit code').fill('000000');
       await page.getByRole('button', { name: 'Reset password', exact: true }).click();
       await expect(page.getByRole('status')).toHaveText(
         'Your password was reset. Sign in with your new password.',
