@@ -222,6 +222,12 @@ describe('users: only the platform or the person themself can update', () => {
     }
   });
 
+  it('nobody changes the pool of a login, not even the platform', async () => {
+    await expect(
+      platform().user.update({ where: { id: ids.staffA }, data: { pool: 'CLIENT' } }),
+    ).rejects.toThrow(/pool of a login never changes/);
+  });
+
   it('the platform can update any user', async () => {
     await expect(
       platform().user.update({

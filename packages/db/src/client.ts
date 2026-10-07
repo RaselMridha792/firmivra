@@ -102,7 +102,9 @@ export const MAX_TRANSACTION_MS = 30_000;
 function capped(limits: TransactionLimits | undefined): TransactionLimits | undefined {
   if (!limits) return undefined;
   const cap = (ms: number | undefined) =>
-    ms === undefined ? undefined : Math.min(Math.max(ms, 0), MAX_TRANSACTION_MS);
+    ms === undefined || !Number.isFinite(ms)
+      ? undefined
+      : Math.min(Math.max(ms, 0), MAX_TRANSACTION_MS);
   const maxWait = cap(limits.maxWait);
   const timeout = cap(limits.timeout);
   return {

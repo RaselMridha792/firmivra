@@ -85,6 +85,22 @@ GRANT DELETE ON users TO firmivra_app;
 CREATE POLICY users_delete_client_login ON users FOR DELETE
   USING (app_scope() = 'platform' AND pool = 'CLIENT');
 
+-- The pool of a login never changes, in any scope (the delete rule above relies on it).
+CREATE FUNCTION users_pool_fixed() RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+BEGIN
+  IF NEW.pool <> OLD.pool THEN
+    RAISE EXCEPTION 'users: the pool of a login never changes'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER users_pool_fixed
+  BEFORE UPDATE OF pool ON users
+  FOR EACH ROW EXECUTE FUNCTION users_pool_fixed();
+
 -- ==================== Businesses ====================
 -- A portal address: lower-case letters and digits, with single inner hyphens (portal.firmivra.com/{slug}).
 ALTER TABLE businesses ADD CONSTRAINT businesses_slug_format
@@ -225,7 +241,9 @@ BEGIN
         USING ERRCODE = 'check_violation';
     END IF;
     IF NEW.status <> OLD.status THEN
-      PERFORM 1 FROM payments p WHERE p.id = NEW.payment_id FOR UPDATE;
+      -- A write, not only a lock: under REPEATABLE READ a second confirmation at the same time
+      -- then fails to serialize (the webhook retries) instead of settling on its old snapshot.
+      UPDATE payments SET updated_at = updated_at WHERE id = NEW.payment_id;
       IF NEW.status = 'FAILED' THEN
         UPDATE payments SET refund_reserved_cents = refund_reserved_cents - NEW.amount_cents
          WHERE id = NEW.payment_id;

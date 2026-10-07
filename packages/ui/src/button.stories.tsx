@@ -8,4 +8,10 @@ type Story = StoryObj<typeof meta>;
 export const Primary: Story = {};
 export const Secondary: Story = { args: { variant: 'secondary' } };
 export const Ghost: Story = { args: { variant: 'ghost' } };
+export const Outline: Story = { args: { variant: 'outline', children: 'Create an Account' } };
+export const OutlineDisabled: Story = {
+  args: { variant: 'outline', children: 'Create an Account', disabled: true },
+};
+export const Dark: Story = { args: { variant: 'dark' } };
+export const DarkDisabled: Story = { args: { variant: 'dark', disabled: true } };
 export const Disabled: Story = { args: { disabled: true } };

@@ -3,6 +3,9 @@ import { TaxFilingType, TaxReturnStatus } from '../db-enums.js';
 import { CalendarDate } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
 
+// Database enums, also exported from here as before db-enums.ts (other modules import them).
+export { TaxFilingType, TaxReturnStatus };
+
 // Tax returns (R10): one row per return on the portal's Taxes tab (mockup "Taxes tab"), annual or
 // a quarterly estimate, with the status the client sees, the filed date and the return PDF.
 // Firm routes: /api/v1/business/clients/{id}/tax-returns and /business/tax-returns/{id}. Owner

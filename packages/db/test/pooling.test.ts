@@ -98,6 +98,10 @@ describe('per-call transaction limits', () => {
         limited.withScope({ kind: 'platform' }, slow, { timeout: 100 }),
       ).rejects.toThrow();
       await expect(limited.withScope({ kind: 'platform' }, slow)).resolves.toBeDefined();
+      // Not a number: ignored, so the default applies (NaN never reaches Prisma).
+      await expect(
+        limited.withScope({ kind: 'platform' }, slow, { timeout: Number.NaN }),
+      ).resolves.toBeDefined();
     } finally {
       await limited.disconnect();
     }

@@ -616,6 +616,38 @@ describe('refunds: review of #52 (one event each, races, nits)', () => {
     );
   });
 
+  it('under REPEATABLE READ a second confirmation at once fails to serialize, never misses the first', async () => {
+    const p = await succeeded();
+    const part = await firmA().paymentRefund.create({ data: refundData(p.id, 4000) });
+    const rest = await firmA().paymentRefund.create({ data: refundData(p.id, 6000) });
+    const e1 = await recordEvent(p.id, accounts.A, 'charge.refunded');
+    const e2 = await recordEvent(p.id, accounts.A, 'charge.refunded');
+    const confirm = (id: string, eventId: string, holdMs: number) =>
+      owner.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.scope', 'business', true),
+            set_config('app.current_business_id', ${ids.firmA}, true)`;
+          await tx.paymentRefund.update({
+            where: { id },
+            data: { status: 'SUCCEEDED', eventId, refundedAt: new Date() },
+          });
+          await sleep(holdMs);
+        },
+        { isolationLevel: 'RepeatableRead', maxWait: 15_000, timeout: 60_000 },
+      );
+    const first = confirm(part.id, e1.id, 400);
+    await sleep(100);
+    const results = await Promise.allSettled([first, confirm(rest.id, e2.id, 0)]);
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
+    // The webhook retries the second; until then the payment is honestly part-refunded.
+    const after = await firmA().payment.findUniqueOrThrow({ where: { id: p.id } });
+    expect(after.status).toBe('SUCCEEDED');
+    const confirmed = await firmA().paymentRefund.findMany({
+      where: { paymentId: p.id, status: 'SUCCEEDED' },
+    });
+    expect(confirmed.map((r) => r.amountCents)).toEqual([4000]);
+  });
+
   it('two refunds at once never exceed the payment, even under REPEATABLE READ', async () => {
     const p = await succeeded();
     const refundAt = (holdMs: number) =>
