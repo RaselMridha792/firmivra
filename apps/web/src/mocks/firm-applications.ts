@@ -42,7 +42,7 @@ type Fixture = Partial<Omit<Row, 'business'>> & {
   contact: string;
   email: string;
   hours: number;
-  business?: Partial<Row['business']>;
+  business?: Partial<NonNullable<Row['business']>>;
 };
 
 /** One application; `history` lists what happened after it was submitted, newest first. */
@@ -52,6 +52,12 @@ const fixture = ({ n, name, contact, email, hours, business, history = [], ...da
     id: uuid('0199b6a2', n),
     status: 'PENDING_REVIEW',
     submittedAt: hoursAgo(hours),
+    legalName: name,
+    dbaName: business?.dbaName ?? null,
+    contactName: contact,
+    contactEmail: email,
+    contactPhone: `+1404555010${n}`,
+    formReadable: true,
     business: {
       practiceType: 'TAX_ACCOUNTING',
       legalName: name,
@@ -99,6 +105,20 @@ const fixture = ({ n, name, contact, email, hours, business, history = [], ...da
     history: [...history, { type: 'SUBMITTED', at: hoursAgo(hours), by: null, message: null }],
   });
 
+/**
+ * An application whose stored form the API could not read (an older or hand-edited one): only the
+ * table's own columns come back.
+ */
+const unreadable = (row: Row) =>
+  FirmApplicationRecord.parse({
+    ...row,
+    formReadable: false,
+    business: null,
+    primaryAdmin: null,
+    account: null,
+    credentials: [],
+  });
+
 const done = (
   type: FirmApplicationEvent['type'],
   hours: number,
@@ -119,8 +139,9 @@ const firm = (n: number, name: string, slug: string, status: BusinessSummary['st
 let fixtures: readonly Row[] | undefined;
 
 /**
- * Three pending applications (one waiting for information, one repeating a declined one), two
- * approved (a firm in setup and an active firm) and one declined.
+ * Four pending applications (one waiting for information, one repeating a declined one, one whose
+ * form the API could not read), two approved (a firm in setup and an active firm) and one
+ * declined.
  */
 export function firmApplicationFixtures(): readonly Row[] {
   const reason = 'Not an accounting or tax practice.';
@@ -195,6 +216,17 @@ export function firmApplicationFixtures(): readonly Row[] {
       decision: { by: ADMIN, at: hoursAgo(4), reason },
       history: [done('DECLINED', 4, reason)],
     }),
+    // Like an older application: no phone of its own either.
+    unreadable(
+      fixture({
+        n: 7,
+        name: 'Sample Harbor Tax Services',
+        contact: 'Drew Sample',
+        email: 'drew@sample-harbor.example.test',
+        hours: DAY,
+        contactPhone: null,
+      }),
+    ),
   ];
   return fixtures;
 }
@@ -233,9 +265,47 @@ const check = (
     ? {
         key,
         result: 'WARN' as const,
-        note: `Same ${what} as ${other.business.legalName} (${other.status.toLowerCase().replace('_', ' ')})`,
+        note: `Same ${what} as ${other.legalName} (${other.status.toLowerCase().replace('_', ' ')})`,
       }
     : { key, result: 'PASS' as const, note: pass };
+
+/** Free email services: the API's list (FREE_MAIL_DOMAINS in apps/api/src/firm-applications). */
+const FREE_MAIL_DOMAINS = [
+  'gmail.com',
+  'googlemail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'icloud.com',
+  'me.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+  'gmx.com',
+  'mail.com',
+  'yandex.com',
+  'zoho.com',
+];
+
+/** The API's EMAIL_DOMAIN check: free mail is a WARN, then the email's domain against the website. */
+const emailDomainCheck = (email: string, website: string | null): FirmApplicationCheck => {
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  if (FREE_MAIL_DOMAINS.includes(domain)) {
+    return { key: 'EMAIL_DOMAIN', result: 'WARN', note: 'A free email address' };
+  }
+  const site = website?.trim();
+  if (!site) return { key: 'EMAIL_DOMAIN', result: 'SKIPPED', note: 'No website to compare with' };
+  const url = /^https?:\/\//i.test(site) ? site : `https://${site}`;
+  if (!URL.canParse(url)) {
+    return { key: 'EMAIL_DOMAIN', result: 'SKIPPED', note: "The website isn't a valid address" };
+  }
+  const host = new URL(url).hostname.replace(/^www\./, '');
+  return domain && (host === domain || host.endsWith(`.${domain}`))
+    ? { key: 'EMAIL_DOMAIN', result: 'PASS', note: 'The email domain matches the website' }
+    : { key: 'EMAIL_DOMAIN', result: 'WARN', note: "The email domain doesn't match the website" };
+};
 
 /** An in-memory `api.firmApplications`. The Super Admin acting is Morgan Admin. */
 export function createFirmApplicationsMock(): FirmApplicationsClient {
@@ -268,7 +338,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
   ];
   /** Stands in for the API's keyed EIN hash: fixtures by their last 4, new applications by the EIN. */
   const einKeys = new Map(
-    rows.map((r) => [r.id, r.business.einLast4 && `fixture-${r.business.einLast4}`]),
+    rows.map((r) => [r.id, r.business?.einLast4 ? `fixture-${r.business.einLast4}` : null]),
   );
   let nextId = 100;
   const now = () => new Date().toISOString();
@@ -287,12 +357,11 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     for (let i = 2; taken(slug); i++) slug = `${base}-${i}`;
     return slug;
   };
-  /** The checks the API runs when an application is opened. */
+  /** The checks the API runs when an application is opened (from the columns where it can). */
   const checks = (row: Row): FirmApplicationCheck[] => {
     const others = rows.filter((r) => r.id !== row.id);
-    const { legalName, website } = row.business;
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
     const einKey = einKeys.get(row.id);
-    const host = website && new URL(website).hostname.replace(/^www\./, '');
     return [
       einKey
         ? check(
@@ -304,25 +373,17 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         : { key: 'DUPLICATE_EIN', result: 'SKIPPED', note: 'No EIN given' },
       check(
         'DUPLICATE_NAME',
-        others.find((r) => r.business.legalName.toLowerCase() === legalName.toLowerCase()),
+        others.find((r) => same(r.legalName, row.legalName)),
         'name',
         'No other application or firm has this name',
       ),
       check(
         'DUPLICATE_EMAIL',
-        others.find((r) => r.primaryAdmin.email === row.primaryAdmin.email),
+        others.find((r) => same(r.contactEmail, row.contactEmail)),
         'email',
         'No other application uses this email',
       ),
-      !host
-        ? { key: 'EMAIL_DOMAIN', result: 'SKIPPED', note: 'No website given' }
-        : host === row.primaryAdmin.email.split('@')[1]
-          ? { key: 'EMAIL_DOMAIN', result: 'PASS', note: 'The email domain matches the website' }
-          : {
-              key: 'EMAIL_DOMAIN',
-              result: 'WARN',
-              note: "The email domain doesn't match the website",
-            },
+      emailDomainCheck(row.contactEmail, row.business?.website ?? null),
     ];
   };
   /** What the API returns: a copy, with the derived fields filled in. */
@@ -331,7 +392,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     return structuredClone({
       ...row,
       checks: checks(row),
-      suggestedSlug: row.status === 'PENDING_REVIEW' ? suggest(row.business.legalName) : null,
+      suggestedSlug: row.status === 'PENDING_REVIEW' ? suggest(row.legalName) : null,
       firm: firms.find((f) => f.firm.id === row.firm?.id)?.firm ?? null,
       ownerInvite:
         invite?.status === 'SENT' && invite.expiresAt < now()
@@ -371,7 +432,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     return structuredClone({
       ...f.firm,
       owner: admin ? { name: admin.fullName, email: admin.email, phone: admin.phone } : f.owner,
-      plan: app?.account.requestedPlan ?? null,
+      plan: app?.account?.requestedPlan ?? null,
       approvedAt: app?.decision?.at ?? null,
       createdAt: f.createdAt,
     });
@@ -396,6 +457,12 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         id: uuid('0199b6a2', nextId++),
         status: 'PENDING_REVIEW',
         submittedAt: at,
+        legalName: biz.legalName,
+        dbaName: biz.dbaName ?? null,
+        contactName: admin.fullName,
+        contactEmail: admin.email,
+        contactPhone: admin.phone,
+        formReadable: true,
         business: {
           ...biz,
           dbaName: biz.dbaName ?? null,
@@ -436,33 +503,27 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const q = parseInput(ListFirmApplicationsQuery, query);
       const found = rows
         .filter((r) => !q.status || r.status === q.status)
-        .filter((r) =>
-          matches(
-            q.search,
-            r.business.legalName,
-            r.business.dbaName,
-            r.primaryAdmin.fullName,
-            r.primaryAdmin.email,
-          ),
-        )
+        .filter((r) => matches(q.search, r.legalName, r.dbaName, r.contactName, r.contactEmail))
         .filter((r) => (!q.from || r.submittedAt >= q.from) && (!q.to || r.submittedAt < q.to))
         .sort(
           (a, b) => (q.order === 'oldest' ? 1 : -1) * a.submittedAt.localeCompare(b.submittedAt),
         )
-        .map(({ id, status, submittedAt, business: b, primaryAdmin: p, account, decision }) => ({
-          id,
-          status,
-          legalName: b.legalName,
-          dbaName: b.dbaName,
-          practiceType: b.practiceType,
-          entityType: b.entityType,
-          services: [...b.services],
-          requestedPlan: account.requestedPlan,
-          contactName: p.fullName,
-          contactEmail: p.email,
-          contactPhone: p.phone,
-          submittedAt,
-          decidedAt: decision?.at ?? null,
+        // As in the API: the columns, and what only the form has when it could be read.
+        .map((r) => ({
+          id: r.id,
+          status: r.status,
+          legalName: r.legalName,
+          dbaName: r.dbaName,
+          formReadable: r.formReadable,
+          practiceType: r.business?.practiceType ?? null,
+          entityType: r.business?.entityType ?? null,
+          services: [...(r.business?.services ?? [])],
+          requestedPlan: r.account?.requestedPlan ?? null,
+          contactName: r.contactName,
+          contactEmail: r.contactEmail,
+          contactPhone: r.contactPhone ?? r.primaryAdmin?.phone ?? null,
+          submittedAt: r.submittedAt,
+          decidedAt: r.decision?.at ?? null,
         }));
       return page(found, q);
     },
@@ -496,9 +557,9 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const key = parseInput(FirmApplicationId, id);
       const { slug } = parseInput(ApproveFirmApplicationRequest, body);
       const row = pending(find(key));
-      const chosen = slug ?? suggest(row.business.legalName);
+      const chosen = slug ?? suggest(row.legalName);
       if (taken(chosen)) throw fail(409, 'SLUG_TAKEN', 'This portal address is not available');
-      const created = firm(nextId++, row.business.legalName, chosen, 'PENDING_SETUP');
+      const created = firm(nextId++, row.legalName, chosen, 'PENDING_SETUP');
       firms.push({ firm: created, createdAt: now(), applicationId: row.id, owner: null });
       return save({
         ...row,
@@ -597,8 +658,9 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       return {
         pendingApplications: rows.filter((r) => r.status === 'PENDING_REVIEW').length,
         activeFirms: firms.filter((f) => f.firm.status === 'ACTIVE').length,
-        totalUsers: 12,
-        newUsersThisWeek: 3,
+        // Null like the API's until R0's platform count exists.
+        totalUsers: null,
+        newUsersThisWeek: null,
         monthlyRevenueCents: null,
       };
     },

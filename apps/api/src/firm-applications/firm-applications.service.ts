@@ -25,13 +25,15 @@ import { AdminPrisma } from './admin-prisma.js';
 
 /**
  * What `firm_applications.data` holds: the review page's groups, as submit (R4 step 2) stores
- * them. The full EIN is never in it, only `business.einLast4`.
+ * them. The full EIN is never in it, only `business.einLast4`. The database doesn't check it, so
+ * a row in another shape (written before this one, or edited by hand) is shown from the table's
+ * own columns instead (`formReadable` false).
  */
 const R = FirmApplicationRecord.shape;
 export const StoredApplication = z.object({
-  business: R.business,
-  primaryAdmin: R.primaryAdmin,
-  account: R.account,
+  business: R.business.unwrap(),
+  primaryAdmin: R.primaryAdmin.unwrap(),
+  account: R.account.unwrap(),
   credentials: R.credentials,
 });
 export type StoredApplication = z.infer<typeof StoredApplication>;
@@ -74,6 +76,50 @@ export function slugBase(name: string): string {
       .slice(0, 56)
       .replace(/^-+|-+$/g, '') || 'firm'
   );
+}
+
+/** Free email services: an administrator's address there says nothing about the firm. */
+export const FREE_MAIL_DOMAINS: readonly string[] = [
+  'gmail.com',
+  'googlemail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'icloud.com',
+  'me.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+  'gmx.com',
+  'mail.com',
+  'yandex.com',
+  'zoho.com',
+];
+
+/**
+ * The EMAIL_DOMAIN check: a free email address is a WARN whatever the website. Otherwise the
+ * email's domain is compared with the website's, which is SKIPPED when there is no website or it
+ * isn't a valid address.
+ */
+export function emailDomainCheck(email: string, website: string | null): FirmApplicationCheck {
+  const check = (result: FirmApplicationCheck['result'], note: string): FirmApplicationCheck => ({
+    key: 'EMAIL_DOMAIN',
+    result,
+    note,
+  });
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  if (FREE_MAIL_DOMAINS.includes(domain)) return check('WARN', 'A free email address');
+  const site = website?.trim();
+  if (!site) return check('SKIPPED', 'No website to compare with');
+  // As the contract's Website field reads it: `example.com` is `https://example.com`.
+  const url = /^https?:\/\//i.test(site) ? site : `https://${site}`;
+  if (!URL.canParse(url)) return check('SKIPPED', "The website isn't a valid address");
+  const host = new URL(url).hostname.replace(/^www\./, '');
+  return domain && (host === domain || host.endsWith(`.${domain}`))
+    ? check('PASS', 'The email domain matches the website')
+    : check('WARN', "The email domain doesn't match the website");
 }
 
 const reviewStatus = (s: FirmApplication['status']): FirmApplicationReviewStatus =>
@@ -221,14 +267,16 @@ export class FirmApplicationsService {
 
   // ---------- Mapping ----------
 
-  /** The stored form, or a clear error for a row written before the stored shape existed. */
-  private stored(row: FirmApplication): StoredApplication {
+  /**
+   * The stored form, or null when the row's data is not in the stored shape: the row is then
+   * shown from the table's own columns. Never throws, so one such row can't break a page.
+   */
+  private stored(row: FirmApplication): StoredApplication | null {
     const parsed = StoredApplication.safeParse(row.data);
-    if (!parsed.success) {
-      this.logger.error(`Firm application ${row.id}: data is not in the stored shape`);
-      throw new Error(`Firm application ${row.id} has data in an old shape`);
-    }
-    return parsed.data;
+    if (parsed.success) return parsed.data;
+    // The id only: the data holds the applicant's personal details.
+    this.logger.warn(`Firm application ${row.id}: the stored form could not be read`);
+    return null;
   }
 
   private listItem(row: FirmApplication): FirmApplicationListItem {
@@ -238,13 +286,14 @@ export class FirmApplicationsService {
       status: reviewStatus(row.status),
       legalName: row.legalName,
       dbaName: row.dbaName,
-      practiceType: d.business.practiceType,
-      entityType: d.business.entityType,
-      services: d.business.services,
-      requestedPlan: d.account.requestedPlan,
+      formReadable: d !== null,
+      practiceType: d?.business.practiceType ?? null,
+      entityType: d?.business.entityType ?? null,
+      services: d?.business.services ?? [],
+      requestedPlan: d?.account.requestedPlan ?? null,
       contactName: row.contactName,
       contactEmail: row.contactEmail,
-      contactPhone: row.contactPhone ?? d.primaryAdmin.phone,
+      contactPhone: row.contactPhone ?? d?.primaryAdmin.phone ?? null,
       submittedAt: row.createdAt.toISOString(),
       decidedAt: decided(row) && row.reviewedAt ? row.reviewedAt.toISOString() : null,
     };
@@ -276,10 +325,16 @@ export class FirmApplicationsService {
       id: row.id,
       status: reviewStatus(row.status),
       submittedAt: row.createdAt.toISOString(),
-      business: d.business,
-      primaryAdmin: d.primaryAdmin,
-      account: d.account,
-      credentials: d.credentials,
+      legalName: row.legalName,
+      dbaName: row.dbaName,
+      contactName: row.contactName,
+      contactEmail: row.contactEmail,
+      contactPhone: row.contactPhone,
+      formReadable: d !== null,
+      business: d?.business ?? null,
+      primaryAdmin: d?.primaryAdmin ?? null,
+      account: d?.account ?? null,
+      credentials: d?.credentials ?? [],
       documents: [],
       checks: await this.checks(row, d),
       internalNotes: row.internalNotes,
@@ -332,9 +387,10 @@ export class FirmApplicationsService {
     );
   }
 
+  /** Run from the table's columns, so they work when the stored form can't be read (`d` null). */
   private async checks(
     row: FirmApplication,
-    d: StoredApplication,
+    d: StoredApplication | null,
   ): Promise<FirmApplicationCheck[]> {
     const db = this.admin.db;
     const same = (value: string) => ({ equals: value, mode: 'insensitive' as const });
@@ -357,10 +413,6 @@ export class FirmApplicationsService {
         select: { legalName: true, status: true },
       }),
     ]);
-    const host = d.business.website
-      ? new URL(d.business.website).hostname.replace(/^www\./, '')
-      : null;
-    const domain = row.contactEmail.split('@')[1]?.toLowerCase();
     return [
       // The keyed EIN hash arrives with R0's ein columns (step 2).
       { key: 'DUPLICATE_EIN', result: 'SKIPPED', note: 'The EIN check comes with the EIN fields' },
@@ -380,15 +432,7 @@ export class FirmApplicationsService {
       sameEmail
         ? { key: 'DUPLICATE_EMAIL', result: 'WARN', note: `Same email as ${label(sameEmail)}` }
         : { key: 'DUPLICATE_EMAIL', result: 'PASS', note: 'No other application uses this email' },
-      !host
-        ? { key: 'EMAIL_DOMAIN', result: 'SKIPPED', note: 'No website given' }
-        : host === domain || host.endsWith(`.${domain ?? ''}`)
-          ? { key: 'EMAIL_DOMAIN', result: 'PASS', note: 'The email domain matches the website' }
-          : {
-              key: 'EMAIL_DOMAIN',
-              result: 'WARN',
-              note: "The email domain doesn't match the website",
-            },
+      emailDomainCheck(row.contactEmail, d?.business.website ?? null),
     ];
   }
 
@@ -449,8 +493,8 @@ export class FirmApplicationsService {
     const applicationOf = new Map(applications.map((a) => [a.businessId, a]));
     return firms.map((f) => {
       const a = applicationOf.get(f.id);
-      // Only the owner fallback and the plan come from it, so an older form shape just leaves them out.
-      const d = a ? (StoredApplication.safeParse(a.data).data ?? null) : null;
+      // Only the owner fallback and the plan come from it; an unreadable form leaves them out.
+      const d = a ? this.stored(a) : null;
       return {
         id: f.id,
         slug: f.slug,

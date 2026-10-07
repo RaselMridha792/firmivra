@@ -260,14 +260,21 @@ export const FirmApplicationListItem = z.object({
   status: FirmApplicationReviewStatus,
   legalName: z.string(),
   dbaName: z.string().nullable(),
-  practiceType: PracticeType,
-  entityType: EntityType,
+  /**
+   * False when the stored form could not be read: the row shows what the table's own columns hold
+   * (names, contact, dates, status). The practice type, entity type and plan are then null and
+   * `services` is empty; the screen shows "—" for them.
+   */
+  formReadable: z.boolean(),
+  practiceType: PracticeType.nullable(),
+  entityType: EntityType.nullable(),
   services: z.array(FirmService),
-  requestedPlan: FirmPlan,
+  requestedPlan: FirmPlan.nullable(),
   /** The primary administrator. */
   contactName: z.string(),
   contactEmail: z.string(),
-  contactPhone: z.string(),
+  /** Null only when the form could not be read and the application has no phone of its own. */
+  contactPhone: z.string().nullable(),
   submittedAt: DateTime,
   /** When it was approved or declined. */
   decidedAt: DateTime.nullable(),
@@ -333,7 +340,11 @@ export const FirmApplicationCheck = z.object({
     'DUPLICATE_NAME',
     /** Another application uses the primary administrator's email. */
     'DUPLICATE_EMAIL',
-    /** The administrator's email domain matches the website (free mail is a WARN). */
+    /**
+     * The administrator's email domain matches the website. A free email address (Gmail, Outlook
+     * and the like) is a WARN whatever the website; SKIPPED without a website that reads as an
+     * address.
+     */
     'EMAIL_DOMAIN',
   ]),
   result: z.enum(['PASS', 'WARN', 'SKIPPED']),
@@ -363,44 +374,73 @@ export const FirmApplicationEvent = z.object({
 });
 export type FirmApplicationEvent = z.infer<typeof FirmApplicationEvent>;
 
-/** GET /admin/firm-applications/{id}: the review page, every field the applicant sent. */
+/**
+ * GET /admin/firm-applications/{id}: the review page, every field the applicant sent.
+ *
+ * `formReadable` false: the stored form could not be read (an older or hand-edited application).
+ * `business`, `primaryAdmin` and `account` are then null and `credentials` is empty. The page shows
+ * the top-level name and contact fields in the Business Information and Primary Administrator
+ * cards, "The application form could not be read" in place of the other details and the Account
+ * Details card, and the checks, notes, history and actions as usual.
+ */
 export const FirmApplicationRecord = z.object({
   id: z.uuid(),
   status: FirmApplicationReviewStatus,
   submittedAt: DateTime,
-  business: z.object({
-    practiceType: PracticeType,
-    legalName: z.string(),
-    dbaName: z.string().nullable(),
-    entityType: EntityType,
-    /** The only part of the EIN the API keeps. */
-    einLast4: z
-      .string()
-      .regex(/^\d{4}$/)
-      .nullable(),
-    email: z.string().nullable(),
-    phone: z.string().nullable(),
-    website: z.string().nullable(),
-    address: FirmAddress,
-    services: z.array(FirmService),
-  }),
-  primaryAdmin: z.object({
-    fullName: z.string(),
-    email: z.string(),
-    phone: z.string(),
-    title: z.string().nullable(),
-    preferredContact: ContactMethod,
-    alternatePhone: z.string().nullable(),
-  }),
-  account: z.object({
-    requestedPlan: FirmPlan,
-    teamSize: z.number().int(),
-    clientVolume: ClientVolume,
-    heardFrom: z.string().nullable(),
-    /** Null: as soon as possible. */
-    requestedStartDate: CalendarDate.nullable(),
-    additionalInfo: z.string().nullable(),
-  }),
+  /**
+   * The table's own columns, there whatever the stored form holds: the legal name and DBA, and the
+   * primary administrator's name, email and phone.
+   */
+  legalName: z.string(),
+  dbaName: z.string().nullable(),
+  contactName: z.string(),
+  contactEmail: z.string(),
+  contactPhone: z.string().nullable(),
+  /** False when the stored form could not be read (see above). */
+  formReadable: z.boolean(),
+  /** Null when `formReadable` is false. */
+  business: z
+    .object({
+      practiceType: PracticeType,
+      legalName: z.string(),
+      dbaName: z.string().nullable(),
+      entityType: EntityType,
+      /** The only part of the EIN the API keeps. */
+      einLast4: z
+        .string()
+        .regex(/^\d{4}$/)
+        .nullable(),
+      email: z.string().nullable(),
+      phone: z.string().nullable(),
+      website: z.string().nullable(),
+      address: FirmAddress,
+      services: z.array(FirmService),
+    })
+    .nullable(),
+  /** Null when `formReadable` is false. */
+  primaryAdmin: z
+    .object({
+      fullName: z.string(),
+      email: z.string(),
+      phone: z.string(),
+      title: z.string().nullable(),
+      preferredContact: ContactMethod,
+      alternatePhone: z.string().nullable(),
+    })
+    .nullable(),
+  /** Null when `formReadable` is false. */
+  account: z
+    .object({
+      requestedPlan: FirmPlan,
+      teamSize: z.number().int(),
+      clientVolume: ClientVolume,
+      heardFrom: z.string().nullable(),
+      /** Null: as soon as possible. */
+      requestedStartDate: CalendarDate.nullable(),
+      additionalInfo: z.string().nullable(),
+    })
+    .nullable(),
+  /** Empty when `formReadable` is false. */
   credentials: z.array(
     z.object({ type: CredentialType, number: z.string(), issuedBy: z.string().nullable() }),
   ),
@@ -508,9 +548,15 @@ export type FirmStatusFilter = z.infer<typeof FirmStatusFilter>;
 
 /** One row of the firms list (mockup "Firms"). */
 export const FirmListItem = BusinessSummary.extend({
-  /** The firm's owner (or, before activation, the invited primary administrator). */
+  /**
+   * The firm's owner (or, before activation, the invited primary administrator). Null when neither
+   * is known, e.g. before activation when the application's form could not be read.
+   */
   owner: z.object({ name: z.string(), email: z.string(), phone: z.string().nullable() }).nullable(),
-  /** The plan the application asked for; null for a firm without an application. */
+  /**
+   * The plan the application asked for; null for a firm without an application, or when its form
+   * could not be read.
+   */
   plan: FirmPlan.nullable(),
   approvedAt: DateTime.nullable(),
   createdAt: DateTime,
@@ -541,6 +587,7 @@ export type FirmCounts = z.infer<typeof FirmCounts>;
 /**
  * GET /admin/firms/{id}: the firm page. Its details, notes and activity are its application's
  * (null for a firm created without one, such as the beta firm); notes are saved on the application.
+ * An application whose form could not be read has `formReadable` false, as on its review page.
  */
 export const FirmRecord = FirmListItem.extend({ application: FirmApplicationRecord.nullable() });
 export type FirmRecord = z.infer<typeof FirmRecord>;

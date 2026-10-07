@@ -4,6 +4,7 @@ import {
   CREDENTIAL_TYPES,
   createFirmApplicationsClient,
   createRequest,
+  FirmApplicationListItem,
   FirmApplicationRecord,
   FIRM_SERVICES,
   PRACTICE_TYPES,
@@ -61,6 +62,12 @@ const record = {
   id,
   status: 'PENDING_REVIEW',
   submittedAt: at,
+  legalName: 'Sample Tax Partners LLC',
+  dbaName: null,
+  contactName: 'Jordan Sample',
+  contactEmail: 'jordan@sample-tax.example.test',
+  contactPhone: '+14045550101',
+  formReadable: true,
   business: {
     practiceType: 'TAX_ACCOUNTING',
     legalName: 'Sample Tax Partners LLC',
@@ -278,5 +285,78 @@ describe('api.firmApplications: Super Admin', () => {
   it('drops response fields it does not know, so an open page keeps working', () => {
     const parsed = FirmApplicationRecord.parse({ ...record, addedLater: true });
     expect(parsed).not.toHaveProperty('addedLater');
+  });
+});
+
+describe('api.firmApplications: a stored form the API could not read', () => {
+  const unreadable = {
+    ...record,
+    status: 'APPROVED',
+    contactPhone: null,
+    formReadable: false,
+    business: null,
+    primaryAdmin: null,
+    account: null,
+    credentials: [],
+  };
+  const row = {
+    id,
+    status: 'APPROVED',
+    legalName: 'Sample Tax Partners LLC',
+    dbaName: null,
+    formReadable: false,
+    practiceType: null,
+    entityType: null,
+    services: [],
+    requestedPlan: null,
+    contactName: 'Jordan Sample',
+    contactEmail: 'jordan@sample-tax.example.test',
+    contactPhone: null,
+    submittedAt: at,
+    decidedAt: at,
+  };
+
+  it('opens the review page with the columns only: the form groups are null', async () => {
+    const { fn } = fakeFetch(200, unreadable);
+    await expect(client(fn).get(id)).resolves.toMatchObject({
+      legalName: 'Sample Tax Partners LLC',
+      contactName: 'Jordan Sample',
+      contactEmail: 'jordan@sample-tax.example.test',
+      contactPhone: null,
+      formReadable: false,
+      business: null,
+      primaryAdmin: null,
+      account: null,
+      credentials: [],
+    });
+  });
+
+  it('lists it without the details only the form has', async () => {
+    const { fn } = fakeFetch(200, { items: [row], total: 1, page: 1, pageSize: 20 });
+    const { items } = await client(fn).list();
+    expect(items).toEqual([row]);
+    expect(FirmApplicationListItem.safeParse({ ...row, formReadable: undefined }).success).toBe(
+      false,
+    );
+  });
+
+  it("opens its firm's page without the owner and plan the form would give", async () => {
+    const firm = {
+      id,
+      slug: 'sample-tax-partners',
+      name: 'Sample Tax Partners LLC',
+      status: 'PENDING_SETUP',
+      owner: null,
+      plan: null,
+      approvedAt: at,
+      createdAt: at,
+      application: unreadable,
+    };
+    const { fn } = fakeFetch(200, firm);
+    await expect(client(fn).getFirm(id)).resolves.toMatchObject({
+      owner: null,
+      plan: null,
+      application: { id, formReadable: false, business: null },
+    });
   });
 });
