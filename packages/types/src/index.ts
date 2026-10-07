@@ -16,3 +16,6 @@ export * from './clients/index.js';
 export * from './engagements/index.js';
 export * from './tax-returns/index.js';
 export * from './firm-applications/index.js';
+export * from './tasks/index.js';
+export * from './workspaces/index.js';
+export * from './audit-log/index.js';

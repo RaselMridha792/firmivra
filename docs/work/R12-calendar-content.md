@@ -35,3 +35,9 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
 ## Progress log
 
 (newest last: date, step, what changed, commit)
+
+- 2026-10-07, step 1 part 2 (contract, prepared on `rasel/R12-contract-workspaces` from fresh main; opens after part 1, #68, merges): tasks, workspaces with reports, and the audit log viewer.
+  - `packages/types/src/tasks`: list (by client, engagement, assignee, status; paged), create, update (status, due date, assignee; `null` clears). Staff see their clients' tasks and tasks assigned to them. R10 creates the NAME_CHANGE task.
+  - `packages/types/src/workspaces`: the list of Bookkeeping and Tax Planning engagements (open tasks, next due date), the detail (stages, open tasks, reports), reports (create as draft, edit, publish, unpublish, delete only if never published; kinds per workspace in `REPORT_KINDS`; figures as label and amount lines), and the client's published reports in My Services. Status and stage go through R10's `api.engagements`; notes come from R11, documents from R5.
+  - `packages/types/src/audit-log`: the firm Owner's log with filters (dates, action or prefix, person, record) and paging; the Super Admin version answers 403 `SUPPORT_GRANT_REQUIRED` until R8.
+  - Mocks `apps/web/src/mocks/{tasks,workspaces,audit-log}.ts` (the workspaces reuse R10's Bookkeeping engagement fixture); `api.tasks`, `api.workspaces`, `api.myReports(slug)`, `api.auditLog`.

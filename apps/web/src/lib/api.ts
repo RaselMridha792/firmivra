@@ -1,5 +1,9 @@
 import {
   createApiClient,
+  createAuditLogClient,
+  createMyReportsClient,
+  createTasksClient,
+  createWorkspacesClient,
   createClientsClient,
   createClientSignUpsClient,
   createEngagementsClient,
@@ -11,10 +15,13 @@ import {
   createTaxReturnsClient,
   createTaxStatusesClient,
 } from '@firmivra/types';
+import { createAuditLogMock } from '../mocks/audit-log';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
+import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
+import { createMyReportsMock, createWorkspacesMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked } from './mock';
 import { sessionFetch } from './session';
 
@@ -56,6 +63,21 @@ export const api = {
   myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
   myServices: (firmSlug: string) => createMyServicesClient(request, firmSlug),
   myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
+  /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
+  tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
+  workspaces:
+    dev && mocked('workspaces')
+      ? createWorkspacesMock({ role: MOCK_ROLE })
+      : createWorkspacesClient(request),
+  /** Workspaces (R12): a client's published reports in My Services, per firm (portal). */
+  myReports: (firmSlug: string) =>
+    dev && mocked('myReports') ? createMyReportsMock() : createMyReportsClient(request, firmSlug),
+  /** Audit log viewer (R12): the firm's own log, for the Owner. */
+  auditLog:
+    dev && mocked('auditLog')
+      ? createAuditLogMock({ role: MOCK_ROLE })
+      : createAuditLogClient(request),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:
     dev && mocked('firmApplications')
