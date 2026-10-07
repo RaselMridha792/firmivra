@@ -35,6 +35,12 @@ const notLinkable = () =>
     code: 'CLIENT_NOT_LINKABLE',
     message: 'This client record cannot be linked to this sign-up',
   });
+const duplicateEmail = () =>
+  new ConflictException({
+    code: 'DUPLICATE_EMAIL',
+    message: 'A client of this firm already has this email. Link the sign-up to that record.',
+  });
+const isUniqueViolation = (e: unknown) => (e as { code?: string }).code === 'P2002';
 
 /** Opaque paging cursor: the last item's sign-up time and id. */
 const Cursor = z.object({ t: z.iso.datetime(), id: z.uuid() });
@@ -126,7 +132,8 @@ export class ClientSignUpsService {
    * Opens the portal for a pending sign-up, in one transaction: claims the sign-up (only one
    * approval or decline can), then creates the firm's client record from it or, with `clientId`,
    * links an existing record that passes `linkable` (409 CLIENT_NOT_LINKABLE otherwise, 404 if
-   * the firm has no such record). Any refusal rolls the claim back.
+   * the firm has no such record). Never a second client with one email: without `clientId`, a
+   * record with the sign-up's email is 409 DUPLICATE_EMAIL. Any refusal rolls the claim back.
    */
   async approve(
     actor: Actor,
@@ -145,12 +152,7 @@ export class ClientSignUpsService {
         if (claimed.count !== 1) throw notPending();
         const linkedTo = clientId
           ? await this.lockLinkable(tx, actor.businessId, clientId, account.email)
-          : await createClientFromSignUp(tx, actor.businessId, {
-              name: account.user.name,
-              email: account.email,
-              phone: account.user.phone,
-              accountType: account.accountType,
-            });
+          : await this.createUnlessTaken(tx, actor.businessId, account);
         await tx.clientAccount.update({
           where: { id: account.id },
           data: { clientId: linkedTo, portalRole: 'PRIMARY' },
@@ -255,6 +257,34 @@ export class ClientSignUpsService {
     if (!account.emailVerifiedAt || !account.phoneVerifiedAt) throw notFound();
     if (account.status !== 'PENDING_APPROVAL') throw notPending();
     return account;
+  }
+
+  /**
+   * A new client record from the sign-up, unless one of the firm's clients already has its email
+   * (409 DUPLICATE_EMAIL). R0's unique index on clients (business_id, email) (R10 step 3) closes
+   * the gap between the check and the insert: its violation is the same 409.
+   */
+  private async createUnlessTaken(
+    tx: TxClient,
+    businessId: string,
+    account: Awaited<ReturnType<ClientSignUpsService['pendingSignUp']>>,
+  ): Promise<string> {
+    const taken = await tx.client.findFirst({
+      where: { email: account.email },
+      select: { id: true },
+    });
+    if (taken) throw duplicateEmail();
+    try {
+      return await createClientFromSignUp(tx, businessId, {
+        name: account.user.name,
+        email: account.email,
+        phone: account.user.phone,
+        accountType: account.accountType,
+      });
+    } catch (e) {
+      if (isUniqueViolation(e)) throw duplicateEmail();
+      throw e;
+    }
   }
 
   /**

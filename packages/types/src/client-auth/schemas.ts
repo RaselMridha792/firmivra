@@ -164,7 +164,9 @@ export type ClientSignUpList = z.infer<typeof ClientSignUpList>;
 
 /**
  * POST /client-sign-ups/{clientAccountId}/approve. Without `clientId` it creates the firm's client
- * record from the sign-up. With it, it links the login to that existing record of this firm, and
+ * record from the sign-up, unless a client of the firm already has that email (409
+ * DUPLICATE_EMAIL: link that record instead). With it, it links the login to that existing record
+ * of this firm, and
  * only if the record's email is the sign-up's verified email (both lower-cased) and the record
  * has no primary portal login yet; else 409 CLIENT_NOT_LINKABLE (404 if the firm has no such
  * client). Any other field is refused (400), so a typo never approves the wrong way.
@@ -217,5 +219,11 @@ export const ClientAuthErrorCode = z.enum([
    * one, or already has a primary portal login. Nothing changed; reload the list.
    */
   'CLIENT_NOT_LINKABLE',
+  /**
+   * 409: approve without `clientId`, but a client of the firm already has the sign-up's email.
+   * The firm never gets a second client with one email: link that record (`existingClient`).
+   * Same code as the client records API (R10).
+   */
+  'DUPLICATE_EMAIL',
 ]);
 export type ClientAuthErrorCode = z.infer<typeof ClientAuthErrorCode>;

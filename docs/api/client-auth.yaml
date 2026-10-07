@@ -83,6 +83,12 @@ info:
     such record). `existingClient` in the list shows only a record that passes this check; offer
     linking only for that one.
 
+    **Never a second client with one email.** Approve without `clientId` answers
+    `409 DUPLICATE_EMAIL` when a client of the firm already has the sign-up's email (the code the
+    client records API uses), so staff link that record. If that record cannot be linked (it
+    already has a portal login), the sign-up cannot be approved as it is: decline it, or correct
+    the record first.
+
     ## Local development
 
     With `AUTH_MODE=local`, every verification code is `000000` and nothing is sent. The sign-in
@@ -415,9 +421,10 @@ paths:
       operationId: approveClientSignUp
       summary: Approve; creates the client record (or links an existing one) and opens the portal
       description: |
-        Without a body it creates the firm's client record from the sign-up. With `clientId` (for
-        example `existingClient` from the list) it links the login to that record instead, so the
-        firm gets no duplicate, but only if the record's email is the sign-up's verified email
+        Without a body it creates the firm's client record from the sign-up, or answers
+        `409 DUPLICATE_EMAIL` when a client of the firm already has that email. With `clientId`
+        (for example `existingClient` from the list) it links the login to that record instead, so
+        the firm gets no duplicate, but only if the record's email is the sign-up's verified email
         (both lower-cased) and the record has no primary portal login yet. Otherwise
         `409 CLIENT_NOT_LINKABLE` and nothing changes; `404` if the firm has no such record. Any
         other body field is `400 VALIDATION_FAILED`.
@@ -442,9 +449,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: |
-            `NOT_PENDING` (someone already approved or declined it) or `CLIENT_NOT_LINKABLE` (the
+            `NOT_PENDING` (someone already approved or declined it), `CLIENT_NOT_LINKABLE` (the
             record's email is not the sign-up's verified email, or the record already has a
-            primary portal login)
+            primary portal login) or `DUPLICATE_EMAIL` (no `clientId`, but a client of the firm
+            already has this email)
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
@@ -733,4 +741,5 @@ components:
         Codes of these routes: SIGN_UP_CLOSED (403), ORIGIN_NOT_ALLOWED (403),
         UNSUPPORTED_MEDIA_TYPE (415), TERMS_OUTDATED (409), SIGN_UP_EXPIRED (410),
         CODE_INVALID (400), ALREADY_VERIFIED (409), WRONG_STEP (409), NOT_PENDING (409),
-        CLIENT_NOT_LINKABLE (409), plus the auth and generic codes in auth.yaml.
+        CLIENT_NOT_LINKABLE (409), DUPLICATE_EMAIL (409), plus the auth and generic codes in
+        auth.yaml.

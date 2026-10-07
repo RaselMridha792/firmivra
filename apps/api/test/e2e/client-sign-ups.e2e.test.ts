@@ -383,6 +383,9 @@ describe('approve', () => {
       const res = await approve(signUps.john, body);
       expect([label, res.status, codeOf(res)]).toEqual([label, status, code]);
     }
+    // John's email is on a record already (with a login): no second client with that email.
+    const duplicate = await approve(signUps.john);
+    expect([duplicate.status, codeOf(duplicate)]).toEqual([409, 'DUPLICATE_EMAIL']);
     // Nothing changed for John.
     expect(await account(signUps.john)).toMatchObject({
       status: 'PENDING_APPROVAL',
@@ -392,12 +395,17 @@ describe('approve', () => {
     const wrong = await approve(signUps.john, { clientId: records.jane });
     expect([wrong.status, codeOf(wrong)]).toEqual([409, 'CLIENT_NOT_LINKABLE']);
 
+    // Jane has a record: approving her as a new client is refused, linking works.
+    const asNew = await approve(signUps.jane);
+    expect([asNew.status, codeOf(asNew)]).toEqual([409, 'DUPLICATE_EMAIL']);
     const linked = await approve(signUps.jane, { clientId: records.jane });
     expect(linked.status).toBe(200);
     expect((linked.body as ApproveSignUpResponse).clientId).toBe(records.jane);
     expect(await account(signUps.jane)).toMatchObject({ status: 'ACTIVE', clientId: records.jane });
 
-    // Of Sam's two records, staff may pick one deliberately.
+    // Of Sam's two records, staff may pick one deliberately; never a third.
+    const third = await approve(signUps.sam);
+    expect([third.status, codeOf(third)]).toEqual([409, 'DUPLICATE_EMAIL']);
     const sam = await approve(signUps.sam, { clientId: records.samB });
     expect((sam.body as ApproveSignUpResponse).clientId).toBe(records.samB);
 

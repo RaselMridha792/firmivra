@@ -152,7 +152,7 @@ interface MockClientRecord {
   hasPrimaryLogin: boolean;
 }
 const JANE_CLIENT_ID = '00000000-0000-4000-a000-000000000402';
-const JOHN_CLIENT_ID = '00000000-0000-4000-a000-000000000403';
+const SAM_CLIENT_ID = '00000000-0000-4000-a000-000000000403';
 const CLIENT_RECORDS: readonly MockClientRecord[] = [
   // Added by staff before Jane signed up: linkable to Jane's sign-up.
   {
@@ -161,11 +161,12 @@ const CLIENT_RECORDS: readonly MockClientRecord[] = [
     email: 'Jane@Example.com',
     hasPrimaryLogin: false,
   },
-  // Same email as John's sign-up, but it already has a portal login: never linkable.
+  // Same email as Sam's sign-up, but it already has a portal login: never linkable, and Sam's
+  // sign-up cannot be approved as a new client either (DUPLICATE_EMAIL).
   {
-    clientId: JOHN_CLIENT_ID,
-    displayName: 'John Doe',
-    email: 'john@example.com',
+    clientId: SAM_CLIENT_ID,
+    displayName: 'Sam Poe',
+    email: 'sam@example.com',
     hasPrimaryLogin: true,
   },
 ];
@@ -237,6 +238,11 @@ export const errors = {
   clientNotLinkable: error(
     'CLIENT_NOT_LINKABLE',
     'This client record cannot be linked to this sign-up',
+  ),
+  /** 409 on approve without clientId when a client of the firm already has the email. */
+  duplicateEmail: error(
+    'DUPLICATE_EMAIL',
+    'A client of this firm already has this email. Link the sign-up to that record.',
   ),
 } as const;
 
@@ -457,9 +463,11 @@ export function createPortalAuthMock(
 /**
  * An in-memory `api.clientSignUps` with the API's rules: approve and decline only pending
  * sign-ups (409 NOT_PENDING), unknown ids 404, and `role: 'STAFF'` gets 403 FORBIDDEN.
- * Jane Roe's sign-up has an `existingClient`: approve with its `clientId` links to it. Any other
- * record is 409 CLIENT_NOT_LINKABLE (for example John Doe's, which already has a login), and an
- * unknown `clientId` 404. Pages of two, so a screen can try `nextCursor`.
+ * Jane Roe's sign-up has an `existingClient`: approve with its `clientId` links to it, and
+ * approve without one is 409 DUPLICATE_EMAIL. Any other record is 409 CLIENT_NOT_LINKABLE (for
+ * example Sam Poe's, which already has a login, so Sam's sign-up cannot be approved), and an
+ * unknown `clientId` 404. John Doe's sign-up approves as a new client. Pages of two, so a screen
+ * can try `nextCursor`.
  */
 export function createClientSignUpsMock(
   options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {},
@@ -518,6 +526,8 @@ export function createClientSignUpsMock(
         if (!record) throw fail(404, error('NOT_FOUND', 'Not found'));
         if (!linkable(row, record)) throw fail(409, errors.clientNotLinkable);
         record.hasPrimaryLogin = true;
+      } else if (records.some((r) => r.email?.toLowerCase() === row.email.toLowerCase())) {
+        throw fail(409, errors.duplicateEmail);
       }
       rows = rows.filter((r) => r !== row);
       return {
