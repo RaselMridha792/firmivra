@@ -1,6 +1,6 @@
-import { expect, test } from '@playwright/test';
+﻿import { expect, test } from '@playwright/test';
 
-const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
+const port = process.env['WEB_PORT'] ?? '3000';
 const admin = `http://admin.localhost:${port}`;
 const mockMe = {
   user: {
