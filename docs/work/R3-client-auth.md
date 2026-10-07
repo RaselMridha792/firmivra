@@ -20,7 +20,7 @@
 - [x] 5. Client sign-in, optional MFA, session cookies scoped to the portal
 - [x] 6. Forgot and reset password per firm; the response never reveals whether an account exists
 - [x] 7. Per-firm Terms and Privacy accepted at sign-up and stored with version and time
-- [ ] 8. e2e tests, including a client of firm A trying firm B's portal
+- [x] 8. e2e tests, including a client of firm A trying firm B's portal
 
 ## Done when
 
@@ -79,3 +79,4 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
   - Only sign-ups in the queue: 404 for another firm's, or one that never verified both contacts; 409 `NOT_PENDING` once handled.
   - Tests: `test/e2e/client-sign-ups.e2e.test.ts` (7: paging and offers, roles and another firm, new record with audit and portal sign-in, linking refusals and success, two approvals at once, unverified, decline), unit tests for `linkable`, the cursor and the notices.
 - 2026-10-07, step 4 addition (Rasel): approve without `clientId` answers 409 `DUPLICATE_EMAIL` (R10's code in #42) when a client of the firm already has the sign-up's email, so staff link that record and the firm never gets a second client with one email; a unique violation from R0's coming index on `clients (business_id, email)` maps to the same 409. Contract, YAML and mock updated (the mock's record with a login now has Sam's email, so John approves as a new client and Sam's sign-up shows both refusals); e2e covers John, Jane and Sam.
+- 2026-10-07, step 8: covered by the steps' own e2e tests. A client of firm A on firm B's portal: `portal-sign-in.e2e.test.ts` ("one firm's session never works on another firm's portal": signed out even with firm A's cookies renamed, and a refresh envelope never opens at firm B) and `guards.e2e.test.ts` (the browser is signed out, 401; Bearer reaches the firm check, 404). Sign-up per firm: `sign-up.e2e.test.ts` ("needs this firm's own sign-up cookie"). The queue: `client-sign-ups.e2e.test.ts` (another firm's owner gets 404 and changes nothing).
