@@ -302,9 +302,11 @@ export class TasksService {
       if (body.assignedUserId && isForeignKeyViolation(error)) throw notAMember();
       throw error;
     });
+    // The stored id, not the URL's spelling: an upper-case id in the URL finds the same task, and
+    // the audit row must still match the task's id when the firm filters its log by record.
     await this.audit.log(
       'task.updated',
-      { type: 'task', id },
+      { type: 'task', id: task.id },
       {
         clientId: task.client.id,
         fields: sentFields(body, UPDATE_FIELDS),

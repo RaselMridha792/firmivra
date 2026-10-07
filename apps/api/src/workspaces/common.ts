@@ -12,7 +12,7 @@ export const notAMember = () =>
   conflict('NOT_A_MEMBER', 'The assignee is not an active member of the firm');
 /**
  * Rasel's rule of Oct 8 (q5): a client's task goes to a Staff member only when that client is
- * assigned to them. The code is in TaskErrorCode once contract PR #86 merges.
+ * assigned to them. The code is TaskErrorCode's CLIENT_NOT_ASSIGNED (contract PR #86, on main).
  */
 export const clientNotAssigned = () =>
   conflict('CLIENT_NOT_ASSIGNED', 'This client is not assigned to that staff member');

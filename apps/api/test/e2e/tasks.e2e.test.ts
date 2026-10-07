@@ -613,7 +613,8 @@ describe('audit', () => {
       dueOn: '2026-12-01',
       assignedUserId: people.adminA.id,
     });
-    await update(t.id, { title: `${marker} again`, status: 'DONE' });
+    // An upper-case id in the URL reaches the task; the audit row still has the stored id.
+    await update(t.id.toUpperCase(), { title: `${marker} again`, status: 'DONE' });
     await list(`?clientId=${clients.c3}`);
 
     const rows = await inA((tx) =>
