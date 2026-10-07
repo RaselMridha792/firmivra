@@ -72,6 +72,12 @@ export class SignInService {
     return this.next(step, user.id, pool);
   }
 
+  /** Right after activation: sign the new staff member in, which asks for MFA setup. */
+  async afterActivation(userId: string, sub: string, password: string): Promise<SignInOutcome> {
+    const step = await runFlow(() => this.identity.signIn('STAFF', sub, password));
+    return this.next(step, userId, 'STAFF');
+  }
+
   async mfa(site: AuthSite, session: string, code: string): Promise<SignInOutcome> {
     const pool = SIGN_IN_POOL[site];
     const c = await this.open(session, pool);

@@ -74,4 +74,12 @@ export interface IdentityProvider {
     code: string,
     password: string,
   ): Promise<void>;
+  /** A new login with no usable password yet (invites). Sends no email. Returns its `sub`. */
+  createUser(pool: IdentityPool, email: string): Promise<string>;
+  /** Sets the first password (activation). Throws PASSWORD_REJECTED. */
+  setPassword(pool: IdentityPool, sub: string, password: string): Promise<void>;
+  /** Whether the login has a password, i.e. the person can already sign in. */
+  hasPassword(pool: IdentityPool, sub: string): Promise<boolean>;
+  /** Disables the login: it can no longer sign in, and its tokens stop working. */
+  disableUser(pool: IdentityPool, sub: string): Promise<void>;
 }
