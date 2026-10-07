@@ -45,12 +45,12 @@ On Oct 15-16 you and Ibrahim test everything on dev.
   2. Header search filters local sample firm/application/user records, supports arrow keys, Enter, Escape and clear, and links results to existing routes. The bell opens the sample notification panel with unread/read behavior; keep the user menu.
   3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Match the mockup's static Platform Growth chart and legend with inline SVG; do not add a chart package. The growth-period selector changes the displayed sample date window and chart.
 
-**Status (Oct 7, 2026):** F04a implementation and dashboard interactions are on `tumit/FIR-F04a-admin-dashboard`, pushed through `359aef3` (21 commits for the feature and follow-up test fix). Dashboard values remain local sample fixtures. No PR, CI result, pre-review, final review or merge is recorded here.
+**Status (Oct 7, 2026):** F04a is pushed to `tumit/FIR-F04a-admin-dashboard`, synchronized with the latest `main`, and open as [PR #58](https://github.com/RaselMridha792/firmivra/pull/58) with title `feat: super admin dashboard (F04a)`. CI is in progress; Fahad's pre-review and Rasel's final review are requested. Dashboard values remain local sample fixtures. This ticket PR has not been merged.
 
 Checklist:
 
 - [x] Recheck the desktop and 375 px layout after the latest interaction changes. Browser screenshots at 1536x1024 and 375x812 show the dashboard fitting each viewport; the mobile document has no horizontal overflow.
-- [ ] Confirm the firm site (`app.localhost`) still looks right with the shared shell. This F04a worktree has no firm workspace layout to open, so that regression remains unverified here.
+- [ ] Confirm the firm site (`app.localhost`) still looks right with the shared shell. The latest-main merge now includes the firm workspace layout, but no firm-site browser/visual check was run for this PR.
 - [x] Verify loading, error and retry states with the signed-in layout.
 - [x] Run the F04a Playwright suite against the correctly host-routed Super Admin dev server: 7/7 tests passed.
 
@@ -68,9 +68,9 @@ The dashboard controls below work against the F04a sample fixtures; they do not 
 
 - TypeScript check passed: `node node_modules/typescript/bin/tsc --noEmit` from `apps/web`.
 - ESLint passed for the changed shell, dashboard, layout, data and Playwright files.
-- Playwright coverage includes desktop/mobile layout, search, notification read state, chart range selection, settings preview, pending-task navigation, and loading/error/retry states. All 7 tests passed in Chromium against the existing F04a dev server on port 3001. Because `pnpm` is unavailable in PATH, the installed Playwright CLI ran with a temporary local config and Chromium host resolver mapping `admin.localhost` to `127.0.0.1`; that temporary config was removed after verification.
+- Playwright coverage includes desktop/mobile layout, search, notification read state, chart range selection, settings preview, pending-task navigation, and loading/error/retry states. After the latest-main merge, all 7 cases reported `ok` in Chromium against the local F04a dev server on port 3001. The temporary runner did not exit during dev-server teardown and was interrupted after all cases completed; rerun with the standard repository command before final merge. The temporary Playwright config was removed after verification.
 - The test mocks `GET /api/v1/admin/me`; this verifies the F04a UI and auth-state handling, not backend availability or live dashboard data. Dashboard metrics and records remain sample fixtures.
-- The 1536x1024 desktop and 375x812 mobile screenshots were reviewed. The mobile document width stays within 375 px. The firm shared-shell check remains open because the firm workspace layout is absent from this worktree.
+- The 1536x1024 desktop and 375x812 mobile screenshots were reviewed. The mobile document width stays within 375 px. The latest-main merge includes the firm workspace layout, but the firm shared-shell visual check remains open.
 - In local development, Super Admin routes use the `admin.localhost` host. Bare `localhost` is not assigned to an app area by `src/proxy.ts`, so `/applications` there returns 404 by design; use `http://admin.localhost:<port>/applications` instead. The F04a branch's applications page is still the F04b placeholder.
 - Run the owned spec with `pnpm --filter @firmivra/web test:e2e -- tumit-dashboard.spec.ts` when the repository package manager is available; rerun backend-authenticated checks against the real dev API when credentials and the service are available.
 
