@@ -59,10 +59,10 @@ function SectionTitle({
 function StatCard({ stat }: { stat: (typeof dashboardStats)[number] }) {
   const [label, value, href, Icon, tone] = stat;
   const iconTone = {
-    blue: 'bg-blue-50 text-blue-700',
-    green: 'bg-emerald-50 text-emerald-700',
-    purple: 'bg-violet-50 text-violet-700',
-    gold: 'bg-amber-50 text-amber-700',
+    blue: 'bg-brand-50 text-brand-700',
+    green: 'bg-success/10 text-success',
+    purple: 'bg-accent-500/10 text-accent-600',
+    gold: 'bg-brand-100 text-brand-900',
   }[tone];
   return (
     <Card className="!p-4">
@@ -172,7 +172,7 @@ export function DashboardOverview({ today }: { today: string }) {
                     <span className="block text-muted">{time}</span>
                   </span>
                   <span>
-                    <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+                    <span className="rounded-full bg-accent-500/10 px-2 py-1 text-xs font-medium text-accent-600">
                       Pending Review
                     </span>
                   </span>
@@ -219,7 +219,7 @@ export function DashboardOverview({ today }: { today: string }) {
                 role="img"
                 aria-label={`Platform growth chart, ${growthPeriods[growthRange].label}, one sample application`}
                 viewBox="0 0 420 160"
-                className="h-40 w-full text-blue-600"
+                className="h-40 w-full text-brand-600"
               >
                 {growthRows.map(([y, label]) => (
                   <g key={y} className="fill-muted text-xs">
@@ -257,14 +257,14 @@ export function DashboardOverview({ today }: { today: string }) {
                 ))}
               </svg>
               <div className="mt-4 flex justify-center gap-5 text-xs text-muted">
-                <span className="flex items-center gap-1 text-blue-700">
-                  <span className="size-2 rounded-full bg-blue-600" /> Applications
+                <span className="flex items-center gap-1 text-brand-700">
+                  <span className="size-2 rounded-full bg-brand-600" /> Applications
                 </span>
-                <span className="flex items-center gap-1 text-emerald-700">
-                  <span className="size-2 rounded-full bg-emerald-600" /> Active Firms
+                <span className="flex items-center gap-1 text-success">
+                  <span className="size-2 rounded-full bg-success" /> Active Firms
                 </span>
-                <span className="flex items-center gap-1 text-violet-700">
-                  <span className="size-2 rounded-full bg-violet-600" /> Revenue
+                <span className="flex items-center gap-1 text-accent-600">
+                  <span className="size-2 rounded-full bg-accent-500" /> Revenue
                 </span>
               </div>
             </Card>
@@ -280,11 +280,11 @@ export function DashboardOverview({ today }: { today: string }) {
                       className={
                         'flex size-9 shrink-0 items-center justify-center rounded-control ' +
                         [
-                          'bg-violet-50 text-violet-700',
-                          'bg-red-50 text-red-600',
-                          'bg-amber-50 text-amber-700',
-                          'bg-violet-50 text-violet-700',
-                          'bg-teal-50 text-teal-700',
+                          'bg-brand-50 text-brand-700',
+                          'bg-danger/10 text-danger',
+                          'bg-accent-500/10 text-accent-600',
+                          'bg-brand-100 text-brand-900',
+                          'bg-success/10 text-success',
                         ][index]
                       }
                     >
@@ -335,7 +335,7 @@ export function DashboardOverview({ today }: { today: string }) {
                 aria-expanded={settingsInfoOpen}
                 aria-controls="platform-settings-preview"
                 onClick={() => setSettingsInfoOpen((open) => !open)}
-                className="flex items-center gap-3 rounded-control bg-violet-50 px-3 py-3 text-left text-sm text-violet-700 hover:bg-violet-100"
+                className="flex items-center gap-3 rounded-control bg-brand-50 px-3 py-3 text-left text-sm text-brand-700 hover:bg-brand-100"
               >
                 <Settings aria-hidden className="size-5" />
                 <span className="flex-1">Platform Settings</span>
@@ -380,14 +380,14 @@ export function DashboardOverview({ today }: { today: string }) {
                 className={
                   'flex size-11 shrink-0 items-center justify-center rounded-control ' +
                   [
-                    'bg-blue-50 text-blue-700',
-                    'bg-cyan-50 text-cyan-700',
-                    'bg-violet-50 text-violet-700',
-                    'bg-pink-50 text-pink-700',
-                    'bg-rose-50 text-rose-700',
-                    'bg-emerald-50 text-emerald-700',
-                    'bg-sky-50 text-sky-700',
-                    'bg-cyan-50 text-cyan-700',
+                    'bg-brand-50 text-brand-700',
+                    'bg-accent-500/10 text-accent-600',
+                    'bg-brand-100 text-brand-900',
+                    'bg-danger/10 text-danger',
+                    'bg-danger/10 text-danger',
+                    'bg-success/10 text-success',
+                    'bg-brand-50 text-brand-700',
+                    'bg-accent-500/10 text-accent-600',
                   ][index]
                 }
               >
