@@ -34,6 +34,42 @@ const state = {
   resendAvailableAt: '2026-10-07T12:00:45.000Z',
 };
 
+describe('SignUpState: CONTACT_FIRM (Rasel, Oct 8, q13)', () => {
+  it('takes the step with no resend time', async () => {
+    const { SignUpState, SIGN_UP_WRONG_EMAIL_CODES } = await import('../../src/index.js');
+    const state = {
+      step: 'CONTACT_FIRM',
+      email: 'jane@example.com',
+      phoneMasked: '(770) ***-0123',
+    };
+    expect(SignUpState.parse({ ...state, resendAvailableAt: null }).step).toBe('CONTACT_FIRM');
+    expect(SIGN_UP_WRONG_EMAIL_CODES).toBe(5);
+  });
+});
+
+describe('#72 review: one-line names, strict queue requests', () => {
+  it('refuses control characters in the sign-up name and the decline reason, and extra fields', async () => {
+    const { SignUpRequest, DeclineSignUpRequest, ClientSignUpsQuery } =
+      await import('../../src/index.js');
+    const base = {
+      name: 'Jane Client',
+      email: 'jane@example.com',
+      phone: '+17705550199',
+      password: 'Client-password-1',
+      accountType: 'INDIVIDUAL',
+      accepted: { termsVersion: 1, privacyVersion: 1 },
+    };
+    expect(SignUpRequest.safeParse(base).success).toBe(true);
+    for (const name of ['Jane\nClient', 'Jane\u0007', 'Jane\u001b[31m']) {
+      expect([name, SignUpRequest.safeParse({ ...base, name }).success]).toEqual([name, false]);
+    }
+    expect(DeclineSignUpRequest.safeParse({ reason: 'Two\nlines are fine' }).success).toBe(true);
+    expect(DeclineSignUpRequest.safeParse({ reason: 'nul\u0000' }).success).toBe(false);
+    expect(DeclineSignUpRequest.safeParse({ reason: 'ok', extra: 1 }).success).toBe(false);
+    expect(ClientSignUpsQuery.safeParse({ debug: '1' }).success).toBe(false);
+  });
+});
+
 describe('client-auth schemas', () => {
   it('turns a typed US number into E.164 and refuses one without a country code', () => {
     expect(Phone.parse('+1 (770) 555-0123')).toBe('+17705550123');

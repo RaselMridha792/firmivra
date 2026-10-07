@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { text } from '../clients/text.js';
 import { Email, OneTimeCode, Password } from '../auth/schemas.js';
 import { ClientAccountStatus } from '../schemas.js';
 
@@ -80,7 +81,8 @@ export type AccountType = z.infer<typeof AccountType>;
  * "Confirm Password" itself. `accepted` must be the versions shown (PortalInfo.legal).
  */
 export const SignUpRequest = z.object({
-  name: z.string().trim().min(1).max(200),
+  /** One line, as R10's client names: it becomes the client record's display name. */
+  name: text(200),
   email: Email,
   phone: Phone,
   password: Password,
@@ -92,17 +94,27 @@ export const SignUpRequest = z.object({
 });
 export type SignUpRequest = z.input<typeof SignUpRequest>;
 
+/** Wrong email codes in one sign-up before it ends at CONTACT_FIRM (the same for every email). */
+export const SIGN_UP_WRONG_EMAIL_CODES = 5;
+
 /**
  * Where a sign-up stands, read from the sign-up cookie (the pages store nothing). Every sign-up
  * call answers this. The same for an email that already has an account at this firm: that person
- * gets an email saying so instead of a code, and the codes simply never match.
+ * gets an email saying so instead of a code (a declined one gets nothing), and the codes simply
+ * never match.
+ * - CONTACT_FIRM (Rasel, Oct 8, q13): this sign-up can't go on online. Every sign-up ends here
+ *   after SIGN_UP_WRONG_EMAIL_CODES wrong email codes, counted the same way for every email, so
+ *   it shows nothing about the email (a declined person, who never gets a code, lands here
+ *   instead of "wrong code" forever). Show "We couldn't finish your sign-up online. Please
+ *   contact {firm}." and a way to start again: a new sign-up works. Its code, resend and change
+ *   routes answer 409 WRONG_STEP.
  */
 export const SignUpState = z.object({
-  step: z.enum(['VERIFY_EMAIL', 'VERIFY_PHONE', 'DONE']),
+  step: z.enum(['VERIFY_EMAIL', 'VERIFY_PHONE', 'DONE', 'CONTACT_FIRM']),
   email: z.string(),
   /** For example "(770) ***-0123". */
   phoneMasked: z.string(),
-  /** When "Resend Code" works again (the 45 s countdown); null once that step is done. */
+  /** When "Resend Code" works again (the 45 s countdown); null at DONE and CONTACT_FIRM. */
   resendAvailableAt: z.iso.datetime({ offset: true }).nullable(),
 });
 export type SignUpState = z.infer<typeof SignUpState>;
@@ -128,7 +140,7 @@ export const SignUpListStatus = z.enum(['PENDING_APPROVAL', 'DECLINED']);
 export type SignUpListStatus = z.infer<typeof SignUpListStatus>;
 
 /** GET /client-sign-ups?status=&cursor=&limit= */
-export const ClientSignUpsQuery = z.object({
+export const ClientSignUpsQuery = z.strictObject({
   status: SignUpListStatus.default('PENDING_APPROVAL'),
   cursor: z.string().min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -164,7 +176,9 @@ export type ClientSignUpList = z.infer<typeof ClientSignUpList>;
 
 /**
  * POST /client-sign-ups/{clientAccountId}/approve. Without `clientId` it creates the firm's client
- * record from the sign-up. With it, it links the login to that existing record of this firm, and
+ * record from the sign-up, unless a client of the firm already has that email (409
+ * DUPLICATE_EMAIL: link that record instead). With it, it links the login to that existing record
+ * of this firm, and
  * only if the record's email is the sign-up's verified email (both lower-cased) and the record
  * has no primary portal login yet; else 409 CLIENT_NOT_LINKABLE (404 if the firm has no such
  * client). Any other field is refused (400), so a typo never approves the wrong way.
@@ -183,8 +197,9 @@ export const ApproveSignUpResponse = z.object({
 export type ApproveSignUpResponse = z.infer<typeof ApproveSignUpResponse>;
 
 /** POST /client-sign-ups/{clientAccountId}/decline. The client gets an email. */
-export const DeclineSignUpRequest = z.object({
-  reason: z.string().trim().min(1).max(500).optional(),
+export const DeclineSignUpRequest = z.strictObject({
+  /** For the firm only; never sent to the client. */
+  reason: text(500, 'many').optional(),
 });
 export type DeclineSignUpRequest = z.input<typeof DeclineSignUpRequest>;
 
@@ -217,5 +232,11 @@ export const ClientAuthErrorCode = z.enum([
    * one, or already has a primary portal login. Nothing changed; reload the list.
    */
   'CLIENT_NOT_LINKABLE',
+  /**
+   * 409: approve without `clientId`, but a client of the firm already has the sign-up's email.
+   * The firm never gets a second client with one email: link that record (`existingClient`).
+   * Same code as the client records API (R10).
+   */
+  'DUPLICATE_EMAIL',
 ]);
 export type ClientAuthErrorCode = z.infer<typeof ClientAuthErrorCode>;
