@@ -29,7 +29,7 @@ test('Super Admin dashboard and navigation fit desktop and 375 px screens', asyn
   await expect(page.getByTestId('system-status')).toContainText('Online');
   await expect(navigation.locator('a[href="/"]')).toHaveAttribute('aria-current', 'page');
   await page.setViewportSize({ width: 375, height: 812 });
-  await expect(page.getByText('Northstar Tax Studio')).toBeVisible();
+  await expect(page.getByText('LVP Accounting & Taxes')).toBeVisible();
   const pageWidth = await page.locator('body').evaluate((body) => body.scrollWidth);
   expect(pageWidth).toBeLessThanOrEqual(375);
   await page.getByRole('button', { name: 'Open menu' }).click();
