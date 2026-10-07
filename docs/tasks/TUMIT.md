@@ -62,6 +62,13 @@ The dashboard controls below work against the F04a sample fixtures; they do not 
 - The pending attention item and existing application/firm actions navigate to their current routes. Platform Settings opens an explanation because its route/API is not part of F04a. Metrics with no route/data do not show fake links.
 - Search and notification fixtures live beside the F04a dashboard in `admin/(console)/_components/dashboard-data.ts`. The shared app shell receives these props only from the Super Admin layout, so the firm workspace keeps its existing header behavior.
 
+#### F04a verification record (Oct 7, 2026)
+
+- TypeScript check passed: `node node_modules/typescript/bin/tsc --noEmit` from `apps/web`.
+- ESLint passed for the changed shell, dashboard, layout, data and Playwright files.
+- Playwright coverage now includes desktop/mobile layout, search, notification read state, chart range selection, settings preview and pending-task navigation. The suite could not be verified in this environment: the standard config could not start its servers because `pnpm` is unavailable in PATH, and the existing local dev server did not route `admin.localhost` to the Super Admin pages. The F04a Playwright checklist remains unchecked until it passes against the correct host-routed dev server.
+- Run the owned spec with `pnpm --filter @firmivra/web test:e2e -- tumit-dashboard.spec.ts` when the repository package manager and host-routed dev server are available.
+
 ### F04b · Oct 8 · Firm applications
 
 - **Pages:** `/applications` and `/applications/[id]`, in `admin/(console)/applications/`.
