@@ -2,6 +2,7 @@
 
 import { Bell, ChevronDown, Menu, Search, X } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { type ReactNode, useState } from 'react';
 import { useMe } from '../signed-in';
 import { initials, type ShellNotification, type ShellSearchItem } from './types';
@@ -25,8 +26,10 @@ export function Header({
   onOpenMenu: () => void;
 }) {
   const { me, signOut } = useMe();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedSearchIndex, setSelectedSearchIndex] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [readNotifications, setReadNotifications] = useState<string[]>([]);
   const unreadCount = (notifications ?? []).filter(
@@ -58,8 +61,37 @@ export function Header({
               type="search"
               placeholder={search}
               aria-label="Search firms, applications, users"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-controls="shell-search-results"
+              aria-expanded={Boolean(searchTerm.trim())}
+              aria-activedescendant={
+                searchResults[selectedSearchIndex]
+                  ? `shell-search-${searchResults[selectedSearchIndex].id}`
+                  : undefined
+              }
               value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              onChange={(event) => {
+                setSearchTerm(event.target.value);
+                setSelectedSearchIndex(0);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown' && searchResults.length) {
+                  event.preventDefault();
+                  setSelectedSearchIndex((index) => (index + 1) % searchResults.length);
+                } else if (event.key === 'ArrowUp' && searchResults.length) {
+                  event.preventDefault();
+                  setSelectedSearchIndex(
+                    (index) => (index - 1 + searchResults.length) % searchResults.length,
+                  );
+                } else if (event.key === 'Escape') {
+                  setSearchTerm('');
+                } else if (event.key === 'Enter' && searchResults[selectedSearchIndex]) {
+                  event.preventDefault();
+                  router.push(searchResults[selectedSearchIndex].href);
+                  setSearchTerm('');
+                }
+              }}
               className="w-full bg-transparent outline-none"
             />
             {searchTerm ? (
@@ -75,6 +107,8 @@ export function Header({
           </label>
           {searchTerm.trim() ? (
             <ul
+              id="shell-search-results"
+              role="listbox"
               aria-label="Search results"
               className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-card border border-border bg-surface p-1 shadow-card"
             >
@@ -82,8 +116,11 @@ export function Header({
                 searchResults.map((item) => (
                   <li key={item.id}>
                     <Link
+                      id={`shell-search-${item.id}`}
                       href={item.href}
-                      className="block rounded-control px-3 py-2 hover:bg-canvas"
+                      role="option"
+                      aria-selected={selectedSearchIndex === searchResults.indexOf(item)}
+                      className={`block rounded-control px-3 py-2 hover:bg-canvas ${selectedSearchIndex === searchResults.indexOf(item) ? 'bg-canvas' : ''}`}
                     >
                       <span className="block text-xs text-muted">{item.kind}</span>
                       <span className="block text-sm font-medium text-text">{item.label}</span>
