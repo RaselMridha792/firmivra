@@ -25,6 +25,8 @@ Firmivra Phase 1 ships in 15 days: Oct 4 to Oct 18, 2026. Rasel builds the compl
 ## Limits
 
 - At most **3 workstream sessions active at once**, plus the lead session. Rasel reviews every diff.
+- **Open PRs:** at most **2 open PRs per session**. With two open, open nothing new until one merges: commit the next work locally and wait.
+- **Contract-only PRs** (`packages/types`, mocks, a module's lines in `apps/web/src/lib/api.ts`, docs) don't count toward the 2. A session opens them one at a time, each from fresh `main`, and they are reviewed first, so the developers never wait on a contract.
 - **Paths:** the owned paths in each `Rn` file are the expected layout. If the repo differs, the session maps them once and notes the real paths in its Progress log.
 - **Owned paths:** a session changes only the paths its `Rn` file owns. If it needs a change elsewhere, it writes a note under "Needs from others" in its own file and stops that step. One exception: it may add the lines that register its own code: its module import in `apps/api/src/app.module.ts`, its export in `packages/types/src/index.ts`, and its own dependencies in `apps/api/package.json` and `pnpm-lock.yaml` (`pnpm --filter @firmivra/api add <package>`). On a `pnpm-lock.yaml` conflict, take `main`'s version and run `pnpm install`.
 - **Database lock:** only the session holding the DB lock (see `../Business-full-stack-project/docs/work/BOARD.md`) changes `packages/db` (schema or migrations). Ask the lead session to hand over the lock. R0 holds it by default.
