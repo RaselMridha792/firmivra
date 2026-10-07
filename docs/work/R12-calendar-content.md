@@ -53,20 +53,18 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
   - get 404 for a `clientId` filter on a client not assigned to them, so a Busy entry cannot be traced to a client;
   - book only for clients assigned to them, and reschedule, cancel, complete or mark no-show only appointments they see in full (404 otherwise);
   - still get every member's free slots (times and staff names only).
-- Audit log viewer (#71 review): Owner and Admin, by the roles matrix (SYSTEM-DESIGN.md:211, PROJECT-DRAFT-v2.md:352); the lead asked Rasel to confirm.
+- Audit log viewer (#71 review): Owner and Admin, by the roles matrix (SYSTEM-DESIGN.md:211, PROJECT-DRAFT-v2.md:352); Rasel confirmed (Oct 8, q4).
   - A Super Admin's action through a support grant is written to both logs (SYSTEM-DESIGN.md:162). In the firm's log it shows as "Firmivra Support", with no user id and no IP.
   - Reading the log is logged: the first page of each read writes `audit_log.viewed` with the filters, never the rows (R10's "audit every read of client data").
 - Report files (#71 review): never an INTERNAL document (firm only, schema.prisma:133-134). Attach and publish answer 409 `INTERNAL_DOCUMENT`. The client downloads only through R5's portal document route, which serves CLEAN files only.
-- Not settled by the docs; the contract uses these defaults until Rasel answers (asked through the lead, Oct 7):
-  - Who changes reports: whoever sees the workspace drafts, edits, publishes and unpublishes (Owner, Admin, and Staff on their assigned clients). This follows R10's "Staff see and edit only their assigned clients (and those clients' services and returns)"; the matrix's nearest row is "Change status: Staff if allowed".
-  - No notice to the client on publish: R6 has no report template. If one is added, it carries no amounts (PROJECT-DRAFT-v2.md:415) and opens the report.
-  - SPOUSE and AUTHORIZED logins see a service's published reports wherever My Services shows them the service. The schema has no per-member permissions yet.
-  - Closed engagements: reports change only while the engagement is PENDING or ACTIVE. On COMPLETED or CANCELLED, create, edit and publish are 409 `ENGAGEMENT_CLOSED`; unpublish always works. The client sees published reports for as long as My Services shows the service.
-  - Tasks follow the calendar rule. Staff see their assigned clients' tasks and the tasks assigned to them, and create tasks only for their assigned clients, like booking. Still open: the lead's stricter rule, that a client's task can go to a Staff member only when that client is assigned to them.
-- Not R12 (told the lead):
-  - Export: screen 27 is "Audit log and export", but no workstream owns export and no doc specifies it beyond "data export".
-  - The client's own login history is only in the roles matrix: no screen, spec or builder.
-  - PAGE-MAP has no firm audit-log page (screen 27) and no Super Admin one (screen 12).
+- Rasel's answers (Oct 8):
+  - q5, tasks follow the calendar rule: Staff see, create and receive a client's tasks only when that client is assigned to them; a client's task goes to a Staff member only when that client is assigned to them (409 `CLIENT_NOT_ASSIGNED`). Owner and Admin see and change every task.
+  - q6: whoever sees the workspace drafts, edits, publishes and unpublishes its reports: Owner, Admin, and Staff on their assigned clients.
+  - q7: no notice to the client when a report is published, for delivery.
+  - q8: on a COMPLETED or CANCELLED service, reports can't be created, edited or published (409 `ENGAGEMENT_CLOSED`); unpublish always works (and deleting a never-published draft).
+  - q9: the audit log's data export (screen 27) comes after delivery. q10: the client's own login history comes after delivery. Rasel tells Octavia about both.
+  - q11: the firm audit-log page (screen 27) goes to Tumit; R1 adds its route and placeholder, on #71's audit-log contract.
+- Still a default (not in Rasel's answers): SPOUSE and AUTHORIZED logins see a service's published reports wherever My Services shows them the service; the schema has no per-member permissions yet.
 - Resources and external links are business-only (System Wiring G): an INDIVIDUAL client gets 403 `BUSINESS_ONLY` for them, checked on the server from the client record's account type; tips are for everyone.
 
 ## Progress log
@@ -99,3 +97,4 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
   - The portal mocks are kept per firm (R1's request, as in #75): `api.myAppointments(slug)`, `api.myContent(slug)` and `api.myCalculators(slug)` reuse one mock per lower-cased slug, built on first use.
   - The R12 API (step 2) is built with this rule.
 - 2026-10-07, #71 re-review (lead, e0ca894): main merged again (#40 and #77; both sides kept). The workspaces mock checks the body, query and cursor before an unknown id (400 before 404). A PLATFORM audit row must be named "Firmivra Support" and have no IP. A second, closed NAME_CHANGE task makes `NAME_CHANGE_PENDING` reachable in the mock. A never-published draft can be deleted on a closed engagement.
+- 2026-10-08, Rasel's answers q4-q11 (contract-only PR from fresh main, branch `rasel/R12-contract-tasks-rule`): the tasks contract follows q5 (Staff see, create and receive only their assigned clients' tasks; `CLIENT_NOT_ASSIGNED` 409 for a Staff assignee on a client not assigned to them), and the mock with it; the Decisions record q4-q11. The R12 API builder for tasks was told the same rule.
