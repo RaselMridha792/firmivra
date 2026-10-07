@@ -340,6 +340,8 @@ model Membership {
   workingHours        WorkingHours[]
   blockedTimes        BlockedTime[]
   appointments        Appointment[]
+  invoicesCreated     Invoice[]
+  contentCreated      ContentItem[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1423,6 +1425,7 @@ model Invoice {
 
   client     Client        @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   engagement Engagement?   @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  createdBy  Membership?   @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
   lines      InvoiceLine[]
   payments   Payment[]
 
@@ -1526,7 +1529,8 @@ model ContentItem {
   createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
+  business  Business    @relation(fields: [businessId], references: [id])
+  createdBy Membership? @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
 
   @@index([businessId, kind, category, sortOrder])
   @@map("content_items")

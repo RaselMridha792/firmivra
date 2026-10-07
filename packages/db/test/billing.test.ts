@@ -13,7 +13,9 @@ const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 const run = randomUUID().slice(0, 8);
 const ids = { firmA: '', firmB: '', client: '', otherClient: '' };
 /** A fake Stripe connected account id (acct_ + letters and digits). */
-const newAccountId = () => `acct_${randomUUID().replace(/-/g, '')}`;
+/** Stripe ids have no hyphens. */
+const stripeId = () => randomUUID().replace(/-/g, '');
+const newAccountId = () => `acct_${stripeId()}`;
 const accounts = { A: newAccountId(), B: newAccountId() };
 let invoiceNumber = 0;
 
@@ -40,7 +42,7 @@ const openInvoice = async () => {
 };
 const pay = (invoiceId: string, amountCents = 10000, accountId = accounts.A) =>
   firmA().payment.create({
-    data: { ...A(), invoiceId, amountCents, processorRef: `cs_${randomUUID()}`, accountId },
+    data: { ...A(), invoiceId, amountCents, processorRef: `cs_${stripeId()}`, accountId },
   });
 const recordEvent = (
   paymentId: string | null,
@@ -48,7 +50,7 @@ const recordEvent = (
   type = 'checkout.session.completed',
 ) =>
   firmA().paymentEvent.create({
-    data: { ...A(), processorEventId: `evt_${randomUUID()}`, type, paymentId, accountId },
+    data: { ...A(), processorEventId: `evt_${stripeId()}`, type, paymentId, accountId },
   });
 
 beforeAll(async () => {
@@ -59,6 +61,8 @@ beforeAll(async () => {
   await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
     ids.client = (await tx.client.create({ data: { ...A(), displayName: 'One' } })).id;
     ids.otherClient = (await tx.client.create({ data: { ...A(), displayName: 'Two' } })).id;
+  });
+  await runInScope(owner, { kind: 'platform' }, async (tx) => {
     await tx.stripeAccount.create({
       data: {
         ...A(),
@@ -68,12 +72,10 @@ beforeAll(async () => {
         payoutsEnabled: true,
       },
     });
-  });
-  await runInScope(owner, { kind: 'business', businessId: ids.firmB }, (tx) =>
-    tx.stripeAccount.create({
+    await tx.stripeAccount.create({
       data: { businessId: ids.firmB, accountId: accounts.B, chargesEnabled: true },
-    }),
-  );
+    });
+  });
 });
 
 afterAll(async () => {
@@ -187,7 +189,7 @@ describe('payments and webhook events', () => {
           ...A(),
           invoiceId: inv.id,
           amountCents: 10000,
-          processorRef: `cs_${randomUUID()}`,
+          processorRef: `cs_${stripeId()}`,
           accountId: accounts.A,
           status: 'SUCCEEDED',
           paidAt: new Date(),
@@ -203,7 +205,7 @@ describe('payments and webhook events', () => {
         where: { id: p.id },
         data: { status: 'SUCCEEDED', paidAt: new Date() },
       }),
-    ).rejects.toThrow(/recorded processor event/);
+    ).rejects.toThrow(/recorded success event/);
     await expect(
       firmA().payment.update({ where: { id: p.id }, data: { amountCents: 1 } }),
     ).rejects.toThrow(/cannot change/);
@@ -221,7 +223,7 @@ describe('payments and webhook events', () => {
 
   it('a duplicate event is refused; an event is processed once', async () => {
     const p = await pay((await openInvoice()).id);
-    const eventId = `evt_${randomUUID()}`;
+    const eventId = `evt_${stripeId()}`;
     const record = () =>
       firmA().paymentEvent.create({
         data: {
@@ -255,7 +257,7 @@ describe('Stripe Connect: each firm is paid into its own account', () => {
     await expect(pay(inv.id, 10000, accounts.B)).rejects.toThrow(/own connected account/);
     await expect(pay(inv.id, 10000, newAccountId())).rejects.toThrow(/own connected account/);
 
-    await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+    await runInScope(owner, { kind: 'platform' }, (tx) =>
       tx.stripeAccount.update({
         where: { businessId: ids.firmA },
         data: { chargesEnabled: false, onboardingStatus: 'RESTRICTED' },
@@ -264,7 +266,7 @@ describe('Stripe Connect: each firm is paid into its own account', () => {
     try {
       await expect(pay(inv.id)).rejects.toThrow(/charges enabled/);
     } finally {
-      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
         tx.stripeAccount.update({
           where: { businessId: ids.firmA },
           data: { chargesEnabled: true, onboardingStatus: 'COMPLETE' },
@@ -284,14 +286,14 @@ describe('Stripe Connect: each firm is paid into its own account', () => {
         where: { id: p.id },
         data: { status: 'SUCCEEDED', paidAt: new Date() },
       }),
-    ).rejects.toThrow(/recorded processor event/);
+    ).rejects.toThrow(/recorded success event/);
 
     // In firm B's own scope, with B's own account, firm A's payment is out of reach.
     await expect(
       db.forBusiness(ids.firmB).paymentEvent.create({
         data: {
           businessId: ids.firmB,
-          processorEventId: `evt_${randomUUID()}`,
+          processorEventId: `evt_${stripeId()}`,
           type: 'checkout.session.completed',
           accountId: accounts.B,
           paymentId: p.id,
@@ -314,32 +316,166 @@ describe('Stripe Connect: each firm is paid into its own account', () => {
   });
 
   it('one account per firm, never shared, never changed; the platform can read it', async () => {
+    const platform = db.forPlatform();
     await expect(
-      db.forBusiness(ids.firmB).stripeAccount.create({
+      platform.stripeAccount.create({
         data: { businessId: ids.firmB, accountId: newAccountId() },
       }),
     ).rejects.toThrow(/unique constraint/i);
     await expect(
-      firmA().stripeAccount.update({
+      platform.stripeAccount.update({
         where: { businessId: ids.firmA },
         data: { accountId: newAccountId() },
       }),
     ).rejects.toThrow(/cannot change/);
     await expect(
-      firmA().stripeAccount.update({
+      platform.stripeAccount.update({
         where: { businessId: ids.firmA },
         data: { onboardingStatus: 'COMPLETE', payoutsEnabled: false },
       }),
     ).rejects.toThrow(/check constraint/i);
     expect(await db.forBusiness(ids.firmB).stripeAccount.findMany()).toHaveLength(1);
-    const seen = (await db.forPlatform().stripeAccount.findMany()).map((a) => a.accountId);
+    const seen = (await platform.stripeAccount.findMany()).map((a) => a.accountId);
     expect(seen).toEqual(expect.arrayContaining([accounts.A, accounts.B]));
+  });
+
+  it('a firm reads its account but never creates or changes it', async () => {
+    const firmC = await runInScope(owner, { kind: 'platform' }, (tx) =>
+      tx.business.create({ data: { slug: `bc-${run}`, name: 'C' } }),
+    );
+    await expect(
+      db.forBusiness(firmC.id).stripeAccount.create({
+        data: { businessId: firmC.id, accountId: newAccountId(), chargesEnabled: true },
+      }),
+    ).rejects.toThrow(/row-level security/i);
+    expect(
+      (
+        await firmA().stripeAccount.updateMany({
+          where: { businessId: ids.firmA },
+          data: { chargesEnabled: false },
+        })
+      ).count,
+    ).toBe(0);
+    expect(
+      await firmA().stripeAccount.findUnique({ where: { businessId: ids.firmA } }),
+    ).toMatchObject({ chargesEnabled: true });
+  });
+});
+
+describe('lead review of #48: event types, set-once fields, frozen invoices', () => {
+  /** A PENDING payment of $100 on a new open invoice. */
+  const pending = async () => {
+    const inv = await openInvoice();
+    return { inv, p: await pay(inv.id) };
+  };
+  const setPayment = (id: string, data: Record<string, unknown>) =>
+    firmA().payment.update({ where: { id }, data });
+
+  it('a failure event never makes a payment SUCCEEDED; a refund needs a refund event', async () => {
+    const { p } = await pending();
+    await recordEvent(p.id, accounts.A, 'payment_intent.payment_failed');
+    await expect(setPayment(p.id, { status: 'SUCCEEDED', paidAt: new Date() })).rejects.toThrow(
+      /success event/,
+    );
+    await recordEvent(p.id, accounts.A, 'payment_intent.succeeded');
+    await setPayment(p.id, { status: 'SUCCEEDED', paidAt: new Date() });
+    await expect(setPayment(p.id, { status: 'REFUNDED', refundedAt: new Date() })).rejects.toThrow(
+      /refund event/,
+    );
+    await recordEvent(p.id, accounts.A, 'charge.refunded');
+    await expect(
+      setPayment(p.id, { status: 'REFUNDED', refundedAt: new Date() }),
+    ).resolves.toMatchObject({ status: 'REFUNDED' });
+  });
+
+  it('paid_at, refunded_at and failure_code are set once', async () => {
+    const { p } = await pending();
+    await recordEvent(p.id);
+    await setPayment(p.id, { status: 'SUCCEEDED', paidAt: new Date() });
+    await expect(setPayment(p.id, { paidAt: new Date('2001-01-01') })).rejects.toThrow(/set once/);
+
+    const failed = (await pending()).p;
+    await expect(setPayment(failed.id, { failureCode: 'card_declined' })).rejects.toThrow(
+      /check constraint/i,
+    );
+    await setPayment(failed.id, { status: 'FAILED', failureCode: 'card_declined' });
+    await expect(setPayment(failed.id, { failureCode: 'expired_card' })).rejects.toThrow(
+      /set once/,
+    );
+  });
+
+  it('Stripe ids have a prefix and no spaces', async () => {
+    const inv = await openInvoice();
+    await expect(
+      firmA().payment.create({
+        data: {
+          ...A(),
+          invoiceId: inv.id,
+          amountCents: 100,
+          processorRef: 'not a ref',
+          accountId: accounts.A,
+        },
+      }),
+    ).rejects.toThrow(/check constraint/i);
+    await expect(
+      recordEvent(null, accounts.A, 'checkout.session.completed').then(() => undefined),
+    ).resolves.toBeUndefined();
+  });
+
+  it('a paid invoice is frozen, including its reason, schedule and author', async () => {
+    const { inv, p } = await pending();
+    await recordEvent(p.id);
+    await setPayment(p.id, { status: 'SUCCEEDED', paidAt: new Date() });
+    await firmA().invoice.update({
+      where: { id: inv.id },
+      data: { status: 'PAID', paidAt: new Date() },
+    });
+    for (const data of [
+      { scheduledFor: new Date('2026-12-01') },
+      { cancelReason: 'Changed after payment' },
+      { dueOn: new Date('2027-01-01') },
+    ]) {
+      await expect(firmA().invoice.update({ where: { id: inv.id }, data })).rejects.toThrow(
+        /final/,
+      );
+    }
+  });
+
+  it('cancel_reason only on a canceled invoice; nothing to pay means nothing to issue', async () => {
+    const d = await draft();
+    await expect(
+      firmA().invoice.update({ where: { id: d.id }, data: { cancelReason: 'Duplicate' } }),
+    ).rejects.toThrow(/check constraint/i);
+    await expect(
+      firmA().invoice.update({
+        where: { id: d.id },
+        data: { status: 'OPEN', issuedAt: new Date() },
+      }),
+    ).rejects.toThrow(/amount to pay/);
+    await expect(
+      firmA().invoice.update({
+        where: { id: d.id },
+        data: { status: 'CANCELED', canceledAt: new Date(), cancelReason: 'Duplicate' },
+      }),
+    ).resolves.toMatchObject({ status: 'CANCELED' });
   });
 });
 
 describe('content and calculators', () => {
   const item = (data: { kind: 'RESOURCE' | 'EXTERNAL_LINK'; url?: string; body?: string }) =>
     firmA().contentItem.create({ data: { ...A(), title: 'Item', ...data } });
+
+  it('content has size limits', async () => {
+    for (const data of [
+      { title: 'x'.repeat(201), body: 'Body' },
+      { title: 'Title', body: 'x'.repeat(20001) },
+      { title: 'Title', body: 'Body', category: ' ' },
+    ]) {
+      await expect(
+        firmA().contentItem.create({ data: { ...A(), kind: 'RESOURCE', ...data } }),
+      ).rejects.toThrow(/check constraint/i);
+    }
+  });
 
   it('an external link is an https URL; a resource has a body', async () => {
     await expect(item({ kind: 'EXTERNAL_LINK', url: 'http://example.test' })).rejects.toThrow(

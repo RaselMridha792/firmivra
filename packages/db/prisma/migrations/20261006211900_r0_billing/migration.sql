@@ -201,7 +201,8 @@ ALTER TABLE calculator_definitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE calculator_definitions FORCE ROW LEVEL SECURITY;
 
 -- ---------- Tenant tables: only the current business ----------
--- The webhook resolves the firm from the event (checkout metadata) before it opens business scope.
+-- The webhook finds the firm from the event's connected account (`event.account`, looked up in
+-- stripe_accounts in platform scope) before it opens that firm's business scope.
 CREATE POLICY invoices_business ON invoices
   USING (business_id = app_current_business_id())
   WITH CHECK (business_id = app_current_business_id());

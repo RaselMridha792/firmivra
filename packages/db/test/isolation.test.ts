@@ -68,6 +68,12 @@ beforeAll(async () => {
     await tx.platformAdmin.create({ data: { userId: ids.admin } });
     ids.firmA = (await tx.business.create({ data: { slug: `firm-a-${run}`, name: 'Firm A' } })).id;
     ids.firmB = (await tx.business.create({ data: { slug: `firm-b-${run}`, name: 'Firm B' } })).id;
+    // Connected accounts are created in platform scope (onboarding), never by the firm.
+    for (const firm of [ids.firmA, ids.firmB]) {
+      await tx.stripeAccount.create({
+        data: { businessId: firm, accountId: firmAccount(firm), chargesEnabled: true },
+      });
+    }
     await tx.firmApplication.create({
       data: {
         legalName: 'Applicant LLC',
@@ -272,9 +278,6 @@ beforeAll(async () => {
       await tx.messageAttachment.create({
         data: { businessId: firm, messageId: msg.id, documentId: vaultDoc.id },
       });
-      await tx.stripeAccount.create({
-        data: { businessId: firm, accountId: firmAccount(firm), chargesEnabled: true },
-      });
       const bill = await tx.invoice.create({
         data: { ...work, number: 'INV-1' },
       });
@@ -290,14 +293,14 @@ beforeAll(async () => {
           businessId: firm,
           invoiceId: bill.id,
           amountCents: 100,
-          processorRef: `cs_${randomUUID()}`,
+          processorRef: `cs_${randomUUID().replace(/-/g, '')}`,
           accountId: firmAccount(firm),
         },
       });
       await tx.paymentEvent.create({
         data: {
           businessId: firm,
-          processorEventId: `evt_${randomUUID()}`,
+          processorEventId: `evt_${randomUUID().replace(/-/g, '')}`,
           accountId: firmAccount(firm),
           type: 'checkout.session.completed',
           paymentId: pay.id,
@@ -408,6 +411,7 @@ describe('no scope set', () => {
     expect(await unscopedApp.messageAttachment.findMany()).toEqual([]);
     expect(await unscopedApp.clientPrivateNote.findMany()).toEqual([]);
     expect(await unscopedApp.clientNoteReminder.findMany()).toEqual([]);
+    expect(await unscopedApp.stripeAccount.findMany()).toEqual([]);
     expect(await unscopedApp.invoice.findMany()).toEqual([]);
     expect(await unscopedApp.invoiceLine.findMany()).toEqual([]);
     expect(await unscopedApp.payment.findMany()).toEqual([]);
@@ -468,6 +472,7 @@ describe('business scope: firm B', () => {
       await b().invoiceLine.findMany(),
       await b().payment.findMany(),
       await b().paymentEvent.findMany(),
+      await b().stripeAccount.findMany(),
       await b().contentItem.findMany(),
       await b().calculatorDefinition.findMany(),
     ]) {
@@ -540,7 +545,7 @@ describe('business scope: firm B', () => {
           businessId: ids.firmB,
           invoiceId: ids.invoiceA,
           amountCents: 100,
-          processorRef: `cs_${randomUUID()}`,
+          processorRef: `cs_${randomUUID().replace(/-/g, '')}`,
           accountId: firmAccount(ids.firmB),
         },
       }),
@@ -549,7 +554,7 @@ describe('business scope: firm B', () => {
       b().paymentEvent.create({
         data: {
           businessId: ids.firmB,
-          processorEventId: `evt_${randomUUID()}`,
+          processorEventId: `evt_${randomUUID().replace(/-/g, '')}`,
           accountId: firmAccount(ids.firmB),
           type: 'charge.refunded',
           paymentId: ids.paymentA,
