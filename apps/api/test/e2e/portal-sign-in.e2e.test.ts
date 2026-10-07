@@ -199,7 +199,10 @@ describe('portal sign-in', () => {
     const access = cookies.find((c) => c.startsWith(`${names.access}=`));
     const refresh = cookies.find((c) => c.startsWith(`${names.refresh}=`));
     expect(access).toMatch(new RegExp(`Path=${names.accessPath};.*HttpOnly.*SameSite=Lax`, 'i'));
-    expect(refresh).toMatch(new RegExp(`Max-Age=2592000; Path=${names.refreshPath};`, 'i'));
+    // 30 days; the clock is read twice, so under load a second may tick in between.
+    expect(refresh).toMatch(
+      new RegExp(`Max-Age=(2592000|2591999); Path=${names.refreshPath};`, 'i'),
+    );
     expect(refresh).toMatch(/HttpOnly.*SameSite=Strict/i);
     // Never the firm site's cookies, and never a Domain.
     expect(cookies.some((c) => c.startsWith('fv_access=') || c.startsWith('fv_refresh='))).toBe(
