@@ -1,4 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { FirmApplication, Prisma } from '@firmivra/db';
 import {
   type AdminDashboard,
@@ -21,6 +28,7 @@ import {
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
 
 /**
@@ -44,6 +52,11 @@ const PLATFORM_TIME_ZONE = 'America/New_York';
 /** The decided statuses; INFO_REQUESTED is not used in Phase 1 and reads as pending. */
 const PENDING = ['PENDING_REVIEW', 'INFO_REQUESTED'] as const;
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+const alreadyDecided = () =>
+  new ConflictException({
+    code: 'APPLICATION_DECIDED',
+    message: 'This application is already approved or declined',
+  });
 
 /** The first instant of the current calendar month in `timeZone`. */
 export function startOfMonthIn(timeZone: string, now = new Date()): Date {
@@ -91,6 +104,7 @@ export class FirmApplicationsService {
   constructor(
     private readonly admin: AdminPrisma,
     private readonly audit: AuditService,
+    @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
   ) {}
 
   async list(q: ListQuery): Promise<ListFirmApplicationsResponse> {
@@ -217,6 +231,81 @@ export class FirmApplicationsService {
       newUsersThisWeek: null,
       monthlyRevenueCents: null,
     };
+  }
+
+  // ---------- Review (step 2) ----------
+
+  /**
+   * Request Information: the message goes to the applicant by email and the application stays
+   * pending (it is the decision_reason, so the database records it in the history). The same
+   * message as the last request changes nothing and is not sent again.
+   */
+  async requestInfo(id: string, message: string): Promise<FirmApplicationRecord> {
+    const row = await this.pending(id);
+    if (row.decisionReason === message) return this.record(id);
+    await this.review(id, { decisionReason: message });
+    await this.audit.log('firm_application.info_requested', { type: 'firm_application', id });
+    await this.notify.send({
+      template: 'firm-application.info-requested',
+      to: row.contactEmail,
+      businessId: null,
+      data: { name: row.contactName, legalName: row.legalName, message },
+    });
+    return this.record(id);
+  }
+
+  /**
+   * Decline, with the reason the applicant gets by email. It must differ from the last
+   * information request (the database refuses a reused message).
+   */
+  async decline(id: string, reason: string): Promise<FirmApplicationRecord> {
+    const row = await this.pending(id);
+    if (row.decisionReason === reason) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'Write a reason that differs from the last request',
+      });
+    }
+    await this.review(id, { status: 'DECLINED', decisionReason: reason });
+    await this.audit.log('firm_application.declined', { type: 'firm_application', id });
+    await this.notify.send({
+      template: 'firm-application.declined',
+      to: row.contactEmail,
+      businessId: null,
+      data: { name: row.contactName, legalName: row.legalName, reason },
+    });
+    return this.record(id);
+  }
+
+  /** "Save Note": internal notes, also after a decision. `null` clears them. */
+  async saveNotes(id: string, notes: string | null): Promise<FirmApplicationRecord> {
+    const { count } = await this.admin.db.firmApplication.updateMany({
+      where: { id },
+      data: { internalNotes: notes },
+    });
+    if (count === 0) throw notFound();
+    await this.audit.log('firm_application.notes_saved', { type: 'firm_application', id });
+    return this.record(id);
+  }
+
+  /** The application, if it can still be reviewed: 404, then 409 APPLICATION_DECIDED. */
+  private async pending(id: string): Promise<FirmApplication> {
+    const row = await this.admin.db.firmApplication.findUnique({ where: { id } });
+    if (!row) throw notFound();
+    if (decided(row) || row.businessId) throw alreadyDecided();
+    return row;
+  }
+
+  /**
+   * One review update, as the signed-in admin, only while the application is pending; a decision
+   * someone else made in between is 409 (the database also refuses a change to a decided one).
+   */
+  private async review(id: string, data: Prisma.FirmApplicationUpdateManyMutationInput) {
+    const { count } = await this.admin.db.firmApplication.updateMany({
+      where: { id, status: { in: [...PENDING] }, businessId: null },
+      data: { ...data, reviewedByUserId: this.admin.adminUserId, reviewedAt: new Date() },
+    });
+    if (count === 0) throw alreadyDecided();
   }
 
   // ---------- Mapping ----------

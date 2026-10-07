@@ -1,7 +1,8 @@
-import { Controller, Get, Module, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   type AdminDashboard,
+  DeclineFirmApplicationRequest,
   FirmApplicationId,
   type FirmApplicationCounts,
   type FirmApplicationRecord,
@@ -12,6 +13,8 @@ import {
   type ListFirmApplicationsResponse,
   ListFirmsQuery,
   type ListFirmsResponse,
+  RequestFirmInfoRequest,
+  SaveFirmNotesRequest,
 } from '@firmivra/types';
 import { Roles } from '../auth/decorators.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -49,6 +52,40 @@ export class AdminFirmApplicationsController {
     @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
   ): Promise<FirmApplicationRecord> {
     return this.applications.get(id);
+  }
+
+  /** Request Information: emails the applicant; stays pending. 409 APPLICATION_DECIDED. */
+  @Post(':id/request-info')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  requestInfo(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+    @Body(new ZodValidationPipe(RequestFirmInfoRequest))
+    body: z.output<typeof RequestFirmInfoRequest>,
+  ): Promise<FirmApplicationRecord> {
+    return this.applications.requestInfo(id, body.message);
+  }
+
+  /** Decline with the reason sent to the applicant. 409 APPLICATION_DECIDED. */
+  @Post(':id/decline')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  decline(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+    @Body(new ZodValidationPipe(DeclineFirmApplicationRequest))
+    body: z.output<typeof DeclineFirmApplicationRequest>,
+  ): Promise<FirmApplicationRecord> {
+    return this.applications.decline(id, body.reason);
+  }
+
+  /** "Save Note" (also after a decision). */
+  @Put(':id/notes')
+  @Roles('SUPER_ADMIN')
+  saveNotes(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+    @Body(new ZodValidationPipe(SaveFirmNotesRequest)) body: z.output<typeof SaveFirmNotesRequest>,
+  ): Promise<FirmApplicationRecord> {
+    return this.applications.saveNotes(id, body.notes);
   }
 }
 
