@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@firmivra/ui'],
   poweredByHeader: false,
   devIndicators: false,
+  experimental: {
+    // Off for `next dev` only: the on-disk dev cache kept stale routes after pages were added or
+    // moved ("Page not found" for pages that exist, Oct 6-7). Builds keep their cache.
+    turbopackFileSystemCacheForDev: false,
+  },
   rewrites: async () =>
     apiBase ? [{ source: '/api/v1/:path*', destination: `${apiBase}/api/v1/:path*` }] : [],
 };

@@ -42,16 +42,21 @@ test.describe('local sign-in works end to end (/api/v1/me)', () => {
 
   test('LVP client in the LVP portal, and no access to another firm', async ({ page }) => {
     await signInAs(page, site('portal', '/lvp/sign-in'), 'client@lvp.test');
+    // Signed-in portal pages (skeleton): the footer names the firm, the user menu the email.
+    await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
+    await page.getByRole('button', { name: /Client/ }).click();
     await expect(page.getByTestId('me-email')).toHaveText('client@lvp.test');
-    await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes (lvp)');
 
-    // Same browser, another firm's portal: the session is per host and the firm is not theirs.
-    await page.goto(site('portal', '/test-firm-b'));
+    // Same browser, another firm's signed-in portal: the session is per host and the firm is not theirs.
+    await page.goto(site('portal', '/test-firm-b/home'));
     await expect(page.getByTestId('firm-error')).toContainText('NOT_FOUND');
+    await expect(page.getByTestId('page-title')).toHaveCount(0);
   });
 
   test('Super Admin in the admin console', async ({ page }) => {
     await signInAs(page, site('admin', '/sign-in'), 'superadmin@firmivra.test');
+    // The console's user menu (app shell) shows the email once opened.
+    await page.getByRole('button', { name: /Super Admin/ }).click();
     await expect(page.getByTestId('me-email')).toHaveText('superadmin@firmivra.test');
     await expect(page.getByText('Super Admin', { exact: false }).first()).toBeVisible();
   });

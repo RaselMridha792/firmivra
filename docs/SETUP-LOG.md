@@ -205,6 +205,33 @@ Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can 
 
   `migrate-deploy.mjs` therefore gives Prisma `sslmode=require&sslaccept=strict` and `SSL_CERT_FILE` = the bundle (OpenSSL loads every certificate in it), and keeps `verify-full` for `pg`. It was tested against a local TLS Postgres with an unrelated CA first in the bundle: the right bundle connects, a wrong CA and a wrong host name are refused, and `DB_SSLMODE=disable` still works locally. The API is not affected: it uses Prisma's `pg` adapter, so `verify-full` applies.
 
+## Link dev users (R1 step 13, one-off ECS task)
+
+Links people who already exist in Cognito to the dev database:
+- `users` rows: `SUPER_ADMIN` goes in the ADMIN pool; `OWNER`, `ADMIN` and `STAFF` in the STAFF pool;
+- `platform_admins` for the Super Admin;
+- an ACTIVE membership in LVP for staff.
+
+If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and empty `business_settings`; contact details, legal documents and tax statuses come from the setup wizard. It is safe to run again. It refuses to move a user to another pool. A firm always keeps an active owner (R0's `LAST_ACTIVE_OWNER` rule): to change an owner's role, list the new owner first in `LINK_USERS`. It runs only where `APP_ENV=dev` (set on the dev migrate task). Code: `packages/db/src/link-users.ts`, `packages/db/scripts/link-dev-users.mjs`.
+
+**No emails or names in the repo, the task input or the logs.** ECS task overrides are recorded in CloudTrail, so the input `LINK_USERS` holds only Cognito subs and roles; any other key is refused. The task reads each email and name from Cognito with `ListUsers` and the filter `sub = "<sub>"`. That is the migrate task role's only Cognito permission, limited to the staff and admins pools. Our pools sign in by username, and `AdminGetUser` does not take the sub there (Oct 7). The task log shows user ids and roles only.
+
+1. **Cognito logins** (R2's sign-in finds the user by email in our database, then by `sub` in Cognito, and does not support Cognito's temporary-password step):
+   - username: a random UUID;
+   - attributes: `email`, `email_verified=true`, `name`. In PowerShell put each one in double quotes (`"Name=email,Value=$email"`): bare, aws.exe receives the literal text `$email`;
+   - no invite email (`--message-action SUPPRESS`);
+   - then `admin-set-user-password --permanent`.
+
+   MFA is set up at the first sign-in. The pool ids are in the `firmivra-dev-auth` outputs.
+2. **Overrides file** outside the repo, for example `%TEMP%\link-users.json`. `LINK_USERS` holds subs and roles only; optional: `LINK_FIRM_SLUG` (default `lvp`) and `LINK_FIRM_NAME` (used only when the firm is created).
+   ```json
+   {"containerOverrides":[{"name":"migrate","command":["node","scripts/link-dev-users.mjs"],"environment":[
+     {"name":"LINK_USERS","value":"[{\"sub\":\"<admins-pool sub>\",\"role\":\"SUPER_ADMIN\"},{\"sub\":\"<staff-pool sub>\",\"role\":\"OWNER\"}]"}]}]}
+   ```
+3. **Run it** with the subnets and security group from the `firmivra-dev-app` outputs (`TaskSubnets`, `MigrateSecurityGroup`):
+   `aws ecs run-task --cluster firmivra-dev-cluster --task-definition firmivra-dev-migrate --capacity-provider-strategy capacityProvider=FARGATE,weight=1 --network-configuration "awsvpcConfiguration={subnets=[<subnets>],securityGroups=[<sg>],assignPublicIp=ENABLED}" --overrides file://<that file> --profile firmivra-dev`
+4. **Read the result** in the log group `/firmivra/dev/migrate`.
+
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 
 Done Oct 5: steps 1 to 3 (`customDomain: DEV_FIRMIVRA_COM`; the diff matched step 3; deployed network, email, app, data, auth in that order). Tests and the nag report still cover the CloudFront-domain setup (`customDomain: undefined`, `CLOUDFRONT_DOMAINS=1`).

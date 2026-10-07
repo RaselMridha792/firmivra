@@ -3,10 +3,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
-const owner = createPrismaClient(urls.owner);
-const db = createDatabase(urls.app);
+const owner = createPrismaClient(urls.owner, TEST_CLIENT_OPTIONS);
+const db = createDatabase(urls.app, TEST_CLIENT_OPTIONS);
 
 const run = randomUUID().slice(0, 8);
 const ids = {
@@ -231,6 +232,43 @@ describe('users: only the platform or the person themself can update', () => {
   });
 });
 
+describe('users: one staff or admin identity per email, clients one per firm', () => {
+  const newUser = (pool: 'STAFF' | 'ADMIN' | 'CLIENT', email: string) => {
+    const id = randomUUID();
+    return platform().user.create({ data: { id, cognitoSub: id, pool, email, name: 'Fake' } });
+  };
+
+  it('a second STAFF or ADMIN user with the same email is refused', async () => {
+    for (const pool of ['STAFF', 'ADMIN'] as const) {
+      const email = `dup-${pool.toLowerCase()}-${run}@p.test`;
+      await newUser(pool, email);
+      await expect(newUser(pool, email)).rejects.toThrow(/unique constraint/i);
+    }
+  });
+
+  it('the same email may have a CLIENT user per firm, and a staff identity too', async () => {
+    const email = `client-twice-${run}@p.test`;
+    await newUser('CLIENT', email);
+    await expect(newUser('CLIENT', email)).resolves.toMatchObject({ pool: 'CLIENT' });
+    await expect(newUser('STAFF', email)).resolves.toMatchObject({ pool: 'STAFF' });
+  });
+
+  it('compares emails case-insensitively: only lower-case is stored', async () => {
+    const email = `case-${run}@p.test`;
+    await newUser('STAFF', email);
+    // "Case-…@P.test" can never sit next to "case-…@p.test": mixed case is refused outright.
+    const mixed = `Case-${run}@P.test`;
+    await expect(newUser('STAFF', mixed)).rejects.toThrow(/check constraint/i);
+
+    const client = await newUser('CLIENT', `client-case-${run}@p.test`);
+    await expect(
+      firmA().clientAccount.create({
+        data: { businessId: ids.firmA, userId: client.id, email: `Client-Case-${run}@P.test` },
+      }),
+    ).rejects.toThrow(/check constraint/i);
+  });
+});
+
 describe('businesses: status and slug belong to the platform', () => {
   it('a firm can rename itself', async () => {
     await expect(
@@ -253,5 +291,87 @@ describe('businesses: status and slug belong to the platform', () => {
         data: { status: 'ACTIVE', slug: `pa2-${run}` },
       }),
     ).resolves.toMatchObject({ status: 'ACTIVE', slug: `pa2-${run}` });
+  });
+});
+
+describe('setup wizard Finish and the locked legal name (T02)', () => {
+  /** A new firm in the given status, with settings; setup finished or not. */
+  const newFirm = async (
+    status: 'PENDING_SETUP' | 'ACTIVE' | 'SUSPENDED' | 'CLOSED',
+    done: boolean,
+  ) => {
+    const firm = await platform().business.create({
+      data: {
+        slug: `t2-${randomUUID().slice(0, 8)}`,
+        name: 'Setup',
+        legalName: 'Setup LLC',
+        status,
+      },
+    });
+    await db.forBusiness(firm.id).businessSettings.create({
+      data: { businessId: firm.id, setupCompletedAt: done ? new Date() : null },
+    });
+    return firm.id;
+  };
+  const setStatus = (businessId: string, status: 'ACTIVE' | 'SUSPENDED' | 'PENDING_SETUP') =>
+    db.forBusiness(businessId).business.update({ where: { id: businessId }, data: { status } });
+
+  it('Finish: a firm moves itself from Pending Setup to Active only once setup is done', async () => {
+    const firm = await newFirm('PENDING_SETUP', false);
+    await expect(setStatus(firm, 'ACTIVE')).rejects.toThrow(/platform scope, except Finish/);
+    await db.forBusiness(firm).businessSettings.update({
+      where: { businessId: firm },
+      data: { setupCompletedAt: new Date() },
+    });
+    await expect(setStatus(firm, 'ACTIVE')).resolves.toMatchObject({ status: 'ACTIVE' });
+  });
+
+  it('no other status change by the firm: not from Active, Suspended or Closed', async () => {
+    await expect(setStatus(await newFirm('PENDING_SETUP', true), 'SUSPENDED')).rejects.toThrow(
+      /platform scope/,
+    );
+    await expect(setStatus(await newFirm('ACTIVE', true), 'SUSPENDED')).rejects.toThrow(
+      /platform scope/,
+    );
+    await expect(setStatus(await newFirm('ACTIVE', true), 'PENDING_SETUP')).rejects.toThrow(
+      /platform scope/,
+    );
+    for (const status of ['SUSPENDED', 'CLOSED'] as const) {
+      await expect(setStatus(await newFirm(status, true), 'ACTIVE')).rejects.toThrow(
+        /platform scope/,
+      );
+    }
+  });
+
+  it('the legal name is locked for the firm; the platform can change it', async () => {
+    const firm = await newFirm('ACTIVE', true);
+    await expect(
+      db
+        .forBusiness(firm)
+        .business.update({ where: { id: firm }, data: { legalName: 'Other LLC' } }),
+    ).rejects.toThrow(/legal name change only in platform scope/);
+    await expect(
+      platform().business.update({ where: { id: firm }, data: { legalName: 'Renamed LLC' } }),
+    ).resolves.toMatchObject({ legalName: 'Renamed LLC' });
+  });
+
+  it('setup_completed_at is set once and never changes or clears, in any scope', async () => {
+    const firm = await newFirm('PENDING_SETUP', true);
+    for (const setupCompletedAt of [null, new Date(Date.now() + 60_000)]) {
+      await expect(
+        db.forBusiness(firm).businessSettings.update({
+          where: { businessId: firm },
+          data: { setupCompletedAt },
+        }),
+      ).rejects.toThrow(/set once and never changes/);
+    }
+    await expect(
+      runInScope(
+        owner,
+        { kind: 'platform' },
+        (tx) =>
+          tx.$executeRaw`UPDATE business_settings SET setup_completed_at = NULL WHERE business_id = ${firm}::uuid`,
+      ),
+    ).rejects.toThrow(/set once and never changes/);
   });
 });

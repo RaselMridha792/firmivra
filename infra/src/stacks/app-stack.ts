@@ -334,6 +334,9 @@ export class AppStack extends Stack {
         'cognito-idp:AdminUserGlobalSignOut',
         'cognito-idp:AdminDisableUser',
         'cognito-idp:AdminEnableUser',
+        // Find a user's username by sub: our pools sign in by username, and AdminGetUser does not
+        // take the sub there (Oct 7).
+        'cognito-idp:ListUsers',
       );
     }
 
@@ -373,13 +376,28 @@ export class AppStack extends Stack {
         streamPrefix: 'migrate',
         logGroup: this.migrateLogGroup,
       }),
-      environment: { ...database, DB_APP_USER: 'firmivra_app' },
+      // APP_ENV and the pools: scripts/link-dev-users.mjs (one-off dev command in this image) runs
+      // only in dev, and reads each person's email and name from Cognito by sub.
+      environment: {
+        ...database,
+        DB_APP_USER: 'firmivra_app',
+        APP_ENV: config.envName,
+        AWS_REGION: config.region,
+        COGNITO_STAFF_USER_POOL_ID: auth.staff.pool.userPoolId,
+        COGNITO_ADMINS_USER_POOL_ID: auth.admins.pool.userPoolId,
+      },
       secrets: {
         DB_OWNER_USER: ecs.Secret.fromSecretsManager(data.ownerSecret, 'username'),
         DB_OWNER_PASSWORD: ecs.Secret.fromSecretsManager(data.ownerSecret, 'password'),
         DB_APP_PASSWORD: ecs.Secret.fromSecretsManager(data.appDbSecret, 'password'),
       },
     });
+    // Read-only, only the two pools link-dev-users reads (no clients pool). ListUsers with the
+    // filter sub = "<sub>" finds the user and its attributes; AdminGetUser does not take the sub
+    // in pools that sign in by username.
+    for (const pool of [auth.staff.pool, auth.admins.pool]) {
+      pool.grant(this.migrateTask.taskRole, 'cognito-idp:ListUsers');
+    }
 
     // ---------- Services ----------
     const service = (

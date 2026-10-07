@@ -119,6 +119,108 @@ enum ReportStatus {
   PUBLISHED
 }
 
+enum DocumentDirection {
+  /// Uploaded by the client or a portal member.
+  CLIENT_TO_FIRM
+  /// Shared by the firm with the client.
+  FIRM_TO_CLIENT
+  /// Firm only: never shown to the client.
+  INTERNAL
+}
+
+/// Malware scan of an upload. Only CLEAN files can be downloaded.
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  FAILED
+}
+
+enum DocumentRequestStatus {
+  REQUESTED
+  SUBMITTED
+  ACCEPTED
+  /// The firm marked the upload missing; the client is asked again.
+  REJECTED
+  /// The client said "I don't have this" (reason in statusNote).
+  NOT_AVAILABLE
+  CANCELLED
+}
+
+enum IntakeFormStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+/// docs/PROJECT-DRAFT-v2.md, Intake forms.
+enum IntakeStatus {
+  SENT
+  IN_PROGRESS
+  SUBMITTED
+  NEEDS_CORRECTION
+  UNDER_REVIEW
+  COMPLETED
+  EXPIRED
+  ARCHIVED
+}
+
+/// A Begin Online visitor's request, before it is a client.
+enum LeadStatus {
+  /// Saved for later; resumable with the emailed link.
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  /// Staff matched or created the client and opened the engagement.
+  CONVERTED
+  DECLINED
+  /// The draft's resume link ran out.
+  EXPIRED
+}
+
+/// Groups notifications for preferences. ACCOUNT (security) notices ignore preferences.
+enum NotificationCategory {
+  ACCOUNT
+  DOCUMENTS
+  INTAKE
+  SERVICES
+  MESSAGES
+  APPOINTMENTS
+  BILLING
+}
+
+enum DeliveryChannel {
+  EMAIL
+  SMS
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  /// Retried by the sender (back to QUEUED) until it gives up.
+  FAILED
+  /// Not sent: the preference is off, or there is no address or number.
+  SKIPPED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum LocationKind {
+  IN_PERSON
+  PHONE
+  VIDEO
+}
+
+enum MessageDirection {
+  FIRM_TO_CLIENT
+  CLIENT_TO_FIRM
+}
+
 enum LegalDocumentKind {
   TERMS
   PRIVACY
@@ -147,6 +249,10 @@ model Business {
   invites             Invite[]
   clients             Client[]
   services            Service[]
+  documentCategories  DocumentCategory[]
+  notifications       Notification[]
+  notificationPrefs   NotificationPreference[]
+  appointmentTypes    AppointmentType[]
 
   @@map("businesses")
 }
@@ -181,12 +287,15 @@ model Membership {
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business            Business     @relation(fields: [businessId], references: [id])
-  user                User         @relation(fields: [userId], references: [id])
+  business            Business       @relation(fields: [businessId], references: [id])
+  user                User           @relation(fields: [userId], references: [id])
   invites             Invite[]
   assignedClients     Client[]
   assignedEngagements Engagement[]
   assignedTasks       Task[]
+  workingHours        WorkingHours[]
+  blockedTimes        BlockedTime[]
+  appointments        Appointment[]
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -217,12 +326,17 @@ model ClientAccount {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
-  user     User     @relation(fields: [userId], references: [id])
-  client   Client?  @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  invites  Invite[]
+  business          Business            @relation(fields: [businessId], references: [id])
+  user              User                @relation(fields: [userId], references: [id])
+  client            Client?             @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  invites           Invite[]
+  privateNotes      ClientPrivateNote[]
+  legalAcceptances  LegalAcceptance[]
+  verificationCodes VerificationCode[]
 
   @@unique([businessId, email])
+  // Target of client-owned rows (private notes).
+  @@unique([businessId, userId])
   @@unique([businessId, id])
   @@index([businessId, status])
   @@index([businessId, clientId])
@@ -320,9 +434,15 @@ model BusinessSettings {
   logoKey             String?   @map("logo_key")
   /// `#rrggbb`, themes the firm's client portal.
   brandColor          String?   @map("brand_color")
+  /// Optional second colour (`#rrggbb`) for the portal; the API uses a default when empty.
+  accentColor         String?   @map("accent_color")
   /// Module keys switched on for this firm (docs/SYSTEM-DESIGN.md, Modules & packs).
   enabledModules      String[]  @default([]) @map("enabled_modules")
   clientSignUpEnabled Boolean   @default(true) @map("client_sign_up_enabled")
+  /// Setup wizard, client portal step: the portal's name (null: the firm's name), header and welcome text.
+  portalName          String?   @map("portal_name")
+  portalHeader        String?   @map("portal_header")
+  welcomeMessage      String?   @map("welcome_message")
   /// Setup wizard steps done so far, e.g. { "profile": true }.
   setupProgress       Json      @default("{}") @map("setup_progress")
   setupCompletedAt    DateTime? @map("setup_completed_at") @db.Timestamptz(3)
@@ -346,9 +466,12 @@ model FirmLegalDocument {
   publishedByUserId String            @map("published_by_user_id") @db.Uuid
   publishedAt       DateTime          @default(now()) @map("published_at") @db.Timestamptz(3)
 
-  business Business @relation(fields: [businessId], references: [id])
+  business    Business          @relation(fields: [businessId], references: [id])
+  acceptances LegalAcceptance[]
 
   @@unique([businessId, kind, version])
+  // Target of same-firm foreign keys (legal acceptances).
+  @@unique([businessId, id])
   @@map("firm_legal_documents")
 }
 
@@ -422,6 +545,9 @@ model Client {
   engagements      Engagement[]
   tasks            Task[]
   notes            Note[]
+  appointments     Appointment[]
+  messageThreads   MessageThread[]
+  taxReturns       TaxReturn[]
 
   @@unique([businessId, id])
   @@index([businessId, displayName])
@@ -434,28 +560,34 @@ model Client {
 /// `*Enc` columns hold ciphertext made with the firm's KMS key, never plain values: the API
 /// encrypts and decrypts. Fields not typed here yet (I01 list) go in customFields.
 model ClientProfile {
-  clientId      String   @id @map("client_id") @db.Uuid
-  businessId    String   @map("business_id") @db.Uuid
-  firstName     String?  @map("first_name")
-  middleName    String?  @map("middle_name")
-  lastName      String?  @map("last_name")
-  preferredName String?  @map("preferred_name")
+  clientId               String         @id @map("client_id") @db.Uuid
+  businessId             String         @map("business_id") @db.Uuid
+  firstName              String?        @map("first_name")
+  middleName             String?        @map("middle_name")
+  lastName               String?        @map("last_name")
+  preferredName          String?        @map("preferred_name")
   /// BUSINESS clients: legal name and entity type (LLC, S corp...).
-  businessName  String?  @map("business_name")
-  entityType    String?  @map("entity_type")
-  dobEnc        Bytes?   @map("dob_enc")
-  ssnEnc        Bytes?   @map("ssn_enc")
+  businessName           String?        @map("business_name")
+  entityType             String?        @map("entity_type")
+  dobEnc                 Bytes?         @map("dob_enc")
+  ssnEnc                 Bytes?         @map("ssn_enc")
   /// Last 4 digits only, for display and matching.
-  ssnLast4      String?  @map("ssn_last4")
-  addressLine1  String?  @map("address_line1")
-  addressLine2  String?  @map("address_line2")
-  city          String?
-  state         String?
-  postalCode    String?  @map("postal_code")
-  country       String   @default("US")
-  customFields  Json     @default("{}") @map("custom_fields")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  ssnLast4               String?        @map("ssn_last4")
+  addressLine1           String?        @map("address_line1")
+  addressLine2           String?        @map("address_line2")
+  city                   String?
+  state                  String?
+  postalCode             String?        @map("postal_code")
+  country                String         @default("US")
+  customFields           Json           @default("{}") @map("custom_fields")
+  /// My Profile "Additional information" (the client may edit these; R10).
+  preferredContactMethod ContactMethod? @map("preferred_contact_method")
+  /// "How did you hear about us?"
+  referralSource         String?        @map("referral_source")
+  /// Anything else the client wants the firm to know. Not the client's private notes.
+  additionalInfo         String?        @map("additional_info")
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   client Client @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
 
@@ -524,6 +656,8 @@ model Service {
 
   business    Business     @relation(fields: [businessId], references: [id])
   engagements Engagement[]
+  intakeForms IntakeForm[]
+  leads       Lead[]
 
   @@unique([businessId, name])
   @@unique([businessId, id])
@@ -559,13 +693,20 @@ model Engagement {
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client         Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  service        Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  assignedMember Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
-  statusHistory  EngagementStatusHistory[]
-  tasks          Task[]
-  notes          Note[]
-  reports        EngagementReport[]
+  client           Client                    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  service          Service                   @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  assignedMember   Membership?               @relation(fields: [businessId, assignedUserId], references: [businessId, userId], onDelete: Restrict)
+  statusHistory    EngagementStatusHistory[]
+  tasks            Task[]
+  notes            Note[]
+  reports          EngagementReport[]
+  documents        Document[]
+  documentRequests DocumentRequest[]
+  intakes          Intake[]
+  leads            Lead[]
+  appointments     Appointment[]
+  messageThreads   MessageThread[]
+  taxReturns       TaxReturn[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -640,25 +781,668 @@ model Note {
 }
 
 /// A service workspace report: bookkeeping report or reconciliation, tax planning estimate or
-/// projection. Figures go in `data`. The client sees it once PUBLISHED; only drafts can be
-/// deleted. Step 5 links an attached file.
+/// projection. Figures go in `data`; documentId is the attached file, from the same engagement.
+/// The client sees it while PUBLISHED. It can be unpublished, but a report that was ever
+/// published (firstPublishedAt set) is never deleted.
 model EngagementReport {
+  id               String       @id @default(uuid(7)) @db.Uuid
+  businessId       String       @map("business_id") @db.Uuid
+  engagementId     String       @map("engagement_id") @db.Uuid
+  documentId       String?      @map("document_id") @db.Uuid
+  kind             ReportKind
+  title            String
+  /// e.g. "March 2026", "Q1 2026", "2026 plan".
+  periodLabel      String?      @map("period_label")
+  status           ReportStatus @default(DRAFT)
+  data             Json         @default("{}")
+  publishedAt      DateTime?    @map("published_at") @db.Timestamptz(3)
+  /// Set by the database when the report is first published; never changed or cleared.
+  firstPublishedAt DateTime?    @map("first_published_at") @db.Timestamptz(3)
+  createdByUserId  String?      @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  document   Document?  @relation(fields: [businessId, engagementId, documentId], references: [businessId, engagementId, id], onDelete: Restrict)
+
+  @@index([businessId, engagementId, status])
+  @@map("engagement_reports")
+}
+
+/// A firm-defined document category (W-2 and 1099, ID, Payroll...). retentionYears sets how long
+/// its documents are kept; null keeps them for good (formation papers). Archived, not deleted,
+/// once used.
+model DocumentCategory {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  businessId     String    @map("business_id") @db.Uuid
+  name           String
+  retentionYears Int?      @default(7) @map("retention_years")
+  sortOrder      Int       @default(0) @map("sort_order")
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business  Business          @relation(fields: [businessId], references: [id])
+  documents Document[]
+  requests  DocumentRequest[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("document_categories")
+}
+
+/// A file in the firm's vault, always within one engagement. The file is in S3 under the firm's
+/// prefix (`tenant/<business_id>/...`, under a UUID name) and its key never changes; it starts in
+/// quarantine (PENDING) and only a CLEAN file can be downloaded. INTERNAL documents are never
+/// shown to the client. Database rules: a client uploads only while the engagement is open; the
+/// scan result is set once; retentionUntil only moves later; a document is deleted only without
+/// a legal hold, and either after retentionUntil or, for a client upload, while its engagement
+/// is open.
+model Document {
+  id               String            @id @default(uuid(7)) @db.Uuid
+  businessId       String            @map("business_id") @db.Uuid
+  clientId         String            @map("client_id") @db.Uuid
+  engagementId     String            @map("engagement_id") @db.Uuid
+  categoryId       String?           @map("category_id") @db.Uuid
+  /// The request this upload answers, from the same engagement.
+  requestId        String?           @map("request_id") @db.Uuid
+  /// Set when the document was carried over from a Begin Online upload at lead conversion: it
+  /// then shares that upload's S3 key, file and scan result (checked by the database).
+  leadUploadId     String?           @map("lead_upload_id") @db.Uuid
+  direction        DocumentDirection
+  /// The uploader's file name, for display only.
+  fileName         String            @map("file_name")
+  contentType      String            @map("content_type")
+  sizeBytes        Int               @map("size_bytes")
+  /// SHA-256 of the file, hex.
+  sha256           String
+  s3Key            String            @unique @map("s3_key")
+  scanStatus       ScanStatus        @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?         @map("scanned_at") @db.Timestamptz(3)
+  taxYear          Int?              @map("tax_year")
+  /// Set at upload from the category's retention; it can only move later. Null keeps the
+  /// document for good and never becomes a date.
+  retentionUntil   DateTime?         @map("retention_until") @db.Date
+  legalHold        Boolean           @default(false) @map("legal_hold")
+  uploadedByUserId String?           @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement         Engagement          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category           DocumentCategory?   @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  request            DocumentRequest?    @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
+  leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  reports            EngagementReport[]
+  messageAttachments MessageAttachment[]
+  taxReturns         TaxReturn[]
+
+  // Target of message attachments.
+  @@unique([businessId, id])
+  // One document per carried-over lead upload.
+  @@unique([businessId, leadUploadId])
+  // Lets reports require that their document belongs to the same engagement.
+  @@unique([businessId, engagementId, id])
+  @@index([businessId, clientId, createdAt])
+  @@index([businessId, requestId])
+  @@map("documents")
+}
+
+/// The firm asks the client for a document within an engagement ("W-2 from your employer", with
+/// a due date). The client uploads (SUBMITTED) or says "I don't have this" (NOT_AVAILABLE, with
+/// a reason); the firm accepts it or marks it missing (REJECTED). Cancelled, never deleted.
+model DocumentRequest {
+  id                String                @id @default(uuid(7)) @db.Uuid
+  businessId        String                @map("business_id") @db.Uuid
+  clientId          String                @map("client_id") @db.Uuid
+  engagementId      String                @map("engagement_id") @db.Uuid
+  categoryId        String?               @map("category_id") @db.Uuid
+  title             String
+  /// Shown to the client.
+  instructions      String?
+  dueOn             DateTime?             @map("due_on") @db.Date
+  status            DocumentRequestStatus @default(REQUESTED)
+  /// Shown to the client and the firm: the client's reason for NOT_AVAILABLE, or the firm's for REJECTED.
+  statusNote        String?               @map("status_note")
+  requestedByUserId String?               @map("requested_by_user_id") @db.Uuid
+  resolvedAt        DateTime?             @map("resolved_at") @db.Timestamptz(3)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  engagement Engagement        @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  category   DocumentCategory? @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
+  documents  Document[]
+
+  // Lets documents require that the request they answer belongs to the same engagement.
+  @@unique([businessId, engagementId, id])
+  @@index([businessId, clientId, status])
+  @@map("document_requests")
+}
+
+/// A versioned intake form for one of the firm's services (the form engine's definition:
+/// steps, conditional and repeating fields, quarterly grids, upload slots, agreement). Once
+/// PUBLISHED a version never changes; it can only be RETIRED. Only drafts can be deleted.
+model IntakeForm {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  businessId      String           @map("business_id") @db.Uuid
+  serviceId       String           @map("service_id") @db.Uuid
+  version         Int
+  title           String
+  /// The form engine's definition (I06 sets the shape).
+  definition      Json             @default("{}")
+  /// The agreement the client signs at the end, as shown (markdown).
+  agreementText   String?          @map("agreement_text")
+  status          IntakeFormStatus @default(DRAFT)
+  publishedAt     DateTime?        @map("published_at") @db.Timestamptz(3)
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  service Service  @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  intakes Intake[]
+
+  @@unique([businessId, serviceId, version])
+  @@unique([businessId, id])
+  @@map("intake_forms")
+}
+
+/// One intake to fill in with one published form: for an engagement (portal) or for a lead
+/// (Begin Online). At lead conversion it gets its engagement, once; its lead never changes.
+model Intake {
   id              String       @id @default(uuid(7)) @db.Uuid
   businessId      String       @map("business_id") @db.Uuid
-  engagementId    String       @map("engagement_id") @db.Uuid
-  kind            ReportKind
-  title           String
-  /// e.g. "March 2026", "Q1 2026", "2026 plan".
-  periodLabel     String?      @map("period_label")
-  status          ReportStatus @default(DRAFT)
-  data            Json         @default("{}")
-  publishedAt     DateTime?    @map("published_at") @db.Timestamptz(3)
+  formId          String       @map("form_id") @db.Uuid
+  engagementId    String?      @map("engagement_id") @db.Uuid
+  leadId          String?      @map("lead_id") @db.Uuid
+  status          IntakeStatus @default(SENT)
+  dueOn           DateTime?    @map("due_on") @db.Date
   createdByUserId String?      @map("created_by_user_id") @db.Uuid
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  engagement Engagement @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  form        IntakeForm         @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict)
+  engagement  Engagement?        @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
+  lead        Lead?              @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  submissions IntakeSubmission[]
 
-  @@index([businessId, engagementId, status])
-  @@map("engagement_reports")
+  @@unique([businessId, id])
+  @@index([businessId, engagementId])
+  @@index([businessId, leadId])
+  @@map("intakes")
+}
+
+/// One version of an intake's answers. The draft is edited by autosave; submitting locks it
+/// for good. Unlocking (owner or admin) or "needs correction" starts the next version as a new
+/// draft. The signature is the agreement record: who, when, from which IP and browser.
+model IntakeSubmission {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  intakeId          String    @map("intake_id") @db.Uuid
+  version           Int
+  answers           Json      @default("{}")
+  submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(3)
+  /// Null for Begin Online (no login).
+  submittedByUserId String?   @map("submitted_by_user_id") @db.Uuid
+  signerName        String?   @map("signer_name")
+  signedAt          DateTime? @map("signed_at") @db.Timestamptz(3)
+  signerIp          String?   @map("signer_ip") @db.Inet
+  signerUserAgent   String?   @map("signer_user_agent")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  intake Intake @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, intakeId, version])
+  @@map("intake_submissions")
+}
+
+/// A Begin Online visitor's request for a service, from the firm's public site (no login, no
+/// account). Holds the intake and uploads until staff review it; converting sets the client
+/// and the new engagement once (that engagement belongs to that client). The resume link
+/// stores only the token's SHA-256 and lasts at most 30 days.
+model Lead {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  businessId       String     @map("business_id") @db.Uuid
+  serviceId        String     @map("service_id") @db.Uuid
+  status           LeadStatus @default(DRAFT)
+  firstName        String     @map("first_name")
+  lastName         String     @map("last_name")
+  email            String
+  phone            String?
+  resumeTokenHash  String?    @unique @map("resume_token_hash")
+  resumeExpiresAt  DateTime?  @map("resume_expires_at") @db.Timestamptz(3)
+  submittedAt      DateTime?  @map("submitted_at") @db.Timestamptz(3)
+  clientId         String?    @map("client_id") @db.Uuid
+  engagementId     String?    @map("engagement_id") @db.Uuid
+  reviewedByUserId String?    @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?  @map("reviewed_at") @db.Timestamptz(3)
+  declineReason    String?    @map("decline_reason")
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  service    Service      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?  @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  intakes    Intake[]
+  uploads    LeadUpload[]
+
+  @@unique([businessId, id])
+  @@index([businessId, status, createdAt])
+  @@index([businessId, email])
+  @@map("leads")
+}
+
+/// A file uploaded during Begin Online, before the lead has an engagement. Same rules as a
+/// document: under `tenant/<business_id>/`, at most 10 MB, starts unscanned, scan result set
+/// once, file fixed. Added only while the lead is a DRAFT. At conversion it becomes a Document
+/// with the same S3 key (Document.leadUploadId), so the object is never moved.
+model LeadUpload {
+  id          String     @id @default(uuid(7)) @db.Uuid
+  businessId  String     @map("business_id") @db.Uuid
+  leadId      String     @map("lead_id") @db.Uuid
+  /// The form's upload slot this file answers.
+  slot        String
+  fileName    String     @map("file_name")
+  contentType String     @map("content_type")
+  sizeBytes   Int        @map("size_bytes")
+  /// SHA-256 of the file, hex.
+  sha256      String
+  s3Key       String     @unique @map("s3_key")
+  scanStatus  ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt   DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  lead     Lead      @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  document Document?
+
+  @@unique([businessId, id])
+  @@index([businessId, leadId])
+  @@map("lead_uploads")
+}
+
+/// One notification for one person in one firm (the bell and the Notification Center). It
+/// always names the record it opens. The payload holds only safe values for the text (a due
+/// date, a count), never SSNs, amounts, document content or message text. The recipient must
+/// be a member or client account of the firm. After insert only readAt changes; never deleted.
+model Notification {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  businessId      String               @map("business_id") @db.Uuid
+  recipientUserId String               @map("recipient_user_id") @db.Uuid
+  category        NotificationCategory
+  /// Event key, e.g. "document_request.created".
+  type            String
+  /// The record the notification opens, e.g. "document_request" and its id.
+  entityType      String               @map("entity_type")
+  entityId        String               @map("entity_id") @db.Uuid
+  payload         Json                 @default("{}")
+  /// The producer's stable key, so a retried job never creates a second bell item (unique per
+  /// recipient when set).
+  eventKey        String?              @map("event_key")
+  readAt          DateTime?            @map("read_at") @db.Timestamptz(3)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  business   Business               @relation(fields: [businessId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, recipientUserId, eventKey])
+  @@index([businessId, recipientUserId, createdAt])
+  @@map("notifications")
+}
+
+/// The email or SMS copy of a notification: an outbox for the sender (R6). One row per
+/// notification and channel. No address and no content are stored: the sender looks them up
+/// when it sends. QUEUED -> SENT, FAILED (retried back to QUEUED) or SKIPPED; SENT and SKIPPED
+/// are final.
+model NotificationDelivery {
+  id                String          @id @default(uuid(7)) @db.Uuid
+  businessId        String          @map("business_id") @db.Uuid
+  notificationId    String          @map("notification_id") @db.Uuid
+  channel           DeliveryChannel
+  status            DeliveryStatus  @default(QUEUED)
+  attempts          Int             @default(0)
+  /// The provider's message id (SES or SNS), for support and bounce handling.
+  providerMessageId String?         @map("provider_message_id")
+  /// A short error code from the provider, never message content.
+  lastError         String?         @map("last_error")
+  sentAt            DateTime?       @map("sent_at") @db.Timestamptz(3)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  notification Notification @relation(fields: [businessId, notificationId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, notificationId, channel])
+  @@index([businessId, status, createdAt])
+  @@map("notification_deliveries")
+}
+
+/// A person's email and SMS choice for one category in one firm. No row means the defaults
+/// (email on, SMS off). The bell is always on, and ACCOUNT notices cannot be switched off.
+model NotificationPreference {
+  id         String               @id @default(uuid(7)) @db.Uuid
+  businessId String               @map("business_id") @db.Uuid
+  userId     String               @map("user_id") @db.Uuid
+  category   NotificationCategory
+  email      Boolean              @default(true)
+  sms        Boolean              @default(false)
+  createdAt  DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, userId, category])
+  @@map("notification_preferences")
+}
+
+/// A kind of appointment the firm offers ("Tax consultation", 30 minutes, video). Clients can
+/// book only types marked clientBookable. Archived, not deleted, once used.
+model AppointmentType {
+  id              String       @id @default(uuid(7)) @db.Uuid
+  businessId      String       @map("business_id") @db.Uuid
+  name            String
+  durationMinutes Int          @map("duration_minutes")
+  locationKind    LocationKind @default(VIDEO) @map("location_kind")
+  clientBookable  Boolean      @default(false) @map("client_bookable")
+  sortOrder       Int          @default(0) @map("sort_order")
+  archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  appointments Appointment[]
+
+  @@unique([businessId, name])
+  @@unique([businessId, id])
+  @@map("appointment_types")
+}
+
+/// A staff member's regular working hours: one row per range, several a day allowed (a lunch
+/// break). Times of day in the firm's timezone (business_settings.timezone); weekday 0 = Sunday.
+model WorkingHours {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  weekday    Int
+  startsAt   DateTime @map("starts_at") @db.Time(0)
+  endsAt     DateTime @map("ends_at") @db.Time(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, userId, weekday])
+  @@map("working_hours")
+}
+
+/// Time a staff member is not available (holiday, training), or the whole firm when userId is
+/// null. An appointment cannot overlap it.
+model BlockedTime {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
+  startsAt        DateTime @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime @map("ends_at") @db.Timestamptz(3)
+  /// Internal; never shown to clients.
+  reason          String?
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership? @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, userId, startsAt])
+  @@map("blocked_times")
+}
+
+/// One meeting between a staff member and a client; staff and client booking write the same
+/// record. The database blocks double booking (no two overlapping live appointments for the
+/// same staff member, or for the same client) and overlap with blocked time. A reschedule
+/// updates the times in place; the database counts it. Cancelled is final; never deleted.
+model Appointment {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  businessId      String            @map("business_id") @db.Uuid
+  clientId        String            @map("client_id") @db.Uuid
+  engagementId    String?           @map("engagement_id") @db.Uuid
+  staffUserId     String            @map("staff_user_id") @db.Uuid
+  typeId          String?           @map("type_id") @db.Uuid
+  startsAt        DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt          DateTime          @map("ends_at") @db.Timestamptz(3)
+  status          AppointmentStatus @default(SCHEDULED)
+  locationKind    LocationKind      @map("location_kind")
+  /// The address, phone number or video link.
+  locationDetails String?           @map("location_details")
+  bookedByUserId  String?           @map("booked_by_user_id") @db.Uuid
+  /// True when the client booked it in the portal.
+  bookedByClient  Boolean           @default(false) @map("booked_by_client")
+  /// Set by the database when the times change.
+  rescheduledAt   DateTime?         @map("rescheduled_at") @db.Timestamptz(3)
+  rescheduleCount Int               @default(0) @map("reschedule_count")
+  /// Set when the reminder went out; the database clears it on a reschedule, so the new time
+  /// gets its own reminder.
+  reminderSentAt  DateTime?         @map("reminder_sent_at") @db.Timestamptz(3)
+  cancelledAt     DateTime?         @map("cancelled_at") @db.Timestamptz(3)
+  cancelReason    String?           @map("cancel_reason")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  staff      Membership       @relation(fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
+  type       AppointmentType? @relation(fields: [businessId, typeId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, staffUserId, startsAt])
+  @@index([businessId, clientId, startsAt])
+  @@map("appointments")
+}
+
+/// A subject thread between the firm and one client, optionally about one of that client's
+/// engagements and linked to a related record. Never deleted.
+model MessageThread {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  clientId        String    @map("client_id") @db.Uuid
+  engagementId    String?   @map("engagement_id") @db.Uuid
+  subject         String
+  /// The record the thread is about, e.g. "document_request" and its id.
+  entityType      String?   @map("entity_type")
+  entityId        String?   @map("entity_id") @db.Uuid
+  /// When false, the client can read but not reply.
+  repliesEnabled  Boolean   @default(true) @map("replies_enabled")
+  /// Set by the database when a message is added.
+  lastMessageAt   DateTime? @map("last_message_at") @db.Timestamptz(3)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  messages   Message[]
+
+  @@unique([businessId, id])
+  @@index([businessId, clientId, lastMessageAt])
+  @@map("message_threads")
+}
+
+/// One message in a thread. The sender is a staff member (FIRM_TO_CLIENT) or a portal login
+/// of the thread's own client (CLIENT_TO_FIRM). readAt is the receiving side's read state
+/// (mark unread clears it). Otherwise never changed and never deleted.
+model Message {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  businessId   String           @map("business_id") @db.Uuid
+  threadId     String           @map("thread_id") @db.Uuid
+  senderUserId String           @map("sender_user_id") @db.Uuid
+  direction    MessageDirection
+  body         String
+  readAt       DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  thread      MessageThread       @relation(fields: [businessId, threadId], references: [businessId, id], onDelete: Restrict)
+  attachments MessageAttachment[]
+
+  @@unique([businessId, id])
+  @@index([businessId, threadId, createdAt])
+  @@map("messages")
+}
+
+/// A file attached to a message: always a document in the vault (scanned, retained), from an
+/// engagement of the thread's client. Insert-only.
+model MessageAttachment {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  messageId  String   @map("message_id") @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message  Message  @relation(fields: [businessId, messageId], references: [businessId, id], onDelete: Restrict)
+  document Document @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, messageId, documentId])
+  @@index([businessId, documentId])
+  @@map("message_attachments")
+}
+
+/// A client's private notepad entry (Messages and Notes). Never shown to the firm: the database
+/// shows it only to its own client login (db.forBusiness(businessId, { actorUserId })). Each
+/// save adds a version; the latest is shown; text never changes and nothing is deleted.
+model ClientPrivateNote {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  /// The client's portal login that owns the note.
+  userId     String   @map("user_id") @db.Uuid
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  owner    ClientAccount       @relation(fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+  reminder ClientNoteReminder?
+
+  @@unique([businessId, id])
+  @@index([businessId, userId, createdAt])
+  @@map("client_private_notes")
+}
+
+/// The optional reminder on a client's note, kept apart from the note so the reminder sender
+/// can find due reminders without ever reading note text. Editable; deleting removes it.
+model ClientNoteReminder {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  noteId     String    @map("note_id") @db.Uuid
+  /// The note's owner, so the reminder can be sent without opening the note.
+  userId     String    @map("user_id") @db.Uuid
+  remindAt   DateTime  @map("remind_at") @db.Timestamptz(3)
+  remindedAt DateTime? @map("reminded_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  note ClientPrivateNote @relation(fields: [businessId, noteId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([businessId, noteId])
+  @@index([businessId, remindAt])
+  @@map("client_note_reminders")
+}
+
+/// A client's acceptance of one exact version of the firm's Terms or Privacy (portal sign-up
+/// writes one row for each). Insert-only: an acceptance is never changed or deleted. The client
+/// can see their own; the firm sees its clients'.
+model LegalAcceptance {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  /// The client's portal login at this firm.
+  clientAccountId String   @map("client_account_id") @db.Uuid
+  legalDocumentId String   @map("legal_document_id") @db.Uuid
+  acceptedAt      DateTime @default(now()) @map("accepted_at") @db.Timestamptz(3)
+  ip              String?  @db.Inet
+  userAgent       String?  @map("user_agent")
+
+  clientAccount ClientAccount     @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  legalDocument FirmLegalDocument @relation(fields: [businessId, legalDocumentId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([clientAccountId, legalDocumentId])
+  @@index([businessId, clientAccountId])
+  @@map("legal_acceptances")
+}
+
+/// Where a sign-up verification code was sent.
+enum VerificationChannel {
+  EMAIL
+  PHONE
+}
+
+/// One code sent to a client during portal sign-up (R3), kept on the server so replaying an old
+/// sign-up cookie cannot reset the attempts. Only the code's HMAC is stored. The database sets
+/// `created_at` (its clock, for the resend gap) and keeps `expires_at` within 15 minutes. After
+/// insert only `attempts` (+1 at a time) and `consumed_at` (once, only on the newest unexpired
+/// code for that account and channel) change; a used code is final; nothing is deleted.
+model VerificationCode {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  businessId      String              @map("business_id") @db.Uuid
+  clientAccountId String              @map("client_account_id") @db.Uuid
+  channel         VerificationChannel
+  /// The exact address the code went to: a lower-case email, or an E.164 phone number.
+  target          String
+  /// Hex HMAC-SHA256 of the code with a server key; never the code itself.
+  codeHash        String              @map("code_hash")
+  attempts        Int                 @default(0)
+  expiresAt       DateTime            @map("expires_at") @db.Timestamptz(3)
+  consumedAt      DateTime?           @map("consumed_at") @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  clientAccount ClientAccount @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([clientAccountId, channel, createdAt(sort: Desc)])
+  @@map("verification_codes")
+}
+
+/// How a client prefers to be contacted (My Profile).
+enum ContactMethod {
+  EMAIL
+  PHONE
+  TEXT
+}
+
+/// Individual (1040) or business (1120, 1120-S, 1065...) return.
+enum TaxFilingType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+/// The status the client sees on a return (portal Taxes tab).
+enum TaxReturnStatus {
+  IN_PROGRESS
+  FILED
+  ACCEPTED
+  REJECTED
+  COMPLETED
+}
+
+/// A client's tax return for one year (portal Taxes tab, R10): annual, or one quarter's estimate.
+/// Older years can exist without an engagement. The return PDF is one of the client's own
+/// documents, never an INTERNAL one. Only a return that was never filed can be deleted.
+model TaxReturn {
+  id           String          @id @default(uuid(7)) @db.Uuid
+  businessId   String          @map("business_id") @db.Uuid
+  clientId     String          @map("client_id") @db.Uuid
+  /// The engagement it was prepared in, if any (one of this client's).
+  engagementId String?         @map("engagement_id") @db.Uuid
+  taxYear      Int             @map("tax_year")
+  filingType   TaxFilingType   @map("filing_type")
+  /// 1 to 4 for a quarterly estimate; empty for the annual return.
+  quarter      Int?
+  /// The form, e.g. "1040" or "1120-S".
+  formType     String?         @map("form_type")
+  status       TaxReturnStatus @default(IN_PROGRESS)
+  filedOn      DateTime?       @map("filed_on") @db.Date
+  /// The return PDF the client can view and download.
+  documentId   String?         @map("document_id") @db.Uuid
+  /// Set by the database the first time the return leaves IN_PROGRESS; never changes. A return
+  /// with it set is never deleted.
+  firstFiledAt DateTime?       @map("first_filed_at") @db.Timestamptz(3)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     Client      @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement? @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  document   Document?   @relation(fields: [businessId, documentId], references: [businessId, id], onDelete: Restrict)
+
+  @@index([businessId, clientId, taxYear])
+  @@index([businessId, documentId])
+  @@map("tax_returns")
 }

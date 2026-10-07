@@ -15,7 +15,9 @@ export default defineConfig({
   testDir: 'e2e',
   fullyParallel: false,
   workers: 2,
-  expect: { timeout: 10_000 },
+  // The dev server compiles each page on its first visit, which can take several seconds;
+  // specs that open many pages set a longer test timeout themselves.
+  expect: { timeout: 15_000 },
   retries: process.env['CI'] ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { trace: 'retain-on-failure' },

@@ -137,7 +137,114 @@ export const SEED_WORK_IDS = {
   lvpTax: '00000000-0000-4000-d000-000000000001',
   lvpBookkeeping: '00000000-0000-4000-d000-000000000002',
   firmBTax: '00000000-0000-4000-d000-000000000003',
+  lvpTax2024: '00000000-0000-4000-d000-000000000004',
   lvpTask: '00000000-0000-4000-d000-000000000011',
   lvpNote: '00000000-0000-4000-d000-000000000021',
   lvpReport: '00000000-0000-4000-d000-000000000031',
+} as const;
+
+/** Each firm's document categories, in display order. retentionYears null = kept for good. */
+export const SEED_DOCUMENT_CATEGORIES = {
+  lvp: [
+    { name: 'W-2 and 1099', retentionYears: 7 },
+    { name: 'ID', retentionYears: 7 },
+    { name: 'Prior-year returns', retentionYears: 7 },
+    { name: 'Bank statements', retentionYears: 7 },
+    { name: 'Payroll', retentionYears: 4 },
+    { name: 'Formation', retentionYears: null },
+    { name: 'Final return', retentionYears: 7 },
+  ],
+  testFirmB: [{ name: 'Tax documents', retentionYears: 7 }],
+} as const;
+
+/** Fixed ids of seeded document requests and documents, so re-seeding keeps one of each. */
+export const SEED_DOCUMENT_IDS = {
+  w2Request: '00000000-0000-4000-e000-000000000001',
+  interestRequest: '00000000-0000-4000-e000-000000000002',
+  interestDocument: '00000000-0000-4000-e000-000000000011',
+  return2024: '00000000-0000-4000-e000-000000000021',
+} as const;
+
+/** Fixed ids of the LVP client's seeded tax returns (portal Taxes tab). */
+export const SEED_TAX_RETURN_IDS = {
+  lvp2023: '00000000-0000-4000-9100-000000000001',
+  lvp2024: '00000000-0000-4000-9100-000000000002',
+  lvp2025: '00000000-0000-4000-9100-000000000003',
+} as const;
+
+/** Fixed ids of seeded intakes and the Begin Online lead, so re-seeding keeps one of each. */
+export const SEED_INTAKE_IDS = {
+  taxIntake: '00000000-0000-4000-f000-000000000001',
+  taxSubmission: '00000000-0000-4000-f000-000000000002',
+  lead: '00000000-0000-4000-f000-000000000011',
+  leadIntake: '00000000-0000-4000-f000-000000000012',
+  leadSubmission: '00000000-0000-4000-f000-000000000013',
+  leadUpload: '00000000-0000-4000-f000-000000000014',
+} as const;
+
+/** A small placeholder form definition until the form engine (I06) sets the real shape. */
+export const SAMPLE_FORM_DEFINITION = {
+  steps: [
+    {
+      id: 'about',
+      title: 'About you',
+      fields: [{ id: 'fullName', type: 'text', label: 'Full name', required: true }],
+    },
+    {
+      id: 'documents',
+      title: 'Documents',
+      fields: [
+        { id: 'priorReturn', type: 'upload', label: 'Last year return', notAvailable: true },
+      ],
+    },
+    { id: 'sign', title: 'Review and sign', fields: [] },
+  ],
+};
+
+/** Fixed ids of seeded notifications and their deliveries, so re-seeding keeps one of each. */
+export const SEED_NOTIFICATION_IDS = {
+  clientW2: '00000000-0000-4000-9000-000000000001',
+  clientW2Email: '00000000-0000-4000-9000-000000000002',
+  clientW2Sms: '00000000-0000-4000-9000-000000000003',
+  staffLead: '00000000-0000-4000-9000-000000000011',
+  staffLeadEmail: '00000000-0000-4000-9000-000000000012',
+} as const;
+
+/** Each firm's appointment types, in display order. */
+export const SEED_APPOINTMENT_TYPES = {
+  lvp: [
+    { name: 'Tax consultation', durationMinutes: 30, locationKind: 'VIDEO', clientBookable: true },
+    {
+      name: 'Document drop-off',
+      durationMinutes: 15,
+      locationKind: 'IN_PERSON',
+      clientBookable: true,
+    },
+    {
+      name: 'Bookkeeping review',
+      durationMinutes: 60,
+      locationKind: 'VIDEO',
+      clientBookable: false,
+    },
+  ],
+  testFirmB: [
+    { name: 'Consultation', durationMinutes: 30, locationKind: 'PHONE', clientBookable: true },
+  ],
+} as const;
+
+/** Fixed ids of the seeded appointment and firm closure, so re-seeding keeps one of each. */
+export const SEED_CALENDAR_IDS = {
+  appointment: '00000000-0000-4000-8000-000000000001',
+  thanksgiving: '00000000-0000-4000-8000-000000000002',
+} as const;
+
+/** Fixed ids of seeded message threads, messages and the client's note, for re-seeding. */
+export const SEED_MESSAGE_IDS = {
+  w2Thread: '00000000-0000-4000-7000-000000000001',
+  w2Question: '00000000-0000-4000-7000-000000000002',
+  w2Answer: '00000000-0000-4000-7000-000000000003',
+  welcomeThread: '00000000-0000-4000-7000-000000000011',
+  welcomeMessage: '00000000-0000-4000-7000-000000000012',
+  clientNote: '00000000-0000-4000-7000-000000000021',
+  clientNoteReminder: '00000000-0000-4000-7000-000000000022',
 } as const;

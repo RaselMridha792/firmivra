@@ -12,6 +12,15 @@ import {
   SEED_TAX_STATUSES,
   SEED_USERS,
   SEED_WORK_IDS,
+  SEED_DOCUMENT_CATEGORIES,
+  SEED_DOCUMENT_IDS,
+  SEED_TAX_RETURN_IDS,
+  SEED_INTAKE_IDS,
+  SEED_NOTIFICATION_IDS,
+  SEED_APPOINTMENT_TYPES,
+  SEED_CALENDAR_IDS,
+  SEED_MESSAGE_IDS,
+  SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
 config({ path: '../../.env', quiet: true });
@@ -111,9 +120,85 @@ async function seedServices(
     });
     ids.set(s.name, row.id);
   }
+  return byName('service', ids);
+}
+
+/** The firm's document categories; returns their ids by name. */
+async function seedDocumentCategories(
+  tx: TxClient,
+  businessId: string,
+  categories: (typeof SEED_DOCUMENT_CATEGORIES)[keyof typeof SEED_DOCUMENT_CATEGORIES],
+) {
+  const ids = new Map<string, string>();
+  for (const [sortOrder, c] of categories.entries()) {
+    const data = { sortOrder, retentionYears: c.retentionYears };
+    const row = await tx.documentCategory.upsert({
+      where: { businessId_name: { businessId, name: c.name } },
+      update: data,
+      create: { businessId, name: c.name, ...data },
+    });
+    ids.set(c.name, row.id);
+  }
+  return byName('document category', ids);
+}
+
+/** A published v1 intake form for each named service; returns their ids by service name. */
+async function seedIntakeForms(
+  tx: TxClient,
+  businessId: string,
+  service: (name: string) => string,
+  serviceNames: readonly string[],
+) {
+  const ids = new Map<string, string>();
+  for (const name of serviceNames) {
+    const serviceId = service(name);
+    const row = await tx.intakeForm.upsert({
+      where: { businessId_serviceId_version: { businessId, serviceId, version: 1 } },
+      update: {},
+      create: {
+        businessId,
+        serviceId,
+        version: 1,
+        title: `${name} intake`,
+        definition: SAMPLE_FORM_DEFINITION,
+        agreementText: `Sample ${name} service agreement for local development. Not legal text.`,
+        status: 'PUBLISHED',
+        publishedAt: new Date(),
+      },
+    });
+    ids.set(name, row.id);
+  }
+  return byName('intake form', ids);
+}
+
+/** The firm's appointment types; returns their ids by name. */
+async function seedAppointmentTypes(
+  tx: TxClient,
+  businessId: string,
+  types: (typeof SEED_APPOINTMENT_TYPES)[keyof typeof SEED_APPOINTMENT_TYPES],
+) {
+  const ids = new Map<string, string>();
+  for (const [sortOrder, t] of types.entries()) {
+    const data = {
+      durationMinutes: t.durationMinutes,
+      locationKind: t.locationKind,
+      clientBookable: t.clientBookable,
+      sortOrder,
+    };
+    const row = await tx.appointmentType.upsert({
+      where: { businessId_name: { businessId, name: t.name } },
+      update: data,
+      create: { businessId, name: t.name, ...data },
+    });
+    ids.set(t.name, row.id);
+  }
+  return byName('appointment type', ids);
+}
+
+function byName(kind: string, ids: Map<string, string>) {
   return (name: string) => {
     const id = ids.get(name);
-    if (!id) throw new Error(`Seed service ${name} is missing`);
+    if (!id) throw new Error(`Seed ${kind} ${name} is missing`);
     return id;
   };
 }
@@ -210,6 +295,53 @@ async function main() {
       SEED_USERS.lvpClient,
       SEED_USERS.lvpStaff.id,
     );
+    await tx.clientProfile.update({
+      where: { clientId: SEED_CLIENT_IDS.lvp },
+      data: { preferredContactMethod: 'EMAIL', referralSource: 'Friend or family' },
+    });
+    // At sign-up the client accepted the firm's Terms and Privacy v1.
+    const lvpLogin = await tx.clientAccount.findUniqueOrThrow({
+      where: { userId: SEED_USERS.lvpClient.id },
+    });
+    for (const kind of ['TERMS', 'PRIVACY'] as const) {
+      const doc = await tx.firmLegalDocument.findUniqueOrThrow({
+        where: { businessId_kind_version: { businessId: businesses.lvp, kind, version: 1 } },
+      });
+      await tx.legalAcceptance.upsert({
+        where: {
+          clientAccountId_legalDocumentId: {
+            clientAccountId: lvpLogin.id,
+            legalDocumentId: doc.id,
+          },
+        },
+        update: {},
+        create: {
+          businessId: businesses.lvp,
+          clientAccountId: lvpLogin.id,
+          legalDocumentId: doc.id,
+        },
+      });
+    }
+    // ...and verified their email with a code (only its HMAC is stored; this one is fake).
+    const sentCode = await tx.verificationCode.findFirst({
+      where: { clientAccountId: lvpLogin.id, channel: 'EMAIL' },
+    });
+    if (!sentCode) {
+      const code = await tx.verificationCode.create({
+        data: {
+          businessId: businesses.lvp,
+          clientAccountId: lvpLogin.id,
+          channel: 'EMAIL',
+          target: lvpLogin.email,
+          codeHash: createHash('sha256').update('seed-verification-code').digest('hex'),
+          expiresAt: new Date(Date.now() + 10 * 60_000),
+        },
+      });
+      await tx.verificationCode.update({
+        where: { id: code.id },
+        data: { attempts: 1, consumedAt: new Date() },
+      });
+    }
     const inPreparation = await tx.taxStatus.findUniqueOrThrow({
       where: { businessId_name: { businessId: businesses.lvp, name: 'In preparation' } },
     });
@@ -268,6 +400,20 @@ async function main() {
         nextBillingOn: new Date('2026-11-01'),
       },
     });
+    // Last year's return, done and filed.
+    await tx.engagement.upsert({
+      where: { id: SEED_WORK_IDS.lvpTax2024 },
+      update: {},
+      create: {
+        ...lvpWork,
+        id: SEED_WORK_IDS.lvpTax2024,
+        serviceId: service('Annual Tax'),
+        title: '2024 Personal Tax',
+        taxYear: 2024,
+        status: 'COMPLETED',
+        completedAt: new Date('2025-04-12T16:00:00Z'),
+      },
+    });
     await tx.task.upsert({
       where: { id: SEED_WORK_IDS.lvpTask },
       update: {},
@@ -310,7 +456,435 @@ async function main() {
         createdByUserId: SEED_USERS.lvpStaff.id,
       },
     });
+
+    // Document categories, two requests on the 2025 tax engagement, and one scanned client
+    // upload answering one of them. No file exists behind it in local S3.
+    const category = await seedDocumentCategories(tx, businesses.lvp, SEED_DOCUMENT_CATEGORIES.lvp);
+    const taxEngagement = {
+      businessId: businesses.lvp,
+      clientId: SEED_CLIENT_IDS.lvp,
+      engagementId: SEED_WORK_IDS.lvpTax,
+      categoryId: category('W-2 and 1099'),
+    };
+    await tx.documentRequest.upsert({
+      where: { id: SEED_DOCUMENT_IDS.w2Request },
+      update: {},
+      create: {
+        ...taxEngagement,
+        id: SEED_DOCUMENT_IDS.w2Request,
+        title: 'W-2 from your employer',
+        instructions: 'Upload every W-2 you received for 2025.',
+        dueOn: new Date('2026-10-31'),
+        requestedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.documentRequest.upsert({
+      where: { id: SEED_DOCUMENT_IDS.interestRequest },
+      update: {},
+      create: {
+        ...taxEngagement,
+        id: SEED_DOCUMENT_IDS.interestRequest,
+        title: '1099-INT from your bank',
+        status: 'SUBMITTED',
+        requestedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.document.upsert({
+      where: { id: SEED_DOCUMENT_IDS.interestDocument },
+      update: {},
+      create: {
+        ...taxEngagement,
+        id: SEED_DOCUMENT_IDS.interestDocument,
+        requestId: SEED_DOCUMENT_IDS.interestRequest,
+        direction: 'CLIENT_TO_FIRM',
+        fileName: '1099-INT sample.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 48213,
+        sha256: createHash('sha256').update('sample 1099-INT').digest('hex'),
+        s3Key: `tenant/${businesses.lvp}/documents/${SEED_DOCUMENT_IDS.interestDocument}`,
+        taxYear: 2025,
+        uploadedByUserId: SEED_USERS.lvpClient.id,
+      },
+    });
+    // New documents start unscanned; mark the seeded one clean once.
+    await tx.document.updateMany({
+      where: { id: SEED_DOCUMENT_IDS.interestDocument, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    });
+
+    // The client's tax returns (portal Taxes tab): 2023 from before the portal (no engagement or
+    // file), 2024 filed with its PDF shared with the client, and 2025 in progress.
+    await tx.document.upsert({
+      where: { id: SEED_DOCUMENT_IDS.return2024 },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        clientId: SEED_CLIENT_IDS.lvp,
+        engagementId: SEED_WORK_IDS.lvpTax2024,
+        categoryId: category('Final return'),
+        id: SEED_DOCUMENT_IDS.return2024,
+        direction: 'FIRM_TO_CLIENT',
+        fileName: '2024 Tax Return (sample).pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 182400,
+        sha256: createHash('sha256').update('sample 2024 return').digest('hex'),
+        s3Key: `tenant/${businesses.lvp}/documents/${SEED_DOCUMENT_IDS.return2024}`,
+        taxYear: 2024,
+        uploadedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.document.updateMany({
+      where: { id: SEED_DOCUMENT_IDS.return2024, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    });
+    const lvpReturn = { businessId: businesses.lvp, clientId: SEED_CLIENT_IDS.lvp };
+    for (const data of [
+      {
+        id: SEED_TAX_RETURN_IDS.lvp2023,
+        taxYear: 2023,
+        status: 'COMPLETED' as const,
+        filedOn: new Date('2024-04-10'),
+      },
+      {
+        id: SEED_TAX_RETURN_IDS.lvp2024,
+        engagementId: SEED_WORK_IDS.lvpTax2024,
+        taxYear: 2024,
+        status: 'ACCEPTED' as const,
+        filedOn: new Date('2025-04-12'),
+        documentId: SEED_DOCUMENT_IDS.return2024,
+      },
+      { id: SEED_TAX_RETURN_IDS.lvp2025, engagementId: SEED_WORK_IDS.lvpTax, taxYear: 2025 },
+    ]) {
+      await tx.taxReturn.upsert({
+        where: { id: data.id },
+        update: {},
+        create: { ...lvpReturn, filingType: 'INDIVIDUAL', formType: '1040', ...data },
+      });
+    }
+
+    // A published v1 intake form per service, an in-progress portal intake on the 2025 tax
+    // engagement, and a submitted Begin Online lead for Bookkeeping with one clean upload.
+    const form = await seedIntakeForms(
+      tx,
+      businesses.lvp,
+      service,
+      SEED_SERVICES.lvp.map((s) => s.name),
+    );
+    const lvp = { businessId: businesses.lvp };
+    await tx.intake.upsert({
+      where: { id: SEED_INTAKE_IDS.taxIntake },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.taxIntake,
+        formId: form('Annual Tax'),
+        engagementId: SEED_WORK_IDS.lvpTax,
+        status: 'IN_PROGRESS',
+        dueOn: new Date('2026-11-15'),
+        createdByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.intakeSubmission.upsert({
+      where: { id: SEED_INTAKE_IDS.taxSubmission },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.taxSubmission,
+        intakeId: SEED_INTAKE_IDS.taxIntake,
+        version: 1,
+        answers: { fullName: SEED_USERS.lvpClient.name },
+      },
+    });
+
+    await tx.lead.upsert({
+      where: { id: SEED_INTAKE_IDS.lead },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.lead,
+        serviceId: service('Bookkeeping'),
+        firstName: 'Lena',
+        lastName: 'Lead (fake)',
+        email: 'lena.lead@begin.test',
+        phone: '+15555550123',
+      },
+    });
+    // Uploads are added while the lead is a draft; no file exists behind it in local S3.
+    await tx.leadUpload.upsert({
+      where: { id: SEED_INTAKE_IDS.leadUpload },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadUpload,
+        leadId: SEED_INTAKE_IDS.lead,
+        slot: 'priorReturn',
+        fileName: 'Prior return sample.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 81234,
+        sha256: createHash('sha256').update('sample prior return').digest('hex'),
+        s3Key: `tenant/${businesses.lvp}/leads/${SEED_INTAKE_IDS.leadUpload}`,
+      },
+    });
+    await tx.leadUpload.updateMany({
+      where: { id: SEED_INTAKE_IDS.leadUpload, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    });
+    await tx.intake.upsert({
+      where: { id: SEED_INTAKE_IDS.leadIntake },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_INTAKE_IDS.leadIntake,
+        formId: form('Bookkeeping'),
+        leadId: SEED_INTAKE_IDS.lead,
+        status: 'SUBMITTED',
+      },
+    });
+    // A submitted version is locked (even an empty upsert would update it), so create it once.
+    const signedAt = new Date();
+    if (
+      !(await tx.intakeSubmission.findUnique({ where: { id: SEED_INTAKE_IDS.leadSubmission } }))
+    ) {
+      await tx.intakeSubmission.create({
+        data: {
+          ...lvp,
+          id: SEED_INTAKE_IDS.leadSubmission,
+          intakeId: SEED_INTAKE_IDS.leadIntake,
+          version: 1,
+          answers: { fullName: 'Lena Lead (fake)', package: 'Growth' },
+          submittedAt: signedAt,
+          signerName: 'Lena Lead (fake)',
+          signedAt,
+          signerIp: '203.0.113.10',
+          signerUserAgent: 'Sample browser (seed)',
+        },
+      });
+    }
+    await tx.lead.updateMany({
+      where: { id: SEED_INTAKE_IDS.lead, status: 'DRAFT' },
+      data: { status: 'SUBMITTED', submittedAt: signedAt },
+    });
+
+    // Notifications: the client is asked for a W-2 (email sent, SMS skipped); staff hear about
+    // the Begin Online lead (email queued). Payloads hold only safe values.
+    const notify = async (
+      id: string,
+      recipientUserId: string,
+      data: {
+        category: 'DOCUMENTS' | 'INTAKE';
+        type: string;
+        entityType: string;
+        entityId: string;
+        payload?: Record<string, string>;
+      },
+    ) => {
+      await tx.notification.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, recipientUserId, ...data, payload: data.payload ?? {} },
+      });
+    };
+    const deliver = async (id: string, notificationId: string, channel: 'EMAIL' | 'SMS') => {
+      await tx.notificationDelivery.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, notificationId, channel },
+      });
+    };
+    await notify(SEED_NOTIFICATION_IDS.clientW2, SEED_USERS.lvpClient.id, {
+      category: 'DOCUMENTS',
+      type: 'document_request.created',
+      entityType: 'document_request',
+      entityId: SEED_DOCUMENT_IDS.w2Request,
+      payload: { dueOn: '2026-10-31' },
+    });
+    await deliver(SEED_NOTIFICATION_IDS.clientW2Email, SEED_NOTIFICATION_IDS.clientW2, 'EMAIL');
+    await tx.notificationDelivery.updateMany({
+      where: { id: SEED_NOTIFICATION_IDS.clientW2Email, status: 'QUEUED' },
+      data: { status: 'SENT', attempts: 1, sentAt: new Date(), providerMessageId: 'local-sample' },
+    });
+    await deliver(SEED_NOTIFICATION_IDS.clientW2Sms, SEED_NOTIFICATION_IDS.clientW2, 'SMS');
+    await tx.notificationDelivery.updateMany({
+      where: { id: SEED_NOTIFICATION_IDS.clientW2Sms, status: 'QUEUED' },
+      data: { status: 'SKIPPED' },
+    });
+    await notify(SEED_NOTIFICATION_IDS.staffLead, SEED_USERS.lvpStaff.id, {
+      category: 'INTAKE',
+      type: 'lead.submitted',
+      entityType: 'lead',
+      entityId: SEED_INTAKE_IDS.lead,
+    });
+    await deliver(SEED_NOTIFICATION_IDS.staffLeadEmail, SEED_NOTIFICATION_IDS.staffLead, 'EMAIL');
+    await tx.notificationPreference.upsert({
+      where: {
+        businessId_userId_category: {
+          businessId: businesses.lvp,
+          userId: SEED_USERS.lvpClient.id,
+          category: 'DOCUMENTS',
+        },
+      },
+      update: {},
+      create: { ...lvp, userId: SEED_USERS.lvpClient.id, category: 'DOCUMENTS', sms: true },
+    });
+
+    // Calendar: appointment types, the staff member's week (Mon-Fri 9-12 and 1-5, New York
+    // time), a firm closure on Thanksgiving, and one client-booked video consultation.
+    const appointmentType = await seedAppointmentTypes(
+      tx,
+      businesses.lvp,
+      SEED_APPOINTMENT_TYPES.lvp,
+    );
+    const staffHours = { ...lvp, userId: SEED_USERS.lvpStaff.id };
+    if ((await tx.workingHours.count({ where: staffHours })) === 0) {
+      const at = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00Z`);
+      await tx.workingHours.createMany({
+        data: [1, 2, 3, 4, 5].flatMap((weekday) => [
+          { ...staffHours, weekday, startsAt: at('09:00'), endsAt: at('12:00') },
+          { ...staffHours, weekday, startsAt: at('13:00'), endsAt: at('17:00') },
+        ]),
+      });
+    }
+    await tx.blockedTime.upsert({
+      where: { id: SEED_CALENDAR_IDS.thanksgiving },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_CALENDAR_IDS.thanksgiving,
+        startsAt: new Date('2026-11-26T05:00:00Z'),
+        endsAt: new Date('2026-11-27T05:00:00Z'),
+        reason: 'Thanksgiving (office closed)',
+        createdByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+    await tx.appointment.upsert({
+      where: { id: SEED_CALENDAR_IDS.appointment },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_CALENDAR_IDS.appointment,
+        clientId: SEED_CLIENT_IDS.lvp,
+        engagementId: SEED_WORK_IDS.lvpTax,
+        staffUserId: SEED_USERS.lvpStaff.id,
+        typeId: appointmentType('Tax consultation'),
+        startsAt: new Date('2026-10-20T18:00:00Z'),
+        endsAt: new Date('2026-10-20T18:30:00Z'),
+        locationKind: 'VIDEO',
+        locationDetails: 'The video link is sent before the meeting.',
+        bookedByUserId: SEED_USERS.lvpClient.id,
+        bookedByClient: true,
+      },
+    });
+
+    // Messages: the client asks about a W-2 (with the 1099-INT attached) and staff answer;
+    // the firm's welcome thread.
+    const thread = async (
+      id: string,
+      data: { subject: string; engagementId?: string; createdByUserId: string },
+    ) => {
+      await tx.messageThread.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, clientId: SEED_CLIENT_IDS.lvp, ...data },
+      });
+    };
+    const message = async (
+      id: string,
+      threadId: string,
+      direction: 'FIRM_TO_CLIENT' | 'CLIENT_TO_FIRM',
+      body: string,
+      createdAt: string,
+    ) => {
+      if (!(await tx.message.findUnique({ where: { id } }))) {
+        await tx.message.create({
+          data: {
+            ...lvp,
+            id,
+            threadId,
+            direction,
+            body,
+            senderUserId:
+              direction === 'CLIENT_TO_FIRM' ? SEED_USERS.lvpClient.id : SEED_USERS.lvpStaff.id,
+            createdAt: new Date(createdAt),
+          },
+        });
+      }
+    };
+    await thread(SEED_MESSAGE_IDS.welcomeThread, {
+      subject: 'Welcome to LVP!',
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    });
+    await message(
+      SEED_MESSAGE_IDS.welcomeMessage,
+      SEED_MESSAGE_IDS.welcomeThread,
+      'FIRM_TO_CLIENT',
+      'Welcome to your client portal. Send us a message here any time.',
+      '2026-10-01T14:00:00Z',
+    );
+    await thread(SEED_MESSAGE_IDS.w2Thread, {
+      subject: 'Question about my W-2',
+      engagementId: SEED_WORK_IDS.lvpTax,
+      createdByUserId: SEED_USERS.lvpClient.id,
+    });
+    await message(
+      SEED_MESSAGE_IDS.w2Question,
+      SEED_MESSAGE_IDS.w2Thread,
+      'CLIENT_TO_FIRM',
+      'Do you need the W-2 from my second job too? I attached my 1099-INT.',
+      '2026-10-02T15:00:00Z',
+    );
+    await tx.messageAttachment.upsert({
+      where: {
+        businessId_messageId_documentId: {
+          businessId: businesses.lvp,
+          messageId: SEED_MESSAGE_IDS.w2Question,
+          documentId: SEED_DOCUMENT_IDS.interestDocument,
+        },
+      },
+      update: {},
+      create: {
+        ...lvp,
+        messageId: SEED_MESSAGE_IDS.w2Question,
+        documentId: SEED_DOCUMENT_IDS.interestDocument,
+      },
+    });
+    await message(
+      SEED_MESSAGE_IDS.w2Answer,
+      SEED_MESSAGE_IDS.w2Thread,
+      'FIRM_TO_CLIENT',
+      'Yes, please upload every W-2 under the W-2 request. Thanks for the 1099-INT.',
+      '2026-10-02T17:30:00Z',
+    );
   });
+
+  // The client's private note: written as the client, the only one the database shows it to.
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpClient.id },
+    async (tx) => {
+      const owner = { businessId: businesses.lvp, userId: SEED_USERS.lvpClient.id };
+      if (
+        !(await tx.clientPrivateNote.findUnique({ where: { id: SEED_MESSAGE_IDS.clientNote } }))
+      ) {
+        await tx.clientPrivateNote.create({
+          data: {
+            ...owner,
+            id: SEED_MESSAGE_IDS.clientNote,
+            body: 'Remember to gather my 1099 forms. Ask about retirement contribution options.',
+          },
+        });
+      }
+      await tx.clientNoteReminder.upsert({
+        where: { id: SEED_MESSAGE_IDS.clientNoteReminder },
+        update: {},
+        create: {
+          ...owner,
+          id: SEED_MESSAGE_IDS.clientNoteReminder,
+          noteId: SEED_MESSAGE_IDS.clientNote,
+          remindAt: new Date('2026-10-25T13:00:00Z'),
+        },
+      });
+    },
+  );
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
     await tx.membership.upsert({
@@ -348,7 +922,10 @@ async function main() {
       SEED_USERS.firmBClient,
       SEED_USERS.firmBOwner.id,
     );
+    await seedDocumentCategories(tx, businesses.testFirmB, SEED_DOCUMENT_CATEGORIES.testFirmB);
     const service = await seedServices(tx, businesses.testFirmB, SEED_SERVICES.testFirmB);
+    await seedIntakeForms(tx, businesses.testFirmB, service, ['Annual Tax']);
+    await seedAppointmentTypes(tx, businesses.testFirmB, SEED_APPOINTMENT_TYPES.testFirmB);
     await tx.engagement.upsert({
       where: { id: SEED_WORK_IDS.firmBTax },
       update: {},
@@ -365,7 +942,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services and engagements.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar and messages.`,
   );
 }
 

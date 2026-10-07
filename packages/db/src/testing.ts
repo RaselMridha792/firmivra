@@ -68,9 +68,22 @@ export async function prepareTestDatabase(
       support_access_grants, audit_logs, firm_applications, business_settings,
       firm_legal_documents, tax_statuses, invites, clients, client_profiles, client_tax_statuses,
       client_tax_status_history, services, engagements, engagement_status_history, tasks, notes,
-      engagement_reports CASCADE`);
+      engagement_reports, document_categories, documents, document_requests, intake_forms, intakes,
+      intake_submissions, leads, lead_uploads, notifications, notification_deliveries, legal_acceptances,
+      notification_preferences, appointment_types, working_hours, blocked_times, appointments,
+      message_threads, messages, message_attachments, client_private_notes, client_note_reminders,
+      verification_codes, tax_returns CASCADE`);
   } finally {
     await owner.end();
   }
   return urls;
 }
+
+/**
+ * Client options for tests. Several suites (or other sessions' suites) on one Postgres can keep
+ * an interactive transaction from starting within Prisma's default 2 s, which fails a file's
+ * setup with "Unable to start a transaction in the given time". Wait longer instead.
+ */
+export const TEST_CLIENT_OPTIONS = {
+  transactionOptions: { maxWait: 15_000, timeout: 60_000 },
+} as const;
