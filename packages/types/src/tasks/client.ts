@@ -11,9 +11,9 @@ import {
 const BASE = '/business/tasks';
 
 /**
- * `api.tasks`: the firm's to-dos for its clients (client record Tasks tab, workspaces). Staff see
- * their clients' tasks and tasks assigned to them, and create tasks only for their clients;
- * anything else is 404 NOT_FOUND.
+ * `api.tasks`: the firm's to-dos for its clients (client record Tasks tab, workspaces). Staff see,
+ * change and create only their assigned clients' tasks (404 NOT_FOUND otherwise). A client's task
+ * goes to a Staff member only when that client is assigned to them (409 CLIENT_NOT_ASSIGNED).
  */
 export function createTasksClient(request: ApiRequest) {
   return {
