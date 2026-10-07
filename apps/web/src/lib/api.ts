@@ -1,7 +1,13 @@
 import {
   createApiClient,
+  createClientsClient,
   createClientSignUpsClient,
+  createEngagementsClient,
+  createMyProfileClient,
+  createMyServicesClient,
+  createMyTaxReturnsClient,
   createRequest,
+  createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
 } from '@firmivra/types';
@@ -22,4 +28,12 @@ export const api = {
   team: createTeamClient(request),
   /** Pending client sign-ups, approve and decline (docs/api/client-auth.yaml). */
   clientSignUps: createClientSignUpsClient(request),
+  /** Client records (R10): firm side. */
+  clients: createClientsClient(request),
+  engagements: createEngagementsClient(request),
+  taxReturns: createTaxReturnsClient(request),
+  /** Client records (R10): the signed-in client's own, per firm (portal). */
+  myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
+  myServices: (firmSlug: string) => createMyServicesClient(request, firmSlug),
+  myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
 };
