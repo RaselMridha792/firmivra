@@ -37,7 +37,7 @@
   min-height: var(--auth-canvas-height);
   color: var(--auth-ink);
   background: var(--color-canvas);
-  padding-block: var(--auth-card-top);
+  padding-block: var(--auth-card-top) calc(var(--space-16) + var(--space-3));
 }
 .auth-art {
   position: absolute;
