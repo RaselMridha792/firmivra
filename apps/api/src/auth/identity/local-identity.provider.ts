@@ -17,7 +17,9 @@ export const LOCAL_TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
 
 /**
  * Local stand-in for Cognito: same steps and errors, so the screens run end to end without AWS.
- * Each user's first sign-in after the API starts asks for authenticator setup; later ones for a code.
+ * Staff and Super Admins: the first sign-in after the API starts asks for authenticator setup;
+ * later ones for a code. Clients (MFA optional) are signed in at once, or asked for a code once
+ * they have set up an authenticator.
  * Passwords set by reset or activation last until the API restarts (then the dev password works
  * again). Refresh tokens are not revoked locally.
  */
@@ -31,14 +33,17 @@ export class LocalIdentityProvider implements IdentityProvider {
 
   constructor(private readonly tokens: TokenService) {}
 
-  signIn(_pool: IdentityPool, sub: string | undefined, password: string): Promise<AuthStep> {
+  async signIn(pool: IdentityPool, sub: string | undefined, password: string): Promise<AuthStep> {
     const expected =
       this.passwords.get(sub ?? '') ?? (this.invited.has(sub ?? '') ? undefined : LOCAL_PASSWORD);
     if (!sub || password !== expected || this.disabled.has(sub)) {
-      return Promise.reject(new AuthFlowError('INVALID_CREDENTIALS'));
+      throw new AuthFlowError('INVALID_CREDENTIALS');
+    }
+    if (pool === 'CLIENT' && !this.mfaReady.has(sub)) {
+      return { kind: 'tokens', tokens: await this.issue(sub, pool), username: sub };
     }
     const step = this.mfaReady.has(sub) ? 'MFA' : 'MFA_SETUP';
-    return Promise.resolve({ kind: 'challenge', step, username: sub, session: randomUUID() });
+    return { kind: 'challenge', step, username: sub, session: randomUUID() };
   }
 
   async answerMfa(
