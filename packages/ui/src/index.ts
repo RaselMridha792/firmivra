@@ -4,3 +4,4 @@ export { Input, type InputProps } from './input';
 export { Select, Checkbox, type SelectProps, type CheckboxProps } from './fields';
 export { Radio, type RadioProps } from './radio';
 export { Badge } from './badge';
+export { AuthFrame } from './auth-frame';

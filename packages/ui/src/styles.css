@@ -1,4 +1,5 @@
 /* F01 CSS token source: colours and sizing from docs/mockups; tenant palettes stay separate. */
+@import './auth.css';
 @theme {
   --color-*: initial;
   --color-platform-navy: #001b36;
