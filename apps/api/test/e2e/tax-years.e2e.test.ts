@@ -309,8 +309,9 @@ describe('portal: the client reads only their own years', () => {
     ]);
   });
 
-  it('staff and other firms are refused; a firm-route token is not a portal one', async () => {
-    expect((await portal(people.ownerA)).status).toBe(403);
+  it('staff and other firms are refused; a client is not firm staff', async () => {
+    // Portal routes take only the clients pool (AuthGuard, #62): a staff token is not a session there.
+    expect((await portal(people.ownerA)).status).toBe(401);
     expect((await portal(people.clientA, `r10y-b-${run}`)).status).toBe(404);
     expect((await firm('get', `/${ids.client1}/tax-years`, people.clientA)).status).toBe(403);
   });
