@@ -276,18 +276,49 @@ export interface PortalAuthMockOptions {
 /**
  * An in-memory `portalAuth(slug)`. Only the `lvp` portal exists (other slugs answer 404).
  * Walk a sign-up: signUp, then verifyEmail and verifyPhone with MOCK_CODE (any other code is
- * CODE_INVALID); signing in afterwards answers the pending account, as the API does. Sign-in
- * works with any password except MOCK_WRONG_PASSWORD; `signedIn` starts with a session.
+ * CODE_INVALID); signing in afterwards answers the pending account, as the API does. As in the
+ * API, a changed email or phone gets its code only once the 45 s gap since the last code has
+ * passed (until then the old code no longer works: press Resend), and a session has 10 code
+ * requests. Sign-in works with any password except MOCK_WRONG_PASSWORD; `signedIn` starts with a
+ * session.
  */
 export function createPortalAuthMock(
   firmSlug: string,
   options: PortalAuthMockOptions = {},
 ): PortalAuthClient {
   const known = firmSlug.toLowerCase() === 'lvp';
-  let signUp: { step: SignUpState['step']; email: string; phone: string; resendAt: number } | null =
-    options.signUpStep
-      ? { step: options.signUpStep, email: 'john@example.com', phone: '+17705550123', resendAt: 0 }
-      : null;
+  type Walk = {
+    step: SignUpState['step'];
+    email: string;
+    phone: string;
+    /** When the last code went out. */
+    resendAt: number;
+    /** Whether the current step's code was sent to the current address. */
+    codeSent: boolean;
+    sends: number;
+  };
+  let signUp: Walk | null = options.signUpStep
+    ? {
+        step: options.signUpStep,
+        email: 'john@example.com',
+        phone: '+17705550123',
+        resendAt: 0,
+        codeSent: true,
+        sends: 1,
+      }
+    : null;
+  const SENDS_PER_SESSION = 10;
+  /** A changed address gets its code now if the gap has passed; otherwise after Resend. */
+  const changed = (s: Walk, fields: Partial<Walk>) => {
+    if (s.sends >= SENDS_PER_SESSION) throw fail(429, errors.rateLimited);
+    const now = Date.now();
+    const sendNow = now >= s.resendAt + RESEND_GAP_MS;
+    Object.assign(s, fields, {
+      codeSent: sendNow,
+      resendAt: sendNow ? now : s.resendAt,
+      sends: s.sends + 1,
+    });
+  };
   let me: MeResponse | null =
     options.signedIn === 'ACTIVE' ? meActive : options.signedIn ? mePending : null;
   /** Accounts made by a finished sign-up in this mock: they sign in as pending. */
@@ -349,6 +380,8 @@ export function createPortalAuthMock(
         email: input.email,
         phone: input.phone,
         resendAt: Date.now(),
+        codeSent: true,
+        sends: 1,
       };
       return state();
     },
@@ -361,16 +394,18 @@ export function createPortalAuthMock(
       await pause();
       const { code } = parseInput(VerifyCodeRequest, body);
       const s = at('VERIFY_EMAIL');
-      if (code !== MOCK_CODE) throw fail(400, errors.codeInvalid);
+      if (code !== MOCK_CODE || !s.codeSent) throw fail(400, errors.codeInvalid);
       s.step = 'VERIFY_PHONE';
-      s.resendAt = Date.now();
+      // The SMS code goes out when the gap allows, as in the API.
+      s.codeSent = Date.now() >= s.resendAt + RESEND_GAP_MS;
+      if (s.codeSent) s.resendAt = Date.now();
       return state();
     },
     verifyPhone: async (body) => {
       await pause();
       const { code } = parseInput(VerifyCodeRequest, body);
       const s = at('VERIFY_PHONE');
-      if (code !== MOCK_CODE) throw fail(400, errors.codeInvalid);
+      if (code !== MOCK_CODE || !s.codeSent) throw fail(400, errors.codeInvalid);
       s.step = 'DONE';
       signedUp.add(s.email);
       return state();
@@ -384,23 +419,28 @@ export function createPortalAuthMock(
         throw fail(409, errors.alreadyVerified);
       }
       if (s.step !== wanted) throw fail(409, errors.wrongStep);
+      if (signUp && signUp.sends >= SENDS_PER_SESSION) throw fail(429, errors.rateLimited);
       if (signUp && Date.now() < signUp.resendAt + RESEND_GAP_MS)
         throw fail(429, errors.rateLimited);
-      if (signUp) signUp.resendAt = Date.now();
+      if (signUp)
+        Object.assign(signUp, { resendAt: Date.now(), codeSent: true, sends: signUp.sends + 1 });
       return state();
     },
     changeEmail: async (body) => {
       await pause();
       const { email } = parseInput(ChangeEmailRequest, body);
       if (state().step !== 'VERIFY_EMAIL') throw fail(409, errors.alreadyVerified);
-      if (signUp) Object.assign(signUp, { email, resendAt: Date.now() });
+      if (signUp) changed(signUp, { email });
       return state();
     },
     changePhone: async (body) => {
       await pause();
       const { phone } = parseInput(ChangePhoneRequest, body);
-      if (state().step === 'DONE') throw fail(409, errors.alreadyVerified);
-      if (signUp) Object.assign(signUp, { phone, resendAt: Date.now() });
+      const step = state().step;
+      if (step === 'DONE') throw fail(409, errors.alreadyVerified);
+      // Before the phone step a new number only changes the login; no SMS is due yet.
+      if (signUp && step === 'VERIFY_PHONE') changed(signUp, { phone });
+      else if (signUp) Object.assign(signUp, { phone, sends: signUp.sends + 1 });
       return state();
     },
 

@@ -34,8 +34,10 @@ test.describe('each site loads on its own host', () => {
 test.describe('local sign-in works end to end (/api/v1/me)', () => {
   test('LVP owner in the firm workspace', async ({ page }) => {
     await signInAs(page, site('app', '/sign-in'), 'owner@lvp.test');
+    // Firm workspace shell (skeleton): the header names the firm, the user menu the email.
+    await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
+    await page.getByRole('button', { name: /Owner/ }).click();
     await expect(page.getByTestId('me-email')).toHaveText('owner@lvp.test');
-    await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes (lvp)');
   });
 
   test('LVP client in the LVP portal, and no access to another firm', async ({ page }) => {
@@ -61,6 +63,6 @@ test.describe('local sign-in works end to end (/api/v1/me)', () => {
 
   test('signed-out visitors are sent to sign in', async ({ page }) => {
     await page.goto(site('app', '/'));
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await expect(page).toHaveURL(site('app', '/sign-in'));
   });
 });

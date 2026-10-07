@@ -18,18 +18,23 @@ export interface AuditEntity {
 export class AuditService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
+  /**
+   * `at` names the firm and the actor where the request context has none, for example a signed-out
+   * client signing up on a firm's portal. Left out, both come from the context.
+   */
   async log(
     action: string,
     entity: AuditEntity,
     metadata?: Record<string, unknown>,
+    at: { businessId?: string; actorUserId?: string } = {},
   ): Promise<void> {
     const store = requestContext.getStore();
-    const businessId = store?.tenant?.businessId ?? null;
+    const businessId = at.businessId ?? store?.tenant?.businessId ?? null;
     const client = businessId ? this.db.forBusiness(businessId) : this.db.forPlatform();
     await client.auditLog.create({
       data: {
         businessId,
-        actorUserId: store?.auth?.userId ?? null,
+        actorUserId: at.actorUserId ?? store?.auth?.userId ?? null,
         action,
         entityType: entity.type,
         entityId: entity.id ?? null,

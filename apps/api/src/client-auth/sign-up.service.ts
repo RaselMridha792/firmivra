@@ -1,13 +1,18 @@
-import { randomUUID } from 'node:crypto';
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { createHmac, randomUUID } from 'node:crypto';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import type { Database } from '@firmivra/db';
-import { portalCookies, type SignUpRequest, type SignUpState } from '@firmivra/types';
+import {
+  type AccountType,
+  portalCookies,
+  type SignUpRequest,
+  type SignUpState,
+} from '@firmivra/types';
 import { AuditService, type AuditEntity } from '../audit/audit.service.js';
 import { runFlow } from '../auth/auth-errors.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from '../auth/identity/identity-provider.js';
-import { type AuthContext, requestContext } from '../common/request-context.js';
+import { deriveKey, poolSecrets } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -22,17 +27,60 @@ import {
 } from './sign-up-session.js';
 import {
   type Channel,
-  RESEND_GAP_MS,
+  CODE_LIMITS,
+  type CodeOwner,
   VerificationCodesService,
 } from './verification-codes.service.js';
 
 type Step = SignUpState['step'];
-type Account = NonNullable<Awaited<ReturnType<SignUpService['account']>>>;
+type Firm = { id: string; slug: string; name: string };
+
+/**
+ * Sign-up limits counted in the database (#51 review), the same on every path. Mutable for tests.
+ * - perEmailPerDay, perFirmPerDay: sign-ups (and changes to a new email) for one email at a firm,
+ *   and at the firm, in a day; then 429. They also bound the logins sign-up creates.
+ * - sendsPerSession: requests for a code (sign-up, resend, changes) in one sign-up session.
+ * - noticeGapMs: at most one "already registered" email to an account in this window.
+ */
+export const SIGN_UP_LIMITS = {
+  perEmailPerDay: 5,
+  perFirmPerDay: 200,
+  sendsPerSession: 10,
+  noticeGapMs: 60 * 60_000,
+};
+/** In AWS every sign-up answer takes at least this long, so its timing shows nothing. */
+export const COGNITO_MIN_RESPONSE_MS = 1_000;
+const DAY_MS = 24 * 60 * 60_000;
+const SIGN_UP_ATTEMPT = 'client_auth.sign_up_attempt';
+const REGISTERED_NOTICE = 'client_account.registered_notice';
+/** Same key as portal sign-in's per-email limit: an email is counted per firm. */
+const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
 
 const isUniqueViolation = (e: unknown) => (e as { code?: string }).code === 'P2002';
-const isRateLimited = (e: unknown) =>
-  e instanceof HttpException && e.getStatus() === HttpStatus.TOO_MANY_REQUESTS;
-const stepOf = (a: Account): Step =>
+
+type AccountRow = {
+  id: string;
+  email: string;
+  status: string;
+  emailVerifiedAt: Date | null;
+  phoneVerifiedAt: Date | null;
+  clientId: string | null;
+  userId: string;
+};
+const ACCOUNT = {
+  id: true,
+  email: true,
+  status: true,
+  emailVerifiedAt: true,
+  phoneVerifiedAt: true,
+  clientId: true,
+  userId: true,
+} as const;
+
+/** A sign-up nobody finished: another attempt may take it over, once it proves the email. */
+const unfinished = (a: Pick<AccountRow, 'status' | 'emailVerifiedAt' | 'clientId'>) =>
+  a.status === 'PENDING_APPROVAL' && !a.emailVerifiedAt && !a.clientId;
+const stepOf = (a: AccountRow): Step =>
   !a.emailVerifiedAt ? 'VERIFY_EMAIL' : !a.phoneVerifiedAt ? 'VERIFY_PHONE' : 'DONE';
 
 /** "(770) ***-0123" for US numbers, "+44 *** 0123" elsewhere. */
@@ -42,14 +90,34 @@ export function maskPhone(phone: string): string {
     : `${phone.slice(0, 3)} *** ${phone.slice(-4)}`;
 }
 
+/** Runs `work`, then waits until at least `ms` have passed, also when it fails. */
+export async function atLeast<T>(ms: number, work: () => Promise<T>): Promise<T> {
+  const until = Date.now() + ms;
+  try {
+    return await work();
+  } finally {
+    const wait = until - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+}
+
 /**
  * Client portal sign-up (docs/api/client-auth.yaml): account, then the email code, then the SMS
- * code. Every answer is the same whether or not the email already has an account at the firm.
- * The pages store nothing: the sealed sign-up cookie says which account and firm.
+ * code. Every answer, cookie and Cognito call is the same whether or not the email has an account
+ * at the firm (#51 review):
+ * - Each sign-up makes its own attempt login (Cognito user and user row) with the password, name
+ *   and phone. Sign-up never changes an existing account or its login.
+ * - A new email gets a pending account owned by the attempt. An unfinished sign-up's account is
+ *   left as it is: the attempt takes it over only when it proves the email with its own code.
+ *   Any other existing account: the attempt goes nowhere, and the owner gets one email saying so.
+ * The pages store nothing: the sealed cookie says which attempt and account.
  */
 @Injectable()
 export class SignUpService {
   private readonly secure: boolean;
+  private readonly minResponseMs: number;
+  private readonly emailKeySecret: Uint8Array;
+  private readonly logger = new Logger(SignUpService.name);
 
   constructor(
     @Inject(DATABASE) private readonly db: Database,
@@ -62,81 +130,43 @@ export class SignUpService {
     @Inject(ENV) env: Env,
   ) {
     this.secure = env.NODE_ENV === 'production';
+    this.minResponseMs = env.AUTH_MODE === 'cognito' ? COGNITO_MIN_RESPONSE_MS : 0;
+    const secret = poolSecrets(env).CLIENT;
+    if (!secret) throw new Error('No key for client email hashes');
+    this.emailKeySecret = deriveKey(secret, 'CLIENT', EMAIL_KEY_LABEL);
   }
 
-  async signUp(
+  signUp(
     firmSlug: string,
     input: z.output<typeof SignUpRequest>,
     req: Request,
     res: Response,
   ): Promise<SignUpState> {
-    const firm = await this.portal.activeFirm(firmSlug);
-    const policy = await this.portal.signUpPolicy(firm.id);
-    if (!policy.open || !policy.terms || !policy.privacy) throw signUpErrors.closed();
-    if (
-      input.accepted.termsVersion !== policy.terms.version ||
-      input.accepted.privacyVersion !== policy.privacy.version
-    ) {
-      throw signUpErrors.termsOutdated();
-    }
-    const documents = [policy.terms.id, policy.privacy.id];
-
-    const existing = await this.db.forBusiness(firm.id).clientAccount.findUnique({
-      where: { businessId_email: { businessId: firm.id, email: input.email } },
-      select: {
-        id: true,
-        userId: true,
-        emailVerifiedAt: true,
-        user: { select: { cognitoSub: true } },
-      },
-    });
-    let accountId: string | null;
-    if (existing?.emailVerifiedAt) {
-      // Already an account here: the owner of the address hears so; the answer stays the same.
-      await this.sender.alreadyRegistered({ to: input.email, businessName: firm.name });
-      accountId = null;
-    } else if (existing) {
-      // A sign-up that never verified its email starts again with the new details.
-      await runFlow(() =>
-        this.identity.setPassword('CLIENT', existing.user.cognitoSub, input.password),
-      );
-      await this.identity.updateContact('CLIENT', existing.user.cognitoSub, {
+    return atLeast(this.minResponseMs, async () => {
+      const firm = await this.portal.activeFirm(firmSlug);
+      const documents = await this.currentDocuments(firm.id, input.accepted);
+      await this.countAttempt(firm.id, input.email);
+      // Every path makes the attempt's login, so the work, timing and errors are the same.
+      const userId = await this.createAttemptUser(input);
+      const accountId = await this.attach(firm, userId, input, documents, req);
+      if (accountId) {
+        await this.sendCode(this.owner(firm.id, accountId, userId), 'EMAIL', input.email, firm);
+      }
+      const session: SignUpSession = {
+        pool: 'CLIENT',
+        businessId: firm.id,
+        firmSlug: firm.slug,
+        clientAccountId: accountId ?? randomUUID(),
+        userId,
+        email: input.email,
         phone: input.phone,
-        phoneVerified: false,
-      });
-      await this.db.forPlatform().user.update({
-        where: { id: existing.userId },
-        data: { name: input.name, phone: input.phone },
-      });
-      await this.db.withScope({ kind: 'business', businessId: firm.id }, async (tx) => {
-        await tx.clientAccount.update({
-          where: { id: existing.id },
-          data: { accountType: input.accountType },
-        });
-        await tx.legalAcceptance.createMany({
-          data: documents.map((legalDocumentId) =>
-            acceptance(firm.id, existing.id, legalDocumentId, req),
-          ),
-          skipDuplicates: true,
-        });
-      });
-      accountId = existing.id;
-    } else {
-      accountId = await this.createAccount(firm, input, documents, req);
-    }
-
-    if (accountId) await this.sendCode(firm, accountId, 'EMAIL', input.email, true);
-    const session: SignUpSession = {
-      pool: 'CLIENT',
-      businessId: firm.id,
-      firmSlug: firm.slug,
-      clientAccountId: accountId,
-      email: input.email,
-      phone: input.phone,
-      resendAt: Date.now() + RESEND_GAP_MS,
-    };
-    await this.writeSession(res, session, Math.floor(Date.now() / 1000) + SIGN_UP_SECONDS);
-    return this.stateOf(session);
+        accountType: input.accountType,
+        resendAt: Date.now() + CODE_LIMITS.resendGapMs,
+        sends: 1,
+      };
+      await this.writeSession(res, session, Math.floor(Date.now() / 1000) + SIGN_UP_SECONDS);
+      return this.stateOf(session);
+    });
   }
 
   async state(firmSlug: string, req: Request): Promise<SignUpState> {
@@ -144,146 +174,206 @@ export class SignUpService {
     return this.stateOf(session);
   }
 
-  async verifyEmail(firmSlug: string, code: string, req: Request): Promise<SignUpState> {
-    const { value: s } = await this.session(firmSlug, req);
-    if (!s.clientAccountId) throw signUpErrors.codeInvalid();
-    const account = await this.account(s);
-    if (stepOf(account) !== 'VERIFY_EMAIL') throw signUpErrors.wrongStep();
-    if (!(await this.codes.check(s.businessId, account.id, 'EMAIL', account.email, code))) {
-      throw signUpErrors.codeInvalid();
-    }
-    await this.db
-      .forBusiness(s.businessId)
-      .clientAccount.update({ where: { id: account.id }, data: { emailVerifiedAt: new Date() } });
-    await this.identity.updateContact('CLIENT', account.user.cognitoSub, { emailVerified: true });
-    const firm = await this.portal.activeFirm(s.firmSlug);
-    await this.sendCode(firm, account.id, 'PHONE', account.user.phone ?? s.phone, true);
-    return this.stateOf(s);
+  /**
+   * The email code. On success this attempt owns the account (taking over an unfinished sign-up
+   * replaces its login, which is then disabled), and the SMS code is sent.
+   */
+  verifyEmail(firmSlug: string, code: string, req: Request): Promise<SignUpState> {
+    return atLeast(this.minResponseMs, async () => {
+      const { value: s } = await this.session(firmSlug, req);
+      const account = await this.attemptAccount(s);
+      if (!account) throw signUpErrors.codeInvalid();
+      if (account.emailVerifiedAt) throw signUpErrors.wrongStep();
+      const owner = this.owner(s.businessId, account.id, s.userId);
+      if (!(await this.codes.check(owner, 'EMAIL', account.email, code))) {
+        throw signUpErrors.codeInvalid();
+      }
+      const user = await this.attemptUser(s.userId);
+      await this.db.withScope({ kind: 'business', businessId: s.businessId }, async (tx) => {
+        const proved = await tx.clientAccount.updateMany({
+          where: { id: account.id, status: 'PENDING_APPROVAL', emailVerifiedAt: null },
+          data: { emailVerifiedAt: new Date(), userId: s.userId, accountType: s.accountType },
+        });
+        if (proved.count !== 1) throw signUpErrors.codeInvalid();
+        // In the transaction: if Cognito fails, the account is not marked verified either.
+        await this.identity.updateContact('CLIENT', user.cognitoSub, { emailVerified: true });
+      });
+      const tookOver = account.userId !== s.userId;
+      if (tookOver) await this.retireLogin(account.userId);
+      await this.log(s.businessId, s.userId, 'client_account.email_verified', account.id, {
+        tookOver,
+      });
+      const firm = await this.portal.activeFirm(s.firmSlug);
+      await this.sendCode(owner, 'PHONE', user.phone ?? s.phone, firm);
+      return this.stateOf(s);
+    });
   }
 
-  async verifyPhone(firmSlug: string, code: string, req: Request): Promise<SignUpState> {
-    const { value: s } = await this.session(firmSlug, req);
-    if (!s.clientAccountId) throw signUpErrors.wrongStep();
-    const account = await this.account(s);
-    if (stepOf(account) !== 'VERIFY_PHONE') throw signUpErrors.wrongStep();
-    const phone = account.user.phone ?? s.phone;
-    if (!(await this.codes.check(s.businessId, account.id, 'PHONE', phone, code))) {
-      throw signUpErrors.codeInvalid();
-    }
-    await this.db
-      .forBusiness(s.businessId)
-      .clientAccount.update({ where: { id: account.id }, data: { phoneVerifiedAt: new Date() } });
-    await this.identity.updateContact('CLIENT', account.user.cognitoSub, { phoneVerified: true });
-    await this.auditInFirm(
-      s.businessId,
-      { userId: account.user.id, cognitoSub: account.user.cognitoSub, pool: 'CLIENT' },
-      'client_account.verified',
-      { type: 'client_account', id: account.id },
-    );
-    return this.stateOf(s);
+  /** The SMS code, only for the attempt that proved the email. The account then waits for the firm. */
+  verifyPhone(firmSlug: string, code: string, req: Request): Promise<SignUpState> {
+    return atLeast(this.minResponseMs, async () => {
+      const { value: s } = await this.session(firmSlug, req);
+      const account = await this.attemptAccount(s);
+      // Without an account this session looks like the email step, as a real one would.
+      if (!account?.emailVerifiedAt || account.phoneVerifiedAt) throw signUpErrors.wrongStep();
+      const user = await this.attemptUser(s.userId);
+      const owner = this.owner(s.businessId, account.id, s.userId);
+      if (!(await this.codes.check(owner, 'PHONE', user.phone ?? s.phone, code))) {
+        throw signUpErrors.codeInvalid();
+      }
+      await this.db.withScope({ kind: 'business', businessId: s.businessId }, async (tx) => {
+        const proved = await tx.clientAccount.updateMany({
+          where: { id: account.id, userId: s.userId, phoneVerifiedAt: null },
+          data: { phoneVerifiedAt: new Date() },
+        });
+        if (proved.count !== 1) throw signUpErrors.codeInvalid();
+        await this.identity.updateContact('CLIENT', user.cognitoSub, { phoneVerified: true });
+      });
+      await this.log(s.businessId, s.userId, 'client_account.verified', account.id);
+      return this.stateOf(s);
+    });
   }
 
-  async resend(
+  resend(
     firmSlug: string,
     channel: 'email' | 'phone',
     req: Request,
     res: Response,
   ): Promise<SignUpState> {
-    const { value: s, expiresAt } = await this.session(firmSlug, req);
-    if (!s.clientAccountId) {
-      if (channel === 'phone') throw signUpErrors.wrongStep();
-      if (Date.now() < s.resendAt) throw rateLimited();
-      const next = { ...s, resendAt: Date.now() + RESEND_GAP_MS };
-      await this.writeSession(res, next, expiresAt);
-      return this.stateOf(next);
-    }
-    const account = await this.account(s);
-    const step = stepOf(account);
-    if (channel === 'email' ? step !== 'VERIFY_EMAIL' : step === 'DONE') {
-      throw signUpErrors.alreadyVerified();
-    }
-    if (channel === 'phone' && step !== 'VERIFY_PHONE') throw signUpErrors.wrongStep();
-    const firm = await this.portal.activeFirm(s.firmSlug);
-    const target = channel === 'email' ? account.email : (account.user.phone ?? s.phone);
-    await this.sendCode(firm, account.id, channel === 'email' ? 'EMAIL' : 'PHONE', target, false);
-    return this.stateOf(s);
-  }
-
-  async changeEmail(firmSlug: string, email: string, req: Request, res: Response) {
-    const { value: s, expiresAt } = await this.session(firmSlug, req);
-    const firm = await this.portal.activeFirm(s.firmSlug);
-    if (!s.clientAccountId) {
-      const next = { ...s, email, resendAt: Date.now() + RESEND_GAP_MS };
-      await this.writeSession(res, next, expiresAt);
-      return this.stateOf(next);
-    }
-    const account = await this.account(s);
-    if (stepOf(account) !== 'VERIFY_EMAIL') throw signUpErrors.alreadyVerified();
-    const scope = this.db.forBusiness(s.businessId);
-    const taken = await scope.clientAccount.findUnique({
-      where: { businessId_email: { businessId: s.businessId, email } },
-      select: { id: true, emailVerifiedAt: true },
-    });
-    if (taken && taken.id !== account.id) {
-      // As at sign-up: the same answer, and the session goes nowhere from here.
-      if (taken.emailVerifiedAt) {
-        await this.sender.alreadyRegistered({ to: email, businessName: firm.name });
+    return atLeast(this.minResponseMs, async () => {
+      const { value: s, expiresAt } = await this.session(firmSlug, req);
+      if (s.sends >= SIGN_UP_LIMITS.sendsPerSession) throw signUpErrors.rateLimited();
+      const account = await this.attemptAccount(s);
+      const step = account ? stepOf(account) : 'VERIFY_EMAIL';
+      if (channel === 'email' ? step !== 'VERIFY_EMAIL' : step === 'DONE') {
+        throw signUpErrors.alreadyVerified();
       }
-      const next = { ...s, clientAccountId: null, email, resendAt: Date.now() + RESEND_GAP_MS };
+      if (channel === 'phone' && step !== 'VERIFY_PHONE') throw signUpErrors.wrongStep();
+      const firm = await this.portal.activeFirm(s.firmSlug);
+      if (account) {
+        const user = await this.attemptUser(s.userId);
+        const target = channel === 'email' ? account.email : (user.phone ?? s.phone);
+        const owner = this.owner(s.businessId, account.id, s.userId);
+        const ch = channel === 'email' ? 'EMAIL' : 'PHONE';
+        const issued = await this.sendCode(owner, ch, target, firm);
+        if (!issued.sent && issued.reason === 'gap') throw signUpErrors.rateLimited();
+      } else {
+        if (Date.now() < s.resendAt) throw signUpErrors.rateLimited();
+        await this.noticeIfRegistered(firm, s.email);
+      }
+      const next = { ...s, resendAt: Date.now() + CODE_LIMITS.resendGapMs, sends: s.sends + 1 };
       await this.writeSession(res, next, expiresAt);
       return this.stateOf(next);
-    }
-    if (email !== account.email) {
-      await scope.clientAccount.update({ where: { id: account.id }, data: { email } });
-      await this.db.forPlatform().user.update({ where: { id: account.user.id }, data: { email } });
-      await this.identity.updateContact('CLIENT', account.user.cognitoSub, {
-        email,
-        emailVerified: false,
-      });
-    }
-    await this.sendCode(firm, account.id, 'EMAIL', email, false);
-    const next = { ...s, email };
-    await this.writeSession(res, next, expiresAt);
-    return this.stateOf(next);
+    });
   }
 
-  async changePhone(firmSlug: string, phone: string, req: Request, res: Response) {
-    const { value: s, expiresAt } = await this.session(firmSlug, req);
-    const next = { ...s, phone };
-    if (s.clientAccountId) {
-      const account = await this.account(s);
-      const step = stepOf(account);
-      if (step === 'DONE') throw signUpErrors.alreadyVerified();
-      if (phone !== account.user.phone) {
-        await this.db
-          .forPlatform()
-          .user.update({ where: { id: account.user.id }, data: { phone } });
-        await this.identity.updateContact('CLIENT', account.user.cognitoSub, {
+  /**
+   * A different email, until it is verified. The attempt's login follows it: its own pending
+   * account moves to the new email if that is free; otherwise the new email is attached like a
+   * sign-up (new account, an unfinished one, or nowhere). Its code waits for the resend gap.
+   */
+  changeEmail(firmSlug: string, email: string, req: Request, res: Response) {
+    return atLeast(this.minResponseMs, async () => {
+      const { value: s, expiresAt } = await this.session(firmSlug, req);
+      if (s.sends >= SIGN_UP_LIMITS.sendsPerSession) throw signUpErrors.rateLimited();
+      const firm = await this.portal.activeFirm(s.firmSlug);
+      const scope = this.db.forBusiness(firm.id);
+      const owned = await scope.clientAccount.findUnique({
+        where: { userId: s.userId },
+        select: ACCOUNT,
+      });
+      if (owned?.emailVerifiedAt) throw signUpErrors.alreadyVerified();
+      await this.countAttempt(firm.id, email);
+
+      let accountId: string | null;
+      if (owned) {
+        const taken = await scope.clientAccount.findUnique({
+          where: { businessId_email: { businessId: firm.id, email } },
+          select: ACCOUNT,
+        });
+        if (!taken || taken.id === owned.id) {
+          if (owned.email !== email) {
+            await scope.clientAccount.update({ where: { id: owned.id }, data: { email } });
+          }
+          accountId = owned.id;
+        } else {
+          // The login already owns its first account, so it cannot take over another one.
+          if (!unfinished(taken)) await this.notifyRegistered(firm, taken.id, email);
+          accountId = null;
+        }
+      } else {
+        const documents = await this.currentDocuments(firm.id);
+        accountId = await this.attach(
+          firm,
+          s.userId,
+          { email, accountType: s.accountType },
+          documents,
+          req,
+        );
+      }
+      await this.moveLoginEmail(s.userId, email);
+      if (accountId) {
+        await this.sendCode(this.owner(firm.id, accountId, s.userId), 'EMAIL', email, firm);
+        await this.log(firm.id, s.userId, 'client_account.email_changed', accountId);
+      }
+      const next: SignUpSession = {
+        ...s,
+        clientAccountId: accountId ?? randomUUID(),
+        email,
+        resendAt: Date.now() + CODE_LIMITS.resendGapMs,
+        sends: s.sends + 1,
+      };
+      await this.writeSession(res, next, expiresAt);
+      return this.stateOf(next);
+    });
+  }
+
+  /** A different phone, until it is verified: the attempt's own login only. */
+  changePhone(firmSlug: string, phone: string, req: Request, res: Response) {
+    return atLeast(this.minResponseMs, async () => {
+      const { value: s, expiresAt } = await this.session(firmSlug, req);
+      if (s.sends >= SIGN_UP_LIMITS.sendsPerSession) throw signUpErrors.rateLimited();
+      const owned = await this.db.forBusiness(s.businessId).clientAccount.findUnique({
+        where: { userId: s.userId },
+        select: ACCOUNT,
+      });
+      if (owned?.phoneVerifiedAt) throw signUpErrors.alreadyVerified();
+      const user = await this.attemptUser(s.userId);
+      if (user.phone !== phone) {
+        await this.db.forPlatform().user.update({ where: { id: s.userId }, data: { phone } });
+        await this.identity.updateContact('CLIENT', user.cognitoSub, {
           phone,
           phoneVerified: false,
         });
       }
-      if (step === 'VERIFY_PHONE') {
-        const firm = await this.portal.activeFirm(s.firmSlug);
-        await this.sendCode(firm, account.id, 'PHONE', phone, false);
+      if (owned) {
+        if (owned.emailVerifiedAt && owned.id === s.clientAccountId) {
+          const firm = await this.portal.activeFirm(s.firmSlug);
+          await this.sendCode(this.owner(s.businessId, owned.id, s.userId), 'PHONE', phone, firm);
+        }
+        await this.log(s.businessId, s.userId, 'client_account.phone_changed', owned.id);
       }
-    }
-    await this.writeSession(res, next, expiresAt);
-    return this.stateOf(next);
+      const next = { ...s, phone, sends: s.sends + 1 };
+      await this.writeSession(res, next, expiresAt);
+      return this.stateOf(next);
+    });
   }
 
-  /** New login, user and pending client account with both legal acceptances, in that order. */
-  private async createAccount(
-    firm: { id: string },
-    input: z.output<typeof SignUpRequest>,
-    documents: string[],
-    req: Request,
-  ): Promise<string | null> {
+  /**
+   * The attempt's own login: a Cognito user with the password, and its user row. A refused
+   * password disables the half-made login and answers PASSWORD_REJECTED, on every path alike.
+   */
+  private async createAttemptUser(input: z.output<typeof SignUpRequest>): Promise<string> {
     const sub = await this.identity.createUser('CLIENT', input.email, {
       phone: input.phone,
       emailVerified: false,
     });
-    await runFlow(() => this.identity.setPassword('CLIENT', sub, input.password));
+    try {
+      await runFlow(() => this.identity.setPassword('CLIENT', sub, input.password));
+    } catch (e) {
+      await this.identity.disableUser('CLIENT', sub).catch(() => undefined);
+      throw e;
+    }
     // Identities are created in platform scope, then linked to the firm (the users policy).
     const user = await this.db.forPlatform().user.create({
       data: {
@@ -295,59 +385,188 @@ export class SignUpService {
       },
       select: { id: true },
     });
+    return user.id;
+  }
+
+  /**
+   * Which account an attempt is for: a new pending account it owns (with both legal
+   * acceptances), an unfinished sign-up it may take over (left unchanged), or none (null) when
+   * the email belongs to any other account, whose owner then gets one email.
+   */
+  private async attach(
+    firm: Firm,
+    userId: string,
+    details: { email: string; accountType: AccountType },
+    documents: string[],
+    req: Request,
+    retried = false,
+  ): Promise<string | null> {
+    const { email, accountType } = details;
+    const scope = this.db.forBusiness(firm.id);
+    const existing = await scope.clientAccount.findUnique({
+      where: { businessId_email: { businessId: firm.id, email } },
+      select: ACCOUNT,
+    });
+    if (existing && !unfinished(existing)) {
+      await this.notifyRegistered(firm, existing.id, email);
+      return null;
+    }
+    if (existing) {
+      await scope.legalAcceptance.createMany({
+        data: documents.map((d) => acceptance(firm.id, existing.id, d, req)),
+        skipDuplicates: true,
+      });
+      await this.log(firm.id, userId, 'client_account.sign_up_restarted', existing.id);
+      return existing.id;
+    }
     try {
       const accountId = await this.db.withScope(
         { kind: 'business', businessId: firm.id },
         async (tx) => {
           const account = await tx.clientAccount.create({
-            data: {
-              businessId: firm.id,
-              userId: user.id,
-              email: input.email,
-              accountType: input.accountType,
-            },
+            data: { businessId: firm.id, userId, email, accountType },
             select: { id: true },
           });
           await tx.legalAcceptance.createMany({
-            data: documents.map((legalDocumentId) =>
-              acceptance(firm.id, account.id, legalDocumentId, req),
-            ),
+            data: documents.map((d) => acceptance(firm.id, account.id, d, req)),
           });
           return account.id;
         },
       );
-      await this.auditInFirm(
-        firm.id,
-        { userId: user.id, cognitoSub: sub, pool: 'CLIENT' },
-        'client_account.signed_up',
-        { type: 'client_account', id: accountId },
-        { accountType: input.accountType },
-      );
+      await this.log(firm.id, userId, 'client_account.signed_up', accountId);
       return accountId;
     } catch (e) {
-      // Someone signed up with this email at this firm a moment ago: same answer, no code.
-      if (isUniqueViolation(e)) return null;
+      // A sign-up with this email at this firm a moment ago: attach to it like any unfinished one.
+      if (isUniqueViolation(e) && !retried) {
+        return this.attach(firm, userId, details, documents, req, true);
+      }
       throw e;
     }
   }
 
-  /** Issues and sends a code. `quiet`: within the resend gap, keep the code already sent. */
-  private async sendCode(
-    firm: { id: string; name: string },
-    accountId: string,
-    channel: Channel,
-    target: string,
-    quiet: boolean,
-  ): Promise<void> {
-    let code: string;
-    try {
-      code = await this.codes.issue(firm.id, accountId, channel, target);
-    } catch (e) {
-      if (quiet && isRateLimited(e)) return;
-      throw e;
+  /**
+   * The account this session's attempt may still act on, or null when it goes nowhere: no such
+   * account (a random id), or another attempt proved the email first. The owner keeps it while
+   * pending and once approved (the done page).
+   */
+  private async attemptAccount(s: SignUpSession): Promise<AccountRow | null> {
+    const account = await this.db.forBusiness(s.businessId).clientAccount.findUnique({
+      where: { id: s.clientAccountId },
+      select: ACCOUNT,
+    });
+    if (!account) return null;
+    if (account.userId === s.userId) {
+      return account.status === 'PENDING_APPROVAL' || account.status === 'ACTIVE' ? account : null;
     }
-    const message = { to: target, code, businessName: firm.name };
-    await (channel === 'EMAIL' ? this.sender.emailCode(message) : this.sender.smsCode(message));
+    return unfinished(account) ? account : null;
+  }
+
+  private attemptUser(userId: string) {
+    return this.db.forPlatform().user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, cognitoSub: true, phone: true, email: true },
+    });
+  }
+
+  /** The login of an unfinished sign-up that another attempt took over: disabled and removed. */
+  private async retireLogin(userId: string): Promise<void> {
+    try {
+      const user = await this.attemptUser(userId);
+      await this.identity.disableUser('CLIENT', user.cognitoSub);
+      await this.db.forPlatform().user.delete({ where: { id: userId } });
+    } catch {
+      this.logger.warn(`Could not retire the replaced sign-up login ${userId}`);
+    }
+  }
+
+  /** The attempt's login follows a changed email (unverified until its code). */
+  private async moveLoginEmail(userId: string, email: string): Promise<void> {
+    const user = await this.attemptUser(userId);
+    if (user.email === email) return;
+    await this.db.forPlatform().user.update({ where: { id: userId }, data: { email } });
+    await this.identity.updateContact('CLIENT', user.cognitoSub, { email, emailVerified: false });
+  }
+
+  /**
+   * Sign-up limits per email and per firm, then the attempt is recorded (with a keyed hash of the
+   * email, never the email). The same for every email, registered or not.
+   */
+  private async countAttempt(businessId: string, email: string): Promise<void> {
+    const emailKey = createHmac('sha256', this.emailKeySecret)
+      .update(`${businessId}:${email}`)
+      .digest('hex');
+    const since = new Date(Date.now() - DAY_MS);
+    const scope = this.db.forBusiness(businessId);
+    const where = { businessId, action: SIGN_UP_ATTEMPT, createdAt: { gt: since } };
+    const [forEmail, forFirm] = await Promise.all([
+      scope.auditLog.count({
+        where: { ...where, metadata: { path: ['emailKey'], equals: emailKey } },
+      }),
+      scope.auditLog.count({ where }),
+    ]);
+    if (forEmail >= SIGN_UP_LIMITS.perEmailPerDay || forFirm >= SIGN_UP_LIMITS.perFirmPerDay) {
+      throw signUpErrors.rateLimited();
+    }
+    await this.audit.log(SIGN_UP_ATTEMPT, { type: 'sign_up' }, { emailKey }, { businessId });
+  }
+
+  /** The current Terms and Privacy for a sign-up: their ids, checked against the accepted versions. */
+  private async currentDocuments(
+    businessId: string,
+    accepted?: { termsVersion: number; privacyVersion: number },
+  ): Promise<string[]> {
+    const policy = await this.portal.signUpPolicy(businessId);
+    if (!policy.open || !policy.terms || !policy.privacy) throw signUpErrors.closed();
+    if (
+      accepted &&
+      (accepted.termsVersion !== policy.terms.version ||
+        accepted.privacyVersion !== policy.privacy.version)
+    ) {
+      throw signUpErrors.termsOutdated();
+    }
+    return [policy.terms.id, policy.privacy.id];
+  }
+
+  /** Sends a code when the gap and the daily caps allow; otherwise the answer stays the same. */
+  private async sendCode(owner: CodeOwner, channel: Channel, target: string, firm: Firm) {
+    const issued = await this.codes.issue(owner, channel, target);
+    if (issued.sent) {
+      const message = { to: target, code: issued.code, businessName: firm.name };
+      await (channel === 'EMAIL' ? this.sender.emailCode(message) : this.sender.smsCode(message));
+    }
+    return issued;
+  }
+
+  /** "You already have an account here" to the owner of a registered email, at most hourly. */
+  private async notifyRegistered(firm: Firm, accountId: string, email: string): Promise<void> {
+    const recent = await this.db.forBusiness(firm.id).auditLog.count({
+      where: {
+        businessId: firm.id,
+        action: REGISTERED_NOTICE,
+        entityId: accountId,
+        createdAt: { gt: new Date(Date.now() - SIGN_UP_LIMITS.noticeGapMs) },
+      },
+    });
+    if (recent > 0) return;
+    await this.audit.log(
+      REGISTERED_NOTICE,
+      { type: 'client_account', id: accountId },
+      {},
+      { businessId: firm.id },
+    );
+    await this.sender.alreadyRegistered({ to: email, businessName: firm.name });
+  }
+
+  private async noticeIfRegistered(firm: Firm, email: string): Promise<void> {
+    const account = await this.db.forBusiness(firm.id).clientAccount.findUnique({
+      where: { businessId_email: { businessId: firm.id, email } },
+      select: ACCOUNT,
+    });
+    if (account && !unfinished(account)) await this.notifyRegistered(firm, account.id, email);
+  }
+
+  private owner(businessId: string, clientAccountId: string, attemptUserId: string): CodeOwner {
+    return { businessId, clientAccountId, attemptUserId };
   }
 
   private async session(firmSlug: string, req: Request) {
@@ -358,73 +577,45 @@ export class SignUpService {
     return opened;
   }
 
+  /** Every sign-up answer that changes something sets the cookie, on every path alike. */
   private writeSession(res: Response, session: SignUpSession, expiresAt: number) {
     return this.sessions
       .sealUntil(session, expiresAt)
       .then((sealed) => writeSignUpCookie(res, session.firmSlug, sealed, expiresAt, this.secure));
   }
 
-  private account(s: SignUpSession) {
-    return this.db.forBusiness(s.businessId).clientAccount.findUniqueOrThrow({
-      where: { id: s.clientAccountId ?? '' },
-      select: {
-        id: true,
-        email: true,
-        emailVerifiedAt: true,
-        phoneVerifiedAt: true,
-        user: { select: { id: true, cognitoSub: true, phone: true } },
-      },
-    });
-  }
-
   private async stateOf(s: SignUpSession): Promise<SignUpState> {
-    if (!s.clientAccountId) {
+    const shown = { email: s.email, phoneMasked: maskPhone(s.phone) };
+    const account = await this.attemptAccount(s);
+    if (!account) {
       return {
         step: 'VERIFY_EMAIL',
-        email: s.email,
-        phoneMasked: maskPhone(s.phone),
+        ...shown,
         resendAvailableAt: new Date(s.resendAt).toISOString(),
       };
     }
-    const account = await this.account(s);
     const step = stepOf(account);
-    const at =
-      step === 'DONE'
-        ? null
-        : await this.codes.resendAvailableAt(
-            s.businessId,
-            account.id,
-            step === 'VERIFY_EMAIL' ? 'EMAIL' : 'PHONE',
-          );
-    return {
-      step,
-      email: account.email,
-      phoneMasked: maskPhone(account.user.phone ?? s.phone),
-      resendAvailableAt: at ? at.toISOString() : null,
-    };
+    if (step === 'DONE') return { step, ...shown, resendAvailableAt: null };
+    const at = await this.codes.resendAvailableAt(
+      s.businessId,
+      account.id,
+      step === 'VERIFY_EMAIL' ? 'EMAIL' : 'PHONE',
+    );
+    return { step, ...shown, resendAvailableAt: (at ?? new Date(s.resendAt)).toISOString() };
   }
 
-  /** Audit rows belong to the firm even on these signed-out routes. */
-  private auditInFirm(
+  /** Audit rows belong to the firm even on these signed-out routes; the actor is the attempt. */
+  private log(
     businessId: string,
-    actor: AuthContext,
+    actorUserId: string,
     action: string,
-    entity: AuditEntity,
+    clientAccountId: string,
     metadata?: Record<string, unknown>,
   ): Promise<void> {
-    const store = requestContext.getStore() ?? { requestId: randomUUID() };
-    return requestContext.run(
-      { ...store, auth: actor, tenant: { businessId, role: 'STAFF', kind: 'staff' } },
-      () => this.audit.log(action, entity, metadata),
-    );
+    const entity: AuditEntity = { type: 'client_account', id: clientAccountId };
+    return this.audit.log(action, entity, metadata, { businessId, actorUserId });
   }
 }
-
-const rateLimited = () =>
-  new HttpException(
-    { code: 'RATE_LIMITED', message: 'Wait a moment before asking for a new code' },
-    HttpStatus.TOO_MANY_REQUESTS,
-  );
 
 function acceptance(
   businessId: string,
