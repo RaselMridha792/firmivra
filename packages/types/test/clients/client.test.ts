@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ApiRequestError,
   ClientRecord,
+  CreateClientRequest,
   createClientsClient,
   createMyProfileClient,
   createRequest,
@@ -144,6 +145,33 @@ describe('api.clients', () => {
       ssn: '900000001',
       ein: '900000001',
     });
+  });
+
+  it('text: hidden and direction-changing characters are refused; joiners and marks are kept', () => {
+    const oneLine = (displayName: string) => CreateClientRequest.safeParse({ displayName }).success;
+    const lines = (additionalInfo: string) =>
+      UpdateClientProfileRequest.safeParse({ additionalInfo }).success;
+    // A right-to-left override, a zero-width space, a bidi isolate, and the rest of the set: the
+    // Arabic letter mark, the embeddings and overrides, the word joiner, the isolates, U+FEFF.
+    const hidden = [...'\u061C\u202A\u202B\u202C\u202D\u2060\u2067\u2068\u2069\uFEFF'].map(
+      (c) => `a${c}b`,
+    );
+    for (const bad of ['Evil\u202Egnp.exe', 'Zero\u200Bwidth', 'hidden\u2066text', ...hidden]) {
+      expect([bad, oneLine(bad), lines(bad)]).toEqual([bad, false, false]);
+    }
+    // A line separator: refused on one line, a line break in notes.
+    expect(oneLine('Line\u2028separator')).toBe(false);
+    expect(lines('Line\u2028separator')).toBe(true);
+    // Kept: a family emoji (three people joined by ZWJ), a Persian surname with a ZWNJ, a soft
+    // hyphen, and a right-to-left mark after a Hebrew name.
+    for (const good of [
+      '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}',
+      '\u0639\u0644\u06CC\u200C\u0632\u0627\u062F\u0647',
+      'Hyphen\u00ADated',
+      '\u05E9\u05E8\u05D4\u200F (Sarah)',
+    ]) {
+      expect([good, oneLine(good), lines(good)]).toEqual([good, true, true]);
+    }
   });
 
   it('a response never carries more than the last 4 of the SSN or EIN', () => {

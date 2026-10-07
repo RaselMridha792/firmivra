@@ -262,7 +262,7 @@ export class ClientsService {
       });
       // Sealed to the new client's id, in the same transaction: no client is left half-saved.
       const secrets = body.profile
-        ? await secretColumns(this.fe, businessId, client.id, body.profile)
+        ? await secretColumns(this.fe, tx, businessId, client.id, body.profile)
         : {};
       await tx.clientProfile.create({
         data: {
@@ -327,7 +327,7 @@ export class ClientsService {
       if (current.archivedAt) throw archived();
       const data = {
         ...profileData(body),
-        ...(await secretColumns(this.fe, businessId, id, body)),
+        ...(await secretColumns(this.fe, tx, businessId, current.id, body)),
       };
       await tx.clientProfile.upsert({
         where: { clientId: id },
@@ -401,7 +401,9 @@ export class ClientsService {
   /**
    * `find` for a change: the client's row is locked first, so an archive or a reassignment at
    * the same time waits for this change (or has committed and is seen here). Without it, a
-   * change read before an archive or reassignment could still land after it.
+   * change read before an archive or reassignment could still land after it. FOR NO KEY UPDATE,
+   * not FOR UPDATE: it does not conflict with the FOR KEY SHARE that adding a row under the
+   * client takes (the foreign key check), so neither waits for the other.
    */
   private async findForChange(
     tx: TxClient,
@@ -411,7 +413,7 @@ export class ClientsService {
   ): Promise<RecordRow> {
     await tx.$queryRaw`
       SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
-      FOR UPDATE`;
+      FOR NO KEY UPDATE`;
     return this.find(tx, businessId, actor, id);
   }
 
