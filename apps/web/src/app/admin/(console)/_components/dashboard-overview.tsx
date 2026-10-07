@@ -116,21 +116,18 @@ function StatCard({
   );
 }
 
-function formatSubmissionDate(value: string) {
+function localSubmissionLabel(value: string) {
   const date = new Date(value);
-  return {
-    date: new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      timeZone: 'UTC',
-    }).format(date),
-    time: new Intl.DateTimeFormat('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZone: 'UTC',
-    }).format(date),
-  };
+  const dateLabel = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+  const timeLabel = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+  return `${dateLabel}\n${timeLabel}`;
 }
 
 function statusPresentation(status: FirmApplicationListItem['status']) {
@@ -149,7 +146,12 @@ function statusPresentation(status: FirmApplicationListItem['status']) {
 }
 
 function RecentApplication({ application }: { application: FirmApplicationListItem }) {
-  const submitted = formatSubmissionDate(application.submittedAt);
+  const submission = useSyncExternalStore(
+    subscribeToNothing,
+    () => localSubmissionLabel(application.submittedAt),
+    serverDateLabel,
+  );
+  const [submittedDate = '', submittedTime = ''] = submission.split('\n');
   const status = statusPresentation(application.status);
 
   return (
@@ -169,11 +171,11 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
         <span className="text-xs text-muted xl:hidden">Email: </span>
         {application.contactEmail}
       </span>
-      <span>
+      <time dateTime={application.submittedAt}>
         <span className="text-xs text-muted xl:hidden">Submitted: </span>
-        {submitted.date}
-        <span className="block text-muted">{submitted.time}</span>
-      </span>
+        {submittedDate}
+        <span className="block text-muted">{submittedTime}</span>
+      </time>
       <span>
         <span className={'rounded-full px-2 py-1 text-xs font-medium ' + status.tone}>
           {status.label}
@@ -279,7 +281,7 @@ export function DashboardOverview() {
               <SectionTitle icon={CircleCheck}>Tasks Requiring Attention</SectionTitle>
               <ul className="divide-y divide-border">
                 {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
-                  const count = key && dashboard.data ? dashboard.data[key] : '—';
+                  const count = key && dashboard.data ? (dashboard.data[key] ?? '—') : '—';
                   const canOpen = href && typeof count === 'number' && count > 0;
                   return (
                     <li

@@ -45,7 +45,7 @@ On Oct 15-16 you and Ibrahim test everything on dev.
   2. Header with the search box (no search yet), the bell and the user menu.
   3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Leave Platform Growth as an empty card saying "Coming soon" (a chart needs a package; ask Rasel later).
 
-**Status (Oct 8, 2026):** Review fixes are in PR #58; code/review head `4400470` is synced with `main` at `b205833`. Path guard and full CI pass; mock dashboard and loading/error/retry checks pass (2/2). Dashboard and shared firm shell were checked at desktop and 375 px. Local authenticated API E2E remains unverified, screenshots are not attached to the PR, and the PR is still open for review (not merged).
+**Status (Oct 8, 2026):** PR #58 includes Rasel's review fixes; lint, typecheck and formatting pass. The mock Playwright assertion passes, but Windows server teardown hangs. CI rerun, screenshots and authenticated E2E remain pending.
 
 Checklist:
 

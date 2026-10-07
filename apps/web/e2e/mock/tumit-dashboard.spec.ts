@@ -14,6 +14,8 @@ const mockMe = {
   platformAdmin: true,
 };
 
+test.use({ timezoneId: 'America/Los_Angeles' });
+
 async function mockAdminMe(page: Page) {
   await page.route('**/api/v1/admin/me', (route) => route.fulfill({ status: 200, json: mockMe }));
 }
@@ -32,6 +34,32 @@ test('dashboard uses the firm applications mock and fits a 375 px screen', async
   await expect(navigation.locator('a[href="/applications"]')).toContainText('3');
   await expect(page.getByTestId('recent-application')).toHaveCount(5);
   await expect(page.getByText('Sample Tax Partners LLC')).toBeVisible();
+  const submittedTime = page.getByTestId('recent-application').first().locator('time');
+  const submittedAt = await submittedTime.getAttribute('datetime');
+  expect(submittedAt).not.toBeNull();
+  const expectedSubmission = await page.evaluate((value) => {
+    const date = new Date(value!);
+    return {
+      date: new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(date),
+      localTime: new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(
+        date,
+      ),
+      utcTime: new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: 'UTC',
+      }).format(date),
+    };
+  }, submittedAt);
+  expect(expectedSubmission.localTime).not.toBe(expectedSubmission.utcTime);
+  await expect(submittedTime).toContainText(expectedSubmission.date);
+  await expect(submittedTime.locator('span.block.text-muted')).toHaveText(
+    expectedSubmission.localTime,
+  );
   await expect(page.getByTestId('system-status')).toContainText('Online');
   await expect(page.getByTestId('platform-growth')).toContainText('Coming soon');
   await expect(page.getByTestId('platform-growth').getByRole('img')).toHaveCount(0);
