@@ -39,10 +39,18 @@ const people = {
   ownerPending: person('owner-pending'),
   ownerR1: person('owner-r1'),
   ownerR2: person('owner-r2'),
+  ownerC: person('owner-c'),
+  invitedOwnerC: person('invited-owner-c'),
+  staffC: person('staff-c'),
+  ownerP2: person('owner-p2'),
+  staffP2: person('staff-p2'),
 };
 const invitedStaff = { email: `t03-invited-staff-${run}@t03.test`, name: 'Ivy Invited' };
 const invitedAdmin = { email: `t03-invited-admin-${run}@t03.test`, name: 'Ada Invited' };
-const firms = {} as Record<'a' | 'b' | 'pending' | 'race', { id: string; slug: string }>;
+const firms = {} as Record<
+  'a' | 'b' | 'pending' | 'race' | 'c' | 'pending2',
+  { id: string; slug: string }
+>;
 const ids: Record<string, string> = {};
 
 let app: INestApplication;
@@ -111,6 +119,8 @@ beforeAll(async () => {
       ['b', 'ACTIVE'],
       ['pending', 'PENDING_SETUP'],
       ['race', 'ACTIVE'],
+      ['c', 'ACTIVE'],
+      ['pending2', 'PENDING_SETUP'],
     ] as const) {
       const slug = `t03-${key}-${run}`;
       firms[key] = await tx.business.create({
@@ -131,6 +141,12 @@ beforeAll(async () => {
     [firms.pending.id, people.ownerPending.id, 'OWNER', 'ACTIVE'],
     [firms.race.id, people.ownerR1.id, 'OWNER', 'ACTIVE'],
     [firms.race.id, people.ownerR2.id, 'OWNER', 'ACTIVE'],
+    [firms.c.id, people.ownerC.id, 'OWNER', 'ACTIVE'],
+    // An owner the platform invited (only the platform resends an owner's link).
+    [firms.c.id, people.invitedOwnerC.id, 'OWNER', 'INVITED'],
+    [firms.c.id, people.staffC.id, 'STAFF', 'ACTIVE'],
+    [firms.pending2.id, people.ownerP2.id, 'OWNER', 'ACTIVE'],
+    [firms.pending2.id, people.staffP2.id, 'STAFF', 'ACTIVE'],
   ] as const;
   for (const [businessId, userId, role, status] of members) {
     const row = await runInScope(owner, { kind: 'business', businessId }, (tx) =>
@@ -349,5 +365,42 @@ describe('two owners at the same moment', () => {
       }),
     );
     expect(owners).toBe(1);
+  });
+});
+
+describe('more rules and races', () => {
+  it('two deactivates at once: both answer, one change, one audit row', async () => {
+    const staff = ids[people.staffC.id] as string;
+    const both = await Promise.all([
+      team('post', `/${staff}/deactivate`, people.ownerC, firms.c),
+      team('post', `/${staff}/deactivate`, people.ownerC, firms.c),
+    ]);
+    expect(both.map((r) => r.status)).toEqual([200, 200]);
+    const audits = await asOwner(firms.c.id, (tx) =>
+      tx.auditLog.count({
+        where: { businessId: firms.c.id, action: 'membership.deactivated', entityId: staff },
+      }),
+    );
+    expect(audits).toBe(1);
+  });
+
+  it("an owner's invite is the platform's to resend; other firms' ids are 404", async () => {
+    const owner = ids[people.invitedOwnerC.id] as string;
+    const res = await team('post', `/${owner}/resend-invite`, people.ownerC, firms.c);
+    expect([res.status, codeOf(res)]).toEqual([403, 'FORBIDDEN']);
+    const outsider = await team('post', `/${owner}/resend-invite`, people.ownerA, firms.a);
+    expect([outsider.status, codeOf(outsider)]).toEqual([404, 'NOT_FOUND']);
+  });
+
+  it('changes work while Pending Setup; a suspended firm answers BUSINESS_INACTIVE', async () => {
+    const staff = ids[people.staffP2.id] as string;
+    const promoted = await team('patch', `/${staff}`, people.ownerP2, firms.pending2, {
+      role: 'ADMIN',
+    });
+    expect([promoted.status, (promoted.body as TeamMember).role]).toEqual([200, 'ADMIN']);
+    const done = await team('post', `/${staff}/deactivate`, people.ownerP2, firms.pending2);
+    expect((done.body as TeamMember).status).toBe('DEACTIVATED');
+    const suspended = await call('get', '/business/team', fx.users.ownerSuspended, fx.suspended.id);
+    expect([suspended.status, codeOf(suspended)]).toEqual([403, 'BUSINESS_INACTIVE']);
   });
 });

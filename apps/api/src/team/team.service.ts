@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { type Database, isDbError, type TxClient } from '@firmivra/db';
+import { type Database, databaseErrorCode, isDbError, type TxClient } from '@firmivra/db';
 import type { MembershipRole, TeamMember } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { InvitesService } from '../auth/invites.service.js';
@@ -46,6 +46,13 @@ type MemberRow = {
 };
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+
+/** The member changed between our read and our write (another request got there first). */
+class MemberChanged extends Error {}
+
+/** Postgres gave up one of two transactions waiting on each other: safe to run again. */
+const isDeadlock = (e: unknown) =>
+  databaseErrorCode(e) === '40P01' || (e as { code?: string }).code === 'P2034';
 const forbidden = () =>
   new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
 
@@ -108,12 +115,9 @@ export class TeamService {
         });
       }
       if (target.role === role) return { row: target, from: role };
-      const updated = await tx.membership.update({
-        where: { businessId_id: { businessId, id: memberId } },
-        data: { role },
-        select: memberSelect,
-      });
-      return { row: updated, from: target.role };
+      // Only if the member is still as we read them (not deactivated or changed meanwhile).
+      await this.updateIfUnchanged(tx, businessId, target, { role });
+      return { row: await this.find(tx, businessId, memberId), from: target.role };
     });
     if (from !== role) {
       await this.audit.log(
@@ -131,16 +135,13 @@ export class TeamService {
       const target = await this.find(tx, businessId, memberId);
       assertManageable(actor, target);
       if (target.status === 'DEACTIVATED') return { row: target, changed: false };
+      // Invites first, then the membership: the same lock order as activation (R2).
       await tx.invite.updateMany({
         where: { businessId, membershipId: memberId, acceptedAt: null, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-      const updated = await tx.membership.update({
-        where: { businessId_id: { businessId, id: memberId } },
-        data: { status: 'DEACTIVATED' },
-        select: memberSelect,
-      });
-      return { row: updated, changed: true };
+      await this.updateIfUnchanged(tx, businessId, target, { status: 'DEACTIVATED' });
+      return { row: await this.find(tx, businessId, memberId), changed: true };
     });
     if (changed) {
       await this.audit.log(
@@ -155,6 +156,9 @@ export class TeamService {
   /** A new link for an invited member, through R2's InvitesService (which audits it). */
   async resendInvite(businessId: string, actor: TeamActor, memberId: string): Promise<TeamMember> {
     const firm = this.database.forBusiness(businessId);
+    await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+      this.assertActor(tx, businessId, actor),
+    );
     const target = await firm.membership.findFirst({
       where: { businessId, id: memberId },
       select: { role: true, userId: true, status: true },
@@ -184,25 +188,55 @@ export class TeamService {
     actor: TeamActor,
     fn: (tx: TxClient) => Promise<T>,
   ): Promise<T> {
-    try {
-      return await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-        const self = await tx.membership.findFirst({
-          where: { businessId, userId: actor.userId, status: 'ACTIVE' },
-          select: { role: true },
+    // Once more if the member changed under us or Postgres broke a deadlock: the second run
+    // reads the new state and answers from it (409, 403 or nothing to do).
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+          await this.assertActor(tx, businessId, actor);
+          return fn(tx);
         });
-        if (!self || (self.role !== 'OWNER' && self.role !== 'ADMIN')) throw forbidden();
-        if (actor.role === 'OWNER' && self.role !== 'OWNER') throw forbidden();
-        return fn(tx);
-      });
-    } catch (e) {
-      if (isDbError(e, 'LAST_ACTIVE_OWNER')) {
-        throw new ConflictException({
-          code: 'LAST_ACTIVE_OWNER',
-          message: 'The firm needs at least one active owner',
-        });
+      } catch (e) {
+        if (isDbError(e, 'LAST_ACTIVE_OWNER')) {
+          throw new ConflictException({
+            code: 'LAST_ACTIVE_OWNER',
+            message: 'The firm needs at least one active owner',
+          });
+        }
+        if ((e instanceof MemberChanged || isDeadlock(e)) && attempt < 2) continue;
+        if (e instanceof MemberChanged) {
+          throw new ConflictException({
+            code: 'CONFLICT',
+            message: 'This person was just changed by someone else. Reload and try again.',
+          });
+        }
+        throw e;
       }
-      throw e;
     }
+  }
+
+  /** The actor is still an active Owner or Admin (and still an Owner if they acted as one). */
+  private async assertActor(tx: TxClient, businessId: string, actor: TeamActor): Promise<void> {
+    const self = await tx.membership.findFirst({
+      where: { businessId, userId: actor.userId, status: 'ACTIVE' },
+      select: { role: true },
+    });
+    if (!self || (self.role !== 'OWNER' && self.role !== 'ADMIN')) throw forbidden();
+    if (actor.role === 'OWNER' && self.role !== 'OWNER') throw forbidden();
+  }
+
+  /** Writes only while the member's role and status are as read; else MemberChanged. */
+  private async updateIfUnchanged(
+    tx: TxClient,
+    businessId: string,
+    target: MemberRow,
+    data: { role?: MembershipRole; status?: 'DEACTIVATED' },
+  ): Promise<void> {
+    const { count } = await tx.membership.updateMany({
+      where: { businessId, id: target.id, role: target.role, status: target.status },
+      data,
+    });
+    if (count !== 1) throw new MemberChanged();
   }
 
   private async find(tx: TxClient, businessId: string, memberId: string): Promise<MemberRow> {
