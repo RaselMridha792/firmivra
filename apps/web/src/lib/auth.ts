@@ -7,8 +7,9 @@ import {
   type PortalAuthClient,
 } from '@firmivra/types';
 import { createPortalAuthMock, type PortalAuthMockOptions } from '../mocks/client-auth';
+import { sharedTeamMock } from '../mocks/team';
 import { api } from './api';
-import { mocked } from './mock';
+import { MOCK_ROLE, mocked } from './mock';
 
 /**
  * Sign-in for the three sites (docs/AUTH-DESIGN.md, contract in docs/api/auth.yaml). Our
@@ -16,8 +17,16 @@ import { mocked } from './mock';
  */
 export const AUTH_MODE = process.env.NEXT_PUBLIC_AUTH_MODE === 'local' ? 'local' : 'cognito';
 
-/** Firm site: sign-in, MFA, forgot and reset password, activation, invites (/api/v1/auth). */
-export const staffAuth = createStaffAuthClient({ baseUrl: '/api/v1' });
+const staffAuthApi = createStaffAuthClient({ baseUrl: '/api/v1' });
+
+/**
+ * Firm site: sign-in, MFA, forgot and reset password, activation, invites (/api/v1/auth). With
+ * the `team` mock on, `createInvite` adds to the same mock team list that `api.team` reads.
+ */
+export const staffAuth =
+  process.env.NODE_ENV !== 'production' && mocked('team')
+    ? { ...staffAuthApi, createInvite: sharedTeamMock(MOCK_ROLE).createInvite }
+    : staffAuthApi;
 
 /** Super Admin site: sign-in, MFA, forgot and reset password (/api/v1/admin/auth). */
 export const adminAuth = createAdminAuthClient({ baseUrl: '/api/v1' });

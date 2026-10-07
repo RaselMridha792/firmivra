@@ -272,3 +272,16 @@ export function createMyContentMock(
     },
   };
 }
+
+let myContentMocks: Map<string, MyContentClient> | undefined;
+
+/** `api.myContent(slug)` in mock mode: one mock per firm (by lower-cased slug), kept for the page. */
+export function myContentMock(firmSlug: string): MyContentClient {
+  myContentMocks ??= new Map();
+  const key = firmSlug.toLowerCase();
+  const found = myContentMocks.get(key);
+  if (found) return found;
+  const created = createMyContentMock();
+  myContentMocks.set(key, created);
+  return created;
+}
