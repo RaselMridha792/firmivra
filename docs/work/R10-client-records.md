@@ -16,7 +16,7 @@
 ## Steps
 
 - [x] 1. Contract first, by Oct 8 morning: zod schemas and client functions in packages/types, registered on `api`, plus typed mock fixtures in apps/web/src/mocks; one small PR, so Fahad (F06) and Nahid (N05, N06) build their screens in mock mode
-- [ ] 2. Field-encryption helper (KMS in AWS, `LOCAL_KMS_KEY` locally) for SSN and date of birth; R5 reuses it
+- [x] 2. Field-encryption helper (KMS in AWS, `LOCAL_KMS_KEY` locally) for SSN and date of birth; R5 reuses it
 - [ ] 3. Clients: list with search and paging, get, create, update, archive (archive: Owner and Admin); client record overview
 - [ ] 4. Client profile: the firm's view and the client's own view in the portal; name and date of birth locked for the client ("Request Name Change" creates a task for staff); SSN, EIN and DOB stored only through the helper; SSN and EIN returned only as their last 4, DOB in full to the firm's staff and the client's primary login (Rasel, Oct 7)
 - [ ] 5. Client tax status per year with the firm's statuses (T04): firm updates, history, the client reads their own
@@ -35,8 +35,10 @@ Fahad's clients screens and Nahid's My Profile, My Services and Taxes tabs work 
 ## Needs from others
 
 - Lead: SYSTEM-DESIGN's permission table says "View full SSN: re-MFA"; Rasel decided (Oct 7) the API never returns more than the last 4 of an SSN or EIN. Please update that row. SYSTEM-DESIGN's "Staff see assigned clients only" is now the contract's rule too (Rasel, Oct 7).
-- R0 (this session, next R0 PR): `tasks.kind` (GENERAL, NAME_CHANGE) for NAME_CHANGE_PENDING, `engagements.cancel_request_reason`, and `client_profiles.ein_enc` and `ein_last4` (Rasel, Oct 7).
+- R0: done in #48 (Oct 7): `tasks.kind` (GENERAL, NAME_CHANGE; one open name change per client), `engagements.cancel_request_reason`, and `client_profiles.ein_enc` and `ein_last4`.
 - R5 (documents): the portal Taxes tab's View and Download use `document.id` from `api.myTaxReturns(slug).list()`; R10 needs the documents API's view or download call for a client's own FIRM_TO_CLIENT document.
+- R1 (infra): the API task role may use the firms' KMS keys (`kms:GenerateDataKey`, `kms:Decrypt`), limited by a tag condition on the keys (for example `aws:ResourceTag/firmivra:purpose = firm-data`), not every key in the account. The helper sends the firm's id as encryption context and pins the key id on decrypt.
+- R4 (firm activation): activation creates the firm's KMS key (with that tag) and saves its ARN on the firm (`businesses.kms_key_id`, from R0's steps 11–13 PR), plus a one-time step for firms that already exist. LVP on dev was created by the link task, not by activation, so without that step it never gets a key and no SSN can be saved there (AWS mode answers `KEY_NOT_PROVISIONED`, never a fallback key).
 - R3 (client accounts): on My Profile, the login email, the password change and "Cancel My Client Portal Account" are account changes, not profile edits. `api.myProfile(slug)` returns the email read-only and does not change it.
 
 ## Progress log
@@ -48,6 +50,7 @@ Fahad's clients screens and Nahid's My Profile, My Services and Taxes tabs work 
   - Routes: firm `/business/clients`, `/business/engagements`, `/business/tax-returns` (like T04's `/business/tax-statuses`); portal `/portal/{firmSlug}/me/profile`, `/me/tax-years`, `/me/services`, `/me/tax-returns` (the client from the session, like R3's portal routes).
   - Mocks: `apps/web/src/mocks/clients.ts`, `engagements.ts`, `tax-returns.ts` (fixtures match the Taxes tab mockup). Tests: `packages/types/test/clients/` and `test/engagements/` (my mapping of the owned test paths).
   - Enum names `EngagementStatus`, `BillingInterval`, `ServiceKind`, `ContactMethod`, `TaxFilingType`, `TaxReturnStatus` match the database. When R0's `db-enums.ts` reaches main (steps 11–13 PR), these modules re-export from it instead of defining them, so the names don't clash.
+- Oct 7, step 2: `apps/api/src/field-encryption/` (`FieldEncryptionModule`, `FieldEncryption.encrypt(ctx, value)` and `decrypt(ctx, blob)`), branch `rasel/R10-field-encryption` (stacked on step 1). Envelope encryption: a new AES-256 data key per value from the firm's KMS key (encryption context: the firm's id; key id pinned on decrypt), the value sealed with AES-256-GCM and bound to firm, record and field. Blob: version, mode, wrapped key, iv, tag, ciphertext, for the `*_enc` bytea columns. `KMS_MODE=local` wraps data keys with `LOCAL_KMS_KEY` (refused in production; checked by the module's own settings, since `apps/api/src/config` is not R10's). Adds `@aws-sdk/client-kms` to the API. Tests: `apps/api/test/unit/field-encryption.test.ts` (fake KMS for AWS mode). The module is registered by the first feature that imports it (step 4). R5 reuses it for other sensitive fields.
 - Oct 7, step 1, the lead's review of #42 (f1b8ee5) and Rasel's decisions:
   - Responses are plain objects, requests strict.
   - Text: one-line fields refuse control characters, notes allow line breaks only, and `''` clears an optional field (`clients/text.ts`, as T02's; the lead moves both into one file after #38).
