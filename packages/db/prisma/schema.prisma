@@ -355,7 +355,8 @@ model PlatformUserSignups {
 
 /// The owner activation links the platform sent (invites with `sent_by_platform`), without the
 /// token: what Super Admin reads for ownerInvite and OWNER_INVITED (R4). Kept by triggers on
-/// invites; admin scope reads it, nobody writes it.
+/// invites; admin scope reads it, nobody writes it. Admin scope can't read `invites`, so never
+/// include `invite` from here (it would come back null).
 model PlatformOwnerInvite {
   inviteId     String    @id @map("invite_id") @db.Uuid
   businessId   String    @map("business_id") @db.Uuid

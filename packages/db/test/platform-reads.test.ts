@@ -1,7 +1,7 @@
 // What the Super Admin pages read that firm scope writes (R4), setup Step 2's business details
 // (T02), encrypted columns and the order of a client's tax-year history (R10). Runs as the app
 // role.
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
 import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
@@ -24,8 +24,8 @@ const admin = () => db.forAdmin(ids.admin);
 const platform = () => db.forPlatform();
 const firmA = () => db.forBusiness(ids.firmA);
 const hash = () => randomBytes(32);
-/** Bytes shaped like the field-encryption helper's output (version 1, local mode, no key). */
-const sealedLike = () => Buffer.concat([Buffer.from([1, 1, 0, 0]), randomBytes(40)]);
+/** Bytes shaped like the field-encryption helper's output (version 1, local mode, 1-byte key). */
+const sealedLike = () => Buffer.concat([Buffer.from([1, 1, 0, 1]), randomBytes(40)]);
 const application = (extra: object = {}) => ({
   legalName: 'Applicant LLC (fake)',
   contactName: 'Applicant',
@@ -219,6 +219,57 @@ describe("owner invites: Firmivra's activation links, without the token", () => 
     expect(all.every((i) => i.sentByPlatform)).toBe(true);
   });
 
+  it('only the Super Admin reads the copies: not the firm, another firm, a user, an invite link or no scope', async () => {
+    const token = randomBytes(32).toString('hex');
+    await platform().invite.create({
+      data: invite({ tokenHash: createHash('sha256').update(token).digest('hex') }),
+    });
+    expect(
+      await admin().platformOwnerInvite.count({ where: { businessId: ids.firmA } }),
+    ).toBeGreaterThan(0);
+    const firmB = await platform().business.create({
+      data: { slug: `pre-${run}`, name: 'Firm E' },
+    });
+    const unscoped = createPrismaClient(urls.app, TEST_CLIENT_OPTIONS);
+    try {
+      for (const [who, count] of [
+        ['own firm', firmA().platformOwnerInvite.count()],
+        ['another firm', db.forBusiness(firmB.id).platformOwnerInvite.count()],
+        ['a user', db.forUser(ids.ownerA).platformOwnerInvite.count()],
+        [
+          'an invite link',
+          db
+            .forInvite(createHash('sha256').update(token).digest('hex'))
+            .platformOwnerInvite.count(),
+        ],
+        ['the platform', platform().platformOwnerInvite.count()],
+        ['no scope', unscoped.platformOwnerInvite.count()],
+      ] as const) {
+        expect([who, await count]).toEqual([who, 0]);
+      }
+    } finally {
+      await unscoped.$disconnect();
+    }
+  });
+
+  it('platform scope only revokes the links it sent; accepting is the activation, in the firm', async () => {
+    const sent = await platform().invite.create({ data: invite() });
+    await expect(
+      platform().invite.update({ where: { id: sent.id }, data: { acceptedAt: new Date() } }),
+    ).rejects.toThrow(/only revokes/);
+    await expect(
+      platform().invite.update({
+        where: { id: sent.id },
+        data: { expiresAt: new Date(Date.now() + 30 * 86_400_000) },
+      }),
+    ).rejects.toThrow(/only revokes/);
+    await platform().invite.update({ where: { id: sent.id }, data: { revokedAt: new Date() } });
+    const copy = await admin().platformOwnerInvite.findUniqueOrThrow({
+      where: { inviteId: sent.id },
+    });
+    expect(copy.revokedAt).toBeInstanceOf(Date);
+  });
+
   it('nobody writes the copies directly', async () => {
     const data = {
       inviteId: randomUUID(),
@@ -382,6 +433,13 @@ describe('encrypted client columns', () => {
     });
     const profile = (data: object) => firmA().clientProfile.update({ where: { clientId }, data });
     await expect(profile({ ssnEnc: sealedLike(), ssnLast4: '6789' })).resolves.toBeDefined();
+    // The helper's blob for an empty value: header, a 1-byte key, iv and tag, no ciphertext.
+    const emptyValue = Buffer.concat([Buffer.from([1, 2, 0, 1]), randomBytes(1 + 12 + 16)]);
+    await expect(profile({ dobEnc: emptyValue })).resolves.toBeDefined();
+    await expect(
+      profile({ dobEnc: Buffer.concat([Buffer.from([1, 1, 0, 0]), randomBytes(40)]) }),
+      'no wrapped key',
+    ).rejects.toThrow();
     for (const data of [
       { ssnEnc: Buffer.from('900123456') },
       { einEnc: Buffer.from([1, 9, 0, 0, ...randomBytes(40)]) },

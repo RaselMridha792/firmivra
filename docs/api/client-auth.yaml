@@ -37,10 +37,17 @@ info:
       working: show the countdown from `resendAvailableAt`, then Resend.
     - **Never reveals an account.** Sign-up answers the same for an email that already has an
       account at this firm: the same answers, the same cookie and the same timing. That person
-      gets an email saying so (at most one an hour) instead of a code, and the codes never match.
+      gets an email saying so (at most one an hour) instead of a code, and the codes never match;
+      a declined sign-up's email gets nothing (Rasel, q13: a decline is final).
       Signing up again over a sign-up nobody finished is allowed; the new attempt gets the
       account only by verifying the email with its own code. Sign-in, forgot and reset password
       answer as in auth.yaml.
+    - **Contact the firm** (Rasel, q13). Every sign-up ends at step `CONTACT_FIRM` after 5 wrong
+      email codes (the 5th still answers `CODE_INVALID`), counted the same way for every email,
+      so it reveals nothing: a declined person, who never gets a code, lands there instead of
+      "wrong code" forever. Show "We couldn't finish your sign-up online. Please contact
+      {firm}." and a way to start again (a new sign-up works). Its code, resend and change
+      routes answer `409 WRONG_STEP`.
     - **After verify-phone** the account waits for the firm (`PENDING_APPROVAL`). A pending client
       can sign in; `GET me` shows `clientAccounts[0].status: PENDING_APPROVAL`, and the portal
       layout sends them to `/{firm}/sign-up/done`. A declined or disabled client, or one who has
@@ -655,12 +662,12 @@ components:
       type: object
       required: [step, email, phoneMasked, resendAvailableAt]
       properties:
-        step: { type: string, enum: [VERIFY_EMAIL, VERIFY_PHONE, DONE] }
+        step: { type: string, enum: [VERIFY_EMAIL, VERIFY_PHONE, DONE, CONTACT_FIRM] }
         email: { type: string }
         phoneMasked: { type: string, description: 'For example "(770) ***-0123"' }
         resendAvailableAt:
           oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }]
-          description: When Resend Code works again; null once the step is done
+          description: When Resend Code works again; null at DONE and CONTACT_FIRM
     VerifyCodeRequest:
       type: object
       required: [code]
