@@ -53,3 +53,16 @@ test('notification panel marks the pending application as read', async ({ page }
   await panel.getByRole('button', { name: 'Mark all read' }).click();
   await expect(page.getByRole('button', { name: 'Notifications' })).toBeVisible();
 });
+
+test('growth period selection updates the mock chart window', async ({ page }) => {
+  await page.goto(admin + '/');
+  const range = page.getByRole('combobox', { name: 'Growth date range' });
+  await range.selectOption('week');
+  await expect(page.getByRole('img', { name: /Platform growth chart, Last 7 Days/ })).toBeVisible();
+  await expect(page.getByText('Sep 22')).toBeVisible();
+  await range.selectOption('quarter');
+  await expect(
+    page.getByRole('img', { name: /Platform growth chart, Last 90 Days/ }),
+  ).toBeVisible();
+  await expect(page.getByText('Aug 12')).toBeVisible();
+});
