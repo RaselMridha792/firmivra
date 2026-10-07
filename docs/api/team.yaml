@@ -1,0 +1,190 @@
+openapi: 3.1.0
+info:
+  title: Firmivra firm team API
+  version: 0.1.0
+  description: |
+    The firm's team on `/team`: who works there, their role and status, and open invites.
+    Lead's T03, from Tumit's design. Inviting someone is R2's `POST /auth/invites`
+    (`staffAuth.createInvite`, docs/api/auth.yaml); reload the list afterwards.
+
+    **Source of truth:** the zod schemas in `packages/types/src/team/schemas.ts`, with typed
+    calls in `createTeamClient` (web: `api.team` in `apps/web/src/lib/api.ts`). Mock mode:
+    `createTeamMock({ role })` in `apps/web/src/mocks/team.ts`. If this file and the zod schemas
+    differ, the zod schemas win.
+
+    ## Rules (until Rasel decides otherwise)
+
+    - **Owners** manage everyone: change the role (Owner, Admin, Staff) of an ACTIVE member,
+      deactivate, resend. An invited person's role changes by inviting them again
+      (`staffAuth.createInvite`; `409 NOT_ACTIVE` here), so a link never grants a role its inviter
+      could not. Only the platform invites Owners and resends their links (`403` here).
+    - **Admins** manage Staff only (deactivate, resend; `403 FORBIDDEN` on an Owner or Admin)
+      and change no roles, as they invite Staff only.
+    - **Nobody** changes their own role or deactivates themselves (`409 CANNOT_CHANGE_SELF`;
+      `isYou` marks the signed-in person), and a firm always keeps an active Owner
+      (`409 LAST_ACTIVE_OWNER`, enforced by the database).
+    - **Deactivate** ends access to this firm only (other firms are untouched) and cancels an
+      open invite. Repeating it is harmless.
+    - **Resend** sends a new activation link and the old one stops working; only for someone still
+      `INVITED` (`409 NOT_INVITED`), and `429 RATE_LIMITED` when called too often. Links and
+      tokens never appear in responses.
+    - **During setup:** every route also works while the firm is Pending Setup (the wizard's
+      "Team and access" step); R2's `POST /auth/invites` needs the same for that step to invite.
+    - **Errors in order:** 403 for staff (and for Admins on a role change), 400 for bad input,
+      404 for an unknown member or one of another firm, then 403 (an Admin on an Owner or Admin)
+      and 409.
+    - **Writes:** from the app site only (`403 ORIGIN_NOT_ALLOWED`; see "Calling the API from
+      the web app" in auth.yaml). Every change is audited without names or emails.
+
+servers:
+  - url: /api/v1
+
+security: [{ firmCookie: [] }]
+
+tags:
+  - name: team
+
+paths:
+  /business/team:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [team]
+      operationId: listTeam
+      summary: Everyone in the firm, Owners first, then Admins, then Staff, by name
+      responses:
+        '200':
+          description: The team
+          content: { application/json: { schema: { $ref: '#/components/schemas/ListTeamResponse' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /business/team/{id}:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/MemberId' }
+    patch:
+      tags: [team]
+      operationId: changeTeamRole
+      summary: Change a role (Owners only)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ChangeTeamRoleRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/TeamMember' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+  /business/team/{id}/deactivate:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/MemberId' }
+    post:
+      tags: [team]
+      operationId: deactivateTeamMember
+      summary: End this person's access to the firm (no body)
+      responses:
+        '200': { $ref: '#/components/responses/TeamMember' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /business/team/{id}/resend-invite:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/MemberId' }
+    post:
+      tags: [team]
+      operationId: resendTeamInvite
+      summary: Send a new activation link (no body)
+      responses:
+        '200': { $ref: '#/components/responses/TeamMember' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429':
+          description: '`RATE_LIMITED`: resent too often'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+components:
+  parameters:
+    MemberId:
+      name: id
+      in: path
+      required: true
+      description: The membership id (`TeamMember.id`)
+      schema: { type: string, format: uuid }
+
+  securitySchemes:
+    firmCookie: { type: apiKey, in: cookie, name: fv_access }
+
+  responses:
+    TeamMember:
+      description: The member after the call
+      content: { application/json: { schema: { $ref: '#/components/schemas/TeamMember' } } }
+    ValidationFailed:
+      description: '`VALIDATION_FAILED` (bad id or role, or an unknown field) or `BUSINESS_REQUIRED` (someone in several firms sent no `x-business-id`)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Unauthenticated:
+      description: '`UNAUTHENTICATED`: not signed in'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Forbidden:
+      description: '`FORBIDDEN` (staff; an Admin on an Owner or Admin; an Admin changing a role), `BUSINESS_INACTIVE` (suspended or closed) or `ORIGIN_NOT_ALLOWED`'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    NotFound:
+      description: '`NOT_FOUND`: no active membership in that firm, or no such member in it'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Conflict:
+      description: '`LAST_ACTIVE_OWNER` (a safety net, met only in a race), `CANNOT_CHANGE_SELF`, `NOT_INVITED` (resend) or `NOT_ACTIVE` (role change of a member who is not ACTIVE)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    UnsupportedMediaType:
+      description: '`UNSUPPORTED_MEDIA_TYPE`: the body is not JSON'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+  schemas:
+    ApiError: { $ref: './client-auth.yaml#/components/schemas/ApiError' }
+    Timestamp: { type: string, format: date-time }
+    TeamMember:
+      type: object
+      required: [id, user, role, status, invite, isYou, createdAt]
+      properties:
+        id: { type: string, format: uuid, description: The membership id }
+        user:
+          type: object
+          required: [id, name, email]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            email: { type: string }
+        role: { type: string, enum: [OWNER, ADMIN, STAFF] }
+        status: { type: string, enum: [INVITED, ACTIVE, DEACTIVATED] }
+        invite:
+          description: The newest invite of an INVITED member (may have expired); else null
+          oneOf:
+            - type: object
+              required: [sentAt, expiresAt]
+              properties:
+                sentAt: { $ref: '#/components/schemas/Timestamp' }
+                expiresAt: { $ref: '#/components/schemas/Timestamp' }
+            - { type: 'null' }
+        isYou: { type: boolean, description: The signed-in person }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    ListTeamResponse:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/TeamMember' } }
+    ChangeTeamRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role: { type: string, enum: [OWNER, ADMIN, STAFF] }
