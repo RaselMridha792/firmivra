@@ -34,20 +34,26 @@ const member = (
     createdAt: at,
   });
 
-export const teamFixtures: readonly TeamMember[] = [
-  member(1, 'Olivia Owner', 'OWNER', 'ACTIVE'),
-  member(2, 'Adam Admin', 'ADMIN', 'ACTIVE'),
-  member(3, 'Sam Staff', 'STAFF', 'ACTIVE'),
-  member(4, 'Ivy Invited', 'STAFF', 'INVITED', {
-    sentAt: '2026-10-06T09:00:00.000Z',
-    expiresAt: '2026-10-13T09:00:00.000Z',
-  }),
-  member(5, 'Eli Expired', 'STAFF', 'INVITED', {
-    sentAt: '2026-09-20T09:00:00.000Z',
-    expiresAt: '2026-09-27T09:00:00.000Z',
-  }),
-  member(6, 'Dana Former', 'STAFF', 'DEACTIVATED'),
-];
+let fixtures: readonly TeamMember[] | undefined;
+
+/** Six members in every role and status. Built on first use: importing this file runs nothing. */
+export function teamFixtures(): readonly TeamMember[] {
+  fixtures ??= [
+    member(1, 'Olivia Owner', 'OWNER', 'ACTIVE'),
+    member(2, 'Adam Admin', 'ADMIN', 'ACTIVE'),
+    member(3, 'Sam Staff', 'STAFF', 'ACTIVE'),
+    member(4, 'Ivy Invited', 'STAFF', 'INVITED', {
+      sentAt: '2026-10-06T09:00:00.000Z',
+      expiresAt: '2026-10-13T09:00:00.000Z',
+    }),
+    member(5, 'Eli Expired', 'STAFF', 'INVITED', {
+      sentAt: '2026-09-20T09:00:00.000Z',
+      expiresAt: '2026-09-27T09:00:00.000Z',
+    }),
+    member(6, 'Dana Former', 'STAFF', 'DEACTIVATED'),
+  ];
+  return fixtures;
+}
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
@@ -69,7 +75,7 @@ export function createTeamMock(
   const role = options.role ?? 'OWNER';
   const youId = role === 'ADMIN' ? id(2) : id(1);
   // Rows are replaced, never edited, and callers always get copies, like a real API response.
-  let rows: TeamMember[] = teamFixtures.map((m) => ({ ...m, isYou: m.id === youId }));
+  let rows: TeamMember[] = teamFixtures().map((m) => ({ ...m, isYou: m.id === youId }));
   const copy = (m: TeamMember): TeamMember => ({
     ...m,
     user: { ...m.user },
