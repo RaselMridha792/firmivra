@@ -66,3 +66,13 @@ test('growth period selection updates the mock chart window', async ({ page }) =
   ).toBeVisible();
   await expect(page.getByText('Aug 12')).toBeVisible();
 });
+
+test('Platform Settings quick action explains its current preview state', async ({ page }) => {
+  await page.goto(admin + '/');
+  await page.getByRole('button', { name: 'Platform Settings' }).click();
+  await expect(page.getByRole('status')).toContainText('currently uses sample data');
+  await expect(page.getByRole('button', { name: 'Platform Settings' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+});
