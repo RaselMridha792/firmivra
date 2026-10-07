@@ -39,42 +39,21 @@ On Oct 15-16 you and Ibrahim test everything on dev.
 
 - **Pages:** R1 creates the shell and every Super Admin page (see `docs/junior/PAGE-MAP.md`). The sidebar, header and user menu live in `apps/web/src/components/app-shell/`, shared with Fahad's firm site: you make them match the mockup. The dashboard is `admin/(console)/page.tsx`. Fahad builds the sign-in page (F02).
 - **Mockup:** `docs/mockups/super-admin/Dashboard Active .png`.
-- **API:** `useMe()` from the layout for the name and role. The F04a dashboard uses page-local sample fixtures for the remaining metrics, applications, search results and notifications; do not change shared mocks. These fixtures are not live API data.
+- **API:** `useMe()` from the layout supplies the signed-in name and role. The dashboard reads metrics, application counts and the five most recent applications through R4's `api.firmApplications` functions with `useApiQuery`; the existing API mock supplies preview data when mock mode is enabled.
 - **Build:**
   1. Sidebar exactly like the mockup: Dashboard, Firm Applications (with the pending count), Firms; the other items keep their "Soon" badge.
-  2. Header search filters local sample firm/application/user records, supports arrow keys, Enter, Escape and clear, and links results to existing routes. The bell opens the sample notification panel with unread/read behavior; keep the user menu.
-  3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Match the mockup's static Platform Growth chart and legend with inline SVG; do not add a chart package. The growth-period selector changes the displayed sample date window and chart.
+  2. Header with the search box (no search yet), the bell and the user menu.
+  3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Leave Platform Growth as an empty card saying "Coming soon" (a chart needs a package; ask Rasel later).
 
-**Status (Oct 8, 2026):** F04a is pushed to `tumit/FIR-F04a-admin-dashboard`, synchronized with latest `main` (`5913ac1`, including Fahad's merged F01 PR #50), and open as [PR #58](https://github.com/RaselMridha792/firmivra/pull/58) with title `feat: super admin dashboard (F04a)`. Path guard, format, lint and typecheck passed on the latest completed CI run. Its test step and retry both failed in the out-of-scope `apps/api/test/e2e/client-sign-ups.e2e.test.ts` on the `clients_business_id_email_key` unique constraint (285 passed, 11 skipped); the build step was skipped. Fahad's pre-review and Rasel's final review are requested and still pending. Dashboard values remain local sample fixtures. This ticket PR has not been merged. Dashboard colors use shared design-token utilities available in the merged F01 stylesheet; no `packages/ui/` files were copied or changed.
+**Status (Oct 8, 2026):** Rasel's PR #58 review fixes are implemented on `tumit/FIR-F04a-admin-dashboard`; the ticket remains open and is not merged. The dashboard reads metrics, application counts and recent rows from R4's API functions; preview records come only from the existing API mock. Web typecheck, changed-file ESLint, Prettier and `git diff --check` pass. Mock-mode dashboard plus signed-in loading/error/retry Playwright specs pass (2/2) against an already-running mock server. Authenticated local sign-in E2E remains unverified: one run returned `Not Found` from `POST /api/v1/dev/token`, and a retry with the workspace's local environment did not reach API health readiness. No backend or protected files were changed. Fresh desktop/mobile screenshots were generated locally but are not attached to the PR yet; old screenshots were not reused.
 
 Checklist:
 
-- [x] Recheck the desktop and 375 px layout after the latest interaction changes. Browser screenshots at 1536x1024 and 375x812 show the dashboard fitting each viewport; the mobile document has no horizontal overflow.
-- [ ] Confirm the firm site (`app.localhost`) still looks right with the shared shell. The latest-main merge now includes the firm workspace layout, but no firm-site browser/visual check was run for this PR.
-- [x] Verify loading, error and retry states with the signed-in layout.
-- [x] Run the F04a Playwright suite against the correctly host-routed Super Admin dev server: 7/7 tests passed.
-
-#### F04a functional preview behavior
-
-The dashboard controls below work against the F04a sample fixtures; they do not call or claim to represent live API data:
-
-- Search filters the local application, firm and user records. Arrow keys and Enter select results; Escape and the clear button close the results.
-- The notification bell opens the sample pending-application alert, shows its unread count and can mark the alert read. Selecting it opens the application review route.
-- The growth selector changes the displayed sample date window and chart. The available fixture contains one sample application; active firms and revenue remain zero.
-- The pending attention item and existing application/firm actions navigate to their current routes. Platform Settings opens an explanation because its route/API is not part of F04a. Metrics with no route/data do not show fake links.
-- Search and notification fixtures live beside the F04a dashboard in `admin/(console)/_components/dashboard-data.ts`. The shared app shell receives these props only from the Super Admin layout, so the firm workspace keeps its existing header behavior.
-
-#### F04a verification record (Oct 7, 2026)
-
-- An earlier GitHub CI run for PR #58 passed formatting, lint, typecheck, repository tests and production build. The first run exposed the logo's missing static-image type declaration on a clean runner; `apps/web/src/components/app-shell/next-image.d.ts` fixes it. After merging current `main` (including F01), Path guard, format, lint and typecheck passed. The CI run and retry on `e830c40` failed on the same unique-constraint error in `apps/api/test/e2e/client-sign-ups.e2e.test.ts` (`clients_business_id_email_key`); 285 tests passed and 11 were skipped. The build step was skipped by CI after the test failure. No API files were changed because they are outside the F04a ownership scope.
-- TypeScript check passed: `node node_modules/typescript/bin/tsc --noEmit` from `apps/web`.
-- ESLint passed for the changed shell, dashboard, layout, data and Playwright files.
-- Playwright coverage includes desktop/mobile layout, search, notification read state, chart range selection, settings preview, pending-task navigation, and loading/error/retry states. After the latest-main merge, all 7 cases reported `ok` in Chromium against the local F04a dev server on port 3001. The temporary runner did not exit during dev-server teardown and was interrupted after all cases completed; rerun with the standard repository command before final merge. The temporary Playwright config was removed after verification.
-- The test mocks `GET /api/v1/admin/me`; this verifies the F04a UI and auth-state handling, not backend availability or live dashboard data. Dashboard metrics and records remain sample fixtures.
-- Compared with Fahad's merged F01 stylesheet, which resets Tailwind's default color palette, replaced dashboard-only default blue/emerald/violet/amber/rose/cyan/pink/sky utilities with the shared `brand`, `accent`, `success` and `danger` tokens. This keeps the dashboard colors available after F01 without changing Fahad's branch or `packages/ui/`.
-- The 1536x1024 desktop and 375x812 mobile screenshots were reviewed. The mobile document width stays within 375 px. The latest-main merge includes the firm workspace layout, but the firm shared-shell visual check remains open.
-- In local development, Super Admin routes use the `admin.localhost` host. Bare `localhost` is not assigned to an app area by `src/proxy.ts`, so `/applications` there returns 404 by design; use `http://admin.localhost:<port>/applications` instead. The F04a branch's applications page is still the F04b placeholder.
-- Run the owned spec with `pnpm --filter @firmivra/web test:e2e -- tumit-dashboard.spec.ts` when the repository package manager is available; rerun backend-authenticated checks against the real dev API when credentials and the service are available.
+- [ ] Close to the mockup at desktop
+- [x] At 375 px, the sidebar opens as a drawer and the page has no horizontal overflow (mock-mode Playwright)
+- [ ] The firm site (app.localhost) still looks right with the same shell
+- [x] Signed-in loading, error and retry states (mock-mode Playwright)
+- [x] Playwright: the dashboard loads in mock mode
 
 ### F04b · Oct 8 · Firm applications
 

@@ -1,5 +1,10 @@
 'use client';
 
+import type {
+  AdminDashboard,
+  FirmApplicationListItem,
+  ListFirmApplicationsResponse,
+} from '@firmivra/types';
 import { Card } from '@firmivra/ui';
 import {
   ArrowRight,
@@ -15,26 +20,23 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState, type ReactNode } from 'react';
+import { useSyncExternalStore, type ReactNode } from 'react';
+import { PageState } from '../../../../components/page-state';
 import { useMe } from '../../../../components/signed-in';
-import {
-  attentionItems,
-  dashboardStats,
-  growthPeriods,
-  platformModules,
-  recentApplications,
-  sampleApplicationId,
-  systemStatuses,
-} from './dashboard-data';
+import { api } from '../../../../lib/api';
+import { mocked } from '../../../../lib/mock';
+import { useApiQuery } from '../../../../lib/query';
+import { attentionItems, dashboardStats, platformModules, systemStatuses } from './dashboard-data';
 
-const growthRows = [
-  [26, '4'],
-  [53, '3'],
-  [80, '2'],
-  [108, '1'],
-  [136, '0'],
-] as const;
-const growthColumns = [30, 105, 180, 255, 330, 414];
+const subscribeToNothing = () => () => {};
+const localDateLabel = () =>
+  new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date());
+const serverDateLabel = () => '';
 
 function SectionTitle({
   icon: Icon,
@@ -56,16 +58,31 @@ function SectionTitle({
   );
 }
 
-function StatCard({ stat }: { stat: (typeof dashboardStats)[number] }) {
-  const [label, value, href, Icon, tone] = stat;
+function StatCard({
+  stat,
+  value,
+}: {
+  stat: (typeof dashboardStats)[number];
+  value: number | null;
+}) {
+  const Icon = stat.icon;
   const iconTone = {
     blue: 'bg-brand-50 text-brand-700',
     green: 'bg-success/10 text-success',
     purple: 'bg-accent-500/10 text-accent-600',
     gold: 'bg-brand-100 text-brand-900',
-  }[tone];
+  }[stat.tone];
+  const formattedValue =
+    stat.key === 'monthlyRevenueCents'
+      ? value === null
+        ? 'Not available yet'
+        : (value / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+      : value === null
+        ? 'Not available yet'
+        : value.toLocaleString('en-US');
+
   return (
-    <Card className="!p-4">
+    <Card data-testid={stat.testId} className="!p-4">
       <div className="flex items-center gap-6">
         <span
           className={'flex size-16 shrink-0 items-center justify-center rounded-card ' + iconTone}
@@ -73,40 +90,124 @@ function StatCard({ stat }: { stat: (typeof dashboardStats)[number] }) {
           <Icon aria-hidden className="size-7" />
         </span>
         <div className="min-w-0">
-          <p className="text-2xl font-semibold text-brand-900">{value}</p>
-          <p className="text-sm text-text">{label}</p>
-          {href && (
+          <p
+            data-testid={`${stat.testId}-value`}
+            className={
+              value === null
+                ? 'text-sm font-medium text-muted'
+                : 'text-2xl font-semibold text-brand-900'
+            }
+          >
+            {formattedValue}
+          </p>
+          <p className="text-sm text-text">{stat.label}</p>
+          {stat.href ? (
             <Link
-              href={href}
+              href={stat.href}
               className="mt-1 inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"
             >
-              View {href === '/applications' ? 'Applications' : 'Firms'}
+              View {stat.href === '/applications' ? 'Applications' : 'Firms'}
               <ArrowRight aria-hidden className="size-4" />
             </Link>
-          )}
-          {!href && <span className="mt-1 block text-xs text-muted">No sample data available</span>}
+          ) : null}
         </div>
       </div>
     </Card>
   );
 }
 
-export function DashboardOverview({ today }: { today: string }) {
+function formatSubmissionDate(value: string) {
+  const date = new Date(value);
+  return {
+    date: new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(date),
+    time: new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'UTC',
+    }).format(date),
+  };
+}
+
+function statusPresentation(status: FirmApplicationListItem['status']) {
+  const label = status
+    .toLowerCase()
+    .split('_')
+    .map((part: string) => part[0]?.toUpperCase() + part.slice(1))
+    .join(' ');
+  const tone =
+    status === 'APPROVED'
+      ? 'bg-success/10 text-success'
+      : status === 'DECLINED'
+        ? 'bg-danger/10 text-danger'
+        : 'bg-accent-500/10 text-accent-600';
+  return { label, tone };
+}
+
+function RecentApplication({ application }: { application: FirmApplicationListItem }) {
+  const submitted = formatSubmissionDate(application.submittedAt);
+  const status = statusPresentation(application.status);
+
+  return (
+    <li
+      data-testid="recent-application"
+      className="grid gap-2 rounded-control border border-border p-3 text-sm xl:grid-cols-[1.3fr_1fr_1.35fr_0.9fr_1fr_0.65fr] xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-3 xl:py-4"
+    >
+      <span className="font-semibold text-text">
+        <span className="text-xs text-muted xl:hidden">Business: </span>
+        {application.legalName}
+      </span>
+      <span>
+        <span className="text-xs text-muted xl:hidden">Contact: </span>
+        {application.contactName}
+      </span>
+      <span className="break-words xl:truncate">
+        <span className="text-xs text-muted xl:hidden">Email: </span>
+        {application.contactEmail}
+      </span>
+      <span>
+        <span className="text-xs text-muted xl:hidden">Submitted: </span>
+        {submitted.date}
+        <span className="block text-muted">{submitted.time}</span>
+      </span>
+      <span>
+        <span className={'rounded-full px-2 py-1 text-xs font-medium ' + status.tone}>
+          {status.label}
+        </span>
+      </span>
+      <span>
+        <Link
+          href={`/applications/${application.id}`}
+          className="inline-flex items-center justify-center rounded-control bg-brand-900 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          Review
+        </Link>
+      </span>
+    </li>
+  );
+}
+
+export function DashboardOverview() {
   const { me } = useMe();
-  const [growthRange, setGrowthRange] = useState<keyof typeof growthPeriods>('month');
-  const [settingsInfoOpen, setSettingsInfoOpen] = useState(false);
+  const today = useSyncExternalStore(subscribeToNothing, localDateLabel, serverDateLabel);
+  const dashboard = useApiQuery(['firm-applications', 'dashboard'], () =>
+    api.firmApplications.dashboard(),
+  );
+  const recent = useApiQuery(['firm-applications', 'recent'], () =>
+    api.firmApplications.list({ pageSize: 5 }),
+  );
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
-  const growthDates = growthPeriods[growthRange].dates.map((label, index, dates) => ({
-    x: 30 + (315 * index) / (dates.length - 1),
-    label,
-    applications: index === dates.length - 1 ? 1 : 0,
-  }));
+  const isMockMode = mocked('firmApplications');
 
   return (
     <div data-testid="dashboard" className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="font-serif text-3xl font-semibold tracking-tight text-brand-900">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-brand-900">
             Welcome back, {firstName}!
           </h1>
           <p className="mt-1 text-lg text-muted">
@@ -119,11 +220,15 @@ export function DashboardOverview({ today }: { today: string }) {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {dashboardStats.map((stat) => (
-          <StatCard key={stat[0]} stat={stat} />
-        ))}
-      </div>
+      <PageState<AdminDashboard> query={dashboard}>
+        {(data) => (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {dashboardStats.map((stat) => (
+              <StatCard key={stat.key} stat={stat} value={data[stat.key]} />
+            ))}
+          </div>
+        )}
+      </PageState>
 
       <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
         <div className="grid content-start gap-4 lg:col-span-8 xl:col-span-9">
@@ -148,163 +253,69 @@ export function DashboardOverview({ today }: { today: string }) {
                 ),
               )}
             </div>
-            <ul className="grid gap-3">
-              {recentApplications.map(([business, contact, email, submittedAt, time]) => (
-                <li
-                  key={business}
-                  className="grid gap-2 rounded-control border border-border p-3 text-sm xl:grid-cols-[1.3fr_1fr_1.35fr_0.9fr_1fr_0.65fr] xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-3 xl:py-4"
-                >
-                  <span className="font-semibold text-text">
-                    <span className="text-xs text-muted xl:hidden">Business: </span>
-                    {business}
-                  </span>
-                  <span>
-                    <span className="text-xs text-muted xl:hidden">Contact: </span>
-                    {contact}
-                  </span>
-                  <span className="break-words xl:truncate">
-                    <span className="text-xs text-muted xl:hidden">Email: </span>
-                    {email}
-                  </span>
-                  <span>
-                    <span className="text-xs text-muted xl:hidden">Submitted: </span>
-                    {submittedAt}
-                    <span className="block text-muted">{time}</span>
-                  </span>
-                  <span>
-                    <span className="rounded-full bg-accent-500/10 px-2 py-1 text-xs font-medium text-accent-600">
-                      Pending Review
-                    </span>
-                  </span>
-                  <span>
-                    <Link
-                      href={'/applications/' + sampleApplicationId}
-                      className="inline-flex items-center justify-center rounded-control bg-brand-900 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-                    >
-                      Review
-                    </Link>
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <PageState<ListFirmApplicationsResponse>
+              query={recent}
+              empty="No applications yet"
+              isEmpty={(result) => result.items.length === 0}
+            >
+              {(result) => (
+                <ul aria-label="Recent applications" className="grid gap-3">
+                  {result.items.map((application) => (
+                    <RecentApplication key={application.id} application={application} />
+                  ))}
+                </ul>
+              )}
+            </PageState>
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
             <Card data-testid="platform-growth" className="!p-4">
-              <SectionTitle
-                icon={ChartColumn}
-                action={
-                  <label className="relative inline-flex items-center">
-                    <span className="sr-only">Growth date range</span>
-                    <select
-                      aria-label="Growth date range"
-                      value={growthRange}
-                      onChange={(event) =>
-                        setGrowthRange(event.target.value as keyof typeof growthPeriods)
-                      }
-                      className="rounded-control border border-border bg-surface px-3 py-2 pr-8 text-xs text-muted"
-                    >
-                      {Object.entries(growthPeriods).map(([key, period]) => (
-                        <option key={key} value={key}>
-                          {period.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                }
-              >
-                Platform Growth <span className="text-sm font-normal text-muted">(Beta)</span>
-              </SectionTitle>
-              <svg
-                role="img"
-                aria-label={`Platform growth chart, ${growthPeriods[growthRange].label}, one sample application`}
-                viewBox="0 0 420 160"
-                className="h-40 w-full text-brand-600"
-              >
-                {growthRows.map(([y, label]) => (
-                  <g key={y} className="fill-muted text-xs">
-                    <path d={`M30 ${y}H414`} className="stroke-border" />
-                    <text x="8" y={y + 4}>
-                      {label}
-                    </text>
-                  </g>
-                ))}
-                {growthColumns.map((x) => (
-                  <path key={x} d={`M${x} 26V136`} className="stroke-border" />
-                ))}
-                {growthDates.map(({ x, label }) => (
-                  <text key={label} x={x - 12} y="157" className="fill-muted text-xs">
-                    {label}
-                  </text>
-                ))}
-                <path d="M30 136H345" className="stroke-current" strokeWidth="2" />
-                <polyline
-                  points={growthDates
-                    .map(({ x, applications }) => `${x},${136 - applications * 28}`)
-                    .join(' ')}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
-                {growthDates.map(({ x, applications }) => (
-                  <circle
-                    key={x}
-                    cx={x}
-                    cy={136 - applications * 28}
-                    r="4"
-                    className="fill-current"
-                  />
-                ))}
-              </svg>
-              <div className="mt-4 flex justify-center gap-5 text-xs text-muted">
-                <span className="flex items-center gap-1 text-brand-700">
-                  <span className="size-2 rounded-full bg-brand-600" /> Applications
-                </span>
-                <span className="flex items-center gap-1 text-success">
-                  <span className="size-2 rounded-full bg-success" /> Active Firms
-                </span>
-                <span className="flex items-center gap-1 text-accent-600">
-                  <span className="size-2 rounded-full bg-accent-500" /> Revenue
-                </span>
-              </div>
+              <SectionTitle icon={ChartColumn}>Platform Growth</SectionTitle>
+              <p className="flex min-h-40 items-center justify-center text-sm text-muted">
+                Coming soon
+              </p>
             </Card>
             <Card className="!p-4">
               <SectionTitle icon={CircleCheck}>Tasks Requiring Attention</SectionTitle>
               <ul className="divide-y divide-border">
-                {attentionItems.map(([label, count, Icon, href], index) => (
-                  <li
-                    key={label}
-                    className="flex items-center gap-3 border-b border-border py-0.5 first:pt-0 last:border-0 last:pb-0"
-                  >
-                    <span
-                      className={
-                        'flex size-9 shrink-0 items-center justify-center rounded-control ' +
-                        [
-                          'bg-brand-50 text-brand-700',
-                          'bg-danger/10 text-danger',
-                          'bg-accent-500/10 text-accent-600',
-                          'bg-brand-100 text-brand-900',
-                          'bg-success/10 text-success',
-                        ][index]
-                      }
+                {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
+                  const count = key && dashboard.data ? dashboard.data[key] : '—';
+                  const canOpen = href && typeof count === 'number' && count > 0;
+                  return (
+                    <li
+                      key={label}
+                      className="flex items-center gap-3 border-b border-border py-0.5 first:pt-0 last:border-0 last:pb-0"
                     >
-                      <Icon aria-hidden className="size-5" />
-                    </span>
-                    <span className="font-semibold text-text">{count}</span>
-                    {href && count > 0 ? (
-                      <Link
-                        href={href}
-                        aria-label={`Open ${label}`}
-                        className="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-text hover:text-brand-700"
+                      <span
+                        className={
+                          'flex size-9 shrink-0 items-center justify-center rounded-control ' +
+                          [
+                            'bg-brand-50 text-brand-700',
+                            'bg-danger/10 text-danger',
+                            'bg-accent-500/10 text-accent-600',
+                            'bg-brand-100 text-brand-900',
+                            'bg-success/10 text-success',
+                          ][index]
+                        }
                       >
-                        {label}
-                        <ChevronRight aria-hidden className="size-4 shrink-0 text-muted" />
-                      </Link>
-                    ) : (
-                      <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
-                    )}
-                  </li>
-                ))}
+                        <Icon aria-hidden className="size-5" />
+                      </span>
+                      <span className="font-semibold text-text">{count}</span>
+                      {canOpen ? (
+                        <Link
+                          href={href}
+                          aria-label={`Open ${label}`}
+                          className="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-text hover:text-brand-700"
+                        >
+                          {label}
+                          <ChevronRight aria-hidden className="size-4 shrink-0 text-muted" />
+                        </Link>
+                      ) : (
+                        <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </Card>
           </div>
@@ -332,25 +343,15 @@ export function DashboardOverview({ today }: { today: string }) {
               </Link>
               <button
                 type="button"
-                aria-expanded={settingsInfoOpen}
-                aria-controls="platform-settings-preview"
-                onClick={() => setSettingsInfoOpen((open) => !open)}
-                className="flex items-center gap-3 rounded-control bg-brand-50 px-3 py-3 text-left text-sm text-brand-700 hover:bg-brand-100"
+                disabled
+                className="flex cursor-not-allowed items-center gap-3 rounded-control bg-canvas px-3 py-3 text-left text-sm text-muted"
               >
                 <Settings aria-hidden className="size-5" />
                 <span className="flex-1">Platform Settings</span>
-                <ChevronRight aria-hidden className="size-4" />
+                <span className="rounded-control bg-brand-100 px-2 py-0.5 text-xs text-brand-700">
+                  Soon
+                </span>
               </button>
-              {settingsInfoOpen ? (
-                <p
-                  id="platform-settings-preview"
-                  role="status"
-                  className="rounded-control bg-canvas px-3 py-2 text-sm text-muted"
-                >
-                  Platform settings will be connected when their API is ready. This dashboard
-                  currently uses sample data.
-                </p>
-              ) : null}
             </div>
           </Card>
 
@@ -359,10 +360,20 @@ export function DashboardOverview({ today }: { today: string }) {
             <ul className="divide-y divide-border">
               {systemStatuses.map((label) => (
                 <li key={label} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
-                  <span aria-hidden className="size-2 shrink-0 rounded-full bg-success" />
+                  <span
+                    aria-hidden
+                    className={
+                      'size-2 shrink-0 rounded-full ' + (isMockMode ? 'bg-success' : 'bg-muted')
+                    }
+                  />
                   <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
-                  <span className="flex items-center gap-1.5 text-xs font-semibold text-success">
-                    Online
+                  <span
+                    className={
+                      'flex items-center gap-1.5 text-xs font-semibold ' +
+                      (isMockMode ? 'text-success' : 'text-muted')
+                    }
+                  >
+                    {isMockMode ? 'Online' : 'Not checked yet'}
                   </span>
                 </li>
               ))}

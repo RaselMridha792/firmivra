@@ -10,71 +10,73 @@ import {
   TriangleAlert,
   Users,
 } from 'lucide-react';
-import type { ShellNotification, ShellSearchItem } from '../../../../components/app-shell/types';
+import type { LucideIcon } from 'lucide-react';
+import type { AdminDashboard } from '@firmivra/types';
 
-export const sampleApplicationId = '00000000-0000-4000-8000-000000000001';
-export const recentApplications = [
-  [
-    'LVP Accounting & Taxes',
-    'Octavia Holder',
-    'octavia@lvpaccounting.com',
-    'Sep 28, 2026',
-    '10:24 AM',
-  ],
-] as const;
-export const pendingApplicationCount = recentApplications.length;
-export const dashboardSearchItems: readonly ShellSearchItem[] = [
-  {
-    id: 'application-lvp',
-    kind: 'Application',
-    label: 'LVP Accounting & Taxes',
-    detail: 'Octavia Holder · octavia@lvpaccounting.com',
-    href: '/applications/' + '00000000-0000-4000-8000-000000000001',
-  },
-  {
-    id: 'firm-lvp',
-    kind: 'Firm',
-    label: 'LVP Accounting & Taxes',
-    detail: 'Pending setup',
-    href: '/firms',
-  },
-  {
-    id: 'user-octavia',
-    kind: 'User',
-    label: 'Octavia Holder',
-    detail: 'Owner · LVP Accounting & Taxes',
-    href: '/applications/' + '00000000-0000-4000-8000-000000000001',
-  },
-];
-export const dashboardNotifications: readonly ShellNotification[] = [
-  {
-    id: 'pending-lvp-application',
-    title: 'Firm application pending review',
-    detail: 'LVP Accounting & Taxes · Sep 28, 2026',
-    href: '/applications/' + '00000000-0000-4000-8000-000000000001',
-  },
-];
-export const growthPeriods = {
-  week: { label: 'Last 7 Days', dates: ['Sep 22', 'Sep 24', 'Sep 26', 'Sep 28'] },
-  month: { label: 'Last 30 Days', dates: ['Sep 1', 'Sep 8', 'Sep 15', 'Sep 22', 'Sep 28'] },
-  quarter: { label: 'Last 90 Days', dates: ['Jul 1', 'Jul 22', 'Aug 12', 'Sep 4', 'Sep 28'] },
-} as const;
+type DashboardMetric = keyof Pick<AdminDashboard, 'pendingApplications' | 'newUsersThisWeek'>;
+
+/** Labels and presentation only; all displayed figures come from api.firmApplications. */
 export const dashboardStats = [
-  ['Pending Applications', pendingApplicationCount, '/applications', FileText, 'blue'],
-  ['Active Firms', '0', '/firms', Building, 'green'],
-  ['Total Users', '0', undefined, Users, 'purple'],
-  ['Monthly Revenue', '$0.00', undefined, CreditCard, 'gold'],
+  {
+    key: 'pendingApplications',
+    label: 'Pending Applications',
+    href: '/applications',
+    icon: FileText,
+    tone: 'blue',
+    testId: 'stat-pending-applications',
+  },
+  {
+    key: 'activeFirms',
+    label: 'Active Firms',
+    href: '/firms',
+    icon: Building,
+    tone: 'green',
+    testId: 'stat-active-firms',
+  },
+  {
+    key: 'totalUsers',
+    label: 'Total Users',
+    href: undefined,
+    icon: Users,
+    tone: 'purple',
+    testId: 'stat-total-users',
+  },
+  {
+    key: 'monthlyRevenueCents',
+    label: 'Monthly Revenue',
+    href: undefined,
+    icon: CreditCard,
+    tone: 'gold',
+    testId: 'stat-monthly-revenue',
+  },
 ] as const;
-export const attentionItems = [
-  ['Firm application pending review', pendingApplicationCount, FileText, '/applications'],
-  ['Payment issues', 0, TriangleAlert],
-  ['Open support tickets', 0, Headset],
-  ['New users this week', 0, Users],
-  ['Renewals this week', 0, ChartColumn],
-] as const;
-export const systemStatuses = 'Platform|Database|File Storage|Email Service|Client Portals'.split(
-  '|',
-);
+
+export const attentionItems: {
+  label: string;
+  icon: LucideIcon;
+  key?: DashboardMetric;
+  href?: string;
+}[] = [
+  {
+    label: 'Firm application pending review',
+    key: 'pendingApplications',
+    icon: FileText,
+    href: '/applications',
+  },
+  { label: 'Payment issues', icon: TriangleAlert },
+  { label: 'Open support tickets', icon: Headset },
+  { label: 'New users this week', key: 'newUsersThisWeek', icon: Users },
+  { label: 'Renewals this week', icon: ChartColumn },
+];
+
+export const systemStatuses = [
+  'Platform',
+  'Database',
+  'File Storage',
+  'Email Service',
+  'Client Portals',
+];
+
 export const platformModules = [
   ['Sales', ChartColumn],
   ['Leads / CRM', Contact],

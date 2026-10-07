@@ -23,8 +23,6 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const { me, signOut } = useMe();
-  const displayRole = me.platformAdmin ? 'Super Admin' : roleLabel;
-
   return (
     <nav aria-label="Main" className="flex h-full w-72 flex-col bg-brand-900 text-white">
       <div className="px-6 pb-8 pt-5">
@@ -98,7 +96,7 @@ export function Sidebar({
           </span>
           <span className="flex flex-1 flex-col text-sm">
             <span className="font-semibold">{me.user.name}</span>
-            <span className="text-brand-100">{displayRole}</span>
+            <span className="text-brand-100">{roleLabel}</span>
           </span>
           <ChevronDown aria-hidden className="size-4 text-brand-100" />
         </div>

@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Header } from './header';
 import { Sidebar } from './sidebar';
-import type { NavSections, ShellNotification, ShellSearchItem } from './types';
+import type { NavSections } from './types';
 
 /**
  * Sidebar, header and page area for the Super Admin, firm and portal sites (inside <SignedIn>).
@@ -16,8 +16,6 @@ export function AppShell({
   sections,
   roleLabel,
   search,
-  searchItems,
-  notifications,
   greeting,
   footer,
   children,
@@ -29,10 +27,6 @@ export function AppShell({
   roleLabel: string;
   /** Search box placeholder (Super Admin only). */
   search?: string;
-  /** Local search results for this site; omitted on the firm workspace and portal. */
-  searchItems?: readonly ShellSearchItem[];
-  /** Local notifications for this site; omitted where notification data is not available. */
-  notifications?: readonly ShellNotification[];
   /** Header greeting instead of search (portal). */
   greeting?: ReactNode;
   /** Under the page area (portal: copyright and links). */
@@ -68,8 +62,6 @@ export function AppShell({
       <div className="flex min-h-screen flex-col md:pl-72">
         <Header
           search={search}
-          searchItems={searchItems}
-          notifications={notifications}
           greeting={greeting}
           roleLabel={roleLabel}
           onOpenMenu={() => setDrawer(true)}
