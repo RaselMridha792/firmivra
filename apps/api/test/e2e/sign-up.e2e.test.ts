@@ -11,6 +11,8 @@ import { testDatabaseUrls } from '@firmivra/db/testing';
 import { portalCookies, SignUpState } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { CLIENT_CODE_SENDER } from '../../src/client-auth/client-code-sender.js';
+import { SIGN_UP_LIMITS } from '../../src/client-auth/sign-up.service.js';
+import { CODE_LIMITS } from '../../src/client-auth/verification-codes.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -29,6 +31,24 @@ const newViewer = () => `198.18.0.${++lastViewer}`;
 const base = (s = slug) => `/api/v1/portal/${s}/auth/sign-up`;
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 const emailFor = (name: string) => `r3-${name}-${randomUUID().slice(0, 6)}@example.com`;
+/** The sealed sign-up cookie a response set (its value only). */
+const cookieValue = (res: Response) =>
+  ((res.headers['set-cookie'] as unknown as string[] | undefined) ?? [])
+    .find((c) => c.startsWith(`${portalCookies(slug).signUp}=`))
+    ?.split(';')[0]
+    ?.split('=')
+    .slice(1)
+    .join('=');
+/** Runs `work` with no resend gap, as if 45 s had passed between the steps. */
+async function withoutGap<T>(work: () => Promise<T>): Promise<T> {
+  const gap = CODE_LIMITS.resendGapMs;
+  CODE_LIMITS.resendGapMs = 0;
+  try {
+    return await work();
+  } finally {
+    CODE_LIMITS.resendGapMs = gap;
+  }
+}
 
 /** A browser on the sign-up pages: one viewer, one cookie jar, the portal's origin. */
 function visitor(firmSlug = slug) {
@@ -206,6 +226,7 @@ describe('client sign-up', () => {
     expect(acceptances.map((a) => a.legalDocumentId).sort()).toEqual([...docIds].sort());
     expect(audits.map((a) => [a.action, a.businessId, a.actorUserId])).toEqual([
       ['client_account.signed_up', firmId, account.userId],
+      ['client_account.email_verified', firmId, account.userId],
       ['client_account.verified', firmId, account.userId],
     ]);
   });
@@ -223,6 +244,8 @@ describe('client sign-up', () => {
     expect(Object.keys(again.body as object).sort()).toEqual(
       Object.keys(fresh.body as object).sort(),
     );
+    // The same cookie, to the character count (both emails have the same length).
+    expect(cookieValue(again)?.length).toBe(cookieValue(fresh)?.length);
     expect(again.body).toMatchObject({ step: 'VERIFY_EMAIL', email });
     expect(sentTo(email)).toEqual(['email', 'registered']);
     // The session goes nowhere: no code ever matches.
@@ -231,22 +254,6 @@ describe('client sign-up', () => {
       tx.clientAccount.count({ where: { email } }),
     );
     expect(count).toBe(1);
-  });
-
-  it('starts an unverified sign-up again with the new details', async () => {
-    const email = emailFor('again');
-    await visitor().signUp(form(email, { name: 'First Try' }));
-    const v = visitor();
-    const res = await v.signUp(form(email, { name: 'Second Try', phone: '+14045550100' }));
-    expect(res.body).toMatchObject({ step: 'VERIFY_EMAIL', phoneMasked: '(404) ***-0100' });
-    const accounts = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
-      tx.clientAccount.findMany({ where: { email }, include: { user: true } }),
-    );
-    expect(accounts).toHaveLength(1);
-    expect(accounts[0]?.user).toMatchObject({ name: 'Second Try', phone: '+14045550100' });
-    expect((await v.post('/verify-email', { code: '000000' })).body).toMatchObject({
-      step: 'VERIFY_PHONE',
-    });
   });
 
   it('stops a code after 5 wrong tries', async () => {
@@ -258,18 +265,97 @@ describe('client sign-up', () => {
     expect(codeOf(await v.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
   });
 
-  it('sends the code to a changed email', async () => {
+  it('counts parallel guesses one by one: at most 5 comparisons, no errors', async () => {
+    const email = emailFor('parallel');
+    const v = visitor();
+    await v.signUp(form(email));
+    const guesses = await Promise.all(
+      Array.from({ length: 9 }, () => v.post('/verify-email', { code: '111111' })),
+    );
+    expect(guesses.map((g) => [g.status, codeOf(g)])).toEqual(
+      Array.from({ length: 9 }, () => [400, 'CODE_INVALID']),
+    );
+    const attempts = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.verificationCode.findFirstOrThrow({
+        where: { target: email },
+        select: { attempts: true },
+      }),
+    );
+    expect(attempts.attempts).toBe(5);
+    expect(codeOf(await v.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+  });
+
+  it('waits out the resend gap for a changed email, and old codes stop working', async () => {
     const v = visitor();
     await v.signUp(form(emailFor('typo')));
     const fixed = emailFor('fixed');
+    // Within the gap the address changes, but no code is sent yet.
     expect((await v.post('/change-email', { email: fixed })).body).toMatchObject({
       step: 'VERIFY_EMAIL',
       email: fixed,
+    });
+    expect(sentTo(fixed)).toEqual([]);
+    // The code sent to the first address no longer verifies anything.
+    expect(codeOf(await v.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+    expect(codeOf(await v.post('/resend', { channel: 'email' }))).toBe('RATE_LIMITED');
+
+    await withoutGap(async () => {
+      await v.post('/resend', { channel: 'email' });
     });
     expect(sentTo(fixed)).toEqual(['email']);
     expect((await v.post('/verify-email', { code: '000000' })).body).toMatchObject({
       step: 'VERIFY_PHONE',
       email: fixed,
+    });
+  });
+
+  it('sets the cookie the same way on every path: resend and change-email', async () => {
+    const taken = emailFor('known');
+    const owner = visitor();
+    await owner.signUp(form(taken));
+    await owner.post('/verify-email', { code: '000000' });
+
+    await withoutGap(async () => {
+      for (const email of [taken, emailFor('other')]) {
+        const v = visitor();
+        await v.signUp(form(email));
+        const resent = await v.post('/resend', { channel: 'email' });
+        expect([email, resent.status, cookieValue(resent) !== undefined]).toEqual([
+          email,
+          200,
+          true,
+        ]);
+        const changed = await v.post('/change-email', { email: emailFor('moved') });
+        expect([email, changed.status, cookieValue(changed) !== undefined]).toEqual([
+          email,
+          200,
+          true,
+        ]);
+      }
+    });
+  });
+
+  it('limits sign-ups per email per day, and code requests per session, alike for every email', async () => {
+    const taken = emailFor('limit');
+    const first = visitor();
+    await first.signUp(form(taken));
+    await first.post('/verify-email', { code: '000000' });
+    for (const email of [taken, emailFor('limitnew')]) {
+      const already = email === taken ? 1 : 0;
+      for (let i = already; i < SIGN_UP_LIMITS.perEmailPerDay; i += 1) {
+        expect((await visitor().signUp(form(email))).status).toBe(200);
+      }
+      const over = await visitor().signUp(form(email));
+      expect([email, over.status, codeOf(over)]).toEqual([email, 429, 'RATE_LIMITED']);
+    }
+
+    await withoutGap(async () => {
+      const v = visitor();
+      await v.signUp(form(emailFor('sends')));
+      for (let i = 1; i < SIGN_UP_LIMITS.sendsPerSession; i += 1) {
+        expect((await v.post('/resend', { channel: 'email' })).status).toBe(200);
+      }
+      expect(codeOf(await v.post('/resend', { channel: 'email' }))).toBe('RATE_LIMITED');
     });
   });
 
@@ -284,6 +370,111 @@ describe('client sign-up', () => {
     expect((await visitor('no-such-firm').signUp(form(emailFor('none')))).status).toBe(404);
     const weak = await v.signUp(form(emailFor('weak'), { password: 'weak' }));
     expect([weak.status, codeOf(weak)]).toEqual([400, 'VALIDATION_FAILED']);
+  });
+
+  it("never takes over an account that isn't an unfinished sign-up", async () => {
+    // An ACTIVE client the firm added, with no verified email on record (like a seeded one).
+    const id = randomUUID();
+    const email = emailFor('active');
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id,
+          cognitoSub: id,
+          pool: 'CLIENT',
+          email,
+          name: 'Real Client',
+          phone: '+17705550111',
+        },
+      }),
+    );
+    await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.create({
+        data: { businessId: firmId, userId: id, email, status: 'ACTIVE' },
+      }),
+    );
+    const v = visitor();
+    const res = await v.signUp(form(email, { name: 'Attacker', phone: '+14045550100' }));
+    expect(res.status).toBe(200);
+    expect(codeOf(await v.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+    const account = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({ where: { email }, include: { user: true } }),
+    );
+    expect(account.userId).toBe(id);
+    expect(account.user).toMatchObject({ name: 'Real Client', phone: '+17705550111' });
+    expect(sentTo(email)).toEqual(['registered']);
+  });
+
+  it("a second sign-up over someone's pending one never gets the account", async () => {
+    const email = emailFor('victim');
+    const victim = visitor();
+    await victim.signUp(form(email, { name: 'Victim' }));
+    // The attacker signs up with the same email, inside the resend gap.
+    const attacker = visitor();
+    await attacker.signUp(form(email, { name: 'Attacker', phone: '+14045550100' }));
+    // The victim verifies their email; the attacker then tries the phone step.
+    expect((await victim.post('/verify-email', { code: '000000' })).body).toMatchObject({
+      step: 'VERIFY_PHONE',
+    });
+    expect(codeOf(await attacker.post('/verify-phone', { code: '000000' }))).toBe('WRONG_STEP');
+    expect(codeOf(await attacker.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+    expect((await attacker.state()).body).toMatchObject({ step: 'VERIFY_EMAIL' });
+    const account = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({ where: { email }, include: { user: true } }),
+    );
+    expect(account.user).toMatchObject({ name: 'Victim', phone: '+17705550199' });
+    expect((await victim.post('/verify-phone', { code: '000000' })).body).toMatchObject({
+      step: 'DONE',
+    });
+  });
+
+  it("an attacker's newer code never verifies for the victim, and the victim still wins", async () => {
+    const email = emailFor('race');
+    const victim = visitor();
+    await victim.signUp(form(email, { name: 'Victim' }));
+    await withoutGap(async () => {
+      const attacker = visitor();
+      await attacker.signUp(form(email, { name: 'Attacker' }));
+      // The newest code is the attacker's attempt's: the victim's code no longer works.
+      expect(codeOf(await victim.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+      await victim.post('/resend', { channel: 'email' });
+      expect((await victim.post('/verify-email', { code: '000000' })).body).toMatchObject({
+        step: 'VERIFY_PHONE',
+      });
+      expect(codeOf(await attacker.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+    });
+    const account = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({ where: { email }, include: { user: true } }),
+    );
+    expect(account.user.name).toBe('Victim');
+  });
+
+  it('lets the owner of an abandoned sign-up start again, and retires the old login', async () => {
+    const email = emailFor('restart');
+    const abandoned = visitor();
+    await abandoned.signUp(form(email, { name: 'First Try' }));
+    const before = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({ where: { email }, select: { id: true, userId: true } }),
+    );
+    await withoutGap(async () => {
+      const again = visitor();
+      await again.signUp(form(email, { name: 'Second Try', phone: '+14045550100' }));
+      expect((await again.post('/verify-email', { code: '000000' })).body).toMatchObject({
+        step: 'VERIFY_PHONE',
+        phoneMasked: '(404) ***-0100',
+      });
+    });
+    const after = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({ where: { email }, include: { user: true } }),
+    );
+    expect(after.id).toBe(before.id);
+    expect(after.user).toMatchObject({ name: 'Second Try', phone: '+14045550100' });
+    const oldLogin = await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.findUnique({ where: { id: before.userId } }),
+    );
+    expect(oldLogin).toBeNull();
+    // The first attempt's cookie no longer acts.
+    expect(codeOf(await abandoned.post('/verify-phone', { code: '000000' }))).toBe('WRONG_STEP');
   });
 
   it("needs this firm's own sign-up cookie", async () => {

@@ -5,7 +5,9 @@ import {
   CognitoIdentityProvider,
 } from '../../src/auth/identity/cognito-identity.provider.js';
 import { LogClientCodeSender } from '../../src/client-auth/client-code-sender.js';
-import { maskPhone } from '../../src/client-auth/sign-up.service.js';
+import { atLeast, maskPhone } from '../../src/client-auth/sign-up.service.js';
+import { VerificationCodesService } from '../../src/client-auth/verification-codes.service.js';
+import { loadEnv } from '../../src/config/env.js';
 
 describe('LogClientCodeSender (until R6)', () => {
   const message = { to: 'jane@example.com', code: '482913', businessName: 'LVP' };
@@ -27,6 +29,73 @@ describe('LogClientCodeSender (until R6)', () => {
     expect(logged).not.toContain('jane@example.com');
     expect(logged).not.toContain('5550199');
     expect(logger.warn).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('atLeast: sign-up answers in AWS take a fixed minimum time (#51 review)', () => {
+  it('waits out the minimum, also when the work fails', async () => {
+    const started = Date.now();
+    await expect(atLeast(120, () => Promise.resolve('done'))).resolves.toBe('done');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(115);
+    const failed = Date.now();
+    await expect(atLeast(120, () => Promise.reject(new Error('no')))).rejects.toThrow('no');
+    expect(Date.now() - failed).toBeGreaterThanOrEqual(115);
+  });
+});
+
+describe('VerificationCodesService.check (#51 review)', () => {
+  const env = loadEnv({
+    NODE_ENV: 'test',
+    AUTH_MODE: 'local',
+    LOCAL_AUTH_SECRET: 'unit-test-secret-unit-test-secret-1234',
+    DATABASE_URL_APP: 'postgresql://unused',
+    APP_BASE_URL: 'http://app.localhost:3000',
+    PORTAL_BASE_URL: 'http://portal.localhost:3000',
+    ADMIN_BASE_URL: 'http://admin.localhost:3000',
+  });
+  const owner = { businessId: 'b1', clientAccountId: 'a1', attemptUserId: 'u1' };
+
+  it('takes an attempt with one conditional update before comparing; an expired code takes none', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const db = {
+      forBusiness: () => ({
+        verificationCode: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'c1', target: 'jane@example.com', codeHash: 'f'.repeat(64) }),
+          updateMany,
+        },
+      }),
+    };
+    const codes = new VerificationCodesService(db as never, env);
+    await expect(codes.check(owner, 'EMAIL', 'jane@example.com', '000000')).resolves.toBe(false);
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'c1',
+        attempts: { lt: 5 },
+        consumedAt: null,
+        expiresAt: { gt: expect.any(Date) as unknown },
+      },
+      data: { attempts: { increment: 1 } },
+    });
+  });
+
+  it('never compares a code meant for another address', async () => {
+    const updateMany = vi.fn();
+    const db = {
+      forBusiness: () => ({
+        verificationCode: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'c1', target: 'old@example.com', codeHash: 'f'.repeat(64) }),
+          updateMany,
+        },
+      }),
+    };
+    const codes = new VerificationCodesService(db as never, env);
+    await expect(codes.check(owner, 'EMAIL', 'new@example.com', '000000')).resolves.toBe(false);
+    expect(updateMany).not.toHaveBeenCalled();
   });
 });
 
