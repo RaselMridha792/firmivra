@@ -92,7 +92,23 @@ export async function runInScope<T>(
   return client.$transaction(async (tx) => {
     await setScope(tx, scope);
     return fn(tx);
-  }, limits);
+  }, capped(limits));
+}
+
+/** No transaction may wait or run longer than this, whatever a caller asks for. */
+export const MAX_TRANSACTION_MS = 30_000;
+
+/** Only maxWait and timeout reach Prisma, each at most MAX_TRANSACTION_MS. */
+function capped(limits: TransactionLimits | undefined): TransactionLimits | undefined {
+  if (!limits) return undefined;
+  const cap = (ms: number | undefined) =>
+    ms === undefined ? undefined : Math.min(Math.max(ms, 0), MAX_TRANSACTION_MS);
+  const maxWait = cap(limits.maxWait);
+  const timeout = cap(limits.timeout);
+  return {
+    ...(maxWait !== undefined ? { maxWait } : {}),
+    ...(timeout !== undefined ? { timeout } : {}),
+  };
 }
 
 /**

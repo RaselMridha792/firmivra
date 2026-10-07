@@ -197,7 +197,7 @@ describe('firm applications', () => {
     // A new message on the same status is a history row too.
     await db.forAdmin(ids.admin).firmApplication.update({
       where: { id },
-      data: { decisionReason: 'Reminder: photo ID.' },
+      data: { decisionReason: 'Reminder: photo ID.', reviewedByUserId: ids.admin },
     });
     await resubmit();
     await decide(ids.admin, 'APPROVED');
@@ -222,6 +222,80 @@ describe('firm applications', () => {
     );
   });
 
+  it('the reviewer is always the acting admin, at the database time', async () => {
+    const { id } = await db.forPlatform().firmApplication.create({
+      data: {
+        legalName: 'Forge LLC (fake)',
+        contactName: 'A',
+        contactEmail: `forge-${run}@ad.test`,
+        data: {},
+      },
+    });
+    const nineDaysAgo = new Date(Date.now() - 9 * 86_400_000);
+    await expect(
+      admin().firmApplication.update({
+        where: { id },
+        data: { reviewedByUserId: ids.otherAdmin, reviewedAt: nineDaysAgo },
+      }),
+    ).rejects.toThrow(/acting admin/);
+    const decided = await admin().firmApplication.update({
+      where: { id },
+      data: {
+        status: 'INFO_REQUESTED',
+        reviewedByUserId: ids.admin,
+        reviewedAt: nineDaysAgo,
+        decisionReason: 'Please send the EIN letter.',
+      },
+    });
+    expect(Math.abs(decided.reviewedAt!.getTime() - Date.now())).toBeLessThan(60_000);
+  });
+
+  it('decided or provisioned applications are final; a new request needs a new message', async () => {
+    const application = (email: string) =>
+      db.forPlatform().firmApplication.create({
+        data: { legalName: 'State LLC (fake)', contactName: 'A', contactEmail: email, data: {} },
+      });
+    const decide = (
+      id: string,
+      status: 'INFO_REQUESTED' | 'APPROVED' | 'DECLINED',
+      decisionReason?: string,
+    ) =>
+      admin().firmApplication.update({
+        where: { id },
+        data: { status, reviewedByUserId: ids.admin, reviewedAt: new Date(), decisionReason },
+      });
+
+    const approved = await application(`state-a-${run}@ad.test`);
+    await decide(approved.id, 'APPROVED');
+    for (const status of ['DECLINED', 'INFO_REQUESTED'] as const) {
+      await expect(decide(approved.id, status, 'Changed my mind')).rejects.toThrow(/final/);
+    }
+    await expect(
+      admin().firmApplication.update({
+        where: { id: approved.id },
+        data: { status: 'PENDING_REVIEW', reviewedByUserId: ids.admin },
+      }),
+    ).rejects.toThrow(/final/);
+
+    const provisioned = await application(`state-p-${run}@ad.test`);
+    await db.forPlatform().firmApplication.update({
+      where: { id: provisioned.id },
+      data: { businessId: ids.firmA },
+    });
+    await expect(decide(provisioned.id, 'DECLINED', 'Too late')).rejects.toThrow(/final/);
+
+    const asked = await application(`state-i-${run}@ad.test`);
+    await decide(asked.id, 'INFO_REQUESTED', 'Send the EIN letter.');
+    await db.forPlatform().firmApplication.update({
+      where: { id: asked.id },
+      data: { status: 'PENDING_REVIEW' },
+    });
+    await expect(decide(asked.id, 'INFO_REQUESTED')).rejects.toThrow(/new message/);
+    await expect(decide(asked.id, 'INFO_REQUESTED', 'Also a photo ID.')).resolves.toMatchObject({
+      status: 'INFO_REQUESTED',
+    });
+  });
+
   it('a review never changes the application itself, and history is never written by hand', async () => {
     for (const data of [{ legalName: 'Edited LLC' }, { businessId: ids.firmA }]) {
       await expect(
@@ -237,6 +311,23 @@ describe('firm applications', () => {
 });
 
 describe('firms', () => {
+  it('firm status moves the allowed ways; CLOSED is final; slugs are portal addresses', async () => {
+    const firm = await db.forPlatform().business.create({
+      data: { slug: `adt-${run}`, name: 'T', status: 'ACTIVE' },
+    });
+    const set = (data: {
+      status?: 'PENDING_SETUP' | 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+      slug?: string;
+    }) => admin().business.update({ where: { id: firm.id }, data });
+    await expect(set({ status: 'PENDING_SETUP' })).rejects.toThrow(/cannot go from ACTIVE/);
+    await expect(set({ status: 'SUSPENDED' })).resolves.toMatchObject({ status: 'SUSPENDED' });
+    for (const slug of ['Upper', 'two--hyphens', '-edge', 'with space']) {
+      await expect(set({ slug })).rejects.toThrow(/check constraint/i);
+    }
+    await expect(set({ status: 'CLOSED' })).resolves.toMatchObject({ status: 'CLOSED' });
+    await expect(set({ status: 'ACTIVE' })).rejects.toThrow(/cannot go from CLOSED/);
+  });
+
   it("changes only a firm's status and slug", async () => {
     await expect(
       admin().business.update({ where: { id: ids.firmA }, data: { status: 'SUSPENDED' } }),
@@ -249,6 +340,23 @@ describe('firms', () => {
     await expect(admin().business.deleteMany({ where: { id: ids.firmA } })).rejects.toThrow(
       /permission denied/i,
     );
+  });
+
+  it("never reads an owner's user row before they joined", async () => {
+    const id = randomUUID();
+    await runInScope(owner, { kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id, cognitoSub: id, pool: 'STAFF', email: `${id}@ad.test`, name: 'Invited Owner' },
+      }),
+    );
+    const firm = await db
+      .forPlatform()
+      .business.create({ data: { slug: `adi-${run}`, name: 'Invited' } });
+    await runInScope(owner, { kind: 'business', businessId: firm.id }, (tx) =>
+      tx.membership.create({ data: { businessId: firm.id, userId: id, role: 'OWNER' } }),
+    );
+    expect(await admin().user.findUnique({ where: { id } })).toBeNull();
+    expect(await admin().user.findUnique({ where: { id: ids.ownerA } })).not.toBeNull();
   });
 
   it("reads firm owners' contact, never other staff or clients, and never edits users", async () => {

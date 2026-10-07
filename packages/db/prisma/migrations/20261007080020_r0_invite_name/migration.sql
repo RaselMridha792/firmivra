@@ -21,8 +21,14 @@ ALTER TABLE invites ADD CONSTRAINT invites_name
 ALTER TABLE invites ADD CONSTRAINT invites_email
   CHECK (email = lower(email) AND email ~ '^[^@[:space:]]+@[^@[:space:]]+$' AND char_length(email) <= 254);
 
--- Existing rows (local and dev): members who are or were active joined when they were added.
-UPDATE memberships SET joined_at = created_at WHERE status <> 'INVITED';
+-- Existing rows (local and dev): ACTIVE members joined when they were added. A DEACTIVATED one
+-- joined only if one of its invites was accepted, or if it never had an invite (added directly,
+-- as owners at provisioning); one deactivated while still invited never joined.
+UPDATE memberships m SET joined_at = m.created_at
+ WHERE m.status = 'ACTIVE'
+    OR (m.status = 'DEACTIVATED'
+        AND (EXISTS (SELECT 1 FROM invites i WHERE i.membership_id = m.id AND i.accepted_at IS NOT NULL)
+             OR NOT EXISTS (SELECT 1 FROM invites i WHERE i.membership_id = m.id)));
 
 CREATE FUNCTION memberships_joined_at() RETURNS trigger
   LANGUAGE plpgsql

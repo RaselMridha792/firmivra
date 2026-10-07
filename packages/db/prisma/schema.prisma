@@ -1486,23 +1486,26 @@ model InvoiceLine {
 /// PENDING; it becomes SUCCEEDED or REFUNDED only after a recorded processor event names it, so
 /// money is confirmed only by a verified webhook. Never deleted.
 model Payment {
-  id           String           @id @default(uuid(7)) @db.Uuid
-  businessId   String           @map("business_id") @db.Uuid
-  invoiceId    String           @map("invoice_id") @db.Uuid
-  amountCents  Int              @map("amount_cents")
-  currency     String           @default("usd")
-  status       PaymentStatus    @default(PENDING)
-  processor    PaymentProcessor @default(STRIPE)
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  businessId          String           @map("business_id") @db.Uuid
+  invoiceId           String           @map("invoice_id") @db.Uuid
+  amountCents         Int              @map("amount_cents")
+  currency            String           @default("usd")
+  status              PaymentStatus    @default(PENDING)
+  processor           PaymentProcessor @default(STRIPE)
   /// The checkout session or payment intent id.
-  processorRef String           @map("processor_ref")
+  processorRef        String           @map("processor_ref")
   /// The firm's Stripe connected account the checkout ran on (acct_...).
-  accountId    String           @map("account_id")
+  accountId           String           @map("account_id")
   /// A short code from the processor when it failed.
-  failureCode  String?          @map("failure_code")
-  paidAt       DateTime?        @map("paid_at") @db.Timestamptz(3)
-  refundedAt   DateTime?        @map("refunded_at") @db.Timestamptz(3)
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  failureCode         String?          @map("failure_code")
+  paidAt              DateTime?        @map("paid_at") @db.Timestamptz(3)
+  refundedAt          DateTime?        @map("refunded_at") @db.Timestamptz(3)
+  /// Kept by the database: the cents of this payment's refunds that are not FAILED. A guard so
+  /// refunds never exceed the payment, even at the same moment; the refund rows stay the record.
+  refundReservedCents Int              @default(0) @map("refund_reserved_cents")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   invoice Invoice         @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
   events  PaymentEvent[]

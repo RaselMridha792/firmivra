@@ -565,6 +565,108 @@ describe('refunds: one row per Stripe refund, confirmed by its event', () => {
   });
 });
 
+describe('refunds: review of #52 (one event each, races, nits)', () => {
+  const succeeded = async () => {
+    const inv = await openInvoice();
+    const p = await pay(inv.id);
+    await recordEvent(p.id);
+    return firmA().payment.update({
+      where: { id: p.id },
+      data: { status: 'SUCCEEDED', paidAt: new Date() },
+    });
+  };
+  const refundData = (paymentId: string, amountCents: number) => ({
+    ...A(),
+    paymentId,
+    processorRefundId: `re_${stripeId()}`,
+    accountId: accounts.A,
+    amountCents,
+  });
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('one Stripe event confirms one refund', async () => {
+    const p = await succeeded();
+    const e = await recordEvent(p.id, accounts.A, 'charge.refunded');
+    const confirmed = { status: 'SUCCEEDED' as const, eventId: e.id, refundedAt: new Date() };
+    await firmA().paymentRefund.create({ data: { ...refundData(p.id, 1000), ...confirmed } });
+    await expect(
+      firmA().paymentRefund.create({ data: { ...refundData(p.id, 1000), ...confirmed } }),
+    ).rejects.toThrow(/unique constraint/i);
+  });
+
+  it('two confirmations at once still mark the payment REFUNDED', async () => {
+    const p = await succeeded();
+    const part = await firmA().paymentRefund.create({ data: refundData(p.id, 4000) });
+    const rest = await firmA().paymentRefund.create({ data: refundData(p.id, 6000) });
+    const e1 = await recordEvent(p.id, accounts.A, 'charge.refunded');
+    const e2 = await recordEvent(p.id, accounts.A, 'charge.refunded');
+    const confirm = (id: string, eventId: string, holdMs: number) =>
+      db.withScope({ kind: 'business', businessId: ids.firmA }, async (tx) => {
+        await tx.paymentRefund.update({
+          where: { id },
+          data: { status: 'SUCCEEDED', eventId, refundedAt: new Date() },
+        });
+        await sleep(holdMs);
+      });
+    const first = confirm(part.id, e1.id, 400);
+    await sleep(100);
+    await Promise.all([first, confirm(rest.id, e2.id, 0)]);
+    expect((await firmA().payment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe(
+      'REFUNDED',
+    );
+  });
+
+  it('two refunds at once never exceed the payment, even under REPEATABLE READ', async () => {
+    const p = await succeeded();
+    const refundAt = (holdMs: number) =>
+      owner.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.scope', 'business', true),
+            set_config('app.current_business_id', ${ids.firmA}, true)`;
+          await tx.paymentRefund.create({ data: refundData(p.id, 7000) });
+          await sleep(holdMs);
+        },
+        { isolationLevel: 'RepeatableRead', maxWait: 15_000, timeout: 60_000 },
+      );
+    const first = refundAt(400);
+    await sleep(100);
+    const results = await Promise.allSettled([first, refundAt(0)]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const after = await firmA().payment.findUniqueOrThrow({ where: { id: p.id } });
+    expect(after.refundReservedCents).toBe(7000);
+    expect(await firmA().paymentRefund.count({ where: { paymentId: p.id } })).toBe(1);
+  });
+
+  it('the reserve is kept by the database; an event and a time only on SUCCEEDED; Stripe ids', async () => {
+    const p = await succeeded();
+    await expect(
+      firmA().payment.update({ where: { id: p.id }, data: { refundReservedCents: 0 } }),
+    ).resolves.toBeDefined();
+    await expect(
+      firmA().payment.update({ where: { id: p.id }, data: { refundReservedCents: 5 } }),
+    ).rejects.toThrow(/kept by the database/);
+    const e = await recordEvent(p.id, accounts.A, 'charge.refunded');
+    await expect(
+      firmA().paymentRefund.create({ data: { ...refundData(p.id, 100), eventId: e.id } }),
+    ).rejects.toThrow(/check constraint/i);
+    await expect(
+      firmA().paymentRefund.create({
+        data: { ...refundData(p.id, 100), processorRefundId: `pi_${stripeId()}` },
+      }),
+    ).rejects.toThrow(/check constraint/i);
+    await expect(
+      firmA().paymentRefund.create({
+        data: {
+          ...refundData(p.id, 100),
+          status: 'SUCCEEDED',
+          eventId: e.id,
+          refundedAt: new Date(Date.now() + 86_400_000),
+        },
+      }),
+    ).rejects.toThrow(/future/);
+  });
+});
+
 describe('content and calculators', () => {
   const item = (data: { kind: 'RESOURCE' | 'EXTERNAL_LINK'; url?: string; body?: string }) =>
     firmA().contentItem.create({ data: { ...A(), title: 'Item', ...data } });

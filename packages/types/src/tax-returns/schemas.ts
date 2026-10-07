@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TaxFilingType, TaxReturnStatus } from '../db-enums.js';
 import { CalendarDate } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
 
@@ -13,16 +14,7 @@ import { clearable, text } from '../clients/text.js';
 const DateTime = z.iso.datetime({ offset: true });
 
 export const TaxReturnId = z.uuid();
-export const TaxFilingType = z.enum(['INDIVIDUAL', 'BUSINESS']);
-export type TaxFilingType = z.infer<typeof TaxFilingType>;
-export const TaxReturnStatus = z.enum([
-  'IN_PROGRESS',
-  'FILED',
-  'ACCEPTED',
-  'REJECTED',
-  'COMPLETED',
-]);
-export type TaxReturnStatus = z.infer<typeof TaxReturnStatus>;
+// TaxFilingType and TaxReturnStatus are the database enums, generated into db-enums.ts.
 
 export const DocumentRef = z.object({ id: z.uuid(), fileName: z.string() });
 export type DocumentRef = z.infer<typeof DocumentRef>;

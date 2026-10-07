@@ -968,14 +968,14 @@ async function main() {
       where: {
         processor_processorRefundId: {
           processor: 'STRIPE',
-          processorRefundId: 're_test_seed_1000',
+          processorRefundId: 're_testseed1000',
         },
       },
       update: {},
       create: {
         ...lvp,
         paymentId: SEED_BILLING_IDS.paidPayment,
-        processorRefundId: 're_test_seed_1000',
+        processorRefundId: 're_testseed1000',
         accountId: SEED_STRIPE_ACCOUNT_ID,
         amountCents: 5000,
         status: 'SUCCEEDED',

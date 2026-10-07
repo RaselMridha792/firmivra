@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BillingInterval, EngagementStatus, ServiceKind } from '../db-enums.js';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
 
@@ -13,21 +14,8 @@ import { clearable, text } from '../clients/text.js';
 const DateTime = z.iso.datetime({ offset: true });
 
 export const EngagementId = z.uuid();
-export const EngagementStatus = z.enum(['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED']);
-export type EngagementStatus = z.infer<typeof EngagementStatus>;
-/** ONE_TIME, or recurring. */
-export const BillingInterval = z.enum(['ONE_TIME', 'MONTHLY', 'QUARTERLY', 'YEARLY']);
-export type BillingInterval = z.infer<typeof BillingInterval>;
-export const ServiceKind = z.enum([
-  'ANNUAL_TAX',
-  'QUARTERLY_TAX',
-  'BOOKKEEPING',
-  'PAYROLL',
-  'TAX_PLANNING',
-  'BUSINESS_DEVELOPMENT',
-  'OTHER',
-]);
-export type ServiceKind = z.infer<typeof ServiceKind>;
+// EngagementStatus, BillingInterval (ONE_TIME, or recurring) and ServiceKind are the database
+// enums, generated into db-enums.ts (exported from the package there).
 
 export const ServiceRef = z.object({ id: z.uuid(), name: z.string(), kind: ServiceKind });
 export type ServiceRef = z.infer<typeof ServiceRef>;
