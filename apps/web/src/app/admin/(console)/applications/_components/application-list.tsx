@@ -9,6 +9,7 @@ import {
   type StatusFilter,
 } from './application-filters';
 import { ApplicationTabs, matchesTab, type ApplicationTab } from './application-tabs';
+import { ApplicationTable } from './application-table';
 import { MetricCards } from './application-ui';
 
 export function ApplicationList() {
@@ -17,6 +18,7 @@ export function ApplicationList() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [date, setDate] = useState<DateFilter>('all');
+  const [page, setPage] = useState(1);
   const visible = applications.filter(
     (application) =>
       matchesTab(application, tab) && matchesFilters(application, search, status, date),
@@ -40,13 +42,20 @@ export function ApplicationList() {
           search={search}
           status={status}
           date={date}
-          onSearch={setSearch}
-          onStatus={setStatus}
-          onDate={setDate}
+          onSearch={(value) => {
+            setSearch(value);
+            setPage(1);
+          }}
+          onStatus={(value) => {
+            setStatus(value);
+            setPage(1);
+          }}
+          onDate={(value) => {
+            setDate(value);
+            setPage(1);
+          }}
         />
-        <p className="p-6 text-sm text-muted">
-          Showing {visible.length} applications in this view.
-        </p>
+        <ApplicationTable applications={visible} page={page} onPage={setPage} />
       </section>
     </div>
   );
