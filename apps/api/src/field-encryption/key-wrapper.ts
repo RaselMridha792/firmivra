@@ -7,7 +7,10 @@ export type FieldEncryptionErrorCode =
   | 'DECRYPTION_FAILED'
   | 'UNSUPPORTED_FORMAT'
   | 'WRONG_MODE'
-  | 'INVALID_CONTEXT';
+  | 'INVALID_CONTEXT'
+  | 'INVALID_VALUE'
+  | 'KMS_UNAVAILABLE'
+  | 'KEY_ACCESS_DENIED';
 
 export class FieldEncryptionError extends Error {
   constructor(
@@ -53,7 +56,9 @@ export function open(key: Buffer, sealed: Buffer, aad: Buffer): Buffer {
     throw new FieldEncryptionError('DECRYPTION_FAILED', 'The encrypted value cannot be read');
   }
   try {
-    const decipher = createDecipheriv('aes-256-gcm', key, sealed.subarray(0, IV));
+    const decipher = createDecipheriv('aes-256-gcm', key, sealed.subarray(0, IV), {
+      authTagLength: TAG,
+    });
     decipher.setAAD(aad);
     decipher.setAuthTag(sealed.subarray(IV, IV + TAG));
     return Buffer.concat([decipher.update(sealed.subarray(IV + TAG)), decipher.final()]);
@@ -81,6 +86,35 @@ export class LocalKeyWrapper implements KeyWrapper {
   }
 }
 
+// KMS errors that mean the key can't be used (disabled, deleted, no permission), as opposed to
+// KMS being unreachable or busy. AWS messages carry key and role ARNs, so none is passed on.
+const KEY_REFUSED = new Set([
+  'AccessDeniedException',
+  'DisabledException',
+  'KMSInvalidStateException',
+  'NotFoundException',
+  'InvalidKeyUsageException',
+]);
+const WRONG_BLOB = new Set(['InvalidCiphertextException', 'IncorrectKeyException']);
+
+function kmsError(error: unknown, unwrapping: boolean): FieldEncryptionError {
+  const name = (error as { name?: unknown } | null)?.name;
+  if (typeof name === 'string' && KEY_REFUSED.has(name)) {
+    return new FieldEncryptionError('KEY_ACCESS_DENIED', "The business's key cannot be used");
+  }
+  if (unwrapping && typeof name === 'string' && WRONG_BLOB.has(name)) {
+    return new FieldEncryptionError('DECRYPTION_FAILED', 'The encrypted value cannot be read');
+  }
+  return new FieldEncryptionError('KMS_UNAVAILABLE', 'The key service is not available');
+}
+
+/** Copies the key KMS returned and zeroes KMS's own buffer. */
+function takeKey(bytes: Uint8Array): Buffer {
+  const key = Buffer.from(bytes);
+  bytes.fill(0);
+  return key;
+}
+
 /** KMS_MODE=kms: the firm's own KMS key (businesses.kms_key_id). */
 export class AwsKmsKeyWrapper implements KeyWrapper {
   readonly mode = 'kms' as const;
@@ -97,34 +131,43 @@ export class AwsKmsKeyWrapper implements KeyWrapper {
   }
 
   async generate(businessId: string, kmsKeyId: string | null): Promise<DataKey> {
-    const out = await this.kms.send(
-      new GenerateDataKeyCommand({
-        KeyId: this.keyId(kmsKeyId),
-        KeySpec: 'AES_256',
-        EncryptionContext: { businessId },
-      }),
-    );
-    if (!out.Plaintext || !out.CiphertextBlob) {
-      throw new FieldEncryptionError('DECRYPTION_FAILED', 'KMS returned no data key');
+    const keyId = this.keyId(kmsKeyId);
+    let out;
+    try {
+      out = await this.kms.send(
+        new GenerateDataKeyCommand({
+          KeyId: keyId,
+          KeySpec: 'AES_256',
+          EncryptionContext: { businessId },
+        }),
+      );
+    } catch (error) {
+      throw kmsError(error, false);
     }
-    return { plaintext: Buffer.from(out.Plaintext), wrapped: Buffer.from(out.CiphertextBlob) };
+    if (!out.Plaintext || !out.CiphertextBlob) {
+      throw new FieldEncryptionError('KMS_UNAVAILABLE', 'The key service returned no data key');
+    }
+    return { plaintext: takeKey(out.Plaintext), wrapped: Buffer.from(out.CiphertextBlob) };
   }
 
   async unwrap(businessId: string, kmsKeyId: string | null, wrapped: Buffer): Promise<Buffer> {
     const keyId = this.keyId(kmsKeyId);
+    let out;
     try {
       // KeyId pins the firm's key: KMS refuses a blob wrapped by any other key.
-      const out = await this.kms.send(
+      out = await this.kms.send(
         new DecryptCommand({
           KeyId: keyId,
           CiphertextBlob: wrapped,
           EncryptionContext: { businessId },
         }),
       );
-      if (!out.Plaintext) throw new Error('no plaintext');
-      return Buffer.from(out.Plaintext);
-    } catch {
-      throw new FieldEncryptionError('DECRYPTION_FAILED', 'The encrypted value cannot be read');
+    } catch (error) {
+      throw kmsError(error, true);
     }
+    if (!out.Plaintext) {
+      throw new FieldEncryptionError('KMS_UNAVAILABLE', 'The key service returned no data key');
+    }
+    return takeKey(out.Plaintext);
   }
 }

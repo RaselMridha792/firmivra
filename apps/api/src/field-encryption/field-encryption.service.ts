@@ -1,5 +1,7 @@
 import { Inject, Injectable, Module } from '@nestjs/common';
 import { KMSClient } from '@aws-sdk/client-kms';
+import type { Database } from '@firmivra/db';
+import { DATABASE } from '../database/database.module.js';
 import { type FieldEncryptionConfig, loadFieldEncryptionConfig } from './config.js';
 import {
   AwsKmsKeyWrapper,
@@ -14,28 +16,53 @@ export { FieldEncryptionError, type FieldEncryptionErrorCode } from './key-wrapp
 
 /**
  * Where an encrypted value lives. The ciphertext is bound to all of it: a value copied to
- * another firm, record or field does not decrypt.
+ * another firm, table, record or field does not decrypt. The firm's key is looked up from
+ * `businessId`, never passed in, so a caller can't pair one firm's id with another firm's key.
  */
 export interface FieldContext {
   businessId: string;
-  /** businesses.kms_key_id. Required with KMS_MODE=kms; ignored locally. */
-  kmsKeyId: string | null;
+  /** The table, e.g. 'client_profiles'. */
+  table: string;
   /** The row the value belongs to, e.g. the client id for client_profiles. */
   recordId: string;
   /** The column, e.g. 'ssn' or 'date_of_birth'. */
   field: string;
 }
 
-/** Nest token for the KeyWrapper picked by KMS_MODE. */
+/** The firm's KMS key id (businesses.kms_key_id), or null when it has none yet. */
+export interface FirmKeyIds {
+  keyIdOf(businessId: string): Promise<string | null>;
+}
+
+/** Nest tokens for the KeyWrapper picked by KMS_MODE and for the firm key lookup. */
 export const KEY_WRAPPER = Symbol('KEY_WRAPPER');
+export const FIRM_KEY_IDS = Symbol('FIRM_KEY_IDS');
+
+/** Reads the key id in the firm's own scope (business scope sees only its own firm). */
+@Injectable()
+export class DatabaseFirmKeyIds implements FirmKeyIds {
+  constructor(@Inject(DATABASE) private readonly database: Database) {}
+
+  async keyIdOf(businessId: string): Promise<string | null> {
+    const firm = await this.database.withScope({ kind: 'business', businessId }, (tx) =>
+      tx.business.findUnique({ where: { id: businessId }, select: { kmsKeyId: true } }),
+    );
+    return firm?.kmsKeyId ?? null;
+  }
+}
 
 const VERSION = 1;
 const MODES = { local: 1, kms: 2 } as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const FIELD = /^[a-z][a-z0-9_]{0,62}$/;
+const NAME = /^[a-z][a-z0-9_]{0,62}$/;
 
 function checkContext(ctx: FieldContext): void {
-  if (!UUID.test(ctx.businessId) || !UUID.test(ctx.recordId) || !FIELD.test(ctx.field)) {
+  if (
+    !UUID.test(ctx.businessId) ||
+    !NAME.test(ctx.table) ||
+    !UUID.test(ctx.recordId) ||
+    !NAME.test(ctx.field)
+  ) {
     throw new FieldEncryptionError('INVALID_CONTEXT', 'Invalid field-encryption context');
   }
 }
@@ -43,35 +70,50 @@ function checkContext(ctx: FieldContext): void {
 /** Authenticated with the value: the context and the blob's header. */
 function aad(ctx: FieldContext, header: Buffer): Buffer {
   return Buffer.concat([
-    Buffer.from(`firmivra-field:v${VERSION}:${ctx.businessId}:${ctx.recordId}:${ctx.field}:`),
+    Buffer.from(
+      `firmivra-field:v${VERSION}:${ctx.businessId}:${ctx.table}:${ctx.recordId}:${ctx.field}:`,
+    ),
     header,
   ]);
 }
 
 /**
- * Encrypts sensitive fields (SSN, date of birth; R5 reuses it) with the firm's key (CLAUDE.md:
- * per-business KMS keys). Envelope encryption: each value gets a new AES-256 data key from KMS
- * and is sealed with AES-256-GCM. Stored blob (bytea):
+ * Encrypts sensitive fields (SSN, EIN, date of birth; R5 reuses it) with the firm's key
+ * (CLAUDE.md: per-business KMS keys). Envelope encryption: each value gets a new AES-256 data
+ * key from KMS and is sealed with AES-256-GCM. Stored blob (bytea):
  *   version (1) | mode (1: local, 2: kms) | wrapped key length (uint16) | wrapped key | iv | tag | ciphertext
- * Never log a value, a decrypted value or a data key.
+ * Never log a value, a decrypted value or a data key; error messages never hold one.
  */
 @Injectable()
 export class FieldEncryption {
-  constructor(@Inject(KEY_WRAPPER) private readonly keys: KeyWrapper) {}
+  constructor(
+    @Inject(KEY_WRAPPER) private readonly keys: KeyWrapper,
+    @Inject(FIRM_KEY_IDS) private readonly firmKeys: FirmKeyIds,
+  ) {}
+
+  /** KMS mode: the firm's key (KEY_NOT_PROVISIONED without one). Local mode needs none. */
+  private async keyId(businessId: string): Promise<string | null> {
+    return this.keys.mode === 'kms' ? this.firmKeys.keyIdOf(businessId) : null;
+  }
 
   async encrypt(ctx: FieldContext, value: string): Promise<Uint8Array<ArrayBuffer>> {
     checkContext(ctx);
-    const key = await this.keys.generate(ctx.businessId, ctx.kmsKeyId);
+    if (typeof value !== 'string') {
+      throw new FieldEncryptionError('INVALID_VALUE', 'Only text can be encrypted');
+    }
+    const key = await this.keys.generate(ctx.businessId, await this.keyId(ctx.businessId));
+    const plain = Buffer.from(value, 'utf8');
     try {
       const header = Buffer.alloc(4);
       header.writeUInt8(VERSION, 0);
       header.writeUInt8(MODES[this.keys.mode], 1);
       header.writeUInt16BE(key.wrapped.length, 2);
       const head = Buffer.concat([header, key.wrapped]);
-      const body = seal(key.plaintext, Buffer.from(value, 'utf8'), aad(ctx, head));
+      const body = seal(key.plaintext, plain, aad(ctx, head));
       return new Uint8Array(Buffer.concat([head, body]));
     } finally {
       key.plaintext.fill(0);
+      plain.fill(0);
     }
   }
 
@@ -92,9 +134,18 @@ export class FieldEncryption {
       throw new FieldEncryptionError('DECRYPTION_FAILED', 'The encrypted value cannot be read');
     }
     const head = data.subarray(0, wrappedEnd);
-    const dataKey = await this.keys.unwrap(ctx.businessId, ctx.kmsKeyId, head.subarray(4));
+    const dataKey = await this.keys.unwrap(
+      ctx.businessId,
+      await this.keyId(ctx.businessId),
+      head.subarray(4),
+    );
     try {
-      return open(dataKey, data.subarray(wrappedEnd), aad(ctx, head)).toString('utf8');
+      const plain = open(dataKey, data.subarray(wrappedEnd), aad(ctx, head));
+      try {
+        return plain.toString('utf8');
+      } finally {
+        plain.fill(0);
+      }
     } finally {
       dataKey.fill(0);
     }
@@ -107,11 +158,12 @@ export function createKeyWrapper(config: FieldEncryptionConfig): KeyWrapper {
     : new AwsKmsKeyWrapper(new KMSClient({}));
 }
 
-/** Import where SSNs, dates of birth or other sensitive fields are read or written. */
+/** Import where SSNs, EINs, dates of birth or other sensitive fields are read or written. */
 @Module({
   providers: [
     // Settings are checked when the app starts, so a bad KMS_MODE never reaches a request.
     { provide: KEY_WRAPPER, useFactory: () => createKeyWrapper(loadFieldEncryptionConfig()) },
+    { provide: FIRM_KEY_IDS, useClass: DatabaseFirmKeyIds },
     FieldEncryption,
   ],
   exports: [FieldEncryption],
