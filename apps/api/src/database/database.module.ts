@@ -45,7 +45,10 @@ export class PlatformPrisma {
     {
       provide: DATABASE,
       inject: [ENV],
-      useFactory: (env: Env): Database => createDatabase(env.DATABASE_URL_APP),
+      // Up to 15 s per transaction: activation sets the Cognito password inside the transaction
+      // that holds the invite (auth/invites.service.ts, #41 review).
+      useFactory: (env: Env): Database =>
+        createDatabase(env.DATABASE_URL_APP, { transactionOptions: { timeout: 15_000 } }),
     },
     TenantPrisma,
     PlatformPrisma,
