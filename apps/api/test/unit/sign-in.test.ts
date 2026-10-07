@@ -656,7 +656,17 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
 
   it.each(['firm', 'admin'] as const)('refuses tokens without MFA on the %s site', async (site) => {
     const user = { id: 'u1', cognitoSub: 'sub-1' };
+    // The reservation's transaction: the try-lock is free and nothing counted yet.
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ ok: true }]),
+      auditLog: {
+        count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({}),
+      },
+    };
     const db = {
+      withScope: (_scope: unknown, fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
       forPlatform: () => ({
         user: { findMany: vi.fn().mockResolvedValue([user]) },
         platformAdmin: { findUnique: vi.fn().mockResolvedValue({ userId: 'u1' }) },

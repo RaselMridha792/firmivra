@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import type { Database } from '@firmivra/db';
+import type { Database, Prisma } from '@firmivra/db';
 import type { IdentityPool, MfaSetupResponse, SignInResult } from '@firmivra/types';
 import { type AuditEntity, AuditService } from '../audit/audit.service.js';
 import { type AuthContext, requestContext } from '../common/request-context.js';
@@ -21,12 +21,27 @@ import type { SessionTokens, SignInPlace } from './site.js';
 
 /** Failed resets are audited; the per-email limit counts those rows (shared by every API task). */
 const RESET_FAILED = 'auth.password_reset_failed';
+const RESET = { attempt: 'auth.password_reset_attempt', passed: 'auth.password_reset_passed' };
 export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
 /**
  * Every failed sign-in, a wrong password or a wrong MFA code, is audited, and these limits count
  * those rows, so every API task shares them (R2 step 7). Real and unknown emails count alike.
  */
 const SIGN_IN_FAILED = 'auth.sign_in_failed';
+/**
+ * Each attempt is recorded before Cognito is asked, and a "passed" row (same token) when it
+ * succeeds; an attempt without one is a failure or still in flight, and the limits count those.
+ */
+const SIGN_IN = { attempt: 'auth.sign_in_attempt', passed: 'auth.sign_in_passed' };
+type Actions = { attempt: string; passed: string };
+/** One limit an attempt must stay under: the open attempts (failed or in flight) with this value. */
+type LimitCheck = {
+  field: 'emailKey' | 'attemptId';
+  value: string;
+  limit: number;
+  windowMs: number;
+  refuse: () => Error;
+};
 export const SIGN_IN_LIMIT = {
   /** Failures for one email (per firm on a portal) in the window, then 429 RATE_LIMITED. */
   perEmail: 10,
@@ -78,23 +93,32 @@ export class SignInService {
   }
 
   /**
-   * Checks the password. An email with SIGN_IN_LIMIT.perEmail failures in the window is 429
-   * before Cognito is asked, whether or not it has an account; each wrong password is audited.
+   * Checks the password. An email at SIGN_IN_LIMIT.perEmail failures (and attempts in flight) in
+   * the window is 429 before Cognito is asked, whether or not it has an account; each attempt is
+   * reserved first and each wrong password audited.
    */
   async signIn(place: SignInPlace, email: string, password: string): Promise<SignInOutcome> {
     const emailKey = this.emailKey(place, email);
-    if ((await this.failures(place, 'emailKey', emailKey)) >= SIGN_IN_LIMIT.perEmail) {
-      throw httpError('RATE_LIMITED');
-    }
+    const token = await this.reserve(
+      place,
+      SIGN_IN,
+      `fv-sign-in:${emailKey}`,
+      [this.perEmail(emailKey)],
+      {
+        emailKey,
+        step: 'password',
+      },
+    );
     const user = await this.findUser(place, email);
     let step: AuthStep;
     try {
       step = await this.identity.signIn(place.pool, user?.cognitoSub, password);
       if (!user) throw new AuthFlowError('INVALID_CREDENTIALS');
+      await this.passed(place, SIGN_IN, { emailKey, token });
     } catch (e) {
       if (!(e instanceof AuthFlowError)) throw e;
       if (e.code === 'INVALID_CREDENTIALS') {
-        await this.failed(place, { emailKey, step: 'password' });
+        await this.failed(place, { emailKey, step: 'password', token });
       }
       throw httpError(e.code);
     }
@@ -120,31 +144,40 @@ export class SignInService {
     const { pool } = place;
     const c = await this.open(session, place);
     if (c.step === 'MFA_SETUP') throw wrongStep();
-    if (
-      c.attemptId &&
-      (await this.failures(place, 'attemptId', c.attemptId)) >= SIGN_IN_LIMIT.perAttempt
-    ) {
-      throw httpError('CHALLENGE_EXPIRED');
+    const checks: LimitCheck[] = [];
+    if (c.attemptId) {
+      checks.push({
+        field: 'attemptId',
+        value: c.attemptId,
+        limit: SIGN_IN_LIMIT.perAttempt,
+        windowMs: SIGN_IN_LIMIT.windowMs,
+        refuse: () => httpError('CHALLENGE_EXPIRED'),
+      });
     }
-    if (
-      c.emailKey &&
-      (await this.failures(place, 'emailKey', c.emailKey)) >= SIGN_IN_LIMIT.perEmail
-    ) {
-      throw httpError('RATE_LIMITED');
-    }
+    if (c.emailKey) checks.push(this.perEmail(c.emailKey));
+    const lockKey = c.emailKey
+      ? `fv-sign-in:${c.emailKey}`
+      : c.attemptId
+        ? `fv-sign-in-attempt:${c.attemptId}`
+        : undefined;
+    const ids = {
+      ...(c.emailKey ? { emailKey: c.emailKey } : {}),
+      ...(c.attemptId ? { attemptId: c.attemptId } : {}),
+    };
+    // A challenge sealed before step 7 carries neither; it expires within minutes.
+    const token = lockKey
+      ? await this.reserve(place, SIGN_IN, lockKey, checks, { ...ids, step: 'mfa' })
+      : undefined;
     let tokens: SessionTokens;
     try {
       tokens = await (c.step === 'MFA'
         ? this.identity.answerMfa(pool, c.username, c.session, code)
         : this.identity.finishMfaSetup(pool, c.username, c.session, code));
+      if (token) await this.passed(place, SIGN_IN, { ...ids, token });
     } catch (e) {
       if (!(e instanceof AuthFlowError)) throw e;
       if (e.code === 'MFA_CODE_INVALID') {
-        await this.failed(place, {
-          ...(c.emailKey ? { emailKey: c.emailKey } : {}),
-          ...(c.attemptId ? { attemptId: c.attemptId } : {}),
-          step: 'mfa',
-        });
+        await this.failed(place, { ...ids, step: 'mfa', ...(token ? { token } : {}) });
       }
       throw httpError(e.code);
     }
@@ -190,20 +223,28 @@ export class SignInService {
   ): Promise<void> {
     const { pool } = place;
     const emailKey = this.emailKey(place, email);
-    const failures = await this.count(
+    const token = await this.reserve(
       place,
-      RESET_FAILED,
-      'emailKey',
-      emailKey,
-      RESET_LIMIT.windowMs,
+      RESET,
+      `fv-reset:${emailKey}`,
+      [
+        {
+          field: 'emailKey',
+          value: emailKey,
+          limit: RESET_LIMIT.attempts,
+          windowMs: RESET_LIMIT.windowMs,
+          refuse: () => httpError('RATE_LIMITED'),
+        },
+      ],
+      { emailKey },
     );
-    if (failures >= RESET_LIMIT.attempts) throw httpError('RATE_LIMITED');
     const user = await this.findUser(place, email);
     try {
       await this.identity.resetPassword(pool, user?.cognitoSub, code, password);
+      await this.passed(place, RESET, { emailKey, token });
     } catch (e) {
       if (!(e instanceof AuthFlowError)) throw e;
-      await this.log(place, RESET_FAILED, { type: 'login' }, { emailKey, pool });
+      await this.log(place, RESET_FAILED, { type: 'login' }, { emailKey, pool, token });
       throw httpError('RESET_CODE_INVALID');
     }
   }
@@ -219,13 +260,94 @@ export class SignInService {
     return createHmac('sha256', key).update(input).digest('hex');
   }
 
-  private failures(place: Pick<SignInPlace, 'businessId'>, field: string, value: string) {
-    return this.count(place, SIGN_IN_FAILED, field, value, SIGN_IN_LIMIT.windowMs);
+  /** The per-email sign-in limit for this email key. */
+  private perEmail(emailKey: string): LimitCheck {
+    return {
+      field: 'emailKey',
+      value: emailKey,
+      limit: SIGN_IN_LIMIT.perEmail,
+      windowMs: SIGN_IN_LIMIT.windowMs,
+      refuse: () => httpError('RATE_LIMITED'),
+    };
+  }
+
+  /**
+   * Reserves one attempt before Cognito is asked (#70's lesson, applied to sign-in): in one
+   * scoped transaction under a try-lock on `lockKey`, each check's open attempts in its window
+   * (recorded, with no "passed" row: failed, or still in flight) must stay under its limit; then
+   * this attempt is recorded. So parallel guesses can't all pass a count taken before any of them
+   * failed. A busy key is refused like the limit (never waited for: a waiting lock holds a pooled
+   * connection). Rows go where `log` writes them: the firm's log on a portal, the platform's
+   * otherwise. Returns the attempt's token; its "passed" row carries it.
+   */
+  private async reserve(
+    place: Pick<SignInPlace, 'pool' | 'businessId'>,
+    actions: Actions,
+    lockKey: string,
+    checks: LimitCheck[],
+    metadata: Record<string, unknown>,
+  ): Promise<string> {
+    const token = randomUUID();
+    const businessId = place.businessId ?? null;
+    const scope = place.businessId
+      ? ({ kind: 'business', businessId: place.businessId } as const)
+      : ({ kind: 'platform' } as const);
+    const refusal = await this.db.withScope(scope, async (tx) => {
+      const [locked] = await tx.$queryRaw<{ ok: boolean }[]>`
+        SELECT pg_try_advisory_xact_lock(hashtextextended(${lockKey}, 0)) AS ok`;
+      if (locked?.ok !== true) return httpError('RATE_LIMITED');
+      const since = (ms: number) => new Date(Date.now() - ms);
+      const tokenOf = (row: { metadata: Prisma.JsonValue }) =>
+        (row.metadata as { token?: unknown } | null)?.token;
+      for (const check of checks) {
+        const tokens = async (action: string) =>
+          (
+            await tx.auditLog.findMany({
+              where: {
+                businessId,
+                action,
+                createdAt: { gt: since(check.windowMs) },
+                metadata: { path: [check.field], equals: check.value },
+              },
+              select: { metadata: true },
+            })
+          ).map(tokenOf);
+        const passed = new Set(await tokens(actions.passed));
+        const open = (await tokens(actions.attempt)).filter((t) => !passed.has(t)).length;
+        if (open >= check.limit) return check.refuse();
+      }
+      const store = requestContext.getStore();
+      await tx.auditLog.create({
+        data: {
+          businessId,
+          actorUserId: null,
+          action: actions.attempt,
+          entityType: 'login',
+          entityId: null,
+          metadata: { ...metadata, pool: place.pool, token } as Prisma.InputJsonValue,
+          ip: store?.ip ?? null,
+          userAgent: store?.userAgent ?? null,
+          requestId: store?.requestId ?? null,
+        },
+      });
+      return null;
+    });
+    if (refusal) throw refusal;
+    return token;
+  }
+
+  /** The attempt succeeded: its "passed" row takes it out of the limits' count. */
+  private passed(
+    place: Pick<SignInPlace, 'pool' | 'businessId'>,
+    actions: Actions,
+    ids: { emailKey?: string; attemptId?: string; token: string },
+  ): Promise<void> {
+    return this.log(place, actions.passed, { type: 'login' }, { ...ids, pool: place.pool });
   }
 
   private failed(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
-    metadata: { emailKey?: string; attemptId?: string; step: 'password' | 'mfa' },
+    metadata: { emailKey?: string; attemptId?: string; step: 'password' | 'mfa'; token?: string },
   ): Promise<void> {
     return this.log(place, SIGN_IN_FAILED, { type: 'login' }, { ...metadata, pool: place.pool });
   }
@@ -238,30 +360,6 @@ export class SignInService {
       { pool: place.pool },
       { userId, pool: place.pool },
     );
-  }
-
-  /**
-   * Rows of one action in the window with this metadata value, where `log` writes them: the
-   * firm's own log on its portal, the platform's otherwise. The (business_id, created_at) index
-   * keeps each count to the window's rows.
-   */
-  private count(
-    place: Pick<SignInPlace, 'businessId'>,
-    action: string,
-    field: string,
-    value: string,
-    windowMs: number,
-  ): Promise<number> {
-    const where = {
-      action,
-      createdAt: { gt: new Date(Date.now() - windowMs) },
-      metadata: { path: [field], equals: value },
-    };
-    return place.businessId
-      ? this.db
-          .forBusiness(place.businessId)
-          .auditLog.count({ where: { ...where, businessId: place.businessId } })
-      : this.db.forPlatform().auditLog.count({ where: { ...where, businessId: null } });
   }
 
   /**

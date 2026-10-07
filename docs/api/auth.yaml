@@ -98,8 +98,11 @@ info:
     - 5 wrong MFA codes in one sign-in: then `401 CHALLENGE_EXPIRED`, sign in again (those codes
       still count for the email, so starting again gives no fresh tries).
 
-    Show "Too many attempts. Wait a few minutes and try again." Every sign-in and every failure is audited
-    (`auth.signed_in`, `auth.sign_in_failed`); the email is stored only as a keyed hash. Cognito
+    Each attempt is recorded before Cognito is asked and counted until it succeeds, so parallel
+    attempts never get past a limit together; one that arrives while another for the same email is
+    being counted gets the same 429. Show "Too many attempts. Wait a few minutes and try again."
+    Every sign-in, attempt and failure is audited (`auth.signed_in`, `auth.sign_in_attempt`,
+    `auth.sign_in_passed`, `auth.sign_in_failed`); the email is stored only as a keyed hash. Cognito
     threat protection gets the viewer's IP and browser (User-Agent, Accept-Language), never
     cookies or tokens.
 
