@@ -67,7 +67,8 @@ export type CreateInviteMock = (body: CreateInviteRequest) => Promise<InviteResp
  * An in-memory `api.team` with the same functions, rules and errors as the API. `role` is the
  * signed-in person (default OWNER, who is Olivia): ADMIN is Adam, who manages Staff only;
  * STAFF gets 403 FORBIDDEN on every call. `createInvite` follows R2's invite rules on the same
- * rows, so the web kit can use it as `staffAuth.createInvite` and a screen can invite, then reload.
+ * rows; lib/auth.ts uses it as `staffAuth.createInvite` (through `sharedTeamMock`), so a screen can
+ * invite, then reload.
  */
 export function createTeamMock(
   options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {},
@@ -166,7 +167,8 @@ export function createTeamMock(
       await allowed();
       const input = parseInput(CreateInviteRequest, body);
       mayInvite(input.role);
-      const existing = rows.find((r) => r.user.email === input.email);
+      const email = input.email.toLowerCase();
+      const existing = rows.find((r) => r.user.email.toLowerCase() === email);
       if (existing?.status === 'ACTIVE') {
         throw fail(409, 'ALREADY_MEMBER', 'This person already works at this firm');
       }
@@ -195,4 +197,15 @@ export function createTeamMock(
       };
     },
   };
+}
+
+let shared: ReturnType<typeof createTeamMock> | undefined;
+
+/**
+ * The one team mock that `api.team` and `staffAuth.createInvite` (lib/auth.ts) share in mock
+ * mode, so an invite shows in the team list. Built on first use.
+ */
+export function sharedTeamMock(role?: 'OWNER' | 'ADMIN' | 'STAFF') {
+  shared ??= createTeamMock({ role });
+  return shared;
 }
