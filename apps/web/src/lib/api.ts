@@ -8,11 +8,13 @@ import {
   createClientsClient,
   createClientSignUpsClient,
   createContentClient,
+  createDocumentsClient,
   createEngagementsClient,
   createFirmApplicationsClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
+  createMyDocumentsClient,
   createMyProfileClient,
   createMyReportsClient,
   createMyServicesClient,
@@ -35,6 +37,7 @@ import { createAuditLogMock } from '../mocks/audit-log';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
+import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createSettingsMock } from '../mocks/settings';
@@ -124,6 +127,16 @@ export const api = {
     dev && mocked('myCalculators')
       ? myCalculatorsMock(firmSlug)
       : createMyCalculatorsClient(request, firmSlug),
+  /** Documents (R5): a client's files and document requests, for the firm. Upload with uploadFile(). */
+  documents:
+    dev && mocked('documents')
+      ? createDocumentsMock({ role: MOCK_ROLE })
+      : createDocumentsClient(request),
+  /** Documents (R5): the signed-in client's own files and requests, per firm (portal). */
+  myDocuments: (firmSlug: string) =>
+    dev && mocked('myDocuments')
+      ? myDocumentsMock(firmSlug)
+      : createMyDocumentsClient(request, firmSlug),
   /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
   tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
   /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
