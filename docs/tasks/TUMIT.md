@@ -59,7 +59,7 @@ Checklist:
 - **API:** R4's typed `api.firmApplications.*` contract is on `main`. Use `NEXT_PUBLIC_API_MOCK=firmApplications` for the API-shaped mock until dev data is available.
 - **Build:** stat cards; tabs All, Pending, Approved, Declined with counts; search, status and date filters; table with paging. Detail page with all application fields, automated checks, internal notes and history. Actions Approve, Request Information (with a message) and Decline (with a reason), each with a confirm dialog.
 
-**Status (Oct 8, 2026):** F04b is synced with `main`; list, counts, detail, actions and notes use the typed API and shared React Query invalidation. Typecheck, lint and build pass. All 7 mock Playwright cases report `ok`, but the Windows server teardown hangs and the runner needs interruption. No PR is open yet.
+**Status (Oct 8, 2026):** F04b is synced with `main` and pushed at `f16666c`; list, counts, detail, actions and notes use the typed API and shared React Query invalidation. Typecheck, lint, format and build pass. All 7 mock Playwright cases report `ok`, but Windows server teardown hangs and the runner needs interruption. GitHub refused PR creation because the authenticated account is not a repository collaborator. The 1,000-addition diff is above the approximate 400-line review guideline.
 
 Checklist:
 
