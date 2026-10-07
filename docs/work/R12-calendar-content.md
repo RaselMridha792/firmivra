@@ -70,3 +70,5 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
   - `AppointmentList` items are `CalendarAppointment`: the whole appointment (`restricted: false`) or `BusyAppointment` (`restricted: true`: id, staff member, times, status). The Busy shape has no client fields, so the parser drops any sent by mistake.
   - The rules are in the module comment, the calendar client's doc, `AppointmentsQuery` (the `clientId` 404) and `BookAppointmentRequest` (assigned clients only).
   - Mock: `role: 'STAFF'` is Sam Staff, as in `mocks/clients.ts`; Riley Example's appointment with Mock User is Busy for Sam. Booking checks the client record (404 for an unknown or, for Staff, an unassigned one). The availability mock's "own" hours follow the same signed-in member. `api.appointments` passes `MOCK_ROLE`.
+  - The portal mocks are kept per firm (R1's request, as in #75): `api.myAppointments(slug)`, `api.myContent(slug)` and `api.myCalculators(slug)` reuse one mock per lower-cased slug, built on first use.
+  - The R12 API (step 2) is built with this rule.

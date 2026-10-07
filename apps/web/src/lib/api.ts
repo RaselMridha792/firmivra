@@ -25,11 +25,11 @@ import {
   createAppointmentsMock,
   createAppointmentTypesMock,
   createAvailabilityMock,
-  createMyAppointmentsMock,
+  myAppointmentsMock,
 } from '../mocks/appointments';
-import { createCalculatorsMock, createMyCalculatorsMock } from '../mocks/calculators';
+import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
-import { createContentMock, createMyContentMock } from '../mocks/content';
+import { createContentMock, myContentMock } from '../mocks/content';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createSettingsMock } from '../mocks/settings';
@@ -99,7 +99,7 @@ export const api = {
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')
-      ? createMyAppointmentsMock()
+      ? myAppointmentsMock(firmSlug)
       : createMyAppointmentsClient(request, firmSlug),
   /** Content (R12): resources, tips and external links; the portal reads published ones. */
   content:
@@ -107,7 +107,7 @@ export const api = {
       ? createContentMock({ role: MOCK_ROLE })
       : createContentClient(request),
   myContent: (firmSlug: string) =>
-    dev && mocked('myContent') ? createMyContentMock() : createMyContentClient(request, firmSlug),
+    dev && mocked('myContent') ? myContentMock(firmSlug) : createMyContentClient(request, firmSlug),
   /** Calculators (R12): the firm's settings, and the portal's enabled calculators. */
   calculators:
     dev && mocked('calculators')
@@ -115,7 +115,7 @@ export const api = {
       : createCalculatorsClient(request),
   myCalculators: (firmSlug: string) =>
     dev && mocked('myCalculators')
-      ? createMyCalculatorsMock()
+      ? myCalculatorsMock(firmSlug)
       : createMyCalculatorsClient(request, firmSlug),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:

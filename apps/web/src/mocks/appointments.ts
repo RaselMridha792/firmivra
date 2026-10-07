@@ -785,3 +785,16 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
     },
   };
 }
+
+let myAppointmentsMocks: Map<string, MyAppointmentsClient> | undefined;
+
+/** `api.myAppointments(slug)` in mock mode: one mock per firm (by lower-cased slug), kept for the page. */
+export function myAppointmentsMock(firmSlug: string): MyAppointmentsClient {
+  myAppointmentsMocks ??= new Map();
+  const key = firmSlug.toLowerCase();
+  const found = myAppointmentsMocks.get(key);
+  if (found) return found;
+  const created = createMyAppointmentsMock();
+  myAppointmentsMocks.set(key, created);
+  return created;
+}
