@@ -656,9 +656,12 @@ components:
       type: string
       pattern: '^\+1[2-9]\d{2}[2-9]\d{6}$'
       description: |
-        A US number in E.164 (+1 and 10 digits); US only for now, as an SMS cost guard. Caribbean,
-        Canadian and premium-rate (900) area codes are refused; US territories are allowed. The
-        client strips spaces, dots, brackets and dashes, and reads 10 digits without +1 as US.
+        The sign-up phone, where the SMS code goes (`SmsPhone` in packages/types): a US number in
+        E.164 (+1 and 10 digits), as an SMS cost guard. Caribbean, Canadian, premium-rate (900) and
+        non-geographic area codes (N11, N9X, 37X, 96X, 456, 500, 533, 600, 700, 710, toll-free 8XX,
+        822, 880-889) are refused; US territories are allowed. The client strips spaces, dots,
+        brackets and dashes, and reads 10 digits without +1 as US. Every other phone field (client
+        records, firm applications) takes any country in E.164 (`Phone`; Rasel, Oct 8).
     SignUpRequest:
       type: object
       required: [name, email, phone, password, accountType, accepted]

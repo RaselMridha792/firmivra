@@ -47,6 +47,15 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
 - Later (R3 or R8, #51 review should-fix): a daily cleanup of sign-up attempt logins that never got an account (attempts for registered emails, attempts that lost to another, or abandoned): disable them in Cognito and delete the user row after a day. Sign-up already disables a login whose password Cognito refused, and retires the old login when a new attempt takes over an unfinished sign-up.
 - R3 itself, step 5 (done): with the per-firm cookies a browser is simply signed out on another firm's portal (401); `guards.e2e.test.ts` now checks that, and keeps 404 for a Bearer token (it reaches the firm check).
 
+## Decisions (Rasel)
+
+- Oct 8, q1: only SMS phone fields are US-only. `SmsPhone` (+1, US area codes, no Caribbean, Canadian or non-geographic codes) is the sign-up and change-phone number; `Phone` is international E.164 for every other field (R10's client phones, R4's application phones).
+- Oct 8, q2: the per-IP and per-network sign-up limits stay shared across firms for beta. R8 adds an alarm on the warning logs (ids only).
+- Oct 8, q3: the silent SMS skip at a firm's daily cap stays. R8 adds an alarm before real SMS goes live.
+- Oct 8, q13: a declined sign-up is final; the firm can add the person as a client itself. Signing up again with that email must never look like a code that never works: after it, the person reaches a neutral "contact the firm" step that reveals nothing, the same answer a new email gets at that point (follow-up after #70; design in the log when built).
+- Oct 8, q14: a sign-up can't be linked to an archived client record; restore it first (as built in #72).
+- Oct 8, q18: a declined client gets no reason; the decline email carries none (as built; R6's template drops the field).
+
 ## Progress log
 
 (newest last: date, step, what changed, commit)
@@ -126,3 +135,4 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
   - Should-fix 2: the "already registered" notice is counted and recorded under the email key's try-lock in one firm transaction (at most one an hour, also under parallel sign-ups); a failed send is logged.
   - Nits: `sendNow` for changes comes from the attempt state read under its lock. The index note for the hourly counts is under Needs from others (R0, later).
   - Tests: sign-up e2e 30 (a burst of 120 from one /24 against a pool of 10 with no 500 while another firm's `GET /info` stays 200; resuming after the email step; the first SMS with a used-up session; `resendAvailableAt` at an IP limit; one notice under 12 parallel sign-ups; the parallel limits now "at most", since a busy key is refused); a unit test for the 503 filter. Each sign-up in the tests gets its own phone number (one shared number reached its daily SMS cap).
+- 2026-10-08, Rasel's q1 in #70: `Phone` is international E.164 again (as on main before #70), for client records and firm applications; the new `SmsPhone` keeps #70's US-only rule for the sign-up and change-phone number and adds the review's non-geographic codes (N11, N9X, 37X/96X, 456, 500, 533, 600, 700/710, toll-free 8XX, 822, 880-889) as a deny-list: an allow-list would refuse new US area codes until updated. Types tests for both; the contract's `Phone` text says which is which.
