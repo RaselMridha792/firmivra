@@ -8,9 +8,9 @@ const port = process.env['WEB_PORT'] ?? '3000';
 const admin = (path: string) => `http://admin.localhost:${port}${path}`;
 
 const consolePages: [path: string, title: string][] = [
-  ['/', 'Dashboard'],
+  ['/', 'Welcome back,'],
   ['/applications', 'Firm Applications'],
-  ['/applications/00000000-0000-4000-8000-000000000001', 'Firm application'],
+  ['/applications/00000000-0000-4000-8000-000000000001', 'Firm Applications'],
   ['/firms', 'Firms'],
 ];
 
@@ -21,23 +21,25 @@ test('signed-out visitors to the console are sent to sign in', async ({ page }) 
 
 test('the public Super Admin pages open without signing in', async ({ page }) => {
   const publicPages: [path: string, title: string][] = [
-    ['/forgot-password', 'Forgot password'],
-    ['/reset-password', 'Reset password'],
+    ['/forgot-password', 'Forgot your password?'],
+    ['/reset-password', 'Reset your password'],
   ];
   for (const [path, title] of publicPages) {
     await page.goto(admin(path));
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   }
 });
 
 test('every console page opens in the shell for the Super Admin', async ({ page }) => {
-  await page.goto(admin('/sign-in'));
+  await page.goto(admin('/sign-in?dev=1'));
   await page.getByRole('button', { name: /superadmin@firmivra\.test/ }).click();
-  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+  await expect(
+    page.getByRole('navigation', { name: 'Super Admin navigation', exact: true }),
+  ).toBeVisible();
 
   for (const [path, title] of consolePages) {
     await page.goto(admin(path));
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    await expect(page.getByRole('heading', { name: title })).toBeVisible();
   }
   // The active menu item follows the page.
   await expect(page.getByRole('link', { name: 'Firms', exact: true })).toHaveAttribute(

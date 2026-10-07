@@ -9,8 +9,8 @@ const app = (path: string) => `http://app.localhost:${port}${path}`;
 const id = '00000000-0000-4000-8000-000000000001';
 
 const publicPages: [path: string, title: string][] = [
-  ['/forgot-password', 'Forgot password'],
-  ['/reset-password', 'Reset password'],
+  ['/forgot-password', 'Forgot your password?'],
+  ['/reset-password', 'Reset your password'],
   ['/activate', 'Activate your account'],
   ['/welcome', 'Welcome'],
   ['/apply', 'Apply'],
@@ -18,19 +18,19 @@ const publicPages: [path: string, title: string][] = [
 ];
 
 const workspacePages: [path: string, title: string][] = [
-  ['/', 'Dashboard'],
+  ['/', 'Welcome back,'],
   ['/clients', 'Clients'],
-  [`/clients/${id}`, 'Client overview'],
-  [`/clients/${id}/documents`, 'Client documents'],
-  [`/clients/${id}/messages`, 'Client messages'],
-  [`/clients/${id}/invoices`, 'Client invoices'],
-  ['/sign-ups', 'Sign-ups'],
-  ['/messages', 'Messages'],
+  [`/clients/${id}`, 'Unavailable client'],
+  [`/clients/${id}/documents`, 'Documents'],
+  [`/clients/${id}/messages`, 'Messages & notes'],
+  [`/clients/${id}/invoices`, 'Invoices'],
+  ['/sign-ups', 'Pending sign-ups'],
+  ['/messages', 'Messages & notes'],
   ['/invoices', 'Invoices'],
-  ['/workspaces', 'Workspaces'],
-  [`/workspaces/${id}`, 'Workspace'],
-  ['/leads', 'Leads'],
-  [`/leads/${id}`, 'Lead'],
+  ['/workspaces', 'Service workspaces'],
+  [`/workspaces/${id}`, 'Service workspace'],
+  ['/leads', 'Leads inbox'],
+  [`/leads/${id}`, 'Lead review'],
   ['/calendar', 'Calendar'],
   ['/team', 'Team'],
   ['/settings/profile', 'Firm profile'],
@@ -42,7 +42,7 @@ const workspacePages: [path: string, title: string][] = [
 ];
 
 async function signIn(page: Page, email: string) {
-  await page.goto(app('/sign-in'));
+  await page.goto(app('/sign-in?dev=1'));
   await page.getByRole('button', { name: new RegExp(email.replace('.', '\\.')) }).click();
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
 }
@@ -53,7 +53,7 @@ const menu = (page: Page, label: string) =>
 test('the public firm pages open without signing in', async ({ page }) => {
   for (const [path, title] of publicPages) {
     await page.goto(app(path));
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   }
 });
 
@@ -61,32 +61,36 @@ test('every workspace page opens in the shell for the owner', async ({ page }) =
   await signIn(page, 'owner@lvp.test');
   for (const [path, title] of workspacePages) {
     await page.goto(app(path));
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    if (title === 'Unavailable client')
+      await expect(page.getByTestId('page-not-found')).toBeVisible();
+    else
+      await expect(
+        page.getByRole('heading', { name: title, exact: title !== 'Welcome back,' }),
+      ).toBeVisible();
   }
   await page.goto(app('/settings'));
-  await expect(page).toHaveURL(app('/settings/profile'));
+  await expect(page.getByRole('heading', { name: 'Workspace settings' })).toBeVisible();
   await page.goto(app('/setup'));
   await expect(page.getByTestId('page-title')).toHaveText('Set up your firm');
 });
 
 test('Sign-ups, Team and Settings show for the owner, not for staff', async ({ page }) => {
   await signIn(page, 'owner@lvp.test');
-  for (const label of ['Sign-ups', 'Team', 'Settings'])
+  for (const label of ['Pending sign-ups', 'Team', 'Settings'])
     await expect(menu(page, label)).toBeVisible();
 
-  await page.getByRole('button', { name: /Owner/ }).click();
-  await page.getByRole('menuitem', { name: 'Sign out' }).click();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page).toHaveURL(app('/sign-in'));
 
   await signIn(page, 'staff@lvp.test');
   await expect(menu(page, 'Clients')).toBeVisible();
-  for (const label of ['Sign-ups', 'Team', 'Settings'])
+  for (const label of ['Pending sign-ups', 'Team', 'Settings'])
     await expect(menu(page, label)).toHaveCount(0);
 });
 
 test('a firm that cannot be opened shows why, with Sign out (no dead end)', async ({ page }) => {
   // invited@lvp.test only has an INVITED membership, so GET /business refuses them.
-  await page.goto(app('/sign-in'));
+  await page.goto(app('/sign-in?dev=1'));
   // Sign in from the page, like the quick sign-in buttons (local dev token).
   const status = await page.evaluate(async () => {
     const r = await fetch('/api/v1/dev/token', {

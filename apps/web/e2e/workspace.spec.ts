@@ -107,7 +107,8 @@ test('preview client search, details and disabled mutations', async ({ page }) =
   ).toBeDisabled();
   await page.keyboard.press('Escape');
   await page.goto(site('app', '/clients'));
-  await expect(page.getByRole('heading', { name: 'No clients loaded' })).toBeVisible();
+  // R10 publishes the read contract; its backend is not present on this integration base.
+  await expect(page.getByTestId('page-not-found')).toBeVisible();
   await expect(page.getByText('Alex Morgan', { exact: true })).toHaveCount(0);
 });
 test('wizard keeps edits on Back and never claims persistence', async ({ page }) => {

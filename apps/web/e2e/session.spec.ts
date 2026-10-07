@@ -12,7 +12,7 @@ const unauthenticated = {
 };
 
 async function signInAsOwner(page: Page) {
-  await page.goto(app('/sign-in'));
+  await page.goto(app('/sign-in?dev=1'));
   await page.getByRole('button', { name: /owner@lvp\.test/ }).click();
   await expect(page.getByTestId('firm-name')).toBeVisible();
 }

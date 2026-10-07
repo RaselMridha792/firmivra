@@ -38,7 +38,6 @@ test.describe('local sign-in works end to end (/api/v1/me)', () => {
     await signInAs(page, site('app', '/sign-in'), 'owner@lvp.test');
     // Firm workspace shell (skeleton): the header names the firm, the user menu the email.
     await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
-    await page.getByRole('button', { name: /Owner/ }).click();
     await expect(page.getByTestId('me-email')).toHaveText('owner@lvp.test');
   });
 
@@ -58,7 +57,7 @@ test.describe('local sign-in works end to end (/api/v1/me)', () => {
   test('Super Admin in the admin console', async ({ page }) => {
     await signInAs(page, site('admin', '/sign-in'), 'superadmin@firmivra.test');
     // The console's user menu (app shell) shows the email once opened.
-    await page.getByRole('button', { name: /Super Admin/ }).click();
+    await page.locator('.ref-profile-menu summary').click();
     await expect(page.getByTestId('me-email')).toHaveText('superadmin@firmivra.test');
     await expect(page.getByText('Super Admin', { exact: false }).first()).toBeVisible();
   });
