@@ -3,34 +3,45 @@ import {
   ConflictException,
   ForbiddenException,
   GoneException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { portalCookies } from '@firmivra/types';
+import { AccountType, portalCookies } from '@firmivra/types';
 import { type PoolSecrets, Sealer } from '../auth/sealed.js';
 
-/** HKDF label for sign-up session keys; a new label (v2) ends every open sign-up. */
-export const SIGN_UP_KEY_LABEL = 'fv-portal-signup-v1';
+/** HKDF label for sign-up session keys; v2 ends every v1 sign-up (#51 review: new shape). */
+export const SIGN_UP_KEY_LABEL = 'fv-portal-signup-v2';
 /** A sign-up has 30 minutes from its first page to its last. */
 export const SIGN_UP_SECONDS = 30 * 60;
 
+/**
+ * What the sign-up cookie holds between the sign-up pages. The same fields, of the same length,
+ * on every path (#51 review: a cookie must not show whether the email has an account):
+ * - `userId`: this attempt's own login (its password, name and phone), made for every sign-up.
+ *   It doubles as the attempt id: codes are bound to it, and an older attempt's cookie never
+ *   acts for a newer one.
+ * - `clientAccountId`: the account this attempt is for, or a random id when it goes nowhere.
+ * Never a code: codes and attempts live in verification_codes.
+ */
 const SignUpSession = z.object({
   pool: z.literal('CLIENT'),
   businessId: z.string(),
   firmSlug: z.string(),
-  /** Null when the email already had an account here: the session goes nowhere. */
-  clientAccountId: z.string().nullable(),
+  clientAccountId: z.uuid(),
+  userId: z.uuid(),
   email: z.string(),
   phone: z.string(),
-  /** Sessions that go nowhere only: when "Resend Code" works again (ms since epoch). */
+  accountType: AccountType,
+  /** When "Resend Code" works again on the paths without codes (ms since epoch). */
   resendAt: z.number(),
+  /** Code requests in this session, sign-up included; capped alike on every path. */
+  sends: z.number(),
 });
 export type SignUpSession = z.infer<typeof SignUpSession>;
 
-/**
- * What the sign-up cookie holds between the sign-up pages: which account and firm, never a code
- * (codes and attempts live in verification_codes). Sealed like the MFA challenge.
- */
+/** Sealed like the MFA challenge: the browser can neither read nor change it. */
 export class SignUpSessions extends Sealer<SignUpSession> {
   constructor(secrets: PoolSecrets) {
     super(SIGN_UP_KEY_LABEL, SignUpSession, secrets);
@@ -80,4 +91,9 @@ export const signUpErrors = {
     new ConflictException({ code: 'ALREADY_VERIFIED', message: 'This is already verified' }),
   wrongStep: () =>
     new ConflictException({ code: 'WRONG_STEP', message: 'Please follow the steps in order' }),
+  rateLimited: () =>
+    new HttpException(
+      { code: 'RATE_LIMITED', message: 'Too many attempts. Wait a few minutes and try again.' },
+      HttpStatus.TOO_MANY_REQUESTS,
+    ),
 };
