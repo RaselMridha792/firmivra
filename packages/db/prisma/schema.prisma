@@ -299,24 +299,25 @@ model Business {
   createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  memberships         Membership[]
-  clientAccounts      ClientAccount[]
-  supportAccessGrants SupportAccessGrant[]
-  auditLogs           AuditLog[]
-  firmApplication     FirmApplication?
-  settings            BusinessSettings?
-  legalDocuments      FirmLegalDocument[]
-  taxStatuses         TaxStatus[]
-  invites             Invite[]
-  clients             Client[]
-  services            Service[]
-  documentCategories  DocumentCategory[]
-  notifications       Notification[]
-  notificationPrefs   NotificationPreference[]
-  appointmentTypes    AppointmentType[]
-  contentItems        ContentItem[]
-  calculators         CalculatorDefinition[]
-  stripeAccount       StripeAccount?
+  memberships          Membership[]
+  clientAccounts       ClientAccount[]
+  supportAccessGrants  SupportAccessGrant[]
+  auditLogs            AuditLog[]
+  firmApplication      FirmApplication?
+  settings             BusinessSettings?
+  legalDocuments       FirmLegalDocument[]
+  taxStatuses          TaxStatus[]
+  invites              Invite[]
+  clients              Client[]
+  services             Service[]
+  documentCategories   DocumentCategory[]
+  notifications        Notification[]
+  notificationPrefs    NotificationPreference[]
+  appointmentTypes     AppointmentType[]
+  contentItems         ContentItem[]
+  calculators          CalculatorDefinition[]
+  stripeAccount        StripeAccount?
+  platformOwnerInvites PlatformOwnerInvite[]
 
   @@map("businesses")
 }
@@ -350,6 +351,25 @@ model PlatformUserSignups {
 
   @@id([day, pool])
   @@map("platform_user_signups")
+}
+
+/// The owner activation links the platform sent (invites with `sent_by_platform`), without the
+/// token: what Super Admin reads for ownerInvite and OWNER_INVITED (R4). Kept by triggers on
+/// invites; admin scope reads it, nobody writes it.
+model PlatformOwnerInvite {
+  inviteId     String    @id @map("invite_id") @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  membershipId String?   @map("membership_id") @db.Uuid
+  sentAt       DateTime  @map("sent_at") @db.Timestamptz(3)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+  acceptedAt   DateTime? @map("accepted_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  invite   Invite   @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, sentAt])
+  @@map("platform_owner_invites")
 }
 
 /// A staff user's role in one business.
@@ -609,12 +629,16 @@ model Invite {
   invitedByUserId String?   @map("invited_by_user_id") @db.Uuid
   acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(3)
   revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+  /// Set by the database: true for an invite inserted in platform scope with no inviting member
+  /// (the owner's activation link from Firmivra). Never set or changed by a request.
+  sentByPlatform  Boolean   @default(false) @map("sent_by_platform")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  business      Business       @relation(fields: [businessId], references: [id])
+  business      Business             @relation(fields: [businessId], references: [id])
+  platformCopy  PlatformOwnerInvite?
   // Same-firm foreign keys: FK checks skip RLS, so (business_id, id) stops a link to another firm's row.
-  membership    Membership?    @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
-  clientAccount ClientAccount? @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  membership    Membership?          @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  clientAccount ClientAccount?       @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
 
   @@index([businessId, membershipId])
   @@index([businessId, clientAccountId])
@@ -741,7 +765,6 @@ model ClientTaxStatusHistory {
   client    Client    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   taxStatus TaxStatus @relation(fields: [businessId, taxStatusId], references: [businessId, id], onDelete: Restrict)
 
-  @@index([businessId, clientId, taxYear, changedAt])
   @@index([businessId, clientId, taxYear, seq])
   @@map("client_tax_status_history")
 }
