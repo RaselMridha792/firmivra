@@ -23,9 +23,9 @@ info:
        answers an `UploadTicket`: a one-time URL valid for a few minutes, the headers to send,
        and an `uploadToken`.
     2. The browser `PUT`s the file to `ticket.url` with exactly `ticket.headers`. The file goes
-       straight to storage under the firm's own prefix (`tenant/{businessId}/...`) and KMS key;
-       the API never streams it. Storage refuses bytes that don't match the signed type and
-       checksum.
+       straight to storage under the firm's own prefix (`tenant/{businessId}/...`), at a key the
+       API chooses; the API never streams it. Storage refuses bytes that don't match the signed
+       type, length and checksum.
     3. `POST .../documents/uploads/confirm` with the `uploadToken`. The API checks the stored
        object (size, magic bytes, checksum), saves the document and starts the malware scan.
        `410 UPLOAD_EXPIRED` for an old or used token; `409 UPLOAD_MISMATCH` if the stored file is
@@ -52,9 +52,44 @@ info:
       it (`SUBMITTED`) or says "I don't have this" (`NOT_AVAILABLE`, with a reason). The firm
       accepts (`ACCEPTED`) or marks it missing (`REJECTED`, with a reason the client sees; the
       client is asked again), or cancels it. Requests are never deleted.
-    - **Audit and privacy.** Uploads, downloads and request changes are audited with ids only.
-      File contents, names of other clients and storage URLs never reach logs, emails or SMS.
+    - **File names** are display only: no control or invisible formatting characters, no line
+      separators, no `/` or `\`, and the ending must fit the type (`.pdf` for a PDF). Storage
+      keys are never built from them.
+    - **Household logins.** How SPOUSE and AUTHORIZED portal logins use these routes (and what
+      "MINE" means for them) is pending Rasel's answer; until then the rules above are for the
+      client's primary login.
+    - **Audit and privacy.** Uploads, views (`get`), every download link issued and request
+      changes are audited with ids only. File contents, names of other clients and storage URLs
+      never reach logs, emails or SMS.
     - Every change comes from the browser (see "Calling the API from the web app" in auth.yaml).
+
+    ## Rules for the API (R5 steps 2 to 6)
+
+    - **Ticket.** The `uploadToken` is sealed (or stored) by the API and binds the business, the
+      uploader (user and side), the client, service, request, category, direction, the S3 key,
+      size, SHA-256 and an expiry of 5 minutes or less.
+    - **Presigned PUT.** `Content-Type`, `Content-Length`, `x-amz-checksum-sha256` and the SSE-KMS
+      headers are in `X-Amz-SignedHeaders`; expiry 5 minutes or less. (`Content-Length` is signed
+      but not in `ticket.headers`: the browser sends it.) s3mock does not check signatures, so a
+      unit test checks the presigned URL itself (signed headers, expiry).
+    - **Confirm** re-reads the object (size, checksum, magic bytes). Missing or different: `409
+      UPLOAD_MISMATCH`, and the API deletes the object. The unique `s3_key` makes confirm single
+      use (`410 UPLOAD_EXPIRED` the second time).
+    - **Replays.** A presigned PUT can be replayed until it expires and the bucket is versioned,
+      so a download pins the confirmed version (R0: `documents.s3_version_id`) or the API checks
+      the checksum before signing the GET.
+    - **Presigned GET.** `response-content-disposition=attachment` with an RFC 5987 file name,
+      `response-content-type` set to the stored type, expiry 5 minutes, and an audit entry for
+      every link.
+    - **KMS (pending).** Today infra has one bucket key (data stack) and the API's IAM policy
+      covers only it; per-firm keys come with `businesses.kms_key_id` (#52) and R10 step 2's key
+      creation. Until then objects use the bucket key.
+    - **Leftovers.** The API deletes mismatched uploads; a bucket lifecycle rule expires objects
+      never confirmed (infra, with Rasel's yes).
+    - **Infra (each with Rasel's yes first):** KMS access on the firms' own keys (tag
+      conditioned), `s3:GetObjectVersion` if downloads pin versions, the lifecycle rule,
+      GuardDuty Malware Protection for S3 with its scan-result event, and a bucket policy that
+      refuses a PutObject without `aws:kms`.
 
     ## Pages and calls
 
@@ -96,6 +131,7 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/UploadTicket' }
         '409': { description: NO_OPEN_SERVICE or CATEGORY_ARCHIVED }
+        '404': { $ref: '#/components/responses/NotFound' }
   /business/documents/uploads/confirm:
     post:
       tags: [firm]
@@ -123,6 +159,7 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/DownloadLink' }
         '409': { description: SCAN_PENDING or FILE_BLOCKED }
+        '404': { $ref: '#/components/responses/NotFound' }
   /business/document-categories:
     get:
       tags: [firm]
@@ -150,6 +187,7 @@ paths:
       responses:
         '200': { description: FirmDocumentRequest }
         '409': { description: NO_OPEN_SERVICE or CATEGORY_ARCHIVED }
+        '404': { $ref: '#/components/responses/NotFound' }
   /business/document-requests/{id}/accept:
     post:
       tags: [firm]
@@ -158,6 +196,7 @@ paths:
       responses:
         '200': { description: FirmDocumentRequest }
         '409': { description: NOTHING_SUBMITTED or REQUEST_CLOSED }
+        '404': { $ref: '#/components/responses/NotFound' }
   /business/document-requests/{id}/reject:
     post:
       tags: [firm]
@@ -170,6 +209,7 @@ paths:
       responses:
         '200': { description: FirmDocumentRequest }
         '409': { description: NOTHING_SUBMITTED or REQUEST_CLOSED }
+        '404': { $ref: '#/components/responses/NotFound' }
   /business/document-requests/{id}/cancel:
     post:
       tags: [firm]
@@ -177,6 +217,7 @@ paths:
       parameters: [{ $ref: '#/components/parameters/Id' }]
       responses:
         '200': { description: FirmDocumentRequest }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: REQUEST_CLOSED }
 
   /portal/{firmSlug}/me/documents:
@@ -227,6 +268,7 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/UploadTicket' }
         '409': { description: NO_OPEN_SERVICE, REQUEST_CLOSED or CATEGORY_ARCHIVED }
+        '404': { $ref: '#/components/responses/NotFound' }
   /portal/{firmSlug}/me/documents/uploads/confirm:
     post:
       tags: [portal]
@@ -298,3 +340,4 @@ components:
     ListMyDocumentsQuery: { type: object, description: 'zod ListMyDocumentsQuery' }
     CreateMyUploadRequest: { type: object, description: 'zod CreateMyUploadRequest' }
     NotAvailableRequest: { type: object, description: 'zod NotAvailableRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }

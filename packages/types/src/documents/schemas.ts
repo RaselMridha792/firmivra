@@ -78,7 +78,20 @@ const ServiceRef = z.object({ id: z.uuid(), title: z.string() });
 // ---------- Upload (both sides) ----------
 /** What `uploadFile()` learns from the file itself and adds to every `createUpload`. */
 const FileFacts = {
-  fileName: text(255, 'one', 'The file needs a name'),
+  /**
+   * Shown to staff and the client, and the download's name. No control or invisible formatting
+   * characters (such as a right-to-left override or a zero-width space), no line or paragraph
+   * separators, no / or \. It must end in an ending of its content type (checked with the type).
+   */
+  fileName: z
+    .string()
+    .trim()
+    .min(1, 'The file needs a name')
+    .max(255, 'Use a file name of at most 255 characters')
+    .regex(
+      /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}/\\]+$/u,
+      'Rename the file: its name has characters that are not allowed',
+    ),
   contentType: UploadContentType,
   sizeBytes: z
     .number()
@@ -89,6 +102,22 @@ const FileFacts = {
   sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Not a SHA-256'),
 };
 export type UploadFileFacts = { [K in keyof typeof FileFacts]: z.input<(typeof FileFacts)[K]> };
+
+/** The name's ending must fit the declared type (".pdf" for a PDF), with a name before it. */
+const nameFitsType = (
+  body: { fileName: string; contentType: UploadContentType },
+  ctx: z.RefinementCtx,
+) => {
+  const endings: readonly string[] = UPLOAD_LIMITS.types[body.contentType];
+  const name = body.fileName.toLowerCase();
+  if (!endings.some((ending) => name.endsWith(ending) && name.length > ending.length)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['fileName'],
+      message: `The file name must end in ${endings.join(' or ')}`,
+    });
+  }
+};
 
 /** Step 1's answer: where the browser PUTs the file, and how. */
 export const UploadTicket = z.object({
@@ -160,17 +189,20 @@ export const FirmDocumentList = z.object({
 export type FirmDocumentList = z.infer<typeof FirmDocumentList>;
 
 /**
- * POST /business/clients/{clientId}/documents/uploads: a file the firm adds to an open service
- * (ACTIVE engagement; 409 NO_OPEN_SERVICE). `shareWithClient` makes it FIRM_TO_CLIENT ("Firm
- * Uploaded Documents" in the portal); otherwise it stays INTERNAL.
+ * POST /business/clients/{clientId}/documents/uploads: a file the firm adds to an open service.
+ * 404 for a service or category that isn't this client's or firm's; then 409 NO_OPEN_SERVICE
+ * (not ACTIVE) or CATEGORY_ARCHIVED. `shareWithClient` makes it FIRM_TO_CLIENT ("Firm Uploaded
+ * Documents" in the portal); otherwise it stays INTERNAL.
  */
-export const CreateFirmUploadRequest = z.strictObject({
-  serviceId: z.uuid(),
-  categoryId: z.uuid().nullable().optional(),
-  taxYear: TaxYear.nullable().optional(),
-  shareWithClient: z.boolean().optional().default(false),
-  ...FileFacts,
-});
+export const CreateFirmUploadRequest = z
+  .strictObject({
+    serviceId: z.uuid(),
+    categoryId: z.uuid().nullable().optional(),
+    taxYear: TaxYear.nullable().optional(),
+    shareWithClient: z.boolean().optional().default(false),
+    ...FileFacts,
+  })
+  .superRefine(nameFitsType);
 export type CreateFirmUploadRequest = z.input<typeof CreateFirmUploadRequest>;
 
 /** GET /business/document-categories: the firm's categories, in order. */
@@ -202,7 +234,8 @@ export const FirmDocumentRequest = z.object({
   resolvedAt: DateTime.nullable(),
 });
 export type FirmDocumentRequest = z.infer<typeof FirmDocumentRequest>;
-export const FirmDocumentRequestList = z.object({ items: z.array(FirmDocumentRequest) });
+/** At most the 200 newest. */
+export const FirmDocumentRequestList = z.object({ items: z.array(FirmDocumentRequest).max(200) });
 
 /** GET /business/clients/{clientId}/document-requests. Newest first. */
 export const ListDocumentRequestsQuery = z.strictObject({
@@ -213,7 +246,8 @@ export type ListDocumentRequestsQuery = z.input<typeof ListDocumentRequestsQuery
 
 /**
  * POST /business/clients/{clientId}/document-requests ("Request a document"), for an open
- * service (409 NO_OPEN_SERVICE). The client gets a bell and an email (no content).
+ * service: 404 for a service or category that isn't the client's or firm's, then 409
+ * NO_OPEN_SERVICE or CATEGORY_ARCHIVED. The client gets a bell and an email (no content).
  */
 export const CreateDocumentRequestRequest = z.strictObject({
   serviceId: z.uuid(),
@@ -296,17 +330,20 @@ export const UploadTargets = z.object({
 export type UploadTargets = z.infer<typeof UploadTargets>;
 
 /**
- * POST /portal/{firmSlug}/me/documents/uploads. The service must be the client's and open
- * (409 NO_OPEN_SERVICE); a `requestId` must be an open request of that service (409
- * REQUEST_CLOSED), and the upload answers it (SUBMITTED).
+ * POST /portal/{firmSlug}/me/documents/uploads. 404 for a service, request or category that
+ * isn't the client's or their firm's; then 409 NO_OPEN_SERVICE (service not ACTIVE),
+ * REQUEST_CLOSED (request of another service or no longer open) or CATEGORY_ARCHIVED. An upload
+ * with a `requestId` answers it (SUBMITTED).
  */
-export const CreateMyUploadRequest = z.strictObject({
-  serviceId: z.uuid(),
-  requestId: z.uuid().nullable().optional(),
-  categoryId: z.uuid().nullable().optional(),
-  taxYear: TaxYear.nullable().optional(),
-  ...FileFacts,
-});
+export const CreateMyUploadRequest = z
+  .strictObject({
+    serviceId: z.uuid(),
+    requestId: z.uuid().nullable().optional(),
+    categoryId: z.uuid().nullable().optional(),
+    taxYear: TaxYear.nullable().optional(),
+    ...FileFacts,
+  })
+  .superRefine(nameFitsType);
 export type CreateMyUploadRequest = z.input<typeof CreateMyUploadRequest>;
 
 /** GET /portal/{firmSlug}/me/document-categories: the firm's active categories, in order. */
@@ -325,7 +362,8 @@ export const MyDocumentRequest = z.object({
   statusNote: z.string().nullable(),
 });
 export type MyDocumentRequest = z.infer<typeof MyDocumentRequest>;
-export const MyDocumentRequestList = z.object({ items: z.array(MyDocumentRequest) });
+/** At most 200: open ones first, then the newest. */
+export const MyDocumentRequestList = z.object({ items: z.array(MyDocumentRequest).max(200) });
 
 /** POST /portal/{firmSlug}/me/document-requests/{id}/not-available ("I don't have this"). */
 export const NotAvailableRequest = z.strictObject({

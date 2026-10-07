@@ -41,8 +41,26 @@ Upload and download work on dev from the portal and the firm workspace.
 
 - File types: PDF, JPG and PNG (N05, SYSTEM-DESIGN "Uploads"). The My Docs mockup also shows an `.xlsx`; the spec says "firm-configured types". Add spreadsheets now, or later per firm?
 - Replacement uploads: the spec wants versions kept. The schema has no version chain, so for now a replacement is a new upload for the same request and the old file stays.
+- From the #75 review (the lead asked Rasel): how SPOUSE and AUTHORIZED portal logins use the document routes (and what "MINE" means for a household); a rescan path for FAILED scans; whether deletes are deferred; uploads to PENDING engagements.
+
+## For the API steps (#75 review, Oct 7)
+
+The rules are in docs/api/documents.yaml, "Rules for the API":
+- a sealed, bound `uploadToken` (5 minutes);
+- signed `Content-Type`, `Content-Length`, checksum and SSE headers, with a unit test of the presigned URL, since s3mock doesn't check signatures;
+- confirm re-reads the object and deletes a mismatch;
+- the unique `s3_key` makes confirm single use;
+- downloads pin the confirmed version or re-check the checksum;
+- presigned GET as an attachment with an RFC 5987 name and the stored type, every link audited;
+- views audited;
+- the per-firm KMS key is pending (one bucket key today);
+- a lifecycle rule for unconfirmed objects.
+
+Infra for these needs Rasel's yes first.
 
 ## Needs from others
+
+- R0: `documents.s3_version_id` if downloads pin the confirmed version (see the yaml).
 
 - R0 or T02: default document categories for a new firm (Tax Documents, Business Documents, Identification), unless the setup wizard creates them.
 - R4: uploads for a firm application before any account exists (later; `documents` is empty on applications until then).
@@ -52,3 +70,9 @@ Upload and download work on dev from the portal and the firm workspace.
 
 (newest last: date, step, what changed, commit)
 - 2026-10-07, contract (steps 1 and part of 7): `packages/types/src/documents/` with `api.documents` (firm: list, get, upload ticket and confirm, download, categories, requests and their accept, reject, cancel) and `api.myDocuments(slug)` (portal: list MINE or FIRM, get, upload targets, upload, download, categories, requests, "I don't have this"). Error codes `NO_OPEN_SERVICE`, `REQUEST_CLOSED`, `NOTHING_SUBMITTED`, `CATEGORY_ARCHIVED`, `UPLOAD_EXPIRED`, `UPLOAD_MISMATCH`, `UPLOAD_FAILED`, `SCAN_PENDING`, `FILE_BLOCKED`. `docs/api/documents.yaml`. `uploadFile()` filled in (type and size checks, SHA-256, PUT with progress, confirm). Mock `apps/web/src/mocks/documents.ts` on R10's mock client and services (fixtures built on first use; the portal mock kept per firm). The enums stay module-local until #52's shared enums land. Branch `rasel/R5-documents-contract`.
+- 2026-10-07, #75 review fixes:
+  - file names refuse control and invisible formatting characters (\p{Cc}, \p{Cf}), line separators, `/` and `\`, and the ending must fit the type (tests: bidi override, zero-width, `../`, backslash, `CON`, `evil.html`, `x.pdf.exe`, `.pdf`);
+  - request lists capped at 200;
+  - `uploadFile()`: `Object.hasOwn` for the type, abort checked between steps and its listener removed, a 10-minute PUT timeout, the `mock:` skip only outside production;
+  - the mock answers every 404 before any 409;
+  - the yaml has "Rules for the API", the household and KMS notes, and the missing 404s.

@@ -196,12 +196,30 @@ function store() {
     view,
     engagement: (clientId: string, serviceId: string): Engagement | undefined =>
       engagementFixtures().find((e) => e.id === serviceId && e.clientId === clientId),
-    category: (id: string | null | undefined) => {
-      if (!id) return null;
-      const c = categories.find((x) => x.id === id);
-      if (!c) throw notFound();
-      if (c.archivedAt) throw fail(409, 'CATEGORY_ARCHIVED', 'This category is archived');
-      return { id: c.id, name: c.name };
+    /**
+     * The service, category and request an upload or a request names: every 404 (not this
+     * client's or firm's) before any 409, as in the API.
+     */
+    target: (
+      clientId: string,
+      ids: { serviceId: string; categoryId?: string | null; requestId?: string | null },
+    ) => {
+      const e = engagementFixtures().find((x) => x.id === ids.serviceId && x.clientId === clientId);
+      const c = ids.categoryId ? categories.find((x) => x.id === ids.categoryId) : null;
+      const r = ids.requestId
+        ? requests.find((x) => x.id === ids.requestId && x.clientId === clientId)
+        : null;
+      if (!e || c === undefined || r === undefined) throw notFound();
+      if (e.status !== 'ACTIVE') throw fail(409, 'NO_OPEN_SERVICE', 'This service is not open');
+      if (r && (r.service.id !== e.id || !isOpen(r))) {
+        throw fail(409, 'REQUEST_CLOSED', 'This request is no longer open');
+      }
+      if (c?.archivedAt) throw fail(409, 'CATEGORY_ARCHIVED', 'This category is archived');
+      return { engagement: e, category: c ? { id: c.id, name: c.name } : null };
+    },
+    categoryRef: (id: string | null | undefined) => {
+      const c = id ? categories.find((x) => x.id === id) : undefined;
+      return c ? { id: c.id, name: c.name } : null;
     },
     ticket: (
       clientId: string,
@@ -245,12 +263,6 @@ function store() {
         );
       }
       return d;
-    },
-    openRequest: (id: string, serviceId: string) => {
-      const r = requests.find((x) => x.id === id);
-      if (!r || r.service.id !== serviceId || !isOpen(r)) {
-        throw fail(409, 'REQUEST_CLOSED', 'This request is no longer open');
-      }
     },
     addRequest: (r: Omit<FirmDocumentRequest, 'id'>) => {
       const added = { ...r, id: requestId(next++) };
@@ -334,10 +346,7 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
     createUpload: async (clientId, body) => {
       await mockDelay();
       const b = parseInput(CreateFirmUploadRequest, body);
-      const e = s.engagement(reachable(clientId), b.serviceId);
-      if (!e) throw notFound();
-      if (e.status !== 'ACTIVE') throw fail(409, 'NO_OPEN_SERVICE', 'This service is not open');
-      s.category(b.categoryId);
+      s.target(reachable(clientId), b);
       return s.ticket(clientId, b, b.contentType);
     },
     confirmUpload: async (body) => {
@@ -350,7 +359,7 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
           id,
           clientId,
           service: { id: e.id, title: e.title },
-          category: s.category(b.categoryId),
+          category: s.categoryRef(b.categoryId),
           requestId: null,
           direction: b.shareWithClient ? 'FIRM_TO_CLIENT' : 'INTERNAL',
           fileName: b.fileName,
@@ -386,13 +395,11 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
     createRequest: async (clientId, body) => {
       await mockDelay();
       const b = parseInput(CreateDocumentRequestRequest, body);
-      const e = s.engagement(reachable(clientId), b.serviceId);
-      if (!e) throw notFound();
-      if (e.status !== 'ACTIVE') throw fail(409, 'NO_OPEN_SERVICE', 'This service is not open');
+      const { engagement: e, category } = s.target(reachable(clientId), b);
       return s.addRequest({
         clientId,
         service: { id: e.id, title: e.title },
-        category: s.category(b.categoryId),
+        category,
         title: b.title,
         instructions: b.instructions ?? null,
         dueOn: b.dueOn ?? null,
@@ -513,10 +520,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     createUpload: async (body) => {
       await mockDelay();
       const b = parseInput(CreateMyUploadRequest, body);
-      const e = s.engagement(me, b.serviceId);
-      if (e?.status !== 'ACTIVE') throw fail(409, 'NO_OPEN_SERVICE', 'This service is not open');
-      if (b.requestId) s.openRequest(b.requestId, b.serviceId);
-      s.category(b.categoryId);
+      s.target(me, b);
       return s.ticket(me, b, b.contentType);
     },
     confirmUpload: async (body) => {
@@ -529,7 +533,7 @@ export function createMyDocumentsMock(): MyDocumentsClient {
           id,
           clientId: me,
           service: { id: e.id, title: e.title },
-          category: s.category(b.categoryId),
+          category: s.categoryRef(b.categoryId),
           requestId: b.requestId ?? null,
           direction: 'CLIENT_TO_FIRM',
           fileName: b.fileName,

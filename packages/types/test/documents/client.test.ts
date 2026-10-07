@@ -177,6 +177,37 @@ describe('api.myDocuments(slug) (portal)', () => {
     expect(MyDocument.parse({ ...doc, addedLater: 1 })).not.toHaveProperty('addedLater');
   });
 
+  it.each([
+    ['a right-to-left override', 'invoice‮fdp.exe'],
+    ['a zero-width space', 'w2​.pdf'],
+    ['a line separator', 'w2 .pdf'],
+    ['a path', '../../x.pdf'],
+    ['a backslash', 'a\\b.pdf'],
+    ['no ending', 'CON'],
+    ['an ending of another type', 'evil.html'],
+    ['a second ending', 'x.pdf.exe'],
+    ['only the ending', '.pdf'],
+  ])('refuses a file name with %s', async (_, fileName) => {
+    const { fn, calls } = fakeFetch(200, {});
+    const api = createMyDocumentsClient(request(fn), 'lvp');
+    const error = await rejection(api.createUpload({ serviceId: id, ...facts, fileName }));
+    expect(error.code).toBe('VALIDATION_FAILED');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('takes a name whose ending fits its type, in any case', async () => {
+    const { fn, calls } = fakeFetch(500, {});
+    const api = createMyDocumentsClient(request(fn), 'lvp');
+    await api.createUpload({ serviceId: id, ...facts, fileName: ' Scan.PDF ' }).catch(() => 0);
+    await api
+      .createUpload({ serviceId: id, ...facts, contentType: 'image/jpeg', fileName: 'id.JPEG' })
+      .catch(() => 0);
+    expect(calls.map((c) => (c.body as { fileName: string }).fileName)).toEqual([
+      'Scan.PDF',
+      'id.JPEG',
+    ]);
+  });
+
   it('keeps the upload types and the picker endings together', () => {
     expect(UploadContentType.options).toEqual(Object.keys(UPLOAD_LIMITS.types));
   });
