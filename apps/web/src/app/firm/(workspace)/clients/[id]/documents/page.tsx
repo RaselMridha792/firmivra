@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { Documents } from '../../../../../../features/documents';
 
 export const metadata: Metadata = { title: 'Client documents' };
 
-export default function ClientDocumentsPage() {
-  return <PagePlaceholder title="Client documents" ticket="F07" owner="Fahad" />;
+export default async function ClientDocumentsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <Documents clientId={id} />;
 }

@@ -25,13 +25,20 @@ const documents = [
     uploadedBy: 'Firm',
   },
 ];
-export function Documents() {
+export function Documents({ clientId }: { clientId?: string } = {}) {
   const { preview } = useWorkspace();
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
   const rows = preview
     ? documents.filter(
         (r) =>
+          (!clientId ||
+            r.client ===
+              (clientId === 'sample-alex'
+                ? 'Alex Morgan'
+                : clientId === 'sample-studio'
+                  ? 'Example Studio LLC'
+                  : '')) &&
           (!category || r.category === category) &&
           `${r.name} ${r.client}`.toLowerCase().includes(search.toLowerCase()),
       )

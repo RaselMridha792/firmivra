@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Card, EmptyState, Input, Select, Table, Tabs } from '@firmivra/ui';
 import { OwnerOnly, useWorkspace } from '../components/workspace-context';
+import { ClientScreens } from '../app/firm/(workspace)/clients/_components/client-screens';
 import {
   ContactFields,
   DataNotice,
@@ -54,6 +55,10 @@ const pending = [
 ];
 
 export function Clients({ id }: { id?: string }) {
+  const { preview } = useWorkspace();
+  return preview ? <PreviewClients id={id} /> : <ClientScreens id={id} />;
+}
+function PreviewClients({ id }: { id?: string }) {
   const { preview } = useWorkspace();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');

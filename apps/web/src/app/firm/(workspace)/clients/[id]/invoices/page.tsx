@@ -1,15 +1,9 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { Invoices } from '../../../../../../features/communications';
 
 export const metadata: Metadata = { title: 'Client invoices' };
 
-export default function ClientInvoicesPage() {
-  return (
-    <PagePlaceholder
-      title="Client invoices"
-      ticket="F10"
-      owner="Fahad"
-      mockup="client-portal/invoices tab.png (for style)"
-    />
-  );
+export default async function ClientInvoicesPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return <Invoices clientId={id} />;
 }

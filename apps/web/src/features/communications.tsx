@@ -15,8 +15,9 @@ import {
 import { useWorkspace } from '../components/workspace-context';
 import { DataNotice, PageHeading, Status, UnavailableAction } from './screen-kit';
 
-export function Messages() {
+export function Messages({ clientId }: { clientId?: string } = {}) {
   const { preview } = useWorkspace();
+  const hasSampleThread = preview && (!clientId || clientId === 'sample-alex');
   const [thread, setThread] = useState('');
   const [reply, setReply] = useState('');
   const [note, setNote] = useState('');
@@ -31,7 +32,9 @@ export function Messages() {
               label="Recipient"
               options={[
                 { value: '', label: 'Choose a client' },
-                ...(preview ? [{ value: 'sample-alex', label: 'Alex Morgan (sample)' }] : []),
+                ...(hasSampleThread
+                  ? [{ value: 'sample-alex', label: 'Alex Morgan (sample)' }]
+                  : []),
               ]}
             />
             <Input label="Subject" maxLength={200} />
@@ -45,7 +48,7 @@ export function Messages() {
         <Card title="Inbox">
           <Input label="Search messages" type="search" />
           <div className="mt-4">
-            {preview ? (
+            {hasSampleThread ? (
               <Button
                 variant="secondary"
                 className="w-full justify-start"
@@ -135,7 +138,7 @@ export function invoiceTotal(lines: Pick<Line, 'quantity' | 'rate'>[]) {
 }
 const money = (cents: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
-export function Invoices() {
+export function Invoices({ clientId }: { clientId?: string } = {}) {
   const { preview } = useWorkspace();
   const [filter, setFilter] = useState('');
   const [create, setCreate] = useState(false);
@@ -162,7 +165,17 @@ export function Invoices() {
           status: 'Pending',
           due: 'Preview example',
         },
-      ].filter((r) => !filter || r.status === filter)
+      ].filter(
+        (r) =>
+          (!filter || r.status === filter) &&
+          (!clientId ||
+            r.client ===
+              (clientId === 'sample-alex'
+                ? 'Alex Morgan'
+                : clientId === 'sample-studio'
+                  ? 'Example Studio LLC'
+                  : '')),
+      )
     : [];
   const updateLine = (id: string, key: keyof Omit<Line, 'id'>, value: string) =>
     setLines((all) => all.map((line) => (line.id === id ? { ...line, [key]: value } : line)));
