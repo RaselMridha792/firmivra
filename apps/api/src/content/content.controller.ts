@@ -15,12 +15,8 @@ import {
   ContentId,
   type ContentItem,
   type ContentList,
-  ContentQuery,
-  CreateContentRequest,
   type MyContentList,
-  MyContentQuery,
   type OkResponse,
-  UpdateContentRequest,
 } from '@firmivra/types';
 import {
   CurrentAuth,
@@ -31,6 +27,7 @@ import {
 } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { CreateBody, ListQuery, MyListQuery, UpdateBody } from './content.input.js';
 import { ContentService } from './content.service.js';
 
 const idPipe = new ZodValidationPipe(ContentId);
@@ -48,7 +45,7 @@ export class ContentController {
   @Roles(...FIRM_STAFF)
   async list(
     @CurrentTenant() tenant: TenantContext,
-    @Query(new ZodValidationPipe(ContentQuery)) query: z.output<typeof ContentQuery>,
+    @Query(new ZodValidationPipe(ListQuery)) query: z.output<typeof ListQuery>,
   ): Promise<ContentList> {
     return { items: await this.content.list(tenant.businessId, query) };
   }
@@ -58,7 +55,7 @@ export class ContentController {
   create(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
-    @Body(new ZodValidationPipe(CreateContentRequest)) body: z.output<typeof CreateContentRequest>,
+    @Body(new ZodValidationPipe(CreateBody)) body: z.output<typeof CreateBody>,
   ): Promise<ContentItem> {
     return this.content.create(tenant.businessId, auth.userId, body);
   }
@@ -68,7 +65,7 @@ export class ContentController {
   update(
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
-    @Body(new ZodValidationPipe(UpdateContentRequest)) body: z.output<typeof UpdateContentRequest>,
+    @Body(new ZodValidationPipe(UpdateBody)) body: z.output<typeof UpdateBody>,
   ): Promise<ContentItem> {
     return this.content.update(tenant.businessId, id, body);
   }
@@ -116,7 +113,7 @@ export class MyContentController {
   @Get()
   async list(
     @CurrentTenant() tenant: TenantContext,
-    @Query(new ZodValidationPipe(MyContentQuery)) query: z.output<typeof MyContentQuery>,
+    @Query(new ZodValidationPipe(MyListQuery)) query: z.output<typeof MyListQuery>,
   ): Promise<MyContentList> {
     if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
     return { items: await this.content.mine(tenant.businessId, tenant.clientAccountId, query) };

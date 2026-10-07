@@ -275,6 +275,11 @@ describe('the firm editor: create', () => {
       resource({ category: null }),
       resource({ title: '' }),
       resource({ title: 'a\u0000b' }),
+      // Half of a surrogate pair: Postgres cannot store it (400, not a 500 from the driver).
+      resource({ title: 'Half a pair \ud800' }),
+      resource({ body: 'Half a pair \udc00 here' }),
+      tip(`Half \ud83d ${run}`),
+      link(cat, { description: '\udfff' }),
       resource({ sortOrder: 1001 }),
       resource({ body: 'x'.repeat(20_001) }),
       resource({ businessId: firms.b.id }),
@@ -314,7 +319,13 @@ describe('the firm editor: list', () => {
   });
 
   it('refuses unknown or bad filters (400)', async () => {
-    for (const q of ['?kind=NOTE', '?businessId=x', `?category=${'x'.repeat(81)}`]) {
+    for (const q of [
+      '?kind=NOTE',
+      '?businessId=x',
+      `?category=${'x'.repeat(81)}`,
+      '?category=%00',
+      '?category=a%01b',
+    ]) {
       const res = await call('get', q, people.ownerA);
       expect([res.status, codeOf(res)], q).toEqual([400, 'VALIDATION_FAILED']);
     }
@@ -359,6 +370,9 @@ describe('the firm editor: update', () => {
       [t, { url: 'https://irs.gov/' }],
       [t, {}],
       [t, { iconKey: 'Bad Icon' }],
+      [t, { body: 'Half a pair \ud800' }],
+      [l, { title: 'Half a pair \udfff' }],
+      [r, { category: 'payroll', description: 'x\udc00' }],
     ];
     for (const [item, body] of bad) {
       const res = await call('patch', `/${item.id}`, people.ownerA, 'a', body);
@@ -427,6 +441,41 @@ describe('the firm editor: publish, unpublish and delete', () => {
     expect(await fetchItem(t.id)).toBeNull();
     const again = await call('delete', `/${t.id}`, people.ownerA);
     expect([again.status, codeOf(again)]).toEqual([404, 'NOT_FOUND']);
+  });
+});
+
+describe('parallel requests', () => {
+  const actions = (id: string) =>
+    asOwner({ kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.auditLog.findMany({ where: { businessId: firms.a.id, entityId: id } }),
+    ).then((rows) => rows.map((r) => r.action).sort());
+
+  it('parallel publishes agree on one publish and one audit row', async () => {
+    const t = await create(tip(null, { title: 'Receipts 😀 (fake)' }));
+    expect(t.title).toBe('Receipts 😀 (fake)');
+    const all = await Promise.all(
+      Array.from({ length: 6 }, () => call('post', `/${t.id}/publish`, people.ownerA)),
+    );
+    const dates = all.map((res) => Item.parse(ok(res).body).publishedAt);
+    expect(new Set(dates).size).toBe(1);
+    expect(dates[0]).not.toBeNull();
+    expect(await actions(t.id)).toEqual(['content.created', 'content.published']);
+  });
+
+  it('parallel deletes and edits: one delete wins, the rest are 404, no 500', async () => {
+    const t = await create(tip(null));
+    const all = await Promise.all([
+      call('delete', `/${t.id}`, people.ownerA),
+      call('patch', `/${t.id}`, people.adminA, 'a', { title: 'Late edit' }),
+      call('delete', `/${t.id}`, people.adminA),
+      call('post', `/${t.id}/publish`, people.ownerA),
+      call('delete', `/${t.id}`, people.ownerA),
+    ]);
+    for (const res of all) expect([200, 404], JSON.stringify(res.body)).toContain(res.status);
+    const deletes = [all[0], all[2], all[4]].map((res) => res?.status);
+    expect(deletes.filter((s) => s === 200)).toHaveLength(1);
+    expect(await fetchItem(t.id)).toBeNull();
+    expect((await actions(t.id)).filter((a) => a === 'content.deleted')).toHaveLength(1);
   });
 });
 
@@ -527,7 +576,7 @@ describe('the portal', () => {
   });
 
   it('refuses bad queries, staff sessions and another firm', async () => {
-    for (const q of ['?kind=NOTE', '?clientId=x']) {
+    for (const q of ['?kind=NOTE', '?clientId=x', '?category=%00', '?kind=TIP&category=a%00b']) {
       const res = await portal(people.bizClient, q);
       expect([res.status, codeOf(res)], q).toEqual([400, 'VALIDATION_FAILED']);
     }
