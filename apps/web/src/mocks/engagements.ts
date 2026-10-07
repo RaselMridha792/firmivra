@@ -15,7 +15,7 @@ import {
   type ServiceRef,
   UpdateEngagementRequest,
 } from '@firmivra/types';
-import { clientFixtures, mockStaff, type MockFirmRole } from './clients';
+import { clientFixtures, firstClientId, mockStaff, type MockFirmRole } from './clients';
 
 /**
  * Mock data for `api.engagements` and `api.myServices(slug)` (R10). Synthetic data only. Same
@@ -31,7 +31,7 @@ const today = () =>
 const addDays = (date: string, days: number) =>
   new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
 
-const client = clientFixtures[0]!.id;
+const client = firstClientId;
 const services: (ServiceRef & { stages: string[] })[] = [
   {
     id: '0199b6a2-0000-7000-8000-0000000000a1',
@@ -74,35 +74,43 @@ const fixture = (n: number, data: Partial<Engagement> & { title: string }): Enga
     ...data,
   });
 
-/** The first portal client's services: one of each tab (Active, Recurring, Completed, Cancelled). */
-export const engagementFixtures: readonly Engagement[] = [
-  fixture(1, { title: '2025 Personal Tax', taxYear: 2025, stage: 'Preparation' }),
-  fixture(2, {
-    title: 'Bookkeeping (Growth)',
-    service: ref(services[1]!),
-    package: 'Growth',
-    stage: 'Monthly close',
-    billingInterval: 'MONTHLY',
-    recurring: true,
-    nextBillingOn: addDays(today(), 40),
-  }),
-  fixture(3, {
-    title: '2024 Personal Tax',
-    taxYear: 2024,
-    status: 'COMPLETED',
-    stage: 'Filed',
-    completedAt: '2025-04-12T16:00:00.000Z',
-  }),
-  fixture(4, {
-    title: 'Payroll',
-    service: ref(services[2]!),
-    billingInterval: 'MONTHLY',
-    recurring: true,
-    status: 'CANCELLED',
-    cancelledAt: new Date(Date.now() - 30 * DAY).toISOString(),
-    cancellationReason: 'Client moved payroll in-house.',
-  }),
-];
+let fixtures: readonly Engagement[] | undefined;
+
+/**
+ * The first portal client's services: one of each tab (Active, Recurring, Completed, Cancelled).
+ * Built on first use: importing this file runs nothing.
+ */
+export function engagementFixtures(): readonly Engagement[] {
+  fixtures ??= [
+    fixture(1, { title: '2025 Personal Tax', taxYear: 2025, stage: 'Preparation' }),
+    fixture(2, {
+      title: 'Bookkeeping (Growth)',
+      service: ref(services[1]!),
+      package: 'Growth',
+      stage: 'Monthly close',
+      billingInterval: 'MONTHLY',
+      recurring: true,
+      nextBillingOn: addDays(today(), 40),
+    }),
+    fixture(3, {
+      title: '2024 Personal Tax',
+      taxYear: 2024,
+      status: 'COMPLETED',
+      stage: 'Filed',
+      completedAt: '2025-04-12T16:00:00.000Z',
+    }),
+    fixture(4, {
+      title: 'Payroll',
+      service: ref(services[2]!),
+      billingInterval: 'MONTHLY',
+      recurring: true,
+      status: 'CANCELLED',
+      cancelledAt: new Date(Date.now() - 30 * DAY).toISOString(),
+      cancellationReason: 'Client moved payroll in-house.',
+    }),
+  ];
+  return fixtures;
+}
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
@@ -114,14 +122,14 @@ const newestFirst = (a: Engagement, b: Engagement) =>
 /** The clients a role may reach (Staff: their assigned ones). */
 const reachable = (role?: MockFirmRole) =>
   new Set(
-    clientFixtures
+    clientFixtures()
       .filter((c) => role !== 'STAFF' || c.assignedTo?.userId === mockStaff.userId)
       .map((c) => c.id),
   );
 
 /** Each mock keeps its own rows; callers always get copies, like a real API response. */
 function createStore(clients: Set<string>) {
-  let rows: Engagement[] = engagementFixtures.map((r) => structuredClone(r));
+  let rows: Engagement[] = engagementFixtures().map((r) => structuredClone(r));
   let history: {
     engagementId: string;
     status: EngagementStatus;
