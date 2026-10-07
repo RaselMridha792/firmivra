@@ -149,7 +149,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
 - `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/`, `sign-ups/`, `messages/`, `invoices/`, `workspaces/`
-- `apps/web/e2e/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
+- `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
 **Tumit**
 - `apps/web/src/components/app-shell/`
@@ -157,15 +157,15 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/firm/welcome/`, `firm/apply/`, `firm/setup/`
 - `apps/web/src/app/firm/(workspace)/team/`, `calendar/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
-- `apps/web/e2e/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
+- `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
 **Nahid**
 - `apps/web/src/app/portal/[firmSlug]/layout.tsx`
 - `apps/web/src/app/portal/[firmSlug]/(public)/`, except `begin/`
 - `apps/web/src/app/portal/[firmSlug]/(client)/`, except `appointments/` and `home/`
-- `apps/web/e2e/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
+- `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
 **Ibrahim**
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
 - `apps/web/src/app/firm/(workspace)/leads/`
-- `apps/web/e2e/` (all tests: you lead testing), `docs/tasks/IBRAHIM.md`
+- `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/IBRAHIM.md`

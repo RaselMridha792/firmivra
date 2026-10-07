@@ -142,6 +142,12 @@ describe('api.firmApplications: submit', () => {
     expect(SubmitFirmApplicationRequest.parse(once)).toEqual(once);
   });
 
+  it('sends the bot trap as it is, so the API can drop a filled one quietly', async () => {
+    const { fn, calls } = fakeFetch(201, { received: true });
+    await client(fn).submit({ ...application(), honeypot: 'http://spam.example.test' });
+    expect(calls[0]?.body).toMatchObject({ honeypot: 'http://spam.example.test' });
+  });
+
   it.each([
     ['an unticked agreement', { agreement: { acceptedTerms: false, certifiedAccurate: true } }],
     ['a short EIN', { business: { ...application().business, ein: '00-123' } }],
@@ -153,6 +159,7 @@ describe('api.firmApplications: submit', () => {
     ['an unknown plan', { account: { ...application().account, requestedPlan: 'GOLD' } }],
     ['a team size of 0', { account: { ...application().account, teamSize: 0 } }],
     ['a team size that is not a number', { account: { ...application().account, teamSize: true } }],
+    ['a bot trap longer than any field', { honeypot: 'x'.repeat(501) }],
     ['an unknown field', { businessId: id }],
   ])('refuses %s before sending', async (_, change) => {
     const { fn, calls } = fakeFetch(201, { received: true });

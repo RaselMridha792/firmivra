@@ -121,3 +121,16 @@ export function createMyCalculatorsMock(): MyCalculatorsClient {
     },
   };
 }
+
+let myCalculatorsMocks: Map<string, MyCalculatorsClient> | undefined;
+
+/** `api.myCalculators(slug)` in mock mode: one mock per firm (by lower-cased slug), kept for the page. */
+export function myCalculatorsMock(firmSlug: string): MyCalculatorsClient {
+  myCalculatorsMocks ??= new Map();
+  const key = firmSlug.toLowerCase();
+  const found = myCalculatorsMocks.get(key);
+  if (found) return found;
+  const created = createMyCalculatorsMock();
+  myCalculatorsMocks.set(key, created);
+  return created;
+}

@@ -208,6 +208,12 @@ export const SubmitFirmApplicationRequest = z
       acceptedTerms: z.literal(true, 'Accept the terms to continue'),
       certifiedAccurate: z.literal(true, 'Confirm that the information is accurate'),
     }),
+    /**
+     * The form's bot trap: an input people never see (off screen, `tabIndex={-1}`,
+     * `autoComplete="off"`, `aria-hidden`, with an everyday name such as `fax`). Send its value as
+     * it is. A filled one gets the same `{ received: true }` and the application is dropped.
+     */
+    honeypot: z.string().max(500).optional(),
   })
   .superRefine((body, ctx) => {
     for (const type of REQUIRED_CREDENTIALS[body.business.practiceType]) {
@@ -472,8 +478,10 @@ export const RequestFirmInfoRequest = z.strictObject({
 export type RequestFirmInfoRequest = z.input<typeof RequestFirmInfoRequest>;
 
 /**
- * POST /admin/firm-applications/{id}/decline. The reason must differ from the last information
- * request (400 VALIDATION_FAILED, checked after the application is found). 409 APPLICATION_DECIDED.
+ * POST /admin/firm-applications/{id}/decline. The reason is emailed to the applicant: label the
+ * field "Reason (sent to the applicant)"; internal remarks go in the notes. It must differ from the
+ * last information request (400 VALIDATION_FAILED, checked after the application is found).
+ * 409 APPLICATION_DECIDED.
  */
 export const DeclineFirmApplicationRequest = z.strictObject({
   reason: text(1000, 'many', 'Enter the reason'),

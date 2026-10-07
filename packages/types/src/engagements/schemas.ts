@@ -3,6 +3,9 @@ import { BillingInterval, EngagementStatus, ServiceKind } from '../db-enums.js';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
 
+// Database enums, also exported from here as before db-enums.ts (other modules import them).
+export { BillingInterval, EngagementStatus, ServiceKind };
+
 // Services and engagements (R10): one engagement is one service for one client and one period.
 // Firm routes: /api/v1/business/clients/{id}/engagements and /business/engagements/{id}. Owner and
 // Admin see every client's; Staff only their own clients' (others are 404).
