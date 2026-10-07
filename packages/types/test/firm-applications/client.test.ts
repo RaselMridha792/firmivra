@@ -41,7 +41,7 @@ const application = (): SubmitFirmApplicationRequest => ({
     legalName: ' Sample Tax Partners LLC ',
     dbaName: '',
     entityType: 'LLC',
-    ein: '12-3456789',
+    ein: '00-1234567',
     email: 'Office@Sample-Tax.example.test',
     phone: '+1 (404) 555-0100',
     website: 'sample-tax.example.test',
@@ -53,7 +53,7 @@ const application = (): SubmitFirmApplicationRequest => ({
     email: 'jordan@sample-tax.example.test',
     phone: '+1 404 555 0101',
   },
-  account: { requestedPlan: 'PROFESSIONAL', teamSize: '3', clientVolume: 'FROM_500' },
+  account: { requestedPlan: 'PROFESSIONAL', teamSize: 3, clientVolume: 'FROM_500' },
   agreement: { acceptedTerms: true, certifiedAccurate: true },
 });
 
@@ -66,7 +66,7 @@ const record = {
     legalName: 'Sample Tax Partners LLC',
     dbaName: null,
     entityType: 'LLC',
-    einLast4: '6789',
+    einLast4: '4567',
     email: null,
     phone: null,
     website: null,
@@ -124,7 +124,7 @@ describe('api.firmApplications: submit', () => {
       business: {
         legalName: 'Sample Tax Partners LLC',
         dbaName: null,
-        ein: '123456789',
+        ein: '001234567',
         email: 'office@sample-tax.example.test',
         phone: '+14045550100',
         website: 'https://sample-tax.example.test',
@@ -144,7 +144,7 @@ describe('api.firmApplications: submit', () => {
 
   it.each([
     ['an unticked agreement', { agreement: { acceptedTerms: false, certifiedAccurate: true } }],
-    ['a short EIN', { business: { ...application().business, ein: '12-345' } }],
+    ['a short EIN', { business: { ...application().business, ein: '00-123' } }],
     [
       'a script as website',
       { business: { ...application().business, website: 'javascript:alert(1)' } },
@@ -152,6 +152,7 @@ describe('api.firmApplications: submit', () => {
     ['no service', { business: { ...application().business, services: [] } }],
     ['an unknown plan', { account: { ...application().account, requestedPlan: 'GOLD' } }],
     ['a team size of 0', { account: { ...application().account, teamSize: 0 } }],
+    ['a team size that is not a number', { account: { ...application().account, teamSize: true } }],
     ['an unknown field', { businessId: id }],
   ])('refuses %s before sending', async (_, change) => {
     const { fn, calls } = fakeFetch(201, { received: true });
@@ -245,6 +246,11 @@ describe('api.firmApplications: Super Admin', () => {
       () => api.get('../business'),
       () => api.getFirm('1'),
       () => api.approve(id, { slug: 'no/slash' }),
+      () => api.approve(id, { slug: 'double--hyphen' }),
+      () => api.approve(id, { slug: '-edge' }),
+      () => api.approve(id, { slug: 'a'.repeat(64) }),
+      () => api.approve(id, { slug: 'Sign-In' }),
+      () => api.list({ from: '2026-10-07T00:00:00Z', to: '2026-10-01T00:00:00Z' }),
       () => api.requestInfo(id, { message: ' ' }),
       () => api.decline(id, { reason: '' }),
     ]) {

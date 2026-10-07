@@ -36,9 +36,27 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 - EIN: an application never stores the full EIN (field encryption is R10 step 2 with each firm's own key, which an applicant doesn't have). It keeps the last 4 and a keyed hash (HMAC, server-side secret) for the duplicate check. The owner enters the full EIN in setup step 2. Nothing waits on R5.
 - Step 3: creating the business also creates the firm's KMS key (R10 step 2) and needs a one-time step for LVP. Those change AWS permissions: bring them to Rasel before pushing.
 
+## For the API steps (lead's #61 review, Oct 7)
+
+- History is #52's `firm_application_status_history`, written by the trigger on `firm_applications`, not `audit_logs`.
+- Request Information keeps `PENDING_REVIEW` and sets `decision_reason` to the message, so the trigger writes the history row. The same message as the last request changes nothing, so the trigger writes no row; the API then sends no email and the mock adds no entry.
+- Declining with the same text as the last information request breaks #52's "new message" rule (`check_violation`). The API answers 400 `VALIDATION_FAILED`, as the mock does.
+- Approve leaves the last request's message in `decision_reason`: return `decision.reason` only when `DECLINED`.
+- Approve sets the firm's `pack` (#52's `IndustryPack`) from the practice type; only `TAX_ACCOUNTING` exists.
+- Slugs: `NewFirmSlug` and `RESERVED_FIRM_SLUGS` in the contract match `businesses_slug_format`; the API checks the same before the insert.
+- Agreement: store the version of Firmivra's terms in force with the application (the form sends only the two ticks).
+- Abuse controls on submit:
+  - limit per IP and per email;
+  - a honeypot field or captcha;
+  - throttle the "received" email per address;
+  - keep `ein` (and the whole body) out of logs and audit metadata.
+- Open (Rasel): SYSTEM-DESIGN.md (journey stage 2 and 3) has a disposable-email check and email and SMS verification codes before an application reaches the Super Admin. Deferred for the beta, or built now? Building them changes the contract (a verify step after submit) and N04, which is due Oct 9.
+
 ## Needs from others
 
-- R0 (schema): on `firm_applications`, an `ein_last4` column and an indexed `ein_hash` column (keyed hash, for the duplicate check), unless the lead prefers both in `data`. History comes from `audit_logs` (platform rows, `business_id` null), so no new table.
+- R0 (schema): on `firm_applications`, an `ein_last4` column and an indexed `ein_hash` column (keyed hash, for the duplicate check), unless the lead prefers both in `data`.
+- R0: a platform-readable record when a firm becomes `ACTIVE` (setup Finish runs in firm scope, which admin scope can't read), for the history's `FIRM_ACTIVATED` and the firms list. The same goes for the owner's invite status (`ownerInvite`, `OWNER_INVITED`), unless admin scope may read that firm's owner invite.
+- R0: dashboard `totalUsers` and `newUsersThisWeek` count member and client rows that `forAdmin()` can't read: a platform count or an aggregate R0 provides.
 - R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API.
 - R5: uploads for an application before any account exists (the spec's "credentials and uploads"). Until then `documents` is always empty.
 - R6: four emails: application received (applicant), information requested (the message; reply-to support), approved (the owner's activation link, through R2's activation mailer), declined. Open: does the decline email include the reason?
@@ -50,3 +68,11 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 (newest last: date, step, what changed, commit)
 
 - 2026-10-07, contract (steps 1, 2 and 7): `packages/types/src/firm-applications/` with the public `submit`, and the Super Admin's `list`, `counts`, `get`, `approve`, `requestInfo`, `decline`, `saveNotes`, `resendOwnerInvite`, `listFirms`, `firmCounts`, `getFirm` and `dashboard`. Error codes `APPLICATION_DECIDED`, `SLUG_TAKEN`, `INVITE_NOT_NEEDED`. Mock `apps/web/src/mocks/firm-applications.ts` (fixtures built on first use: three pending, two approved, one declined, plus LVP and a suspended firm), registered as `api.firmApplications`. Tests `packages/types/test/firm-applications/client.test.ts`. Branch `rasel/R4-contract`, on top of #45 (it needs the kit's mock switch).
+- 2026-10-07, #61 review fixes:
+  - `NewFirmSlug` (the database's slug format, at most 63 characters, not reserved) and the exported `RESERVED_FIRM_SLUGS`;
+  - `teamSize` is a JSON number (no coercion);
+  - the list's `from` must come before `to`;
+  - `decision.reason` only for DECLINED;
+  - the status enum is renamed `FirmApplicationReviewStatus`, so it doesn't clash with #52's `FirmApplicationStatus`;
+  - test EINs start with 00;
+  - the mock follows #52's rules (same request message: no entry; a decline reason must differ from the last request), cuts slugs before trimming hyphens, and uses Example/Sample firm names.

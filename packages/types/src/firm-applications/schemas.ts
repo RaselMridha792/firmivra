@@ -3,7 +3,7 @@ import { Email } from '../auth/schemas.js';
 import { Phone } from '../client-auth/schemas.js';
 import { CalendarDate, ContactMethod } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
-import { BusinessSummary, FirmSlug } from '../schemas.js';
+import { BusinessSummary } from '../schemas.js';
 
 // Firm applications (R4): a business applies on the firm site without an account; a Firmivra
 // Super Admin reviews it, requests information, approves or declines; approval creates the firm
@@ -178,7 +178,7 @@ export const SubmitFirmApplicationRequest = z
     }),
     account: z.strictObject({
       requestedPlan: FirmPlan,
-      teamSize: z.coerce
+      teamSize: z
         .number('Enter the team size')
         .int('Enter a whole number')
         .min(1, 'Enter at least 1')
@@ -200,7 +200,10 @@ export const SubmitFirmApplicationRequest = z
       .max(20)
       .optional()
       .default([]),
-    /** Both must be ticked before the form can be sent. */
+    /**
+     * Both must be ticked before the form can be sent. The API records the version of Firmivra's
+     * terms in force with the application.
+     */
     agreement: z.strictObject({
       acceptedTerms: z.literal(true, 'Accept the terms to continue'),
       certifiedAccurate: z.literal(true, 'Confirm that the information is accurate'),
@@ -233,11 +236,12 @@ export const FirmApplicationId = z.uuid();
 export const FirmId = z.uuid();
 
 /**
- * Request Information keeps the application PENDING_REVIEW (the applicant answers by email and the
- * Super Admin records it in the notes); approve and decline are final.
+ * An application's status as the API returns it. Request Information keeps it PENDING_REVIEW (the
+ * applicant answers by email and the Super Admin records it in the notes); approve and decline are
+ * final. The database's FirmApplicationStatus also has INFO_REQUESTED, which Phase 1 never sets.
  */
-export const FirmApplicationStatus = z.enum(['PENDING_REVIEW', 'APPROVED', 'DECLINED']);
-export type FirmApplicationStatus = z.infer<typeof FirmApplicationStatus>;
+export const FirmApplicationReviewStatus = z.enum(['PENDING_REVIEW', 'APPROVED', 'DECLINED']);
+export type FirmApplicationReviewStatus = z.infer<typeof FirmApplicationReviewStatus>;
 
 /** A Firmivra Super Admin shown next to a decision or a history entry. */
 export const AdminRef = z.object({ userId: z.uuid(), name: z.string() });
@@ -246,7 +250,7 @@ export type AdminRef = z.infer<typeof AdminRef>;
 /** One row of the applications list (mockup "Firm Applications"). */
 export const FirmApplicationListItem = z.object({
   id: z.uuid(),
-  status: FirmApplicationStatus,
+  status: FirmApplicationReviewStatus,
   legalName: z.string(),
   dbaName: z.string().nullable(),
   practiceType: PracticeType,
@@ -268,15 +272,20 @@ export type FirmApplicationListItem = z.infer<typeof FirmApplicationListItem>;
  * `from` and `to` bound the submission time (`to` exclusive); the screen turns "Last 30 days"
  * into these in the viewer's time zone.
  */
-export const ListFirmApplicationsQuery = z.strictObject({
-  status: FirmApplicationStatus.optional(),
-  search: z.string().trim().max(100).optional(),
-  from: DateTime.optional(),
-  to: DateTime.optional(),
-  order: z.enum(['newest', 'oldest']).optional().default('newest'),
-  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
-});
+export const ListFirmApplicationsQuery = z
+  .strictObject({
+    status: FirmApplicationReviewStatus.optional(),
+    search: z.string().trim().max(100).optional(),
+    from: DateTime.optional(),
+    to: DateTime.optional(),
+    order: z.enum(['newest', 'oldest']).optional().default('newest'),
+    page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  })
+  .refine(
+    (q) => !q.from || !q.to || Date.parse(q.from) < Date.parse(q.to),
+    'The start must be before the end',
+  );
 export type ListFirmApplicationsQuery = z.input<typeof ListFirmApplicationsQuery>;
 
 /** Numbered pages ("Showing 1 of 1 applications"). */
@@ -350,7 +359,7 @@ export type FirmApplicationEvent = z.infer<typeof FirmApplicationEvent>;
 /** GET /admin/firm-applications/{id}: the review page, every field the applicant sent. */
 export const FirmApplicationRecord = z.object({
   id: z.uuid(),
-  status: FirmApplicationStatus,
+  status: FirmApplicationReviewStatus,
   submittedAt: DateTime,
   business: z.object({
     practiceType: PracticeType,
@@ -395,7 +404,7 @@ export const FirmApplicationRecord = z.object({
   checks: z.array(FirmApplicationCheck),
   /** Only Firmivra administrators see these. */
   internalNotes: z.string().nullable(),
-  /** Set once approved or declined. `reason`: the decline reason. */
+  /** Set once approved or declined. `reason`: the decline reason; null when approved. */
   decision: z
     .object({ by: AdminRef.nullable(), at: DateTime, reason: z.string().nullable() })
     .nullable(),
@@ -412,23 +421,60 @@ export const FirmApplicationRecord = z.object({
 export type FirmApplicationRecord = z.infer<typeof FirmApplicationRecord>;
 
 /**
+ * Portal addresses no firm may have: the site's own paths and names kept for Firmivra. The API and
+ * the approve dialog use this list.
+ */
+export const RESERVED_FIRM_SLUGS: readonly string[] = [
+  '_next',
+  'admin',
+  'api',
+  'app',
+  'apply',
+  'dev',
+  'help',
+  'portal',
+  'sign-in',
+  'static',
+  'status',
+  'support',
+  'welcome',
+  'www',
+];
+
+/**
+ * A new firm's portal address, as the database allows it (businesses_slug_format): lower-case
+ * letters and digits with single inner hyphens, at most 63 characters, and not reserved.
+ */
+export const NewFirmSlug = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(63, 'Use at most 63 characters')
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lower-case letters, digits and single hyphens')
+  .refine((slug) => !RESERVED_FIRM_SLUGS.includes(slug), 'This address is reserved');
+
+/**
  * POST /admin/firm-applications/{id}/approve. Creates the firm (PENDING_SETUP, named after the
  * legal name) at `slug` (default `suggestedSlug`) and emails the primary administrator an owner
  * activation link. 409 APPLICATION_DECIDED or SLUG_TAKEN.
  */
-export const ApproveFirmApplicationRequest = z.strictObject({ slug: FirmSlug.optional() });
+export const ApproveFirmApplicationRequest = z.strictObject({ slug: NewFirmSlug.optional() });
 export type ApproveFirmApplicationRequest = z.input<typeof ApproveFirmApplicationRequest>;
 
 /**
  * POST /admin/firm-applications/{id}/request-info: emails `message` to the applicant, who replies
- * to Firmivra support. Stays PENDING_REVIEW. 409 APPLICATION_DECIDED.
+ * to Firmivra support. Stays PENDING_REVIEW. The same message as the last request changes nothing
+ * and is not sent again. 409 APPLICATION_DECIDED.
  */
 export const RequestFirmInfoRequest = z.strictObject({
   message: text(2000, 'many', 'Enter what you need from the applicant'),
 });
 export type RequestFirmInfoRequest = z.input<typeof RequestFirmInfoRequest>;
 
-/** POST /admin/firm-applications/{id}/decline. 409 APPLICATION_DECIDED. */
+/**
+ * POST /admin/firm-applications/{id}/decline. The reason must differ from the last information
+ * request (400 VALIDATION_FAILED, checked after the application is found). 409 APPLICATION_DECIDED.
+ */
 export const DeclineFirmApplicationRequest = z.strictObject({
   reason: text(1000, 'many', 'Enter the reason'),
 });
@@ -508,7 +554,7 @@ export type AdminDashboard = z.infer<typeof AdminDashboard>;
 export const FirmApplicationErrorCode = z.enum([
   /** 409: the application is already approved or declined. */
   'APPLICATION_DECIDED',
-  /** 409: another firm has this portal address, or it is reserved. */
+  /** 409: another firm has this portal address. */
   'SLUG_TAKEN',
   /** 409: no owner link to send (not approved, or the owner has already signed in). */
   'INVITE_NOT_NEEDED',

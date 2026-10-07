@@ -15,6 +15,7 @@ import {
   ListFirmsQuery,
   parseInput,
   RequestFirmInfoRequest,
+  RESERVED_FIRM_SLUGS,
   SaveFirmNotesRequest,
   SubmitFirmApplicationRequest,
 } from '@firmivra/types';
@@ -150,33 +151,33 @@ export function firmApplicationFixtures(): readonly Row[] {
     }),
     fixture({
       n: 3,
-      name: 'Test Ledger Advisors',
+      name: 'Sample Ledger Advisors',
       contact: 'Riley Test',
-      email: 'riley@test-ledger.example.test',
+      email: 'riley@sample-ledger.example.test',
       hours: 5,
       business: { einLast4: '0006' },
     }),
     fixture({
       n: 4,
-      name: 'Riverside Tax Co',
+      name: 'Sample Riverside Tax Co',
       contact: 'Avery Demo',
-      email: 'avery@riverside-tax.example.test',
+      email: 'avery@sample-riverside.example.test',
       hours: 4 * DAY,
       status: 'APPROVED',
       decision: { by: ADMIN, at: hoursAgo(3), reason: null },
-      firm: firm(4, 'Riverside Tax Co', 'riverside-tax', 'PENDING_SETUP'),
+      firm: firm(4, 'Sample Riverside Tax Co', 'sample-riverside-tax', 'PENDING_SETUP'),
       ownerInvite: { status: 'SENT', expiresAt: hoursAgo(3 - 7 * DAY) },
       history: [done('OWNER_INVITED', 3), done('APPROVED', 3)],
     }),
     fixture({
       n: 5,
-      name: 'Northside Accounting LLC',
+      name: 'Example Northside Accounting LLC',
       contact: 'Taylor Placeholder',
-      email: 'taylor@northside.example.test',
+      email: 'taylor@example-northside.example.test',
       hours: 9 * DAY,
       status: 'APPROVED',
       decision: { by: ADMIN, at: hoursAgo(8 * DAY), reason: null },
-      firm: firm(5, 'Northside Accounting LLC', 'northside', 'ACTIVE'),
+      firm: firm(5, 'Example Northside Accounting LLC', 'example-northside', 'ACTIVE'),
       ownerInvite: { status: 'ACCEPTED', expiresAt: hoursAgo(DAY) },
       history: [
         done('FIRM_ACTIVATED', 7 * DAY),
@@ -186,9 +187,9 @@ export function firmApplicationFixtures(): readonly Row[] {
     }),
     fixture({
       n: 6,
-      name: 'Test Ledger Advisors',
+      name: 'Sample Ledger Advisors',
       contact: 'Riley Test',
-      email: 'riley@test-ledger.example.test',
+      email: 'riley@sample-ledger.example.test',
       hours: 6 * DAY,
       status: 'DECLINED',
       decision: { by: ADMIN, at: hoursAgo(4), reason },
@@ -208,7 +209,6 @@ interface MockFirm {
 
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
-const RESERVED = new Set(['admin', 'api', 'app', 'portal', 'www', 'dev', 'static']);
 const easternMonth = (iso: string) =>
   new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
@@ -273,14 +273,16 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
   let nextId = 100;
   const now = () => new Date().toISOString();
 
-  const taken = (slug: string) => RESERVED.has(slug) || firms.some((f) => f.firm.slug === slug);
+  const taken = (slug: string) =>
+    RESERVED_FIRM_SLUGS.includes(slug) || firms.some((f) => f.firm.slug === slug);
+  /** The legal name as an address; cut before trimming hyphens, so it never ends in one. */
   const suggest = (name: string) => {
     const base =
       name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 56) || 'firm';
+        .slice(0, 56)
+        .replace(/^-+|-+$/g, '') || 'firm';
     let slug = base;
     for (let i = 2; taken(slug); i++) slug = `${base}-${i}`;
     return slug;
@@ -347,6 +349,8 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       throw fail(409, 'APPLICATION_DECIDED', 'This application is already decided');
     return row;
   };
+  /** The message of the last information request (the database keeps it as decision_reason). */
+  const lastRequest = (row: Row) => row.history.find((h) => h.type === 'INFO_REQUESTED')?.message;
   const save = (row: Row) => {
     rows = rows.map((r) => (r.id === row.id ? row : r));
     return view(row);
@@ -508,6 +512,8 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const key = parseInput(FirmApplicationId, id);
       const { message } = parseInput(RequestFirmInfoRequest, body);
       const row = pending(find(key));
+      // Like the database: the same message as the last request is no change and no new entry.
+      if (lastRequest(row) === message) return view(row);
       return save({ ...row, history: [event('INFO_REQUESTED', message), ...row.history] });
     },
 
@@ -516,6 +522,9 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const key = parseInput(FirmApplicationId, id);
       const { reason } = parseInput(DeclineFirmApplicationRequest, body);
       const row = pending(find(key));
+      if (lastRequest(row) === reason) {
+        throw fail(400, 'VALIDATION_FAILED', 'Write a reason that differs from the last request');
+      }
       return save({
         ...row,
         status: 'DECLINED',
