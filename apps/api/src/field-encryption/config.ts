@@ -3,7 +3,8 @@ import { z } from 'zod';
 /**
  * Settings of the field-encryption helper, read and checked by its own module (R10 step 2).
  * KMS_MODE=kms: AWS KMS with one key per business (businesses.kms_key_id).
- * KMS_MODE=local: data keys wrapped with LOCAL_KMS_KEY; development and test only.
+ * KMS_MODE=local: data keys wrapped with LOCAL_KMS_KEY; development and test only. A key of one
+ * repeated byte (all zeros, all 0xff) is refused; the .env.example key is not one.
  */
 const Schema = z
   .object({
@@ -29,11 +30,12 @@ const Schema = z
         path: ['LOCAL_KMS_KEY'],
         message: 'required when KMS_MODE=local: 32 bytes, base64',
       });
-    } else if (key.every((byte) => byte === 0)) {
+    } else if (key.every((byte) => byte === key[0])) {
       ctx.addIssue({
         code: 'custom',
         path: ['LOCAL_KMS_KEY'],
-        message: 'must not be all zeros; generate one with `openssl rand -base64 32`',
+        message:
+          'must not repeat one byte (such as all zeros); generate one with `openssl rand -base64 32`',
       });
     }
   });

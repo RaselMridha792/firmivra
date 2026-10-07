@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import { DecryptCommand, GenerateDataKeyCommand, type KMSClient } from '@aws-sdk/client-kms';
 
 /** Why a value could not be encrypted or decrypted. Messages never hold a value or key. */
@@ -40,6 +41,8 @@ export interface KeyWrapper {
 
 const IV = 12;
 const TAG = 16;
+/** The shortest sealed body: iv and tag (the ciphertext may be empty). */
+export const SEAL_OVERHEAD = IV + TAG;
 
 /** AES-256-GCM: iv | tag | ciphertext. */
 export function seal(key: Buffer, plaintext: Buffer, aad: Buffer): Buffer {
@@ -97,12 +100,27 @@ const KEY_REFUSED = new Set([
 ]);
 const WRONG_BLOB = new Set(['InvalidCiphertextException', 'IncorrectKeyException']);
 
-function kmsError(error: unknown, unwrapping: boolean): FieldEncryptionError {
-  const name = (error as { name?: unknown } | null)?.name;
-  if (typeof name === 'string' && KEY_REFUSED.has(name)) {
+/** The AWS error's name (ThrottlingException, AccessDeniedException), never its message. */
+function awsErrorName(error: unknown): string {
+  const name = (error as { name?: unknown } | null | undefined)?.name;
+  return typeof name === 'string' && /^[A-Za-z][A-Za-z0-9]{0,99}$/.test(name)
+    ? name
+    : 'UnknownError';
+}
+
+function kmsError(
+  error: unknown,
+  operation: 'GenerateDataKey' | 'Decrypt',
+  businessId: string,
+  logger: Pick<Logger, 'warn'>,
+): FieldEncryptionError {
+  const name = awsErrorName(error);
+  // The name tells operators throttling from missing permissions; the message is never logged.
+  logger.warn(`KMS ${operation} failed for business ${businessId}: ${name}`);
+  if (KEY_REFUSED.has(name)) {
     return new FieldEncryptionError('KEY_ACCESS_DENIED', "The business's key cannot be used");
   }
-  if (unwrapping && typeof name === 'string' && WRONG_BLOB.has(name)) {
+  if (operation === 'Decrypt' && WRONG_BLOB.has(name)) {
     return new FieldEncryptionError('DECRYPTION_FAILED', 'The encrypted value cannot be read');
   }
   return new FieldEncryptionError('KMS_UNAVAILABLE', 'The key service is not available');
@@ -118,7 +136,10 @@ function takeKey(bytes: Uint8Array): Buffer {
 /** KMS_MODE=kms: the firm's own KMS key (businesses.kms_key_id). */
 export class AwsKmsKeyWrapper implements KeyWrapper {
   readonly mode = 'kms' as const;
-  constructor(private readonly kms: Pick<KMSClient, 'send'>) {}
+  constructor(
+    private readonly kms: Pick<KMSClient, 'send'>,
+    private readonly logger: Pick<Logger, 'warn'> = new Logger('FieldEncryption'),
+  ) {}
 
   private keyId(kmsKeyId: string | null): string {
     if (!kmsKeyId) {
@@ -142,9 +163,11 @@ export class AwsKmsKeyWrapper implements KeyWrapper {
         }),
       );
     } catch (error) {
-      throw kmsError(error, false);
+      throw kmsError(error, 'GenerateDataKey', businessId, this.logger);
     }
     if (!out.Plaintext || !out.CiphertextBlob) {
+      // A data key without its wrapped form can never be used: zero it before giving up.
+      out.Plaintext?.fill(0);
       throw new FieldEncryptionError('KMS_UNAVAILABLE', 'The key service returned no data key');
     }
     return { plaintext: takeKey(out.Plaintext), wrapped: Buffer.from(out.CiphertextBlob) };
@@ -163,7 +186,7 @@ export class AwsKmsKeyWrapper implements KeyWrapper {
         }),
       );
     } catch (error) {
-      throw kmsError(error, true);
+      throw kmsError(error, 'Decrypt', businessId, this.logger);
     }
     if (!out.Plaintext) {
       throw new FieldEncryptionError('KMS_UNAVAILABLE', 'The key service returned no data key');
