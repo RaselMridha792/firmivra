@@ -26,13 +26,15 @@ import { AdminPrisma } from './admin-prisma.js';
 
 /**
  * What `firm_applications.data` holds: the review page's groups, as submit (R4 step 2) stores
- * them. The full EIN is never in it, only `business.einLast4`. The database doesn't check it, so
- * a row in another shape (written before this one, or edited by hand) is shown from the table's
- * own columns instead (`formReadable` false).
+ * them, without any part of the EIN. R0's #80 refuses a key starting with "ein" anywhere in it
+ * (any case); the last 4 digits get their own column, `ein_last4`. An older row's
+ * `business.einLast4` is dropped when read, and nothing reads it. The database doesn't check the
+ * rest, so a row in another shape (written before this one, or edited by hand) is shown from the
+ * table's own columns instead (`formReadable` false).
  */
 const R = FirmApplicationRecord.shape;
 export const StoredApplication = z.object({
-  business: R.business.unwrap(),
+  business: R.business.unwrap().omit({ einLast4: true }),
   primaryAdmin: R.primaryAdmin.unwrap(),
   account: R.account.unwrap(),
   credentials: R.credentials,
@@ -66,6 +68,14 @@ export function startOfMonthIn(timeZone: string, now = new Date()): Date {
     part('minute', guess),
   );
   return new Date(guess.getTime() - (wall - guess.getTime()));
+}
+
+/**
+ * LIKE wildcards in a search term or a compared name are plain characters: Prisma's insensitive
+ * `contains` and `equals` are ILIKE on PostgreSQL, and it doesn't escape them.
+ */
+export function likeEscape(term: string): string {
+  return term.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 /** The legal name as a portal address: lower case, single hyphens, at most 56 characters. */
@@ -142,16 +152,17 @@ export class FirmApplicationsService {
 
   async list(q: ListQuery): Promise<ListFirmApplicationsResponse> {
     const db = this.admin.db;
+    const term = q.search ? likeEscape(q.search) : undefined;
     const where: Prisma.FirmApplicationWhereInput = {
       ...(q.status === 'PENDING_REVIEW'
         ? { status: { in: [...PENDING] } }
         : q.status
           ? { status: q.status }
           : {}),
-      ...(q.search
+      ...(term
         ? {
             OR: (['legalName', 'dbaName', 'contactName', 'contactEmail'] as const).map((f) => ({
-              [f]: { contains: q.search, mode: 'insensitive' as const },
+              [f]: { contains: term, mode: 'insensitive' as const },
             })),
           }
         : {}),
@@ -332,7 +343,9 @@ export class FirmApplicationsService {
       contactEmail: row.contactEmail,
       contactPhone: row.contactPhone,
       formReadable: d !== null,
-      business: d?.business ?? null,
+      // The EIN's last 4 are never in the stored form. Null until R0's `ein_last4` column (#80) is
+      // on main; the column replaces this then.
+      business: d ? { ...d.business, einLast4: null } : null,
       primaryAdmin: d?.primaryAdmin ?? null,
       account: d?.account ?? null,
       credentials: d?.credentials ?? [],
@@ -394,7 +407,8 @@ export class FirmApplicationsService {
     d: StoredApplication | null,
   ): Promise<FirmApplicationCheck[]> {
     const db = this.admin.db;
-    const same = (value: string) => ({ equals: value, mode: 'insensitive' as const });
+    // Insensitive equals is ILIKE too: a `_` in a name or email matches only a `_`.
+    const same = (value: string) => ({ equals: likeEscape(value), mode: 'insensitive' as const });
     const label = (r: { legalName: string; status: FirmApplication['status'] }) =>
       `${r.legalName} (${reviewStatus(r.status).toLowerCase().replace('_', ' ')})`;
     const [sameNameApp, sameNameFirm, sameEmail] = await Promise.all([

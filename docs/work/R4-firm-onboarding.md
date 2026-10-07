@@ -62,6 +62,7 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - When submit lands, never log the `honeypot` value.
   - `AuditService` writes the admin's events through `forPlatform`. Writing them through `forAdmin` would let #52's `audit_logs_admin_insert` policy pin the actor in the database.
 - From the review of the #79 fixes (Oct 8), for step 3: approve works on an application whose form can't be read (`formReadable` false), since its review page shows the actions as usual. The firm's name comes from `legal_name`, the owner invite goes to `contact_name` and `contact_email`, and the pack is `TAX_ACCOUNTING` (the only pack) when the practice type is unknown.
+- From the second pass on #79 (Oct 8), for step 2: submit writes the EIN's last 4 and its keyed hash to their columns (`ein_last4`, `ein_hash`, R0's #80), never into `data`: #80 refuses any key starting with "ein" there (any case, any depth). Once #80 is on main, the record's `business.einLast4` reads the column and DUPLICATE_EIN compares `ein_hash`.
 
 ## Needs from others
 
@@ -113,3 +114,8 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - Mock: an approved application whose form can't be read, with a hand-written id like the seed's, and its firm in setup (no owner, no plan, an expired activation link).
   - Step 3: approve works on an unreadable form (under "For the API steps").
   - Tests: e2e (the seed-like id lists and opens, and so does its firm; the website note), unit `apps/api/test/unit/firm-applications-unreadable.test.ts` and more SKIPPED websites, contract (`websiteHost`, the seed-like id). Branch `rasel/R4-api-read`.
+- 2026-10-08, second pass on #79 (the lead's review):
+  - A test for the 403: an admins-pool login without a `platform_admins` row (made in the e2e's own setup) gets 403 FORBIDDEN on every admin application, firm and dashboard route, and nothing is audited as opened.
+  - Search: `%`, `_` and `\` in a search term are plain characters (`likeEscape` in the service, the approach of R10's clients search: Prisma's `contains` doesn't escape them). The duplicate checks had the same fault, since Prisma's insensitive `equals` is ILIKE too: a `_` in a name or email matched any character (a false "Same email" for `j_smith@…` against `j.smith@…`). They escape the same way. The firms search filters in memory and was already literal; a test now says so.
+  - EIN: R0's #80 (open) refuses any key starting with "ein" in `firm_applications.data` and adds the `ein_last4` column. `StoredApplication.business` has no `einLast4` any more (an older row's is dropped when read), nothing reads it, and the record's `business.einLast4` is null until #80 is on main. The contract and the mock say the last 4 come from a column of their own, never from the stored form.
+  - Tests: e2e (the 403; `%` and `_` on the applications search and `%` on the firms search, each matching only rows that contain it; the duplicate checks against a lookalike name and email; `einLast4` null, and the stored forms no longer hold it), unit (`likeEscape`; an older form with `einLast4` reads without it, and its record shows null). Branch `rasel/R4-api-read`.

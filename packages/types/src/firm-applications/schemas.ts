@@ -12,8 +12,8 @@ import { BusinessSummary } from '../schemas.js';
 // Public route: POST /api/v1/firm-applications. Super Admin routes: /api/v1/admin/... (the
 // Super Admin site's session only).
 // EIN: an application never stores it in full (the firm's encryption key doesn't exist yet). The
-// API keeps the last 4 digits and a keyed hash for the duplicate check; the owner enters the full
-// EIN again in setup step 2.
+// API keeps the last 4 digits and a keyed hash for the duplicate check, in columns of their own
+// (never in the stored form); the owner enters the full EIN again in setup step 2.
 // Responses are plain objects (a field the API adds later is dropped, so an open page keeps
 // working); requests are strict (unknown fields are refused).
 
@@ -425,7 +425,11 @@ export const FirmApplicationRecord = z.object({
       legalName: z.string(),
       dbaName: z.string().nullable(),
       entityType: EntityType,
-      /** The only part of the EIN the API keeps. */
+      /**
+       * The only part of the EIN the API keeps, from a column of its own (`ein_last4`), never from
+       * the stored form. Null without an EIN, and on every application until that column is on
+       * main (R0's #80).
+       */
       einLast4: z
         .string()
         .regex(/^\d{4}$/)

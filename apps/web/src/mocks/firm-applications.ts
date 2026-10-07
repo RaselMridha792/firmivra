@@ -469,7 +469,8 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       } = parseInput(SubmitFirmApplicationRequest, body);
       // A filled bot trap gets the same answer, and nothing is kept, as in the API.
       if (honeypot) return { received: true };
-      // Only the last 4 digits go into the record, as in the API.
+      // Never the full EIN. Its last 4 digits come back as `business.einLast4`: the API keeps them
+      // in a column of their own, not in the stored form (null there until R0's #80 is on main).
       const { ein, ...biz } = business;
       const at = now();
       const row = FirmApplicationRecord.parse({

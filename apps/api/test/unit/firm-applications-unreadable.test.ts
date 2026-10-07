@@ -1,12 +1,16 @@
 // FirmApplicationsService with a stubbed database: an application whose stored form can't be read
 // is logged with its id only, wherever it is read (hard rule 4). The e2e tests run with the logger
-// off, so they can't see what is logged.
+// off, so they can't see what is logged. Also an older stored form that still has the EIN's last 4,
+// which R0's #80 refuses in the database, so only a stub can hold it.
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FirmApplication } from '@firmivra/db';
 import { ListFirmApplicationsQuery, ListFirmsQuery } from '@firmivra/types';
 import type { AdminPrisma } from '../../src/firm-applications/admin-prisma.js';
-import { FirmApplicationsService } from '../../src/firm-applications/firm-applications.service.js';
+import {
+  FirmApplicationsService,
+  StoredApplication,
+} from '../../src/firm-applications/firm-applications.service.js';
 
 const summary = {
   id: '0199b6a3-0000-7000-8000-000000000042',
@@ -113,5 +117,62 @@ describe('FirmApplicationsService: a stored form that cannot be read', () => {
       plan: null,
       application: { id: row.id, formReadable: false, business: null },
     });
+  });
+});
+
+/** A stored form as submit writes it (synthetic). */
+const form = {
+  business: {
+    practiceType: 'TAX_ACCOUNTING',
+    legalName: 'Sample Harbor Tax Services LLC',
+    dbaName: null,
+    entityType: 'LLC',
+    email: null,
+    phone: null,
+    website: null,
+    address: {
+      line1: '1 Example Way',
+      line2: null,
+      city: 'Atlanta',
+      state: 'GA',
+      postalCode: '30301',
+    },
+    services: ['TAX_PREPARATION'],
+  },
+  primaryAdmin: {
+    fullName: 'Drew Sample',
+    email: 'drew@sample-harbor.example.test',
+    phone: '+14045550142',
+    title: null,
+    preferredContact: 'EMAIL',
+    alternatePhone: null,
+  },
+  account: {
+    requestedPlan: 'PROFESSIONAL',
+    teamSize: 3,
+    clientVolume: 'FROM_250',
+    heardFrom: null,
+    requestedStartDate: null,
+    additionalInfo: null,
+  },
+  credentials: [],
+};
+
+describe("FirmApplicationsService: an older stored form with the EIN's last 4 in it", () => {
+  const older = { ...form, business: { ...form.business, einLast4: '7316' } };
+
+  it('reads the form without them', () => {
+    const parsed = StoredApplication.parse(older);
+    expect(parsed.business).not.toHaveProperty('einLast4');
+    expect(parsed).toEqual(form);
+  });
+
+  it("never shows them: the record's einLast4 waits for R0's ein_last4 column", async () => {
+    db.firmApplication.findUnique.mockResolvedValueOnce({ ...row, data: older });
+    const record = await service.get(row.id);
+    expect(record.formReadable).toBe(true);
+    expect(record.business).toEqual({ ...form.business, einLast4: null });
+    expect(JSON.stringify(record)).not.toContain('7316');
+    expect(warn).not.toHaveBeenCalled();
   });
 });
