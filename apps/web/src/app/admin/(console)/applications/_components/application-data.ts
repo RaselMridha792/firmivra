@@ -1,156 +1,123 @@
-export type ApplicationStatus =
-  'Pending Review' | 'Information Requested' | 'Approved' | 'Declined';
-
-export type ApplicationAction = 'Approve' | 'Request Information' | 'Decline';
-
-export type HistoryEntry = {
-  title: string;
-  detail: string;
-  at: string;
-};
-
-export type ApplicationNote = { id: string; text: string };
-
-export type FirmApplication = {
+export type Status = 'Pending Review' | 'Information Requested' | 'Approved' | 'Declined';
+export type Action = 'Approve' | 'Request Information' | 'Decline';
+export type Entry = { title: string; detail: string; at: string };
+export type Note = { id: string; text: string };
+export type Application = {
   id: string;
-  businessName: string;
-  dba: string;
-  businessType: string;
-  einLast4: string;
-  website: string;
-  address: string;
-  services: string[];
-  ownerName: string;
+  name: string;
+  status: Status;
+  submittedAt: string;
+  owner: string;
   email: string;
   phone: string;
-  ownerRole: string;
-  contactMethod: string;
-  alternatePhone: string;
-  requestedPlan: string;
-  teamSize: string;
-  clientVolume: string;
-  referralSource: string;
-  requestedStart: string;
-  additionalInfo: string;
-  agreementAccepted: boolean;
-  certificationAccepted: boolean;
-  status: ApplicationStatus;
-  submittedAt: string;
+  services: string[];
+  sections: Record<string, Record<string, string>>;
   documents: string[];
   checks: string[];
-  notes: ApplicationNote[];
-  history: HistoryEntry[];
+  notes: Note[];
+  history: Entry[];
 };
 
-// Synthetic screen fixture until R4's api.firmApplications client is available on main.
-const records: FirmApplication[] = Array.from({ length: 13 }, (_, index) => {
-  const n = index + 1;
-  const submittedAt = new Date(Date.UTC(2026, 9, 6 - index, 10, 24)).toISOString();
-  const status: ApplicationStatus =
-    n === 1 || n > 7 ? 'Pending Review' : n < 6 ? 'Approved' : 'Declined';
-  const ownerName = n === 1 ? 'Morgan Lee' : `Taylor Morgan ${n}`;
-
+const rows: Application[] = Array.from({ length: 13 }, (_, i) => {
+  const n = i + 1,
+    owner = n === 1 ? 'Morgan Lee' : `Taylor Morgan ${n}`;
+  const email = n === 1 ? 'morgan.lee@example.test' : `owner${n}@example.test`;
+  const submittedAt = new Date(Date.UTC(2026, 9, 6 - i, 10, 24)).toISOString();
+  const name = n === 1 ? 'Northstar Tax Studio' : `Northstar Advisory ${n}`;
   return {
     id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
-    businessName: n === 1 ? 'Northstar Tax Studio' : `Northstar Advisory ${n}`,
-    dba: n === 1 ? 'Northstar Tax' : `Northstar ${n}`,
-    businessType: 'LLC',
-    einLast4: '6789',
-    website: 'northstar.example.test',
-    address: '123 Example Ave, Testville, NY 10001',
-    services: ['Tax Preparation', 'Bookkeeping', 'Payroll', 'Business Consulting'],
-    ownerName,
-    email: n === 1 ? 'morgan.lee@example.test' : `owner${n}@example.test`,
-    phone: `202-555-${String(1000 + n).slice(-4)}`,
-    ownerRole: 'Owner',
-    contactMethod: 'Email',
-    alternatePhone: 'Not provided',
-    requestedPlan: 'Professional (Beta)',
-    teamSize: '3',
-    clientVolume: '500+',
-    referralSource: 'Direct Request',
-    requestedStart: 'As soon as possible',
-    additionalInfo: 'Synthetic example for application review.',
-    agreementAccepted: true,
-    certificationAccepted: true,
-    status,
+    name,
+    status: n === 1 || n > 7 ? 'Pending Review' : n < 6 ? 'Approved' : 'Declined',
     submittedAt,
+    owner,
+    email,
+    phone: `202-555-${1000 + n}`,
+    services: ['Tax Preparation', 'Bookkeeping', 'Payroll', 'Business Consulting'],
+    sections: {
+      'Business Information': {
+        'Business name': name,
+        DBA: n === 1 ? 'Northstar Tax' : `Northstar ${n}`,
+        'Business type': 'LLC',
+        'Services offered': 'Tax Preparation, Bookkeeping, Payroll, Business Consulting',
+        EIN: '••••6789',
+        Website: 'northstar.example.test',
+        'Business address': '123 Example Ave, Testville, NY 10001',
+        'Agreement accepted': 'Yes',
+        'Certification accepted': 'Yes',
+      },
+      'Primary Administrator': {
+        'Full name': owner,
+        Email: email,
+        Phone: `202-555-${1000 + n}`,
+        'Title / role': 'Owner',
+        'Preferred contact': 'Email',
+        'Alternate phone': 'Not provided',
+      },
+      'Account Details': {
+        'Requested plan': 'Professional (Beta)',
+        'Estimated team size': '3',
+        'Estimated client volume': '500+',
+        'Referral source': 'Direct Request',
+        'Requested start': 'As soon as possible',
+        'Additional information': 'Synthetic example for review.',
+      },
+    },
     documents: [],
     checks: [],
     notes: [],
     history: [
-      {
-        title: 'Application Submitted',
-        detail: `Received from ${ownerName}.`,
-        at: submittedAt,
-      },
+      { title: 'Application Submitted', detail: `Received from ${owner}.`, at: submittedAt },
     ],
   };
 });
 
-let version = 0;
-let noteSequence = 0;
+let version = 0,
+  noteId = 0;
 const listeners = new Set<() => void>();
-
-export const getApplicationsVersion = () => version;
-export function subscribeApplications(listener: () => void) {
+export const revision = () => version;
+export function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
-function notifyApplicationsChanged() {
-  version += 1;
+const changed = () => {
+  version++;
   listeners.forEach((listener) => listener());
-}
-
-const copy = (row: FirmApplication): FirmApplication => ({
-  ...row,
-  services: [...row.services],
-  documents: [...row.documents],
-  checks: [...row.checks],
-  notes: [...row.notes],
-  history: row.history.map((event) => ({ ...event })),
+};
+const copy = (a: Application): Application => ({
+  ...a,
+  services: [...a.services],
+  sections: Object.fromEntries(Object.entries(a.sections).map(([k, v]) => [k, { ...v }])),
+  documents: [...a.documents],
+  checks: [...a.checks],
+  notes: [...a.notes],
+  history: [...a.history],
 });
-
+export const listApplications = () => rows.map(copy);
+export const findApplication = (id: string) => {
+  const a = rows.find((item) => item.id === id);
+  return a && copy(a);
+};
 const pause = () => new Promise((resolve) => setTimeout(resolve, 180));
-
-export function listApplications() {
-  return records.map(copy);
-}
-
-export function findApplication(id: string) {
-  const row = records.find((item) => item.id === id);
-  return row ? copy(row) : undefined;
-}
-
-export async function decideApplication(id: string, action: ApplicationAction, detail = '') {
+export async function decide(id: string, action: Action, detail: string) {
   await pause();
-  const row = records.find((item) => item.id === id);
-  if (!row) throw new Error('Application not found');
-
-  row.status =
+  const a = rows.find((item) => item.id === id);
+  if (!a) throw new Error('Not found');
+  a.status =
     action === 'Approve' ? 'Approved' : action === 'Decline' ? 'Declined' : 'Information Requested';
-  row.history = [
-    ...row.history,
-    {
-      title: action,
-      detail: detail || 'Application approved.',
-      at: new Date().toISOString(),
-    },
-  ];
-  notifyApplicationsChanged();
-  return copy(row);
+  a.history.push({
+    title: action,
+    detail: detail || 'Application approved.',
+    at: new Date().toISOString(),
+  });
+  changed();
+  return copy(a);
 }
-
-export async function addApplicationNote(id: string, note: string) {
+export async function addNote(id: string, text: string) {
   await pause();
-  const row = records.find((item) => item.id === id);
-  if (!row) throw new Error('Application not found');
-
-  row.notes = [...row.notes, { id: `mock-note-${++noteSequence}`, text: note }];
-  row.history = [
-    ...row.history,
-    { title: 'Internal Note Added', detail: note, at: new Date().toISOString() },
-  ];
-  notifyApplicationsChanged();
-  return copy(row);
+  const a = rows.find((item) => item.id === id);
+  if (!a) throw new Error('Not found');
+  a.notes.push({ id: `note-${++noteId}`, text });
+  a.history.push({ title: 'Internal Note Added', detail: text, at: new Date().toISOString() });
+  changed();
+  return copy(a);
 }
