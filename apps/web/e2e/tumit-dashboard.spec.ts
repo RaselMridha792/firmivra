@@ -44,3 +44,12 @@ test('dashboard search filters local records and opens a result with Enter', asy
   await search.press('Enter');
   await expect(page).toHaveURL(/\/applications\/00000000-0000-4000-8000-000000000001$/);
 });
+
+test('notification panel marks the pending application as read', async ({ page }) => {
+  await page.goto(admin + '/');
+  await page.getByRole('button', { name: 'Notifications, 1 unread' }).click();
+  const panel = page.getByRole('region', { name: 'Notifications panel' });
+  await expect(panel.getByRole('link', { name: /Firm application pending review/ })).toBeVisible();
+  await panel.getByRole('button', { name: 'Mark all read' }).click();
+  await expect(page.getByRole('button', { name: 'Notifications' })).toBeVisible();
+});
