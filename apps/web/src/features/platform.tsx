@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { Alert, EmptyState, Icon, Modal, type IconName } from '@firmivra/ui';
 import { useWorkspace } from '../components/workspace-context';
+import { LiveApplications, LiveApplicationTable } from './platform-applications';
 
 // Synthetic fixture. Do not use reference contact details as live application data.
 const sample = {
@@ -203,6 +204,7 @@ export function ApplicationTable({
   visible?: boolean;
 }) {
   const { preview } = useWorkspace();
+  if (!preview) return <LiveApplicationTable compact={compact} />;
   const count = preview && visible ? 1 : 0;
   const widths = compact
     ? {
@@ -356,6 +358,10 @@ export function ApplicationTable({
 }
 export function Applications({ id }: { id?: string }) {
   const { preview } = useWorkspace();
+  return preview ? <PreviewApplications id={id} /> : <LiveApplications id={id} />;
+}
+function PreviewApplications({ id }: { id?: string }) {
+  const { preview } = useWorkspace();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [tab, setTab] = useState('All Applications');
@@ -451,14 +457,16 @@ export function Applications({ id }: { id?: string }) {
     </div>
   );
 }
-function InfoCard({
+export function InfoCard({
   title,
   icon,
   rows,
+  editable = true,
 }: {
   title: string;
   icon: IconName;
   rows: [string, string][];
+  editable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -466,7 +474,9 @@ function InfoCard({
       <h3>
         <Icon name={icon} />
         {title}
-        <button onClick={() => setOpen(true)}>Edit</button>
+        <button disabled={!editable} onClick={() => setOpen(true)}>
+          Edit
+        </button>
       </h3>
       <table aria-label={title}>
         <tbody>

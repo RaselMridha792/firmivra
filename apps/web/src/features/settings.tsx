@@ -27,6 +27,7 @@ import {
 import { OwnerOnly, useWorkspace } from '../components/workspace-context';
 import { ContactFields, DataNotice, PageHeading, UnavailableAction } from './screen-kit';
 import { workspaceError, workspaceRequest } from '../lib/workspace-api';
+import { TaxStatuses } from './tax-statuses';
 
 const steps = [
   'Firm Branding',
@@ -521,15 +522,19 @@ function SettingsPanel({ wizard }: { wizard: boolean }) {
           <p className="text-xs text-muted">Selected files have not been uploaded.</p>
         </div>
       </Card>
-      <Card title="Tax statuses">
-        <Textarea
-          label="Tax statuses (one per line)"
-          disabled={!preview}
-          value={statuses}
-          onChange={(e) => setStatuses(e.target.value)}
-          maxLength={2000}
-        />
-      </Card>
+      {preview ? (
+        <Card title="Tax statuses">
+          <Textarea
+            label="Tax statuses (one per line)"
+            disabled={!preview}
+            value={statuses}
+            onChange={(e) => setStatuses(e.target.value)}
+            maxLength={2000}
+          />
+        </Card>
+      ) : (
+        <TaxStatuses />
+      )}
     </div>
   );
   const finish = (

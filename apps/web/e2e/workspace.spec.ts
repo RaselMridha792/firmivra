@@ -289,3 +289,65 @@ test('settings save survives reload without changing other firms', async ({ page
     await expect(page.getByText('Profile changes saved.', { exact: true })).toBeVisible();
   }
 });
+
+test('tax status changes persist and remain scoped to the selected firm', async ({ page }) => {
+  const name = `Review status ${Date.now()}`;
+  const renamed = `${name} renamed`;
+  await quick(page, 'app', 'owner@lvp.test');
+  await page.goto(site('app', '/settings'));
+  await page.getByLabel('New tax status', { exact: true }).fill(name);
+  await page.getByRole('button', { name: 'Add status', exact: true }).click();
+  const item = (label: string) =>
+    page.getByRole('listitem').filter({ has: page.getByText(label, { exact: true }) });
+  await expect(item(name)).toBeVisible();
+  let current = name;
+  try {
+    await item(name).getByRole('button', { name: 'Rename', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Rename tax status' });
+    await dialog.getByLabel('Status name').fill(renamed);
+    await dialog.getByRole('button', { name: 'Save status' }).click();
+    await expect(item(renamed)).toBeVisible();
+    current = renamed;
+    await page.reload();
+    await expect(item(renamed)).toBeVisible();
+    await quick(page, 'app', 'owner@firm-b.test');
+    await page.goto(site('app', '/settings'));
+    await expect(page.getByLabel('New tax status', { exact: true })).toBeVisible();
+    await expect(item(renamed)).toHaveCount(0);
+  } finally {
+    await quick(page, 'app', 'owner@lvp.test');
+    await page.goto(site('app', '/settings'));
+    await item(current).getByRole('button', { name: 'Archive', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Archive tax status' })
+      .getByRole('button', { name: 'Confirm archive' })
+      .click();
+    await expect(item(current)).toHaveCount(0);
+  }
+});
+
+test('Super Admin loads application data from the reused read API and handles missing records', async ({
+  page,
+}) => {
+  await quick(page, 'admin', 'superadmin@firmivra.test');
+  const loaded = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/v1/admin/applications?') &&
+      response.request().method() === 'GET',
+  );
+  await page.goto(site('admin', '/applications'));
+  const result = await loaded;
+  expect(result.status()).toBe(200);
+  await expect(page.getByText(/applications loaded$/)).toBeVisible();
+  await page
+    .getByRole('textbox', { name: 'Search applications' })
+    .fill('Absent synthetic application for browser review');
+  await expect(
+    page.getByText('No applications match these filters', { exact: true }),
+  ).toBeVisible();
+  await page.goto(site('admin', '/applications/00000000-0000-4000-8000-000000000001'));
+  await expect(page.getByText('Application unavailable', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'LVP Accounting & Taxes', exact: true }),
+  ).toHaveCount(0);
+});
