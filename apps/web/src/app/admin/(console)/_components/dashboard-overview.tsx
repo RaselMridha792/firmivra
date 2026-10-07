@@ -94,6 +94,7 @@ function StatCard({ stat }: { stat: (typeof dashboardStats)[number] }) {
 export function DashboardOverview({ today }: { today: string }) {
   const { me } = useMe();
   const [growthRange, setGrowthRange] = useState<keyof typeof growthPeriods>('month');
+  const [settingsInfoOpen, setSettingsInfoOpen] = useState(false);
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
   const growthDates = growthPeriods[growthRange].dates.map((label, index, dates) => ({
     x: 30 + (315 * index) / (dates.length - 1),
@@ -329,11 +330,27 @@ export function DashboardOverview({ today }: { today: string }) {
                 <span className="flex-1">View Firms</span>
                 <ChevronRight aria-hidden className="size-4" />
               </Link>
-              <div className="flex items-center gap-3 rounded-control bg-violet-50 px-3 py-3 text-sm text-violet-700">
+              <button
+                type="button"
+                aria-expanded={settingsInfoOpen}
+                aria-controls="platform-settings-preview"
+                onClick={() => setSettingsInfoOpen((open) => !open)}
+                className="flex items-center gap-3 rounded-control bg-violet-50 px-3 py-3 text-left text-sm text-violet-700 hover:bg-violet-100"
+              >
                 <Settings aria-hidden className="size-5" />
                 <span className="flex-1">Platform Settings</span>
                 <ChevronRight aria-hidden className="size-4" />
-              </div>
+              </button>
+              {settingsInfoOpen ? (
+                <p
+                  id="platform-settings-preview"
+                  role="status"
+                  className="rounded-control bg-canvas px-3 py-2 text-sm text-muted"
+                >
+                  Platform settings will be connected when their API is ready. This dashboard
+                  currently uses sample data.
+                </p>
+              ) : null}
             </div>
           </Card>
 
