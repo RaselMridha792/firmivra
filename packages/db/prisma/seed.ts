@@ -239,6 +239,23 @@ async function main() {
     return result;
   });
 
+  // LVP is paid into its own Stripe connected account (Stripe Connect), already onboarded.
+  // Connected accounts are written only in platform scope (onboarding), never by the firm.
+  await runInScope(prisma, { kind: 'platform' }, (tx) =>
+    tx.stripeAccount.upsert({
+      where: { businessId: businesses.lvp },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        accountId: SEED_STRIPE_ACCOUNT_ID,
+        onboardingStatus: 'COMPLETE',
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        detailsSubmitted: true,
+      },
+    }),
+  );
+
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
     for (const [user, role] of [
       [SEED_USERS.lvpOwner, 'OWNER'],
@@ -861,20 +878,6 @@ async function main() {
       'Yes, please upload every W-2 under the W-2 request. Thanks for the 1099-INT.',
       '2026-10-02T17:30:00Z',
     );
-
-    // LVP is paid into its own Stripe connected account (Stripe Connect), already onboarded.
-    await tx.stripeAccount.upsert({
-      where: { businessId: businesses.lvp },
-      update: {},
-      create: {
-        ...lvp,
-        accountId: SEED_STRIPE_ACCOUNT_ID,
-        onboardingStatus: 'COMPLETE',
-        chargesEnabled: true,
-        payoutsEnabled: true,
-        detailsSubmitted: true,
-      },
-    });
 
     // Billing: a paid bookkeeping invoice, paid the only way the database allows (a recorded
     // processor event confirms the payment), and an open invoice for the 2025 return.
