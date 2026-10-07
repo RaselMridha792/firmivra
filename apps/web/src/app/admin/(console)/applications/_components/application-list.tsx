@@ -28,6 +28,17 @@ const statuses: (Status | 'all')[] = [
   'Approved',
   'Declined',
 ];
+const columns = [
+  ['Business name', 'w-2/12'],
+  ['Business type', 'w-1/12'],
+  ['Owner / contact', 'w-2/12'],
+  ['Email', 'w-2/12'],
+  ['Services', 'w-1/12'],
+  ['Requested plan', 'w-1/12'],
+  ['Submitted', 'w-1/12'],
+  ['Status', 'w-1/12'],
+  ['Action', 'w-1/12'],
+];
 const matchesTab = (a: Application, tab: Tab) =>
   tab === 'all' ||
   (tab === 'pending'
@@ -143,20 +154,15 @@ export function ApplicationList() {
           </label>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-max table-fixed text-left text-xs">
+          <table className="w-full min-w-5xl table-fixed text-left text-xs">
+            <colgroup>
+              {columns.map(([label, width]) => (
+                <col key={label} className={width} />
+              ))}
+            </colgroup>
             <thead className="bg-canvas">
               <tr>
-                {[
-                  'Business name',
-                  'Business type',
-                  'Owner / contact',
-                  'Email',
-                  'Services',
-                  'Requested plan',
-                  'Submitted',
-                  'Status',
-                  'Action',
-                ].map((n) => (
+                {columns.map(([n]) => (
                   <th key={n} className="whitespace-nowrap px-2 py-4 font-medium">
                     {n}
                   </th>
@@ -181,8 +187,8 @@ export function ApplicationList() {
                       {a.owner}
                       <span className="block text-muted">{a.phone}</span>
                     </td>
-                    <td className="px-2 py-4">{a.email}</td>
-                    <td className="min-w-40 break-words px-2 py-4">{a.services.join(', ')}</td>
+                    <td className="break-all px-2 py-4">{a.email}</td>
+                    <td className="break-words px-2 py-4">{a.services.join(', ')}</td>
                     <td className="px-2 py-4">
                       {a.sections['Account Details']?.['Requested plan']}
                     </td>
@@ -196,10 +202,10 @@ export function ApplicationList() {
                     <td className="px-2 py-4">
                       <Link
                         aria-label={`Open application for ${a.name}`}
-                        className="inline-flex whitespace-nowrap rounded-control bg-brand-700 px-3 py-2 font-medium text-white"
+                        className="inline-flex rounded-control bg-brand-700 px-3 py-2 font-medium text-white"
                         href={`/applications/${a.id}`}
                       >
-                        Open application
+                        Open
                       </Link>
                     </td>
                   </tr>
