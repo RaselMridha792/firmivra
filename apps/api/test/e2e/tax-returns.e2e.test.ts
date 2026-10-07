@@ -420,10 +420,17 @@ describe('firm: tax returns per client and year', () => {
   it("links only this client's own documents, never an internal one, and only this client's engagements", async () => {
     const r = await made(ids.one, { taxYear: 2020, filingType: 'INDIVIDUAL' });
     const base = { taxYear: 2020, filingType: 'BUSINESS' };
-    for (const documentId of [ids.docInternal, ids.docTwo]) {
+    for (const documentId of [ids.docInternal, ids.docTwo, ids.docInfected]) {
       refused(await create(ids.one, { ...base, documentId }), 409, 'INVALID_DOCUMENT');
       refused(await patch(r.id, { documentId }), 409, 'INVALID_DOCUMENT');
     }
+    // Staff never learn of a document of a client they can't reach: 404, not 409.
+    refused(
+      await create(ids.one, { ...base, documentId: ids.docTwo }, people.staffA),
+      404,
+      'NOT_FOUND',
+    );
+    refused(await patch(r.id, { documentId: ids.docTwo }, people.staffA), 404, 'NOT_FOUND');
     for (const documentId of [ids.docB, randomUUID()]) {
       refused(await create(ids.one, { ...base, documentId }), 404, 'NOT_FOUND');
       refused(await patch(r.id, { documentId }), 404, 'NOT_FOUND');
@@ -581,7 +588,18 @@ describe("portal: the client's own returns", () => {
       });
     const clean = await add(2016, 'INDIVIDUAL', ids.docClean);
     const pending = await add(2016, 'BUSINESS', ids.docPending);
-    const infected = await add(2015, 'INDIVIDUAL', ids.docInfected);
+    // An INFECTED file can't be linked (409). Real life: a file linked while its scan was still
+    // pending, whose scan then comes back INFECTED (scan results are one-way).
+    const lateInfected = await inFirm(ids.firmA, (tx) =>
+      addDocument(tx, ids.firmA, ids.one, ids.engOne, 'FIRM_TO_CLIENT'),
+    );
+    const infected = await add(2015, 'INDIVIDUAL', lateInfected);
+    await inFirm(ids.firmA, (tx) =>
+      tx.document.update({
+        where: { id: lateInfected },
+        data: { scanStatus: 'INFECTED', scannedAt: new Date() },
+      }),
+    );
     const failed = await add(2015, 'BUSINESS', ids.docFailed);
     const internal = await add(2014, 'INDIVIDUAL');
     const others = await add(2014, 'BUSINESS');
@@ -605,7 +623,7 @@ describe("portal: the client's own returns", () => {
     const firmView = new Map((await firmList(ids.one)).map((r) => [r.id, r.document?.id]));
     expect([pending, infected, failed, internal, others].map((r) => firmView.get(r.id))).toEqual([
       ids.docPending,
-      ids.docInfected,
+      lateInfected,
       ids.docFailed,
       ids.docInternal,
       ids.docTwo,

@@ -25,8 +25,9 @@ export function createTaxReturnsClient(request: ApiRequest) {
     listForClient: async (clientId: string): Promise<TaxReturn[]> =>
       (await request(TaxReturnList, `${clientPath(clientId)}/tax-returns`)).items,
     /**
-     * 409 INVALID_DOCUMENT (another client's or an internal PDF) or CLIENT_ARCHIVED; 404 for an
-     * engagement that is not this client's, or a document the firm does not have.
+     * 409 INVALID_DOCUMENT (another client's, an internal or an infected PDF) or CLIENT_ARCHIVED;
+     * 404 for an engagement that is not this client's, a document the firm does not have, or (for
+     * Staff) a document of a client they can't reach.
      */
     create: async (clientId: string, body: CreateTaxReturnRequest): Promise<TaxReturn> =>
       request(TaxReturn, `${clientPath(clientId)}/tax-returns`, {

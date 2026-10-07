@@ -20,6 +20,7 @@ import {
   dateColumn,
   fieldsOf,
   filedOnMissing,
+  infectedDocument,
   invalidDocument,
   invalidStatus,
   needsFiledOn,
@@ -142,7 +143,9 @@ export class TaxReturnsService {
       if (body.engagementId) {
         await this.checkEngagement(tx, businessId, clientId, body.engagementId);
       }
-      if (body.documentId) await this.checkDocument(tx, businessId, clientId, body.documentId);
+      if (body.documentId) {
+        await this.checkDocument(tx, businessId, actor, clientId, body.documentId);
+      }
       return tx.taxReturn.create({
         data: {
           businessId,
@@ -192,7 +195,7 @@ export class TaxReturnsService {
         await this.checkEngagement(tx, businessId, current.clientId, changes.engagementId);
       }
       if (changes.documentId) {
-        await this.checkDocument(tx, businessId, current.clientId, changes.documentId);
+        await this.checkDocument(tx, businessId, actor, current.clientId, changes.documentId);
       }
       const fields = Object.keys(changes).sort();
       if (fields.length === 0) return { row: current, fields };
@@ -324,24 +327,38 @@ export class TaxReturnsService {
   }
 
   /**
-   * The PDF: 404 when the firm has no such document (another firm's included), 409
-   * INVALID_DOCUMENT when it is another client's or an internal one. FOR KEY SHARE keeps it
+   * The PDF: 404 when the firm has no such document (another firm's included) or, for Staff, when
+   * it belongs to a client they can't reach (they never learn it exists). 409 INVALID_DOCUMENT
+   * when it is another client's, an internal one, or failed the virus scan. FOR KEY SHARE keeps it
    * from being deleted before this change commits; after that, the link keeps it.
    */
   private async checkDocument(
     tx: TxClient,
     businessId: string,
+    actor: ClientsActor,
     clientId: string,
     documentId: string,
   ): Promise<void> {
-    const [document] = await tx.$queryRaw<{ client_id: string; direction: string }[]>`
-      SELECT client_id, direction FROM documents
-      WHERE business_id = ${businessId}::uuid AND id = ${documentId}::uuid
-      FOR KEY SHARE`;
+    const [document] = await tx.$queryRaw<
+      {
+        client_id: string;
+        direction: string;
+        scan_status: string;
+        assigned_user_id: string | null;
+      }[]
+    >`
+      SELECT d.client_id, d.direction, d.scan_status, c.assigned_user_id
+      FROM documents d
+      JOIN clients c ON c.business_id = d.business_id AND c.id = d.client_id
+      WHERE d.business_id = ${businessId}::uuid AND d.id = ${documentId}::uuid
+      FOR KEY SHARE OF d`;
     if (!document) throw notFound();
-    if (document.client_id !== clientId || document.direction === 'INTERNAL') {
+    if (document.client_id !== clientId) {
+      if (actor.role === 'STAFF' && document.assigned_user_id !== actor.userId) throw notFound();
       throw invalidDocument();
     }
+    if (document.direction === 'INTERNAL') throw invalidDocument();
+    if (document.scan_status === 'INFECTED') throw infectedDocument();
   }
 }
 

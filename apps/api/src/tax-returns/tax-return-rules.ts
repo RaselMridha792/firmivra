@@ -18,6 +18,11 @@ export const invalidDocument = () =>
     code: 'INVALID_DOCUMENT',
     message: "The return PDF must be one of this client's documents, not an internal one",
   });
+export const infectedDocument = () =>
+  new ConflictException({
+    code: 'INVALID_DOCUMENT',
+    message: 'This file failed the virus scan and cannot be the return PDF',
+  });
 export const invalidStatus = () =>
   new ConflictException({
     code: 'INVALID_STATUS',
