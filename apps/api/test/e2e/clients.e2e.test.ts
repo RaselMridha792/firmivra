@@ -464,4 +464,36 @@ describe('changes at the same time', () => {
     await owner.$disconnect();
     expect(rows).toBe(0);
   });
+
+  it('an update does not wait for a row being added under the client (FOR KEY SHARE)', async () => {
+    const { id } = await create({ displayName: `Race key share ${run}` });
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    let letGo!: () => void;
+    const released = new Promise<void>((resolve) => (letGo = resolve));
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => (held = resolve));
+    // What adding a tax year, service or return for the client holds until it commits: the
+    // foreign key check's FOR KEY SHARE on the client's row. FOR UPDATE would wait for it.
+    const holder = runInScope(owner, { kind: 'business', businessId: firms.a.id }, async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM clients WHERE id = ${id}::uuid FOR KEY SHARE`;
+      held();
+      await released;
+    });
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await holding;
+      const res = await Promise.race([
+        call('patch', `/${id}`, people.ownerA, 'a', { displayName: 'Changed' }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('the update waited on FOR KEY SHARE')), 3_000);
+        }),
+      ]);
+      expect([res.status, Record_.parse(res.body).displayName]).toEqual([200, 'Changed']);
+    } finally {
+      clearTimeout(timer);
+      letGo();
+      await holder;
+      await owner.$disconnect();
+    }
+  });
 });
