@@ -385,7 +385,10 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
         primaryAdmin: admin,
         account,
         credentials,
+        honeypot,
       } = parseInput(SubmitFirmApplicationRequest, body);
+      // A filled bot trap gets the same answer, and nothing is kept, as in the API.
+      if (honeypot) return { received: true };
       // Only the last 4 digits go into the record, as in the API.
       const { ein, ...biz } = business;
       const at = now();
