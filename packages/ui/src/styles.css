@@ -57,7 +57,6 @@
   --color-accent-600: #007f82;
   --color-firm-primary: var(--color-platform-navy);
   --color-firm-accent: var(--color-platform-blue);
-  --color-firm-intake: var(--color-firm-accent);
   --color-overlay: rgba(0, 27, 54, 0.55);
   --color-transparent: transparent;
   --font-sans: Arial, Helvetica, sans-serif;
@@ -152,10 +151,10 @@
   --color-on-public-action: var(--color-on-action);
 }
 [data-theme='begin-online'] {
-  --color-firm-intake: var(--color-firm-accent);
-  --color-action: var(--color-firm-intake);
-  --color-accent: var(--color-firm-intake);
-  --color-accent-soft: color-mix(in srgb, var(--color-firm-intake) 12%, var(--color-white));
+  /* An unset intake token falls back here, preserving settings inherited from the layout. */
+  --color-action: var(--color-firm-intake, var(--color-firm-accent));
+  --color-accent: var(--color-firm-intake, var(--color-firm-accent));
+  --color-accent-soft: color-mix(in srgb, var(--color-accent) 12%, var(--color-white));
 }
 
 @layer base {
