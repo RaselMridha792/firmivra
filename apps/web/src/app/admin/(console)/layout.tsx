@@ -19,12 +19,18 @@ import type { ReactNode } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
 import type { NavSections } from '../../../components/app-shell/types';
 import { SignedIn } from '../../../components/signed-in';
+import { pendingApplicationCount } from './_components/dashboard-data';
 
 // Super Admin menu (docs/junior/PAGE-MAP.md). R4 adds the pending count to Firm Applications.
 const sections: NavSections = [
   [
     { label: 'Dashboard', icon: House, href: '/' },
-    { label: 'Firm Applications', icon: FileText, href: '/applications' },
+    {
+      label: 'Firm Applications',
+      icon: FileText,
+      href: '/applications',
+      badge: pendingApplicationCount,
+    },
     { label: 'Firms', icon: Building, href: '/firms' },
   ],
   [

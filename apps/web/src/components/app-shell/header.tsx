@@ -21,6 +21,7 @@ export function Header({
 }) {
   const { me, signOut } = useMe();
   const [open, setOpen] = useState(false);
+  const displayRole = me.platformAdmin ? 'Super Admin' : roleLabel;
 
   return (
     <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3 md:px-6">
@@ -41,6 +42,7 @@ export function Header({
             type="search"
             placeholder={search}
             aria-label="Search"
+            readOnly
             className="w-full bg-transparent outline-none"
           />
         </label>
@@ -51,9 +53,10 @@ export function Header({
         <button
           type="button"
           aria-label="Notifications"
-          className="rounded-control p-2 text-text hover:bg-canvas"
+          className="relative rounded-control p-2 text-text hover:bg-canvas"
         >
           <Bell aria-hidden className="size-5" />
+          <span aria-hidden className="absolute right-2 top-2 size-2 rounded-full bg-danger" />
         </button>
 
         <div className="relative">
@@ -70,7 +73,7 @@ export function Header({
             </span>
             <span className="hidden text-left text-sm sm:block">
               <span className="block font-semibold text-text">{me.user.name}</span>
-              <span className="block text-muted">{roleLabel}</span>
+              <span className="block text-muted">{displayRole}</span>
             </span>
             <ChevronDown aria-hidden className="size-4 text-muted" />
           </button>
@@ -83,7 +86,7 @@ export function Header({
                 <span data-testid="me-email" className="block font-medium text-text">
                   {me.user.email}
                 </span>
-                <span className="text-muted">{roleLabel}</span>
+                <span className="text-muted">{displayRole}</span>
               </p>
               <button
                 type="button"
