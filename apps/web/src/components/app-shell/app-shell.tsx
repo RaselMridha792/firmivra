@@ -7,7 +7,7 @@ import { Sidebar } from './sidebar';
 import type { NavSections } from './types';
 
 /**
- * Sidebar, header and page area for the Super Admin and firm sites (inside <SignedIn>).
+ * Sidebar, header and page area for the Super Admin, firm and portal sites (inside <SignedIn>).
  * Below 768 px the sidebar becomes a drawer behind the header's menu button.
  * The look follows docs/mockups/super-admin/Dashboard Active .png; Tumit polishes it (F04a).
  */
@@ -16,6 +16,8 @@ export function AppShell({
   sections,
   roleLabel,
   search,
+  greeting,
+  footer,
   children,
 }: {
   /** Under the logo, for example "Super Admin Portal". */
@@ -25,6 +27,10 @@ export function AppShell({
   roleLabel: string;
   /** Search box placeholder (Super Admin only). */
   search?: string;
+  /** Header greeting instead of search (portal). */
+  greeting?: ReactNode;
+  /** Under the page area (portal: copyright and links). */
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const [drawer, setDrawer] = useState(false);
@@ -54,8 +60,14 @@ export function AppShell({
       ) : null}
 
       <div className="flex min-h-screen flex-col md:pl-72">
-        <Header search={search} roleLabel={roleLabel} onOpenMenu={() => setDrawer(true)} />
+        <Header
+          search={search}
+          greeting={greeting}
+          roleLabel={roleLabel}
+          onOpenMenu={() => setDrawer(true)}
+        />
         <main className="flex-1 p-4 md:p-8">{children}</main>
+        {footer}
       </div>
     </div>
   );
