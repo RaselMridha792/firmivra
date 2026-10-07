@@ -1,74 +1,108 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post, Put } from '@nestjs/common';
 import { z } from 'zod';
 import {
-  UpdateBusinessSettingsRequest,
-  SaveBusinessSetupRequest,
-  PublishFirmLegalVersionRequest,
-  GetFirmLegalVersionQuery,
+  type FirmLegalOverview,
+  type FirmSettings,
+  type FirmSetup,
+  type LegalDocument,
+  LegalKind,
+  LegalVersionNumber,
+  PublishLegalDocumentRequest,
+  SetupStep,
+  UpdateFirmSettingsRequest,
 } from '@firmivra/types';
-import { Roles } from '../auth/decorators.js';
+import {
+  AllowBusinessStatuses,
+  CurrentAuth,
+  CurrentTenant,
+  FIRM_MANAGERS,
+  Roles,
+} from '../auth/decorators.js';
+import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
-import { PendingSettingsAssets, SettingsAssets } from './settings.assets.js';
 import { SettingsService } from './settings.service.js';
-const legalKind = new ZodValidationPipe(z.enum(['TERMS', 'PRIVACY']));
+
+const kindPipe = new ZodValidationPipe(LegalKind);
+/** A version in the path: plain digits ("2", not "02" or "2e0"). */
+const versionPipe = new ZodValidationPipe(
+  z
+    .string()
+    .regex(/^[1-9][0-9]{0,9}$/)
+    .transform(Number)
+    .pipe(LegalVersionNumber),
+);
+
+/**
+ * The firm's settings, the setup wizard and its own Terms and Privacy (docs/api/settings.yaml).
+ * Owner and Admin, also while the firm is Pending Setup; the firm comes from TenantGuard.
+ */
 @Controller('business')
-@Roles('OWNER', 'ADMIN')
+@Roles(...FIRM_MANAGERS)
+@AllowBusinessStatuses('PENDING_SETUP', 'ACTIVE')
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
-  @Get('settings') get() {
-    return this.settings.get();
+
+  @Get('settings')
+  get(@CurrentTenant() tenant: TenantContext): Promise<FirmSettings> {
+    return this.settings.get(tenant.businessId);
   }
-  @Patch('settings') update(
-    @Body(new ZodValidationPipe(UpdateBusinessSettingsRequest))
-    body: z.output<typeof UpdateBusinessSettingsRequest>,
-  ) {
-    return this.settings.update(body);
+
+  @Patch('settings')
+  update(
+    @CurrentTenant() tenant: TenantContext,
+    @Body(new ZodValidationPipe(UpdateFirmSettingsRequest))
+    body: z.output<typeof UpdateFirmSettingsRequest>,
+  ): Promise<FirmSettings> {
+    return this.settings.update(tenant.businessId, body);
   }
-  @Get('setup') setup() {
-    return this.settings.setup();
+
+  @Get('setup')
+  getSetup(@CurrentTenant() tenant: TenantContext): Promise<FirmSetup> {
+    return this.settings.getSetup(tenant.businessId);
   }
-  @Patch('setup') save(
-    @Body(new ZodValidationPipe(SaveBusinessSetupRequest))
-    body: z.output<typeof SaveBusinessSetupRequest>,
-  ) {
-    return this.settings.saveSetup(body);
+
+  @Put('setup/steps/:step')
+  completeStep(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('step', new ZodValidationPipe(SetupStep)) step: SetupStep,
+  ): Promise<FirmSetup> {
+    return this.settings.completeStep(tenant.businessId, step);
   }
-  @Post('setup/complete') @HttpCode(200) complete() {
-    return this.settings.complete();
+
+  @Post('setup/complete')
+  @HttpCode(200)
+  finishSetup(@CurrentTenant() tenant: TenantContext): Promise<FirmSetup> {
+    return this.settings.finishSetup(tenant.businessId);
   }
-  @Get('legal/:kind') legal(
-    @Param('kind', legalKind) kind: 'TERMS' | 'PRIVACY',
-    @Query(new ZodValidationPipe(GetFirmLegalVersionQuery))
-    query: z.output<typeof GetFirmLegalVersionQuery>,
-  ) {
-    return this.settings.legal(kind, query.version);
+
+  @Get('legal/:kind')
+  getLegal(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('kind', kindPipe) kind: LegalKind,
+  ): Promise<FirmLegalOverview> {
+    return this.settings.getLegal(tenant.businessId, kind);
   }
-  @Post('legal/:kind') publish(
-    @Param('kind', legalKind) kind: 'TERMS' | 'PRIVACY',
-    @Body(new ZodValidationPipe(PublishFirmLegalVersionRequest))
-    body: z.output<typeof PublishFirmLegalVersionRequest>,
-  ) {
-    return this.settings.publish(kind, body.bodyMarkdown);
+
+  @Get('legal/:kind/versions/:version')
+  getLegalVersion(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('kind', kindPipe) kind: LegalKind,
+    @Param('version', versionPipe) version: number,
+  ): Promise<LegalDocument> {
+    return this.settings.getLegalVersion(tenant.businessId, kind, version);
+  }
+
+  @Post('legal/:kind/versions')
+  publishLegal(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+    @Param('kind', kindPipe) kind: LegalKind,
+    @Body(new ZodValidationPipe(PublishLegalDocumentRequest))
+    body: z.output<typeof PublishLegalDocumentRequest>,
+  ): Promise<LegalDocument> {
+    return this.settings.publishLegal(tenant.businessId, kind, body.body, auth.userId);
   }
 }
-@Controller('portal/:slug')
-@Roles('CLIENT')
-export class PortalSettingsController {
-  constructor(private readonly settings: SettingsService) {}
-  @Get('settings') get() {
-    return this.settings.portal();
-  }
-  @Get('legal/:kind') legal(
-    @Param('kind', legalKind) kind: 'TERMS' | 'PRIVACY',
-    @Query(new ZodValidationPipe(GetFirmLegalVersionQuery))
-    query: z.output<typeof GetFirmLegalVersionQuery>,
-  ) {
-    return this.settings.legal(kind, query.version);
-  }
-}
-@Module({
-  controllers: [SettingsController, PortalSettingsController],
-  providers: [SettingsService, { provide: SettingsAssets, useClass: PendingSettingsAssets }],
-  exports: [SettingsService],
-})
+
+@Module({ controllers: [SettingsController], providers: [SettingsService] })
 export class SettingsModule {}

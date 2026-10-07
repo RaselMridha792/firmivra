@@ -8,6 +8,7 @@ import {
   createMyTaxReturnsClient,
   createRequest,
   createTaxReturnsClient,
+  createSettingsClient,
   createTaxStatusesClient,
 } from '@firmivra/types';
 import { createClientSignUpsMock } from '../mocks/client-auth';
@@ -41,6 +42,9 @@ export const api = {
     dev && mocked('taxStatuses')
       ? createTaxStatusesMock({ role: MOCK_ROLE })
       : createTaxStatusesClient(request),
+
+  /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
+  settings: createSettingsClient(request),
   /** Pending client sign-ups, approve and decline (docs/api/client-auth.yaml). */
   clientSignUps:
     dev && mocked('clientSignUps')

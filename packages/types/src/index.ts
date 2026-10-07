@@ -11,7 +11,7 @@ export {
 } from './client.js';
 export * from './auth/index.js';
 export * from './firm-team.js';
-export * from './firm-settings.js';
+
 export {
   FirmTaxStatus,
   CreateTaxStatusResponse,
@@ -25,3 +25,4 @@ export * from './client-auth/index.js';
 export * from './clients/index.js';
 export * from './engagements/index.js';
 export * from './tax-returns/index.js';
+export * from './settings/index.js';

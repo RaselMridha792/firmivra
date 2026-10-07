@@ -1,293 +1,288 @@
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import type { Database, TxClient } from '@firmivra/db';
 import {
-  ConflictException,
-  ForbiddenException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
-import { Prisma, type Database, type TxClient } from '@firmivra/db';
-import {
-  FirmLegalDocument,
-  FirmPortalSettings,
-  FirmSettings,
-  type UpdateBusinessSettingsRequest,
-  type SaveBusinessSetupRequest,
+  type FirmLegalOverview,
+  type FirmSettings,
+  type FirmSetup,
+  type LegalDocument,
+  type LegalKind,
+  SetupStep,
+  type UpdateFirmSettingsRequest,
 } from '@firmivra/types';
+import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
-import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
-import { SettingsAssets } from './settings.assets.js';
 
-const portalColumns = {
-  portalName: 'portal_name',
-  portalHeader: 'portal_header',
-  welcomeMessage: 'welcome_message',
-} as const;
-const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
-export function requireSetupSteps(steps: string[], available: Record<string, boolean>): void {
-  if (steps.includes('finish') || steps.some((step) => !available[step]))
-    throw new ConflictException({
-      code: 'SETUP_INCOMPLETE',
-      message: 'Complete the required setup information first',
-    });
+type SettingsPatch = z.output<typeof UpdateFirmSettingsRequest>;
+
+const KIND = { terms: 'TERMS', privacy: 'PRIVACY' } as const;
+
+const STEP_NAMES: Record<SetupStep, string> = {
+  branding: 'Branding',
+  businessDetails: 'Business details',
+  team: 'Team and access',
+  clientPortal: 'Client portal',
+};
+
+const documentSelect = { id: true, version: true, publishedAt: true, body: true } as const;
+
+/** The wizard steps recorded in `setup_progress` ({ "branding": true, ... }), in wizard order. */
+export function stepsOf(progress: unknown): SetupStep[] {
+  const done =
+    typeof progress === 'object' && progress !== null && !Array.isArray(progress)
+      ? (progress as Record<string, unknown>)
+      : {};
+  return SetupStep.options.filter((step) => done[step] === true);
 }
+
+/** Once setup is finished every step counts as done (seeded firms have no step progress). */
+const toSetup = (steps: SetupStep[], completedAt: Date | null): FirmSetup => ({
+  completedSteps: completedAt ? [...SetupStep.options] : steps,
+  completedAt: completedAt?.toISOString() ?? null,
+});
+
+const toDocument = (
+  kind: LegalKind,
+  doc: { version: number; publishedAt: Date; body: string },
+): LegalDocument => ({
+  kind,
+  version: doc.version,
+  publishedAt: doc.publishedAt.toISOString(),
+  body: doc.body,
+});
+
+/**
+ * Firm settings, the setup wizard and the firm's Terms and Privacy (docs/api/settings.yaml).
+ * Every query runs in the firm's business scope; `businessId` always comes from TenantGuard.
+ * Audit entries name the changed fields, the step or the version, never the values or text.
+ */
 @Injectable()
 export class SettingsService {
   constructor(
-    @Inject(DATABASE) private readonly db: Database,
+    @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
-    private readonly assets: SettingsAssets,
   ) {}
-  private context() {
-    const context = requestContext.getStore();
-    if (!context?.tenant || !context.auth) throw notFound();
-    return { businessId: context.tenant.businessId, userId: context.auth.userId };
+
+  private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
+    return this.database.withScope({ kind: 'business', businessId }, fn);
   }
-  private async row(tx: TxClient, businessId: string) {
-    return tx.businessSettings.upsert({
-      where: { businessId },
-      create: { businessId },
-      update: {},
-    });
+
+  get(businessId: string): Promise<FirmSettings> {
+    return this.inFirm(businessId, (tx) => this.view(tx, businessId));
   }
-  private async manager(tx: TxClient, businessId: string, userId: string) {
-    const firms = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM businesses WHERE id=${businessId}::uuid AND status='ACTIVE' FOR UPDATE`;
-    if (!firms.length) throw notFound();
-    const member = await tx.membership.findFirst({
-      where: { businessId, userId, status: 'ACTIVE' },
-      select: { role: true },
-    });
-    if (!member) throw notFound();
-    if (member.role !== 'OWNER' && member.role !== 'ADMIN')
-      throw new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
-  }
-  private async serialize(tx: TxClient, businessId: string) {
-    const profile = await tx.business.findUnique({
-      where: { id: businessId },
-      select: { id: true, name: true, legalName: true, slug: true, status: true },
-    });
-    if (!profile) throw notFound();
-    const row = await this.row(tx, businessId);
-    const extra = await tx.$queryRaw<
-      { portalName: string | null; portalHeader: string | null; welcomeMessage: string | null }[]
-    >`SELECT to_jsonb(s)->>'portal_name' AS "portalName", to_jsonb(s)->>'portal_header' AS "portalHeader", to_jsonb(s)->>'welcome_message' AS "welcomeMessage" FROM business_settings s WHERE business_id=${businessId}::uuid`;
-    const progress = row.setupProgress as { completedSteps?: string[] };
-    const fields = Object.fromEntries(
-      Object.entries(row).filter(([key]) => key in FirmSettings.shape),
-    );
-    return FirmSettings.parse({
-      profile,
-      ...fields,
-      ...extra[0],
-      setup: {
-        completedSteps: progress.completedSteps ?? [],
-        completedAt: row.setupCompletedAt?.toISOString() ?? null,
-      },
-      updatedAt: row.updatedAt.toISOString(),
-    });
-  }
-  async get() {
-    const { businessId } = this.context();
-    const result = await this.db.withScope({ kind: 'business', businessId }, (tx) =>
-      this.serialize(tx, businessId),
-    );
-    await this.audit.log('business.settings.viewed', { type: 'business', id: businessId });
-    return result;
-  }
-  async update(input: UpdateBusinessSettingsRequest) {
-    const { businessId, userId } = this.context();
-    const result = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await this.manager(tx, businessId, userId);
-      const current = await this.row(tx, businessId);
-      if (
-        input.logoKey !== undefined &&
-        input.logoKey !== null &&
-        input.logoKey !== current.logoKey
-      )
-        await this.assets.authorizeLogo(businessId, input.logoKey);
-      if (input.enabledModules)
-        await this.assets.authorizeModules(
-          businessId,
-          input.enabledModules,
-          current.enabledModules,
-        );
-      const { name, portalName, portalHeader, welcomeMessage, ...settings } = input;
-      const extras = { portalName, portalHeader, welcomeMessage };
-      const assignments = Object.entries(portalColumns)
-        .filter(([key]) => extras[key as keyof typeof extras] !== undefined)
-        .map(
-          ([key, column]) =>
-            Prisma.sql`${Prisma.raw(column)}=${extras[key as keyof typeof extras]}`,
-        );
-      if (assignments.length) {
-        const columns = await tx.$queryRaw<
-          { column_name: string }[]
-        >`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='business_settings'`;
-        if (
-          Object.entries(portalColumns).some(
-            ([key, column]) =>
-              extras[key as keyof typeof extras] !== undefined &&
-              !columns.some((c) => c.column_name === column),
-          )
-        )
-          throw new ServiceUnavailableException({
-            code: 'SCHEMA_NOT_READY',
-            message: 'Portal content fields are awaiting the database update',
-          });
-        await tx.$executeRaw(
-          Prisma.sql`UPDATE business_settings SET ${Prisma.join(assignments)},updated_at=now() WHERE business_id=${businessId}::uuid`,
-        );
-      }
-      if (name !== undefined)
-        await tx.business.update({ where: { id: businessId }, data: { name: name.trim() } });
-      await tx.businessSettings.update({ where: { businessId }, data: settings });
-      return this.serialize(tx, businessId);
-    });
-    await this.audit.log(
-      'business.settings.updated',
-      { type: 'business', id: businessId },
-      { fields: Object.keys(input) },
-    );
-    return result;
-  }
-  async setup() {
-    return (await this.get()).setup;
-  }
-  async saveSetup(input: SaveBusinessSetupRequest) {
-    const { businessId, userId } = this.context();
-    const result = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await this.manager(tx, businessId, userId);
-      const settings = await this.row(tx, businessId);
-      if (settings.setupCompletedAt)
-        throw new ConflictException({
-          code: 'SETUP_COMPLETE',
-          message: 'Setup is already complete',
+
+  async update(businessId: string, patch: SettingsPatch): Promise<FirmSettings> {
+    const { name, primaryColor, ...rest } = patch;
+    const fields = Object.keys(patch).sort();
+    const settings = { ...rest, ...(primaryColor !== undefined && { brandColor: primaryColor }) };
+    const result = await this.inFirm(businessId, async (tx) => {
+      // The settings row before the business row, the same order as Finish: no deadlock.
+      if (Object.keys(settings).length > 0) {
+        await tx.businessSettings.upsert({
+          where: { businessId },
+          create: { businessId, ...settings },
+          update: settings,
         });
-      requireSetupSteps(input.completedSteps, await this.available(tx, businessId));
+      }
+      if (name !== undefined) {
+        await tx.business.update({ where: { id: businessId }, data: { name } });
+      }
+      return this.view(tx, businessId);
+    });
+    await this.audit.log('settings.updated', { type: 'business', id: businessId }, { fields });
+    return result;
+  }
+
+  getSetup(businessId: string): Promise<FirmSetup> {
+    return this.inFirm(businessId, async (tx) => {
+      const row = await tx.businessSettings.findUnique({
+        where: { businessId },
+        select: { setupProgress: true, setupCompletedAt: true },
+      });
+      return toSetup(stepsOf(row?.setupProgress), row?.setupCompletedAt ?? null);
+    });
+  }
+
+  async completeStep(businessId: string, step: SetupStep): Promise<FirmSetup> {
+    const { setup, changed } = await this.inFirm(businessId, async (tx) => {
+      const row = await this.lockSetup(tx, businessId);
+      const steps = stepsOf(row.progress);
+      if (row.completedAt || steps.includes(step)) {
+        return { setup: toSetup(steps, row.completedAt), changed: false };
+      }
+      const next = stepsOf(Object.fromEntries([...steps, step].map((s) => [s, true])));
       await tx.businessSettings.update({
         where: { businessId },
-        data: { setupProgress: { completedSteps: input.completedSteps } },
+        data: { setupProgress: Object.fromEntries(next.map((s) => [s, true])) },
       });
-      return (await this.serialize(tx, businessId)).setup;
+      return { setup: toSetup(next, null), changed: true };
     });
-    await this.audit.log(
-      'business.setup.saved',
-      { type: 'business', id: businessId },
-      { steps: input.completedSteps },
-    );
-    return result;
+    if (changed) {
+      await this.audit.log('setup.step_completed', { type: 'business', id: businessId }, { step });
+    }
+    return setup;
   }
-  private async available(tx: TxClient, businessId: string) {
-    const settings = await this.row(tx, businessId);
-    const kinds = await tx.firmLegalDocument.findMany({
-      where: { businessId },
-      select: { kind: true },
-      distinct: ['kind'],
-    });
-    return {
-      branding: !!settings.brandColor,
-      businessDetails: !!settings.contactEmail && !!settings.country,
-      team:
-        (await tx.membership.count({ where: { businessId, role: 'OWNER', status: 'ACTIVE' } })) > 0,
-      clientPortal: kinds.length === 2,
-    };
-  }
-  async complete() {
-    const { businessId, userId } = this.context();
-    const result = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await this.manager(tx, businessId, userId);
-      const row = await this.row(tx, businessId);
-      if (!row.setupCompletedAt) {
-        const steps = ['branding', 'businessDetails', 'team', 'clientPortal'];
-        requireSetupSteps(steps, await this.available(tx, businessId));
-        await tx.businessSettings.update({
-          where: { businessId },
-          data: {
-            setupProgress: { completedSteps: [...steps, 'finish'] },
-            setupCompletedAt: new Date(),
-          },
+
+  /** Finish: needs every step; the firm becomes Active. Repeating returns the first finish. */
+  async finishSetup(businessId: string): Promise<FirmSetup> {
+    const { setup, changed } = await this.inFirm(businessId, async (tx) => {
+      const row = await this.lockSetup(tx, businessId);
+      const steps = stepsOf(row.progress);
+      if (row.completedAt) {
+        // Finished before: make sure the firm is Active too, then answer the first finish.
+        await this.activate(tx, businessId);
+        return { setup: toSetup(steps, row.completedAt), changed: false };
+      }
+      const missing = SetupStep.options.filter((s) => !steps.includes(s));
+      if (missing.length > 0) {
+        throw new ConflictException({
+          code: 'SETUP_INCOMPLETE',
+          message: `Finish these steps first: ${missing.map((s) => STEP_NAMES[s]).join(', ')}`,
         });
       }
-      return (await this.serialize(tx, businessId)).setup;
+      const { setupCompletedAt } = await tx.businessSettings.update({
+        where: { businessId },
+        data: { setupCompletedAt: new Date() },
+        select: { setupCompletedAt: true },
+      });
+      await this.activate(tx, businessId);
+      return { setup: toSetup(steps, setupCompletedAt), changed: true };
     });
-    await this.audit.log('business.setup.completed', { type: 'business', id: businessId });
-    return result;
+    if (changed) await this.audit.log('setup.finished', { type: 'business', id: businessId });
+    return setup;
   }
-  async legal(kind: 'TERMS' | 'PRIVACY', version?: number) {
-    const { businessId } = this.context();
-    const row = await this.db.forBusiness(businessId).firmLegalDocument.findFirst({
-      where: { businessId, kind, ...(version === undefined ? {} : { version }) },
-      orderBy: { version: 'desc' },
-    });
-    if (!row) throw notFound();
-    await this.audit.log(
-      'business.legal.viewed',
-      { type: 'firmLegalDocument', id: row.id },
-      { kind, version: row.version },
-    );
-    return FirmLegalDocument.parse({
-      id: row.id,
-      kind: row.kind,
-      version: row.version,
-      bodyMarkdown: row.body,
-      publishedAt: row.publishedAt.toISOString(),
+
+  getLegal(businessId: string, kind: LegalKind): Promise<FirmLegalOverview> {
+    return this.inFirm(businessId, async (tx) => {
+      const where = { businessId, kind: KIND[kind] };
+      const versions = await tx.firmLegalDocument.findMany({
+        where,
+        orderBy: { version: 'desc' },
+        select: { version: true, publishedAt: true },
+      });
+      // The newest listed version, by key, so `current` and `versions` always agree.
+      const newest = versions[0];
+      const current = newest
+        ? await tx.firmLegalDocument.findUnique({
+            where: { businessId_kind_version: { ...where, version: newest.version } },
+            select: documentSelect,
+          })
+        : null;
+      return {
+        current: current ? toDocument(kind, current) : null,
+        versions: versions.map((v) => ({
+          version: v.version,
+          publishedAt: v.publishedAt.toISOString(),
+        })),
+      };
     });
   }
-  async publish(kind: 'TERMS' | 'PRIVACY', bodyMarkdown: string) {
-    const { businessId, userId } = this.context();
-    const row = await this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-      await this.manager(tx, businessId, userId);
+
+  async getLegalVersion(
+    businessId: string,
+    kind: LegalKind,
+    version: number,
+  ): Promise<LegalDocument> {
+    const doc = await this.database.forBusiness(businessId).firmLegalDocument.findUnique({
+      where: { businessId_kind_version: { businessId, kind: KIND[kind], version } },
+      select: documentSelect,
+    });
+    if (!doc) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+    return toDocument(kind, doc);
+  }
+
+  /** Publishes the next version. Versions are never edited; clients see the newest at once. */
+  async publishLegal(
+    businessId: string,
+    kind: LegalKind,
+    body: string,
+    userId: string,
+  ): Promise<LegalDocument> {
+    const doc = await this.inFirm(businessId, async (tx) => {
+      // One publisher at a time per firm and kind, so two at once get consecutive versions.
+      const key = `firm_legal_documents:${businessId}:${kind}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
       const last = await tx.firmLegalDocument.findFirst({
-        where: { businessId, kind },
+        where: { businessId, kind: KIND[kind] },
         orderBy: { version: 'desc' },
         select: { version: true },
       });
       return tx.firmLegalDocument.create({
         data: {
           businessId,
-          kind,
+          kind: KIND[kind],
           version: (last?.version ?? 0) + 1,
-          body: bodyMarkdown,
+          body,
           publishedByUserId: userId,
         },
+        select: documentSelect,
       });
     });
     await this.audit.log(
-      'business.legal.published',
-      { type: 'firmLegalDocument', id: row.id },
-      { kind, version: row.version },
+      'legal.published',
+      { type: 'firm_legal_document', id: doc.id },
+      { kind, version: doc.version },
     );
-    return FirmLegalDocument.parse({
-      id: row.id,
-      kind: row.kind,
-      version: row.version,
-      bodyMarkdown: row.body,
-      publishedAt: row.publishedAt.toISOString(),
+    return toDocument(kind, doc);
+  }
+
+  /** The database lets a firm move itself only from PENDING_SETUP to ACTIVE, once setup is done. */
+  private async activate(tx: TxClient, businessId: string): Promise<void> {
+    await tx.business.updateMany({
+      where: { id: businessId, status: 'PENDING_SETUP' },
+      data: { status: 'ACTIVE' },
     });
   }
-  async portal() {
-    const { businessId, userId } = this.context();
-    const settings = await this.get();
-    const account = await this.db.forBusiness(businessId).clientAccount.findFirst({
-      where: { businessId, userId, status: 'ACTIVE' },
-      select: { accountType: true },
+
+  /** The firm's settings row, created if missing and locked until the transaction ends. */
+  private async lockSetup(tx: TxClient, businessId: string) {
+    // ON CONFLICT DO NOTHING, not Prisma's upsert: with an empty update it reads, then inserts,
+    // so two first saves at once would collide on the primary key.
+    await tx.$executeRaw`
+      INSERT INTO business_settings (business_id, updated_at) VALUES (${businessId}::uuid, now())
+      ON CONFLICT (business_id) DO NOTHING`;
+    const [row] = await tx.$queryRaw<{ progress: unknown; completedAt: Date | null }[]>`
+      SELECT setup_progress AS progress, setup_completed_at AS "completedAt"
+      FROM business_settings WHERE business_id = ${businessId}::uuid FOR UPDATE`;
+    if (!row) throw new Error('business_settings row missing after upsert');
+    return row;
+  }
+
+  private async view(tx: TxClient, businessId: string): Promise<FirmSettings> {
+    const business = await tx.business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: { id: true, slug: true, legalName: true, status: true, name: true, updatedAt: true },
     });
-    if (!account) throw notFound();
-    return FirmPortalSettings.parse({
-      name: settings.profile.name,
-      portalName: settings.portalName,
-      portalHeader: settings.portalHeader,
-      welcomeMessage: settings.welcomeMessage,
-      brandColor: settings.brandColor,
-      logoUrl: await this.assets.logoUrl(businessId, settings.logoKey),
-      enabledModules: settings.enabledModules.filter(
-        (key) =>
-          account.accountType === 'BUSINESS' ||
-          !['business', 'business-resources', 'payroll'].includes(key),
-      ),
-      clientSignUpEnabled: settings.clientSignUpEnabled,
-    });
+    const s = await tx.businessSettings.findUnique({ where: { businessId } });
+    const updatedAt = s && s.updatedAt > business.updatedAt ? s.updatedAt : business.updatedAt;
+    return {
+      business: {
+        id: business.id,
+        slug: business.slug,
+        legalName: business.legalName,
+        status: business.status,
+      },
+      name: business.name,
+      contactEmail: s?.contactEmail ?? null,
+      contactPhone: s?.contactPhone ?? null,
+      website: s?.website ?? null,
+      addressLine1: s?.addressLine1 ?? null,
+      addressLine2: s?.addressLine2 ?? null,
+      city: s?.city ?? null,
+      state: s?.state ?? null,
+      postalCode: s?.postalCode ?? null,
+      // The column defaults, for a firm that has not saved settings yet.
+      country: s?.country ?? 'US',
+      timezone: s?.timezone ?? 'America/New_York',
+      // R5 turns logo_key into a short-lived signed URL.
+      logoUrl: null,
+      primaryColor: s?.brandColor ?? null,
+      accentColor: s?.accentColor ?? null,
+      portalName: s?.portalName ?? null,
+      portalHeader: s?.portalHeader ?? null,
+      welcomeMessage: s?.welcomeMessage ?? null,
+      clientSignUpEnabled: s?.clientSignUpEnabled ?? true,
+      updatedAt: updatedAt.toISOString(),
+    };
   }
 }
