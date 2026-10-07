@@ -2,7 +2,7 @@
 // with filters and pages, counts, the review page with history and checks, firms, the dashboard.
 // Applications are written the way the app writes them: submitted in platform scope, reviewed in
 // admin scope (the database records the history).
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -45,7 +45,9 @@ const firm = { id: randomUUID(), slug: `${tag}-approved-tax` };
 const odd = `r4odd${randomUUID().slice(0, 8)}`;
 const oddIds = {
   empty: randomUUID(),
-  legacy: randomUUID(),
+  // Written by hand like LVP's seeded id: the uuid column takes it, but its variant digit (5)
+  // isn't RFC 9562's.
+  legacy: `00000000-0000-4000-5000-${randomBytes(6).toString('hex')}`,
   badWebsite: randomUUID(),
   freeMail: randomUUID(),
 };
@@ -154,7 +156,7 @@ beforeAll(async () => {
     // The same email on the first two: the duplicate checks still run, from the columns.
     const shared = `${odd}.older@older.example.test`;
     await older(oddIds.empty, 5, shared, {}, '+14045550105');
-    // Like LVP's seeded application: an older shape, and no phone column.
+    // Like LVP's seeded application: an older shape, no phone column, and an id written by hand.
     await older(oddIds.legacy, 6, shared, { businessType: 'Tax and accounting firm' }, null);
     const site = `${odd}.site@older.example.test`;
     await older(oddIds.badWebsite, 7, site, form(7, site, 'not a website'), '+14045550107');
@@ -498,6 +500,15 @@ describe('an application whose stored form cannot be read', () => {
     const firms = (await get(`/admin/firms?search=${odd}`).expect(200)).body as ListFirmsResponse;
     expect(firms.items.map((i) => [i.id, i.owner, i.plan])).toEqual([[oddFirm.id, null, null]]);
   });
+
+  it("lists and opens it by an id like the seed's, which the web client's schemas take", async () => {
+    const approved = ListFirmApplicationsResponse.parse(await list('&status=APPROVED'));
+    expect(approved.items.map((i) => i.id)).toEqual([oddIds.legacy]);
+    const a = await get(`/admin/firm-applications/${oddIds.legacy}`).expect(200);
+    expect(FirmApplicationRecord.parse(a.body).id).toBe(oddIds.legacy);
+    const f = await get(`/admin/firms/${oddFirm.id}`).expect(200);
+    expect(FirmRecord.parse(f.body).application?.id).toBe(oddIds.legacy);
+  });
 });
 
 describe('the EMAIL_DOMAIN check', () => {
@@ -518,6 +529,10 @@ describe('the EMAIL_DOMAIN check', () => {
   it('skips a stored website that is not an address, instead of failing the page', async () => {
     const a = await open(oddIds.badWebsite);
     expect([a.formReadable, a.business?.website]).toEqual([true, 'not a website']);
-    expect(emailDomain(a)).toMatchObject({ result: 'SKIPPED' });
+    expect(emailDomain(a)).toEqual({
+      key: 'EMAIL_DOMAIN',
+      result: 'SKIPPED',
+      note: "The website isn't a valid address",
+    });
   });
 });

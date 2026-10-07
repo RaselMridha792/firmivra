@@ -74,4 +74,26 @@ describe('emailDomainCheck: the EMAIL_DOMAIN check on the review page', () => {
       });
     }
   });
+
+  it('skips a stored website whose host is no domain name, as the apply form refuses it', () => {
+    // Each one is a URL once https:// is put in front, with a host like "n" or "ftp".
+    for (const website of [
+      'N/A',
+      'none',
+      'TBD',
+      '-',
+      'javascript:',
+      'mailto:',
+      'ftp://sample.example.test',
+      'http:/sample.example.test',
+      'localhost',
+      'https://192.0.2.1',
+    ]) {
+      expect(emailDomainCheck('jordan@sample.example.test', website), website).toEqual({
+        key: 'EMAIL_DOMAIN',
+        result: 'SKIPPED',
+        note: "The website isn't a valid address",
+      });
+    }
+  });
 });

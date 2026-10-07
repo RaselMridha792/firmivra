@@ -18,6 +18,7 @@ import {
   RESERVED_FIRM_SLUGS,
   SaveFirmNotesRequest,
   SubmitFirmApplicationRequest,
+  websiteHost,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockBusiness } from './me';
@@ -140,8 +141,8 @@ let fixtures: readonly Row[] | undefined;
 
 /**
  * Four pending applications (one waiting for information, one repeating a declined one, one whose
- * form the API could not read), two approved (a firm in setup and an active firm) and one
- * declined.
+ * form the API could not read), three approved (a firm in setup, an active firm, and a firm in
+ * setup whose application's form could not be read) and one declined.
  */
 export function firmApplicationFixtures(): readonly Row[] {
   const reason = 'Not an accounting or tax practice.';
@@ -227,6 +228,25 @@ export function firmApplicationFixtures(): readonly Row[] {
         contactPhone: null,
       }),
     ),
+    // Like LVP's seeded application: approved, its form can't be read, and its id was written by
+    // hand (not an RFC 9562 id; the API takes any id its uuid column holds). Its firm is still in
+    // setup, so the firms list has neither its owner nor its plan, and the activation link expired.
+    unreadable(
+      fixture({
+        n: 8,
+        id: '00000000-0000-4000-5000-000000000008',
+        name: 'Sample Older Tax Group',
+        contact: 'Quinn Sample',
+        email: 'quinn@sample-older.example.test',
+        hours: 20 * DAY,
+        contactPhone: null,
+        status: 'APPROVED',
+        decision: { by: ADMIN, at: hoursAgo(10 * DAY), reason: null },
+        firm: firm(8, 'Sample Older Tax Group', 'sample-older-tax', 'PENDING_SETUP'),
+        ownerInvite: { status: 'SENT', expiresAt: hoursAgo(3 * DAY) },
+        history: [done('OWNER_INVITED', 10 * DAY), done('APPROVED', 10 * DAY)],
+      }),
+    ),
   ];
   return fixtures;
 }
@@ -297,11 +317,10 @@ const emailDomainCheck = (email: string, website: string | null): FirmApplicatio
   }
   const site = website?.trim();
   if (!site) return { key: 'EMAIL_DOMAIN', result: 'SKIPPED', note: 'No website to compare with' };
-  const url = /^https?:\/\//i.test(site) ? site : `https://${site}`;
-  if (!URL.canParse(url)) {
+  const host = websiteHost(site)?.replace(/^www\./, '');
+  if (!host) {
     return { key: 'EMAIL_DOMAIN', result: 'SKIPPED', note: "The website isn't a valid address" };
   }
-  const host = new URL(url).hostname.replace(/^www\./, '');
   return domain && (host === domain || host.endsWith(`.${domain}`))
     ? { key: 'EMAIL_DOMAIN', result: 'PASS', note: 'The email domain matches the website' }
     : { key: 'EMAIL_DOMAIN', result: 'WARN', note: "The email domain doesn't match the website" };

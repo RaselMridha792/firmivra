@@ -107,16 +107,31 @@ const Ein = z
   .transform((s) => s.replace(/[\s-]/g, ''))
   .pipe(z.string().regex(/^\d{9}$/, 'Enter the 9-digit EIN'));
 
+/** A website without `http://` or `https://` is read as `https://`. */
+const withScheme = (s: string) => (/^https?:\/\//i.test(s) ? s : `https://${s}`);
+
 /** An http(s) address; `example.com` becomes `https://example.com`. */
 const Website = z
   .string()
   .trim()
-  .transform((s) => (/^https?:\/\//i.test(s) ? s : `https://${s}`))
+  .transform(withScheme)
   .pipe(
     z
       .url({ protocol: /^https?$/, hostname: z.regexes.domain, error: 'Enter a valid website' })
       .max(200, 'Use at most 200 characters'),
   );
+
+/**
+ * The host of a website read the way the Website field reads it (`example.com` is
+ * `https://example.com`), or null when that isn't a URL whose host is a domain name, which the
+ * field refuses (`N/A`, `ftp://example.com`). For a stored website, which the database doesn't
+ * check: the EMAIL_DOMAIN check reads it with this.
+ */
+export function websiteHost(website: string): string | null {
+  const url = withScheme(website.trim());
+  const host = URL.canParse(url) ? new URL(url).hostname : '';
+  return z.regexes.domain.test(host) ? host : null;
+}
 
 /** A US address (the beta serves US firms only). */
 const AddressInput = z.strictObject({
@@ -237,8 +252,13 @@ export const SubmitFirmApplicationResponse = z.object({ received: z.literal(true
 export type SubmitFirmApplicationResponse = z.infer<typeof SubmitFirmApplicationResponse>;
 
 // ---------- Review (Super Admin) ----------
-/** An application id in a path: anything else gets 400 VALIDATION_FAILED. */
-export const FirmApplicationId = z.uuid();
+/**
+ * An application's id, in a response or a path (anything else in a path gets 400
+ * VALIDATION_FAILED). Any id the database's uuid column holds: `z.uuid()` would also want the
+ * version and variant digits of RFC 9562, which an id written by hand may not have (LVP's seeded
+ * application, `00000000-0000-4000-5000-…`). Such an application still lists and opens.
+ */
+export const FirmApplicationId = z.guid();
 /** A firm (business) id in a path. */
 export const FirmId = z.uuid();
 
@@ -256,7 +276,7 @@ export type AdminRef = z.infer<typeof AdminRef>;
 
 /** One row of the applications list (mockup "Firm Applications"). */
 export const FirmApplicationListItem = z.object({
-  id: z.uuid(),
+  id: FirmApplicationId,
   status: FirmApplicationReviewStatus,
   legalName: z.string(),
   dbaName: z.string().nullable(),
@@ -342,8 +362,8 @@ export const FirmApplicationCheck = z.object({
     'DUPLICATE_EMAIL',
     /**
      * The administrator's email domain matches the website. A free email address (Gmail, Outlook
-     * and the like) is a WARN whatever the website; SKIPPED without a website that reads as an
-     * address.
+     * and the like) is a WARN whatever the website; SKIPPED without a website, or when the stored
+     * one isn't an address with a domain name (`websiteHost`).
      */
     'EMAIL_DOMAIN',
   ]),
@@ -384,7 +404,7 @@ export type FirmApplicationEvent = z.infer<typeof FirmApplicationEvent>;
  * Details card, and the checks, notes, history and actions as usual.
  */
 export const FirmApplicationRecord = z.object({
-  id: z.uuid(),
+  id: FirmApplicationId,
   status: FirmApplicationReviewStatus,
   submittedAt: DateTime,
   /**

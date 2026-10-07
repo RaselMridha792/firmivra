@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   ApiRequestError,
   CREDENTIAL_TYPES,
   createFirmApplicationsClient,
   createRequest,
+  FirmApplicationId,
   FirmApplicationListItem,
   FirmApplicationRecord,
   FIRM_SERVICES,
@@ -11,6 +13,7 @@ import {
   PracticeType,
   REQUIRED_CREDENTIALS,
   SubmitFirmApplicationRequest,
+  websiteHost,
   type CredentialType,
 } from '../../src/index.js';
 
@@ -194,6 +197,43 @@ describe('api.firmApplications: submit', () => {
     });
   });
 
+  describe('websiteHost: a stored website, read as this form reads it', () => {
+    const takes = (website: string) =>
+      SubmitFirmApplicationRequest.safeParse({
+        ...application(),
+        business: { ...application().business, website },
+      }).success;
+
+    it('gives the host of a website the form takes', () => {
+      for (const [website, host] of [
+        ['sample-tax.example.test', 'sample-tax.example.test'],
+        [' https://www.sample-tax.example.test/about ', 'www.sample-tax.example.test'],
+        ['HTTP://Sample-Tax.Example.Test', 'sample-tax.example.test'],
+      ] as const) {
+        expect([websiteHost(website), takes(website)], website).toEqual([host, true]);
+      }
+    });
+
+    it('gives null for one the form refuses, also when it reads as a URL', () => {
+      for (const website of [
+        'N/A',
+        'none',
+        '-',
+        'not a website',
+        'javascript:',
+        'javascript:alert(1)',
+        'mailto:',
+        'ftp://sample.example.test',
+        'http:/sample.example.test',
+        'localhost',
+        'https://192.0.2.1',
+        'https://',
+      ]) {
+        expect([websiteHost(website), takes(website)], website).toEqual([null, false]);
+      }
+    });
+  });
+
   it('keeps one label per code in every choice list', () => {
     expect(PracticeType.options).toEqual(Object.keys(PRACTICE_TYPES));
     expect(Object.keys(REQUIRED_CREDENTIALS)).toEqual(Object.keys(PRACTICE_TYPES));
@@ -315,6 +355,17 @@ describe('api.firmApplications: a stored form the API could not read', () => {
     submittedAt: at,
     decidedAt: at,
   };
+  const firm = {
+    id,
+    slug: 'sample-tax-partners',
+    name: 'Sample Tax Partners LLC',
+    status: 'PENDING_SETUP',
+    owner: null,
+    plan: null,
+    approvedAt: at,
+    createdAt: at,
+    application: unreadable,
+  };
 
   it('opens the review page with the columns only: the form groups are null', async () => {
     const { fn } = fakeFetch(200, unreadable);
@@ -341,22 +392,34 @@ describe('api.firmApplications: a stored form the API could not read', () => {
   });
 
   it("opens its firm's page without the owner and plan the form would give", async () => {
-    const firm = {
-      id,
-      slug: 'sample-tax-partners',
-      name: 'Sample Tax Partners LLC',
-      status: 'PENDING_SETUP',
-      owner: null,
-      plan: null,
-      approvedAt: at,
-      createdAt: at,
-      application: unreadable,
-    };
     const { fn } = fakeFetch(200, firm);
     await expect(client(fn).getFirm(id)).resolves.toMatchObject({
       owner: null,
       plan: null,
       application: { id, formReadable: false, business: null },
     });
+  });
+
+  it('lists and opens one whose id was written by hand, like the seed, and its firm', async () => {
+    // LVP's seeded application: the database's uuid column takes it, RFC 9562 doesn't (variant 5).
+    const seeded = '00000000-0000-4000-5000-000000000001';
+    expect(z.uuid().safeParse(seeded).success).toBe(false);
+    const answering = (body: unknown) => client(fakeFetch(200, body).fn);
+    const listed = { items: [{ ...row, id: seeded }], total: 1, page: 1, pageSize: 20 };
+    await expect(answering(listed).list()).resolves.toMatchObject({ items: [{ id: seeded }] });
+    const opened = { ...unreadable, id: seeded };
+    await expect(answering(opened).get(seeded)).resolves.toMatchObject({ id: seeded });
+    await expect(answering(opened).saveNotes(seeded, { notes: 'Called.' })).resolves.toMatchObject({
+      id: seeded,
+    });
+    await expect(answering({ ...firm, application: opened }).getFirm(id)).resolves.toMatchObject({
+      application: { id: seeded },
+    });
+    for (const bad of [
+      '00000000-0000-4000-5000-00000000000g',
+      '00000000000040005000000000000001',
+    ]) {
+      expect(FirmApplicationId.safeParse(bad).success, bad).toBe(false);
+    }
   });
 });

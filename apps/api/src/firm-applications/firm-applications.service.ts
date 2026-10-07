@@ -18,6 +18,7 @@ import {
   ListFirmsQuery,
   type ListFirmsResponse,
   RESERVED_FIRM_SLUGS,
+  websiteHost,
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -113,10 +114,10 @@ export function emailDomainCheck(email: string, website: string | null): FirmApp
   if (FREE_MAIL_DOMAINS.includes(domain)) return check('WARN', 'A free email address');
   const site = website?.trim();
   if (!site) return check('SKIPPED', 'No website to compare with');
-  // As the contract's Website field reads it: `example.com` is `https://example.com`.
-  const url = /^https?:\/\//i.test(site) ? site : `https://${site}`;
-  if (!URL.canParse(url)) return check('SKIPPED', "The website isn't a valid address");
-  const host = new URL(url).hostname.replace(/^www\./, '');
+  // As the contract's Website field reads it: `example.com` is `https://example.com`, and `N/A`
+  // or `ftp://example.com` has no domain name for a host.
+  const host = websiteHost(site)?.replace(/^www\./, '');
+  if (!host) return check('SKIPPED', "The website isn't a valid address");
   return domain && (host === domain || host.endsWith(`.${domain}`))
     ? check('PASS', 'The email domain matches the website')
     : check('WARN', "The email domain doesn't match the website");
