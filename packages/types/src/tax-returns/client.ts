@@ -24,19 +24,25 @@ export function createTaxReturnsClient(request: ApiRequest) {
     /** Newest year first. */
     listForClient: async (clientId: string): Promise<TaxReturn[]> =>
       (await request(TaxReturnList, `${clientPath(clientId)}/tax-returns`)).items,
-    /** 409 INVALID_DOCUMENT; 404 for another firm's engagement or document. */
+    /**
+     * 409 INVALID_DOCUMENT (another client's or an internal PDF) or CLIENT_ARCHIVED; 404 for an
+     * engagement that is not this client's, or a document the firm does not have.
+     */
     create: async (clientId: string, body: CreateTaxReturnRequest): Promise<TaxReturn> =>
       request(TaxReturn, `${clientPath(clientId)}/tax-returns`, {
         method: 'POST',
         body: parseInput(CreateTaxReturnRequest, body),
       }),
-    /** 409 INVALID_DOCUMENT or INVALID_STATUS. */
+    /**
+     * 409 INVALID_DOCUMENT, INVALID_STATUS or CLIENT_ARCHIVED; 404 as for create. 400
+     * VALIDATION_FAILED (filedOn) when the return would be FILED or ACCEPTED without a filed date.
+     */
     update: async (id: string, body: UpdateTaxReturnRequest): Promise<TaxReturn> =>
       request(TaxReturn, one(id), {
         method: 'PATCH',
         body: parseInput(UpdateTaxReturnRequest, body),
       }),
-    /** Only a return that was never filed: 409 RETURN_LOCKED otherwise. */
+    /** Only a return that was never filed (409 RETURN_LOCKED otherwise); 409 CLIENT_ARCHIVED. */
     remove: async (id: string): Promise<OkResponse> =>
       request(OkResponse, one(id), { method: 'DELETE', body: {} }),
   };
