@@ -156,6 +156,17 @@ describe('api.clients', () => {
     const hidden = [...'\u061C\u202A\u202B\u202C\u202D\u2060\u2067\u2068\u2069\uFEFF'].map(
       (c) => `a${c}b`,
     );
+    // Invisible math operators, deprecated format controls, the Mongolian vowel separator,
+    // interlinear annotation marks, tag characters (hidden text) and a lone surrogate half.
+    hidden.push(
+      'a\u2062b',
+      'a\u206Ab',
+      'a\u180Eb',
+      'a\uFFF9b',
+      'a\u{E0041}\u{E0042}b',
+      'a\uD800b',
+      'a\uDC00b',
+    );
     for (const bad of ['Evil\u202Egnp.exe', 'Zero\u200Bwidth', 'hidden\u2066text', ...hidden]) {
       expect([bad, oneLine(bad), lines(bad)]).toEqual([bad, false, false]);
     }
