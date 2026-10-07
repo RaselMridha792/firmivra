@@ -46,14 +46,29 @@ describe('LogClientCodeSender (until R6)', () => {
 describe('linkable: which client record approve may link a login to (#37)', () => {
   it('needs the verified email, both lower-cased, and no primary portal login', () => {
     const email = 'jane@example.com';
-    expect(linkable(email, { email: 'jane@example.com', primaryLogins: 0 })).toBe(true);
-    expect(linkable('Jane@Example.com', { email: 'JANE@example.COM', primaryLogins: 0 })).toBe(
+    expect(linkable(email, { email: 'jane@example.com', primaryLogins: 0, archivedAt: null })).toBe(
       true,
     );
-    expect(linkable(email, { email: 'jane@example.com', primaryLogins: 1 })).toBe(false);
-    expect(linkable(email, { email: 'jane@example.org', primaryLogins: 0 })).toBe(false);
-    expect(linkable(email, { email: 'jane_@example.com', primaryLogins: 0 })).toBe(false);
-    expect(linkable(email, { email: null, primaryLogins: 0 })).toBe(false);
+    expect(
+      linkable('Jane@Example.com', {
+        email: 'JANE@example.COM',
+        primaryLogins: 0,
+        archivedAt: null,
+      }),
+    ).toBe(true);
+    expect(linkable(email, { email: 'jane@example.com', primaryLogins: 1, archivedAt: null })).toBe(
+      false,
+    );
+    expect(linkable(email, { email: 'jane@example.org', primaryLogins: 0, archivedAt: null })).toBe(
+      false,
+    );
+    expect(
+      linkable(email, { email: 'jane_@example.com', primaryLogins: 0, archivedAt: null }),
+    ).toBe(false);
+    expect(linkable(email, { email: null, primaryLogins: 0, archivedAt: null })).toBe(false);
+    // An archived record is restored first (#72 review).
+    const archivedAt = new Date();
+    expect(linkable(email, { email, primaryLogins: 0, archivedAt })).toBe(false);
   });
 });
 

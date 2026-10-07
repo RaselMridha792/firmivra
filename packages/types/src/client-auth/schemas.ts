@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { text } from '../clients/text.js';
 import { Email, OneTimeCode, Password } from '../auth/schemas.js';
 import { ClientAccountStatus } from '../schemas.js';
 
@@ -80,7 +81,8 @@ export type AccountType = z.infer<typeof AccountType>;
  * "Confirm Password" itself. `accepted` must be the versions shown (PortalInfo.legal).
  */
 export const SignUpRequest = z.object({
-  name: z.string().trim().min(1).max(200),
+  /** One line, as R10's client names: it becomes the client record's display name. */
+  name: text(200),
   email: Email,
   phone: Phone,
   password: Password,
@@ -128,7 +130,7 @@ export const SignUpListStatus = z.enum(['PENDING_APPROVAL', 'DECLINED']);
 export type SignUpListStatus = z.infer<typeof SignUpListStatus>;
 
 /** GET /client-sign-ups?status=&cursor=&limit= */
-export const ClientSignUpsQuery = z.object({
+export const ClientSignUpsQuery = z.strictObject({
   status: SignUpListStatus.default('PENDING_APPROVAL'),
   cursor: z.string().min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -185,8 +187,9 @@ export const ApproveSignUpResponse = z.object({
 export type ApproveSignUpResponse = z.infer<typeof ApproveSignUpResponse>;
 
 /** POST /client-sign-ups/{clientAccountId}/decline. The client gets an email. */
-export const DeclineSignUpRequest = z.object({
-  reason: z.string().trim().min(1).max(500).optional(),
+export const DeclineSignUpRequest = z.strictObject({
+  /** For the firm only; never sent to the client. */
+  reason: text(500, 'many').optional(),
 });
 export type DeclineSignUpRequest = z.input<typeof DeclineSignUpRequest>;
 

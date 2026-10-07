@@ -21,7 +21,12 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
-import { createClientFromSignUp, linkable, PRIMARY_LOGINS } from './client-records.js';
+import {
+  createClientFromSignUp,
+  linkable,
+  lockClientEmails,
+  PRIMARY_LOGINS,
+} from './client-records.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A sign-up is in the queue once both email and phone are verified. */
@@ -77,7 +82,10 @@ export class ClientSignUpsService {
     @Inject(ENV) private readonly env: Env,
   ) {}
 
-  /** Verified sign-ups waiting for the firm (or declined ones), oldest first. */
+  /**
+   * Verified sign-ups waiting for the firm (or declined ones), oldest first. Audited: it returns
+   * names, emails and phones (`client_sign_ups.listed`, the count only).
+   */
   async list(actor: Actor, query: z.output<typeof ClientSignUpsQuery>): Promise<ClientSignUpList> {
     const firm = this.db.forBusiness(actor.businessId);
     const after = query.cursor ? decodeCursor(query.cursor) : undefined;
@@ -111,6 +119,11 @@ export class ClientSignUpsService {
             page.map((r) => r.email),
           )
         : new Map<string, ClientSignUp['existingClient']>();
+    await this.audit.log(
+      'client_sign_ups.listed',
+      { type: 'client_account' },
+      { status: query.status, count: page.length },
+    );
     return ClientSignUpList.parse({
       items: page.map((r) => ({
         clientAccountId: r.id,
@@ -174,11 +187,16 @@ export class ClientSignUpsService {
       { clientId: linkedTo, linked: clientId !== undefined },
     );
     const firm = await this.firm(actor.businessId);
-    await this.sender.signUpApproved({
-      to: account.email,
-      businessName: firm.name,
-      signInUrl: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/sign-in`,
-    });
+    try {
+      await this.sender.signUpApproved({
+        to: account.email,
+        businessName: firm.name,
+        signInUrl: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/sign-in`,
+      });
+    } catch {
+      // Ids only (hard rule 4). The approval stands; R6's retries own delivery.
+      this.logger.warn(`Could not send the approval notice for client account ${account.id}`);
+    }
     return {
       clientAccountId: account.id,
       clientId: linkedTo,
@@ -226,7 +244,12 @@ export class ClientSignUpsService {
       { withReason: reason !== undefined },
     );
     const firm = await this.firm(actor.businessId);
-    await this.sender.signUpDeclined({ to: account.email, businessName: firm.name });
+    try {
+      await this.sender.signUpDeclined({ to: account.email, businessName: firm.name });
+    } catch {
+      // Ids only (hard rule 4). The decline stands; R6's retries own delivery.
+      this.logger.warn(`Could not send the decline notice for client account ${account.id}`);
+    }
     return {
       clientAccountId: account.id,
       status: 'DECLINED',
@@ -269,6 +292,8 @@ export class ClientSignUpsService {
     businessId: string,
     account: Awaited<ReturnType<ClientSignUpsService['pendingSignUp']>>,
   ): Promise<string> {
+    // R10's per-firm email lock first, so a client created or changed at the same time waits.
+    await lockClientEmails(tx, businessId);
     const taken = await tx.client.findFirst({
       where: { email: account.email },
       select: { id: true },
@@ -303,9 +328,10 @@ export class ClientSignUpsService {
     if (locked.length !== 1) throw notFound();
     const record = await tx.client.findUniqueOrThrow({
       where: { id: clientId },
-      select: { email: true, ...PRIMARY_LOGINS },
+      select: { email: true, archivedAt: true, ...PRIMARY_LOGINS },
     });
-    if (!linkable(verifiedEmail, { email: record.email, primaryLogins: record._count.accounts })) {
+    const rule = { ...record, primaryLogins: record._count.accounts };
+    if (!linkable(verifiedEmail, rule)) {
       throw notLinkable();
     }
     return clientId;
@@ -321,11 +347,11 @@ export class ClientSignUpsService {
     if (emails.length === 0) return found;
     const candidates = await firm.client.findMany({
       where: { email: { in: emails } },
-      select: { id: true, displayName: true, email: true, ...PRIMARY_LOGINS },
+      select: { id: true, displayName: true, email: true, archivedAt: true, ...PRIMARY_LOGINS },
     });
     for (const email of emails) {
       const matches = candidates.filter((c) =>
-        linkable(email, { email: c.email, primaryLogins: c._count.accounts }),
+        linkable(email, { ...c, primaryLogins: c._count.accounts }),
       );
       const [only] = matches;
       if (matches.length === 1 && only) {

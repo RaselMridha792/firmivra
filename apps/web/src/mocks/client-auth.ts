@@ -72,6 +72,8 @@ interface MockClientRecord {
   displayName: string;
   email: string | null;
   hasPrimaryLogin: boolean;
+  /** Archived records are restored first: never linkable. */
+  archived?: boolean;
 }
 const JANE_CLIENT_ID = '00000000-0000-4000-a000-000000000402';
 const SAM_CLIENT_ID = '00000000-0000-4000-a000-000000000403';
@@ -93,7 +95,9 @@ const CLIENT_RECORDS: readonly MockClientRecord[] = [
   },
 ];
 const linkable = (signUp: { email: string }, record: MockClientRecord) =>
-  !record.hasPrimaryLogin && record.email?.toLowerCase() === signUp.email.toLowerCase();
+  !record.hasPrimaryLogin &&
+  !record.archived &&
+  record.email?.toLowerCase() === signUp.email.toLowerCase();
 const existingClientFor = (email: string): ClientSignUp['existingClient'] => {
   const record = CLIENT_RECORDS.find((r) => linkable({ email }, r));
   return record ? { clientId: record.clientId, displayName: record.displayName } : null;

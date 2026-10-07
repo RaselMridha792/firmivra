@@ -35,10 +35,28 @@ const ownerY = person('ownerY');
 
 type SignUp = Person & { accountId: string };
 const signUps = {} as Record<
-  'plain' | 'jane' | 'john' | 'sam' | 'race' | 'decline' | 'unverified' | 'declined' | 'ofY',
+  | 'plain'
+  | 'jane'
+  | 'john'
+  | 'sam'
+  | 'race'
+  | 'decline'
+  | 'unverified'
+  | 'declined'
+  | 'ofY'
+  | 'clientsRace1'
+  | 'clientsRace2'
+  | 'clientsRace3'
+  | 'archived'
+  | 'notice',
   SignUp
 >;
-const records = {} as Record<'jane' | 'johnLinked' | 'samA' | 'samB' | 'other' | 'ofY', string>;
+const records = {} as Record<
+  'jane' | 'johnLinked' | 'samA' | 'samB' | 'other' | 'ofY' | 'archived',
+  string
+>;
+/** When true, the client notices fail (a mail outage). */
+let noticesFail = false;
 
 let lastViewer = 0;
 const newViewer = () => `198.20.0.${++lastViewer}`;
@@ -189,6 +207,11 @@ beforeAll(async () => {
   await signUp('unverified', firmX, 0, { verified: false });
   await signUp('declined', firmX, 7, { status: 'DECLINED' });
   await signUp('ofY', firmY, 1);
+  await signUp('clientsRace1', firmX, 8);
+  await signUp('clientsRace2', firmX, 9);
+  await signUp('clientsRace3', firmX, 10);
+  await signUp('archived', firmX, 11);
+  await signUp('notice', firmX, 12);
 
   // Jane's record: her email, no portal login yet.
   await record('jane', firmX, signUps.jane.email);
@@ -218,6 +241,11 @@ beforeAll(async () => {
   await record('other', firmX, `r3-q-someone-else-${tag}@example.com`);
   // Firm Y's record with Jane's email: never linkable from firm X.
   await record('ofY', firmY, signUps.jane.email);
+  // An archived record with the sign-up's email: restored first, never linked.
+  await record('archived', firmX, signUps.archived.email);
+  await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+    tx.client.update({ where: { id: records.archived }, data: { archivedAt: new Date() } }),
+  );
 
   env = loadEnv({
     ...process.env,
@@ -227,6 +255,7 @@ beforeAll(async () => {
     DATABASE_URL_APP: fx.appUrl,
   });
   const notice = (kind: Notice['kind']) => (m: { to: string; signInUrl?: string }) => {
+    if (noticesFail) return Promise.reject(new Error('mail is down'));
     outbox.push({ kind, to: m.to, ...(m.signInUrl ? { signInUrl: m.signInUrl } : {}) });
     return Promise.resolve();
   };
@@ -274,9 +303,16 @@ describe('the queue', () => {
     const page2 = second.body as ClientSignUpList;
     // The unverified sign-up never shows; firm Y's never either.
     expect(page2.items.map((i) => i.clientAccountId)).toEqual(
-      [signUps.race, signUps.decline].map((s) => s.accountId),
+      [signUps.race, signUps.decline, signUps.clientsRace1, signUps.clientsRace2].map(
+        (s) => s.accountId,
+      ),
     );
-    expect(page2.nextCursor).toBeNull();
+    const third = await as(staff.adminX, 'get', `?limit=4&cursor=${page2.nextCursor ?? ''}`);
+    const page3 = third.body as ClientSignUpList;
+    expect(page3.items.map((i) => i.clientAccountId)).toEqual(
+      [signUps.clientsRace3, signUps.archived, signUps.notice].map((s) => s.accountId),
+    );
+    expect(page3.nextCursor).toBeNull();
 
     const declined = await as(staff.adminX, 'get', '?status=DECLINED');
     expect((declined.body as ClientSignUpList).items.map((i) => i.clientAccountId)).toEqual([
@@ -474,5 +510,79 @@ describe('decline', () => {
     for (const again of [await decline(signUps.decline), await approve(signUps.decline)]) {
       expect([again.status, codeOf(again)]).toEqual([409, 'NOT_PENDING']);
     }
+  });
+});
+
+describe('#72 review', () => {
+  /** A client record created by staff through R10's API, as the owner of firm X. */
+  const createClient = async (email: string) => {
+    const token = await tokenFor(staff.ownerX.email);
+    return request(app.getHttpServer())
+      .post('/api/v1/business/clients')
+      .set('authorization', `Bearer ${token}`)
+      .set('x-business-id', firmX.id)
+      .send({ displayName: 'Made by staff', email });
+  };
+
+  it('approve and a new client with the same email at once: never two records', async () => {
+    for (const key of ['clientsRace1', 'clientsRace2', 'clientsRace3'] as const) {
+      const { email } = signUps[key];
+      const [approved, created] = await Promise.all([approve(signUps[key]), createClient(email)]);
+      const ok = [approved.status === 200, created.status === 201].filter(Boolean);
+      expect([key, ok.length]).toEqual([key, 1]);
+      const loser = approved.status === 200 ? created : approved;
+      expect([key, loser.status, codeOf(loser)]).toEqual([key, 409, 'DUPLICATE_EMAIL']);
+      const count = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+        tx.client.count({ where: { businessId: firmX.id, email } }),
+      );
+      expect([key, count]).toEqual([key, 1]);
+    }
+  });
+
+  it('never offers or links an archived record', async () => {
+    const listed = await as(staff.ownerX, 'get', '?limit=100');
+    const item = (listed.body as ClientSignUpList).items.find(
+      (i) => i.clientAccountId === signUps.archived.accountId,
+    );
+    expect(item?.existingClient).toBeNull();
+    const res = await approve(signUps.archived, { clientId: records.archived });
+    expect([res.status, codeOf(res)]).toEqual([409, 'CLIENT_NOT_LINKABLE']);
+  });
+
+  it('refuses extra fields and control characters, and audits the list', async () => {
+    const extra = await decline(signUps.archived, { reason: 'Not a client', force: true });
+    expect([extra.status, codeOf(extra)]).toEqual([400, 'VALIDATION_FAILED']);
+    for (const reason of ['bad\u0000byte', 'bell\u0007', 'escape\u001b[31m']) {
+      const res = await decline(signUps.archived, { reason });
+      expect([JSON.stringify(reason), res.status]).toEqual([JSON.stringify(reason), 400]);
+    }
+    const query = await as(staff.ownerX, 'get', '?debug=1');
+    expect([query.status, codeOf(query)]).toEqual([400, 'VALIDATION_FAILED']);
+
+    await as(staff.adminX, 'get', '?limit=2');
+    const audit = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { action: 'client_sign_ups.listed', actorUserId: staff.adminX.id },
+        orderBy: { createdAt: 'desc' },
+        select: { metadata: true },
+      }),
+    );
+    expect(audit.metadata).toEqual({ status: 'PENDING_APPROVAL', count: 2 });
+  });
+
+  it('approves even when the notice fails, and makes the profile row as R10 does', async () => {
+    noticesFail = true;
+    try {
+      const res = await approve(signUps.notice);
+      expect(res.status).toBe(200);
+      const { clientId } = res.body as ApproveSignUpResponse;
+      const profile = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+        tx.clientProfile.findUnique({ where: { clientId }, select: { clientId: true } }),
+      );
+      expect(profile).toEqual({ clientId });
+    } finally {
+      noticesFail = false;
+    }
+    expect(await account(signUps.notice)).toMatchObject({ status: 'ACTIVE' });
   });
 });
