@@ -305,6 +305,8 @@ async function main() {
         id: SEED_INVITE_ID,
         businessId: businesses.lvp,
         membershipId: invited.id,
+        name: SEED_USERS.lvpInvited.name,
+        email: SEED_USERS.lvpInvited.email,
         // Random and never printed: the invite shows in the team list, but its link cannot be used.
         tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
         expiresAt: new Date(Date.now() + 6 * 86_400_000),
@@ -944,6 +946,43 @@ async function main() {
         data: { status: 'PAID', paidAt },
       });
     }
+    // A $50 goodwill refund the firm made in its own Stripe dashboard, confirmed by Stripe's event.
+    const refundEvent = await tx.paymentEvent.upsert({
+      where: {
+        processor_processorEventId: {
+          processor: 'STRIPE',
+          processorEventId: 'evt_test_seed_refund_1000',
+        },
+      },
+      update: {},
+      create: {
+        ...lvp,
+        processorEventId: 'evt_test_seed_refund_1000',
+        accountId: SEED_STRIPE_ACCOUNT_ID,
+        type: 'charge.refunded',
+        paymentId: SEED_BILLING_IDS.paidPayment,
+        processedAt: new Date(),
+      },
+    });
+    await tx.paymentRefund.upsert({
+      where: {
+        processor_processorRefundId: {
+          processor: 'STRIPE',
+          processorRefundId: 're_test_seed_1000',
+        },
+      },
+      update: {},
+      create: {
+        ...lvp,
+        paymentId: SEED_BILLING_IDS.paidPayment,
+        processorRefundId: 're_test_seed_1000',
+        accountId: SEED_STRIPE_ACCOUNT_ID,
+        amountCents: 5000,
+        status: 'SUCCEEDED',
+        eventId: refundEvent.id,
+        refundedAt: new Date(),
+      },
+    });
     await invoice(SEED_BILLING_IDS.openInvoice, {
       number: 'INV-1001',
       engagementId: SEED_WORK_IDS.lvpTax,

@@ -154,6 +154,10 @@ export type MessageDirection = z.infer<typeof MessageDirection>;
 export const InvoiceStatus = z.enum(['DRAFT', 'SCHEDULED', 'OPEN', 'PAID', 'CANCELED']);
 export type InvoiceStatus = z.infer<typeof InvoiceStatus>;
 
+/** A refund is PENDING until Stripe's refund event confirms it (SUCCEEDED) or it fails. */
+export const PaymentRefundStatus = z.enum(['PENDING', 'SUCCEEDED', 'FAILED']);
+export type PaymentRefundStatus = z.infer<typeof PaymentRefundStatus>;
+
 export const PaymentStatus = z.enum(['PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED']);
 export type PaymentStatus = z.infer<typeof PaymentStatus>;
 

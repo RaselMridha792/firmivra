@@ -25,12 +25,15 @@ let tokens = 0;
 const newTokenHash = () => createHash('sha256').update(`${run}-${tokens++}`).digest('hex');
 
 const firmA = () => db.forBusiness(ids.firmA);
+/** What the inviter typed (staff invites need it). */
+const typed = { name: 'Fake Invitee', email: `invitee-${run}@s.test` };
 /** A fresh open invite for firm A's invited staff member. */
 const invite = (overrides: { expiresAt?: Date; createdAt?: Date } = {}) =>
   firmA().invite.create({
     data: {
       businessId: ids.firmA,
       membershipId: ids.membershipA,
+      ...typed,
       tokenHash: newTokenHash(),
       expiresAt: overrides.expiresAt ?? days(7),
       createdAt: overrides.createdAt,
@@ -173,6 +176,7 @@ describe('invites', () => {
         data: {
           businessId: ids.firmA,
           membershipId: ids.membershipB,
+          ...typed,
           tokenHash: newTokenHash(),
           expiresAt: days(7),
         },
@@ -185,7 +189,7 @@ describe('invites', () => {
     await expect(firmA().invite.create({ data: base })).rejects.toThrow(/check constraint/i);
     await expect(
       firmA().invite.create({
-        data: { ...base, membershipId: ids.membershipA, tokenHash: 'plain-token' },
+        data: { ...base, ...typed, membershipId: ids.membershipA, tokenHash: 'plain-token' },
       }),
     ).rejects.toThrow(/check constraint/i);
     await expect(invite({ expiresAt: days(8) })).rejects.toThrow(/check constraint/i);
@@ -197,6 +201,7 @@ describe('invites', () => {
         data: {
           businessId: ids.firmA,
           membershipId: ids.membershipA,
+          ...typed,
           tokenHash: newTokenHash(),
           expiresAt: days(7),
           acceptedAt: new Date(),
@@ -233,6 +238,96 @@ describe('invites', () => {
   it('nobody in the app can delete an invite', async () => {
     await invite();
     await expect(firmA().invite.deleteMany({})).rejects.toThrow(/permission denied/i);
+  });
+});
+
+describe('invited staff: the typed name until they join', () => {
+  /** A new STAFF user invited to firm A (membership INVITED). */
+  const invitee = async () => {
+    const id = randomUUID();
+    await runInScope(owner, { kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id,
+          cognitoSub: id,
+          pool: 'STAFF',
+          email: `${id}@s.test`,
+          name: 'Real Name Elsewhere',
+        },
+      }),
+    );
+    const m = await firmA().membership.create({
+      data: { businessId: ids.firmA, userId: id, role: 'STAFF' },
+    });
+    return { userId: id, membershipId: m.id };
+  };
+
+  it('a staff invite needs the name and email the inviter typed', async () => {
+    const { membershipId } = await invitee();
+    const base = {
+      businessId: ids.firmA,
+      membershipId,
+      tokenHash: newTokenHash(),
+      expiresAt: days(7),
+    };
+    await expect(firmA().invite.create({ data: base })).rejects.toThrow(
+      /name and email the inviter typed/,
+    );
+    for (const bad of [
+      { ...typed, name: 'Tab\tName' },
+      { ...typed, name: 'x'.repeat(121) },
+      { ...typed, email: 'Upper@S.test' },
+    ]) {
+      await expect(
+        firmA().invite.create({ data: { ...base, ...bad, tokenHash: newTokenHash() } }),
+      ).rejects.toThrow(/check constraint/i);
+    }
+    await expect(firmA().invite.create({ data: { ...base, ...typed } })).resolves.toMatchObject({
+      name: 'Fake Invitee',
+    });
+  });
+
+  it("the firm can't read an invited person's user row until they join", async () => {
+    const { userId, membershipId } = await invitee();
+    expect(await firmA().user.findUnique({ where: { id: userId } })).toBeNull();
+    const joined = await firmA().membership.update({
+      where: { id: membershipId },
+      data: { status: 'ACTIVE' },
+    });
+    expect(joined.joinedAt).not.toBeNull();
+    expect(await firmA().user.findUnique({ where: { id: userId } })).toMatchObject({
+      name: 'Real Name Elsewhere',
+    });
+  });
+
+  it('deactivating an invite before it was accepted reveals nothing', async () => {
+    const { userId, membershipId } = await invitee();
+    await firmA().membership.update({
+      where: { id: membershipId },
+      data: { status: 'DEACTIVATED' },
+    });
+    expect(await firmA().user.findUnique({ where: { id: userId } })).toBeNull();
+  });
+
+  it('joined_at is set only by the database and never changes', async () => {
+    const id = randomUUID();
+    await runInScope(owner, { kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id, cognitoSub: id, pool: 'STAFF', email: `${id}@s.test`, name: 'Fake' },
+      }),
+    );
+    await expect(
+      firmA().membership.create({
+        data: { businessId: ids.firmA, userId: id, role: 'STAFF', joinedAt: new Date() },
+      }),
+    ).rejects.toThrow(/set by the database/);
+    const m = await firmA().membership.create({
+      data: { businessId: ids.firmA, userId: id, role: 'STAFF', status: 'ACTIVE' },
+    });
+    expect(m.joinedAt).not.toBeNull();
+    await expect(
+      firmA().membership.update({ where: { id: m.id }, data: { joinedAt: null } }),
+    ).rejects.toThrow(/never changes/);
   });
 });
 

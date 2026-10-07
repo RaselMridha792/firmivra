@@ -68,20 +68,31 @@ function setScope(client: PrismaClient | TxClient, scope: Scope) {
     set_config('app.invite_token_hash', ${tokenHash}, true)`;
 }
 
+/** Limits for one transaction, in ms; unset values use the client's (Prisma's 2000 and 5000). */
+export interface TransactionLimits {
+  /** How long to wait for a connection to start the transaction. */
+  maxWait?: number;
+  /** How long the transaction may run. */
+  timeout?: number;
+}
+
 /**
  * Runs `fn` in one transaction with the scope set. Use it for multi-step work and raw SQL.
- * Works with the app client and, for seeds and tests, the owner client.
+ * Works with the app client and, for seeds and tests, the owner client. `limits` is for the rare
+ * call that waits on an outside service inside the transaction (R2's activation calls Cognito):
+ * only that call gets the longer time.
  */
 export async function runInScope<T>(
   client: PrismaClient,
   scope: Scope,
   fn: (tx: TxClient) => Promise<T>,
+  limits?: TransactionLimits,
 ): Promise<T> {
   assertScope(scope);
   return client.$transaction(async (tx) => {
     await setScope(tx, scope);
     return fn(tx);
-  });
+  }, limits);
 }
 
 /**
@@ -164,8 +175,12 @@ export function createDatabase(appConnectionString: string, options: ClientOptio
     forAdmin: (adminUserId: string) => scopedClient(base, { kind: 'admin', adminUserId }),
     /** Identity work: sign-in, invites, activation, firm provisioning. Never firm data. */
     forPlatform: () => scopedClient(base, { kind: 'platform' }),
-    /** Multi-step transaction in one scope. */
-    withScope: <T>(scope: Scope, fn: (tx: TxClient) => Promise<T>) => runInScope(base, scope, fn),
+    /**
+     * Multi-step transaction in one scope. `limits` (for example `{ timeout: 15_000 }`) applies to
+     * this call only.
+     */
+    withScope: <T>(scope: Scope, fn: (tx: TxClient) => Promise<T>, limits?: TransactionLimits) =>
+      runInScope(base, scope, fn, limits),
     /** Connectivity check for health endpoints. Touches no table. */
     ping: async () => {
       await base.$queryRaw`SELECT 1`;
