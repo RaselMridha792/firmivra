@@ -36,7 +36,7 @@ export function Select({ label, options, error, id, className = '', ...props }: 
     </div>
   );
 }
-export interface CheckboxProps extends InputHTMLAttributes<HTMLInputElement> {
+export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
   label: string;
 }
 export function Checkbox({ label, id, className = '', ...props }: CheckboxProps) {
@@ -44,7 +44,7 @@ export function Checkbox({ label, id, className = '', ...props }: CheckboxProps)
   const fieldId = id ?? generatedId;
   return (
     <label htmlFor={fieldId} className={`flex min-h-11 items-center gap-3 text-sm ${className}`}>
-      <input id={fieldId} type="checkbox" className="h-4 w-4 shrink-0" {...props} />
+      <input {...props} id={fieldId} type="checkbox" className="h-4 w-4 shrink-0" />
       <span>{label}</span>
     </label>
   );
