@@ -2,24 +2,28 @@ import {
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
+  createAuditLogClient,
   createAvailabilityClient,
   createCalculatorsClient,
+  createClientsClient,
+  createClientSignUpsClient,
   createContentClient,
+  createEngagementsClient,
+  createFirmApplicationsClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
-  createClientsClient,
-  createClientSignUpsClient,
-  createEngagementsClient,
-  createFirmApplicationsClient,
   createMyProfileClient,
+  createMyReportsClient,
   createMyServicesClient,
   createMyTaxReturnsClient,
   createRequest,
   createSettingsClient,
+  createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
+  createWorkspacesClient,
 } from '@firmivra/types';
 import {
   createAppointmentsMock,
@@ -27,14 +31,17 @@ import {
   createAvailabilityMock,
   myAppointmentsMock,
 } from '../mocks/appointments';
+import { createAuditLogMock } from '../mocks/audit-log';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createSettingsMock } from '../mocks/settings';
+import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
+import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked } from './mock';
 import { sessionFetch } from './session';
 
@@ -117,6 +124,21 @@ export const api = {
     dev && mocked('myCalculators')
       ? myCalculatorsMock(firmSlug)
       : createMyCalculatorsClient(request, firmSlug),
+  /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
+  tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
+  workspaces:
+    dev && mocked('workspaces')
+      ? createWorkspacesMock({ role: MOCK_ROLE })
+      : createWorkspacesClient(request),
+  /** Workspaces (R12): a client's published reports in My Services, per firm (portal). */
+  myReports: (firmSlug: string) =>
+    dev && mocked('myReports') ? myReportsMock(firmSlug) : createMyReportsClient(request, firmSlug),
+  /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
+  auditLog:
+    dev && mocked('auditLog')
+      ? createAuditLogMock({ role: MOCK_ROLE })
+      : createAuditLogClient(request),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:
     dev && mocked('firmApplications')
