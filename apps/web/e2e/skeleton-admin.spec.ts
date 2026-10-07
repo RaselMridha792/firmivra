@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 // Every Super Admin page from docs/junior/PAGE-MAP.md opens, inside the shell, with its title.
+// These tests open many pages; in `next dev` each compiles on its first visit.
+test.describe.configure({ timeout: 240_000 });
+
 const port = process.env['WEB_PORT'] ?? '3000';
 const admin = (path: string) => `http://admin.localhost:${port}${path}`;
 
