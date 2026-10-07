@@ -84,12 +84,7 @@ function StatCard({ stat }: { stat: (typeof dashboardStats)[number] }) {
               <ArrowRight aria-hidden className="size-4" />
             </Link>
           )}
-          {!href && (
-            <span className="mt-1 inline-flex items-center gap-1 text-sm text-brand-700">
-              View {label === 'Total Users' ? 'Users' : 'Billing'}{' '}
-              <ArrowRight aria-hidden className="size-4" />
-            </span>
-          )}
+          {!href && <span className="mt-1 block text-xs text-muted">No sample data available</span>}
         </div>
       </div>
     </Card>
