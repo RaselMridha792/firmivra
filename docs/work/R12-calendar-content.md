@@ -47,6 +47,12 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
 - History without a new table: each book, reschedule, cancel, complete and no-show writes an audit row with who did it and the old and new times; the appointment detail returns them as its history.
 - Owners: notes are R11's; tasks and reports (including the client's read of published reports in My Services) are R12's; R10 step 4 still creates the NAME_CHANGE task row; documents come from R5's list.
 - Contract-only PRs don't count toward the 2-PR limit; one at a time from fresh main: appointments, content and calculators first, then workspaces and the audit viewer.
+- Staff calendar access (#68's open question). Owner and Admin see and change everything. Staff:
+  - see an appointment in full only when they are its staff member or its client is assigned to them (`clients.assigned_user_id`), the clients API's rule (#63);
+  - see every other appointment only as Busy (`restricted: true`: time, staff member and status; no client, type, location, engagement, cancel reason or history); its detail is 404;
+  - get 404 for a `clientId` filter on a client not assigned to them, so a Busy entry cannot be traced to a client;
+  - book only for clients assigned to them, and reschedule, cancel, complete or mark no-show only appointments they see in full (404 otherwise);
+  - still get every member's free slots (times and staff names only).
 - Resources and external links are business-only (System Wiring G): an INDIVIDUAL client gets 403 `BUSINESS_ONLY` for them, checked on the server from the client record's account type; tips are for everyone.
 
 ## Progress log
@@ -65,3 +71,7 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
   - `packages/types/src/workspaces`: the list of Bookkeeping and Tax Planning engagements (open tasks, next due date), the detail (stages, open tasks, reports), reports (create as draft, edit, publish, unpublish, delete only if never published; kinds per workspace in `REPORT_KINDS`; figures as label and amount lines), and the client's published reports in My Services. Status and stage go through R10's `api.engagements`; notes come from R11, documents from R5.
   - `packages/types/src/audit-log`: the firm Owner's log with filters (dates, action or prefix, person, record) and paging; the Super Admin version answers 403 `SUPPORT_GRANT_REQUIRED` until R8.
   - Mocks `apps/web/src/mocks/{tasks,workspaces,audit-log}.ts` (the workspaces reuse R10's Bookkeeping engagement fixture); `api.tasks`, `api.workspaces`, `api.myReports(slug)`, `api.auditLog`.
+- 2026-10-07, Staff calendar access (Rasel's decision on #68's open question; #68 was already merged, so it goes in #71 with the lead's review fixes):
+  - `AppointmentList` items are `CalendarAppointment`: the whole appointment (`restricted: false`) or `BusyAppointment` (`restricted: true`: id, staff member, times, status). The Busy shape has no client fields, so the parser drops any sent by mistake.
+  - The rules are in the module comment, the calendar client's doc, `AppointmentsQuery` (the `clientId` 404) and `BookAppointmentRequest` (assigned clients only).
+  - Mock: `role: 'STAFF'` is Sam Staff, as in `mocks/clients.ts`; Riley Example's appointment with Mock User is Busy for Sam. Booking checks the client record (404 for an unknown or, for Staff, an unassigned one). The availability mock's "own" hours follow the same signed-in member. `api.appointments` passes `MOCK_ROLE`.
