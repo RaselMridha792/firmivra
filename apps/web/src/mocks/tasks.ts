@@ -15,8 +15,9 @@ import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './c
 
 /**
  * Mock data for `api.tasks` (R12). Synthetic data only. Same checks, rules and error codes as the
- * API. `role: 'STAFF'` is Sam Staff, as in mocks/clients.ts: Sam sees his clients' tasks (clients
- * 1 and 2) and tasks assigned to him, and creates tasks only for his clients.
+ * API. `role: 'STAFF'` is Sam Staff, as in mocks/clients.ts: Sam sees, changes and creates only
+ * his clients' tasks (clients 1 and 2). A task goes to Sam only on his clients (409
+ * CLIENT_NOT_ASSIGNED otherwise); Mock User (the Owner) can take any client's task.
  */
 const at = '2026-10-07T09:00:00.000Z';
 const client = { id: firstClientId, displayName: 'Jamie Sample' };
@@ -123,17 +124,23 @@ export function createTasksMock(options: { role?: MockFirmRole } = {}): TasksCli
   const me = staffOnly ? mockStaff : mockMe;
   const theirClient = (clientId: string) =>
     clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === me.userId);
-  const visible = (t: Task) =>
-    !staffOnly || theirClient(t.client.id) || t.assignedTo?.userId === me.userId;
+  const visible = (t: Task) => !staffOnly || theirClient(t.client.id);
   const find = (id: string) => {
     const t = mockTaskStore().find((x) => x.id === id && visible(x));
     if (!t) throw notFound();
     return t;
   };
-  const assignee = (userId: string | null): MemberRef | null => {
+  /** An assignee for a task on this client: a member, and if Staff, one assigned this client. */
+  const assignee = (userId: string | null, clientId: string): MemberRef | null => {
     if (userId === null) return null;
     const m = members().find((x) => x.userId === userId);
     if (!m) throw fail(409, 'NOT_A_MEMBER', 'The assignee is not a member of the firm');
+    const assignedToThem = clientFixtures().some(
+      (c) => c.id === clientId && c.assignedTo?.userId === m.userId,
+    );
+    if (m.userId === mockStaff.userId && !assignedToThem) {
+      throw fail(409, 'CLIENT_NOT_ASSIGNED', 'This client is not assigned to that staff member');
+    }
     return m;
   };
   return {
@@ -165,7 +172,7 @@ export function createTasksMock(options: { role?: MockFirmRole } = {}): TasksCli
       if (input.engagementId && !ENGAGEMENTS[record.id]?.includes(input.engagementId)) {
         throw fail(409, 'ENGAGEMENT_MISMATCH', "The engagement is not this client's");
       }
-      const assignedTo = assignee(input.assignedUserId ?? null);
+      const assignedTo = assignee(input.assignedUserId ?? null, record.id);
       const now = new Date().toISOString();
       const created = fixture(next++, {
         title: input.title,
@@ -187,7 +194,8 @@ export function createTasksMock(options: { role?: MockFirmRole } = {}): TasksCli
       const input = parseInput(UpdateTaskRequest, body);
       const t = find(taskId);
       const { assignedUserId, status, ...rest } = input;
-      const assignedTo = assignedUserId === undefined ? t.assignedTo : assignee(assignedUserId);
+      const assignedTo =
+        assignedUserId === undefined ? t.assignedTo : assignee(assignedUserId, t.client.id);
       if (
         status === 'OPEN' &&
         t.kind === 'NAME_CHANGE' &&
