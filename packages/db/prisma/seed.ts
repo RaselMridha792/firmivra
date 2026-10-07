@@ -14,8 +14,14 @@ import {
   SEED_WORK_IDS,
   SEED_DOCUMENT_CATEGORIES,
   SEED_DOCUMENT_IDS,
+  SEED_TAX_RETURN_IDS,
   SEED_INTAKE_IDS,
   SEED_NOTIFICATION_IDS,
+  SEED_APPOINTMENT_TYPES,
+  SEED_CALENDAR_IDS,
+  SEED_MESSAGE_IDS,
+  SEED_BILLING_IDS,
+  SEED_STRIPE_ACCOUNT_ID,
   SAMPLE_FORM_DEFINITION,
 } from './seed-data.js';
 
@@ -167,6 +173,30 @@ async function seedIntakeForms(
   return byName('intake form', ids);
 }
 
+/** The firm's appointment types; returns their ids by name. */
+async function seedAppointmentTypes(
+  tx: TxClient,
+  businessId: string,
+  types: (typeof SEED_APPOINTMENT_TYPES)[keyof typeof SEED_APPOINTMENT_TYPES],
+) {
+  const ids = new Map<string, string>();
+  for (const [sortOrder, t] of types.entries()) {
+    const data = {
+      durationMinutes: t.durationMinutes,
+      locationKind: t.locationKind,
+      clientBookable: t.clientBookable,
+      sortOrder,
+    };
+    const row = await tx.appointmentType.upsert({
+      where: { businessId_name: { businessId, name: t.name } },
+      update: data,
+      create: { businessId, name: t.name, ...data },
+    });
+    ids.set(t.name, row.id);
+  }
+  return byName('appointment type', ids);
+}
+
 function byName(kind: string, ids: Map<string, string>) {
   return (name: string) => {
     const id = ids.get(name);
@@ -203,6 +233,23 @@ async function main() {
     }
     return result;
   });
+
+  // LVP is paid into its own Stripe connected account (Stripe Connect), already onboarded.
+  // Connected accounts are written only in platform scope (onboarding), never by the firm.
+  await runInScope(prisma, { kind: 'platform' }, (tx) =>
+    tx.stripeAccount.upsert({
+      where: { businessId: businesses.lvp },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        accountId: SEED_STRIPE_ACCOUNT_ID,
+        onboardingStatus: 'COMPLETE',
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        detailsSubmitted: true,
+      },
+    }),
+  );
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
     for (const [user, role] of [
@@ -267,6 +314,10 @@ async function main() {
       SEED_USERS.lvpClient,
       SEED_USERS.lvpStaff.id,
     );
+    await tx.clientProfile.update({
+      where: { clientId: SEED_CLIENT_IDS.lvp },
+      data: { preferredContactMethod: 'EMAIL', referralSource: 'Friend or family' },
+    });
     // At sign-up the client accepted the firm's Terms and Privacy v1.
     const lvpLogin = await tx.clientAccount.findUniqueOrThrow({
       where: { userId: SEED_USERS.lvpClient.id },
@@ -288,6 +339,26 @@ async function main() {
           clientAccountId: lvpLogin.id,
           legalDocumentId: doc.id,
         },
+      });
+    }
+    // ...and verified their email with a code (only its HMAC is stored; this one is fake).
+    const sentCode = await tx.verificationCode.findFirst({
+      where: { clientAccountId: lvpLogin.id, channel: 'EMAIL' },
+    });
+    if (!sentCode) {
+      const code = await tx.verificationCode.create({
+        data: {
+          businessId: businesses.lvp,
+          clientAccountId: lvpLogin.id,
+          channel: 'EMAIL',
+          target: lvpLogin.email,
+          codeHash: createHash('sha256').update('seed-verification-code').digest('hex'),
+          expiresAt: new Date(Date.now() + 10 * 60_000),
+        },
+      });
+      await tx.verificationCode.update({
+        where: { id: code.id },
+        data: { attempts: 1, consumedAt: new Date() },
       });
     }
     const inPreparation = await tx.taxStatus.findUniqueOrThrow({
@@ -346,6 +417,20 @@ async function main() {
         billingInterval: 'MONTHLY',
         periodStart: new Date('2026-01-01'),
         nextBillingOn: new Date('2026-11-01'),
+      },
+    });
+    // Last year's return, done and filed.
+    await tx.engagement.upsert({
+      where: { id: SEED_WORK_IDS.lvpTax2024 },
+      update: {},
+      create: {
+        ...lvpWork,
+        id: SEED_WORK_IDS.lvpTax2024,
+        serviceId: service('Annual Tax'),
+        title: '2024 Personal Tax',
+        taxYear: 2024,
+        status: 'COMPLETED',
+        completedAt: new Date('2025-04-12T16:00:00Z'),
       },
     });
     await tx.task.upsert({
@@ -445,6 +530,56 @@ async function main() {
       where: { id: SEED_DOCUMENT_IDS.interestDocument, scanStatus: 'PENDING' },
       data: { scanStatus: 'CLEAN', scannedAt: new Date() },
     });
+
+    // The client's tax returns (portal Taxes tab): 2023 from before the portal (no engagement or
+    // file), 2024 filed with its PDF shared with the client, and 2025 in progress.
+    await tx.document.upsert({
+      where: { id: SEED_DOCUMENT_IDS.return2024 },
+      update: {},
+      create: {
+        businessId: businesses.lvp,
+        clientId: SEED_CLIENT_IDS.lvp,
+        engagementId: SEED_WORK_IDS.lvpTax2024,
+        categoryId: category('Final return'),
+        id: SEED_DOCUMENT_IDS.return2024,
+        direction: 'FIRM_TO_CLIENT',
+        fileName: '2024 Tax Return (sample).pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 182400,
+        sha256: createHash('sha256').update('sample 2024 return').digest('hex'),
+        s3Key: `tenant/${businesses.lvp}/documents/${SEED_DOCUMENT_IDS.return2024}`,
+        taxYear: 2024,
+        uploadedByUserId: SEED_USERS.lvpStaff.id,
+      },
+    });
+    await tx.document.updateMany({
+      where: { id: SEED_DOCUMENT_IDS.return2024, scanStatus: 'PENDING' },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+    });
+    const lvpReturn = { businessId: businesses.lvp, clientId: SEED_CLIENT_IDS.lvp };
+    for (const data of [
+      {
+        id: SEED_TAX_RETURN_IDS.lvp2023,
+        taxYear: 2023,
+        status: 'COMPLETED' as const,
+        filedOn: new Date('2024-04-10'),
+      },
+      {
+        id: SEED_TAX_RETURN_IDS.lvp2024,
+        engagementId: SEED_WORK_IDS.lvpTax2024,
+        taxYear: 2024,
+        status: 'ACCEPTED' as const,
+        filedOn: new Date('2025-04-12'),
+        documentId: SEED_DOCUMENT_IDS.return2024,
+      },
+      { id: SEED_TAX_RETURN_IDS.lvp2025, engagementId: SEED_WORK_IDS.lvpTax, taxYear: 2025 },
+    ]) {
+      await tx.taxReturn.upsert({
+        where: { id: data.id },
+        update: {},
+        create: { ...lvpReturn, filingType: 'INDIVIDUAL', formType: '1040', ...data },
+      });
+    }
 
     // A published v1 intake form per service, an in-progress portal intake on the 2025 tax
     // engagement, and a submitted Begin Online lead for Bookkeeping with one clean upload.
@@ -610,7 +745,291 @@ async function main() {
       update: {},
       create: { ...lvp, userId: SEED_USERS.lvpClient.id, category: 'DOCUMENTS', sms: true },
     });
+
+    // Calendar: appointment types, the staff member's week (Mon-Fri 9-12 and 1-5, New York
+    // time), a firm closure on Thanksgiving, and one client-booked video consultation.
+    const appointmentType = await seedAppointmentTypes(
+      tx,
+      businesses.lvp,
+      SEED_APPOINTMENT_TYPES.lvp,
+    );
+    const staffHours = { ...lvp, userId: SEED_USERS.lvpStaff.id };
+    if ((await tx.workingHours.count({ where: staffHours })) === 0) {
+      const at = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00Z`);
+      await tx.workingHours.createMany({
+        data: [1, 2, 3, 4, 5].flatMap((weekday) => [
+          { ...staffHours, weekday, startsAt: at('09:00'), endsAt: at('12:00') },
+          { ...staffHours, weekday, startsAt: at('13:00'), endsAt: at('17:00') },
+        ]),
+      });
+    }
+    await tx.blockedTime.upsert({
+      where: { id: SEED_CALENDAR_IDS.thanksgiving },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_CALENDAR_IDS.thanksgiving,
+        startsAt: new Date('2026-11-26T05:00:00Z'),
+        endsAt: new Date('2026-11-27T05:00:00Z'),
+        reason: 'Thanksgiving (office closed)',
+        createdByUserId: SEED_USERS.lvpOwner.id,
+      },
+    });
+    await tx.appointment.upsert({
+      where: { id: SEED_CALENDAR_IDS.appointment },
+      update: {},
+      create: {
+        ...lvp,
+        id: SEED_CALENDAR_IDS.appointment,
+        clientId: SEED_CLIENT_IDS.lvp,
+        engagementId: SEED_WORK_IDS.lvpTax,
+        staffUserId: SEED_USERS.lvpStaff.id,
+        typeId: appointmentType('Tax consultation'),
+        startsAt: new Date('2026-10-20T18:00:00Z'),
+        endsAt: new Date('2026-10-20T18:30:00Z'),
+        locationKind: 'VIDEO',
+        locationDetails: 'The video link is sent before the meeting.',
+        bookedByUserId: SEED_USERS.lvpClient.id,
+        bookedByClient: true,
+      },
+    });
+
+    // Messages: the client asks about a W-2 (with the 1099-INT attached) and staff answer;
+    // the firm's welcome thread.
+    const thread = async (
+      id: string,
+      data: { subject: string; engagementId?: string; createdByUserId: string },
+    ) => {
+      await tx.messageThread.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, clientId: SEED_CLIENT_IDS.lvp, ...data },
+      });
+    };
+    const message = async (
+      id: string,
+      threadId: string,
+      direction: 'FIRM_TO_CLIENT' | 'CLIENT_TO_FIRM',
+      body: string,
+      createdAt: string,
+    ) => {
+      if (!(await tx.message.findUnique({ where: { id } }))) {
+        await tx.message.create({
+          data: {
+            ...lvp,
+            id,
+            threadId,
+            direction,
+            body,
+            senderUserId:
+              direction === 'CLIENT_TO_FIRM' ? SEED_USERS.lvpClient.id : SEED_USERS.lvpStaff.id,
+            createdAt: new Date(createdAt),
+          },
+        });
+      }
+    };
+    await thread(SEED_MESSAGE_IDS.welcomeThread, {
+      subject: 'Welcome to LVP!',
+      createdByUserId: SEED_USERS.lvpOwner.id,
+    });
+    await message(
+      SEED_MESSAGE_IDS.welcomeMessage,
+      SEED_MESSAGE_IDS.welcomeThread,
+      'FIRM_TO_CLIENT',
+      'Welcome to your client portal. Send us a message here any time.',
+      '2026-10-01T14:00:00Z',
+    );
+    await thread(SEED_MESSAGE_IDS.w2Thread, {
+      subject: 'Question about my W-2',
+      engagementId: SEED_WORK_IDS.lvpTax,
+      createdByUserId: SEED_USERS.lvpClient.id,
+    });
+    await message(
+      SEED_MESSAGE_IDS.w2Question,
+      SEED_MESSAGE_IDS.w2Thread,
+      'CLIENT_TO_FIRM',
+      'Do you need the W-2 from my second job too? I attached my 1099-INT.',
+      '2026-10-02T15:00:00Z',
+    );
+    await tx.messageAttachment.upsert({
+      where: {
+        businessId_messageId_documentId: {
+          businessId: businesses.lvp,
+          messageId: SEED_MESSAGE_IDS.w2Question,
+          documentId: SEED_DOCUMENT_IDS.interestDocument,
+        },
+      },
+      update: {},
+      create: {
+        ...lvp,
+        messageId: SEED_MESSAGE_IDS.w2Question,
+        documentId: SEED_DOCUMENT_IDS.interestDocument,
+      },
+    });
+    await message(
+      SEED_MESSAGE_IDS.w2Answer,
+      SEED_MESSAGE_IDS.w2Thread,
+      'FIRM_TO_CLIENT',
+      'Yes, please upload every W-2 under the W-2 request. Thanks for the 1099-INT.',
+      '2026-10-02T17:30:00Z',
+    );
+
+    // Billing: a paid bookkeeping invoice, paid the only way the database allows (a recorded
+    // processor event confirms the payment), and an open invoice for the 2025 return.
+    const invoice = async (
+      id: string,
+      data: { number: string; engagementId: string; line: string; cents: number; dueOn: string },
+    ) => {
+      if (await tx.invoice.findUnique({ where: { id } })) return false;
+      await tx.invoice.create({
+        data: {
+          ...lvp,
+          id,
+          clientId: SEED_CLIENT_IDS.lvp,
+          engagementId: data.engagementId,
+          number: data.number,
+          createdByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+      await tx.invoiceLine.create({
+        data: { ...lvp, invoiceId: id, description: data.line, unitAmountCents: data.cents },
+      });
+      await tx.invoice.update({
+        where: { id },
+        data: { status: 'OPEN', issuedAt: new Date(), dueOn: new Date(data.dueOn) },
+      });
+      return true;
+    };
+    if (
+      await invoice(SEED_BILLING_IDS.paidInvoice, {
+        number: 'INV-1000',
+        engagementId: SEED_WORK_IDS.lvpBookkeeping,
+        line: 'Bookkeeping (Growth), September 2026',
+        cents: 30000,
+        dueOn: '2026-10-10',
+      })
+    ) {
+      const paidAt = new Date();
+      await tx.payment.create({
+        data: {
+          ...lvp,
+          id: SEED_BILLING_IDS.paidPayment,
+          invoiceId: SEED_BILLING_IDS.paidInvoice,
+          amountCents: 30000,
+          processorRef: 'cs_test_seed_inv_1000',
+          accountId: SEED_STRIPE_ACCOUNT_ID,
+        },
+      });
+      await tx.paymentEvent.create({
+        data: {
+          ...lvp,
+          processorEventId: 'evt_test_seed_inv_1000',
+          accountId: SEED_STRIPE_ACCOUNT_ID,
+          type: 'checkout.session.completed',
+          paymentId: SEED_BILLING_IDS.paidPayment,
+          processedAt: paidAt,
+        },
+      });
+      await tx.payment.update({
+        where: { id: SEED_BILLING_IDS.paidPayment },
+        data: { status: 'SUCCEEDED', paidAt },
+      });
+      await tx.invoice.update({
+        where: { id: SEED_BILLING_IDS.paidInvoice },
+        data: { status: 'PAID', paidAt },
+      });
+    }
+    await invoice(SEED_BILLING_IDS.openInvoice, {
+      number: 'INV-1001',
+      engagementId: SEED_WORK_IDS.lvpTax,
+      line: '2025 personal tax return preparation',
+      cents: 45000,
+      dueOn: '2026-11-15',
+    });
+
+    // Content editor records and the Tax Return Calculator.
+    const content = async (
+      id: string,
+      data: {
+        kind: 'RESOURCE' | 'TIP' | 'EXTERNAL_LINK';
+        category: string;
+        title: string;
+        body?: string;
+        url?: string;
+      },
+    ) => {
+      await tx.contentItem.upsert({
+        where: { id },
+        update: {},
+        create: { ...lvp, id, ...data, publishedAt: new Date() },
+      });
+    };
+    await content(SEED_BILLING_IDS.refundLink, {
+      kind: 'EXTERNAL_LINK',
+      category: 'External Links',
+      title: "IRS: Where's My Refund?",
+      url: 'https://www.irs.gov/refunds',
+    });
+    await content(SEED_BILLING_IDS.transcriptLink, {
+      kind: 'EXTERNAL_LINK',
+      category: 'External Links',
+      title: 'IRS: Get your tax records',
+      url: 'https://www.irs.gov/individuals/get-transcript',
+    });
+    await content(SEED_BILLING_IDS.recordKeeping, {
+      kind: 'RESOURCE',
+      category: 'Record Keeping',
+      title: 'Record keeping basics',
+      body: 'Sample resource for local development: keep receipts, statements and prior returns.',
+    });
+    await content(SEED_BILLING_IDS.receiptsTip, {
+      kind: 'TIP',
+      category: 'Tax Deductions',
+      title: 'Keep your business receipts',
+      body: 'Sample tip for local development.',
+    });
+    await tx.calculatorDefinition.upsert({
+      where: { businessId_key: { businessId: businesses.lvp, key: 'tax_return' } },
+      update: {},
+      create: {
+        ...lvp,
+        key: 'tax_return',
+        title: 'Tax Return Calculator',
+        config: { taxYear: 2025, note: 'Sample figures for local development only.' },
+        disclaimer: 'This is an estimate only, not tax advice. Your actual result may differ.',
+      },
+    });
   });
+
+  // The client's private note: written as the client, the only one the database shows it to.
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpClient.id },
+    async (tx) => {
+      const owner = { businessId: businesses.lvp, userId: SEED_USERS.lvpClient.id };
+      if (
+        !(await tx.clientPrivateNote.findUnique({ where: { id: SEED_MESSAGE_IDS.clientNote } }))
+      ) {
+        await tx.clientPrivateNote.create({
+          data: {
+            ...owner,
+            id: SEED_MESSAGE_IDS.clientNote,
+            body: 'Remember to gather my 1099 forms. Ask about retirement contribution options.',
+          },
+        });
+      }
+      await tx.clientNoteReminder.upsert({
+        where: { id: SEED_MESSAGE_IDS.clientNoteReminder },
+        update: {},
+        create: {
+          ...owner,
+          id: SEED_MESSAGE_IDS.clientNoteReminder,
+          noteId: SEED_MESSAGE_IDS.clientNote,
+          remindAt: new Date('2026-10-25T13:00:00Z'),
+        },
+      });
+    },
+  );
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
     await tx.membership.upsert({
@@ -651,6 +1070,7 @@ async function main() {
     await seedDocumentCategories(tx, businesses.testFirmB, SEED_DOCUMENT_CATEGORIES.testFirmB);
     const service = await seedServices(tx, businesses.testFirmB, SEED_SERVICES.testFirmB);
     await seedIntakeForms(tx, businesses.testFirmB, service, ['Annual Tax']);
+    await seedAppointmentTypes(tx, businesses.testFirmB, SEED_APPOINTMENT_TYPES.testFirmB);
     await tx.engagement.upsert({
       where: { id: SEED_WORK_IDS.firmBTax },
       update: {},
@@ -667,7 +1087,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead and notifications.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar, messages, invoices, content and a calculator.`,
   );
 }
 

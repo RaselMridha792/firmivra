@@ -15,16 +15,22 @@ import {
   type ServiceRef,
   UpdateEngagementRequest,
 } from '@firmivra/types';
-import { clientFixtures } from './clients';
+import { clientFixtures, mockStaff, type MockFirmRole } from './clients';
 
 /**
  * Mock data for `api.engagements` and `api.myServices(slug)` (R10). Synthetic data only. Same
  * input checks, lifecycle rules and error codes as the API.
  */
 const at = '2026-10-01T09:00:00.000Z';
-const day = 86_400_000;
-const date = (offsetDays: number) =>
-  new Date(Date.now() + offsetDays * day).toISOString().slice(0, 10);
+const DAY = 86_400_000;
+/** The mock firm's time zone: "today" and cancelBy follow its calendar, as the API's do. */
+const FIRM_TIME_ZONE = 'America/New_York';
+const today = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: FIRM_TIME_ZONE }).format(new Date());
+/** A calendar date `days` after (or before) `date`. */
+const addDays = (date: string, days: number) =>
+  new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
+
 const client = clientFixtures[0]!.id;
 const services: (ServiceRef & { stages: string[] })[] = [
   {
@@ -57,9 +63,10 @@ const fixture = (n: number, data: Partial<Engagement> & { title: string }): Enga
     billingInterval: 'ONE_TIME',
     recurring: false,
     nextBillingOn: null,
-    assignedTo: { userId: '0199b6a0-0000-7000-8000-0000000000f1', name: 'Sam Staff' },
+    assignedTo: mockStaff,
     completedAt: null,
     cancelRequestedAt: null,
+    cancelRequestReason: null,
     cancelledAt: null,
     cancellationReason: null,
     createdAt: at,
@@ -77,7 +84,7 @@ export const engagementFixtures: readonly Engagement[] = [
     stage: 'Monthly close',
     billingInterval: 'MONTHLY',
     recurring: true,
-    nextBillingOn: date(40),
+    nextBillingOn: addDays(today(), 40),
   }),
   fixture(3, {
     title: '2024 Personal Tax',
@@ -92,7 +99,7 @@ export const engagementFixtures: readonly Engagement[] = [
     billingInterval: 'MONTHLY',
     recurring: true,
     status: 'CANCELLED',
-    cancelledAt: new Date(Date.now() - 30 * day).toISOString(),
+    cancelledAt: new Date(Date.now() - 30 * DAY).toISOString(),
     cancellationReason: 'Client moved payroll in-house.',
   }),
 ];
@@ -100,10 +107,20 @@ export const engagementFixtures: readonly Engagement[] = [
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
+const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const now = () => new Date().toISOString();
+const newestFirst = (a: Engagement, b: Engagement) =>
+  b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+/** The clients a role may reach (Staff: their assigned ones). */
+const reachable = (role?: MockFirmRole) =>
+  new Set(
+    clientFixtures
+      .filter((c) => role !== 'STAFF' || c.assignedTo?.userId === mockStaff.userId)
+      .map((c) => c.id),
+  );
 
 /** Each mock keeps its own rows; callers always get copies, like a real API response. */
-function createStore() {
+function createStore(clients: Set<string>) {
   let rows: Engagement[] = engagementFixtures.map((r) => structuredClone(r));
   let history: {
     engagementId: string;
@@ -112,11 +129,12 @@ function createStore() {
     changedAt: string;
   }[] = [];
   return {
-    all: () => rows,
+    all: () => rows.filter((r) => clients.has(r.clientId)),
     history: () => history,
+    /** The id is already checked. */
     find: (id: string) => {
-      const row = rows.find((r) => r.id === parseInput(EngagementId, id));
-      if (!row) throw fail(404, 'NOT_FOUND', 'Not found');
+      const row = rows.find((r) => r.id === id && clients.has(r.clientId));
+      if (!row) throw notFound();
       return row;
     },
     /** Saves the row; a status or stage change gets a history entry, as in the database. */
@@ -133,24 +151,28 @@ function createStore() {
     },
   };
 }
-const checkStage = (row: Engagement, stage: string | null | undefined) => {
-  const service = services.find((s) => s.id === row.service.id);
+
+const checkStage = (serviceId: string, stage: string | null | undefined) => {
+  const service = services.find((s) => s.id === serviceId);
   if (stage && service && !service.stages.includes(stage)) {
     throw fail(409, 'INVALID_STAGE', "The stage is not one of the service's stages");
   }
 };
-const newestFirst = (a: Engagement, b: Engagement) =>
-  b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+const defined = <T extends object>(data: T) =>
+  Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) as Partial<T>;
 
-/** An in-memory `api.engagements`. */
-export function createEngagementsMock(): EngagementsClient {
-  const { all, history, find, save } = createStore();
+/** An in-memory `api.engagements`. `role: 'STAFF'` reaches only Sam Staff's clients. */
+export function createEngagementsMock(options: { role?: MockFirmRole } = {}): EngagementsClient {
+  const clients = reachable(options.role);
+  const { all, history, find, save } = createStore(clients);
   let nextId = 100;
+  const forbidden = () => fail(403, 'FORBIDDEN', 'This action is not permitted');
   return {
     listForClient: async (clientId, query = {}) => {
       await pause();
       const id = parseInput(ClientId, clientId);
       const { status } = parseInput(ListEngagementsQuery, query);
+      if (!clients.has(id)) throw notFound();
       return all()
         .filter((r) => r.clientId === id && (!status || r.status === status))
         .sort(newestFirst)
@@ -158,36 +180,48 @@ export function createEngagementsMock(): EngagementsClient {
     },
     get: async (id) => {
       await pause();
-      return structuredClone(find(id));
+      return structuredClone(find(parseInput(EngagementId, id)));
     },
-    create: async (body) => {
+    create: async (clientId, body) => {
       await pause();
-      const { serviceId, assignedUserId: _a, ...data } = parseInput(CreateEngagementRequest, body);
+      const id = parseInput(ClientId, clientId);
+      const { serviceId, assignedUserId, ...data } = parseInput(CreateEngagementRequest, body);
+      if (options.role === 'STAFF' && assignedUserId) throw forbidden();
       const service = services.find((s) => s.id === serviceId);
-      if (!service) throw fail(404, 'NOT_FOUND', 'Not found');
+      if (!clients.has(id) || !service) throw notFound();
+      checkStage(serviceId, data.stage);
       const billingInterval = data.billingInterval ?? 'ONE_TIME';
-      const row = fixture(nextId++, {
-        ...data,
-        service: ref(service),
-        billingInterval,
-        recurring: billingInterval !== 'ONE_TIME',
-        assignedTo: null,
-        createdAt: now(),
-        updatedAt: now(),
-      });
-      checkStage(row, row.stage);
-      return save(row);
+      return save(
+        fixture(nextId++, {
+          ...data,
+          clientId: id,
+          service: ref(service),
+          billingInterval,
+          recurring: billingInterval !== 'ONE_TIME',
+          createdAt: now(),
+          updatedAt: now(),
+        }),
+      );
     },
     update: async (id, body) => {
       await pause();
-      const { assignedUserId: _a, ...data } = parseInput(UpdateEngagementRequest, body);
-      const row = find(id);
-      checkStage(row, data.stage);
-      return save({ ...row, ...data, updatedAt: now() });
+      const eid = parseInput(EngagementId, id);
+      const { assignedUserId, ...data } = parseInput(UpdateEngagementRequest, body);
+      if (options.role === 'STAFF' && assignedUserId !== undefined) throw forbidden();
+      const row = find(eid);
+      checkStage(row.service.id, data.stage);
+      return save({
+        ...row,
+        ...defined(data),
+        ...(assignedUserId !== undefined
+          ? { assignedTo: assignedUserId === mockStaff.userId ? mockStaff : null }
+          : {}),
+        updatedAt: now(),
+      });
     },
     complete: async (id) => {
       await pause();
-      const row = find(id);
+      const row = find(parseInput(EngagementId, id));
       if (row.status === 'COMPLETED' || row.status === 'CANCELLED') {
         throw fail(409, 'INVALID_STATUS', 'Only a pending or active engagement can be completed');
       }
@@ -195,8 +229,9 @@ export function createEngagementsMock(): EngagementsClient {
     },
     cancel: async (id, body) => {
       await pause();
+      const eid = parseInput(EngagementId, id);
       const { reason } = parseInput(CancelEngagementRequest, body);
-      const row = find(id);
+      const row = find(eid);
       if (row.status === 'CANCELLED') throw fail(409, 'INVALID_STATUS', 'Already cancelled');
       return save({
         ...row,
@@ -208,10 +243,11 @@ export function createEngagementsMock(): EngagementsClient {
     },
     reactivate: async (id) => {
       await pause();
-      const row = find(id);
-      if (row.status !== 'CANCELLED')
+      const row = find(parseInput(EngagementId, id));
+      if (row.status !== 'CANCELLED') {
         throw fail(409, 'INVALID_STATUS', 'Only a cancelled engagement can be reactivated');
-      if (Date.now() - Date.parse(row.cancelledAt!) > 90 * day) {
+      }
+      if (Date.now() - Date.parse(row.cancelledAt!) > 90 * DAY) {
         throw fail(
           409,
           'REACTIVATION_WINDOW_PASSED',
@@ -228,13 +264,18 @@ export function createEngagementsMock(): EngagementsClient {
     },
     history: async (id) => {
       await pause();
-      find(id);
+      const eid = parseInput(EngagementId, id);
+      find(eid);
       return history()
-        .filter((h) => h.engagementId === id)
+        .filter((h) => h.engagementId === eid)
         .map(({ engagementId: _e, ...h }) => ({ ...h, changedBy: null }));
     },
   };
 }
+
+/** 14 days before the next billing date, for an ACTIVE recurring service; else null. */
+const cancelBy = (r: Engagement) =>
+  r.status === 'ACTIVE' && r.recurring && r.nextBillingOn ? addDays(r.nextBillingOn, -14) : null;
 
 const toMyService = (r: Engagement): MyService =>
   MyService.parse({
@@ -248,39 +289,49 @@ const toMyService = (r: Engagement): MyService =>
     billingInterval: r.billingInterval,
     recurring: r.recurring,
     nextBillingOn: r.nextBillingOn,
+    cancelBy: cancelBy(r),
     cancelRequestedAt: r.cancelRequestedAt,
     cancelledAt: r.cancelledAt,
-    documentAccessUntil: r.cancelledAt
-      ? new Date(Date.parse(r.cancelledAt) + 60 * day).toISOString().slice(0, 10)
-      : null,
+    documentAccessUntil: r.cancelledAt ? addDays(r.cancelledAt.slice(0, 10), 60) : null,
   });
 
 /** An in-memory `api.myServices(slug)` for the first fixture client. */
 export function createMyServicesMock(): MyServicesClient {
-  const { all, find, save } = createStore();
+  const { all, find, save } = createStore(new Set([client]));
   return {
     list: async () => {
       await pause();
-      return all()
-        .filter((r) => r.clientId === client)
-        .sort(newestFirst)
-        .map(toMyService);
+      return all().sort(newestFirst).map(toMyService);
     },
     requestCancellation: async (id, body = {}) => {
       await pause();
-      parseInput(RequestCancellationRequest, body);
-      const row = find(id);
-      if (row.clientId !== client) throw fail(404, 'NOT_FOUND', 'Not found');
-      if (!row.recurring)
+      const eid = parseInput(EngagementId, id);
+      const { reason } = parseInput(RequestCancellationRequest, body);
+      const row = find(eid);
+      if (!row.recurring) {
         throw fail(409, 'NOT_RECURRING', 'Only recurring services can be cancelled here');
-      if (row.nextBillingOn && Date.parse(row.nextBillingOn) - Date.now() < 14 * day) {
+      }
+      if (row.status !== 'ACTIVE') {
+        throw fail(409, 'INVALID_STATUS', 'Only an active service can be cancelled');
+      }
+      // Asking again changes nothing.
+      if (row.cancelRequestedAt) return toMyService(row);
+      const last = cancelBy(row);
+      if (last && today() > last) {
         throw fail(
           409,
           'TOO_LATE_TO_CANCEL',
           'Cancel at least 14 days before the next billing date',
         );
       }
-      return toMyService(save({ ...row, cancelRequestedAt: now(), updatedAt: now() }));
+      return toMyService(
+        save({
+          ...row,
+          cancelRequestedAt: now(),
+          cancelRequestReason: reason ?? null,
+          updatedAt: now(),
+        }),
+      );
     },
   };
 }

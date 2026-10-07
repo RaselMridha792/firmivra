@@ -11,7 +11,7 @@ import {
   type TaxReturnsClient,
   UpdateTaxReturnRequest,
 } from '@firmivra/types';
-import { clientFixtures } from './clients';
+import { clientFixtures, mockStaff, type MockFirmRole } from './clients';
 
 /**
  * Mock data for `api.taxReturns` and `api.myTaxReturns(slug)` (R10), shaped like the Taxes tab
@@ -64,6 +64,7 @@ export const taxReturnFixtures: readonly TaxReturn[] = [
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
+const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const now = () => new Date().toISOString();
 /** Newest year first; within a year, the annual return before the quarters. */
 const order = (a: TaxReturn, b: TaxReturn) =>
@@ -81,17 +82,26 @@ const documentRef = (documentId: string | null | undefined, current: TaxReturn['
       ? null
       : { id: documentId, fileName: 'Tax Return.pdf' };
 
-/** An in-memory `api.taxReturns`. */
-export function createTaxReturnsMock(): TaxReturnsClient {
+/** An in-memory `api.taxReturns`. `role: 'STAFF'` reaches only Sam Staff's clients. */
+export function createTaxReturnsMock(options: { role?: MockFirmRole } = {}): TaxReturnsClient {
+  const clients = new Set(
+    clientFixtures
+      .filter((c) => options.role !== 'STAFF' || c.assignedTo?.userId === mockStaff.userId)
+      .map((c) => c.id),
+  );
   let rows: TaxReturn[] = taxReturnFixtures.map((r) => structuredClone(r));
+  /** Returns that ever left IN_PROGRESS (the database's first_filed_at). */
+  const everFiled = new Set(rows.filter((r) => r.status !== 'IN_PROGRESS').map((r) => r.id));
   let nextId = 100;
+  /** The id is already checked. */
   const find = (id: string) => {
-    const row = rows.find((r) => r.id === parseInput(TaxReturnId, id));
-    if (!row) throw fail(404, 'NOT_FOUND', 'Not found');
+    const row = rows.find((r) => r.id === id && clients.has(r.clientId));
+    if (!row) throw notFound();
     return row;
   };
   const save = (row: TaxReturn) => {
     checkFiled(row);
+    if (row.status !== 'IN_PROGRESS') everFiled.add(row.id);
     rows = [...rows.filter((r) => r.id !== row.id), row];
     return structuredClone(row);
   };
@@ -100,18 +110,22 @@ export function createTaxReturnsMock(): TaxReturnsClient {
     listForClient: async (clientId) => {
       await pause();
       const id = parseInput(ClientId, clientId);
+      if (!clients.has(id)) throw notFound();
       return rows
         .filter((r) => r.clientId === id)
         .sort(order)
         .map((r) => structuredClone(r));
     },
-    create: async (body) => {
+    create: async (clientId, body) => {
       await pause();
+      const id = parseInput(ClientId, clientId);
       const { documentId, ...data } = parseInput(CreateTaxReturnRequest, body);
+      if (!clients.has(id)) throw notFound();
       return save(
         fixture(nextId++, {
           formType: null,
           ...data,
+          clientId: id,
           document: documentRef(documentId, null),
           createdAt: now(),
           updatedAt: now(),
@@ -120,20 +134,28 @@ export function createTaxReturnsMock(): TaxReturnsClient {
     },
     update: async (id, body) => {
       await pause();
+      const rid = parseInput(TaxReturnId, id);
       const { documentId, ...data } = parseInput(UpdateTaxReturnRequest, body);
-      const row = find(id);
+      const row = find(rid);
+      if (
+        data.status === 'IN_PROGRESS' &&
+        (row.status === 'FILED' || row.status === 'ACCEPTED' || row.status === 'COMPLETED')
+      ) {
+        throw fail(409, 'INVALID_STATUS', 'A filed return cannot go back to in progress');
+      }
+      const changes = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
       return save({
         ...row,
-        ...data,
+        ...changes,
         document: documentRef(documentId, row.document),
         updatedAt: now(),
       });
     },
     remove: async (id) => {
       await pause();
-      const row = find(id);
-      if (row.status !== 'IN_PROGRESS') {
-        throw fail(409, 'RETURN_LOCKED', 'Only a return in progress can be deleted');
+      const row = find(parseInput(TaxReturnId, id));
+      if (row.status !== 'IN_PROGRESS' || everFiled.has(row.id)) {
+        throw fail(409, 'RETURN_LOCKED', 'A return that was filed is never deleted');
       }
       rows = rows.filter((r) => r.id !== row.id);
       return { ok: true };
@@ -153,16 +175,18 @@ export function createMyTaxReturnsMock(): MyTaxReturnsClient {
         .filter((r) => !q.kind || (q.kind === 'quarterly') === (r.quarter !== null))
         .filter((r) => !q.filingType || r.filingType === q.filingType)
         .sort(order)
-        .map((r): MyTaxReturn => ({
-          id: r.id,
-          taxYear: r.taxYear,
-          filingType: r.filingType,
-          quarter: r.quarter,
-          formType: r.formType,
-          status: r.status,
-          filedOn: r.filedOn,
-          document: r.document && { ...r.document },
-        }));
+        .map((r): MyTaxReturn =>
+          structuredClone({
+            id: r.id,
+            taxYear: r.taxYear,
+            filingType: r.filingType,
+            quarter: r.quarter,
+            formType: r.formType,
+            status: r.status,
+            filedOn: r.filedOn,
+            document: r.document,
+          }),
+        );
     },
   };
 }

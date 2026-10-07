@@ -36,6 +36,16 @@ export function parseInput<S extends z.ZodType>(schema: S, value: unknown): z.ou
   return result.data;
 }
 
+/** A query string from the defined values only (`?a=1&b=x`, or '' when none). */
+export function toQuery(values: Record<string, string | number | boolean | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
 export interface ApiClientOptions {
   /** For example '/api/v1' in the browser (same origin) or 'http://localhost:4000/api/v1' on the server. */
   baseUrl: string;
