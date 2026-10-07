@@ -72,7 +72,8 @@ export async function prepareTestDatabase(
       intake_submissions, leads, lead_uploads, notifications, notification_deliveries, legal_acceptances,
       notification_preferences, appointment_types, working_hours, blocked_times, appointments,
       message_threads, messages, message_attachments, client_private_notes, client_note_reminders,
-      verification_codes, tax_returns CASCADE`);
+      invoices, invoice_lines, payments, payment_events, content_items, calculator_definitions,
+      stripe_accounts, verification_codes, tax_returns CASCADE`);
   } finally {
     await owner.end();
   }

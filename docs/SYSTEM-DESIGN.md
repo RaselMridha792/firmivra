@@ -202,13 +202,15 @@ Client plane
 | Complete and submit intake | no | unlock | unlock | view | view | yes | allowed |
 | Upload documents | no | yes | yes | yes | no | open eng. | open eng. |
 | Delete documents | no | retention | retention | no | no | own, open | no |
-| View full SSN | no | re-MFA | re-MFA | if set | no | re-MFA | no |
+| View full SSN (after R10 step 4) | no | re-MFA | re-MFA | if set | no | re-MFA | no |
 | Change status, create invoices | no | yes | yes | if set | no | no | no |
 | Make payments | no | no | no | no | no | yes | yes |
 | Internal notes | no | yes | yes | yes | read | never | never |
 | Branding, modules, portal settings | no | yes | yes | no | no | no | no |
 | Billing with Firmivra, close business | no | yes | no | no | no | no | no |
 | Audit log | platform | business | business | no | no | own logins | own logins |
+
+Full SSN (and EIN) reveal comes after R10 step 4: a separate, audited reveal call for the roles this table allows, behind re-MFA. Until then the API returns only the last 4 digits; date of birth goes in full to the firm's staff and to the client themself, never in lists (Rasel, Oct 7).
 
 Every check runs on the server, including direct links. Octavia's docs already require this for personal versus business client areas, and here it covers every role.
 
@@ -270,7 +272,7 @@ Each map follows one person from first contact to everyday use: what they do, th
 | 1. Join | Opens invite link, sets password, sets up MFA | /activate | Membership in LVP with Staff role | Owner: staff joined |
 | 2. Sign in | Signs in; picks LVP if they work for several businesses | Login + MFA, business picker | Session bound to one tenant; staff land on /dashboard | None |
 | 3. Queues | Sees only assigned clients in New, Missing documents, Preparation, Review… | Dashboard queues | Filtered by assigned\_user\_id | None |
-| 4. Client record | Opens a client; reads intake, documents, messages | Client record tabs | Full SSN hidden; reveal needs re-MFA if role allows | Reveal logged |
+| 4. Client record | Opens a client; reads intake, documents, messages | Client record tabs | Full SSN hidden (last 4 only); reveal after R10 step 4 needs re-MFA if role allows | Reveal logged |
 | 5. Request | Requests a missing W-2 with a due date | Document requests | Request requested | Client: bell + email (no content) |
 | 6. Review | Accepts or marks the upload missing; adds an internal note | Engagement detail | Scan must be clean before preview | Client: request accepted |
 | 7. Advance | Moves the engagement to Review, then Signature | Status tracker | Status history row; audit event | Client: status changed |

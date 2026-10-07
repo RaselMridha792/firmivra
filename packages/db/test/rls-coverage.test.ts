@@ -71,7 +71,8 @@ describe('row-level security coverage', () => {
                    ('appointments', 'DELETE'),
                    ('message_threads', 'DELETE'), ('messages', 'DELETE'),
                    ('message_attachments', 'UPDATE'), ('message_attachments', 'DELETE'),
-                   ('client_private_notes', 'UPDATE'), ('client_private_notes', 'DELETE')) AS p(tbl, privilege)`);
+                   ('client_private_notes', 'UPDATE'), ('client_private_notes', 'DELETE'),
+                   ('invoices', 'DELETE'), ('payments', 'DELETE'), ('payment_events', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

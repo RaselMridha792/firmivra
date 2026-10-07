@@ -32,9 +32,15 @@ info:
     - **Order:** verify the email, then the phone (`409 WRONG_STEP` otherwise). Change Email and
       Change Phone work until that item is verified (`409 ALREADY_VERIFIED`). Resend works from
       `resendAvailableAt` (45 s; `429 RATE_LIMITED` before).
+    - **Changed email or phone.** The 45 s gap counts from the last code, whatever its address.
+      A change inside the gap sends no code yet, and the code sent to the old address stops
+      working: show the countdown from `resendAvailableAt`, then Resend.
     - **Never reveals an account.** Sign-up answers the same for an email that already has an
-      account at this firm. That person gets an email saying so instead of a code, and the codes
-      never match. Sign-in, forgot and reset password answer as in auth.yaml.
+      account at this firm: the same answers, the same cookie and the same timing. That person
+      gets an email saying so (at most one an hour) instead of a code, and the codes never match.
+      Signing up again over a sign-up nobody finished is allowed; the new attempt gets the
+      account only by verifying the email with its own code. Sign-in, forgot and reset password
+      answer as in auth.yaml.
     - **After verify-phone** the account waits for the firm (`PENDING_APPROVAL`). A pending client
       can sign in; `GET me` shows `clientAccounts[0].status: PENDING_APPROVAL`, and the portal
       layout sends them to `/{firm}/sign-up/done`. A declined or disabled client, or one who has
@@ -89,7 +95,13 @@ info:
     ## Rate limits
 
     `sign-up`, `verify-email`, `verify-phone`, `resend`, `change-email`, `change-phone`, and the
-    sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email).
+    sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email):
+    - at most 5 sign-ups (or changes to that email) for one email at a firm in a day;
+    - at most 10 code requests (sign-up, resend, changes) in one sign-up session.
+
+    Codes to one address, and for one account, are capped daily; above the cap nothing is sent
+    and the answer stays the same.
+
     Sign-in counts failures as in auth.yaml, per firm and email: a client's login at one firm
     is never locked by failures at another. The firm's audit log holds its clients' sign-ins.
 

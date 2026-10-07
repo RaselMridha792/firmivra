@@ -288,6 +288,19 @@ describe("one firm's session never works on another firm's portal", () => {
   });
 
   it("gives a client's dev token their own portal's cookie", async () => {
+    // A leftover sign-up attempt login with the same email (no account) does not get in the way.
+    const leftover = randomUUID();
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: {
+          id: leftover,
+          cognitoSub: leftover,
+          pool: 'CLIENT',
+          email: people.active.email,
+          name: 'Leftover attempt',
+        },
+      }),
+    );
     const dev = await request(app.getHttpServer())
       .post('/api/v1/dev/token')
       .send({ email: people.active.email })
