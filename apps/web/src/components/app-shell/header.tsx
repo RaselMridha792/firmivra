@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, ChevronDown, Menu, Search } from 'lucide-react';
+import { Bell, ChevronDown, Menu, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import { type ReactNode, useState } from 'react';
 import { useMe } from '../signed-in';
@@ -62,6 +62,16 @@ export function Header({
               onChange={(event) => setSearchTerm(event.target.value)}
               className="w-full bg-transparent outline-none"
             />
+            {searchTerm ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setSearchTerm('')}
+                className="rounded-control p-1 text-muted hover:bg-canvas hover:text-text"
+              >
+                <X aria-hidden className="size-4" />
+              </button>
+            ) : null}
           </label>
           {searchTerm.trim() ? (
             <ul
