@@ -5,10 +5,11 @@ import { clearable, text } from '../clients/text.js';
 // Tasks (R12): the firm's to-dos for a client, optionally within one of that client's engagements
 // (the client record's Tasks tab and the service workspaces). Never shown to clients.
 // Firm routes: /api/v1/business/tasks. Owner and Admin see and change every task of the firm.
-// Staff, by the calendar's rule (R12 Decisions):
-// - see and change the tasks of clients assigned to them and the tasks assigned to them; any other
-//   task is 404, like client records;
-// - create tasks only for clients assigned to them (404 otherwise), assigned to anyone at the firm.
+// Staff follow the calendar's rule (Rasel, Oct 8, q5):
+// - they see, change and create a client's tasks only when that client is assigned to them; any
+//   other task is 404, like client records (also one assigned to them on another client);
+// - a client's task may go to a Staff member only when that client is assigned to that Staff
+//   member (409 CLIENT_NOT_ASSIGNED otherwise); Owner and Admin assignees are always fine.
 // R10 creates the client's NAME_CHANGE task; it is listed and closed here like any other.
 // Responses are plain objects; requests are strict.
 
@@ -90,5 +91,7 @@ export const TaskErrorCode = z.enum([
   'NOT_A_MEMBER',
   /** 409: reopening a NAME_CHANGE task while the client has another open one. */
   'NAME_CHANGE_PENDING',
+  /** 409: the assignee is Staff and this client is not assigned to them. */
+  'CLIENT_NOT_ASSIGNED',
 ]);
 export type TaskErrorCode = z.infer<typeof TaskErrorCode>;
