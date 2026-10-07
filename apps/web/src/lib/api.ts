@@ -21,6 +21,7 @@ import {
   createSettingsClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
+  createTeamClient,
 } from '@firmivra/types';
 import {
   createAppointmentsMock,
@@ -36,6 +37,7 @@ import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createSettingsMock } from '../mocks/settings';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
+import { sharedTeamMock } from '../mocks/team';
 import { MOCK_ROLE, mocked } from './mock';
 import { sessionFetch } from './session';
 
@@ -64,6 +66,8 @@ export const api = {
     dev && mocked('taxStatuses')
       ? createTaxStatusesMock({ role: MOCK_ROLE })
       : createTaxStatusesClient(request),
+  /** The firm's team: roles, deactivate, resend invites (docs/api/team.yaml). Invites: staffAuth. */
+  team: dev && mocked('team') ? sharedTeamMock(MOCK_ROLE) : createTeamClient(request),
   /** Settings, the setup wizard, and the firm's Terms and Privacy (docs/api/settings.yaml). */
   settings:
     dev && mocked('settings')
