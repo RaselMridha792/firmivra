@@ -51,7 +51,8 @@ async function withoutGap<T>(work: () => Promise<T>): Promise<T> {
 }
 
 /** A browser on the sign-up pages: one viewer, one cookie jar, the portal's origin. */
-function visitor(firmSlug = slug, viewer = newViewer()) {
+function visitor(firmSlug = slug) {
+  const viewer = newViewer();
   let cookie = '';
   const keep = (res: Response) => {
     const raw = res.headers['set-cookie'] as unknown;
@@ -369,26 +370,6 @@ describe('client sign-up', () => {
     expect((await visitor('no-such-firm').signUp(form(emailFor('none')))).status).toBe(404);
     const weak = await v.signUp(form(emailFor('weak'), { password: 'weak' }));
     expect([weak.status, codeOf(weak)]).toEqual([400, 'VALIDATION_FAILED']);
-  });
-
-  it('limits sign-ups and code requests per IP per hour, across emails (SMS cost guard)', async () => {
-    const ip = newViewer();
-    await withoutGap(async () => {
-      const v = visitor(slug, ip);
-      await v.signUp(form(emailFor('ipone')));
-      for (let i = 1; i < SIGN_UP_LIMITS.perIpPerHour; i += 1) {
-        expect((await v.post('/resend', { channel: 'email' })).status).toBe(200);
-      }
-    });
-    // The 11th request from that IP, even for another email, waits; another IP does not.
-    const again = await visitor(slug, ip).signUp(form(emailFor('iptwo')));
-    expect([again.status, codeOf(again)]).toEqual([429, 'RATE_LIMITED']);
-    expect((await visitor().signUp(form(emailFor('ipthree')))).status).toBe(200);
-  });
-
-  it('takes only US phone numbers', async () => {
-    const res = await visitor().signUp(form(emailFor('abroad'), { phone: '+1 876 555 0100' }));
-    expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
   });
 
   it("never takes over an account that isn't an unfinished sign-up", async () => {

@@ -105,8 +105,7 @@ info:
     `sign-up`, `verify-email`, `verify-phone`, `resend`, `change-email`, `change-phone`, and the
     sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email):
     - at most 5 sign-ups (or changes to that email) for one email at a firm in a day;
-    - at most 10 code requests (sign-up, resend, changes) in one sign-up session;
-    - at most 10 sign-ups and code requests from one IP address in an hour, across every firm.
+    - at most 10 code requests (sign-up, resend, changes) in one sign-up session.
 
     Codes to one address, and for one account, are capped daily; above the cap nothing is sent
     and the answer stays the same.
@@ -627,11 +626,8 @@ components:
 
     Phone:
       type: string
-      pattern: '^\+1[2-9]\d{2}[2-9]\d{6}$'
-      description: |
-        A US number in E.164 (+1 and 10 digits); US only for now, as an SMS cost guard. Caribbean,
-        Canadian and premium-rate (900) area codes are refused; US territories are allowed. The
-        client strips spaces, dots, brackets and dashes, and reads 10 digits without +1 as US.
+      pattern: '^\+[1-9]\d{7,14}$'
+      description: E.164. The client strips spaces, brackets and dashes before sending.
     SignUpRequest:
       type: object
       required: [name, email, phone, password, accountType, accepted]

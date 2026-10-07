@@ -35,9 +35,9 @@ const state = {
 };
 
 describe('client-auth schemas', () => {
-  it('turns a typed US number into E.164, with or without +1', () => {
+  it('turns a typed US number into E.164 and refuses one without a country code', () => {
     expect(Phone.parse('+1 (770) 555-0123')).toBe('+17705550123');
-    expect(Phone.parse('(770) 555-0123')).toBe('+17705550123');
+    expect(Phone.safeParse('(770) 555-0123').success).toBe(false);
   });
 
   it('takes the mockup sign-up form, with the password policy and the accepted versions', () => {
@@ -125,30 +125,6 @@ describe('createPortalAuthClient', () => {
       password: 'x',
     });
     expect(calls[0]?.url).toBe('/portal/lvp/auth/sign-in');
-  });
-});
-
-describe('Phone: US numbers only (SMS cost guard)', () => {
-  it('reads US numbers in any common format', () => {
-    for (const raw of ['+1 (770) 555-0199', '770.555.0199', '7705550199', '1-770-555-0199']) {
-      expect([raw, Phone.parse(raw)]).toEqual([raw, '+17705550199']);
-    }
-    // US territories are US.
-    expect(Phone.parse('+1 787 555 0100')).toBe('+17875550100');
-  });
-
-  it('refuses other countries, the Caribbean and Canada, and premium-rate numbers', () => {
-    for (const raw of [
-      '+442071234567',
-      '+8801712345678',
-      '+1 876 555 0100',
-      '+1 809 555 0100',
-      '+1 416 555 0100',
-      '+1 900 555 0100',
-      '+1 770 055 0100',
-    ]) {
-      expect([raw, Phone.safeParse(raw).success]).toEqual([raw, false]);
-    }
   });
 });
 

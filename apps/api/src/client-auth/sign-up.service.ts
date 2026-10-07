@@ -10,7 +10,6 @@ import {
   type SignUpState,
 } from '@firmivra/types';
 import { AuditService, type AuditEntity } from '../audit/audit.service.js';
-import { requestContext } from '../common/request-context.js';
 import { runFlow } from '../auth/auth-errors.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from '../auth/identity/identity-provider.js';
 import { deriveKey, poolSecrets } from '../auth/sealed.js';
@@ -48,16 +47,11 @@ export const SIGN_UP_LIMITS = {
   perFirmPerDay: 200,
   sendsPerSession: 10,
   noticeGapMs: 60 * 60_000,
-  /** Sign-ups and code requests from one IP in an hour, across every firm (SMS cost guard). */
-  perIpPerHour: 10,
 };
 /** In AWS every sign-up answer takes at least this long, so its timing shows nothing. */
 export const COGNITO_MIN_RESPONSE_MS = 1_000;
 const DAY_MS = 24 * 60 * 60_000;
 const SIGN_UP_ATTEMPT = 'client_auth.sign_up_attempt';
-/** A request that may send a code (sign-up, resend, a changed email or phone), counted per IP. */
-const CODE_REQUEST = 'client_auth.code_request';
-const HOUR_MS = 60 * 60_000;
 const REGISTERED_NOTICE = 'client_account.registered_notice';
 /** Same key as portal sign-in's per-email limit: an email is counted per firm. */
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
@@ -149,7 +143,6 @@ export class SignUpService {
     res: Response,
   ): Promise<SignUpState> {
     return atLeast(this.minResponseMs, async () => {
-      await this.countIp();
       const firm = await this.portal.activeFirm(firmSlug);
       const documents = await this.currentDocuments(firm.id, input.accepted);
       await this.countAttempt(firm.id, input.email);
@@ -250,7 +243,6 @@ export class SignUpService {
     return atLeast(this.minResponseMs, async () => {
       const { value: s, expiresAt } = await this.session(firmSlug, req);
       if (s.sends >= SIGN_UP_LIMITS.sendsPerSession) throw signUpErrors.rateLimited();
-      await this.countIp();
       const account = await this.attemptAccount(s);
       const step = account ? stepOf(account) : 'VERIFY_EMAIL';
       if (channel === 'email' ? step !== 'VERIFY_EMAIL' : step === 'DONE') {
@@ -284,7 +276,6 @@ export class SignUpService {
     return atLeast(this.minResponseMs, async () => {
       const { value: s, expiresAt } = await this.session(firmSlug, req);
       if (s.sends >= SIGN_UP_LIMITS.sendsPerSession) throw signUpErrors.rateLimited();
-      await this.countIp();
       const firm = await this.portal.activeFirm(s.firmSlug);
       const scope = this.db.forBusiness(firm.id);
       const owned = await scope.clientAccount.findUnique({
@@ -342,7 +333,6 @@ export class SignUpService {
     return atLeast(this.minResponseMs, async () => {
       const { value: s, expiresAt } = await this.session(firmSlug, req);
       if (s.sends >= SIGN_UP_LIMITS.sendsPerSession) throw signUpErrors.rateLimited();
-      await this.countIp();
       const owned = await this.db.forBusiness(s.businessId).clientAccount.findUnique({
         where: { userId: s.userId },
         select: ACCOUNT,
@@ -518,28 +508,6 @@ export class SignUpService {
       throw signUpErrors.rateLimited();
     }
     await this.audit.log(SIGN_UP_ATTEMPT, { type: 'sign_up' }, { emailKey }, { businessId });
-  }
-
-  /**
-   * The SMS cost guard: at most SIGN_UP_LIMITS.perIpPerHour sign-ups and code requests from one IP
-   * in an hour, across every firm (platform audit rows, so every API task shares the count). The
-   * IP is req.ip (trust proxy), never a raw header. Keyed by IP only, so it shows nothing about
-   * any email.
-   */
-  private async countIp(): Promise<void> {
-    const ip = requestContext.getStore()?.ip;
-    if (!ip) return;
-    const recent = await this.db.forPlatform().auditLog.count({
-      where: {
-        businessId: null,
-        action: CODE_REQUEST,
-        ip,
-        createdAt: { gt: new Date(Date.now() - HOUR_MS) },
-      },
-    });
-    if (recent >= SIGN_UP_LIMITS.perIpPerHour) throw signUpErrors.rateLimited();
-    // No firm and no actor: a platform row that holds only the IP (from the request context).
-    await this.audit.log(CODE_REQUEST, { type: 'sign_up' });
   }
 
   /** The current Terms and Privacy for a sign-up: their ids, checked against the accepted versions. */
