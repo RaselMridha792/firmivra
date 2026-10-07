@@ -343,6 +343,15 @@ describe('setup wizard Finish and the locked legal name (T02)', () => {
     }
   });
 
+  it('the firm never changes its KMS key, business type or pack', async () => {
+    const firm = await newFirm('ACTIVE', true);
+    for (const data of [{ kmsKeyId: 'alias/other' }, { businessType: 'Other' }]) {
+      await expect(
+        db.forBusiness(firm).business.update({ where: { id: firm }, data }),
+      ).rejects.toThrow(/change only in platform scope/);
+    }
+  });
+
   it('the legal name is locked for the firm; the platform can change it', async () => {
     const firm = await newFirm('ACTIVE', true);
     await expect(

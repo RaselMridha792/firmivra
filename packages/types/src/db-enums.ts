@@ -65,6 +65,10 @@ export type BillingInterval = z.infer<typeof BillingInterval>;
 export const EngagementStatus = z.enum(['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED']);
 export type EngagementStatus = z.infer<typeof EngagementStatus>;
 
+/** GENERAL, or a client's "Request Name Change" from the portal (at most one open per client). */
+export const TaskKind = z.enum(['GENERAL', 'NAME_CHANGE']);
+export type TaskKind = z.infer<typeof TaskKind>;
+
 export const TaskStatus = z.enum(['OPEN', 'DONE', 'CANCELLED']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
