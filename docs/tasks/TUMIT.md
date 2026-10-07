@@ -49,10 +49,10 @@ On Oct 15-16 you and Ibrahim test everything on dev.
 
 Checklist:
 
-- [ ] Recheck the desktop and 375 px layout after the latest interaction changes. An earlier preview at 1536x1024 and 375x812 stayed within each viewport and showed no page or hydration error.
-- [ ] Confirm the firm site (`app.localhost`) still looks right with the shared shell.
-- [ ] Verify loading and error states.
-- [ ] Run the Playwright suite successfully against the correctly host-routed Super Admin dev server. Coverage was added for layout, search, notifications, chart range and quick actions, but the suite is not recorded as passing.
+- [x] Recheck the desktop and 375 px layout after the latest interaction changes. Browser screenshots at 1536x1024 and 375x812 show the dashboard fitting each viewport; the mobile document has no horizontal overflow.
+- [ ] Confirm the firm site (`app.localhost`) still looks right with the shared shell. This F04a worktree has no firm workspace layout to open, so that regression remains unverified here.
+- [x] Verify loading, error and retry states with the signed-in layout.
+- [x] Run the F04a Playwright suite against the correctly host-routed Super Admin dev server: 7/7 tests passed.
 
 #### F04a functional preview behavior
 
@@ -68,8 +68,11 @@ The dashboard controls below work against the F04a sample fixtures; they do not 
 
 - TypeScript check passed: `node node_modules/typescript/bin/tsc --noEmit` from `apps/web`.
 - ESLint passed for the changed shell, dashboard, layout, data and Playwright files.
-- Playwright coverage now includes desktop/mobile layout, search, notification read state, chart range selection, settings preview and pending-task navigation. The suite could not be verified in this environment: the standard config could not start its servers because `pnpm` is unavailable in PATH, and the existing local dev server did not route `admin.localhost` to the Super Admin pages. The F04a Playwright checklist remains unchecked until it passes against the correct host-routed dev server.
-- Run the owned spec with `pnpm --filter @firmivra/web test:e2e -- tumit-dashboard.spec.ts` when the repository package manager and host-routed dev server are available.
+- Playwright coverage includes desktop/mobile layout, search, notification read state, chart range selection, settings preview, pending-task navigation, and loading/error/retry states. All 7 tests passed in Chromium against the existing F04a dev server on port 3001. Because `pnpm` is unavailable in PATH, the installed Playwright CLI ran with a temporary local config and Chromium host resolver mapping `admin.localhost` to `127.0.0.1`; that temporary config was removed after verification.
+- The test mocks `GET /api/v1/admin/me`; this verifies the F04a UI and auth-state handling, not backend availability or live dashboard data. Dashboard metrics and records remain sample fixtures.
+- The 1536x1024 desktop and 375x812 mobile screenshots were reviewed. The mobile document width stays within 375 px. The firm shared-shell check remains open because the firm workspace layout is absent from this worktree.
+- In local development, Super Admin routes use the `admin.localhost` host. Bare `localhost` is not assigned to an app area by `src/proxy.ts`, so `/applications` there returns 404 by design; use `http://admin.localhost:<port>/applications` instead. The F04a branch's applications page is still the F04b placeholder.
+- Run the owned spec with `pnpm --filter @firmivra/web test:e2e -- tumit-dashboard.spec.ts` when the repository package manager is available; rerun backend-authenticated checks against the real dev API when credentials and the service are available.
 
 ### F04b · Oct 8 · Firm applications
 
