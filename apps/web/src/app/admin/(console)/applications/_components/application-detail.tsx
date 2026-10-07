@@ -3,11 +3,15 @@
 import { Building2, Contact, FileCheck2, FileText, History, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { Card } from '@firmivra/ui';
-import type { FirmApplication } from './application-data';
+import { addApplicationNote, type FirmApplication } from './application-data';
+import { ApplicationNotes } from './application-notes';
 import { Field, formatDate, SectionTitle, StatusPill } from './application-ui';
+import { useState } from 'react';
 
 export function ApplicationDetail({ application: initial }: { application: FirmApplication }) {
-  const application = initial;
+  const [application, setApplication] = useState(initial);
+  const saveNote = async (note: string) =>
+    setApplication(await addApplicationNote(application.id, note));
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5">
@@ -120,6 +124,12 @@ export function ApplicationDetail({ application: initial }: { application: FirmA
             </li>
           ))}
         </ol>
+      </Card>
+      <Card>
+        <SectionTitle icon={FileText}>Internal Notes</SectionTitle>
+        <div className="mt-4">
+          <ApplicationNotes notes={application.notes} onSave={saveNote} />
+        </div>
       </Card>
     </div>
   );
