@@ -3,7 +3,8 @@ import type { MembershipRole } from '@firmivra/types';
 /**
  * Mock mode: build a screen before its API is on main. In apps/web/.env.local set
  *   NEXT_PUBLIC_API_MOCK=all              every module that has mocks
- *   NEXT_PUBLIC_API_MOCK=taxStatuses,me   only these modules (names as on `api`)
+ *   NEXT_PUBLIC_API_MOCK=taxStatuses,me   only these modules (names as on `api`, plus
+ *                                         `portalAuth` for lib/auth.ts)
  * Mocks live in apps/web/src/mocks/<module>.ts and are typed like the real client.
  * Off by default, and always off in a production build: `next build` sets NODE_ENV to
  * 'production', so the setting below compiles to '' even if the variable is set. Only
