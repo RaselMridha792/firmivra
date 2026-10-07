@@ -15,6 +15,7 @@ import type { z } from 'zod';
 import type { Database } from '@firmivra/db';
 import {
   AUTH_COOKIES,
+  DevSignOutRequest,
   DevTokenRequest,
   type DevTokenResponse,
   type OkResponse,
@@ -49,6 +50,7 @@ export class DevController {
     const found = await this.db.forPlatform().user.findMany({
       where: { email: body.email, ...(body.pool ? { pool: body.pool } : {}) },
       select: { id: true, email: true, name: true, pool: true, cognitoSub: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: 20,
     });
     // Portal sign-up makes a login per attempt: of a client's logins, only one has the account.
@@ -105,11 +107,21 @@ export class DevController {
     return owned.filter((u): u is Awaited<T> => u !== null);
   }
 
+  /** Clears the dev access cookies: both sites', and with `firmSlug` that firm's portal one. */
   @Post('sign-out')
   @HttpCode(200)
-  signOut(@Res({ passthrough: true }) res: Response): OkResponse {
+  signOut(
+    // No body at all is fine: most sign-outs send none.
+    @Body(new ZodValidationPipe(DevSignOutRequest.optional()))
+    body: z.output<typeof DevSignOutRequest> | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): OkResponse {
     res.clearCookie(AUTH_COOKIES.firm.access, { path: '/' });
     res.clearCookie(AUTH_COOKIES.admin.access, { path: '/' });
+    if (body?.firmSlug) {
+      const names = portalCookies(body.firmSlug);
+      res.clearCookie(names.access, { path: names.accessPath });
+    }
     return { ok: true };
   }
 }

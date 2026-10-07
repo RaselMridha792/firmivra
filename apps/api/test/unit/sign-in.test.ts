@@ -611,7 +611,8 @@ describe('SessionService.refresh (#23 review)', () => {
         cookies[name] = { value: '' };
       },
     } as unknown as ExpressResponse;
-    const service = new SessionService(identity as never, envelopes, db, env);
+    const audit = { log: vi.fn(() => Promise.resolve()) };
+    const service = new SessionService(identity as never, envelopes, db, audit as never, env);
     return { service, identity, cookies, res };
   }
 

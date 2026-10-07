@@ -1,7 +1,7 @@
-import { Controller, Get, Inject, Module, Param } from '@nestjs/common';
+import { Controller, Get, Inject, Module, NotFoundException, Param } from '@nestjs/common';
 import type { Request } from 'express';
 import type { Database } from '@firmivra/db';
-import { type MeResponse, portalCookies } from '@firmivra/types';
+import { FirmSlug, type MeResponse, portalCookies } from '@firmivra/types';
 import { httpError } from '../auth/auth-errors.js';
 import { CurrentAuth, Roles } from '../auth/decorators.js';
 import { portalClient } from '../auth/portal-clients.js';
@@ -37,13 +37,17 @@ export class PortalSignInController extends SignInRoutes {
     return portalPlace(await this.portal.activeFirm(slugOf(req)));
   }
 
-  /** On a firm with no portal (any more), sign-out still clears that firm's cookies. */
+  /**
+   * Sign-out works on a firm whose portal is closed too (#62 follow-up): the firm is found by its
+   * slug whatever its status, so the refresh token is revoked as well as the cookies cleared. A
+   * slug that can't be a firm's address is 404 before any cookie name is built from it.
+   */
   protected override async signOutPlace(req: Request): Promise<SignInPlace> {
-    try {
-      return await this.place(req);
-    } catch {
-      return { pool: 'CLIENT', cookies: portalCookies(slugOf(req)), issuer: '' };
-    }
+    const slug = FirmSlug.safeParse(slugOf(req));
+    if (!slug.success) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+    const firm = await this.portal.firmBySlug(slug.data);
+    if (firm) return portalPlace(firm);
+    return { pool: 'CLIENT', cookies: portalCookies(slug.data), issuer: '' };
   }
 }
 

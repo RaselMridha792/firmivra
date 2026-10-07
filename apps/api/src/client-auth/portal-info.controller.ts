@@ -41,6 +41,14 @@ export class PortalInfoService {
     return firm;
   }
 
+  /** A firm by its portal slug whatever its status, or null: only for signing out. */
+  async firmBySlug(firmSlug: string): Promise<{ id: string; slug: string; name: string } | null> {
+    return this.db.forPlatform().business.findUnique({
+      where: { slug: firmSlug.toLowerCase() },
+      select: { id: true, slug: true, name: true },
+    });
+  }
+
   /** Whether the firm takes sign-ups now, and the documents a sign-up accepts (with their ids). */
   async signUpPolicy(businessId: string) {
     const [settings, terms, privacy] = await Promise.all([

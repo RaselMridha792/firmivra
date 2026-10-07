@@ -88,6 +88,10 @@ export const DevTokenRequest = z.object({
 });
 export type DevTokenRequest = z.input<typeof DevTokenRequest>;
 
+/** POST /dev/sign-out: also clears that firm's portal cookie (its path keeps it from this route). */
+export const DevSignOutRequest = z.strictObject({ firmSlug: FirmSlug.optional() });
+export type DevSignOutRequest = z.input<typeof DevSignOutRequest>;
+
 export const DevTokenResponse = z.object({
   token: z.string(),
   expiresIn: z.number().int().positive(),

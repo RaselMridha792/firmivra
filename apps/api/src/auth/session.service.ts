@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { Database } from '@firmivra/db';
 import { IdentityPool } from '@firmivra/types';
+import { AuditService } from '../audit/audit.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -62,6 +63,7 @@ export class SessionService {
     @Inject(IDENTITY_PROVIDER) private readonly identity: IdentityProvider,
     private readonly envelopes: RefreshEnvelopes,
     @Inject(DATABASE) private readonly db: Database,
+    private readonly audit: AuditService,
     @Inject(ENV) env: Env,
   ) {
     this.secure = env.NODE_ENV === 'production';
@@ -74,6 +76,7 @@ export class SessionService {
   ): Promise<void> {
     const { tokens } = session;
     const { pool, businessId } = place;
+    const lifetime = REFRESH_TOKEN_DAYS[pool] * DAY_SECONDS;
     const refresh = tokens.refreshToken
       ? {
           value: {
@@ -83,7 +86,9 @@ export class SessionService {
             pool,
             ...(businessId ? { businessId } : {}),
           },
-          expiresAt: nowSeconds() + REFRESH_TOKEN_DAYS[pool] * DAY_SECONDS,
+          expiresAt: nowSeconds() + lifetime,
+          // The full lifetime, not the end minus a second clock read (Max-Age was 1 s short).
+          maxAgeMs: lifetime * 1000,
         }
       : undefined;
     await this.write(res, place, tokens, refresh);
@@ -116,13 +121,26 @@ export class SessionService {
     await this.write(res, place, tokens, rotated);
   }
 
-  /** Always succeeds: clears the cookies, revokes this device's refresh token, optionally all. */
+  /**
+   * Always succeeds: clears the cookies, revokes this device's refresh token, optionally all.
+   * A sign-out with a session is audited (`auth.signed_out`) where its sign-in was: the firm's
+   * log on a portal, the platform's for staff and Super Admins (public route: no tenant context).
+   */
   async end(req: Request, res: Response, place: SignInPlace, everywhere: boolean): Promise<void> {
     const envelope = (await this.envelope(req, place))?.value;
     clearSessionCookies(res, place.cookies, this.secure);
     if (!envelope) return;
     await this.identity.revoke(envelope.pool, envelope.refreshToken);
     if (everywhere) await this.identity.signOutEverywhere(envelope.pool, envelope.username);
+    await this.audit.log(
+      'auth.signed_out',
+      { type: 'user', id: envelope.userId },
+      { pool: envelope.pool, everywhere },
+      {
+        actorUserId: envelope.userId,
+        ...(envelope.businessId ? { businessId: envelope.businessId } : {}),
+      },
+    );
   }
 
   /**
@@ -163,12 +181,15 @@ export class SessionService {
     return httpError('SESSION_EXPIRED');
   }
 
-  /** `refresh`: the envelope to seal and the session's end; the cookie expires with it. */
+  /**
+   * `refresh`: the envelope to seal and the session's end; the cookie expires with it (`maxAgeMs`
+   * when the caller knows it, else the time left until the end).
+   */
   private async write(
     res: Response,
     place: SignInPlace,
     tokens: SessionTokens,
-    refresh: Opened<RefreshEnvelope> | undefined,
+    refresh: (Opened<RefreshEnvelope> & { maxAgeMs?: number }) | undefined,
   ): Promise<void> {
     writeSessionCookies(
       res,
@@ -182,7 +203,7 @@ export class SessionService {
       },
       {
         accessMs: tokens.expiresIn * 1000,
-        refreshMs: refresh ? (refresh.expiresAt - nowSeconds()) * 1000 : 0,
+        refreshMs: refresh ? (refresh.maxAgeMs ?? (refresh.expiresAt - nowSeconds()) * 1000) : 0,
       },
       this.secure,
     );
