@@ -25,6 +25,7 @@ import { NotifyModule } from './notify/notify.module.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
 import { SettingsModule } from './settings/settings.controller.js';
+import { AppointmentsModule } from './appointments/appointments.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -70,6 +71,7 @@ export class AppModule {
         TaxStatusesModule,
         ClientsModule,
         SettingsModule,
+        AppointmentsModule,
         SignInModule,
         PortalInfoModule,
         SignUpModule,
