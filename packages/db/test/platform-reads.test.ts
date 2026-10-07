@@ -215,34 +215,41 @@ describe('setup Step 2: business details', () => {
   const set = (data: object) =>
     firmA().businessSettings.update({ where: { businessId: ids.firmA }, data });
 
-  it('the firm saves entity type, team size, services, description and its EIN (ciphertext)', async () => {
+  it('the firm saves the application codes, team size, description and its EIN (ciphertext)', async () => {
     const saved = await set({
       entityType: 'S_CORP',
-      teamSize: 'SIZE_2_5',
-      services: ['Tax preparation', 'Bookkeeping'],
+      teamSize: 4,
+      services: ['TAX_PREPARATION', 'BOOKKEEPING'],
       description: 'A small firm.\nTwo lines.',
       einEnc: randomBytes(48),
       einLast4: '4321',
     });
-    expect(saved).toMatchObject({ entityType: 'S_CORP', teamSize: 'SIZE_2_5', einLast4: '4321' });
+    expect(saved).toMatchObject({
+      entityType: 'S_CORP',
+      teamSize: 4,
+      services: ['TAX_PREPARATION', 'BOOKKEEPING'],
+      einLast4: '4321',
+    });
   });
 
-  it('refuses a half EIN, bad services and a blank or long description', async () => {
+  it('refuses a half EIN, anything but codes, a bad team size and a blank or long description', async () => {
     for (const data of [
       { einLast4: null },
       { einEnc: null },
       { einLast4: '12345' },
-      { services: Array.from({ length: 21 }, (_, i) => `Service ${i}`) },
-      { services: ['x'.repeat(61)] },
-      { services: [' Padded'] },
+      { entityType: 'S-Corp' },
+      { entityType: 'A'.repeat(41) },
+      { teamSize: 0 },
+      { teamSize: 10_001 },
+      { services: Array.from({ length: 21 }, (_, i) => `SERVICE_${i}`) },
+      { services: ['Tax preparation'] },
+      { services: ['PAYROLL', 'PAYROLL'] },
       { services: [''] },
-      { services: ['Tax', 'tax'] },
-      { services: ['Line\nbreak'] },
       { description: '   ' },
       { description: 'x'.repeat(2001) },
       { description: 'bell \u0007' },
     ]) {
-      await expect(set(data)).rejects.toThrow();
+      await expect(set(data), JSON.stringify(data)).rejects.toThrow();
     }
   });
 });

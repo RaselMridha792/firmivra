@@ -1,16 +1,10 @@
--- CreateEnum
-CREATE TYPE "EntityType" AS ENUM ('SOLE_PROPRIETOR', 'LLC', 'S_CORP', 'C_CORP', 'PARTNERSHIP', 'NONPROFIT', 'OTHER');
-
--- CreateEnum
-CREATE TYPE "TeamSize" AS ENUM ('SIZE_1', 'SIZE_2_5', 'SIZE_6_10', 'SIZE_11_25', 'SIZE_26_50', 'SIZE_51_PLUS');
-
 -- AlterTable
 ALTER TABLE "business_settings" ADD COLUMN     "description" TEXT,
 ADD COLUMN     "ein_enc" BYTEA,
 ADD COLUMN     "ein_last4" TEXT,
-ADD COLUMN     "entity_type" "EntityType",
+ADD COLUMN     "entity_type" TEXT,
 ADD COLUMN     "services" TEXT[] DEFAULT ARRAY[]::TEXT[],
-ADD COLUMN     "team_size" "TeamSize";
+ADD COLUMN     "team_size" INTEGER;
 
 -- AlterTable
 ALTER TABLE "businesses" ADD COLUMN     "activated_at" TIMESTAMPTZ(3);
@@ -167,22 +161,28 @@ CREATE TRIGGER users_count_signups
   FOR EACH ROW EXECUTE FUNCTION users_count_signups();
 
 -- ==================== Setup Step 2: business details (T02) ====================
+-- The details the firm gave in its application, now its own to edit: entity type and services as
+-- codes from the application's lists (packages/types firm-applications; the API checks the codes,
+-- so a list change needs no migration), team size as a number. The DBA is `businesses.name`.
 -- The firm's EIN like a client's: ciphertext with the firm's key and the last 4 digits, together.
 ALTER TABLE business_settings ADD CONSTRAINT business_settings_ein
   CHECK ((ein_enc IS NULL) = (ein_last4 IS NULL)
          AND (ein_last4 IS NULL OR ein_last4 ~ '^[0-9]{4}$'));
+ALTER TABLE business_settings ADD CONSTRAINT business_settings_entity_type
+  CHECK (entity_type ~ '^[A-Z][A-Z0-9_]*$' AND char_length(entity_type) <= 40);
+ALTER TABLE business_settings ADD CONSTRAINT business_settings_team_size
+  CHECK (team_size BETWEEN 1 AND 10000);
 
--- Each service a short name: trimmed, not blank, one line, up to `max_len`; no repeats (any case).
-CREATE FUNCTION short_names_ok(items text[], max_len integer) RETURNS boolean
+-- A list of codes: each like `TAX_PREPARATION` (up to 40 characters), none twice.
+CREATE FUNCTION codes_ok(items text[]) RETURNS boolean
   LANGUAGE sql IMMUTABLE
   AS $$
-  SELECT coalesce(bool_and(i IS NOT NULL AND i = btrim(i) AND i <> '' AND char_length(i) <= max_len
-                           AND i !~ '[[:cntrl:]]'), true)
-         AND count(DISTINCT lower(i)) = count(*)
+  SELECT coalesce(bool_and(i ~ '^[A-Z][A-Z0-9_]*$' AND char_length(i) <= 40), true)
+         AND count(DISTINCT i) = count(*)
     FROM unnest(items) AS u(i)
 $$;
 ALTER TABLE business_settings ADD CONSTRAINT business_settings_services
-  CHECK (services IS NOT NULL AND cardinality(services) <= 20 AND short_names_ok(services, 60));
+  CHECK (services IS NOT NULL AND cardinality(services) <= 20 AND codes_ok(services));
 -- Up to 2,000 characters, not blank; line breaks and tabs, no other control characters.
 ALTER TABLE business_settings ADD CONSTRAINT business_settings_description
   CHECK (btrim(description) <> '' AND char_length(description) <= 2000
