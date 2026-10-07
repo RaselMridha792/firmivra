@@ -39,18 +39,20 @@ On Oct 15-16 you and Ibrahim test everything on dev.
 
 - **Pages:** R1 creates the shell and every Super Admin page (see `docs/junior/PAGE-MAP.md`). The sidebar, header and user menu live in `apps/web/src/components/app-shell/`, shared with Fahad's firm site: you make them match the mockup. The dashboard is `admin/(console)/page.tsx`. Fahad builds the sign-in page (F02).
 - **Mockup:** `docs/mockups/super-admin/Dashboard Active .png`.
-- **API:** `useMe()` from the layout for the name and role. Everything else is mock data in `apps/web/src/mocks/` for now; R4 publishes the real functions on Oct 8.
+- **API:** `useMe()` from the layout for the name and role. The F04a dashboard uses page-local sample fixtures for the remaining metrics, applications, search results and notifications; do not change shared mocks. These fixtures are not live API data.
 - **Build:**
   1. Sidebar exactly like the mockup: Dashboard, Firm Applications (with the pending count), Firms; the other items keep their "Soon" badge.
-  2. Header with the search box (no search yet), the bell and the user menu.
-  3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Match the mockup's static Platform Growth chart and legend with inline SVG; do not add a chart package.
+  2. Header search filters local sample firm/application/user records, supports arrow keys, Enter, Escape and clear, and links results to existing routes. The bell opens the sample notification panel with unread/read behavior; keep the user menu.
+  3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Match the mockup's static Platform Growth chart and legend with inline SVG; do not add a chart package. The growth-period selector changes the displayed sample date window and chart.
+
+**Status (Oct 7, 2026):** F04a implementation and dashboard interactions are on `tumit/FIR-F04a-admin-dashboard`, pushed through `359aef3` (21 commits for the feature and follow-up test fix). Dashboard values remain local sample fixtures. No PR, CI result, pre-review, final review or merge is recorded here.
 
 Checklist:
 
-- [ ] Close to the mockup at desktop; the sidebar collapses at 375 px
-- [ ] The firm site (app.localhost) still looks right with the same shell
-- [ ] Loading and error states
-- [ ] Playwright: the dashboard loads in mock mode
+- [ ] Recheck the desktop and 375 px layout after the latest interaction changes. An earlier preview at 1536x1024 and 375x812 stayed within each viewport and showed no page or hydration error.
+- [ ] Confirm the firm site (`app.localhost`) still looks right with the shared shell.
+- [ ] Verify loading and error states.
+- [ ] Run the Playwright suite successfully against the correctly host-routed Super Admin dev server. Coverage was added for layout, search, notifications, chart range and quick actions, but the suite is not recorded as passing.
 
 #### F04a functional preview behavior
 
