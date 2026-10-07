@@ -2,6 +2,7 @@ import {
   ApiRequestError,
   type ContentClient,
   ContentItem,
+  contentKindProblem,
   ContentQuery,
   CreateContentRequest,
   type MyContentClient,
@@ -219,7 +220,11 @@ export function createContentMock(options: { role?: MockFirmRole } = {}): Conten
       await mockDelay();
       const input = parseInput(UpdateContentRequest, body);
       manager();
-      return copy(touch(find(id), input));
+      const c = find(id);
+      // The edited item must still fit its kind, as the API checks.
+      const problem = contentKindProblem({ ...c, ...input });
+      if (problem) throw fail(400, 'VALIDATION_FAILED', problem);
+      return copy(touch(c, input));
     },
     publish: async (id) => {
       await mockDelay();

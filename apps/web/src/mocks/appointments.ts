@@ -217,7 +217,14 @@ let store: Store | undefined;
 const db = () => (store ??= seed());
 
 /** Free starts on a 15-minute grid for one member, within hours, outside blocks and appointments. */
-function freeStarts(s: Store, member: MemberRef, minutes: number, fromDay: number, toDay: number) {
+function freeStarts(
+  s: Store,
+  member: MemberRef,
+  minutes: number,
+  fromDay: number,
+  toDay: number,
+  excludeAppointmentId?: string,
+) {
   const slots: Slot[] = [];
   const now = Date.now();
   for (let day = fromDay; day <= toDay; day += DAY) {
@@ -238,7 +245,10 @@ function freeStarts(s: Store, member: MemberRef, minutes: number, fromDay: numbe
         const busy =
           s.appointments.some(
             (a) =>
-              a.status === 'SCHEDULED' && a.staff.userId === member.userId && overlaps(a, slot),
+              a.id !== excludeAppointmentId &&
+              a.status === 'SCHEDULED' &&
+              a.staff.userId === member.userId &&
+              overlaps(a, slot),
           ) ||
           s.blocks.some(
             (b) => (b.member === null || b.member.userId === member.userId) && overlaps(b, slot),
@@ -493,7 +503,9 @@ export function createAppointmentsMock(): AppointmentsClient {
       const who = q.staffUserId
         ? [member(q.staffUserId)].filter((m) => m !== undefined)
         : members();
-      const slots = who.flatMap((m) => freeStarts(s, m, t.durationMinutes, from, to));
+      const slots = who.flatMap((m) =>
+        freeStarts(s, m, t.durationMinutes, from, to, q.excludeAppointmentId),
+      );
       return copy({
         timezone: TIMEZONE,
         slots: slots.sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
@@ -661,7 +673,7 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       const [from, to] = dayRange(q.from, q.to);
       const starts = new Map<string, string>();
       for (const m of members()) {
-        for (const slot of freeStarts(db(), m, t.durationMinutes, from, to))
+        for (const slot of freeStarts(db(), m, t.durationMinutes, from, to, q.excludeAppointmentId))
           starts.set(slot.startsAt, slot.endsAt);
       }
       const slots = [...starts]

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
-import { text } from '../clients/text.js';
+import { clearable, text } from '../clients/text.js';
 
 // Appointments (R12): the firm's calendar, availability and appointment types, and the client's
 // own appointments in the portal (System Wiring section 2).
@@ -11,7 +11,9 @@ import { text } from '../clients/text.js';
 // - Clients see only types with clientBookable, and only free slots: the client's assigned staff
 //   member when free, otherwise the free member with the fewest appointments that day.
 // - Clients reschedule or cancel until the type's cancelCutoffHours before the start
-//   (0 = until the start); after that 409 CHANGE_WINDOW_CLOSED (contact the firm).
+//   (0 = until the start); after that 409 CHANGE_WINDOW_CLOSED (contact the firm). The type's
+//   cutoff applies whether or not it is client-bookable; an appointment without a type uses 24
+//   hours. Staff can change any appointment at any time.
 // - The database stops double booking: an overlap with the staff member's or the client's other
 //   appointments, or with blocked time, is 409 SLOT_TAKEN.
 // - Every book, reschedule, cancel, complete and no-show is kept as the appointment's history.
@@ -50,7 +52,8 @@ const Duration = z
 /** Hours before the start until which a client may reschedule or cancel; 0 = until the start. */
 const CutoffHours = z.number().int().min(0).max(720);
 const SortOrder = z.number().int().min(0).max(1000);
-const Reason = text(500, 'many');
+/** Optional text: leave it out, or send '' or null, for none. */
+const Reason = clearable(text(500, 'many'));
 const nonEmpty = (o: object) => Object.keys(o).length > 0;
 
 /** The time an appointment or block takes. */
@@ -189,7 +192,7 @@ export const CreateBlockedTimeRequest = z
     userId: MemberId.nullable(),
     startsAt: DateTime,
     endsAt: DateTime,
-    reason: Reason.optional(),
+    reason: Reason,
   })
   .refine((b) => Date.parse(b.startsAt) < Date.parse(b.endsAt), 'The end must be after the start');
 export type CreateBlockedTimeRequest = z.input<typeof CreateBlockedTimeRequest>;
@@ -270,7 +273,8 @@ export type SlotList = z.infer<typeof SlotList>;
 
 /**
  * GET /business/appointments/slots: free starts on a 15-minute grid for one type, from one
- * calendar date to another (firm timezone, at most 31 days); one member's or everyone's.
+ * calendar date to another (firm timezone, at most 31 days); one member's or everyone's. When
+ * rescheduling, pass `excludeAppointmentId`: the moved appointment's own time counts as free.
  */
 export const SlotsQuery = z
   .strictObject({
@@ -278,6 +282,7 @@ export const SlotsQuery = z
     staffUserId: MemberId.optional(),
     from: CalendarDate,
     to: CalendarDate,
+    excludeAppointmentId: AppointmentId.optional(),
   })
   .refine(within(31), 'Use a range of at most 31 days');
 export type SlotsQuery = z.input<typeof SlotsQuery>;
@@ -295,7 +300,7 @@ export const BookAppointmentRequest = z
     startsAt: DateTime,
     durationMinutes: Duration.optional(),
     locationKind: LocationKind.optional(),
-    locationDetails: text(500, 'many').optional(),
+    locationDetails: clearable(text(500, 'many')),
     engagementId: z.uuid().optional(),
   })
   .refine((b) => b.typeId !== undefined || b.durationMinutes !== undefined, {
@@ -311,7 +316,7 @@ export const RescheduleAppointmentRequest = z.strictObject({
 });
 export type RescheduleAppointmentRequest = z.input<typeof RescheduleAppointmentRequest>;
 
-export const CancelAppointmentRequest = z.strictObject({ reason: Reason.optional() });
+export const CancelAppointmentRequest = z.strictObject({ reason: Reason });
 export type CancelAppointmentRequest = z.input<typeof CancelAppointmentRequest>;
 
 // ---------- The client's own appointments (portal) ----------
@@ -325,7 +330,10 @@ export const MyAppointment = z.object({
   status: AppointmentStatus,
   locationKind: LocationKind,
   locationDetails: z.string().nullable(),
-  /** The last moment the client may reschedule or cancel, or null once it is past or final. */
+  /**
+   * The last moment the client may reschedule or cancel (the type's cutoff, or 24 hours without
+   * a type), or null once it is past or final.
+   */
   changeableUntil: DateTime.nullable(),
 });
 export type MyAppointment = z.infer<typeof MyAppointment>;
@@ -359,9 +367,17 @@ export type MySlot = z.infer<typeof MySlot>;
 export const MySlotList = z.object({ timezone: z.string(), slots: z.array(MySlot) });
 export type MySlotList = z.infer<typeof MySlotList>;
 
-/** Free starts for a bookable type, from one date to another (at most 31 days, from today). */
+/**
+ * Free starts for a bookable type, from one date to another (at most 31 days, from today). When
+ * rescheduling, pass `excludeAppointmentId` (the client's own): its time counts as free.
+ */
 export const MySlotsQuery = z
-  .strictObject({ typeId: AppointmentTypeId, from: CalendarDate, to: CalendarDate })
+  .strictObject({
+    typeId: AppointmentTypeId,
+    from: CalendarDate,
+    to: CalendarDate,
+    excludeAppointmentId: AppointmentId.optional(),
+  })
   .refine(within(31), 'Use a range of at most 31 days');
 export type MySlotsQuery = z.input<typeof MySlotsQuery>;
 
@@ -376,7 +392,7 @@ export type BookMyAppointmentRequest = z.input<typeof BookMyAppointmentRequest>;
 export const RescheduleMyAppointmentRequest = z.strictObject({ startsAt: DateTime });
 export type RescheduleMyAppointmentRequest = z.input<typeof RescheduleMyAppointmentRequest>;
 
-export const CancelMyAppointmentRequest = z.strictObject({ reason: Reason.optional() });
+export const CancelMyAppointmentRequest = z.strictObject({ reason: Reason });
 export type CancelMyAppointmentRequest = z.input<typeof CancelMyAppointmentRequest>;
 
 // ---------- Errors ----------

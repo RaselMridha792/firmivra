@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  contentKindProblem,
   createContentClient,
   createMyContentClient,
   createRequest,
   CreateContentRequest,
+  HttpsUrl,
+  UpdateContentRequest,
 } from '../../src/index.js';
 
 function fakeFetch(status: number, body: unknown) {
@@ -53,6 +56,34 @@ describe('content rules', () => {
       false,
     );
     expect(CreateContentRequest.safeParse({ ...resource, body: undefined }).success).toBe(false);
+  });
+});
+
+describe('content links and text (#68 review)', () => {
+  it('normalizes https links, and refuses credentials, IP addresses and localhost', () => {
+    expect(HttpsUrl.parse('HTTPS://WWW.IRS.GOV/ein')).toBe('https://www.irs.gov/ein');
+    expect(HttpsUrl.parse('https://irs.gov/a b')).toBe('https://irs.gov/a%20b');
+    expect(HttpsUrl.parse(' https://irs.gov/x ')).toBe('https://irs.gov/x');
+    for (const url of ['https://user:pw@irs.gov/', 'https://1.2.3.4/x', 'https://localhost/x']) {
+      expect([url, HttpsUrl.safeParse(url).success]).toEqual([url, false]);
+    }
+  });
+
+  it("reads '' as none, and takes only the four resource pages", () => {
+    const tip = CreateContentRequest.parse({ kind: 'TIP', title: 'T', body: 'b', description: '' });
+    expect(tip.description).toBeNull();
+    expect(UpdateContentRequest.parse({ category: '' })).toEqual({ category: null });
+    const page = { kind: 'RESOURCE', title: 'T', body: 'b' };
+    expect(CreateContentRequest.safeParse({ ...page, category: 'payroll' }).success).toBe(true);
+    expect(CreateContentRequest.safeParse({ ...page, category: 'payroll-2' }).success).toBe(false);
+    expect(CreateContentRequest.safeParse({ ...page, category: 'payroll', body: '' }).success).toBe(
+      false,
+    );
+  });
+
+  it('checks an edited item against its kind', () => {
+    expect(contentKindProblem({ kind: 'EXTERNAL_LINK', url: null })).toBe('Add the link');
+    expect(contentKindProblem({ kind: 'TIP', body: 'b' })).toBeNull();
   });
 });
 

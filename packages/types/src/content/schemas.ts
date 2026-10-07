@@ -1,13 +1,15 @@
 import { z } from 'zod';
-import { text } from '../clients/text.js';
+import { clearable, text } from '../clients/text.js';
 
 // Content (R12): what the firm publishes in its portal: resource pages, tips and external links
 // (content_items). Firm routes: /api/v1/business/content (everyone reads; Owner and Admin
 // create, edit, publish and delete). Portal routes: /api/v1/portal/{firmSlug}/me/content
 // (published items only).
-// - RESOURCE: one section of a resource page. `category` is the page's key (RESOURCE_PAGES),
-//   `title` the section heading, `body` its markdown (headings, lists and tables; no raw HTML).
+// - RESOURCE: one section of a resource page. `category` is the page's key (ResourcePage),
+//   `title` the section heading, `body` its markdown.
 // - TIP: a short markdown tip; `category` groups tips (optional).
+// - Markdown is shown with R1's shared renderer: headings, lists, tables, emphasis; raw HTML off,
+//   images off, and links only to https: or mailto: (anything else is shown as text).
 // - EXTERNAL_LINK: a card that opens an https URL in a new tab. `category` is the section
 //   ("IRS & Business Taxes"), `iconKey` the source's icon ("irs", "sba"), never a URL.
 // - Business only (System Wiring G): resources and external links belong to "Business Documents
@@ -29,21 +31,25 @@ export const RESOURCE_PAGES = [
   'payroll',
   'tax-deductions',
 ] as const;
-/** A resource page key: lower-case words joined by dashes. */
-const PageKey = z
-  .string()
-  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use lower-case words and dashes')
-  .max(40);
+/** A RESOURCE item's `category`: one of the resource pages. */
+export const ResourcePage = z.enum(RESOURCE_PAGES);
+export type ResourcePage = z.infer<typeof ResourcePage>;
 /** The design-system icon name for a card: "irs", "sba", "fdic", "census", "link"... */
 export const IconKey = z
   .string()
   .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use an icon name')
   .max(40);
-/** Only https, and nothing a client could be sent to by mistake (no credentials in the URL). */
+/**
+ * An https link to a domain name (never an IP address or localhost), normalized ("HTTPS://IRS.GOV"
+ * becomes "https://irs.gov/", spaces become %20), with no user name or password in it.
+ */
 export const HttpsUrl = z
-  .url({ protocol: /^https$/, hostname: z.regexes.domain })
+  .url({ protocol: /^https$/, hostname: z.regexes.domain, normalize: true })
   .max(2000)
-  .refine((u) => !/^https:\/\/[^/]*@/.test(u), 'Remove the user name or password from the link');
+  .refine((u) => {
+    const url = new URL(u);
+    return url.username === '' && url.password === '';
+  }, 'Remove the user name or password from the link');
 
 export const ContentItem = z.object({
   id: z.uuid(),
@@ -76,25 +82,37 @@ export type ContentQuery = z.input<typeof ContentQuery>;
 type Fields = {
   kind?: ContentKind | undefined;
   category?: string | null | undefined;
-  body?: string | undefined;
-  url?: string | undefined;
+  body?: string | null | undefined;
+  url?: string | null | undefined;
 };
-/** What each kind needs: links a URL and no body; resources a page key and a body; tips a body. */
-const kindRules = (c: Fields, ctx: z.RefinementCtx) => {
+/**
+ * What each kind needs: links a URL and no body; resources one of the resource pages and a
+ * body; tips a body. Returns each problem's field and message.
+ */
+function kindProblems(c: Fields): { path: string; message: string }[] {
+  const problems: { path: string; message: string }[] = [];
   if (c.kind === 'EXTERNAL_LINK') {
-    if (c.url === undefined)
-      ctx.addIssue({ code: 'custom', path: ['url'], message: 'Add the link' });
-    if (c.body !== undefined) {
-      ctx.addIssue({ code: 'custom', path: ['body'], message: 'Links have no body' });
-    }
+    if (c.url == null) problems.push({ path: 'url', message: 'Add the link' });
+    if (c.body != null) problems.push({ path: 'body', message: 'Links have no body' });
   } else if (c.kind !== undefined) {
-    if (c.body === undefined)
-      ctx.addIssue({ code: 'custom', path: ['body'], message: 'Add the text' });
-    if (c.url !== undefined)
-      ctx.addIssue({ code: 'custom', path: ['url'], message: 'Only links have a URL' });
+    if (c.body == null) problems.push({ path: 'body', message: 'Add the text' });
+    if (c.url != null) problems.push({ path: 'url', message: 'Only links have a URL' });
   }
-  if (c.kind === 'RESOURCE' && !PageKey.safeParse(c.category).success) {
-    ctx.addIssue({ code: 'custom', path: ['category'], message: 'Choose the resource page' });
+  if (c.kind === 'RESOURCE' && !ResourcePage.safeParse(c.category).success) {
+    problems.push({ path: 'category', message: 'Choose the resource page' });
+  }
+  return problems;
+}
+
+/**
+ * The first problem with an item for its kind, or null. The API (and the mock) check an edited
+ * item with it, since an update sends only the changed fields.
+ */
+export const contentKindProblem = (c: Fields): string | null => kindProblems(c)[0]?.message ?? null;
+
+const contentKindRules = (c: Fields, ctx: z.RefinementCtx) => {
+  for (const { path, message } of kindProblems(c)) {
+    ctx.addIssue({ code: 'custom', path: [path], message });
   }
 };
 
@@ -102,15 +120,15 @@ const kindRules = (c: Fields, ctx: z.RefinementCtx) => {
 export const CreateContentRequest = z
   .strictObject({
     kind: ContentKind,
-    category: text(80).optional(),
+    category: clearable(text(80)),
     title: text(120),
-    description: text(300, 'many').optional(),
-    body: text(20_000, 'many').optional(),
-    url: HttpsUrl.optional(),
+    description: clearable(text(300, 'many')),
+    body: clearable(text(20_000, 'many')),
+    url: clearable(HttpsUrl),
     iconKey: IconKey.optional(),
     sortOrder: z.number().int().min(0).max(1000).optional(),
   })
-  .superRefine(kindRules);
+  .superRefine(contentKindRules);
 export type CreateContentRequest = z.input<typeof CreateContentRequest>;
 
 /**
@@ -119,9 +137,9 @@ export type CreateContentRequest = z.input<typeof CreateContentRequest>;
  */
 export const UpdateContentRequest = z
   .strictObject({
-    category: text(80).nullable().optional(),
+    category: clearable(text(80)),
     title: text(120).optional(),
-    description: text(300, 'many').nullable().optional(),
+    description: clearable(text(300, 'many')),
     body: text(20_000, 'many').optional(),
     url: HttpsUrl.optional(),
     iconKey: IconKey.nullable().optional(),

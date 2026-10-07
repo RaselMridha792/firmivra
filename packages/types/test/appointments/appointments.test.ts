@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ApiRequestError,
   BookAppointmentRequest,
+  CancelAppointmentRequest,
   CreateAppointmentTypeRequest,
   createAppointmentsClient,
   createAppointmentTypesClient,
@@ -89,6 +90,14 @@ describe('appointment schemas', () => {
     const slots = { typeId: id, from: '2026-10-13', to: '2026-11-13' };
     expect(SlotsQuery.safeParse(slots).success).toBe(true);
     expect(SlotsQuery.safeParse({ ...slots, to: '2026-11-14' }).success).toBe(false);
+  });
+});
+
+describe('appointment schemas (#68 review)', () => {
+  it("reads '' as no reason, and lets a reschedule exclude the moved appointment", () => {
+    expect(CancelAppointmentRequest.parse({ reason: '' })).toEqual({ reason: null });
+    const query = { typeId: id, from: '2026-10-13', to: '2026-10-20', excludeAppointmentId: id };
+    expect(SlotsQuery.parse(query)).toMatchObject({ excludeAppointmentId: id });
   });
 });
 
