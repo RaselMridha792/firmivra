@@ -1,0 +1,647 @@
+[
+  {
+    "name": "admin-login",
+    "reference": "super-admin/Super login.png",
+    "width": 1536,
+    "height": 1024,
+    "actual": {
+      "width": 1536,
+      "height": 1024,
+      "elements": [
+        {
+          "element": "H1",
+          "bounds": {
+            "x": 88.984375,
+            "y": 352,
+            "width": 440,
+            "height": 47.5,
+            "top": 352,
+            "right": 528.984375,
+            "bottom": 399.5,
+            "left": 88.984375
+          }
+        },
+        {
+          "element": "ref-login-card",
+          "bounds": {
+            "x": 570,
+            "y": 97,
+            "width": 678.984375,
+            "height": 851,
+            "top": 97,
+            "right": 1248.984375,
+            "bottom": 948,
+            "left": 570
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 636,
+            "y": 328.5,
+            "width": 546.984375,
+            "height": 41,
+            "top": 328.5,
+            "right": 1182.984375,
+            "bottom": 369.5,
+            "left": 636
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "admin-dashboard",
+    "reference": "super-admin/Dashboard Active .png",
+    "width": 1536,
+    "height": 1024,
+    "actual": {
+      "width": 1536,
+      "height": 1024,
+      "elements": [
+        {
+          "element": "ref-admin-sidebar",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 289,
+            "height": 1024,
+            "top": 0,
+            "right": 289,
+            "bottom": 1024,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "H1",
+          "bounds": {
+            "x": 318,
+            "y": 78,
+            "width": 397.53125,
+            "height": 38.390625,
+            "top": 78,
+            "right": 715.53125,
+            "bottom": 116.390625,
+            "left": 318
+          }
+        },
+        {
+          "element": "ref-summary-grid",
+          "bounds": {
+            "x": 310,
+            "y": 161.390625,
+            "width": 1210,
+            "height": 120,
+            "top": 161.390625,
+            "right": 1520,
+            "bottom": 281.390625,
+            "left": 310
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 332,
+            "y": 313.390625,
+            "width": 848,
+            "height": 27,
+            "top": 313.390625,
+            "right": 1180,
+            "bottom": 340.390625,
+            "left": 332
+          }
+        },
+        {
+          "element": "ref-table-region",
+          "bounds": {
+            "x": 328,
+            "y": 356.390625,
+            "width": 856,
+            "height": 115,
+            "top": 356.390625,
+            "right": 1184,
+            "bottom": 471.390625,
+            "left": 328
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 332,
+            "y": 521.390625,
+            "width": 409.84375,
+            "height": 34,
+            "top": 521.390625,
+            "right": 741.84375,
+            "bottom": 555.390625,
+            "left": 332
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 799.84375,
+            "y": 521.390625,
+            "width": 380.140625,
+            "height": 27,
+            "top": 521.390625,
+            "right": 1179.984375,
+            "bottom": 548.390625,
+            "left": 799.84375
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 1238,
+            "y": 313.390625,
+            "width": 260,
+            "height": 27,
+            "top": 313.390625,
+            "right": 1498,
+            "bottom": 340.390625,
+            "left": 1238
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 1238,
+            "y": 556.390625,
+            "width": 260,
+            "height": 27,
+            "top": 556.390625,
+            "right": 1498,
+            "bottom": 583.390625,
+            "left": 1238
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 332,
+            "y": 818.390625,
+            "width": 1166,
+            "height": 27,
+            "top": 818.390625,
+            "right": 1498,
+            "bottom": 845.390625,
+            "left": 332
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "admin-applications",
+    "reference": "super-admin/Firm application.png",
+    "width": 1672,
+    "height": 941,
+    "actual": {
+      "width": 1672,
+      "height": 941,
+      "elements": [
+        {
+          "element": "ref-admin-sidebar",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 267,
+            "height": 941,
+            "top": 0,
+            "right": 267,
+            "bottom": 941,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "H1",
+          "bounds": {
+            "x": 292,
+            "y": 86,
+            "width": 740.375,
+            "height": 55.1875,
+            "top": 86,
+            "right": 1032.375,
+            "bottom": 141.1875,
+            "left": 292
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "ref-summary-grid",
+          "bounds": {
+            "x": 292,
+            "y": 193.1875,
+            "width": 1355,
+            "height": 114,
+            "top": 193.1875,
+            "right": 1647,
+            "bottom": 307.1875,
+            "left": 292
+          }
+        },
+        {
+          "element": "ref-table-region",
+          "bounds": {
+            "x": 301,
+            "y": 486.1875,
+            "width": 1337,
+            "height": 211,
+            "top": 486.1875,
+            "right": 1638,
+            "bottom": 697.1875,
+            "left": 301
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "admin-application-open",
+    "reference": "super-admin/When firm aplication is open.png",
+    "width": 1536,
+    "height": 1024,
+    "actual": {
+      "width": 1536,
+      "height": 1027,
+      "elements": [
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "H1",
+          "bounds": {
+            "x": 26,
+            "y": 88,
+            "width": 666.328125,
+            "height": 43.6875,
+            "top": 88,
+            "right": 692.328125,
+            "bottom": 131.6875,
+            "left": 26
+          }
+        },
+        {
+          "element": "ref-summary-grid",
+          "bounds": {
+            "x": 26,
+            "y": 169.6875,
+            "width": 1010,
+            "height": 88,
+            "top": 169.6875,
+            "right": 1036,
+            "bottom": 257.6875,
+            "left": 26
+          }
+        },
+        {
+          "element": "ref-table-region",
+          "bounds": {
+            "x": 26,
+            "y": 271.6875,
+            "width": 1484,
+            "height": 110,
+            "top": 271.6875,
+            "right": 1510,
+            "bottom": 381.6875,
+            "left": 26
+          }
+        },
+        {
+          "element": "ref-panel ref-record-detail",
+          "bounds": {
+            "x": 26,
+            "y": 453.6875,
+            "width": 1484,
+            "height": 561.125,
+            "top": 453.6875,
+            "right": 1510,
+            "bottom": 1014.8125,
+            "left": 26
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 45,
+            "y": 500.6875,
+            "width": 383.765625,
+            "height": 40,
+            "top": 500.6875,
+            "right": 428.765625,
+            "bottom": 540.6875,
+            "left": 45
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "admin-firm-approved",
+    "reference": "super-admin/Firm approved.png",
+    "width": 1536,
+    "height": 1024,
+    "actual": {
+      "width": 1536,
+      "height": 1024,
+      "elements": [
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "H1",
+          "bounds": {
+            "x": 26,
+            "y": 82,
+            "width": 450.234375,
+            "height": 43.6875,
+            "top": 82,
+            "right": 476.234375,
+            "bottom": 125.6875,
+            "left": 26
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "ref-summary-grid",
+          "bounds": {
+            "x": 26,
+            "y": 163.6875,
+            "width": 1484,
+            "height": 112,
+            "top": 163.6875,
+            "right": 1510,
+            "bottom": 275.6875,
+            "left": 26
+          }
+        },
+        {
+          "element": "ref-table-region",
+          "bounds": {
+            "x": 26,
+            "y": 288.6875,
+            "width": 1484,
+            "height": 104,
+            "top": 288.6875,
+            "right": 1510,
+            "bottom": 392.6875,
+            "left": 26
+          }
+        },
+        {
+          "element": "ref-panel ref-record-detail",
+          "bounds": {
+            "x": 26,
+            "y": 457.6875,
+            "width": 1484,
+            "height": 552.125,
+            "top": 457.6875,
+            "right": 1510,
+            "bottom": 1009.8125,
+            "left": 26
+          }
+        },
+        {
+          "element": "H2",
+          "bounds": {
+            "x": 45,
+            "y": 504.6875,
+            "width": 383.765625,
+            "height": 40,
+            "top": 504.6875,
+            "right": 428.765625,
+            "bottom": 544.6875,
+            "left": 45
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        },
+        {
+          "element": "text-2xl font-bold text-heading",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
+        }
+      ]
+    }
+  }
+]
