@@ -17,6 +17,7 @@ import { DatabaseModule } from './database/database.module.js';
 import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
 import { MeModule } from './me/me.controller.js';
+import { ClientsModule } from './clients/clients.controller.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -58,6 +59,7 @@ export class AppModule {
         AuditModule,
         HealthModule,
         MeModule,
+        ClientsModule,
         SignInModule,
         BusinessModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
