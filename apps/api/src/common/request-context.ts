@@ -30,8 +30,12 @@ export interface PlatformContext {
 
 export interface RequestStore {
   requestId: string;
+  /** The viewer's IP: req.ip, with trust proxy set to our hops (never raw X-Forwarded-For). */
   ip?: string;
   userAgent?: string;
+  /** For Cognito threat protection only (auth/identity/cognito-identity.provider.ts). */
+  acceptLanguage?: string;
+  path?: string;
   auth?: AuthContext;
   tenant?: TenantContext;
   platform?: PlatformContext;
@@ -60,5 +64,14 @@ export function requestContextMiddleware(req: Request, res: Response, next: Next
   const requestId = incoming && REQUEST_ID.test(incoming) ? incoming : randomUUID();
   req.id = requestId;
   res.setHeader('x-request-id', requestId);
-  requestContext.run({ requestId, ip: req.ip, userAgent: req.get('user-agent') }, next);
+  requestContext.run(
+    {
+      requestId,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      acceptLanguage: req.get('accept-language'),
+      path: req.path,
+    },
+    next,
+  );
 }

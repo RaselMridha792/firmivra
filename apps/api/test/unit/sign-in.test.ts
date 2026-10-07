@@ -18,6 +18,7 @@ import {
   type CognitoClient,
   CognitoIdentityProvider,
   type CognitoPool,
+  cognitoPoolsFromEnv,
 } from '../../src/auth/identity/cognito-identity.provider.js';
 import { AuthFlowError } from '../../src/auth/identity/identity-provider.js';
 import { deriveKey } from '../../src/auth/sealed.js';
@@ -30,6 +31,7 @@ import { AdminSignInController, StaffSignInController } from '../../src/auth/sig
 import { otpauthUri, SignInService } from '../../src/auth/sign-in.service.js';
 import { siteOf, sitePlace } from '../../src/auth/site.js';
 import { TokenService } from '../../src/auth/token.service.js';
+import { requestContext, requestContextMiddleware } from '../../src/common/request-context.js';
 import { loadEnv } from '../../src/config/env.js';
 
 const STAFF_POOL: CognitoPool = {
@@ -41,7 +43,10 @@ const STAFF_POOL: CognitoPool = {
 const awsError = (name: string) => Object.assign(new Error(name), { name });
 
 /** A Cognito client that answers each command by name and records what was sent. */
-function fakeCognito(handlers: Record<string, (input: Record<string, unknown>) => unknown>) {
+function fakeCognito(
+  handlers: Record<string, (input: Record<string, unknown>) => unknown>,
+  pool: CognitoPool = STAFF_POOL,
+) {
   const sent: { command: string; input: Record<string, unknown> }[] = [];
   const send = vi.fn((cmd: { constructor: { name: string }; input: Record<string, unknown> }) => {
     const command = cmd.constructor.name.replace(/Command$/, '');
@@ -55,7 +60,7 @@ function fakeCognito(handlers: Record<string, (input: Record<string, unknown>) =
     }
   });
   const provider = new CognitoIdentityProvider({ send } as unknown as CognitoClient, {
-    STAFF: STAFF_POOL,
+    STAFF: pool,
   });
   return { provider, sent };
 }
@@ -652,6 +657,7 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
       forPlatform: () => ({
         user: { findMany: vi.fn().mockResolvedValue([user]) },
         platformAdmin: { findUnique: vi.fn().mockResolvedValue({ userId: 'u1' }) },
+        auditLog: { count: vi.fn().mockResolvedValue(0) },
       }),
     } as unknown as Database;
     const identity = {
@@ -673,6 +679,106 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
       /skipped MFA/,
     );
     expect(identity.revoke).toHaveBeenCalledWith(site === 'admin' ? 'ADMIN' : 'STAFF', 'ref');
+  });
+});
+
+describe('Cognito ContextData for threat protection (step 7)', () => {
+  const pool = { ...STAFF_POOL, serverName: 'app.firmivra.test' };
+  const store = {
+    requestId: 'r1',
+    ip: '203.0.113.9',
+    userAgent: 'Mozilla/5.0 (test)',
+    acceptLanguage: 'en-US,en;q=0.9',
+    path: '/api/v1/auth/sign-in',
+  };
+  const expected = {
+    IpAddress: '203.0.113.9',
+    ServerName: 'app.firmivra.test',
+    ServerPath: '/api/v1/auth/sign-in',
+    HttpHeaders: [
+      { headerName: 'user-agent', headerValue: 'Mozilla/5.0 (test)' },
+      { headerName: 'accept-language', headerValue: 'en-US,en;q=0.9' },
+    ],
+  };
+
+  it('sends the viewer, the site and only User-Agent and Accept-Language on sign-in and MFA', async () => {
+    const { provider, sent } = fakeCognito(
+      {
+        ListUsers: knownUser,
+        AdminInitiateAuth: () => ({ ChallengeName: 'SOFTWARE_TOKEN_MFA', Session: 's1' }),
+        AdminRespondToAuthChallenge: () => ({ AuthenticationResult: tokens }),
+      },
+      pool,
+    );
+    await requestContext.run(store, async () => {
+      await provider.signIn('STAFF', 'sub-1', 'pw');
+      await provider.answerMfa('STAFF', 'cognito-user-1', 's1', '123456');
+    });
+    expect(sent.find((c) => c.command === 'AdminInitiateAuth')?.input['ContextData']).toEqual(
+      expected,
+    );
+    expect(
+      sent.find((c) => c.command === 'AdminRespondToAuthChallenge')?.input['ContextData'],
+    ).toEqual(expected);
+  });
+
+  it('sends none outside a request', async () => {
+    const { provider, sent } = fakeCognito(
+      { ListUsers: knownUser, AdminInitiateAuth: () => ({ AuthenticationResult: tokens }) },
+      pool,
+    );
+    await provider.signIn('STAFF', 'sub-1', 'pw');
+    expect(sent.find((c) => c.command === 'AdminInitiateAuth')?.input['ContextData']).toBe(
+      undefined,
+    );
+  });
+
+  it('keeps req.ip (trust proxy) and never a raw X-Forwarded-For, Cookie or Authorization', () => {
+    const headers: Record<string, string> = {
+      'x-forwarded-for': '198.51.100.66, 10.0.0.5',
+      cookie: 'fv_access=secret',
+      authorization: 'Bearer secret',
+      'user-agent': 'UA',
+    };
+    const req = {
+      ip: '203.0.113.9',
+      path: '/api/v1/auth/sign-in',
+      get: (name: string) => headers[name.toLowerCase()],
+    };
+    const res = { setHeader: vi.fn() };
+    let seen: unknown;
+    requestContextMiddleware(req as never, res as never, () => {
+      seen = requestContext.getStore();
+    });
+    expect(seen).toMatchObject({ ip: '203.0.113.9', userAgent: 'UA' });
+    expect(JSON.stringify(seen)).not.toMatch(/secret|198\.51\.100\.66/);
+  });
+
+  it("takes each pool's host from its site's base URL", () => {
+    const env = loadEnv({
+      NODE_ENV: 'test',
+      AUTH_MODE: 'cognito',
+      DATABASE_URL_APP: 'postgresql://unused',
+      APP_BASE_URL: 'https://app.dev.firmivra.test',
+      PORTAL_BASE_URL: 'https://portal.dev.firmivra.test',
+      ADMIN_BASE_URL: 'https://admin.dev.firmivra.test',
+      COGNITO_REGION: 'us-east-1',
+      COGNITO_STAFF_USER_POOL_ID: 'p1',
+      COGNITO_STAFF_CLIENT_ID: 'c1',
+      COGNITO_STAFF_CLIENT_SECRET: 'fake-secret-1',
+      COGNITO_CLIENTS_USER_POOL_ID: 'p2',
+      COGNITO_CLIENTS_CLIENT_ID: 'c2',
+      COGNITO_CLIENTS_CLIENT_SECRET: 'fake-secret-2',
+      COGNITO_ADMINS_USER_POOL_ID: 'p3',
+      COGNITO_ADMINS_CLIENT_ID: 'c3',
+      COGNITO_ADMINS_CLIENT_SECRET: 'fake-secret-3',
+    });
+    const pools = cognitoPoolsFromEnv(env);
+    expect([pools.STAFF?.serverName, pools.CLIENT?.serverName, pools.ADMIN?.serverName]).toEqual([
+      'app.dev.firmivra.test',
+      'portal.dev.firmivra.test',
+      'admin.dev.firmivra.test',
+    ]);
   });
 });
 

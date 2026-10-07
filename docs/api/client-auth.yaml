@@ -90,6 +90,8 @@ info:
 
     `sign-up`, `verify-email`, `verify-phone`, `resend`, `change-email`, `change-phone`, and the
     sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email).
+    Sign-in counts failures as in auth.yaml, per firm and email: a client's login at one firm
+    is never locked by failures at another. The firm's audit log holds its clients' sign-ins.
 
 servers:
   - url: /api/v1

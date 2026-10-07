@@ -91,8 +91,17 @@ info:
 
     `sign-in`, `mfa`, `mfa/setup`, `forgot-password`, `reset-password`, `activation/check` and
     `activate` answer `429 RATE_LIMITED` when called too often. Limits count per viewer IP (the
-    address CloudFront saw, not the load balancer's), and from R2 step 7 also per email or
-    session. Show "Too many attempts. Wait a few minutes and try again."
+    address CloudFront saw, not the load balancer's) and per email, shared across API tasks:
+    - 10 failed sign-ins for one email in 15 minutes (wrong passwords and wrong MFA codes alike):
+      then every sign-in for it answers `429 RATE_LIMITED` until the window passes, the same for
+      an email with no account;
+    - 5 wrong MFA codes in one sign-in: then `401 CHALLENGE_EXPIRED`, sign in again (those codes
+      still count for the email, so starting again gives no fresh tries).
+
+    Show "Too many attempts. Wait a few minutes and try again." Every sign-in and every failure is audited
+    (`auth.signed_in`, `auth.sign_in_failed`); the email is stored only as a keyed hash. Cognito
+    threat protection gets the viewer's IP and browser (User-Agent, Accept-Language), never
+    cookies or tokens.
 
     ## Local development
 

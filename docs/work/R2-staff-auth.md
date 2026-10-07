@@ -20,8 +20,8 @@
 - [x] 4. GET /me: user, firm memberships, role from our DB
 - [x] 5. Guards: @Roles(owner, admin, staff), firm scope from the host/route, platform scope for Super Admin; 404 when no firm link, 403 when wrong role
 - [x] 6. Staff invites: create invite, email link (log until R6), /activate sets password + MFA
-- [ ] 7. Rate limit sign-in and MFA attempts; audit every sign-in, failure and invite with AuditService.log
-- [ ] 8. e2e tests: sign-in, MFA, wrong firm, wrong role, expired invite
+- [x] 7. Rate limit sign-in and MFA attempts; audit every sign-in, failure and invite with AuditService.log
+- [x] 8. e2e tests: sign-in, MFA, wrong firm, wrong role, expired invite
 
 ## Done when
 
@@ -49,8 +49,9 @@ A staff user and a Super Admin can sign in with MFA on dev; Fahad's F02 screens 
 - Resolved Oct 6 (R1, deploy run 37448823378 of d62849a): CloudFront (Managed-AllViewer) and the load balancer pass `Origin` and `Sec-Fetch-Site` to `/api/*` unchanged. On live dev the cross-site check answers 401 for each site's own origin (and for `Sec-Fetch-Site: same-origin`) and 403 `ORIGIN_NOT_ALLOWED` for another origin, `cross-site`, and app's origin on the admin sign-in.
 - Resolved Oct 6: Smart App Control blocked SWC's native binary and turbo on Rasel's machine; Rasel turned it off, and the root checks run again (the scratchpad TypeScript stand-in config is deleted).
 - R0: a unique index on `users (pool, email)` for the STAFF and ADMIN pools (clients may repeat across firms). Sign-in refuses an email that matches two users of a pool, so duplicates would lock that person out.
-- Rasel (decision, #41 review item 3): `resendInvite` (and T03's team list) show `users.name`, which for someone with a login elsewhere is their real name, not the name the inviter typed, so the inviter learns they have an account. The lead's proposal: R0 adds `invites.name` (the typed name) and R2 and T03 show it for INVITED members. Also, the `users_select` policy lets a firm read the user row of anyone it merely invited. Not changed in #41.
-- `/activate` page (R1's placeholder, then its screen owner): clear the `#token=` fragment once read (`history.replaceState`), so it does not stay in the address bar or history (#41 review nit).
+- R0 (#52, Rasel's decision on #41 review item 3): `invites.name` and `invites.email` (what the inviter typed), `memberships.joined_at`, and a per-call timeout `db.withScope(scope, fn, { timeout })`. After #52 merges, R2's small PR: `createInvite` writes the typed name and email on every invite, resend and anything shown for an INVITED member use the open invite's name and email (never `users.*`), activation reads the person through the invite or platform identity work (not the user row in firm scope), and only activation's transaction gets 15 s (the API default goes back to Prisma's). Then R0 ships the enforcement (invites need the typed name and email; `users_select` hides a staff member's user row from the firm until `joined_at`).
+- R8 (Rasel): the answer-time difference between a new and an existing email when inviting (AdminCreateUser only for new people), from #41's review.
+- Fahad (F02, Rasel): the `/activate` page clears the `#token=` fragment once read (`history.replaceState`), from #41's review.
 
 ## Progress log
 
@@ -85,3 +86,9 @@ A staff user and a Super Admin can sign in with MFA on dev; Fahad's F02 screens 
   - Nits: audit before sending; the orphaned Cognito login of a create race is disabled (new `IdentityProvider.disableUser`, AdminDisableUser; the API may not delete users). Not changed: the timing difference between a new and an existing email (AdminCreateUser only for new people); the `/activate` fragment is the page's job (Needs from others).
   - 3: Rasel's decision (Needs from others).
   - Tests: two activations at once, a resend during activation, a resend first, a firm in setup, a suspended firm (service and activation), audit metadata (ids only, no token or address), accept by a client (404) or Super Admin (401) login, both caps; unit tests for the database-clock 410, the orphan, and `disableUser`.
+- 2026-10-07, step 7 (local branch `rasel/R2-step7`, on R3 steps 5-6 because both change sign-in; Rasel: go, counting from audit rows, no new index):
+  - Every wrong password and wrong MFA code writes `auth.sign_in_failed` (keyed email hash, step, pool, the attempt's id); `SIGN_IN_LIMIT`: 10 failures per email in 15 minutes, then 429 for real and unknown emails alike; 5 wrong MFA codes per sign-in attempt, then `CHALLENGE_EXPIRED`. Wrong codes count for the email too: the sealed challenge carries the email hash and a random attempt id across MFA setup.
+  - Every sign-in writes `auth.signed_in` (actor: the person). Staff and Super Admin rows are platform rows; a client's portal rows (and reset failures) are in the firm's log, keyed per firm and email.
+  - Cognito `ContextData` on sign-in, MFA, MFA setup and refresh: `req.ip` from the request context (trust proxy two hops, never raw `X-Forwarded-For`), the site's host from `*_BASE_URL`, the path, and only User-Agent and Accept-Language. CloudFront's Managed-AllViewer policy already forwards both.
+  - Step 8: sign-in and MFA (`auth.e2e.test.ts`, `sign-in-limits.e2e.test.ts`), wrong firm 404 and wrong role 403 (`guards.e2e.test.ts`), expired invite 410 (`invites.e2e.test.ts`).
+  - Tests: `test/e2e/sign-in-limits.e2e.test.ts` (4: per-email lock for real and unknown emails, the MFA cap counting for the email, audit rows without the email, per-firm portal counts in the firm's log); unit tests for `ContextData` (fields, none outside a request, `req.ip` and no secret headers kept, each pool's host). The per-IP test now uses a new email per attempt.
