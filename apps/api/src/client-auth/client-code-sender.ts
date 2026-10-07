@@ -5,6 +5,7 @@ export const CLIENT_CODE_SENDER = Symbol('CLIENT_CODE_SENDER');
 
 type CodeMessage = { to: string; code: string; businessName: string };
 type NoticeMessage = { to: string; businessName: string };
+type ApprovedMessage = NoticeMessage & { signInUrl: string };
 
 export interface ClientCodeSender {
   /** The 6-digit email code for a portal sign-up. */
@@ -16,6 +17,10 @@ export interface ClientCodeSender {
    * this firm: the API answers the same either way, only the address owner learns which.
    */
   alreadyRegistered(message: NoticeMessage): Promise<void>;
+  /** The firm approved the sign-up: the portal is open (link to the firm's sign-in page). */
+  signUpApproved(message: ApprovedMessage): Promise<void>;
+  /** The firm declined the sign-up. The reason stays with the firm; it is not sent. */
+  signUpDeclined(message: NoticeMessage): Promise<void>;
 }
 
 /**
@@ -40,6 +45,14 @@ export class LogClientCodeSender implements ClientCodeSender {
 
   alreadyRegistered(m: NoticeMessage): Promise<void> {
     return this.write(`Local "already registered" email to ${m.to}`, '"already registered" email');
+  }
+
+  signUpApproved(m: ApprovedMessage): Promise<void> {
+    return this.write(`Local "approved" email to ${m.to}: ${m.signInUrl}`, '"approved" email');
+  }
+
+  signUpDeclined(m: NoticeMessage): Promise<void> {
+    return this.write(`Local "declined" email to ${m.to}`, '"declined" email');
   }
 
   private write(local: string, what: string): Promise<void> {

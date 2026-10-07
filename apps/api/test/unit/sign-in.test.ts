@@ -290,7 +290,9 @@ describe('ChallengeSessions', () => {
   it('refuses a tampered or expired session', async () => {
     const sealed = await sessions.seal(challenge);
     const parts = sealed.split('.');
-    parts[3] = `${parts[3]?.slice(0, -2) ?? ''}AA`;
+    // Change the first character: it always changes the decoded bytes (#72 review nit).
+    const body = parts[3] ?? '';
+    parts[3] = `${body.startsWith('A') ? 'B' : 'A'}${body.slice(1)}`;
     await expect(sessions.open(parts.join('.'), 'STAFF')).resolves.toBeUndefined();
 
     vi.useFakeTimers();
