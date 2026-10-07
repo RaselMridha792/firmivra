@@ -59,12 +59,14 @@ Checklist:
 - **API:** R4's `api.firmApplications.*` (contract by Oct 8; mock until it merges).
 - **Build:** stat cards; tabs All, Pending, Approved, Declined with counts; search, status and date filters; table with paging. Detail page with all application fields, automated checks, internal notes and history. Actions Approve, Request Information (with a message) and Decline (with a reason), each with a confirm dialog.
 
+**Status (Oct 7):** The list, detail and decision flows are implemented against synthetic mock data. Keep this page-local mock until R4's typed `api.firmApplications.*` contract reaches main; then wire the real client and re-run the flow checks.
+
 Checklist:
 
-- [ ] Buttons disabled while a request is running
-- [ ] After an action, the list and the counts refresh
-- [ ] An unknown id shows not-found
-- [ ] Playwright: approve an application in mock mode
+- [x] Buttons disabled while a request is running
+- [x] After an action, the list and the counts refresh
+- [x] An unknown id shows not-found
+- [x] Playwright: approve an application in mock mode
 
 ### N04 · Oct 9 · Public firm application form, and the firms list
 
