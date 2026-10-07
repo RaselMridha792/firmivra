@@ -21,6 +21,7 @@ import type {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { lockClientEmails } from '../client-auth/client-records.js';
 
 type ListQuery = z.output<typeof ListClientsQuery>;
 type CreateBody = z.output<typeof CreateClientRequest>;
@@ -398,8 +399,7 @@ export class ClientsService {
    */
   private async uniqueEmail(tx: TxClient, businessId: string, email: string | null): Promise<void> {
     if (!email) return;
-    const key = `clients_email:${businessId}`;
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+    await lockClientEmails(tx, businessId);
     const taken = await tx.client.findFirst({ where: { businessId, email }, select: { id: true } });
     if (taken) throw duplicateEmail();
   }

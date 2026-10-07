@@ -110,6 +110,11 @@ describe('api.clients', () => {
       () => api.updateProfile(id, { ssn: '900-00-001' }),
       () => api.updateProfile(id, { dateOfBirth: '2999-01-01' }),
       () => api.updateProfile(id, { additionalInfo: 'bell \u0007' }),
+      // Format characters and separators that disguise text (right-to-left override, zero width).
+      () => api.create({ displayName: 'Evil\u202Egnp.exe' }),
+      () => api.create({ displayName: 'Zero\u200Bwidth' }),
+      () => api.create({ displayName: 'Line\u2028separator' }),
+      () => api.updateProfile(id, { additionalInfo: 'hidden\u2066text' }),
       () => api.setTaxYear(id, 1999, { taxStatusId: id }),
     ]) {
       await expect(call()).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
