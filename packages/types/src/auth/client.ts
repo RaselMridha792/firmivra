@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import { ApiRequestError, type ApiClientOptions } from '../client.js';
 import { ApiError, MeResponse, OkResponse } from '../schemas.js';
 import {
+  AcceptInviteRequest,
   ActivateRequest,
   ActivationCheckRequest,
   ActivationCheckResponse,
@@ -98,6 +99,9 @@ export function createStaffAuthClient(options: AuthClientOptions) {
     /** Sets the password; the result is MFA_SETUP_REQUIRED. */
     activate: (body: ActivateRequest) =>
       post(SignInResult, `${base}/activate`, ActivateRequest, body),
+    /** Signed in with an existing login (hasAccount): joins the invite's firm, answers /me. */
+    acceptInvite: (body: AcceptInviteRequest) =>
+      post(MeResponse, `${base}/activation/accept`, AcceptInviteRequest, body),
     /** Owner or admin of the current firm (`businessId` option for staff with several firms). */
     createInvite: (body: CreateInviteRequest) =>
       post(InviteResponse, `${base}/invites`, CreateInviteRequest, body),

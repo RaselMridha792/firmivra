@@ -1,5 +1,8 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import {
+  AdminCreateUserCommand,
+  AdminDisableUserCommand,
+  AdminSetUserPasswordCommand,
   AdminInitiateAuthCommand,
   AdminRespondToAuthChallengeCommand,
   AdminUserGlobalSignOutCommand,
@@ -290,6 +293,57 @@ export class CognitoIdentityProvider implements IdentityProvider {
       });
     // docs/AUTH-DESIGN.md: a password reset ends every session.
     await this.signOutEverywhere(pool, username);
+  }
+
+  async createUser(pool: IdentityPool, email: string): Promise<string> {
+    const p = this.pool(pool);
+    const out = await this.client.send(
+      new AdminCreateUserCommand({
+        UserPoolId: p.userPoolId,
+        Username: randomUUID(),
+        UserAttributes: [
+          { Name: 'email', Value: email },
+          { Name: 'email_verified', Value: 'true' },
+        ],
+        // Our API sends the activation email (docs/AUTH-DESIGN.md); Cognito sends nothing.
+        MessageAction: 'SUPPRESS',
+      }),
+    );
+    const sub = out.User?.Attributes?.find((a) => a.Name === 'sub')?.Value;
+    if (!sub) throw new Error('Cognito created a user without a sub');
+    return sub;
+  }
+
+  async setPassword(pool: IdentityPool, sub: string, password: string): Promise<void> {
+    const p = this.pool(pool);
+    const username = await this.usernameFor(p, sub);
+    if (!username) throw new Error('No Cognito user for this invite');
+    await this.client
+      .send(
+        new AdminSetUserPasswordCommand({
+          UserPoolId: p.userPoolId,
+          Username: username,
+          Password: password,
+          Permanent: true,
+        }),
+      )
+      .catch((e: unknown) => fail(e, { InvalidPasswordException: 'PASSWORD_REJECTED' }));
+  }
+
+  async hasPassword(pool: IdentityPool, sub: string): Promise<boolean> {
+    const p = this.pool(pool);
+    const user = await this.userBySub(p, sub);
+    // Invited users wait in FORCE_CHANGE_PASSWORD (the generated password nobody knows).
+    return !!user && !['FORCE_CHANGE_PASSWORD', 'UNCONFIRMED'].includes(user.UserStatus ?? '');
+  }
+
+  async disableUser(pool: IdentityPool, sub: string): Promise<void> {
+    const p = this.pool(pool);
+    const user = await this.userBySub(p, sub);
+    if (!user?.Username || user.Enabled === false) return;
+    await this.client
+      .send(new AdminDisableUserCommand({ UserPoolId: p.userPoolId, Username: user.Username }))
+      .catch((e: unknown) => fail(e, {}));
   }
 
   /** The Cognito username for a sub, or undefined for an unknown or disabled user. */
