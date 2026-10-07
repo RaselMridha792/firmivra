@@ -10,6 +10,7 @@ import {
   TriangleAlert,
   Users,
 } from 'lucide-react';
+import type { ShellNotification, ShellSearchItem } from '../../../../components/app-shell/types';
 
 export const sampleApplicationId = '00000000-0000-4000-8000-000000000001';
 export const recentApplications = [
@@ -22,6 +23,37 @@ export const recentApplications = [
   ],
 ] as const;
 export const pendingApplicationCount = recentApplications.length;
+export const dashboardSearchItems: readonly ShellSearchItem[] = [
+  {
+    id: 'application-lvp',
+    kind: 'Application',
+    label: 'LVP Accounting & Taxes',
+    detail: 'Octavia Holder · octavia@lvpaccounting.com',
+    href: '/applications/' + '00000000-0000-4000-8000-000000000001',
+  },
+  {
+    id: 'firm-lvp',
+    kind: 'Firm',
+    label: 'LVP Accounting & Taxes',
+    detail: 'Pending setup',
+    href: '/firms',
+  },
+  {
+    id: 'user-octavia',
+    kind: 'User',
+    label: 'Octavia Holder',
+    detail: 'Owner · LVP Accounting & Taxes',
+    href: '/applications/' + '00000000-0000-4000-8000-000000000001',
+  },
+];
+export const dashboardNotifications: readonly ShellNotification[] = [
+  {
+    id: 'pending-lvp-application',
+    title: 'Firm application pending review',
+    detail: 'LVP Accounting & Taxes · Sep 28, 2026',
+    href: '/applications/' + '00000000-0000-4000-8000-000000000001',
+  },
+];
 export const dashboardStats = [
   ['Pending Applications', pendingApplicationCount, '/applications', FileText, 'blue'],
   ['Active Firms', '0', '/firms', Building, 'green'],
