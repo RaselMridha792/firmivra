@@ -32,7 +32,7 @@
   position: relative;
   min-height: var(--auth-canvas-height);
   color: var(--auth-ink);
-  background: url('./assets/admin-office.png') right top / auto 100% no-repeat;
+  background: var(--color-canvas);
   padding-block: var(--auth-card-top);
 }
 .auth-art {
@@ -41,6 +41,12 @@
   width: var(--auth-art-width);
   background: url('./assets/admin-waves.svg') center / 100% 100% no-repeat;
   color: var(--color-on-action);
+}
+.auth-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 var(--auth-art-width);
+  background: url('./assets/admin-office.png') right top / 100% 100% no-repeat;
 }
 .auth-copy {
   margin: var(--auth-copy-top) 0 0 var(--auth-copy-left);
@@ -104,7 +110,6 @@
   height: var(--space-10);
 }
 .auth-feature strong {
-  display: block;
   font-size: var(--text-xl);
 }
 .auth-feature p {
@@ -141,6 +146,7 @@
   margin-inline: auto;
 }
 .auth-card h2 {
+  line-height: var(--text-3xl--line-height);
   font-size: var(--auth-title-size);
   font-weight: var(--font-weight-bold);
   text-align: center;
@@ -148,10 +154,9 @@
 .auth-subtitle {
   text-align: center;
   font-size: var(--text-lg);
-  margin-top: var(--space-1);
 }
 .auth-form {
-  margin-top: var(--space-8);
+  margin-top: var(--space-6);
   display: grid;
   gap: var(--space-5);
 }
@@ -165,6 +170,9 @@
   border-radius: var(--auth-control-radius);
   color: var(--auth-ink);
   font-size: var(--text-lg);
+}
+.auth-field input {
+  padding-inline: var(--space-16) var(--space-12);
 }
 .auth-submit {
   width: 100%;
@@ -205,16 +213,17 @@
   flex-shrink: 0;
 }
 .auth-security small {
-  color: var(--auth-muted);
   font-size: var(--text-sm);
 }
 @media (width < 64rem) {
   .auth-screen {
     min-height: 100vh;
     padding: var(--space-6) var(--space-4);
-    background-size: cover;
   }
   .auth-art {
+    display: none;
+  }
+  .auth-screen::before {
     display: none;
   }
   .auth-card {
@@ -225,7 +234,6 @@
   }
   .auth-logo {
     width: 100%;
-    height: var(--space-6);
     min-height: calc(var(--space-12) * 2);
   }
   .auth-card-portal {
@@ -247,6 +255,5 @@
   }
   .auth-authorized {
     font-size: var(--text-xs);
-    letter-spacing: normal;
   }
 }

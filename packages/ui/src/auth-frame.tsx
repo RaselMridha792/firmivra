@@ -50,7 +50,9 @@ export function AuthFrame({
         <div className="auth-logo" role="img" aria-label="Firmivra" />
         <p className="auth-card-portal">{portal}</p>
         <hr />
-        <h2 id="auth-title">{title}</h2>
+        <h2 id="auth-title" data-testid="page-title">
+          {title}
+        </h2>
         <p className="auth-subtitle">
           {title === 'Welcome Back'
             ? `Sign in to access ${site === 'admin' ? 'the Firmivra administrative dashboard' : 'your Firmivra workspace'}.`
