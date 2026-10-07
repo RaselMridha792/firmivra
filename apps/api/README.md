@@ -67,6 +67,27 @@ Staff invites and activation live in `apps/api/src/auth/invites.service.ts` (R2)
 - Using a link is one transaction: claim the invite (its row stays locked), make the membership `ACTIVE`, and for a new person set the Cognito password last. A second activation or a resend waits and then finds the link used; a failure rolls everything back. Transactions may run 15 s for this (`database.module.ts`).
 - Until R6's email sender, `ActivationMailer` logs the link only with `AUTH_MODE=local`; anywhere else it sends nothing and logs neither the token nor the address.
 
+## Email and SMS (`NotifyService`)
+
+Never send email or SMS any other way. Inject the service and send a typed template:
+
+```ts
+constructor(@Inject(NOTIFY_SERVICE) private readonly notify: NotifyService) {}
+
+await this.notify.send({
+  template: 'document.requested',
+  to: client.email,
+  businessId, // the firm it comes from (branding, sender name); null for Firmivra's own
+  recipient: { clientAccountId }, // their notification preferences apply
+  data: { name, firmName, title, dueOn, link },
+});
+```
+
+- The templates and the data each needs are in `src/notify/notify.types.ts` (`NotifyTemplates`). Add a template there before using it; `TEMPLATE_CHANNEL` says email or SMS.
+- `data` holds names, dates, titles and links only: never a password, a full SSN or EIN, a bank number, an amount or document content. A code or token goes only in the field made for it.
+- A delivery failure is logged without the address or the data, and never fails the caller's flow.
+- Until R6 step 2 it only logs: the whole message with `AUTH_MODE=local`, otherwise just the template and the firm.
+
 ## Adding a module
 
 ```ts
