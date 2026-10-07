@@ -1,6 +1,6 @@
 # R10: Client records API (Oct 7-9)
 
-**Goal:** The firm manages its clients, and each client sees their own profile, tax status, services and tax returns in the portal. Former developer tickets I02, I03, I04 and I08 (Ibrahim), moved here on Oct 6 because the developers now build only screens.
+**Goal:** The firm manages its clients, and each client sees their own profile, tax status, services and tax returns in the portal. Former developer tickets I02, I03, I04 and I08 (Arfan), moved here on Oct 6 because the developers now build only screens.
 
 **Owned paths (change only these):**
 - `apps/api/src/clients/**`, `apps/api/src/engagements/**`, `apps/api/src/tax-returns/**` (map them to the real layout once and note it in the Progress log)

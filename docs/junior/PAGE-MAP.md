@@ -59,8 +59,8 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/invoices` | `(workspace)/invoices/page.tsx` | Fahad | F10 | none |
 | `/workspaces` | `(workspace)/workspaces/page.tsx` | Fahad | F11 | none |
 | `/workspaces/[engagementId]` | `(workspace)/workspaces/[engagementId]/page.tsx` | Fahad | F11 | none |
-| `/leads` | `(workspace)/leads/page.tsx` | Ibrahim | F08 | none |
-| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Ibrahim | F08 | none |
+| `/leads` | `(workspace)/leads/page.tsx` | Arfan | F08 | none |
+| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Arfan | F08 | none |
 | `/calendar` | `(workspace)/calendar/page.tsx` | Tumit | F09 | none |
 | `/team` | `(workspace)/team/page.tsx` | Tumit | F05 | none |
 | `/settings` | `(workspace)/settings/layout.tsx` (settings menu; `/settings` opens Profile) | R1 | | |
@@ -90,16 +90,16 @@ Public pages (firm header and footer, no sidebar), in `portal/[firmSlug]/(public
 | `/{firm}/sign-up/verify-email` | `(public)/sign-up/verify-email/page.tsx` | Nahid | N02 | `Verify email .png` |
 | `/{firm}/sign-up/verify-phone` | `(public)/sign-up/verify-phone/page.tsx` | Nahid | N02 | `Verify phone.png` |
 | `/{firm}/sign-up/done` (also where a pending client lands after sign-in) | `(public)/sign-up/done/page.tsx` | Nahid | N02 | `LVP Client Portal Account Confirmation.png` |
-| `/{firm}/begin` | `(public)/begin/page.tsx` | Ibrahim | N07a | `Begin online.png` |
-| `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | Ibrahim | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
-| `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | Ibrahim | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
-| `/{firm}/begin/bookkeeping` | `(public)/begin/bookkeeping/page.tsx` | Ibrahim | N07b | the 4 `Bookkeeping ...` files |
-| `/{firm}/begin/payroll` | `(public)/begin/payroll/page.tsx` | Ibrahim | N07b | the 3 `Payroll ...` files |
-| `/{firm}/begin/tax-planning` | `(public)/begin/tax-planning/page.tsx` | Ibrahim | N07b | the 4 `Tax planning ...` files |
-| `/{firm}/begin/business-development` | `(public)/begin/business-development/page.tsx` | Ibrahim | N07b | the 4 `Development intake ...` files |
-| `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | Ibrahim | N07c | none |
-| `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | Ibrahim | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
-| form blocks for all six services | `(public)/begin/_blocks/` | Ibrahim | N07a | |
+| `/{firm}/begin` | `(public)/begin/page.tsx` | Arfan | N07a | `Begin online.png` |
+| `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | Arfan | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
+| `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | Arfan | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
+| `/{firm}/begin/bookkeeping` | `(public)/begin/bookkeeping/page.tsx` | Arfan | N07b | the 4 `Bookkeeping ...` files |
+| `/{firm}/begin/payroll` | `(public)/begin/payroll/page.tsx` | Arfan | N07b | the 3 `Payroll ...` files |
+| `/{firm}/begin/tax-planning` | `(public)/begin/tax-planning/page.tsx` | Arfan | N07b | the 4 `Tax planning ...` files |
+| `/{firm}/begin/business-development` | `(public)/begin/business-development/page.tsx` | Arfan | N07b | the 4 `Development intake ...` files |
+| `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | Arfan | N07c | none |
+| `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | Arfan | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
+| form blocks for all six services | `(public)/begin/_blocks/` | Arfan | N07a | |
 
 Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 
@@ -165,7 +165,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/portal/[firmSlug]/(client)/`, except `appointments/` and `home/`
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
-**Ibrahim**
+**Arfan**
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
 - `apps/web/src/app/firm/(workspace)/leads/`
-- `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/IBRAHIM.md`
+- `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/ARFAN.md`

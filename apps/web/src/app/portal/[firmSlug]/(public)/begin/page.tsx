@@ -8,7 +8,7 @@ export default function BeginOnlinePage() {
     <PagePlaceholder
       title="Begin online"
       ticket="N07a"
-      owner="Ibrahim"
+      owner="Arfan"
       mockup="begin-online/Begin online.png"
     />
   );

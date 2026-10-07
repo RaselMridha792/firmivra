@@ -8,7 +8,7 @@ export default function BookkeepingPage() {
     <PagePlaceholder
       title="Bookkeeping"
       ticket="N07b"
-      owner="Ibrahim"
+      owner="Arfan"
       mockup="begin-online/Bookkeeping*.png (4 files)"
     />
   );

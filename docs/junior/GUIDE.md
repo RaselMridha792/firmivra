@@ -1,6 +1,6 @@
 # Junior developer guide
 
-Firmivra · for Fahad, Nahid, Tumit and Ibrahim · Oct 6, 2026. Read it once, then keep it open while you work.
+Firmivra · for Fahad, Nahid, Tumit and Arfan · Oct 6, 2026. Read it once, then keep it open while you work.
 
 ## Your job from Oct 7
 
@@ -64,13 +64,13 @@ Always:
 - Read your whole diff (`git diff origin/main`). You must be able to explain every line to Rasel. If you can't, delete it or ask.
 - One ticket per PR, under 400 changed lines. Title like `feat: super admin dashboard (F04a)`.
 - In the PR, put the mockup next to your screenshot, at desktop width and at 375 px. Hide real emails in screenshots: the repo is public.
-- Your pair pre-reviews first (Fahad ↔ Tumit, Nahid ↔ Ibrahim), then Rasel's lead reviews and merges. Open the PR before the evening merge window. Tick the ticket on the Team Board when it merges.
+- Your pair pre-reviews first (Fahad ↔ Tumit, Nahid ↔ Arfan), then Rasel's lead reviews and merges. Open the PR before the evening merge window. Tick the ticket on the Team Board when it merges.
 
 ## Stuck?
 
 After 30 minutes, ask in the group. Send the ticket id, a screenshot, the exact error text and what you tried. Don't let an AI tool "fix" it by changing files outside your folders.
 
-## Testing (Tumit and Ibrahim)
+## Testing (Tumit and Arfan)
 
 - Dev sites: https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.dev.firmivra.com/lvp. Every merge to main reaches dev about 15 minutes later.
 - Each Q ticket has a checklist. For every failure, open a GitHub issue with the Bug template: site and URL, user and role, steps, expected, actual, screenshot. Never include passwords or real data: the repo and its issues are public.
