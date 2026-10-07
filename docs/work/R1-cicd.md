@@ -127,3 +127,10 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   - PAGE-MAP and GUIDE in the repo (#28) are identical to the spec I built from.
 - 2026-10-07, dev tooling: Next 16's on-disk Turbopack dev cache kept stale routes ("Page not found" for pages that exist) after routes were added or moved. `turbopackFileSystemCacheForDev: false` in next.config.ts: PR #43 from main, and the same line in the firm PR. The e2e smoke specs get 240 s (cold compiles in dev).
 - Kit notes from R3 (Oct 7): the portal client is `portalAuth(slug)` in lib/auth.ts, mocked by `createPortalAuthMock(firmSlug, options)` in mocks/client-auth.ts, with state per instance, so keep one per slug across navigation. The firm's sign-ups are `api.clientSignUps`, mocked by `createClientSignUpsMock`.
+- 2026-10-07 (early morning), lead review fixes, each pushed to its own PR:
+  - #36: the proxy returns 404 unless the portal's first path segment is a slug (open redirect; e2e fails without the check); the portal signs out through `portalAuth(slug)`; case-insensitive pending check; token fixes. Merged as 4ff2b6c, deployed green.
+  - #44: firm errors route to /setup, to sign-in, or to a message with Sign out; `encodeURIComponent`; sign-out on /setup; new e2e. Approved.
+  - #45: query cache cleared per person and per firm, and on sign-out; one shared refresh on a 401, then sign-in (e2e/session.spec.ts); 403s handled by code. Approved.
+- 2026-10-07, link task re-run after #32's green deploy (Rasel's yes): exit 0. Same firm and user ids ("Updated user … as SUPER_ADMIN / OWNER"), so the re-run is idempotent.
+- 2026-10-07, dev tooling (correction): #43 alone didn't stop the phantom "Page not found". It came back once with the cache off. One run logged EPERM while renaming a `.next/dev` manifest on Windows, so the likely cause is a file lock from antivirus or the indexer. Excluding `.next` from scanning is Rasel's call.
+- Local, waiting for a PR slot (2-PR rule): c687885 on rasel/R1-web-kit-screen, the reference screen (Settings > Tax statuses) with its mock-mode e2e.
