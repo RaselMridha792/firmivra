@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
-import type { AuthSite, IdentityPool, MfaSetupResponse, SignInResult } from '@firmivra/types';
+import type { IdentityPool, MfaSetupResponse, SignInResult } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -14,8 +14,9 @@ import {
   IDENTITY_PROVIDER,
   type IdentityProvider,
 } from './identity/identity-provider.js';
+import { portalClient } from './portal-clients.js';
 import { deriveKey, poolSecrets } from './sealed.js';
-import { type SessionTokens, SIGN_IN_POOL } from './site.js';
+import type { SessionTokens, SignInPlace } from './site.js';
 
 /** Failed resets are audited; the per-email limit counts those rows (shared by every API task). */
 const RESET_FAILED = 'auth.password_reset_failed';
@@ -24,8 +25,6 @@ export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
 /** Staff and Super Admins always pass MFA; the pools require it, and so does the API. */
 const MFA_REQUIRED: ReadonlySet<IdentityPool> = new Set(['STAFF', 'ADMIN']);
-
-const TOTP_ISSUER: Record<AuthSite, string> = { firm: 'Firmivra', admin: 'Firmivra Admin' };
 
 /** The next step for the browser, or tokens for the controller to put in cookies. */
 export type SignInOutcome =
@@ -39,8 +38,9 @@ const wrongStep = () =>
   });
 
 /**
- * Staff and Super Admin sign-in (docs/api/auth.yaml): password, then MFA or first-time MFA setup;
- * forgot and reset password. Errors never reveal whether an account exists.
+ * Sign-in for staff, Super Admins (docs/api/auth.yaml) and a firm's clients on its portal
+ * (client-auth.yaml): password, then MFA or first-time MFA setup; forgot and reset password.
+ * Errors never reveal whether an account exists.
  */
 @Injectable()
 export class SignInService {
@@ -64,23 +64,22 @@ export class SignInService {
     }
   }
 
-  async signIn(site: AuthSite, email: string, password: string): Promise<SignInOutcome> {
-    const pool = SIGN_IN_POOL[site];
-    const user = await this.findUser(pool, email);
-    const step = await runFlow(() => this.identity.signIn(pool, user?.cognitoSub, password));
+  async signIn(place: SignInPlace, email: string, password: string): Promise<SignInOutcome> {
+    const user = await this.findUser(place, email);
+    const step = await runFlow(() => this.identity.signIn(place.pool, user?.cognitoSub, password));
     if (!user) throw httpError('INVALID_CREDENTIALS');
-    return this.next(step, user.id, pool);
+    return this.next(step, user.id, place);
   }
 
   /** Right after activation: sign the new staff member in, which asks for MFA setup. */
   async afterActivation(userId: string, sub: string, password: string): Promise<SignInOutcome> {
     const step = await runFlow(() => this.identity.signIn('STAFF', sub, password));
-    return this.next(step, userId, 'STAFF');
+    return this.next(step, userId, { pool: 'STAFF' });
   }
 
-  async mfa(site: AuthSite, session: string, code: string): Promise<SignInOutcome> {
-    const pool = SIGN_IN_POOL[site];
-    const c = await this.open(session, pool);
+  async mfa(place: SignInPlace, session: string, code: string): Promise<SignInOutcome> {
+    const { pool } = place;
+    const c = await this.open(session, place);
     if (c.step === 'MFA_SETUP') throw wrongStep();
     const tokens = await runFlow(() =>
       c.step === 'MFA'
@@ -90,9 +89,9 @@ export class SignInService {
     return { kind: 'signed-in', userId: c.userId, username: c.username, tokens };
   }
 
-  async startMfaSetup(site: AuthSite, session: string): Promise<MfaSetupResponse> {
-    const pool = SIGN_IN_POOL[site];
-    const c = await this.open(session, pool);
+  async startMfaSetup(place: SignInPlace, session: string): Promise<MfaSetupResponse> {
+    const { pool } = place;
+    const c = await this.open(session, place);
     if (c.step !== 'MFA_SETUP') throw wrongStep();
     const setup = await runFlow(() => this.identity.startMfaSetup(pool, c.username, c.session));
     const user = await this.db
@@ -105,15 +104,14 @@ export class SignInService {
         step: 'MFA_SETUP_VERIFY',
       }),
       secret: setup.secret,
-      otpauthUri: otpauthUri(TOTP_ISSUER[site], user.email, setup.secret),
+      otpauthUri: otpauthUri(place.issuer, user.email, setup.secret),
     };
   }
 
   /** Emails a reset code when the account exists; the answer is the same either way. */
-  async forgotPassword(site: AuthSite, email: string): Promise<void> {
-    const pool = SIGN_IN_POOL[site];
-    const user = await this.findUser(pool, email);
-    await runFlow(() => this.identity.forgotPassword(pool, user?.cognitoSub));
+  async forgotPassword(place: SignInPlace, email: string): Promise<void> {
+    const user = await this.findUser(place, email);
+    await runFlow(() => this.identity.forgotPassword(place.pool, user?.cognitoSub));
   }
 
   /**
@@ -122,17 +120,18 @@ export class SignInService {
    * once an email has RESET_LIMIT.attempts failures in the window.
    */
   async resetPassword(
-    site: AuthSite,
+    place: SignInPlace,
     email: string,
     code: string,
     password: string,
   ): Promise<void> {
-    const pool = SIGN_IN_POOL[site];
-    const emailKey = this.emailKey(pool, email);
+    const { pool } = place;
+    // A client has a login per firm, so each firm's portal counts its own failures.
+    const emailKey = this.emailKey(pool, place.businessId ? `${place.businessId}:${email}` : email);
     if ((await this.recentResetFailures(emailKey)) >= RESET_LIMIT.attempts) {
       throw httpError('RATE_LIMITED');
     }
-    const user = await this.findUser(pool, email);
+    const user = await this.findUser(place, email);
     try {
       await this.identity.resetPassword(pool, user?.cognitoSub, code, password);
     } catch (e) {
@@ -160,8 +159,19 @@ export class SignInService {
     return createHmac('sha256', key).update(email).digest('hex');
   }
 
-  /** Exactly one user of the pool with this email; on the admin site also a platform admin. */
-  private async findUser(pool: IdentityPool, email: string) {
+  /**
+   * Exactly one user of the pool with this email; on the admin site also a platform admin; on a
+   * firm's portal, that firm's client who may sign in.
+   */
+  private async findUser(
+    place: SignInPlace,
+    email: string,
+  ): Promise<{ id: string; cognitoSub: string } | undefined> {
+    const { pool } = place;
+    if (place.businessId) {
+      const client = await portalClient(this.db, place.businessId, { email });
+      return client && { id: client.userId, cognitoSub: client.cognitoSub };
+    }
     const platform = this.db.forPlatform();
     const users = await platform.user.findMany({
       where: { email, pool },
@@ -177,7 +187,12 @@ export class SignInService {
     return admin ? user : undefined;
   }
 
-  private async next(step: AuthStep, userId: string, pool: IdentityPool): Promise<SignInOutcome> {
+  private async next(
+    step: AuthStep,
+    userId: string,
+    place: Pick<SignInPlace, 'pool' | 'businessId'>,
+  ): Promise<SignInOutcome> {
+    const { pool, businessId } = place;
     if (step.kind === 'tokens') {
       if (MFA_REQUIRED.has(pool)) {
         // Defence in depth: only the pool setting makes Cognito ask for MFA. If it ever signs
@@ -193,13 +208,14 @@ export class SignInService {
       session: step.session,
       step: step.step,
       pool,
+      ...(businessId ? { businessId } : {}),
     });
     const status = step.step === 'MFA' ? 'MFA_REQUIRED' : 'MFA_SETUP_REQUIRED';
     return { kind: 'step', result: { status, session } };
   }
 
-  private async open(session: string, pool: IdentityPool) {
-    const challenge = await this.challenges.open(session, pool);
+  private async open(session: string, place: SignInPlace) {
+    const challenge = await this.challenges.open(session, place.pool, place.businessId);
     if (!challenge) throw httpError('CHALLENGE_EXPIRED');
     return challenge;
   }

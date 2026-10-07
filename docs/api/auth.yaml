@@ -5,7 +5,8 @@ info:
   description: |
     Sign-in contract for the firm site (`app.firmivra.com`, prefix `/auth`) and the Super Admin
     site (`admin.firmivra.com`, prefix `/admin/auth`). Both prefixes take the same bodies. Client
-    portal sign-in (R3) will reuse them under `/portal/{slug}/auth`. Design: docs/AUTH-DESIGN.md.
+    portal sign-in reuses them under `/portal/{slug}/auth` (client-auth.yaml). Design:
+    docs/AUTH-DESIGN.md.
 
     **Source of truth:** the zod schemas in `packages/types/src/auth/schemas.ts`, with typed calls
     in `createStaffAuthClient` and `createAdminAuthClient` (web: `staffAuth`, `adminAuth` in
@@ -54,8 +55,9 @@ info:
 
     Requests from other sites are refused. Every POST, PUT, PATCH and DELETE must send its body
     as `application/json` (else `415 UNSUPPORTED_MEDIA_TYPE`), and a browser request must come
-    from the route's own site: `Origin` is the admin site's origin for `/api/v1/admin/*` and the
-    app or portal site's origin for the rest (else `403 ORIGIN_NOT_ALLOWED`). Without `Origin`,
+    from the route's own site: `Origin` is the admin site's origin for `/api/v1/admin/*`, the
+    portal's for `/api/v1/portal/*`, and the app or portal site's origin for the rest (else
+    `403 ORIGIN_NOT_ALLOWED`). Without `Origin`,
     only `Sec-Fetch-Site: same-origin` passes. A change with neither header but with a session
     cookie (server code relaying the user's session) is refused too. The API sends no CORS
     headers: each site calls it on its own host.
