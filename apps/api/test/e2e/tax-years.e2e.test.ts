@@ -8,11 +8,12 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope } from '@firmivra/db';
+import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import { ClientTaxYear as YearShape, MyTaxYearList as MineShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { taxYearLockKey } from '../../src/clients/tax-years.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -48,11 +49,13 @@ const ids = {
   client1: '',
   client2: '',
   archivedClient: '',
+  client3: '',
   clientB: '',
   preparing: '',
   filed: '',
   oldStatus: '',
   laterArchived: '',
+  soonGone: '',
   statusB: '',
 };
 
@@ -147,6 +150,8 @@ beforeAll(async () => {
     ids.filed = (await status('Filed')).id;
     ids.oldStatus = (await status('Old status', new Date())).id;
     ids.laterArchived = (await status('Later archived')).id;
+    ids.soonGone = (await status('Soon gone')).id;
+    ids.client3 = (await tx.client.create({ data: { ...A, displayName: 'Three' } })).id;
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmB }, async (tx) => {
     await tx.membership.create({
@@ -344,5 +349,151 @@ describe('audit', () => {
           (r.metadata as { taxYear?: number }).taxYear === 2021,
       )?.metadata,
     ).toEqual({ taxYear: 2021, statusChanged: true, noteChanged: true });
+  });
+});
+
+/**
+ * Holds what a change of this year waits for: the service's lock and the year's row (fea6692's
+ * PUT waited on the row after its reads). `during` runs in the holding transaction.
+ */
+async function holdYear(
+  clientId: string,
+  taxYear: number,
+  during?: (tx: TxClient) => Promise<unknown>,
+) {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  let letGo!: () => void;
+  const released = new Promise<void>((resolve) => (letGo = resolve));
+  let held!: (pid: number) => void;
+  const pid = new Promise<number>((resolve) => (held = resolve));
+  const holder = runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
+    const key = taxYearLockKey(ids.firmA, clientId, taxYear);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+    await tx.$executeRaw`
+      SELECT 1 FROM client_tax_statuses
+      WHERE business_id = ${ids.firmA}::uuid AND client_id = ${clientId}::uuid AND tax_year = ${taxYear}
+      FOR UPDATE`;
+    await during?.(tx);
+    const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+    held(row!.pid);
+    await released;
+  });
+  const holderPid = await pid;
+  return {
+    /** Resolves once another session waits on the holding transaction. */
+    async waitedOn() {
+      for (let i = 0; i < 500; i++) {
+        const [row] = await owner.$queryRaw<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM pg_stat_activity
+          WHERE ${holderPid}::int = ANY (pg_blocking_pids(pid))`;
+        if (row!.n > 0) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error('nothing waited on the held year');
+    },
+    async release() {
+      letGo();
+      await holder;
+      await owner.$disconnect();
+    },
+  };
+}
+
+async function inFirmA<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  try {
+    return await runInScope(owner, { kind: 'business', businessId: ids.firmA }, fn);
+  } finally {
+    await owner.$disconnect();
+  }
+}
+
+describe('changes at the same time', () => {
+  it('a status archived while a change waits: 409 TAX_STATUS_ARCHIVED, not 500', async () => {
+    await setYear(ids.client1, 2019, { taxStatusId: ids.filed });
+    const hold = await holdYear(ids.client1, 2019);
+    const put = firm('put', `/${ids.client1}/tax-years/2019`, people.ownerA, ids.firmA, {
+      taxStatusId: ids.soonGone,
+    });
+    await hold.waitedOn();
+    await inFirmA((tx) =>
+      tx.taxStatus.update({ where: { id: ids.soonGone }, data: { archivedAt: new Date() } }),
+    );
+    await hold.release();
+    const res = await put;
+    expect([res.status, codeOf(res)]).toEqual([409, 'TAX_STATUS_ARCHIVED']);
+  });
+
+  it('a status-only change keeps a note changed while it waited', async () => {
+    await setYear(ids.client1, 2018, { taxStatusId: ids.preparing, clientNote: 'Old note.' });
+    const hold = await holdYear(ids.client1, 2018, (tx) =>
+      tx.clientTaxStatus.update({
+        where: {
+          businessId_clientId_taxYear: {
+            businessId: ids.firmA,
+            clientId: ids.client1,
+            taxYear: 2018,
+          },
+        },
+        data: { clientNote: 'New note.', updatedByUserId: people.ownerA.id },
+      }),
+    );
+    const put = firm('put', `/${ids.client1}/tax-years/2018`, people.ownerA, ids.firmA, {
+      taxStatusId: ids.filed,
+    });
+    await hold.waitedOn();
+    await hold.release();
+    const res = await put;
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(Year.parse(res.body)).toMatchObject({
+      status: { id: ids.filed },
+      clientNote: 'New note.',
+    });
+    const list = Years.parse((await firm('get', `/${ids.client1}/tax-years`, people.ownerA)).body);
+    expect(list.items.find((y) => y.taxYear === 2018)?.clientNote).toBe('New note.');
+  });
+
+  it('a client archived while a change waits: 409 CLIENT_ARCHIVED, nothing written', async () => {
+    await setYear(ids.client3, 2025, { taxStatusId: ids.filed });
+    const hold = await holdYear(ids.client3, 2025);
+    const put = firm('put', `/${ids.client3}/tax-years/2025`, people.ownerA, ids.firmA, {
+      taxStatusId: ids.preparing,
+    });
+    await hold.waitedOn();
+    await inFirmA((tx) =>
+      tx.client.update({ where: { id: ids.client3 }, data: { archivedAt: new Date() } }),
+    );
+    await hold.release();
+    const res = await put;
+    expect([res.status, codeOf(res)]).toEqual([409, 'CLIENT_ARCHIVED']);
+    const row = await inFirmA((tx) =>
+      tx.clientTaxStatus.findFirst({ where: { clientId: ids.client3, taxYear: 2025 } }),
+    );
+    expect(row?.taxStatusId).toBe(ids.filed);
+  });
+
+  it('a change that changes nothing writes nothing', async () => {
+    const before = await setYear(ids.client1, 2017, {
+      taxStatusId: ids.filed,
+      clientNote: 'Same.',
+    });
+    const again = await setYear(
+      ids.client1,
+      2017,
+      { taxStatusId: ids.filed, clientNote: 'Same.' },
+      people.staffA,
+    );
+    expect(again).toEqual(before);
+    const res = await firm('get', `/${ids.client1}/tax-years/2017/history`, people.ownerA);
+    expect(History.parse(res.body).items).toHaveLength(1);
+  });
+
+  it('a year in the path is exactly four digits', async () => {
+    for (const year of ['02026', '2026.0', '0x7EA', '2.026e3']) {
+      const res = await firm('put', `/${ids.client1}/tax-years/${year}`, people.ownerA, ids.firmA, {
+        taxStatusId: ids.filed,
+      });
+      expect([year, res.status, codeOf(res)]).toEqual([year, 400, 'VALIDATION_FAILED']);
+    }
   });
 });

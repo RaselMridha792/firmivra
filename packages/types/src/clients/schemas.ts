@@ -26,8 +26,16 @@ const PastDate = CalendarDate.refine(
 
 /** A client id in a path: anything else gets 400 VALIDATION_FAILED. */
 export const ClientId = z.uuid();
-/** A tax year in a path or body. */
-export const TaxYear = z.coerce.number().int().min(2000).max(2100);
+/** A tax year, 2000-2100: a number, or exactly four digits in a path (not 02026, 2026.0 or 0x7EA). */
+export const TaxYear = z
+  .union([
+    z.number(),
+    z
+      .string()
+      .regex(/^\d{4}$/)
+      .transform(Number),
+  ])
+  .pipe(z.number().int().min(2000).max(2100));
 
 /** INDIVIDUAL or BUSINESS (database enum ClientAccountType; R3's AccountType). */
 export const ClientAccountType = AccountType;
