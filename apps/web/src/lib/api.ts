@@ -1,5 +1,13 @@
 import {
   createApiClient,
+  createAppointmentsClient,
+  createAppointmentTypesClient,
+  createAvailabilityClient,
+  createCalculatorsClient,
+  createContentClient,
+  createMyAppointmentsClient,
+  createMyCalculatorsClient,
+  createMyContentClient,
   createClientsClient,
   createClientSignUpsClient,
   createEngagementsClient,
@@ -11,7 +19,15 @@ import {
   createTaxReturnsClient,
   createTaxStatusesClient,
 } from '@firmivra/types';
+import {
+  createAppointmentsMock,
+  createAppointmentTypesMock,
+  createAvailabilityMock,
+  createMyAppointmentsMock,
+} from '../mocks/appointments';
+import { createCalculatorsMock, createMyCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
+import { createContentMock, createMyContentMock } from '../mocks/content';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -56,6 +72,38 @@ export const api = {
   myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
   myServices: (firmSlug: string) => createMyServicesClient(request, firmSlug),
   myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
+  /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
+  appointmentTypes:
+    dev && mocked('appointmentTypes')
+      ? createAppointmentTypesMock({ role: MOCK_ROLE })
+      : createAppointmentTypesClient(request),
+  availability:
+    dev && mocked('availability')
+      ? createAvailabilityMock({ role: MOCK_ROLE })
+      : createAvailabilityClient(request),
+  appointments:
+    dev && mocked('appointments') ? createAppointmentsMock() : createAppointmentsClient(request),
+  /** Appointments (R12): the signed-in client's own, per firm (portal). */
+  myAppointments: (firmSlug: string) =>
+    dev && mocked('myAppointments')
+      ? createMyAppointmentsMock()
+      : createMyAppointmentsClient(request, firmSlug),
+  /** Content (R12): resources, tips and external links; the portal reads published ones. */
+  content:
+    dev && mocked('content')
+      ? createContentMock({ role: MOCK_ROLE })
+      : createContentClient(request),
+  myContent: (firmSlug: string) =>
+    dev && mocked('myContent') ? createMyContentMock() : createMyContentClient(request, firmSlug),
+  /** Calculators (R12): the firm's settings, and the portal's enabled calculators. */
+  calculators:
+    dev && mocked('calculators')
+      ? createCalculatorsMock({ role: MOCK_ROLE })
+      : createCalculatorsClient(request),
+  myCalculators: (firmSlug: string) =>
+    dev && mocked('myCalculators')
+      ? createMyCalculatorsMock()
+      : createMyCalculatorsClient(request, firmSlug),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:
     dev && mocked('firmApplications')
