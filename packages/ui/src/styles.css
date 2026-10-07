@@ -196,3 +196,11 @@
     accent-color: var(--color-action);
   }
 }
+
+.ui-dialog {
+  width: min(calc(100% - var(--space-8)), var(--container-modal));
+  max-height: calc(100% - var(--space-8));
+}
+dialog::backdrop {
+  background: var(--color-overlay);
+}
