@@ -45,7 +45,7 @@ On Oct 15-16 you and Ibrahim test everything on dev.
   2. Header with the search box (no search yet), the bell and the user menu.
   3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Leave Platform Growth as an empty card saying "Coming soon" (a chart needs a package; ask Rasel later).
 
-**Status (Oct 8, 2026):** PR #58 includes Rasel's review fixes; lint, typecheck and formatting pass. The mock Playwright assertion passes, but Windows server teardown hangs. CI rerun, screenshots and authenticated E2E remain pending.
+**Status (Oct 8, 2026):** PR #58 includes Rasel's review fixes; path guard and CI pass on `b989406`. Local typecheck, lint and formatting pass; the mock assertion passes, but Windows server teardown hangs. Screenshots, authenticated E2E and PR-body update remain pending because this GitHub credential lacks permission.
 
 Checklist:
 
