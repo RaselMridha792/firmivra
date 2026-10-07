@@ -3,10 +3,11 @@ import type { ButtonHTMLAttributes } from 'react';
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
 
 const variants: Record<ButtonVariant, string> = {
-  primary: 'bg-brand-700 text-white hover:bg-brand-600 disabled:bg-brand-100 disabled:text-muted',
+  primary:
+    'bg-action text-on-action hover:bg-action-hover disabled:bg-disabled disabled:text-disabled-text',
   secondary:
     'border border-border bg-surface text-text hover:bg-canvas disabled:text-muted disabled:hover:bg-surface',
-  ghost: 'text-brand-700 hover:bg-brand-50 disabled:text-muted',
+  ghost: 'text-link hover:bg-folder-surface disabled:text-muted',
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
