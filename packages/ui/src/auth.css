@@ -1,4 +1,9 @@
 :root {
+  --auth-display-font: 'Times New Roman', serif;
+  --auth-body-line: 1.75rem;
+  --auth-checkbox-size: 1.5625rem;
+  --auth-submit-height: 3.875rem;
+  --auth-feature-gap: 0.9375rem;
   --auth-ink: #001744;
   --auth-cyan: #00d9d1;
   --auth-muted: #536a91;
@@ -71,7 +76,7 @@
   margin: var(--space-6) 0;
 }
 .auth-copy h1 {
-  font-family: var(--font-display);
+  font-family: var(--auth-display-font);
   font-size: var(--auth-pitch-size);
   line-height: var(--text-2xl--line-height);
   white-space: nowrap;
@@ -82,11 +87,11 @@
 .auth-description {
   margin-top: var(--space-4);
   font-size: var(--text-xl);
-  line-height: var(--text-lg--line-height);
+  line-height: var(--auth-body-line);
 }
 .auth-features {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--auth-feature-gap);
   margin-top: var(--space-10);
 }
 .auth-feature {
@@ -175,9 +180,16 @@
 .auth-field input {
   padding-inline: var(--space-16) var(--space-12);
 }
+.auth-form input[type='checkbox'] {
+  width: var(--auth-checkbox-size);
+  height: var(--auth-checkbox-size);
+}
+.auth-form label:has(input[type='checkbox']) {
+  min-height: auto;
+}
 .auth-submit {
   width: 100%;
-  min-height: var(--space-16);
+  min-height: var(--auth-submit-height);
   font-size: var(--text-2xl);
   border-radius: var(--auth-control-radius);
   background: linear-gradient(20deg, var(--auth-blue-start), var(--auth-blue-end));
