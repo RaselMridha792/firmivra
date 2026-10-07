@@ -76,3 +76,9 @@ test('Platform Settings quick action explains its current preview state', async 
     'true',
   );
 });
+
+test('pending attention task opens the application review queue', async ({ page }) => {
+  await page.goto(admin + '/');
+  await page.getByRole('link', { name: 'Open Firm application pending review' }).click();
+  await expect(page).toHaveURL(/\/applications$/);
+});
