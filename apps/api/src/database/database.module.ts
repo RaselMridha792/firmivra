@@ -25,17 +25,20 @@ export class TenantPrisma {
 /**
  * Platform tables for Super Admin routes: `this.platformPrisma.db.firmApplication.findMany()`.
  * Only works in a request whose caller RolesGuard verified as a Super Admin (`@Roles('SUPER_ADMIN')`
- * on a route under /api/v1/admin/). Never firm data: that needs an approved support grant (R8).
+ * on a route under /api/v1/admin/). It runs in the database's admin scope as that Super Admin
+ * (R0's #52, Rasel's Oct 6 decision): row-level security lets it read and change only what a Super
+ * Admin may, and acts only as itself. Never firm data: that needs an approved support grant (R8).
  */
 @Injectable()
 export class PlatformPrisma {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
   get db(): ScopedClient {
-    if (requestContext.getStore()?.platform?.role !== 'SUPER_ADMIN') {
+    const store = requestContext.getStore();
+    if (store?.platform?.role !== 'SUPER_ADMIN' || !store.auth?.userId) {
       throw new Error('PlatformPrisma used outside a Super Admin request (check @Roles)');
     }
-    return this.database.forPlatform();
+    return this.database.forAdmin(store.auth.userId);
   }
 }
 
