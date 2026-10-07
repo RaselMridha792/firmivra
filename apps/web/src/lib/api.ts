@@ -2,42 +2,49 @@ import {
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
+  createAuditLogClient,
   createAvailabilityClient,
   createCalculatorsClient,
+  createClientsClient,
+  createClientSignUpsClient,
   createContentClient,
   createDocumentsClient,
+  createEngagementsClient,
+  createFirmApplicationsClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
-  createClientsClient,
-  createClientSignUpsClient,
-  createEngagementsClient,
-  createFirmApplicationsClient,
   createMyProfileClient,
+  createMyReportsClient,
   createMyServicesClient,
   createMyTaxReturnsClient,
   createRequest,
   createSettingsClient,
+  createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
   createTeamClient,
+  createWorkspacesClient,
 } from '@firmivra/types';
 import {
   createAppointmentsMock,
   createAppointmentTypesMock,
   createAvailabilityMock,
-  createMyAppointmentsMock,
+  myAppointmentsMock,
 } from '../mocks/appointments';
-import { createCalculatorsMock, createMyCalculatorsMock } from '../mocks/calculators';
+import { createAuditLogMock } from '../mocks/audit-log';
+import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
-import { createContentMock, createMyContentMock } from '../mocks/content';
+import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
 import { createSettingsMock } from '../mocks/settings';
+import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
+import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
 import { MOCK_ROLE, mocked } from './mock';
 import { sessionFetch } from './session';
 
@@ -96,11 +103,13 @@ export const api = {
       ? createAvailabilityMock({ role: MOCK_ROLE })
       : createAvailabilityClient(request),
   appointments:
-    dev && mocked('appointments') ? createAppointmentsMock() : createAppointmentsClient(request),
+    dev && mocked('appointments')
+      ? createAppointmentsMock({ role: MOCK_ROLE })
+      : createAppointmentsClient(request),
   /** Appointments (R12): the signed-in client's own, per firm (portal). */
   myAppointments: (firmSlug: string) =>
     dev && mocked('myAppointments')
-      ? createMyAppointmentsMock()
+      ? myAppointmentsMock(firmSlug)
       : createMyAppointmentsClient(request, firmSlug),
   /** Content (R12): resources, tips and external links; the portal reads published ones. */
   content:
@@ -108,7 +117,7 @@ export const api = {
       ? createContentMock({ role: MOCK_ROLE })
       : createContentClient(request),
   myContent: (firmSlug: string) =>
-    dev && mocked('myContent') ? createMyContentMock() : createMyContentClient(request, firmSlug),
+    dev && mocked('myContent') ? myContentMock(firmSlug) : createMyContentClient(request, firmSlug),
   /** Calculators (R12): the firm's settings, and the portal's enabled calculators. */
   calculators:
     dev && mocked('calculators')
@@ -116,7 +125,7 @@ export const api = {
       : createCalculatorsClient(request),
   myCalculators: (firmSlug: string) =>
     dev && mocked('myCalculators')
-      ? createMyCalculatorsMock()
+      ? myCalculatorsMock(firmSlug)
       : createMyCalculatorsClient(request, firmSlug),
   /** Documents (R5): a client's files and document requests, for the firm. Upload with uploadFile(). */
   documents:
@@ -128,6 +137,21 @@ export const api = {
     dev && mocked('myDocuments')
       ? myDocumentsMock(firmSlug)
       : createMyDocumentsClient(request, firmSlug),
+  /** Tasks (R12): the firm's to-dos for its clients (client record Tasks tab, workspaces). */
+  tasks: dev && mocked('tasks') ? createTasksMock({ role: MOCK_ROLE }) : createTasksClient(request),
+  /** Workspaces (R12): Bookkeeping and Tax Planning, with their reports. */
+  workspaces:
+    dev && mocked('workspaces')
+      ? createWorkspacesMock({ role: MOCK_ROLE })
+      : createWorkspacesClient(request),
+  /** Workspaces (R12): a client's published reports in My Services, per firm (portal). */
+  myReports: (firmSlug: string) =>
+    dev && mocked('myReports') ? myReportsMock(firmSlug) : createMyReportsClient(request, firmSlug),
+  /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
+  auditLog:
+    dev && mocked('auditLog')
+      ? createAuditLogMock({ role: MOCK_ROLE })
+      : createAuditLogClient(request),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:
     dev && mocked('firmApplications')
