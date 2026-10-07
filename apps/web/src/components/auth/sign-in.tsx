@@ -1,4 +1,5 @@
 'use client';
+import { useAuthReady } from './use-auth-ready';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
@@ -13,6 +14,7 @@ import { Mfa } from './mfa';
 
 export function SignIn({ site }: { site: 'firm' | 'admin' }) {
   const client = site === 'admin' ? adminAuth : staffAuth;
+  const ready = useAuthReady();
   const router = useRouter();
   const [challenge, setChallenge] = useState<{ session: string; setup?: MfaSetupResponse }>();
   const [show, setShow] = useState(false);
@@ -60,57 +62,59 @@ export function SignIn({ site }: { site: 'firm' | 'admin' }) {
             }),
           )}
         >
-          <div className="auth-field relative">
-            <Input
-              label="Email Address"
-              type="email"
-              autoComplete="username"
-              placeholder="Enter your email address"
-              error={form.formState.errors.email?.message}
-              {...form.register('email')}
-            />
-            <Mail
-              aria-hidden="true"
-              className="pointer-events-none absolute bottom-4 left-5 h-6 w-6 text-muted"
-            />
-          </div>
-          <div className="auth-field relative">
-            <Input
-              label="Password"
-              type={show ? 'text' : 'password'}
-              autoComplete="current-password"
-              placeholder="Enter your password"
-              error={form.formState.errors.password?.message}
-              {...form.register('password')}
-            />
-            <LockKeyhole
-              aria-hidden="true"
-              className="pointer-events-none absolute bottom-4 left-5 h-6 w-6 text-muted"
-            />
+          <fieldset className="contents" disabled={!ready || mutation.isPending}>
+            <div className="auth-field relative">
+              <Input
+                label="Email Address"
+                type="email"
+                autoComplete="username"
+                placeholder="Enter your email address"
+                error={form.formState.errors.email?.message}
+                {...form.register('email')}
+              />
+              <Mail
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-4 left-5 h-6 w-6 text-muted"
+              />
+            </div>
+            <div className="auth-field relative">
+              <Input
+                label="Password"
+                type={show ? 'text' : 'password'}
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                error={form.formState.errors.password?.message}
+                {...form.register('password')}
+              />
+              <LockKeyhole
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-4 left-5 h-6 w-6 text-muted"
+              />
+              <Button
+                className="absolute bottom-2 right-2"
+                variant="ghost"
+                aria-label={show ? 'Hide password' : 'Show password'}
+                aria-pressed={show}
+                onClick={() => setShow(!show)}
+              >
+                <Eye aria-hidden="true" className="h-6 w-6" />
+              </Button>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-base">
+              <Checkbox label="Remember me" />
+              <a className="text-link" href="/forgot-password">
+                Forgot password?
+              </a>
+            </div>
             <Button
-              className="absolute bottom-2 right-2"
-              variant="ghost"
-              aria-label={show ? 'Hide password' : 'Show password'}
-              aria-pressed={show}
-              onClick={() => setShow(!show)}
+              type="submit"
+              className="auth-submit"
+              disabled={!ready || mutation.isPending}
+              aria-busy={mutation.isPending}
             >
-              <Eye aria-hidden="true" className="h-6 w-6" />
+              Sign In <ArrowRight aria-hidden="true" className="h-7 w-7" />
             </Button>
-          </div>
-          <div className="flex items-center justify-between gap-2 text-base">
-            <Checkbox label="Remember me" />
-            <a className="text-link" href="/forgot-password">
-              Forgot password?
-            </a>
-          </div>
-          <Button
-            type="submit"
-            className="auth-submit"
-            disabled={mutation.isPending}
-            aria-busy={mutation.isPending}
-          >
-            Sign In <ArrowRight aria-hidden="true" className="h-7 w-7" />
-          </Button>
+          </fieldset>
         </form>
       </AuthFrame>
       {AUTH_MODE === 'local' ? (
@@ -121,7 +125,7 @@ export function SignIn({ site }: { site: 'firm' | 'admin' }) {
               <Button
                 key={user.email}
                 variant="secondary"
-                disabled={mutation.isPending}
+                disabled={!ready || mutation.isPending}
                 onClick={() =>
                   mutation.mutate(() => signIn(user.email, site === 'admin' ? 'ADMIN' : 'STAFF'))
                 }
