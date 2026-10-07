@@ -4,9 +4,16 @@ import { clearable, text } from '../clients/text.js';
 
 // Appointments (R12): the firm's calendar, availability and appointment types, and the client's
 // own appointments in the portal (System Wiring section 2).
-// Firm routes: /api/v1/business/... (x-business-id). Everyone at the firm reads the calendar;
-// Owner and Admin manage appointment types, anyone's working hours and blocked time; Staff manage
-// their own working hours and blocked time. Staff book, reschedule and cancel at any time.
+// Firm routes: /api/v1/business/... (x-business-id). Owner and Admin see and change every
+// appointment, manage appointment types, anyone's working hours and blocked time. Staff manage
+// their own working hours and blocked time, and see the calendar by the clients API's rule (#63):
+// - in full only the appointments they are the staff member of, or whose client is assigned to
+//   them (clients.assigned_user_id);
+// - every other one only as Busy (time, staff member, status); its detail is 404;
+// - they book only for clients assigned to them, and change only appointments they see in full
+//   (404 otherwise); a clientId filter on a client not assigned to them is 404;
+// - they still get every member's free slots (times and staff names only).
+// Firm users change an appointment at any time (no client cutoff).
 // Portal routes: /api/v1/portal/{firmSlug}/me/appointments/... (the signed-in client's own).
 // - Clients see only types with clientBookable, and only free slots: the client's assigned staff
 //   member when free, otherwise the free member with the fewest appointments that day.
@@ -245,14 +252,39 @@ export const AppointmentEvent = z.object({
 });
 export type AppointmentEvent = z.infer<typeof AppointmentEvent>;
 
-/** GET /business/appointments/{id}: the appointment and its history. */
+/** GET /business/appointments/{id}: the appointment and its history. Staff: 404 unless in full. */
 export const AppointmentDetail = Appointment.extend({ history: z.array(AppointmentEvent) });
 export type AppointmentDetail = z.infer<typeof AppointmentDetail>;
 
-export const AppointmentList = z.object({ items: z.array(Appointment) });
+/**
+ * What Staff see of an appointment that is not theirs and not their assigned client's: only that
+ * the staff member is busy then. No client, type, location, engagement, reason or history.
+ */
+export const BusyAppointment = z.object({
+  restricted: z.literal(true),
+  id: z.uuid(),
+  staff: MemberRef,
+  startsAt: DateTime,
+  endsAt: DateTime,
+  status: AppointmentStatus,
+});
+export type BusyAppointment = z.infer<typeof BusyAppointment>;
+
+/** One calendar entry: the whole appointment, or (Staff) Busy. Check `restricted` first. */
+export const CalendarAppointment = z.discriminatedUnion('restricted', [
+  Appointment.extend({ restricted: z.literal(false) }),
+  BusyAppointment,
+]);
+export type CalendarAppointment = z.infer<typeof CalendarAppointment>;
+
+export const AppointmentList = z.object({ items: z.array(CalendarAppointment) });
 export type AppointmentList = z.infer<typeof AppointmentList>;
 
-/** GET /business/appointments: the calendar for [from, to), at most 62 days, oldest first. */
+/**
+ * GET /business/appointments: the calendar for [from, to), at most 62 days, oldest first. Staff
+ * get Busy entries for appointments they don't see in full, and 404 for a `clientId` of a client
+ * not assigned to them (so a Busy entry cannot be traced to a client).
+ */
 export const AppointmentsQuery = z
   .strictObject({
     from: DateTime,
@@ -273,8 +305,9 @@ export type SlotList = z.infer<typeof SlotList>;
 
 /**
  * GET /business/appointments/slots: free starts on a 15-minute grid for one type, from one
- * calendar date to another (firm timezone, at most 31 days); one member's or everyone's. When
- * rescheduling, pass `excludeAppointmentId`: the moved appointment's own time counts as free.
+ * calendar date to another (firm timezone, at most 31 days); one member's or everyone's (Staff
+ * too). When rescheduling, pass `excludeAppointmentId`: the moved appointment's own time counts
+ * as free.
  */
 export const SlotsQuery = z
   .strictObject({
@@ -288,9 +321,10 @@ export const SlotsQuery = z
 export type SlotsQuery = z.input<typeof SlotsQuery>;
 
 /**
- * POST /business/appointments: staff book for a client, at any time that is free (working hours
- * are a guide for staff, not a rule). With a type, its duration and location kind are the
- * default; without one, give the duration.
+ * POST /business/appointments: firm users book for a client, at any time that is free (working
+ * hours are a guide for them, not a rule). Staff book only for clients assigned to them (404
+ * otherwise), with any staff member. With a type, its duration and location kind are the default;
+ * without one, give the duration.
  */
 export const BookAppointmentRequest = z
   .strictObject({
@@ -309,7 +343,7 @@ export const BookAppointmentRequest = z
   });
 export type BookAppointmentRequest = z.input<typeof BookAppointmentRequest>;
 
-/** Staff: a new start (same duration), and optionally another staff member. */
+/** A new start (same duration), and optionally another staff member. Staff: only in full ones. */
 export const RescheduleAppointmentRequest = z.strictObject({
   startsAt: DateTime,
   staffUserId: MemberId.optional(),
