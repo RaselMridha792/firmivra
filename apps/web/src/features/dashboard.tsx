@@ -25,11 +25,15 @@ export function Dashboard({ routeHome = false }: { routeHome?: boolean }) {
           { title: 'Monthly revenue', href: '/future/billing' },
         ]
       : [
-          { title: 'Clients', href: '/clients' },
-          { title: 'Pending sign-ups', href: '/sign-ups' },
-          { title: 'Appointments today', href: '/calendar' },
-          { title: 'Unpaid invoices', href: '/invoices' },
-        ].filter((c) => owner || c.href !== '/sign-ups');
+          { title: 'New clients', href: '/clients' },
+          { title: 'Missing documents', href: '/documents' },
+          { title: 'Preparation', href: '/clients' },
+          { title: 'Review', href: '/clients' },
+          { title: 'Signature', href: '/clients' },
+          { title: 'Payment', href: '/invoices' },
+          { title: 'Filing', href: '/clients' },
+          { title: 'Completed', href: '/clients' },
+        ];
   if (site === 'admin') return <PlatformDashboard />;
   return (
     <>
@@ -50,7 +54,7 @@ export function Dashboard({ routeHome = false }: { routeHome?: boolean }) {
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
-          <Card key={card.href}>
+          <Card key={card.title}>
             <p className="text-sm text-muted">{card.title}</p>
             <p className="my-3 text-3xl font-bold text-heading">—</p>
             <a

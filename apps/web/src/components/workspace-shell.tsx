@@ -119,6 +119,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <div className="fixed inset-y-0 hidden lg:block">{sidebar}</div>
       <div className="flex min-w-0 flex-1 flex-col lg:pl-sidebar">
         <Header
+          titleTestId="firm-name"
           title={workspace.business?.name ?? 'Firm workspace'}
           user={workspace.me.user.name}
           onMenu={() => setMenu(true)}
@@ -152,7 +153,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             </div>
           ) : null}
           {workspace.business ? (
-            <p data-testid="firm-name" className="sr-only">
+            <p data-testid="business-slug" className="sr-only">
               {workspace.business.name} ({workspace.business.slug})
             </p>
           ) : null}

@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, use, useEffect, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ApiRequestError,
   createApiClient,
@@ -17,7 +18,7 @@ import {
   type NotificationItem,
 } from '@firmivra/ui';
 import { sampleNotifications } from '../features/sample-notifications';
-import { adminAuth, staffAuth, AUTH_MODE } from '../lib/auth';
+import { adminAuth, staffAuth, AUTH_MODE, signOut } from '../lib/auth';
 import { api } from '../lib/api';
 
 export interface Workspace {
@@ -55,6 +56,7 @@ export function WorkspaceProvider({
   children: ReactNode;
   signedOut?: ReactNode;
 }) {
+  const router = useRouter();
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [selected, setSelected] = useState('');
   const [retry, setRetry] = useState(0);
@@ -168,14 +170,33 @@ export function WorkspaceProvider({
     );
   if (state.kind === 'denied')
     return (
-      <main className="mx-auto max-w-auth p-6">
+      <main data-testid="firm-error" className="mx-auto max-w-auth p-6">
         <EmptyState
           title="Permission required"
           description="Your account does not have active access to this workspace. Contact your firm owner."
           action={
-            <a href="/sign-in" className="text-link underline">
-              Sign in
-            </a>
+            <Button
+              onClick={() => {
+                void (
+                  AUTH_MODE === 'local'
+                    ? signOut()
+                    : (site === 'admin' ? adminAuth : staffAuth).signOut()
+                )
+                  .then(() => {
+                    window.sessionStorage.removeItem('fv-business-id');
+                    router.replace('/sign-in');
+                    router.refresh();
+                  })
+                  .catch(() =>
+                    setState({
+                      kind: 'error',
+                      message: 'We could not sign you out. Please retry.',
+                    }),
+                  );
+              }}
+            >
+              Sign out
+            </Button>
           }
         />
       </main>
