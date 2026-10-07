@@ -35,7 +35,7 @@ Fahad's clients screens and Nahid's My Profile, My Services and Taxes tabs work 
 ## Needs from others
 
 - Lead: SYSTEM-DESIGN's permission table says "View full SSN: re-MFA"; Rasel decided (Oct 7) the API never returns more than the last 4 of an SSN or EIN. Please update that row. SYSTEM-DESIGN's "Staff see assigned clients only" is now the contract's rule too (Rasel, Oct 7).
-- R0 (this session, next R0 PR): `tasks.kind` (GENERAL, NAME_CHANGE) for NAME_CHANGE_PENDING, `engagements.cancel_request_reason`, and `client_profiles.ein_enc` and `ein_last4` (Rasel, Oct 7).
+- R0: done in #48 (Oct 7): `tasks.kind` (GENERAL, NAME_CHANGE; one open name change per client), `engagements.cancel_request_reason`, and `client_profiles.ein_enc` and `ein_last4`.
 - R5 (documents): the portal Taxes tab's View and Download use `document.id` from `api.myTaxReturns(slug).list()`; R10 needs the documents API's view or download call for a client's own FIRM_TO_CLIENT document.
 - R1 (infra): the API task role may use the firms' KMS keys (`kms:GenerateDataKey`, `kms:Decrypt`), limited by a tag condition on the keys (for example `aws:ResourceTag/firmivra:purpose = firm-data`), not every key in the account. The helper sends the firm's id as encryption context and pins the key id on decrypt.
 - R4 (firm activation): activation creates the firm's KMS key (with that tag) and saves its ARN on the firm (`businesses.kms_key_id`, from R0's steps 11–13 PR), plus a one-time step for firms that already exist. LVP on dev was created by the link task, not by activation, so without that step it never gets a key and no SSN can be saved there (AWS mode answers `KEY_NOT_PROVISIONED`, never a fallback key).
