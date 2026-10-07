@@ -226,7 +226,7 @@ function buildFixtures() {
     /** 401 on sign-in, also for an unknown email or a declined account. */
     invalidCredentials: error('INVALID_CREDENTIALS', 'Email or password is incorrect'),
     /** 429 on any rate-limited call. */
-    rateLimited: error('RATE_LIMITED', 'Too many attempts. Wait a few minutes and try again.'),
+    rateLimited: error('RATE_LIMITED', 'Too many attempts. Please try again later.'),
     /** 409 on approve or decline when someone else already handled the sign-up. */
     notPending: error('NOT_PENDING', 'This sign-up was already handled'),
     /** 409 on approve with a client record that has another email or already has a login. */

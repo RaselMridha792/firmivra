@@ -5,7 +5,12 @@ import {
   CognitoIdentityProvider,
 } from '../../src/auth/identity/cognito-identity.provider.js';
 import { LogClientCodeSender } from '../../src/client-auth/client-code-sender.js';
-import { atLeast, maskPhone } from '../../src/client-auth/sign-up.service.js';
+import {
+  atLeast,
+  canonicalIp,
+  maskPhone,
+  networkOf,
+} from '../../src/client-auth/sign-up.service.js';
 import { VerificationCodesService } from '../../src/client-auth/verification-codes.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -96,6 +101,28 @@ describe('VerificationCodesService.check (#51 review)', () => {
     const codes = new VerificationCodesService(db as never, env);
     await expect(codes.check(owner, 'EMAIL', 'new@example.com', '000000')).resolves.toBe(false);
     expect(updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('canonicalIp and networkOf: one form per address for the limits (#70 review)', () => {
+  it('reads IPv4-mapped addresses as IPv4, and writes IPv6 out in full', () => {
+    expect(canonicalIp('::ffff:198.51.100.7')).toBe('198.51.100.7');
+    expect(canonicalIp('::FFFF:198.51.100.7')).toBe('198.51.100.7');
+    expect(canonicalIp('2001:DB8:42::1')).toBe('2001:0db8:0042:0000:0000:0000:0000:0001');
+    expect(canonicalIp('fe80::1%eth0')).toBe('fe80:0000:0000:0000:0000:0000:0000:0001');
+    expect(canonicalIp('::')).toBe('0000:0000:0000:0000:0000:0000:0000:0000');
+    expect(canonicalIp('64:ff9b::192.0.2.33')).toBe('0064:ff9b:0000:0000:0000:0000:c000:0221');
+  });
+
+  it('puts every written form of a network in one bucket, and anything else in "unknown"', () => {
+    expect(networkOf('198.51.100.7')).toBe('198.51.100.0/24');
+    expect(networkOf('::ffff:198.51.100.200')).toBe('198.51.100.0/24');
+    expect(networkOf('2001:db8:42::1')).toBe(networkOf('2001:0db8:0042:ffff::9'));
+    expect(networkOf('2001:db8:42::1')).toBe('2001:0db8:0042::/48');
+    expect(networkOf('2001:db8:43::1')).not.toBe(networkOf('2001:db8:42::1'));
+    for (const odd of [undefined, '', 'not-an-ip', '1.2.3', '300.1.1.1']) {
+      expect([odd, networkOf(odd)]).toEqual([odd, 'unknown']);
+    }
   });
 });
 

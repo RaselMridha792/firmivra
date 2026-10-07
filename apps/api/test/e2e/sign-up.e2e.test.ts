@@ -343,7 +343,7 @@ describe('client sign-up', () => {
     });
   });
 
-  it('limits sign-ups per email per day, and code requests per session, alike for every email', async () => {
+  it('limits sign-ups per email per network per day, and code requests per session, alike for every email', async () => {
     const taken = emailFor('limit');
     const first = visitor();
     await first.signUp(form(taken));
@@ -361,20 +361,26 @@ describe('client sign-up', () => {
       expect([email, over.status, codeOf(over)]).toEqual([email, 429, 'RATE_LIMITED']);
       expect((await visitor().signUp(form(email))).status).toBe(200);
     }
-    // Per email overall, from any network.
-    const perEmail = SIGN_UP_LIMITS.perEmailPerDay;
-    SIGN_UP_LIMITS.perEmailPerDay = 2;
+    // Per email overall, from any network: only a warning, once a day, never a block (#70 review).
+    const emailAlert = SIGN_UP_LIMITS.emailAlertPerDay;
+    SIGN_UP_LIMITS.emailAlertPerDay = 2;
     try {
-      for (const email of [taken, emailFor('limitall')]) {
-        const used = email === taken ? 2 : 0; // `taken` already has more than 2 today
-        for (let i = used; i < SIGN_UP_LIMITS.perEmailPerDay; i += 1) {
-          expect((await visitor().signUp(form(email))).status).toBe(200);
-        }
-        const over = await visitor().signUp(form(email));
-        expect([email, over.status, codeOf(over)]).toEqual([email, 429, 'RATE_LIMITED']);
+      const busy = emailFor('limitall');
+      for (let i = 0; i < 4; i += 1) {
+        expect((await visitor().signUp(form(busy))).status).toBe(200);
       }
+      const alerts = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: firmId, action: 'client_auth.sign_up_alert' },
+          select: { metadata: true },
+        }),
+      );
+      const forEmail = alerts.filter((a) => (a.metadata as { kind?: string }).kind === 'email');
+      // Four sign-ups past a level of 2: one warning for that email.
+      expect(forEmail).toHaveLength(1);
+      expect(JSON.stringify(forEmail)).not.toContain(busy);
     } finally {
-      SIGN_UP_LIMITS.perEmailPerDay = perEmail;
+      SIGN_UP_LIMITS.emailAlertPerDay = emailAlert;
     }
 
     await withoutGap(async () => {
@@ -622,10 +628,121 @@ describe('client sign-up', () => {
       expect([over.status, codeOf(over)]).toEqual([429, 'RATE_LIMITED']);
       // Another network still signs up, far past the firm's alert level.
       expect((await visitor().signUp(form(emailFor('netother')))).status).toBe(200);
+      expect((await visitor().signUp(form(emailFor('netother')))).status).toBe(200);
+      // The busy firm is warned about once a day, however many sign-ups follow.
+      const alerts = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+        tx.auditLog.count({
+          where: {
+            businessId: firmId,
+            action: 'client_auth.sign_up_alert',
+            metadata: { path: ['kind'], equals: 'firm' },
+          },
+        }),
+      );
+      expect(alerts).toBe(1);
     } finally {
       SIGN_UP_LIMITS.perNetworkPerHour = perNetwork;
       SIGN_UP_LIMITS.firmAlertPerDay = firmAlert;
     }
+  });
+
+  it('holds every limit under parallel requests: no extra passes, no 500 (#70 review)', async () => {
+    const perNetwork = SIGN_UP_LIMITS.perNetworkPerHour;
+    SIGN_UP_LIMITS.perNetworkPerHour = 5;
+    try {
+      // 20 sign-ups at once from 20 addresses of one /24: exactly the network's 5 pass.
+      const results = await Promise.all(
+        Array.from({ length: 20 }, (_, i) =>
+          visitor(slug, `100.64.7.${i + 1}`).signUp(form(emailFor('burst'))),
+        ),
+      );
+      const statuses = results.map((r) => r.status).sort();
+      expect(statuses.filter((x) => x === 200)).toHaveLength(5);
+      expect(statuses.filter((x) => x === 429)).toHaveLength(15);
+    } finally {
+      SIGN_UP_LIMITS.perNetworkPerHour = perNetwork;
+    }
+    // One email 12 times at once from one network: exactly 5 a day pass.
+    const email = emailFor('burstmail');
+    const same = await Promise.all(
+      Array.from({ length: 12 }, (_, i) => visitor(slug, `100.64.8.${i + 1}`).signUp(form(email))),
+    );
+    const sameStatuses = same.map((r) => r.status);
+    expect(sameStatuses.filter((x) => x === 200)).toHaveLength(
+      SIGN_UP_LIMITS.perEmailNetworkPerDay,
+    );
+    expect(sameStatuses.filter((x) => x !== 200 && x !== 429)).toEqual([]);
+  });
+
+  it('counts an address by its network, whatever its written form (#70 review)', async () => {
+    const perNetwork = SIGN_UP_LIMITS.perNetworkPerHour;
+    SIGN_UP_LIMITS.perNetworkPerHour = 2;
+    try {
+      for (const [first, second, third] of [
+        // IPv4 written as an IPv4-mapped IPv6 address shares the IPv4 network.
+        ['::ffff:198.51.100.7', '198.51.100.8', '198.51.100.9'],
+        // IPv6 in short and long form, one /48.
+        ['2001:db8:42::1', '2001:0db8:0042:0000:0000:0000:0000:0002', '2001:db8:42:ffff::3'],
+      ]) {
+        expect((await visitor(slug, first).signUp(form(emailFor('net6')))).status).toBe(200);
+        expect((await visitor(slug, second).signUp(form(emailFor('net6')))).status).toBe(200);
+        const over = await visitor(slug, third).signUp(form(emailFor('net6')));
+        expect([third, over.status]).toEqual([third, 429]);
+      }
+    } finally {
+      SIGN_UP_LIMITS.perNetworkPerHour = perNetwork;
+    }
+  });
+
+  it("records the phone step's first SMS as a request, and counts every change (#70 review)", async () => {
+    const v = visitor();
+    await v.signUp(form(emailFor('smsreq')));
+    const verified = await v.post('/verify-email', { code: '000000' });
+    const wait =
+      Date.parse((verified.body as { resendAvailableAt: string }).resendAvailableAt) - Date.now();
+    expect(wait).toBeGreaterThan(40_000);
+    expect(codeOf(await v.post('/resend', { channel: 'phone' }))).toBe('RATE_LIMITED');
+
+    // Changes count toward the IP limit, inside the wait too, and send nothing there.
+    const ip = newViewer();
+    const changer = visitor(slug, ip);
+    await changer.signUp(form(emailFor('changes')));
+    const start = outbox.length;
+    for (let i = 1; i < SIGN_UP_LIMITS.perIpPerHour; i += 1) {
+      expect((await changer.post('/change-email', { email: emailFor('chg') })).status).toBe(200);
+    }
+    expect(outbox.length).toBe(start);
+    const over = await changer.post('/change-email', { email: emailFor('chg') });
+    expect([over.status, codeOf(over)]).toEqual([429, 'RATE_LIMITED']);
+  });
+
+  it('writes the legal acceptances only when the sign-up completes, from that attempt (#70 review)', async () => {
+    const email = emailFor('accept');
+    // Its own phone: the shared test number reaches its daily SMS cap in this file.
+    const phone = `+1770555${String(1000 + Math.floor(Math.random() * 9000))}`;
+    const abandoned = visitor(slug, newViewer());
+    await abandoned.signUp(form(email, { phone }));
+    const takerIp = newViewer();
+    const taker = visitor(slug, takerIp);
+    const acceptances = () =>
+      asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+        tx.legalAcceptance.findMany({
+          where: { clientAccount: { email } },
+          select: { legalDocumentId: true, ip: true },
+        }),
+      );
+    await withoutGap(async () => {
+      await taker.signUp(form(email, { phone }));
+      expect(await acceptances()).toEqual([]);
+      await taker.post('/verify-email', { code: '000000' });
+      expect(await acceptances()).toEqual([]);
+      expect((await taker.post('/verify-phone', { code: '000000' })).body).toMatchObject({
+        step: 'DONE',
+      });
+    });
+    const written = await acceptances();
+    expect(written.map((a) => a.legalDocumentId).sort()).toEqual([...docIds].sort());
+    expect(written.map((a) => a.ip)).toEqual([takerIp, takerIp]);
   });
 
   it("sends no SMS past the firm's daily cap, and answers the same", async () => {

@@ -96,7 +96,8 @@ export const signUpErrors = {
     new ConflictException({ code: 'WRONG_STEP', message: 'Please follow the steps in order' }),
   rateLimited: () =>
     new HttpException(
-      { code: 'RATE_LIMITED', message: 'Too many attempts. Wait a few minutes and try again.' },
+      // One answer for every limit (some last a day), so it shows nothing about the email.
+      { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
       HttpStatus.TOO_MANY_REQUESTS,
     ),
 };

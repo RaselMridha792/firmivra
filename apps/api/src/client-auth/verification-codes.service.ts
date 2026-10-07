@@ -95,7 +95,9 @@ export class VerificationCodesService {
         return { sent: false, reason: 'cap' };
       }
       if (channel === 'PHONE') {
-        // The firm's scope: its own SMS codes only.
+        // Counted under the firm's lock (after the account's), so parallel sends to different
+        // accounts cannot pass the cap together. The firm's scope: its own SMS codes only.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`fv-sms-firm:${businessId}`}, 0))`;
         const smsToday = await tx.verificationCode.count({
           where: { channel: 'PHONE', createdAt: { gt: since } },
         });
@@ -118,20 +120,6 @@ export class VerificationCodesService {
       });
       return { sent: true, code };
     });
-  }
-
-  /** When "Resend Code" works again for this account and channel, or null when none was sent. */
-  async resendAvailableAt(
-    businessId: string,
-    clientAccountId: string,
-    channel: Channel,
-  ): Promise<Date | null> {
-    const latest = await this.db.forBusiness(businessId).verificationCode.findFirst({
-      where: { clientAccountId, channel },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { createdAt: true },
-    });
-    return latest ? new Date(latest.createdAt.getTime() + CODE_LIMITS.resendGapMs) : null;
   }
 
   /**
