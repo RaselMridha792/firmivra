@@ -13,13 +13,19 @@ import {
 
 export const sampleApplicationId = '00000000-0000-4000-8000-000000000001';
 export const recentApplications = [
-  ['Northstar Tax Studio', 'Morgan Lee', 'morgan@example.test', 'Oct 6, 2026'],
+  [
+    'LVP Accounting & Taxes',
+    'Octavia Holder',
+    'octavia@lvpaccounting.com',
+    'Sep 28, 2026',
+    '10:24 AM',
+  ],
 ] as const;
 export const pendingApplicationCount = recentApplications.length;
 export const dashboardStats = [
   ['Pending Applications', pendingApplicationCount, '/applications', FileText, 'blue'],
   ['Active Firms', '0', '/firms', Building, 'green'],
-  ['Total Users', '0', undefined, Users, 'teal'],
+  ['Total Users', '0', undefined, Users, 'purple'],
   ['Monthly Revenue', '$0.00', undefined, CreditCard, 'gold'],
 ] as const;
 export const attentionItems = [

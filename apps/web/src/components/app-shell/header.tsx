@@ -24,7 +24,7 @@ export function Header({
   const displayRole = me.platformAdmin ? 'Super Admin' : roleLabel;
 
   return (
-    <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3 md:px-6">
+    <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2 md:px-6">
       <button
         type="button"
         onClick={onOpenMenu}
@@ -36,7 +36,7 @@ export function Header({
 
       {search ? (
         // No search yet: the box is here so the layout matches the mockup.
-        <label className="hidden max-w-md flex-1 items-center gap-2 rounded-control border border-border px-3 py-2 text-sm text-muted md:flex">
+        <label className="hidden w-full max-w-xs flex-1 items-center gap-2 rounded-control border border-border bg-surface px-3 py-2 text-sm text-muted md:ml-auto md:flex">
           <Search aria-hidden className="size-4" />
           <input
             type="search"
@@ -49,7 +49,11 @@ export function Header({
       ) : null}
       {greeting ? <p className="text-lg font-semibold text-text">{greeting}</p> : null}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div
+        className={
+          search ? 'ml-auto flex items-center gap-2 md:ml-5' : 'ml-auto flex items-center gap-2'
+        }
+      >
         <button
           type="button"
           aria-label="Notifications"
@@ -68,7 +72,7 @@ export function Header({
             onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
             className="flex items-center gap-2 rounded-control p-1 pr-2 hover:bg-canvas"
           >
-            <span className="flex size-9 items-center justify-center rounded-full bg-brand-900 text-sm font-semibold text-white">
+            <span className="flex size-10 items-center justify-center rounded-full bg-brand-900 text-sm font-semibold text-white">
               {initials(me.user.name)}
             </span>
             <span className="hidden text-left text-sm sm:block">
