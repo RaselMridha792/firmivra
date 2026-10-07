@@ -308,5 +308,7 @@ export const ClientErrorCode = z.enum([
   'TAX_STATUS_ARCHIVED',
   /** 409: a name change request is already open. */
   'NAME_CHANGE_PENDING',
+  /** 503: SSN, EIN and date of birth can't be saved or shown right now (no firm key yet, KMS down). */
+  'ENCRYPTION_UNAVAILABLE',
 ]);
 export type ClientErrorCode = z.infer<typeof ClientErrorCode>;

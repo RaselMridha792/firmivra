@@ -2,8 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  HttpException,
-  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -11,6 +9,7 @@ import {
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   ClientListItem,
+  ClientProfile,
   ClientRecord,
   CreateClientRequest,
   ListClientsQuery,
@@ -22,6 +21,8 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockClientEmails } from '../client-auth/client-records.js';
+import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { changedFields, readDateOfBirth, secretColumns } from './client-secrets.js';
 
 type ListQuery = z.output<typeof ListClientsQuery>;
 type CreateBody = z.output<typeof CreateClientRequest>;
@@ -41,17 +42,6 @@ const duplicateEmail = () =>
   new ConflictException({ code: 'DUPLICATE_EMAIL', message: 'Another client has this email' });
 const archived = () =>
   new ConflictException({ code: 'CLIENT_ARCHIVED', message: 'Restore the client first' });
-
-/** SSN, EIN and date of birth are stored through the field-encryption helper from step 4. */
-const sensitiveNotReady = () =>
-  new HttpException(
-    {
-      code: 'NOT_IMPLEMENTED',
-      message:
-        'SSN, EIN and date of birth can be saved soon. Save the client without them for now.',
-    },
-    HttpStatus.NOT_IMPLEMENTED,
-  );
 
 /** LIKE wildcards in a search term are plain characters (Prisma's `contains` does not escape). */
 export function likeEscape(term: string): string {
@@ -119,7 +109,8 @@ function toListItem(row: ListRow): ClientListItem {
   };
 }
 
-function toRecord(row: RecordRow): ClientRecord {
+/** `dateOfBirth`: decrypted by the caller (firm staff see it in full). */
+function toRecord(row: RecordRow, dateOfBirth: string | null): ClientRecord {
   const p = row.profile;
   const primary = row.accounts.find((a) => a.portalRole === 'PRIMARY');
   return {
@@ -131,8 +122,7 @@ function toRecord(row: RecordRow): ClientRecord {
       preferredName: p?.preferredName ?? null,
       businessName: p?.businessName ?? null,
       entityType: p?.entityType ?? null,
-      // Decrypted through the field-encryption helper from R10 step 4; nothing stores it before.
-      dateOfBirth: null,
+      dateOfBirth,
       ssnLast4: p?.ssnLast4 ?? null,
       einLast4: p?.einLast4 ?? null,
       address: {
@@ -158,11 +148,8 @@ function toRecord(row: RecordRow): ClientRecord {
   };
 }
 
-/** The profile columns of a request, without the encrypted fields (step 4). */
+/** The plain profile columns of a request; SSN, EIN and date of birth go through `secretColumns`. */
 function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInput {
-  if (body.ssn !== undefined || body.ein !== undefined || body.dateOfBirth !== undefined) {
-    throw sensitiveNotReady();
-  }
   const { address, ssn: _s, ein: _e, dateOfBirth: _d, ...rest } = body;
   const data: Record<string, unknown> = { ...rest };
   if (address) {
@@ -187,7 +174,13 @@ export class ClientsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly fe: FieldEncryption,
   ) {}
+
+  /** The record as the firm sees it: the date of birth decrypted, SSN and EIN as last 4 only. */
+  private async record(businessId: string, row: RecordRow): Promise<ClientRecord> {
+    return toRecord(row, await readDateOfBirth(this.fe, businessId, row.id, row.profile?.dobEnc));
+  }
 
   /** Which clients the actor may reach. */
   private reach(actor: ClientsActor): Prisma.ClientWhereInput {
@@ -246,7 +239,7 @@ export class ClientsService {
   async get(businessId: string, actor: ClientsActor, id: string): Promise<ClientRecord> {
     const row = await this.inFirm(businessId, (tx) => this.find(tx, businessId, actor, id));
     await this.audit.log('client.viewed', { type: 'client', id });
-    return toRecord(row);
+    return this.record(businessId, row);
   }
 
   async create(businessId: string, actor: ClientsActor, body: CreateBody): Promise<ClientRecord> {
@@ -267,11 +260,16 @@ export class ClientsService {
         },
         select: { id: true },
       });
+      // Sealed to the new client's id, in the same transaction: no client is left half-saved.
+      const secrets = body.profile
+        ? await secretColumns(this.fe, businessId, client.id, body.profile)
+        : {};
       await tx.clientProfile.create({
         data: {
           businessId,
           clientId: client.id,
           ...profile,
+          ...secrets,
         } as Prisma.ClientProfileUncheckedCreateInput,
       });
       return this.find(tx, businessId, actor, client.id);
@@ -281,10 +279,10 @@ export class ClientsService {
       { type: 'client', id: row.id },
       {
         fields: Object.keys(body).sort(),
-        profileFields: Object.keys(profile).sort(),
+        profileFields: changedFields(body.profile ?? {}),
       },
     );
-    return toRecord(row);
+    return this.record(businessId, row);
   }
 
   async update(
@@ -310,7 +308,40 @@ export class ClientsService {
       { type: 'client', id },
       { fields: Object.keys(data).sort() },
     );
-    return toRecord(row);
+    return this.record(businessId, row);
+  }
+
+  /**
+   * The firm's edit of the client's profile. SSN, EIN and date of birth are stored only through
+   * the field-encryption helper; the response has SSN and EIN as their last 4 digits and the
+   * date of birth in full. The audit names the fields, never a value.
+   */
+  async updateProfile(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: ProfileBody,
+  ): Promise<ClientProfile> {
+    const row = await this.inFirm(businessId, async (tx) => {
+      const current = await this.findForChange(tx, businessId, actor, id);
+      if (current.archivedAt) throw archived();
+      const data = {
+        ...profileData(body),
+        ...(await secretColumns(this.fe, businessId, id, body)),
+      };
+      await tx.clientProfile.upsert({
+        where: { clientId: id },
+        create: { businessId, clientId: id, ...data } as Prisma.ClientProfileUncheckedCreateInput,
+        update: data,
+      });
+      return this.find(tx, businessId, actor, id);
+    });
+    await this.audit.log(
+      'client.profile_updated',
+      { type: 'client', id },
+      { fields: changedFields(body) },
+    );
+    return (await this.record(businessId, row)).profile;
   }
 
   /** Owner and Admin (the route says so). Hidden from the default list; never deleted. */
@@ -340,7 +371,7 @@ export class ClientsService {
     if (changed) {
       await this.audit.log(archive ? 'client.archived' : 'client.restored', { type: 'client', id });
     }
-    return toRecord(row);
+    return this.record(businessId, row);
   }
 
   /** A change in the firm's scope; a unique email collision becomes 409 DUPLICATE_EMAIL. */

@@ -1,11 +1,24 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Module,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import type { z } from 'zod';
 import {
   ClientId,
+  type ClientProfile,
   type ClientRecord,
   CreateClientRequest,
   ListClientsQuery,
   type ListClientsResponse,
+  UpdateClientProfileRequest,
   UpdateClientRequest,
 } from '@firmivra/types';
 import {
@@ -17,7 +30,10 @@ import {
 } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { type ClientsActor, ClientsService } from './clients.service.js';
+import { MyProfileController } from './my-profile.controller.js';
+import { MyProfileService } from './my-profile.service.js';
 import { ClientTaxYearsController, MyTaxYearsController } from './tax-years.controller.js';
 import { TaxYearsService } from './tax-years.service.js';
 
@@ -32,7 +48,7 @@ function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
 /**
  * The firm's clients (R10 step 3; contract in packages/types/src/clients). Owner, Admin and
  * Staff (Staff: only clients assigned to them); archive and restore are Owner and Admin. The
- * firm comes from TenantGuard. Profile, tax years and the portal's My Profile come in steps 4-5.
+ * firm comes from TenantGuard. The profile (step 4) keeps SSN, EIN and date of birth encrypted.
  */
 @Controller('business/clients')
 export class ClientsController {
@@ -79,6 +95,19 @@ export class ClientsController {
     return this.clients.update(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
+  /** SSN, EIN and date of birth are stored only through the field-encryption helper. */
+  @Put(':id/profile')
+  @Roles(...FIRM_STAFF)
+  updateProfile(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateClientProfileRequest))
+    body: z.output<typeof UpdateClientProfileRequest>,
+  ): Promise<ClientProfile> {
+    return this.clients.updateProfile(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
   @Post(':id/archive')
   @Roles(...FIRM_MANAGERS)
   @HttpCode(200)
@@ -103,7 +132,13 @@ export class ClientsController {
 }
 
 @Module({
-  controllers: [ClientsController, ClientTaxYearsController, MyTaxYearsController],
-  providers: [ClientsService, TaxYearsService],
+  imports: [FieldEncryptionModule],
+  controllers: [
+    ClientsController,
+    ClientTaxYearsController,
+    MyTaxYearsController,
+    MyProfileController,
+  ],
+  providers: [ClientsService, TaxYearsService, MyProfileService],
 })
 export class ClientsModule {}

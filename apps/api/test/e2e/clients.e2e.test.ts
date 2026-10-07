@@ -2,7 +2,7 @@
 // Admin reach every client, Staff only their own; archive and restore are Owner and Admin. One
 // email per firm, archived clients included. SSN, EIN and date of birth answer 501 until step 4.
 // Every read and change is audited without values, and one firm never sees another's clients.
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -39,6 +39,10 @@ const people = {
 const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
 
 let app: INestApplication;
+const savedKms = {
+  KMS_MODE: process.env['KMS_MODE'],
+  LOCAL_KMS_KEY: process.env['LOCAL_KMS_KEY'],
+};
 const tokens = new Map<string, string>();
 
 async function tokenFor(email: string): Promise<string> {
@@ -121,6 +125,9 @@ beforeAll(async () => {
   );
   await owner.$disconnect();
 
+  // The field-encryption helper in local mode with this file's own key (CI has no .env).
+  process.env['KMS_MODE'] = 'local';
+  process.env['LOCAL_KMS_KEY'] = randomBytes(32).toString('base64');
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
@@ -139,6 +146,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  for (const [k, v] of Object.entries(savedKms)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
 });
 
 describe('who reaches which client', () => {
@@ -265,7 +276,7 @@ describe('list: search, filters and paging', () => {
 });
 
 describe('create and update', () => {
-  it('creates the client and its profile, without SSN, EIN or date of birth (501)', async () => {
+  it('creates the client and its profile; SSN, EIN and date of birth come back as last 4 and in full', async () => {
     const c = await create({
       displayName: 'Profile Client (fake)',
       accountType: 'BUSINESS',
@@ -284,21 +295,17 @@ describe('create and update', () => {
       einLast4: null,
       dateOfBirth: null,
     });
-    for (const profile of [
-      { ssn: '900-00-0001' },
-      { ein: '90-0000001' },
-      { dateOfBirth: '1985-04-12' },
-    ]) {
-      const res = await call('post', '', people.ownerA, 'a', {
-        displayName: `Sensitive ${run}`,
-        email: email(`sensitive-${Object.keys(profile)[0]}`),
-        profile,
-      });
-      expect([res.status, codeOf(res)]).toEqual([501, 'NOT_IMPLEMENTED']);
-    }
-    expect(
-      (await list(`?status=all&search=${encodeURIComponent(`Sensitive ${run}`)}`)).items,
-    ).toEqual([]);
+    // Stored only through the field-encryption helper (R10 step 4; client-profile.e2e has more).
+    const sensitive = await create({
+      displayName: `Sensitive ${run}`,
+      email: email('sensitive'),
+      profile: { ssn: '900-00-0001', ein: '90-0000001', dateOfBirth: '1985-04-12' },
+    });
+    expect(sensitive.profile).toMatchObject({
+      ssnLast4: '0001',
+      einLast4: '0001',
+      dateOfBirth: '1985-04-12',
+    });
   });
 
   it('one email per firm, archived clients included; another firm may use it (409)', async () => {
