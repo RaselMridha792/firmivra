@@ -152,3 +152,22 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
   1. Before Oct 18: a way to withdraw a firm file shared with the wrong client. A function only the migrate role can run removes or unshares one document by id, with a reason and an audit row; tested, with the steps here. Next small R0 PR after #80.
   2. The seed's LVP application in R4's `StoredApplication` shape, once #79 merges.
   3. R11: converting a lead creates the engagement ACTIVE (uploads go only to ACTIVE engagements).
+- Oct 8, Rasel's item 1: migration `r0_withdraw_document`, branch `rasel/R0-withdraw-document` (stacked on #80). `withdraw_document(firm, document, reason)`, for the migrate role only, with tests in `test/withdraw-document.test.ts`: the app role can't run it, and can't delete a shared file whatever it sets; the function removes the file with its links and an audit row and returns the S3 key; a blank reason, another firm's or unknown document, and a legal hold are refused. Also checked as a NOSUPERUSER, NOBYPASSRLS owner on a seeded database: a plain delete of LVP's shared file removed 0 rows; the function removed it and wrote 1 audit row.
+
+## Runbook: withdraw a firm file shared with the wrong client
+
+For ops only, until the app has a button (after launch). Rasel approves every run; never on production without his yes.
+
+1. From the firm, get: the firm's id, the document's id, and one sentence on why (e.g. "Shared with the wrong client, ticket 123"). Never paste the file name or client details into the reason.
+2. If the document is under legal hold, stop: the hold is cleared first, through the app by an Owner or Admin (audited), or not at all.
+3. Connect as the migrate role (the database owner, `DB_OWNER_USER`, credentials from Secrets Manager; on AWS through the same path as the migrate task). The app role cannot run it.
+4. In one transaction:
+   ```sql
+   BEGIN;
+   SELECT withdraw_document('<firm id>'::uuid, '<document id>'::uuid, '<reason>');
+   -- returns the S3 key, e.g. tenant/<firm id>/documents/<id>
+   COMMIT;
+   ```
+   It clears the tax return PDF, report attachment and message attachments that pointed at the file, deletes the document row and writes the `document.withdrawn` audit row.
+5. Remove the file from S3 with the returned key: `aws s3 rm s3://<documents bucket>/<key>`. It's an AWS change, so show the command to Rasel first; versioned buckets also need the old versions removed.
+6. Tell the firm what was removed (their audit log shows `document.withdrawn`). If the right client still needs the file, the firm uploads it again to the right client.
