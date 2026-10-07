@@ -45,6 +45,7 @@ export interface Inviter {
 export interface CreateInviteInput {
   businessId: string;
   email: string;
+  /** The name the inviter typed. The invite keeps it, with the email (#52). */
   name: string;
   role: MembershipRole;
   invitedBy: Inviter | null;
@@ -71,6 +72,8 @@ const alreadyMember = () =>
     code: 'ALREADY_MEMBER',
     message: 'This person already works at this firm',
   });
+const notInvited = () =>
+  new ConflictException({ code: 'NOT_INVITED', message: 'This person has no open invite' });
 const accountExists = () =>
   new ConflictException({
     code: 'ACCOUNT_EXISTS',
@@ -139,8 +142,20 @@ export class InvitesService {
    * The firm must be in setup or active (403 BUSINESS_INACTIVE), also for callers without the
    * route's guard (R4, the Team API), and within INVITE_LIMITS (429 RATE_LIMITED).
    */
-  async createInvite(input: CreateInviteInput): Promise<InviteResult> {
+  createInvite(input: CreateInviteInput): Promise<InviteResult> {
+    return this.invite(input);
+  }
+
+  /**
+   * createInvite, and resendInvite's new link: then `onlyIfInvited` names the membership and its
+   * person, and the link is made only while that membership is still INVITED (409 NOT_INVITED).
+   */
+  private async invite(
+    input: CreateInviteInput,
+    onlyIfInvited?: { membershipId: string; userId: string },
+  ): Promise<InviteResult> {
     const email = input.email.trim().toLowerCase();
+    const name = input.name.trim();
     const { businessId, role, invitedBy } = input;
     assertMayInvite(invitedBy, role);
 
@@ -157,18 +172,31 @@ export class InvitesService {
     const sentToday = await firm.invite.count({ where: { createdAt: { gt: since } } });
     if (sentToday >= INVITE_LIMITS.perFirm) throw tooManyInvites();
 
-    const userId = await this.staffUserFor(email, input.name);
+    // A resend's person is its membership's: never looked up, or created, by email.
+    const userId = onlyIfInvited?.userId ?? (await this.staffUserFor(email, name));
 
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_DAYS * DAY_MS);
     // Retried once if a parallel invite created the membership first (then it is a resend), or
-    // an activation changed it meanwhile (then the person is a member).
+    // an activation or a deactivation changed it meanwhile (then the new state decides).
     const { inviteId, membershipId, resent } = await retryOnConflict(() =>
       this.db.withScope({ kind: 'business', businessId }, async (tx) => {
+        // Invites to one person at one firm run one at a time, so each revokes the link made by
+        // the one before. Only invites take this lock, before any row: no new lock order.
+        const key = `staff-invite:${businessId}:${userId}`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
         const existing = await tx.membership.findFirst({
           where: { userId },
           select: { id: true, status: true, role: true },
         });
+        // A resend checks again here (and on the retry): a deactivation or an activation that
+        // committed since resendInvite read the membership wins.
+        if (
+          onlyIfInvited &&
+          (existing?.id !== onlyIfInvited.membershipId || existing.status !== 'INVITED')
+        ) {
+          throw notInvited();
+        }
         if (existing?.status === 'ACTIVE') throw alreadyMember();
         // Re-inviting changes an existing membership: the inviter must be allowed its role too.
         if (existing) assertMayInvite(invitedBy, existing.role);
@@ -184,15 +212,14 @@ export class InvitesService {
               data: { businessId, userId, role, status: 'INVITED' },
               select: { id: true },
             });
-        await tx.invite.updateMany({
-          where: { membershipId: membership.id, acceptedAt: null, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
         const invite = await tx.invite.create({
           data: {
             businessId,
             membershipId: membership.id,
             tokenHash: sha256(token),
+            // What the inviter typed (#52): the firm sees this, never the person's user row.
+            name,
+            email,
             expiresAt,
             invitedByUserId: invitedBy?.userId ?? null,
           },
@@ -217,7 +244,7 @@ export class InvitesService {
     await this.mailer.send({
       inviteId,
       to: email,
-      name: input.name,
+      name,
       businessName: business.name,
       link: this.activationLink(token),
       expiresAt,
@@ -226,7 +253,7 @@ export class InvitesService {
       id: inviteId,
       membershipId,
       email,
-      name: input.name,
+      name,
       role,
       expiresAt: expiresAt.toISOString(),
     };
@@ -234,13 +261,20 @@ export class InvitesService {
 
   /**
    * Back to INVITED with the new role, only if the membership is still as read: an activation
-   * that committed meanwhile is never flipped back (#41 review).
+   * that committed meanwhile is never flipped back (#41 review). Its open links are revoked
+   * first: the invite rows, then the membership, the order activation (`use`) and the Team API's
+   * deactivate lock them in. In the other order, an activation holding the link and waiting for
+   * the membership, and this holding the membership and waiting for the link, deadlock.
    */
   private async reinvite(
     tx: TxClient,
     existing: { id: string; status: string },
     role: MembershipRole,
   ): Promise<{ id: string }> {
+    await tx.invite.updateMany({
+      where: { membershipId: existing.id, acceptedAt: null, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
     const moved = await tx.membership.updateMany({
       where: { id: existing.id, status: existing.status as 'INVITED' | 'DEACTIVATED' },
       data: { status: 'INVITED', role },
@@ -277,7 +311,12 @@ export class InvitesService {
     }
   }
 
-  /** A new link for an open invite (Team API). 409 NOT_INVITED unless the membership is INVITED. */
+  /**
+   * A new link for an open invite (Team API), to the name and email typed for it, never the
+   * person's user row (staff users are shared across firms: it may hold the name they use at
+   * another firm). 409 NOT_INVITED unless the membership is INVITED, checked here and again
+   * where the link is made, so a deactivation or an activation that commits first wins.
+   */
   async resendInvite(input: {
     businessId: string;
     membershipId: string;
@@ -285,22 +324,41 @@ export class InvitesService {
   }): Promise<InviteResult> {
     const membership = await this.db.forBusiness(input.businessId).membership.findUnique({
       where: { id: input.membershipId },
-      select: { role: true, status: true, user: { select: { email: true, name: true } } },
+      select: {
+        userId: true,
+        role: true,
+        status: true,
+        invites: {
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: { name: true, email: true },
+        },
+      },
     });
     if (!membership) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
-    if (membership.status !== 'INVITED') {
-      throw new ConflictException({
-        code: 'NOT_INVITED',
-        message: 'This person has no open invite',
-      });
-    }
-    return this.createInvite({
-      businessId: input.businessId,
-      email: membership.user.email,
-      name: membership.user.name,
-      role: membership.role,
-      invitedBy: input.invitedBy,
+    if (membership.status !== 'INVITED') throw notInvited();
+    const typed = await this.typedDetails(input.businessId, membership);
+    return this.invite(
+      { businessId: input.businessId, ...typed, role: membership.role, invitedBy: input.invitedBy },
+      { membershipId: input.membershipId, userId: membership.userId },
+    );
+  }
+
+  /**
+   * The name and email typed for the membership's newest invite. Invites made before #52 have
+   * none: then the person's user row, as before, only for what is missing.
+   */
+  private async typedDetails(
+    businessId: string,
+    membership: { userId: string; invites: { name: string | null; email: string | null }[] },
+  ): Promise<{ name: string; email: string }> {
+    const latest = membership.invites[0];
+    if (latest?.name && latest.email) return { name: latest.name, email: latest.email };
+    const user = await this.db.forBusiness(businessId).user.findUniqueOrThrow({
+      where: { id: membership.userId },
+      select: { name: true, email: true },
     });
+    return { name: latest?.name ?? user.name, email: latest?.email ?? user.email };
   }
 
   /** What the activation screen shows. 404 INVITE_INVALID, 410 INVITE_EXPIRED. */

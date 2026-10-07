@@ -79,6 +79,7 @@ describe('InvitesService.activate', () => {
 describe('InvitesService.createInvite', () => {
   it('disables the Cognito login it made when a parallel invite created the person first', async () => {
     const tx = {
+      $executeRaw: vi.fn().mockResolvedValue(1), // the per-person advisory lock
       membership: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: 'm1' }),
@@ -122,5 +123,126 @@ describe('InvitesService.createInvite', () => {
     expect(tx.membership.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ userId: 'u-raced' }) }),
     );
+  });
+});
+
+/**
+ * An invited member m1 of firm b1 (person u1) whose newest invite has `typed` details, and what
+ * the invite transaction reads on each run: `inTx` (the membership) and `moved` (rows the
+ * membership update changed).
+ */
+function invitedMember(options: {
+  typed: { name: string | null; email: string | null };
+  inTx: { status: string }[];
+  moved?: number[];
+}) {
+  const findFirst = vi.fn();
+  for (const { status } of options.inTx) {
+    findFirst.mockResolvedValueOnce({ id: 'm1', status, role: 'STAFF' });
+  }
+  const moveMembership = vi.fn();
+  for (const count of options.moved ?? [1]) moveMembership.mockResolvedValueOnce({ count });
+  const tx = {
+    $executeRaw: vi.fn().mockResolvedValue(1),
+    membership: { findFirst, updateMany: moveMembership },
+    invite: {
+      count: vi.fn().mockResolvedValue(0),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      create: vi.fn().mockResolvedValue({ id: 'i2' }),
+    },
+  };
+  const userRow = vi.fn().mockResolvedValue({ name: 'Row Name', email: 'row@lvp.test' });
+  const db = {
+    forBusiness: () => ({
+      membership: {
+        findUnique: vi.fn().mockResolvedValue({
+          userId: 'u1',
+          role: 'STAFF',
+          status: 'INVITED',
+          invites: [options.typed],
+        }),
+      },
+      business: { findUnique: vi.fn().mockResolvedValue({ name: 'LVP', status: 'ACTIVE' }) },
+      invite: { count: vi.fn().mockResolvedValue(0) },
+      user: { findUniqueOrThrow: userRow },
+    }),
+    forPlatform: () => {
+      throw new Error('a resend never looks the person up by email');
+    },
+    withScope: (_scope: unknown, fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+  } as unknown as Database;
+  const sent = { send: vi.fn().mockResolvedValue(undefined) };
+  const service = new InvitesService(db, {} as never, sent, audit as never, env);
+  const resend = () =>
+    service.resendInvite({
+      businessId: 'b1',
+      membershipId: 'm1',
+      invitedBy: { userId: 'o1', role: 'OWNER' },
+    });
+  return { tx, userRow, sent, resend };
+}
+
+describe('InvitesService.resendInvite', () => {
+  it('sends the name and email typed for the newest invite, never the user row', async () => {
+    const typed = { name: 'Typed Name', email: 'typed@lvp.test' };
+    const { tx, userRow, sent, resend } = invitedMember({ typed, inTx: [{ status: 'INVITED' }] });
+    await expect(resend()).resolves.toMatchObject({ membershipId: 'm1', ...typed });
+    expect(tx.invite.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining(typed) }),
+    );
+    expect(sent.send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: typed.email, name: typed.name }),
+    );
+    expect(userRow).not.toHaveBeenCalled();
+  });
+
+  it('uses the user row only for an invite made before #52 (no typed details)', async () => {
+    const { tx, resend } = invitedMember({
+      typed: { name: null, email: null },
+      inTx: [{ status: 'INVITED' }],
+    });
+    await expect(resend()).resolves.toMatchObject({ name: 'Row Name', email: 'row@lvp.test' });
+    expect(tx.invite.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ name: 'Row Name', email: 'row@lvp.test' }),
+      }),
+    );
+  });
+
+  it('takes the per-person lock, then revokes the open links before moving the membership', async () => {
+    const { tx, resend } = invitedMember({
+      typed: { name: 'Typed Name', email: 'typed@lvp.test' },
+      inTx: [{ status: 'INVITED' }],
+    });
+    await resend();
+    // The lock, the revoke, the membership update, the new invite: called once each, in order.
+    const order = [tx.$executeRaw, tx.invite.updateMany, tx.membership.updateMany, tx.invite.create]
+      .map((fn) => fn.mock.invocationCallOrder)
+      .map((calls) => (calls.length === 1 ? (calls[0] ?? -1) : -1));
+    expect(order.every((n) => n > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('answers 409 NOT_INVITED when a deactivation committed before the invite transaction', async () => {
+    const { tx, sent, resend } = invitedMember({
+      typed: { name: 'Typed Name', email: 'typed@lvp.test' },
+      inTx: [{ status: 'DEACTIVATED' }],
+    });
+    await expect(resend()).rejects.toMatchObject({ response: { code: 'NOT_INVITED' } });
+    expect(tx.membership.updateMany).not.toHaveBeenCalled();
+    expect(tx.invite.create).not.toHaveBeenCalled();
+    expect(sent.send).not.toHaveBeenCalled();
+  });
+
+  it('checks again on the retry: deactivated between the read and the update is 409 too', async () => {
+    const { tx, sent, resend } = invitedMember({
+      typed: { name: 'Typed Name', email: 'typed@lvp.test' },
+      inTx: [{ status: 'INVITED' }, { status: 'DEACTIVATED' }],
+      moved: [0],
+    });
+    await expect(resend()).rejects.toMatchObject({ response: { code: 'NOT_INVITED' } });
+    expect(tx.membership.findFirst).toHaveBeenCalledTimes(2);
+    expect(tx.invite.create).not.toHaveBeenCalled();
+    expect(sent.send).not.toHaveBeenCalled();
   });
 });

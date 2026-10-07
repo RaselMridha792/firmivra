@@ -157,7 +157,8 @@ paths:
         fragment, so it never reaches a server log or a Referer header: the page reads it and
         sends it in the body. Inviting someone with an open invite sends a new link (the old one
         stops working); a deactivated member is invited again. The answer is the same whether or
-        not the person already works at another firm. The email address is lower-cased.
+        not the person already works at another firm. The email address is lower-cased. The
+        invite keeps the name and email typed here, and a resend uses them again.
 
         Works while the firm is in setup (the setup wizard's "Team and access" step) or active;
         a suspended or closed firm gets 403 `BUSINESS_INACTIVE`. A firm sends at most 50 links a
@@ -570,7 +571,7 @@ components:
       required: [email, name, role]
       properties:
         email: { $ref: '#/components/schemas/Email' }
-        name: { type: string, minLength: 1, maxLength: 200 }
+        name: { type: string, minLength: 1, maxLength: 120, description: 'Trimmed; one line, no control characters' }
         role: { $ref: '#/components/schemas/InviteRole' }
     InviteResponse:
       type: object

@@ -1,13 +1,13 @@
 // End-to-end: staff invites and activation (R2 step 6) in AUTH_MODE=local. Contract:
 // docs/api/auth.yaml. The ActivationMailer is replaced by an outbox the tests read.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
+import { HttpException, type INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { createPrismaClient, databaseErrorCode, runInScope, type TxClient } from '@firmivra/db';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type {
   ActivationCheckResponse,
   IdentityPool,
@@ -302,6 +302,8 @@ describe('invite and activate a new person', () => {
           businessId: fx.firmA.id,
           membershipId: membership.id,
           tokenHash: createHash('sha256').update(token).digest('hex'),
+          name: 'Late',
+          email: late.email,
           createdAt: new Date(Date.now() - 8 * 86_400_000),
           expiresAt: new Date(Date.now() - 86_400_000),
           invitedByUserId: fx.users.ownerA.id,
@@ -603,5 +605,373 @@ describe('invite caps, counted in the database (#41 review)', () => {
     } finally {
       INVITE_LIMITS.perFirm = limit;
     }
+  });
+});
+
+describe('resend, deactivation and activation races, and the typed details (#57 review)', () => {
+  // The owner client reads and holds rows; the app-role client deactivates as the API would.
+  let ownerDb: ReturnType<typeof createPrismaClient>;
+  let appDb: ReturnType<typeof createPrismaClient>;
+  let service: InvitesService;
+  beforeAll(() => {
+    ownerDb = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    appDb = createPrismaClient(fx.appUrl, TEST_CLIENT_OPTIONS);
+    service = app.get(InvitesService);
+  });
+  afterAll(async () => {
+    await Promise.all([ownerDb.$disconnect(), appDb.$disconnect()]);
+  });
+
+  const inFirm = <T>(businessId: string, work: (tx: TxClient) => Promise<T>) =>
+    runInScope(ownerDb, { kind: 'business', businessId }, work);
+
+  /** A staff login that already exists (for example at another firm), under `name`. */
+  async function newPerson(label: string, name: string) {
+    const person = { id: randomUUID(), email: `r2-${label}-${randomUUID()}@race.test` };
+    await runInScope(ownerDb, { kind: 'platform' }, (tx) =>
+      tx.user.create({ data: { ...person, cognitoSub: person.id, pool: 'STAFF', name } }),
+    );
+    return person;
+  }
+
+  /** A firm of its own with an active owner: each race sends up to INVITE_LIMITS.perFirm links. */
+  async function newFirm(label: string) {
+    const owner = await newPerson(`${label}-owner`, 'Race Owner');
+    const slug = `r2-${label}-${randomUUID().slice(0, 8)}`;
+    const { id } = await runInScope(ownerDb, { kind: 'platform' }, (tx) =>
+      tx.business.create({ data: { slug, name: slug, status: 'ACTIVE' }, select: { id: true } }),
+    );
+    await inFirm(id, (tx) =>
+      tx.membership.create({
+        data: { businessId: id, userId: owner.id, role: 'OWNER', status: 'ACTIVE' },
+      }),
+    );
+    return { id, ownerEmail: owner.email, owner: { userId: owner.id, role: 'OWNER' as const } };
+  }
+
+  const settle = <T>(work: Promise<T>): Promise<PromiseSettledResult<T>> =>
+    work.then(
+      (value) => ({ status: 'fulfilled' as const, value }),
+      (reason: unknown) => ({ status: 'rejected' as const, reason }),
+    );
+
+  /** What the API answers for a settled call: '200', '409 NOT_INVITED', or '500' and the cause. */
+  function answer(result: PromiseSettledResult<unknown>): string {
+    if (result.status === 'fulfilled') return '200';
+    const e: unknown = result.reason;
+    if (e instanceof HttpException && e.getStatus() < 500) {
+      return `${e.getStatus()} ${(e.getResponse() as { code?: string }).code ?? ''}`;
+    }
+    return `500 ${databaseErrorCode(e) ?? (e as { code?: string }).code ?? String(e)}`;
+  }
+
+  /** The membership's status and how many of its links are still open. */
+  const stateOf = (businessId: string, membershipId: string) =>
+    inFirm(businessId, async (tx) => ({
+      status: (
+        await tx.membership.findUniqueOrThrow({
+          where: { id: membershipId },
+          select: { status: true },
+        })
+      ).status,
+      open: await tx.invite.count({ where: { membershipId, acceptedAt: null, revokedAt: null } }),
+    }));
+
+  /** Whether a link still opens the activation screen. */
+  async function opens(token: string): Promise<boolean> {
+    try {
+      await service.check(token);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** How many of the links emailed to `email` still work. */
+  async function workingLinks(email: string): Promise<number> {
+    const tokens = outbox.filter((m) => m.to === email).map((m) => m.link.split('#token=')[1]);
+    return (await Promise.all(tokens.map((token) => opens(token ?? '')))).filter(Boolean).length;
+  }
+
+  /**
+   * A deactivation straight in the database as the API's role (the Team API is not on main):
+   * the membership only, or as the Team API does it, its open links first.
+   */
+  const deactivate = (businessId: string, membershipId: string, linksFirst: boolean) =>
+    runInScope(appDb, { kind: 'business', businessId }, async (tx) => {
+      if (linksFirst) {
+        await tx.$executeRaw`UPDATE invites SET revoked_at = now() WHERE membership_id =
+          ${membershipId}::uuid AND accepted_at IS NULL AND revoked_at IS NULL`;
+      }
+      await tx.$executeRaw`UPDATE memberships SET status = 'DEACTIVATED'
+        WHERE id = ${membershipId}::uuid`;
+    });
+
+  /**
+   * Holds the membership row as an update would, so the next writer of it waits. `waiting(n)`
+   * resolves once n backends wait on the holder, directly or behind each other.
+   */
+  async function holdMembership(businessId: string, membershipId: string) {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let holding!: (pid: number) => void;
+    const pid = new Promise<number>((resolve) => (holding = resolve));
+    const done = inFirm(businessId, async (tx) => {
+      const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid
+        FROM memberships WHERE id = ${membershipId}::uuid FOR NO KEY UPDATE`;
+      if (!row) throw new Error('no membership to hold');
+      holding(row.pid);
+      await released;
+    });
+    const holder = await Promise.race([pid, done.then(() => Promise.reject(new Error('ended')))]);
+    const waiting = async (n: number) => {
+      for (const until = Date.now() + 10_000; Date.now() < until; await pause(10)) {
+        const [row] = await ownerDb.$queryRaw<{ n: number }[]>`
+          WITH RECURSIVE waiting(pid) AS (
+            SELECT pid FROM pg_stat_activity WHERE ${holder}::int = ANY(pg_blocking_pids(pid))
+            UNION
+            SELECT a.pid FROM pg_stat_activity a JOIN waiting w ON w.pid = ANY(pg_blocking_pids(a.pid))
+          )
+          SELECT count(*)::int AS n FROM waiting`;
+        if ((row?.n ?? 0) >= n) return;
+      }
+      throw new Error(`fewer than ${n} waiting for the membership`);
+    };
+    return {
+      waiting,
+      release: () => {
+        release();
+        return done;
+      },
+    };
+  }
+
+  it('a resend never re-invites a member deactivated first: 200 or 409 NOT_INVITED, never 500', async () => {
+    const firm = await newFirm('rd');
+    const failures: string[] = [];
+    for (let round = 0; round < 20; round++) {
+      const email = `r2-rd-${round}-${randomUUID()}@race.test`;
+      const { membershipId } = await service.createInvite({
+        businessId: firm.id,
+        email,
+        name: 'Race Invitee',
+        role: 'STAFF',
+        invitedBy: firm.owner,
+      });
+      const [resent, deactivated] = await Promise.all([
+        settle(service.resendInvite({ businessId: firm.id, membershipId, invitedBy: firm.owner })),
+        // 0 to 108 ms later, so it lands at different points of the resend (or after it); the
+        // second half of the rounds deactivates as the Team API does, the open links first.
+        settle(pause((round % 10) * 12).then(() => deactivate(firm.id, membershipId, round >= 10))),
+      ]);
+      const said = answer(resent);
+      const { status } = await stateOf(firm.id, membershipId);
+      const working = await workingLinks(email);
+      if (
+        !['200', '409 NOT_INVITED'].includes(said) ||
+        deactivated.status === 'rejected' ||
+        status !== 'DEACTIVATED' ||
+        working > 0
+      ) {
+        failures.push(
+          `round ${round}: resend ${said}, deactivate ${answer(deactivated)}, ` +
+            `member ${status}, ${working} working link(s)`,
+        );
+      }
+    }
+    expect(failures).toEqual([]);
+  }, 60_000);
+
+  it('a re-invite and an activation of the same membership never deadlock, whoever is first', async () => {
+    const firm = await newFirm('lock');
+    const failures: string[] = [];
+    const winners = new Set<string>();
+    for (let round = 0; round < 16; round++) {
+      const reinviteFirst = round % 2 === 0;
+      const viaResend = round % 4 >= 2;
+      const hasLogin = round % 8 >= 4; // accepts with an existing login, else activates
+      const person = hasLogin
+        ? await newPerson('lock', 'Lock Person')
+        : { id: '', email: `r2-lock-${round}-${randomUUID()}@race.test` };
+      const invite = () =>
+        service.createInvite({
+          businessId: firm.id,
+          email: person.email,
+          name: 'Lock Invitee',
+          role: 'STAFF',
+          invitedBy: firm.owner,
+        });
+      const { membershipId } = await invite();
+      const token = tokenSentTo(person.email);
+      const reinvite = (): Promise<unknown> =>
+        viaResend
+          ? service.resendInvite({ businessId: firm.id, membershipId, invitedBy: firm.owner })
+          : invite();
+      const join = (): Promise<unknown> =>
+        hasLogin
+          ? service.accept(token, { userId: person.id, cognitoSub: person.id, pool: 'STAFF' })
+          : service.activate(token, 'Lock-race-password-1');
+
+      // The first one waits for the held membership (holding the link if it took it), then the
+      // second comes for the same rows. Had a re-invite taken the membership before the links,
+      // it would deadlock with an activation here.
+      const hold = await holdMembership(firm.id, membershipId);
+      const first = settle(reinviteFirst ? reinvite() : join());
+      await hold.waiting(1);
+      const second = settle(reinviteFirst ? join() : reinvite());
+      await hold.waiting(2);
+      await hold.release();
+      const [r, j] = reinviteFirst ? [await first, await second] : [await second, await first];
+      const said = { reinvite: answer(r), join: answer(j) };
+      const state = await stateOf(firm.id, membershipId);
+      const refused = viaResend ? '409 NOT_INVITED' : '409 ALREADY_MEMBER';
+      if (said.join === '200' && said.reinvite === refused && state.status === 'ACTIVE') {
+        winners.add(`joined, ${state.open} open`);
+      } else if (said.reinvite === '200' && said.join === '404 INVITE_INVALID') {
+        winners.add(`re-invited: ${state.status}, ${state.open} open`);
+      } else {
+        failures.push(
+          `round ${round} (${reinviteFirst ? 're-invite' : 'join'} first, ` +
+            `${viaResend ? 'resend' : 'invite again'}, ${hasLogin ? 'accept' : 'activate'}): ` +
+            `re-invite ${said.reinvite}, join ${said.join}, member ${state.status}`,
+        );
+      }
+    }
+    expect(failures).toEqual([]);
+    expect([...winners].sort()).toEqual(['joined, 0 open', 're-invited: INVITED, 1 open']);
+  }, 60_000);
+
+  it('two resends at once both answer, and only one link works', async () => {
+    const firm = await newFirm('twice');
+    const failures: string[] = [];
+    for (let round = 0; round < 10; round++) {
+      const email = `r2-twice-${round}-${randomUUID()}@race.test`;
+      const { membershipId } = await service.createInvite({
+        businessId: firm.id,
+        email,
+        name: 'Twice Invitee',
+        role: 'STAFF',
+        invitedBy: firm.owner,
+      });
+      const resend = () =>
+        settle(service.resendInvite({ businessId: firm.id, membershipId, invitedBy: firm.owner }));
+      const said = (await Promise.all([resend(), resend()])).map(answer).join(' and ');
+      const { open } = await stateOf(firm.id, membershipId);
+      const working = await workingLinks(email);
+      if (said !== '200 and 200' || open !== 1 || working !== 1) {
+        failures.push(`round ${round}: ${said}, ${open} open, ${working} working link(s)`);
+      }
+    }
+    expect(failures).toEqual([]);
+  }, 60_000);
+
+  it("keeps the typed name and email; a resend sends those, never the person's user row", async () => {
+    const firm = await newFirm('typed');
+    // Already staff at another firm, under the name they use there.
+    const person = await newPerson('typed', 'Name At Another Firm');
+    const res = await as(
+      firm.ownerEmail,
+      '/api/v1/auth/invites',
+      { email: ` ${person.email.toUpperCase()} `, name: '  Typed Name  ', role: 'STAFF' },
+      firm.id,
+    );
+    expect(res.status).toBe(201);
+    const first = res.body as InviteResponse;
+    const resent = await service.resendInvite({
+      businessId: firm.id,
+      membershipId: first.membershipId,
+      invitedBy: firm.owner,
+    });
+    const typed = { name: 'Typed Name', email: person.email };
+    expect([first, resent]).toMatchObject([typed, typed]);
+    expect(outbox.at(-1)).toMatchObject({ inviteId: resent.id, to: typed.email, name: typed.name });
+    const rows = await inFirm(firm.id, (tx) =>
+      tx.invite.findMany({
+        where: { membershipId: first.membershipId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true, email: true },
+      }),
+    );
+    expect(rows).toEqual([
+      { id: first.id, ...typed },
+      { id: resent.id, ...typed },
+    ]);
+  });
+
+  it('resends an invite from before #52 (no typed details) to the user row, kept from then on', async () => {
+    const firm = await newFirm('legacy');
+    const person = await newPerson('legacy', 'Legacy Row Name');
+    const membershipId = await inFirm(firm.id, async (tx) => {
+      const { id } = await tx.membership.create({
+        data: { businessId: firm.id, userId: person.id, role: 'STAFF', status: 'INVITED' },
+      });
+      await tx.invite.create({
+        data: {
+          businessId: firm.id,
+          membershipId: id,
+          tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+          expiresAt: new Date(Date.now() + 86_400_000),
+          invitedByUserId: firm.owner.userId,
+        },
+      });
+      return id;
+    });
+    const resent = await service.resendInvite({
+      businessId: firm.id,
+      membershipId,
+      invitedBy: firm.owner,
+    });
+    const fromRow = { name: 'Legacy Row Name', email: person.email };
+    expect(resent).toMatchObject(fromRow);
+    const stored = await inFirm(firm.id, (tx) =>
+      tx.invite.findUniqueOrThrow({
+        where: { id: resent.id },
+        select: { name: true, email: true },
+      }),
+    );
+    expect(stored).toEqual(fromRow);
+  });
+
+  it("the platform's owner invite (R4, invitedBy null) keeps the typed details too", async () => {
+    const slug = `r2-r4-${randomUUID().slice(0, 8)}`;
+    const { id: businessId } = await runInScope(ownerDb, { kind: 'platform' }, (tx) =>
+      tx.business.create({
+        data: { slug, name: slug, status: 'PENDING_SETUP' },
+        select: { id: true },
+      }),
+    );
+    const email = `r2-r4-owner-${randomUUID()}@race.test`;
+    const result = await service.createInvite({
+      businessId,
+      email: ` ${email.toUpperCase()} `,
+      name: '  Primary Admin  ',
+      role: 'OWNER',
+      invitedBy: null,
+    });
+    expect(result).toMatchObject({ name: 'Primary Admin', email, role: 'OWNER' });
+    const stored = await inFirm(businessId, (tx) =>
+      tx.invite.findUniqueOrThrow({
+        where: { id: result.id },
+        select: { name: true, email: true, invitedByUserId: true },
+      }),
+    );
+    expect(stored).toEqual({ name: 'Primary Admin', email, invitedByUserId: null });
+  });
+
+  it('refuses a name the database would refuse with 400, before writing anything', async () => {
+    const email = `r2-bad-name-${randomUUID()}@a.test`;
+    for (const name of ['x'.repeat(121), 'Tab\tName', 'Bell\u0007Name']) {
+      const res = await as(
+        fx.users.ownerA.email,
+        '/api/v1/auth/invites',
+        { email, name, role: 'STAFF' },
+        fx.firmA.id,
+      );
+      expect([name, res.status, codeOf(res)]).toEqual([name, 400, 'VALIDATION_FAILED']);
+    }
+    const users = await runInScope(ownerDb, { kind: 'platform' }, (tx) =>
+      tx.user.count({ where: { email } }),
+    );
+    expect(users).toBe(0);
   });
 });

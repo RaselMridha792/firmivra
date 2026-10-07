@@ -77,6 +77,26 @@ describe('request schemas', () => {
     expect(CreateInviteRequest.safeParse(body).success).toBe(false);
     expect(CreateInviteRequest.safeParse({ ...body, role: 'STAFF' }).success).toBe(true);
   });
+
+  it("keeps an invite's name to the database's rule: one line, at most 120 characters", () => {
+    const body = { email: 'new@lvp.test', role: 'STAFF' };
+    const longest = 'x'.repeat(120);
+    expect(CreateInviteRequest.parse({ ...body, name: `  ${longest}  ` }).name).toBe(longest);
+    for (const name of [
+      'x'.repeat(121),
+      'Tab\tName',
+      'Two\nLines',
+      'Nul\u0000',
+      'Delete\u007f',
+      'Next line\u0085',
+      '   ',
+    ]) {
+      expect([name, CreateInviteRequest.safeParse({ ...body, name }).success]).toEqual([
+        name,
+        false,
+      ]);
+    }
+  });
 });
 
 describe('SignInResult', () => {
