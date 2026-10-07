@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { areaForHost, INTERNAL_PREFIXES } from './lib/hosts';
 
+/** A firm slug as the first path segment (slugs are case-insensitive). */
+const PORTAL_SLUG = /^\/[A-Za-z0-9-]{1,63}(\/|$)/;
+
 /**
  * One Next.js app, three sites, chosen by host name from configuration (src/lib/hosts.ts):
  *   ADMIN_HOST/...         -> app/admin/...         (Super Admin)
@@ -18,6 +21,12 @@ export function proxy(request: NextRequest) {
     return INTERNAL_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
       ? new NextResponse(null, { status: 404 })
       : NextResponse.next();
+  }
+
+  // Portal: the first segment is the firm's slug and must look like one. An encoded "/" or "\"
+  // (/%2Fevil.com/home) would otherwise reach pages and redirects as the slug "/evil.com".
+  if (area === 'portal' && pathname !== '/' && !PORTAL_SLUG.test(pathname)) {
+    return new NextResponse(null, { status: 404 });
   }
 
   const url = request.nextUrl.clone();

@@ -10,3 +10,4 @@ export {
   type ScopedClient,
   type TxClient,
 } from './client.js';
+export { DB_ERRORS, databaseErrorCode, isDbError, type DbErrorName } from './errors.js';
