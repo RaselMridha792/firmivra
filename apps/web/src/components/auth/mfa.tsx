@@ -31,7 +31,6 @@ export function Mfa({
     form.resetField('code');
     if (result.status === 'SIGNED_IN') {
       router.replace('/');
-      router.refresh();
     } else form.setValue('session', result.session);
   });
   return (

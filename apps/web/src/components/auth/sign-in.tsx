@@ -22,7 +22,6 @@ export function SignIn({ site }: { site: 'firm' | 'admin' }) {
     form.resetField('password');
     if (!result || result.status === 'SIGNED_IN') {
       router.replace('/');
-      router.refresh();
     } else {
       const setup =
         result.status === 'MFA_SETUP_REQUIRED'
