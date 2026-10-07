@@ -62,11 +62,13 @@ export function Header({
   user,
   actions,
   onMenu,
+  titleTestId,
 }: {
   title: string;
   user: string;
   actions?: ReactNode;
   onMenu?: () => void;
+  titleTestId?: string;
 }) {
   return (
     <header className="ui-header flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 md:px-6">
@@ -81,7 +83,9 @@ export function Header({
             ☰
           </Button>
         ) : null}
-        <p className="truncate font-semibold text-heading">{title}</p>
+        <p data-testid={titleTestId} className="truncate font-semibold text-heading">
+          {title}
+        </p>
       </div>
       <div className="flex items-center gap-3">
         {actions}
