@@ -269,13 +269,14 @@ describe('client sign-up', () => {
     expect(count).toBe(1);
   });
 
-  it('stops a code after 5 wrong tries', async () => {
+  it('stops after 5 wrong tries: the sign-up ends at CONTACT_FIRM (q13)', async () => {
     const v = visitor();
     await v.signUp(form(emailFor('guess')));
     for (let i = 0; i < 5; i += 1) {
       expect(codeOf(await v.post('/verify-email', { code: '111111' }))).toBe('CODE_INVALID');
     }
-    expect(codeOf(await v.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+    expect(codeOf(await v.post('/verify-email', { code: '000000' }))).toBe('WRONG_STEP');
+    expect((await v.state()).body).toMatchObject({ step: 'CONTACT_FIRM', resendAvailableAt: null });
   });
 
   it('counts parallel guesses one by one: at most 5 comparisons, no errors', async () => {
@@ -285,9 +286,13 @@ describe('client sign-up', () => {
     const guesses = await Promise.all(
       Array.from({ length: 9 }, () => v.post('/verify-email', { code: '111111' })),
     );
-    expect(guesses.map((g) => [g.status, codeOf(g)])).toEqual(
-      Array.from({ length: 9 }, () => [400, 'CODE_INVALID']),
-    );
+    // Each is a wrong code or, once 5 are recorded, the end of the sign-up; never a 500.
+    for (const g of guesses) {
+      expect([
+        [400, 'CODE_INVALID'],
+        [409, 'WRONG_STEP'],
+      ]).toContainEqual([g.status, codeOf(g)]);
+    }
     const attempts = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
       tx.verificationCode.findFirstOrThrow({
         where: { target: email },
@@ -295,7 +300,7 @@ describe('client sign-up', () => {
       }),
     );
     expect(attempts.attempts).toBe(5);
-    expect(codeOf(await v.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+    expect(codeOf(await v.post('/verify-email', { code: '000000' }))).toBe('WRONG_STEP');
   });
 
   it('waits out the resend gap for a changed email, and old codes stop working', async () => {
@@ -854,6 +859,79 @@ describe('client sign-up', () => {
     const written = await acceptances();
     expect(written.map((a) => a.legalDocumentId).sort()).toEqual([...docIds].sort());
     expect(written.map((a) => a.ip)).toEqual([takerIp, takerIp]);
+  });
+
+  it('answers a declined email exactly like a new one, through 5 wrong codes to CONTACT_FIRM (q13)', async () => {
+    // A declined sign-up at this firm: its account stays declined, and its email gets nothing.
+    const declinedEmail = emailFor('declined');
+    const first = visitor();
+    await first.signUp(form(declinedEmail));
+    await withoutGap(async () => {
+      await first.post('/verify-email', { code: '000000' });
+      await first.post('/verify-phone', { code: '000000' });
+    });
+    await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.updateMany({
+        where: { email: declinedEmail },
+        data: { status: 'DECLINED', declinedAt: new Date() },
+      }),
+    );
+    const sentBefore = sentTo(declinedEmail).length;
+    const newEmail = emailFor('newcomer');
+    // Same length, so the cookies can be compared to the character.
+    expect(newEmail.length).toBe(declinedEmail.length);
+
+    const declined = visitor();
+    const fresh = visitor();
+    const pair = async (call: (v: ReturnType<typeof visitor>) => Promise<Response>) => {
+      const [a, b] = [await call(declined), await call(fresh)];
+      // The same answer apart from the email itself and the clock.
+      const strip = (r: Response) => {
+        const body = r.body as {
+          email?: string;
+          resendAvailableAt?: string | null;
+          error?: Record<string, unknown>;
+        };
+        return {
+          ...body,
+          email: undefined,
+          resendAvailableAt: body.resendAvailableAt === null,
+          error: body.error ? { ...body.error, requestId: undefined } : undefined,
+        };
+      };
+      const when = (r: Response) =>
+        Date.parse((r.body as { resendAvailableAt?: string }).resendAvailableAt ?? '') || 0;
+      expect(Math.abs(when(a) - when(b))).toBeLessThan(2_000);
+      expect([a.status, strip(a), cookieValue(a)?.length]).toEqual([
+        b.status,
+        strip(b),
+        cookieValue(b)?.length,
+      ]);
+      return [a, b] as const;
+    };
+    const phone = phoneFor();
+    await pair((v) => v.signUp(form(v === declined ? declinedEmail : newEmail, { phone })));
+    for (let i = 0; i < 5; i += 1) {
+      const [a] = await pair((v) => v.post('/verify-email', { code: '111111' }));
+      expect(codeOf(a)).toBe('CODE_INVALID');
+    }
+    const [atEnd] = await pair((v) => v.state());
+    expect((atEnd.body as { step: string }).step).toBe('CONTACT_FIRM');
+    for (const path of ['/verify-email', '/resend', '/change-email', '/change-phone'] as const) {
+      const body =
+        path === '/verify-email'
+          ? { code: '000000' }
+          : path === '/resend'
+            ? { channel: 'email' }
+            : path === '/change-email'
+              ? { email: emailFor('other') }
+              : { phone };
+      const [a] = await pair((v) => v.post(path, body));
+      expect([path, codeOf(a)]).toEqual([path, 'WRONG_STEP']);
+    }
+    // The declined person got nothing; a new sign-up still starts.
+    expect(sentTo(declinedEmail).length).toBe(sentBefore);
+    expect((await visitor().signUp(form(newEmail))).body).toMatchObject({ step: 'VERIFY_EMAIL' });
   });
 
   it("sends no SMS past the firm's daily cap, and answers the same", async () => {
