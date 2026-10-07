@@ -16,7 +16,8 @@ info:
     ```
     sign-in ──┬── MFA_REQUIRED ─────────────────────────► mfa ──► SIGNED_IN
               └── MFA_SETUP_REQUIRED ──► mfa/setup (QR) ──► mfa ──► SIGNED_IN
-    activation link ──► activation/check ──► activate ──► MFA_SETUP_REQUIRED ──► (as above)
+    activation link ──► activation/check ─┬─ new person: activate ──► MFA_SETUP_REQUIRED ──► (as above)
+                                          └─ hasAccount: sign-in ──► activation/accept ──► /me
     forgot-password ──► (6-digit code by email) ──► reset-password ──► sign-in
     ```
 
@@ -102,7 +103,9 @@ info:
       `MFA_REQUIRED`;
     - `forgot-password` sends nothing; the reset code is `000000`, and the new password works
       until the API restarts;
-    - `refresh` and `sign-out` work as in AWS, but nothing is revoked locally.
+    - `refresh` and `sign-out` work as in AWS, but nothing is revoked locally;
+    - invites send no email: the activation link appears in the API log (only with
+      `AUTH_MODE=local`; elsewhere nothing is sent until R6 and no token is ever logged).
 
     `POST /dev/token` still signs in as a seeded user in one step and sets that site's access
     cookie (`fv_admin_access` for a Super Admin, `fv_access` otherwise).
@@ -145,9 +148,18 @@ paths:
       operationId: createInvite
       summary: Invite a staff member to the current firm
       description: |
-        Owner or admin of the firm. Creates the user, an `INVITED` membership and a one-time
-        activation link valid for 7 days, then emails the link (logged until R6). Who may give
-        which role follows the permissions in docs/SYSTEM-DESIGN.md.
+        The owner invites admins and staff; an admin invites staff (403 `FORBIDDEN` otherwise).
+        Owners are never invited here (the platform invites a new firm's owner on approval).
+        Creates the person if needed, an `INVITED` membership and a one-time activation link,
+        valid 7 days, emailed as `{APP_BASE_URL}/activate#token=...`. The token is in the URL
+        fragment, so it never reaches a server log or a Referer header: the page reads it and
+        sends it in the body. Inviting someone with an open invite sends a new link (the old one
+        stops working); a deactivated member is invited again. The answer is the same whether or
+        not the person already works at another firm. The email address is lower-cased.
+
+        Works while the firm is in setup (the setup wizard's "Team and access" step) or active;
+        a suspended or closed firm gets 403 `BUSINESS_INACTIVE`. A firm sends at most 50 links a
+        day and one person at most 5 (resends included), else 429 `RATE_LIMITED`.
       security: [{ firmCookie: [] }, { bearer: [] }]
       parameters: [{ $ref: '#/components/parameters/BusinessId' }]
       requestBody: { $ref: '#/components/requestBodies/CreateInvite' }
@@ -161,14 +173,18 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: '`ALREADY_MEMBER`: the email already has an active or invited membership here'
+          description: '`ALREADY_MEMBER`: the email already has an active membership in this firm'
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   /auth/activation/check:
     post:
       tags: [activation]
       operationId: checkActivation
       summary: Check an activation link before showing the password form
+      description: |
+        `hasAccount: true` means the person already has a login (staff at another firm): show
+        "sign in to join", then call `activation/accept`. Otherwise show the password form.
       requestBody:
         required: true
         content:
@@ -188,13 +204,44 @@ paths:
       tags: [activation]
       operationId: activate
       summary: Set the password from an activation link
-      description: Uses up the link. The result is always `MFA_SETUP_REQUIRED`.
+      description: |
+        For a new person only. Uses up the link; the result is `MFA_SETUP_REQUIRED`. When the
+        person already has a login it answers 409 `ACCOUNT_EXISTS` and changes nothing, so an
+        invite can never reset an existing account's password. The password is set only while
+        this request holds the link: of two activations at once, or an activation and a resend,
+        only one uses it, and a failure leaves the link working. Expiry follows the database's
+        clock (410).
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/ActivateRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/SignInResult' }
         '400': { $ref: '#/components/responses/PasswordFailed' }
+        '404': { $ref: '#/components/responses/InviteInvalid' }
+        '409':
+          description: '`ACCOUNT_EXISTS`: the person already has a login; sign in and accept'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '410': { $ref: '#/components/responses/InviteExpired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/activation/accept:
+    post:
+      tags: [activation]
+      operationId: acceptInvite
+      summary: Join the invite's firm with an existing login
+      description: |
+        Signed in on the firm site. Only the invited person can use the link (404 otherwise).
+        Uses up the link and answers the new `/me`, so the firm picker shows the firm.
+      security: [{ firmCookie: [] }, { bearer: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AcceptInviteRequest' } } }
+      responses:
+        '200':
+          description: Joined; the person's memberships now include the firm
+          content: { application/json: { schema: { $ref: '#/components/schemas/MeResponse' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/InviteInvalid' }
         '410': { $ref: '#/components/responses/InviteExpired' }
         '429': { $ref: '#/components/responses/RateLimited' }
@@ -537,16 +584,28 @@ components:
       type: object
       required: [token]
       properties:
-        token: { type: string, minLength: 20, maxLength: 512, description: From /activate?token= }
+        token:
+          type: string
+          minLength: 20
+          maxLength: 512
+          description: From the link's fragment, /activate#token=...
     ActivationCheckResponse:
       type: object
-      required: [email, name, role, business, expiresAt]
+      required: [email, name, role, business, expiresAt, hasAccount]
       properties:
         email: { type: string }
         name: { type: string }
         role: { type: string, enum: [OWNER, ADMIN, STAFF] }
         business: { $ref: '#/components/schemas/BusinessSummary' }
         expiresAt: { $ref: '#/components/schemas/Timestamp' }
+        hasAccount:
+          type: boolean
+          description: Already has a login (sign in, then accept) rather than a new password
+    AcceptInviteRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 20, maxLength: 512 }
     ActivateRequest:
       type: object
       required: [token, password]
@@ -627,7 +686,7 @@ components:
               description: |
                 Stable. Auth codes: PASSWORD_REJECTED, RESET_CODE_INVALID, INVALID_CREDENTIALS,
                 MFA_CODE_INVALID, CHALLENGE_EXPIRED, INVITE_INVALID, ALREADY_MEMBER,
-                INVITE_EXPIRED. Generic: VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN,
+                INVITE_EXPIRED, ACCOUNT_EXISTS. Generic: VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN,
                 NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR, UNSUPPORTED_MEDIA_TYPE (415, the body
                 is not JSON), ORIGIN_NOT_ALLOWED (403, sent from another site). Firm routes:
                 BUSINESS_REQUIRED (400, choose a firm with x-business-id), BUSINESS_SETUP_REQUIRED
