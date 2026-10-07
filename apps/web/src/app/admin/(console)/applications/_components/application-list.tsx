@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import {
   getApplicationsVersion,
   listApplications,
@@ -17,12 +17,8 @@ import { ApplicationTable } from './application-table';
 import { MetricCards } from './application-ui';
 
 export function ApplicationList() {
-  const version = useSyncExternalStore(
-    subscribeApplications,
-    getApplicationsVersion,
-    getApplicationsVersion,
-  );
-  const applications = useMemo(() => listApplications(), [version]);
+  useSyncExternalStore(subscribeApplications, getApplicationsVersion, getApplicationsVersion);
+  const applications = listApplications();
   const [tab, setTab] = useState<ApplicationTab>('all');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');

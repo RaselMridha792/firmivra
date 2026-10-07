@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 const port = process.env['WEB_PORT'] ?? '3000';
 const admin = (path: string) => `http://admin.localhost:${port}${path}`;
 
-async function useMockAdmin(page: Page) {
+async function mockAdminSession(page: Page) {
   await page.route('**/api/v1/admin/me', (route) =>
     route.fulfill({
       status: 200,
@@ -24,7 +24,7 @@ async function useMockAdmin(page: Page) {
 }
 
 test('approves an application in mock mode and refreshes list counts', async ({ page }) => {
-  await useMockAdmin(page);
+  await mockAdminSession(page);
   await page.goto(admin('/applications'));
   await expect(page.getByRole('heading', { name: 'Firm Applications' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Pending (7)' })).toBeVisible();
@@ -35,19 +35,19 @@ test('approves an application in mock mode and refreshes list counts', async ({ 
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm approval' }).click();
   await expect(page.getByText('Approved', { exact: true })).toBeVisible();
 
-  await page.goto(admin('/applications'));
+  await page.getByRole('link', { name: /Back to Applications/i }).click();
   await expect(page.getByRole('tab', { name: 'Pending (6)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Approved (5)' })).toBeVisible();
 });
 
 test('unknown application ids show not found', async ({ page }) => {
-  await useMockAdmin(page);
+  await mockAdminSession(page);
   await page.goto(admin('/applications/unknown-application'));
-  await expect(page.getByText(/this page could not be found/i)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
 });
 
 test('application list fits a 375px viewport without page overflow', async ({ page }) => {
-  await useMockAdmin(page);
+  await mockAdminSession(page);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(admin('/applications'));
   await expect(page.getByRole('heading', { name: 'Firm Applications' })).toBeVisible();

@@ -9,6 +9,8 @@ export type HistoryEntry = {
   at: string;
 };
 
+export type ApplicationNote = { id: string; text: string };
+
 export type FirmApplication = {
   id: string;
   businessName: string;
@@ -36,7 +38,7 @@ export type FirmApplication = {
   submittedAt: string;
   documents: string[];
   checks: string[];
-  notes: string[];
+  notes: ApplicationNote[];
   history: HistoryEntry[];
 };
 
@@ -87,6 +89,7 @@ const records: FirmApplication[] = Array.from({ length: 13 }, (_, index) => {
 });
 
 let version = 0;
+let noteSequence = 0;
 const listeners = new Set<() => void>();
 
 export const getApplicationsVersion = () => version;
@@ -143,7 +146,7 @@ export async function addApplicationNote(id: string, note: string) {
   const row = records.find((item) => item.id === id);
   if (!row) throw new Error('Application not found');
 
-  row.notes = [...row.notes, note];
+  row.notes = [...row.notes, { id: `mock-note-${++noteSequence}`, text: note }];
   row.history = [
     ...row.history,
     { title: 'Internal Note Added', detail: note, at: new Date().toISOString() },

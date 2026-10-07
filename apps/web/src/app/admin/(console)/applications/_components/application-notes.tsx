@@ -2,12 +2,13 @@
 
 import { type FormEvent, useState } from 'react';
 import { Button } from '@firmivra/ui';
+import type { ApplicationNote } from './application-data';
 
 export function ApplicationNotes({
   notes,
   onSave,
 }: {
-  notes: string[];
+  notes: ApplicationNote[];
   onSave: (note: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState('');
@@ -34,12 +35,9 @@ export function ApplicationNotes({
     <div className="space-y-4">
       {notes.length ? (
         <ul className="space-y-2">
-          {notes.map((note, index) => (
-            <li
-              key={`${index}-${note}`}
-              className="rounded-control bg-canvas p-3 text-sm text-text"
-            >
-              {note}
+          {notes.map((note) => (
+            <li key={note.id} className="rounded-control bg-canvas p-3 text-sm text-text">
+              {note.text}
             </li>
           ))}
         </ul>

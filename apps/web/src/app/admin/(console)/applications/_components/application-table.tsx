@@ -1,9 +1,20 @@
 import Link from 'next/link';
 import { Button } from '@firmivra/ui';
 import type { FirmApplication } from './application-data';
-import { formatDate, StatusPill } from './application-ui';
+import { formatDateParts, StatusPill } from './application-ui';
 
 const pageSize = 5;
+const columns = [
+  ['Business name', 'w-[13%]'],
+  ['Business type', 'w-[8%]'],
+  ['Owner / contact', 'w-[11%]'],
+  ['Email', 'w-[16%]'],
+  ['Services', 'w-[13%]'],
+  ['Requested plan', 'w-[10%]'],
+  ['Submitted', 'w-[10%]'],
+  ['Status', 'w-[9%]'],
+  ['Action', 'w-[10%]'],
+];
 
 export function ApplicationTable({
   applications,
@@ -23,56 +34,53 @@ export function ApplicationTable({
   return (
     <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[950px] text-left text-sm">
+        <table className="w-full min-w-[1050px] table-fixed text-left text-xs">
           <thead className="bg-canvas text-text">
             <tr>
-              {[
-                'Business name',
-                'Business type',
-                'Owner / contact',
-                'Email',
-                'Services',
-                'Requested plan',
-                'Submitted',
-                'Status',
-                'Action',
-              ].map((label) => (
-                <th key={label} scope="col" className="px-3 py-4 font-medium">
+              {columns.map(([label, width]) => (
+                <th key={label} scope="col" className={`${width} px-2 py-4 font-medium`}>
                   {label}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.map((application) => (
-              <tr key={application.id} className="align-top hover:bg-canvas/70">
-                <th scope="row" className="max-w-44 px-3 py-4 font-semibold text-text">
-                  {application.businessName}
-                </th>
-                <td className="px-3 py-4 text-muted">{application.businessType}</td>
-                <td className="px-3 py-4 text-text">
-                  {application.ownerName}
-                  <span className="block text-muted">{application.phone}</span>
-                </td>
-                <td className="px-3 py-4 text-text">{application.email}</td>
-                <td className="max-w-48 px-3 py-4 text-text">{application.services.join(', ')}</td>
-                <td className="px-3 py-4 text-text">{application.requestedPlan}</td>
-                <td className="whitespace-nowrap px-3 py-4 text-muted">
-                  {formatDate(application.submittedAt)}
-                </td>
-                <td className="px-3 py-4">
-                  <StatusPill status={application.status} />
-                </td>
-                <td className="px-3 py-4">
-                  <Link
-                    className="inline-flex whitespace-nowrap rounded-control bg-brand-700 px-4 py-2 font-medium text-white hover:bg-brand-600"
-                    href={`/applications/${application.id}`}
-                  >
-                    Open application
-                  </Link>
-                </td>
-              </tr>
-            ))}
+            {rows.map((application) => {
+              const [submittedDate, submittedTime] = formatDateParts(application.submittedAt);
+              return (
+                <tr key={application.id} className="align-top hover:bg-canvas/70">
+                  <th scope="row" className="break-words px-2 py-4 font-semibold text-text">
+                    {application.businessName}
+                  </th>
+                  <td className="px-2 py-4 text-muted">{application.businessType}</td>
+                  <td className="break-words px-2 py-4 text-text">
+                    {application.ownerName}
+                    <span className="block text-muted">{application.phone}</span>
+                  </td>
+                  <td className="break-all px-2 py-4 text-text">{application.email}</td>
+                  <td className="break-words px-2 py-4 text-text">
+                    {application.services.join(', ')}
+                  </td>
+                  <td className="break-words px-2 py-4 text-text">{application.requestedPlan}</td>
+                  <td className="px-2 py-4 text-muted">
+                    {submittedDate}
+                    <span className="block">{submittedTime}</span>
+                  </td>
+                  <td className="px-2 py-4">
+                    <StatusPill status={application.status} />
+                  </td>
+                  <td className="px-2 py-4">
+                    <Link
+                      aria-label={`Open application for ${application.businessName}`}
+                      className="inline-flex whitespace-nowrap rounded-control bg-brand-700 px-3 py-2 font-medium text-white hover:bg-brand-600"
+                      href={`/applications/${application.id}`}
+                    >
+                      Open
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

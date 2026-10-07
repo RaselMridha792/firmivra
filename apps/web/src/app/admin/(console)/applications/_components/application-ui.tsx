@@ -1,5 +1,6 @@
 import { CheckCircle2, FileText, Users, XCircle } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { Card } from '@firmivra/ui';
 import type { FirmApplication } from './application-data';
 
@@ -8,7 +9,7 @@ export function StatusPill({ status }: { status: FirmApplication['status'] }) {
     'Pending Review': 'bg-brand-50 text-brand-700',
     'Information Requested': 'bg-accent-500/10 text-brand-700',
     Approved: 'bg-success/10 text-success',
-    Declined: 'bg-danger-50 text-danger-700',
+    Declined: 'bg-danger/10 text-danger',
   }[status];
   return (
     <span className={`inline-flex rounded-control px-3 py-1 text-xs font-medium ${tone}`}>
@@ -18,7 +19,7 @@ export function StatusPill({ status }: { status: FirmApplication['status'] }) {
 }
 
 export function MetricCards({ applications }: { applications: FirmApplication[] }) {
-  const month = new Date().getMonth();
+  const [month] = useState(() => new Date().getMonth());
   const thisMonth = applications.filter((item) => new Date(item.submittedAt).getMonth() === month);
   const metrics = [
     {
@@ -94,4 +95,12 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 export function formatDate(value: string) {
   const date = new Date(value);
   return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+export function formatDateParts(value: string) {
+  const date = new Date(value);
+  return [
+    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+  ] as const;
 }
