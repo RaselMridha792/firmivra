@@ -232,6 +232,33 @@ describe('users: only the platform or the person themself can update', () => {
   });
 });
 
+describe('users: only client logins nothing points at are deleted, in platform scope', () => {
+  const login = async (pool: 'CLIENT' | 'STAFF') => {
+    const id = randomUUID();
+    await platform().user.create({
+      data: { id, cognitoSub: id, pool, email: `gone-${id}@p.test`, name: 'Fake Gone' },
+    });
+    return id;
+  };
+
+  it('the platform removes an unused client login; nobody else removes any login', async () => {
+    const id = await login('CLIENT');
+    expect((await firmA().user.deleteMany({ where: { id } })).count).toBe(0);
+    expect((await db.forUser(id).user.deleteMany({ where: { id } })).count).toBe(0);
+    expect((await platform().user.deleteMany({ where: { id } })).count).toBe(1);
+  });
+
+  it('staff logins and client logins with an account stay', async () => {
+    const staff = await login('STAFF');
+    expect((await platform().user.deleteMany({ where: { id: staff } })).count).toBe(0);
+    const client = await login('CLIENT');
+    await firmA().clientAccount.create({
+      data: { businessId: ids.firmA, userId: client, email: `gone-${client}@p.test` },
+    });
+    await expect(platform().user.deleteMany({ where: { id: client } })).rejects.toThrow();
+  });
+});
+
 describe('users: one staff or admin identity per email, clients one per firm', () => {
   const newUser = (pool: 'STAFF' | 'ADMIN' | 'CLIENT', email: string) => {
     const id = randomUUID();

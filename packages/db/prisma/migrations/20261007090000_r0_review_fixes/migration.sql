@@ -78,6 +78,13 @@ CREATE POLICY users_admin_owners ON users FOR SELECT
                          WHERE m.user_id = users.id AND m.role = 'OWNER' AND m.status = 'ACTIVE'
                            AND m.joined_at IS NOT NULL)));
 
+-- A client login no sign-up uses any more (R3: an unfinished sign-up that another attempt took
+-- over) can be removed in platform scope. Staff logins and firms are never deleted, and the
+-- RESTRICT foreign keys keep any login that a membership or client account still points at.
+GRANT DELETE ON users TO firmivra_app;
+CREATE POLICY users_delete_client_login ON users FOR DELETE
+  USING (app_scope() = 'platform' AND pool = 'CLIENT');
+
 -- ==================== Businesses ====================
 -- A portal address: lower-case letters and digits, with single inner hyphens (portal.firmivra.com/{slug}).
 ALTER TABLE businesses ADD CONSTRAINT businesses_slug_format
@@ -150,9 +157,26 @@ ALTER TABLE payment_refunds ADD CONSTRAINT payment_refunds_refund_id_format
 --    cents of its refunds that are not FAILED (CHECK below). Two refunds at once both update that
 --    row, so the second waits and sees the first (READ COMMITTED) or fails to serialize (REPEATABLE
 --    READ). The refund rows stay the record; this is only the guard.
-UPDATE payments p SET refund_reserved_cents = coalesce(
-  (SELECT sum(r.amount_cents) FROM payment_refunds r
-    WHERE r.payment_id = p.id AND r.status <> 'FAILED'), 0);
+--    Each firm in its own scope (forced RLS, as in r0_invite_name).
+DO $$
+DECLARE
+  firm uuid;
+  firms uuid[];
+BEGIN
+  PERFORM set_config('app.scope', 'platform', true);
+  SELECT coalesce(array_agg(id), '{}') INTO firms FROM businesses;
+  FOREACH firm IN ARRAY firms LOOP
+    PERFORM set_config('app.scope', 'business', true);
+    PERFORM set_config('app.current_business_id', firm::text, true);
+    UPDATE payments p SET refund_reserved_cents = coalesce(
+      (SELECT sum(r.amount_cents) FROM payment_refunds r
+        WHERE r.business_id = firm AND r.payment_id = p.id AND r.status <> 'FAILED'), 0)
+     WHERE p.business_id = firm;
+  END LOOP;
+  PERFORM set_config('app.scope', '', true);
+  PERFORM set_config('app.current_business_id', '', true);
+END
+$$;
 ALTER TABLE payments ADD CONSTRAINT payments_refund_reserved
   CHECK (refund_reserved_cents BETWEEN 0 AND amount_cents);
 

@@ -23,12 +23,30 @@ ALTER TABLE invites ADD CONSTRAINT invites_email
 
 -- Existing rows (local and dev): ACTIVE members joined when they were added. A DEACTIVATED one
 -- joined only if one of its invites was accepted, or if it never had an invite (added directly,
--- as owners at provisioning); one deactivated while still invited never joined.
-UPDATE memberships m SET joined_at = m.created_at
- WHERE m.status = 'ACTIVE'
-    OR (m.status = 'DEACTIVATED'
-        AND (EXISTS (SELECT 1 FROM invites i WHERE i.membership_id = m.id AND i.accepted_at IS NOT NULL)
-             OR NOT EXISTS (SELECT 1 FROM invites i WHERE i.membership_id = m.id)));
+-- as owners at provisioning); one deactivated while still invited never joined. Each firm in its
+-- own scope: under forced RLS an owner role that doesn't bypass it (RDS) would see no rows.
+DO $$
+DECLARE
+  firm uuid;
+  firms uuid[];
+BEGIN
+  PERFORM set_config('app.scope', 'platform', true);
+  SELECT coalesce(array_agg(id), '{}') INTO firms FROM businesses;
+  FOREACH firm IN ARRAY firms LOOP
+    PERFORM set_config('app.scope', 'business', true);
+    PERFORM set_config('app.current_business_id', firm::text, true);
+    UPDATE memberships m SET joined_at = m.created_at
+     WHERE m.business_id = firm
+       AND (m.status = 'ACTIVE'
+            OR (m.status = 'DEACTIVATED'
+                AND (EXISTS (SELECT 1 FROM invites i
+                             WHERE i.membership_id = m.id AND i.accepted_at IS NOT NULL)
+                     OR NOT EXISTS (SELECT 1 FROM invites i WHERE i.membership_id = m.id))));
+  END LOOP;
+  PERFORM set_config('app.scope', '', true);
+  PERFORM set_config('app.current_business_id', '', true);
+END
+$$;
 
 CREATE FUNCTION memberships_joined_at() RETURNS trigger
   LANGUAGE plpgsql
