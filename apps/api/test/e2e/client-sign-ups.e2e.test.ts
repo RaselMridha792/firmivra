@@ -370,7 +370,7 @@ describe('approve', () => {
 
   it('links an existing record only if its email is the verified one and it has no login', async () => {
     const before = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
-      tx.client.count(),
+      tx.client.count({ where: { businessId: firmX.id } }),
     );
     const refused: [string, object, number, string][] = [
       ['record with a login', { clientId: records.johnLinked }, 409, 'CLIENT_NOT_LINKABLE'],
@@ -410,7 +410,7 @@ describe('approve', () => {
     expect((sam.body as ApproveSignUpResponse).clientId).toBe(records.samB);
 
     const after = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
-      tx.client.count(),
+      tx.client.count({ where: { businessId: firmX.id } }),
     );
     expect(after).toBe(before); // linking creates no record
     const audit = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
