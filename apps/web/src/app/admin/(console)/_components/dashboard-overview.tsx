@@ -103,6 +103,7 @@ export function DashboardOverview({ today }: { today: string }) {
   const growthDates = growthPeriods[growthRange].dates.map((label, index, dates) => ({
     x: 30 + (315 * index) / (dates.length - 1),
     label,
+    applications: index === dates.length - 1 ? 1 : 0,
   }));
 
   return (
@@ -220,7 +221,7 @@ export function DashboardOverview({ today }: { today: string }) {
               </SectionTitle>
               <svg
                 role="img"
-                aria-label="Platform growth chart"
+                aria-label={`Platform growth chart, ${growthPeriods[growthRange].label}, one sample application`}
                 viewBox="0 0 420 160"
                 className="h-40 w-full text-blue-600"
               >
@@ -241,8 +242,22 @@ export function DashboardOverview({ today }: { today: string }) {
                   </text>
                 ))}
                 <path d="M30 136H345" className="stroke-current" strokeWidth="2" />
-                {growthDates.map(({ x }) => (
-                  <circle key={x} cx={x} cy="136" r="4" className="fill-current" />
+                <polyline
+                  points={growthDates
+                    .map(({ x, applications }) => `${x},${136 - applications * 28}`)
+                    .join(' ')}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                />
+                {growthDates.map(({ x, applications }) => (
+                  <circle
+                    key={x}
+                    cx={x}
+                    cy={136 - applications * 28}
+                    r="4"
+                    className="fill-current"
+                  />
                 ))}
               </svg>
               <div className="mt-4 flex justify-center gap-5 text-xs text-muted">
