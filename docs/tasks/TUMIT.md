@@ -39,13 +39,13 @@ On Oct 15-16 you and Ibrahim test everything on dev.
 
 - **Pages:** R1 creates the shell and every Super Admin page (see `docs/junior/PAGE-MAP.md`). The sidebar, header and user menu live in `apps/web/src/components/app-shell/`, shared with Fahad's firm site: you make them match the mockup. The dashboard is `admin/(console)/page.tsx`. Fahad builds the sign-in page (F02).
 - **Mockup:** `docs/mockups/super-admin/Dashboard Active .png`.
-- **API:** `useMe()` from the layout supplies the signed-in name and role. The dashboard reads metrics, application counts and the five most recent applications through R4's `api.firmApplications` functions with `useApiQuery`; the existing API mock supplies preview data when mock mode is enabled.
+- **API:** `useMe()` from the layout for the name and role. Everything else is mock data in `apps/web/src/mocks/` for now; R4 publishes the real functions on Oct 8.
 - **Build:**
   1. Sidebar exactly like the mockup: Dashboard, Firm Applications (with the pending count), Firms; the other items keep their "Soon" badge.
   2. Header with the search box (no search yet), the bell and the user menu.
   3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Leave Platform Growth as an empty card saying "Coming soon" (a chart needs a package; ask Rasel later).
 
-**Status (Oct 8, 2026):** Rasel's PR #58 review fixes are implemented on `tumit/FIR-F04a-admin-dashboard`; the ticket remains open and is not merged. The dashboard reads metrics, application counts and recent rows from R4's API functions; preview records come only from the existing API mock. Web typecheck, changed-file ESLint, Prettier and `git diff --check` pass. Mock-mode dashboard plus signed-in loading/error/retry Playwright specs pass (2/2) against an already-running mock server. Authenticated local sign-in E2E remains unverified: one run returned `Not Found` from `POST /api/v1/dev/token`, and a retry with the workspace's local environment did not reach API health readiness. No backend or protected files were changed. Fresh desktop/mobile screenshots were generated locally but are not attached to the PR yet; old screenshots were not reused.
+**Status (Oct 8, 2026):** Review fixes pushed to PR #58 (`66aa5f7`, synced with `main` at `b205833`); mock-mode UI checks pass. Awaiting CI, local authenticated API check, screenshot attachment and the firm-shell visual check.
 
 Checklist:
 
