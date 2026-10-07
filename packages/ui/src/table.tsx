@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { useState, type ReactNode } from 'react';
 import { Button } from './button';
 import { EmptyState, Skeleton } from './states';
@@ -8,14 +8,31 @@ export interface Column<T> {
   label: string;
   cell: (row: T) => ReactNode;
   sortValue?: (row: T) => string | number;
+  sortable?: boolean;
 }
-interface TableProps<T> {
+export interface TableSort {
+  id: string;
+  descending: boolean;
+}
+export interface TableServerControl {
+  page: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+  onNext: () => void;
+  onPrevious: () => void;
+  sort?: TableSort;
+  onSort: (sort: TableSort) => void;
+}
+export interface TableProps<T> {
   rows: T[];
   columns: Column<T>[];
   rowKey: (row: T) => string;
   caption: string;
   loading?: boolean;
   pageSize?: number;
+  server?: TableServerControl;
+  emptyTitle?: string;
+  emptyText?: string;
 }
 export function Table<T>({
   rows,
@@ -24,27 +41,37 @@ export function Table<T>({
   caption,
   loading,
   pageSize = 10,
+  server,
+  emptyTitle = 'No records yet',
+  emptyText = 'Records will appear here when available.',
 }: TableProps<T>) {
-  const [sort, setSort] = useState<{ id: string; descending: boolean }>();
+  const [localSort, setLocalSort] = useState<TableSort>();
+  const sort = server ? server.sort : localSort;
   const [page, setPage] = useState(0);
   const size = Math.max(1, Math.floor(pageSize));
   const pages = Math.max(1, Math.ceil(rows.length / size));
   const current = Math.min(page, pages - 1);
   const sorter = columns.find((column) => column.id === sort?.id)?.sortValue;
-  const ordered = sorter
-    ? [...rows].sort((a, b) => {
-        const left = sorter(a),
-          right = sorter(b);
-        const compared =
-          typeof left === 'number' && typeof right === 'number'
-            ? left - right
-            : String(left).localeCompare(String(right));
-        return compared * (sort?.descending ? -1 : 1);
-      })
-    : rows;
+  const ordered =
+    !server && sorter
+      ? [...rows].sort((a, b) => {
+          const left = sorter(a),
+            right = sorter(b);
+          const compared =
+            typeof left === 'number' && typeof right === 'number'
+              ? left - right
+              : String(left).localeCompare(String(right));
+          return compared * (sort?.descending ? -1 : 1);
+        })
+      : rows;
   const direction = sort?.descending ? 'descending' : 'ascending';
   function toggle(id: string) {
-    setSort({ id, descending: sort?.id === id && !sort.descending });
+    const next = { id, descending: sort?.id === id && !sort.descending };
+    if (server) {
+      server.onSort(next);
+      return;
+    }
+    setLocalSort(next);
     setPage(0);
   }
   if (loading)
@@ -53,10 +80,7 @@ export function Table<T>({
         <Skeleton />
       </div>
     );
-  if (!rows.length)
-    return (
-      <EmptyState title="No records yet" description="Records will appear here when available." />
-    );
+  if (!rows.length) return <EmptyState title={emptyTitle} description={emptyText} />;
   return (
     <div>
       <div className="overflow-x-auto rounded-card border border-border">
@@ -71,7 +95,7 @@ export function Table<T>({
                   aria-sort={sort?.id === column.id ? direction : undefined}
                   className="px-4 py-3"
                 >
-                  {column.sortValue ? (
+                  {column.sortValue || (server && column.sortable) ? (
                     <Button variant="ghost" onClick={() => toggle(column.id)}>
                       {column.label}
                     </Button>
@@ -83,7 +107,7 @@ export function Table<T>({
             </tr>
           </thead>
           <tbody>
-            {ordered.slice(current * size, (current + 1) * size).map((row) => (
+            {(server ? rows : ordered.slice(current * size, (current + 1) * size)).map((row) => (
               <tr key={rowKey(row)} className="border-t border-border even:bg-subtle">
                 {columns.map((column) => (
                   <td key={column.id} className="px-4 py-3">
@@ -97,15 +121,21 @@ export function Table<T>({
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-muted">
         <p aria-live="polite">
-          Page {current + 1} of {pages} · {rows.length} records
+          {server
+            ? `Page ${server.page}`
+            : `Page ${current + 1} of ${pages} · ${rows.length} records`}
         </p>
-        <Button variant="secondary" disabled={!current} onClick={() => setPage(current - 1)}>
+        <Button
+          variant="secondary"
+          disabled={server ? !server.hasPrevious : !current}
+          onClick={server ? server.onPrevious : () => setPage(current - 1)}
+        >
           Previous
         </Button>
         <Button
           variant="secondary"
-          disabled={current >= pages - 1}
-          onClick={() => setPage(current + 1)}
+          disabled={server ? !server.hasNext : current >= pages - 1}
+          onClick={server ? server.onNext : () => setPage(current + 1)}
         >
           Next
         </Button>

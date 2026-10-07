@@ -26,11 +26,19 @@ export function Skeleton({ className = '', ...props }: HTMLAttributes<HTMLDivEle
     />
   );
 }
-export function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+export function Toast({
+  message,
+  onDismiss,
+  tone = 'success',
+}: {
+  message: string;
+  onDismiss: () => void;
+  tone?: 'success' | 'error';
+}) {
   return (
     <div
-      role="status"
-      className={`flex items-center justify-between gap-4 rounded-card p-4 shadow-md bg-success-soft text-success`}
+      role={tone === 'error' ? 'alert' : 'status'}
+      className={`flex items-center justify-between gap-4 rounded-card p-4 shadow-md ${tone === 'error' ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'}`}
     >
       <span>{message}</span>
       <Button variant="ghost" onClick={onDismiss} aria-label="Dismiss notification">
