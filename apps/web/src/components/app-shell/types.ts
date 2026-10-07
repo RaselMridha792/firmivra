@@ -14,6 +14,23 @@ export interface NavItem {
 /** Sidebar groups, drawn with a divider between them. */
 export type NavSections = readonly (readonly NavItem[])[];
 
+/** A local, client-side result shown by the shell search. */
+export interface ShellSearchItem {
+  id: string;
+  kind: 'Application' | 'Firm' | 'User';
+  label: string;
+  detail: string;
+  href: string;
+}
+
+/** A notification fixture rendered by the shell without making an API request. */
+export interface ShellNotification {
+  id: string;
+  title: string;
+  detail: string;
+  href: string;
+}
+
 /**
  * The browser shows public paths (/applications); behind the proxy's rewrite Next.js may report
  * the internal one (/admin/applications). Both count as the same page.
