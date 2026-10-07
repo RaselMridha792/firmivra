@@ -1,0 +1,343 @@
+openapi: 3.1.0
+info:
+  title: Firmivra documents API
+  version: 0.1.0
+  description: |
+    A client's files and document requests: the firm's client record > Documents tab (Fahad, F07)
+    and the portal's My Documents with its Upload Documents pop-up (Nahid, N05).
+
+    **Source of truth:** the zod schemas in `packages/types/src/documents/schemas.ts`, with typed
+    calls in `createDocumentsClient` (web: `api.documents`) and `createMyDocumentsClient` (web:
+    `api.myDocuments(slug)`), and the browser helper `uploadFile()` in
+    `apps/web/src/lib/upload.ts`. Mock mode: `apps/web/src/mocks/documents.ts`
+    (`NEXT_PUBLIC_API_MOCK=documents,myDocuments`). Schemas below name their zod schema; if this
+    file and the zod schemas differ, the zod schemas win.
+
+    ## Upload, in three calls
+
+    `uploadFile(file, { start, finish, onProgress })` runs all three:
+
+    1. `POST .../documents/uploads` with the service, optional request, category and tax year,
+       plus the file's name, type, size and SHA-256. The API checks that the service is open
+       (ACTIVE engagement), the request is open, the category is active, and the limits, then
+       answers an `UploadTicket`: a one-time URL valid for a few minutes, the headers to send,
+       and an `uploadToken`.
+    2. The browser `PUT`s the file to `ticket.url` with exactly `ticket.headers`. The file goes
+       straight to storage under the firm's own prefix (`tenant/{businessId}/...`), at a key the
+       API chooses; the API never streams it. Storage refuses bytes that don't match the signed
+       type, length and checksum.
+    3. `POST .../documents/uploads/confirm` with the `uploadToken`. The API checks the stored
+       object (size, magic bytes, checksum), saves the document and starts the malware scan.
+       `410 UPLOAD_EXPIRED` for an old or used token; `409 UPLOAD_MISMATCH` if the stored file is
+       not what step 1 described.
+
+    Limits: PDF, JPG or PNG, at most 10 MB (`UPLOAD_LIMITS`). Uploads are only for an open
+    service: the portal's pop-up reads `GET .../documents/upload-targets`; empty lists are its
+    STOP state, and the API refuses the rest with `409 NO_OPEN_SERVICE` however it is reached.
+
+    ## Rules
+
+    - **Scan before download.** A new file is `PENDING` (portal: `CHECKING`) until the malware
+      scan finishes. `GET .../download` answers a 5-minute link only for a `CLEAN` file, else
+      `409 SCAN_PENDING` or `409 FILE_BLOCKED` (infected or failed).
+    - **What the portal sees.** Only the signed-in client's own documents; never `INTERNAL` ones
+      (firm only), and never another client's (404). "My Uploaded Documents" is `source=MINE`
+      (`CLIENT_TO_FIRM`); "Firm Uploaded Documents" is `source=FIRM` (`FIRM_TO_CLIENT`). The list
+      shows the client's own upload while it is being checked; downloads still wait for `CLEAN`.
+      Other modules (for example R12's portal reports) link documents through these routes, so
+      the same rule covers them.
+    - **What the firm sees.** Staff reach only the clients they may see (as in R10's clients;
+      others are 404). A file the firm uploads is `INTERNAL` unless `shareWithClient` is true.
+    - **Requests.** The firm asks for a document within an open service. The client uploads for
+      it (`SUBMITTED`) or says "I don't have this" (`NOT_AVAILABLE`, with a reason). The firm
+      accepts (`ACCEPTED`) or marks it missing (`REJECTED`, with a reason the client sees; the
+      client is asked again), or cancels it. Requests are never deleted.
+    - **File names** are display only: no control or invisible formatting characters, no line
+      separators, no `/` or `\`, and the ending must fit the type (`.pdf` for a PDF). Storage
+      keys are never built from them.
+    - **Household logins.** How SPOUSE and AUTHORIZED portal logins use these routes (and what
+      "MINE" means for them) is pending Rasel's answer; until then the rules above are for the
+      client's primary login.
+    - **Audit and privacy.** Uploads, views (`get`), every download link issued and request
+      changes are audited with ids only. File contents, names of other clients and storage URLs
+      never reach logs, emails or SMS.
+    - Every change comes from the browser (see "Calling the API from the web app" in auth.yaml).
+
+    ## Rules for the API (R5 steps 2 to 6)
+
+    - **Ticket.** The `uploadToken` is sealed (or stored) by the API and binds the business, the
+      uploader (user and side), the client, service, request, category, direction, the S3 key,
+      size, SHA-256 and an expiry of 5 minutes or less.
+    - **Presigned PUT.** `Content-Type`, `Content-Length`, `x-amz-checksum-sha256` and the SSE-KMS
+      headers are in `X-Amz-SignedHeaders`; expiry 5 minutes or less. (`Content-Length` is signed
+      but not in `ticket.headers`: the browser sends it.) s3mock does not check signatures, so a
+      unit test checks the presigned URL itself (signed headers, expiry).
+    - **Confirm** re-reads the object (size, checksum, magic bytes). Missing or different: `409
+      UPLOAD_MISMATCH`, and the API deletes the object. The unique `s3_key` makes confirm single
+      use (`410 UPLOAD_EXPIRED` the second time).
+    - **Replays.** A presigned PUT can be replayed until it expires and the bucket is versioned,
+      so a download pins the confirmed version (R0: `documents.s3_version_id`) or the API checks
+      the checksum before signing the GET.
+    - **Presigned GET.** `response-content-disposition=attachment` with an RFC 5987 file name,
+      `response-content-type` set to the stored type, expiry 5 minutes, and an audit entry for
+      every link.
+    - **KMS (pending).** Today infra has one bucket key (data stack) and the API's IAM policy
+      covers only it; per-firm keys come with `businesses.kms_key_id` (#52) and R10 step 2's key
+      creation. Until then objects use the bucket key.
+    - **Leftovers.** The API deletes mismatched uploads; a bucket lifecycle rule expires objects
+      never confirmed (infra, with Rasel's yes).
+    - **Infra (each with Rasel's yes first):** KMS access on the firms' own keys (tag
+      conditioned), `s3:GetObjectVersion` if downloads pin versions, the lifecycle rule,
+      GuardDuty Malware Protection for S3 with its scan-result event, and a bucket policy that
+      refuses a PutObject without `aws:kms`.
+
+    ## Pages and calls
+
+    | Page | Calls |
+    | --- | --- |
+    | Firm: client record > Documents | `GET .../clients/{id}/documents`, `GET document-categories`, `GET .../clients/{id}/document-requests`, download, request actions, uploads |
+    | Portal: My Documents | `GET me/documents` (`source=MINE` or `FIRM`), `GET me/document-categories`, download |
+    | Portal: Upload Documents pop-up | `GET me/documents/upload-targets`, then `uploadFile()` |
+    | Portal: Your Next Steps | `GET me/document-requests`, `POST .../not-available`, upload with `requestId` |
+servers:
+  - url: /api/v1
+    description: Same host as the site.
+
+tags:
+  - name: firm
+    description: Firm site (Owner, Admin, Staff for their clients).
+  - name: portal
+    description: The signed-in client, on their firm's portal.
+
+paths:
+  /business/clients/{clientId}/documents:
+    get:
+      tags: [firm]
+      operationId: listDocuments
+      summary: The client's documents, newest first
+      parameters:
+        - { $ref: '#/components/parameters/ClientId' }
+        - { name: query, in: query, schema: { $ref: '#/components/schemas/ListFirmDocumentsQuery' } }
+      responses:
+        '200': { $ref: '#/components/responses/FirmDocumentList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/clients/{clientId}/documents/uploads:
+    post:
+      tags: [firm]
+      operationId: createFirmUpload
+      summary: Step 1 of an upload by the firm
+      parameters: [{ $ref: '#/components/parameters/ClientId' }]
+      requestBody: { $ref: '#/components/requestBodies/CreateFirmUploadRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/UploadTicket' }
+        '409': { description: NO_OPEN_SERVICE or CATEGORY_ARCHIVED }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/documents/uploads/confirm:
+    post:
+      tags: [firm]
+      operationId: confirmFirmUpload
+      summary: Step 3; saves the document and starts the scan
+      requestBody: { $ref: '#/components/requestBodies/ConfirmUploadRequest' }
+      responses:
+        '200': { description: FirmDocument }
+        '409': { description: UPLOAD_MISMATCH }
+        '410': { description: UPLOAD_EXPIRED }
+  /business/documents/{id}:
+    get:
+      tags: [firm]
+      operationId: getDocument
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: FirmDocument }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/documents/{id}/download:
+    get:
+      tags: [firm]
+      operationId: downloadDocument
+      summary: A 5-minute download link, for a CLEAN file only
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/DownloadLink' }
+        '409': { description: SCAN_PENDING or FILE_BLOCKED }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/document-categories:
+    get:
+      tags: [firm]
+      operationId: listDocumentCategories
+      summary: The firm's categories in order, archived ones too
+      responses:
+        '200': { description: DocumentCategoryList }
+  /business/clients/{clientId}/document-requests:
+    get:
+      tags: [firm]
+      operationId: listDocumentRequests
+      parameters:
+        - { $ref: '#/components/parameters/ClientId' }
+        - { name: query, in: query, schema: { $ref: '#/components/schemas/ListDocumentRequestsQuery' } }
+      responses:
+        '200': { description: FirmDocumentRequestList, newest first }
+    post:
+      tags: [firm]
+      operationId: createDocumentRequest
+      summary: Request a document (the client gets a bell and an email, no content)
+      parameters: [{ $ref: '#/components/parameters/ClientId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateDocumentRequestRequest' } } }
+      responses:
+        '200': { description: FirmDocumentRequest }
+        '409': { description: NO_OPEN_SERVICE or CATEGORY_ARCHIVED }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/document-requests/{id}/accept:
+    post:
+      tags: [firm]
+      operationId: acceptDocumentRequest
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: FirmDocumentRequest }
+        '409': { description: NOTHING_SUBMITTED or REQUEST_CLOSED }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/document-requests/{id}/reject:
+    post:
+      tags: [firm]
+      operationId: rejectDocumentRequest
+      summary: Mark missing; the reason goes to the client, who is asked again
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RejectDocumentRequestRequest' } } }
+      responses:
+        '200': { description: FirmDocumentRequest }
+        '409': { description: NOTHING_SUBMITTED or REQUEST_CLOSED }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/document-requests/{id}/cancel:
+    post:
+      tags: [firm]
+      operationId: cancelDocumentRequest
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: FirmDocumentRequest }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: REQUEST_CLOSED }
+
+  /portal/{firmSlug}/me/documents:
+    get:
+      tags: [portal]
+      operationId: listMyDocuments
+      summary: The client's own (MINE) or the firm's shared (FIRM) documents; never INTERNAL
+      parameters:
+        - { $ref: '#/components/parameters/FirmSlug' }
+        - { name: query, in: query, schema: { $ref: '#/components/schemas/ListMyDocumentsQuery' } }
+      responses:
+        '200': { description: MyDocumentList }
+  /portal/{firmSlug}/me/documents/{id}:
+    get:
+      tags: [portal]
+      operationId: getMyDocument
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }, { $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: MyDocument }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /portal/{firmSlug}/me/documents/{id}/download:
+    get:
+      tags: [portal]
+      operationId: downloadMyDocument
+      summary: A 5-minute download link, for a CLEAN file only
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }, { $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/DownloadLink' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: SCAN_PENDING or FILE_BLOCKED }
+  /portal/{firmSlug}/me/documents/upload-targets:
+    get:
+      tags: [portal]
+      operationId: myUploadTargets
+      summary: The open tax and business services the Upload Documents pop-up may offer
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      responses:
+        '200': { description: UploadTargets (empty lists are the STOP state) }
+  /portal/{firmSlug}/me/documents/uploads:
+    post:
+      tags: [portal]
+      operationId: createMyUpload
+      summary: Step 1 of the client's upload; a requestId answers that request
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateMyUploadRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/UploadTicket' }
+        '409': { description: NO_OPEN_SERVICE, REQUEST_CLOSED or CATEGORY_ARCHIVED }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /portal/{firmSlug}/me/documents/uploads/confirm:
+    post:
+      tags: [portal]
+      operationId: confirmMyUpload
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      requestBody: { $ref: '#/components/requestBodies/ConfirmUploadRequest' }
+      responses:
+        '200': { description: MyDocument (status CHECKING) }
+        '409': { description: UPLOAD_MISMATCH }
+        '410': { description: UPLOAD_EXPIRED }
+  /portal/{firmSlug}/me/document-categories:
+    get:
+      tags: [portal]
+      operationId: myDocumentCategories
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      responses:
+        '200': { description: MyDocumentCategoryList (active categories, in order) }
+  /portal/{firmSlug}/me/document-requests:
+    get:
+      tags: [portal]
+      operationId: myDocumentRequests
+      summary: The client's requests, open ones first (cancelled ones left out)
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      responses:
+        '200': { description: MyDocumentRequestList }
+  /portal/{firmSlug}/me/document-requests/{id}/not-available:
+    post:
+      tags: [portal]
+      operationId: myDocumentNotAvailable
+      summary: "I don't have this", with the client's reason
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }, { $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/NotAvailableRequest' } } }
+      responses:
+        '200': { description: MyDocumentRequest }
+        '409': { description: REQUEST_CLOSED }
+
+components:
+  parameters:
+    ClientId: { name: clientId, in: path, required: true, schema: { type: string, format: uuid } }
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    FirmSlug:
+      name: firmSlug
+      in: path
+      required: true
+      description: The firm's portal slug, for example `lvp`.
+      schema: { type: string }
+  requestBodies:
+    CreateFirmUploadRequest:
+      required: true
+      content: { application/json: { schema: { $ref: '#/components/schemas/CreateFirmUploadRequest' } } }
+    ConfirmUploadRequest:
+      required: true
+      content: { application/json: { schema: { $ref: '#/components/schemas/ConfirmUploadRequest' } } }
+  responses:
+    NotFound: { description: NOT_FOUND (also for another firm's or another client's records) }
+    UploadTicket: { description: UploadTicket }
+    DownloadLink: { description: DownloadLink (url and expiresAt, 5 minutes) }
+    FirmDocumentList: { description: FirmDocumentList (items, nextCursor, years) }
+  schemas:
+    # Shapes are the zod schemas of the same name in packages/types/src/documents/schemas.ts.
+    ListFirmDocumentsQuery: { type: object, description: 'zod ListFirmDocumentsQuery' }
+    CreateFirmUploadRequest: { type: object, description: 'zod CreateFirmUploadRequest' }
+    ConfirmUploadRequest: { type: object, description: 'zod ConfirmUploadRequest' }
+    ListDocumentRequestsQuery: { type: object, description: 'zod ListDocumentRequestsQuery' }
+    CreateDocumentRequestRequest: { type: object, description: 'zod CreateDocumentRequestRequest' }
+    RejectDocumentRequestRequest: { type: object, description: 'zod RejectDocumentRequestRequest' }
+    ListMyDocumentsQuery: { type: object, description: 'zod ListMyDocumentsQuery' }
+    CreateMyUploadRequest: { type: object, description: 'zod CreateMyUploadRequest' }
+    NotAvailableRequest: { type: object, description: 'zod NotAvailableRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
