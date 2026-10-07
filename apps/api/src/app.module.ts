@@ -20,6 +20,7 @@ import { DatabaseModule } from './database/database.module.js';
 import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
 import { MeModule } from './me/me.controller.js';
+import { NotifyModule } from './notify/notify.module.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
 import { SettingsModule } from './settings/settings.controller.js';
@@ -62,6 +63,7 @@ export class AppModule {
         DatabaseModule,
         AuthModule,
         AuditModule,
+        NotifyModule,
         HealthModule,
         MeModule,
         TaxStatusesModule,
