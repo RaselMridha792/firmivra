@@ -99,7 +99,7 @@ export function createAuditLogMock(options: { role?: MockFirmRole } = {}): Audit
           (!q.entityType || e.entity.type === q.entityType) &&
           (!q.entityId || e.entity.id === q.entityId) &&
           (!q.from || e.at >= q.from) &&
-          (!q.to || e.at < q.to),
+          (!q.to || e.at <= q.to),
       );
       const start = mockOffset(q.cursor);
       const items = all.slice(start, start + q.limit);
