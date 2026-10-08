@@ -8,7 +8,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { FirmLegalOverview, FirmSettings, FirmSetup, LegalDocument } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -71,7 +71,7 @@ async function call(
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 
 async function auditRows(businessId: string, action: string) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   const rows = await runInScope(owner, { kind: 'business', businessId }, (tx) =>
     tx.auditLog.findMany({ where: { businessId, action }, orderBy: { createdAt: 'asc' } }),
   );
@@ -80,7 +80,7 @@ async function auditRows(businessId: string, action: string) {
 }
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
       const pool = key === 'clientA' ? 'CLIENT' : 'STAFF';
@@ -422,7 +422,7 @@ describe('business details (setup Step 2)', () => {
   const details = (body: object) =>
     call('patch', '/settings', people.ownerDetails, firms.details.id, body);
   const storedRow = async (businessId: string) => {
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const row = await runInScope(owner, { kind: 'business', businessId }, (tx) =>
       tx.businessSettings.findUnique({
         where: { businessId },

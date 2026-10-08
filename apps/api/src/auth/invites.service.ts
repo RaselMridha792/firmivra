@@ -129,6 +129,18 @@ const tooManyInvites = () =>
     HttpStatus.TOO_MANY_REQUESTS,
   );
 
+/** The inviter's role in this transaction (403 once they are no longer an active member). */
+async function inviterNow(tx: TxClient, inviter: Inviter): Promise<Inviter> {
+  const now = await tx.membership.findFirst({
+    where: { userId: inviter.userId, status: 'ACTIVE' },
+    select: { role: true },
+  });
+  if (!now) {
+    throw new ForbiddenException({ code: 'FORBIDDEN', message: 'You cannot invite this role' });
+  }
+  return { userId: inviter.userId, role: now.role };
+}
+
 /** The invites_rules trigger refused an acceptance: by the database's clock the link expired. */
 const expiredByDatabase = (e: unknown) =>
   e instanceof Error && e.message.includes('expired invite cannot be accepted');
@@ -142,6 +154,13 @@ function assertMayInvite(inviter: Inviter | null, role: MembershipRole): void {
     throw new ForbiddenException({ code: 'FORBIDDEN', message: 'You cannot invite this role' });
   }
 }
+
+/**
+ * Invites to one person at one firm run one at a time (create, resend, and a deactivation's
+ * revoke): each takes this lock first, before any row, so no new lock order appears.
+ */
+export const lockStaffInvites = (tx: TxClient, businessId: string, userId: string) =>
+  tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`staff-invite:${businessId}:${userId}`}, 0))`;
 
 const sha256 = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -232,10 +251,8 @@ export class InvitesService {
       this.db.withScope(
         { kind: 'business', businessId },
         async (tx) => {
-          // Invites to one person at one firm run one at a time, so each revokes the link made by
-          // the one before. Only invites take this lock, before any row: no new lock order.
-          const key = `staff-invite:${businessId}:${userId}`;
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+          // One at a time per person, so each revokes the link made by the one before.
+          await lockStaffInvites(tx, businessId, userId);
           const existing = await tx.membership.findFirst({
             where: { userId },
             select: { id: true, status: true, role: true },
@@ -256,9 +273,12 @@ export class InvitesService {
           } else {
             details = { name: link.name, email: link.email, role: link.role };
           }
+          // The inviter as they are now: one demoted or deactivated a moment ago sends nothing.
+          const inviter = invitedBy && (await inviterNow(tx, invitedBy));
+          assertMayInvite(inviter, details.role);
           if (existing?.status === 'ACTIVE') throw alreadyMember();
           // Re-inviting changes an existing membership: the inviter must be allowed its role too.
-          if (existing) assertMayInvite(invitedBy, existing.role);
+          if (existing) assertMayInvite(inviter, existing.role);
           if (existing) {
             const toThisPerson = await tx.invite.count({
               where: { membershipId: existing.id, createdAt: { gt: since } },

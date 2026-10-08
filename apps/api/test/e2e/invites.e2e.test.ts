@@ -124,7 +124,7 @@ async function asOwner<T>(
   scope: Parameters<typeof runInScope>[1],
   work: Parameters<typeof runInScope<T>>[2],
 ) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     return await runInScope(owner, scope, work);
   } finally {
