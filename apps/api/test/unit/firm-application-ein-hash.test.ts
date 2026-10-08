@@ -1,13 +1,40 @@
 // Unit: the EIN-hash key's loader (R4's own settings, fails closed) and the keyed hashes submit
 // writes. Keys are random per run; EINs are synthetic (they start with 00).
 import { createHmac, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { einHash, emailHasher, loadEinHashKey } from '../../src/firm-applications/ein-hash.js';
+import {
+  einHash,
+  emailHasher,
+  ENV_EXAMPLE_EIN_HASH_KEY,
+  loadEinHashKey,
+} from '../../src/firm-applications/ein-hash.js';
 
 const hex = randomBytes(32).toString('hex');
 const key = Buffer.from(hex, 'hex');
 
 describe('loadEinHashKey', () => {
+  it('refuses the .env.example key in production only (a public key never hashes an EIN there)', () => {
+    for (const value of [ENV_EXAMPLE_EIN_HASH_KEY, ENV_EXAMPLE_EIN_HASH_KEY.toUpperCase()]) {
+      expect(loadEinHashKey({ EIN_HASH_KEY: value, NODE_ENV: 'production' })).toEqual({
+        ok: false,
+        problem: 'EIN_HASH_KEY is the .env.example value',
+      });
+    }
+    for (const NODE_ENV of ['development', 'test', undefined]) {
+      expect(loadEinHashKey({ EIN_HASH_KEY: ENV_EXAMPLE_EIN_HASH_KEY, NODE_ENV }).ok).toBe(true);
+    }
+    expect(loadEinHashKey({ EIN_HASH_KEY: hex, NODE_ENV: 'production' })).toEqual({
+      ok: true,
+      key,
+    });
+  });
+
+  it('.env.example holds exactly the key production refuses', () => {
+    const example = readFileSync(new URL('../../../../.env.example', import.meta.url), 'utf8');
+    expect(example).toMatch(new RegExp(`^EIN_HASH_KEY=${ENV_EXAMPLE_EIN_HASH_KEY}$`, 'm'));
+  });
+
   it('reads 64 hex characters as 32 bytes, in either case', () => {
     expect(loadEinHashKey({ EIN_HASH_KEY: hex })).toEqual({ ok: true, key });
     expect(loadEinHashKey({ EIN_HASH_KEY: ` ${hex.toUpperCase()}\n` })).toEqual({ ok: true, key });

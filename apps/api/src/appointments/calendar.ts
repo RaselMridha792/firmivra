@@ -79,13 +79,17 @@ export function offsetAt(timeZone: string, instant: number): number {
 
 /**
  * The instant when the wall clock in `timeZone` shows `date` (YYYY-MM-DD) at `minutes` past
- * midnight. A time skipped by a daylight-saving change maps next to the gap; a repeated one to
- * its first occurrence.
+ * midnight. A time repeated when the clocks go back maps to its first occurrence. A time skipped
+ * when they go forward maps past the gap by the time it was into it (New York's 02:30 on the
+ * spring change is 03:30 EDT), and a day whose first hour is skipped starts after the gap
+ * (Santiago, 2026-09-06), so a day's span never takes in the hour before it (#102 review).
  */
 export function zonedInstant(timeZone: string, date: string, minutes: number): number {
   const wall = Date.parse(`${date}T00:00:00Z`) + minutes * MINUTE;
-  const first = wall - offsetAt(timeZone, wall);
-  return wall - offsetAt(timeZone, first);
+  const before = offsetAt(timeZone, wall - DAY);
+  const after = offsetAt(timeZone, wall + DAY);
+  const exact = [wall - before, wall - after].filter((t) => t + offsetAt(timeZone, t) === wall);
+  return exact.length > 0 ? Math.min(...exact) : wall - Math.min(before, after);
 }
 
 /** The calendar date (YYYY-MM-DD) of `instant` in `timeZone`. */

@@ -37,6 +37,30 @@ export function inCalendarYears(value: string): boolean {
   return instant >= FIRST_INSTANT && instant < AFTER_LAST_INSTANT;
 }
 
+/**
+ * A uuid may come with capitals, the same uuid to Postgres; the calendar's lock keys and the
+ * id comparisons need one spelling, so every uuid in a request is lower-cased as it comes in
+ * (#108 review). Only a whole uuid changes: free text keeps its letters.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const lowerIds = <T extends Record<string, unknown>>(values: T): T =>
+  Object.fromEntries(
+    Object.entries(values).map(([k, v]) => [
+      k,
+      typeof v === 'string' && UUID.test(v) ? v.toLowerCase() : v,
+    ]),
+  ) as T;
+/** A uuid in the path, lower-cased (see lowerIds). */
+export const idParam = <S extends z.ZodType<string>>(schema: S) =>
+  schema.transform((v) => v.toLowerCase());
+
+/** A block ends in the future: a past block would only count against nothing (#108 review). */
+const endsInFuture = (values: { endsAt: string }, ctx: z.RefinementCtx): void => {
+  if (Date.parse(values.endsAt) <= Date.now()) {
+    ctx.addIssue({ code: 'custom', path: ['endsAt'], message: 'A block must end in the future' });
+  }
+};
+
 /** Refuses lone surrogates in every string, and `times` outside the calendar's years. */
 const refine =
   (times: readonly string[] = []) =>
@@ -54,30 +78,46 @@ const refine =
 
 // ---------- Firm routes ----------
 /** POST /business/appointment-types */
-export const CreateTypeBody = CreateAppointmentTypeRequest.superRefine(refine());
+export const CreateTypeBody =
+  CreateAppointmentTypeRequest.superRefine(refine()).transform(lowerIds);
 /** PATCH /business/appointment-types/{id} */
-export const UpdateTypeBody = UpdateAppointmentTypeRequest.superRefine(refine());
+export const UpdateTypeBody =
+  UpdateAppointmentTypeRequest.superRefine(refine()).transform(lowerIds);
 /** GET /business/blocked-times */
-export const BlocksQuery = BlockedTimesQuery.superRefine(refine(['from', 'to']));
+export const BlocksQuery = BlockedTimesQuery.superRefine(refine(['from', 'to'])).transform(
+  lowerIds,
+);
 /** POST /business/blocked-times */
-export const CreateBlockBody = CreateBlockedTimeRequest.superRefine(refine(['startsAt', 'endsAt']));
+export const CreateBlockBody = CreateBlockedTimeRequest.superRefine(refine(['startsAt', 'endsAt']))
+  .superRefine(endsInFuture)
+  .transform(lowerIds);
 /** GET /business/appointments */
-export const CalendarQuery = AppointmentsQuery.superRefine(refine(['from', 'to']));
+export const CalendarQuery = AppointmentsQuery.superRefine(refine(['from', 'to'])).transform(
+  lowerIds,
+);
 /** GET /business/appointments/slots */
-export const FirmSlotsQuery = SlotsQuery.superRefine(refine(['from', 'to']));
+export const FirmSlotsQuery = SlotsQuery.superRefine(refine(['from', 'to'])).transform(lowerIds);
 /** POST /business/appointments */
-export const BookBody = BookAppointmentRequest.superRefine(refine(['startsAt']));
+export const BookBody = BookAppointmentRequest.superRefine(refine(['startsAt'])).transform(
+  lowerIds,
+);
 /** POST /business/appointments/{id}/reschedule */
-export const RescheduleBody = RescheduleAppointmentRequest.superRefine(refine(['startsAt']));
+export const RescheduleBody = RescheduleAppointmentRequest.superRefine(
+  refine(['startsAt']),
+).transform(lowerIds);
 /** POST /business/appointments/{id}/cancel */
-export const CancelBody = CancelAppointmentRequest.superRefine(refine());
+export const CancelBody = CancelAppointmentRequest.superRefine(refine()).transform(lowerIds);
 
 // ---------- Portal routes ----------
 /** GET /portal/{firmSlug}/me/appointments/slots */
-export const MineSlotsQuery = MySlotsQuery.superRefine(refine(['from', 'to']));
+export const MineSlotsQuery = MySlotsQuery.superRefine(refine(['from', 'to'])).transform(lowerIds);
 /** POST /portal/{firmSlug}/me/appointments */
-export const BookMineBody = BookMyAppointmentRequest.superRefine(refine(['startsAt']));
+export const BookMineBody = BookMyAppointmentRequest.superRefine(refine(['startsAt'])).transform(
+  lowerIds,
+);
 /** POST /portal/{firmSlug}/me/appointments/{id}/reschedule */
-export const RescheduleMineBody = RescheduleMyAppointmentRequest.superRefine(refine(['startsAt']));
+export const RescheduleMineBody = RescheduleMyAppointmentRequest.superRefine(
+  refine(['startsAt']),
+).transform(lowerIds);
 /** POST /portal/{firmSlug}/me/appointments/{id}/cancel */
-export const CancelMineBody = CancelMyAppointmentRequest.superRefine(refine());
+export const CancelMineBody = CancelMyAppointmentRequest.superRefine(refine()).transform(lowerIds);
