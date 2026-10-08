@@ -193,6 +193,8 @@ describe('api.myDocuments(slug) (portal)', () => {
     ['a line separator', 'w2 .pdf'],
     ['a path', '../../x.pdf'],
     ['a backslash', 'a\\b.pdf'],
+    ['a lone surrogate', '\uD800x.pdf'],
+    ['a NUL', 'a\0.pdf'],
     ['no ending', 'CON'],
     ['an ending of another type', 'evil.html'],
     ['a second ending', 'x.pdf.exe'],
@@ -216,6 +218,21 @@ describe('api.myDocuments(slug) (portal)', () => {
       'Scan.PDF',
       'id.JPEG',
     ]);
+  });
+
+  it.each([
+    ['NUL', '\0'],
+    ['a NUL inside', 'a\0b'],
+    ['a control character', 'a\u001fb'],
+    ['a lone surrogate', 'w\uDC00'],
+  ])('refuses a search with %s on both sides, before sending', async (_, search) => {
+    const { fn, calls } = fakeFetch(200, {});
+    const firm = createDocumentsClient(request(fn));
+    const portal = createMyDocumentsClient(request(fn), 'lvp');
+    for (const list of [() => firm.list(id, { search }), () => portal.list({ search })]) {
+      expect((await rejection(list())).code).toBe('VALIDATION_FAILED');
+    }
+    expect(calls).toHaveLength(0);
   });
 
   it('keeps the upload types and the picker endings together', () => {

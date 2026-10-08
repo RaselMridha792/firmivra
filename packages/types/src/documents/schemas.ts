@@ -115,6 +115,16 @@ export type DocumentRequestStatus = z.infer<typeof RequestStatus>;
 export const DocumentId = z.uuid();
 export const DocumentRequestId = z.uuid();
 
+/**
+ * A list's search term (matches file names): no control characters (the database refuses NUL)
+ * and no lone surrogates.
+ */
+const SearchTerm = z
+  .string()
+  .trim()
+  .max(100)
+  .regex(/^[^\p{Cc}\p{Cs}]*$/u, 'Remove the special characters');
+
 const Ref = z.object({ id: z.uuid(), name: z.string() });
 /** The service (engagement) a document or request belongs to. */
 const ServiceRef = z.object({ id: z.uuid(), title: z.string() });
@@ -124,8 +134,9 @@ const ServiceRef = z.object({ id: z.uuid(), title: z.string() });
 const FileFacts = {
   /**
    * Shown to staff and the client, and the download's name. No control or invisible formatting
-   * characters (such as a right-to-left override or a zero-width space), no line or paragraph
-   * separators, no / or \. It must end in an ending of its content type (checked with the type).
+   * characters (such as a right-to-left override or a zero-width space), no lone surrogates, no
+   * line or paragraph separators, no / or \. It must end in an ending of its content type
+   * (checked with the type).
    */
   fileName: z
     .string()
@@ -133,7 +144,7 @@ const FileFacts = {
     .min(1, 'The file needs a name')
     .max(255, 'Use a file name of at most 255 characters')
     .regex(
-      /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}/\\]+$/u,
+      /^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]+$/u,
       'Rename the file: its name has characters that are not allowed',
     ),
   contentType: UploadContentType,
@@ -169,9 +180,10 @@ export const UploadTicket = z.object({
   method: z.literal('PUT'),
   /**
    * Send exactly these with the PUT (the content type and checksum are signed). Never
-   * Content-Length: the browser sets it from the file.
+   * Content-Length: the browser sets it from the file (also signed).
    */
   headers: z.record(z.string(), z.string()),
+  /** Start the PUT before this (4 minutes); confirm within 15 minutes of the ticket. */
   expiresAt: DateTime,
 });
 export type UploadTicket = z.infer<typeof UploadTicket>;
@@ -225,7 +237,7 @@ export const ListFirmDocumentsQuery = z.strictObject({
   categoryId: z.uuid().optional(),
   taxYear: TaxYear.optional(),
   direction: Direction.optional(),
-  search: z.string().trim().max(100).optional(),
+  search: SearchTerm.optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(25),
 });
@@ -265,6 +277,7 @@ export const DocumentCategory = Ref.extend({
 });
 export type DocumentCategory = z.infer<typeof DocumentCategory>;
 export const DocumentCategoryList = z.object({ items: z.array(DocumentCategory) });
+export type DocumentCategoryList = z.infer<typeof DocumentCategoryList>;
 
 /** A document request as the firm sees it. */
 export const FirmDocumentRequest = z.object({
@@ -359,7 +372,7 @@ export const ListMyDocumentsQuery = z.strictObject({
   source: z.enum(['MINE', 'FIRM']).optional().default('MINE'),
   categoryId: z.uuid().optional(),
   taxYear: TaxYear.optional(),
-  search: z.string().trim().max(100).optional(),
+  search: SearchTerm.optional(),
   /** "File Name" sorts by name; the default is newest first. */
   sort: z.enum(['newest', 'name']).optional().default('newest'),
   cursor: z.string().max(200).optional(),
