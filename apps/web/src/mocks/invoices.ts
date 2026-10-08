@@ -86,8 +86,8 @@ let fixtures: { rows: readonly Row[]; invoices: readonly Invoice[] } | undefined
 /**
  * The firm's invoices. Client 1 (the signed-in portal client) has one of each: Pending, Due Soon
  * (one past due), one with a payment processing, Upcoming, three Paid (one partly refunded, one
- * after a failed bank payment), Canceled, plus a draft and a draft canceled before it was sent
- * (neither reaches the portal). Client 2 (Sam Staff's) and client 3 (not Sam's) have one open
+ * after a failed bank payment), Canceled, one canceled while Upcoming (still shown as Canceled),
+ * plus a draft and a draft canceled before it was sent (neither reaches the portal). Client 2 (Sam Staff's) and client 3 (not Sam's) have one open
  * invoice each.
  */
 function built() {
@@ -267,6 +267,19 @@ function built() {
       createdAt: noonOn(day(-4)),
       updatedAt: noonOn(day(-3)),
     }),
+    // Canceled while SCHEDULED: the client saw it as Upcoming, so it stays as Canceled.
+    row(14, {
+      number: 'INV-2026-0097',
+      engagementId: service(2),
+      status: 'CANCELED',
+      lines: lines(['Monthly bookkeeping, November (prepaid)', 1, 30_000]),
+      scheduledFor: day(5),
+      dueOn: day(19),
+      canceledAt: noonOn(day(-2)),
+      cancelReason: 'Client moved to quarterly billing.',
+      createdAt: noonOn(day(-6)),
+      updatedAt: noonOn(day(-2)),
+    }),
     row(12, {
       number: 'INV-2026-0104',
       clientId: client(2),
@@ -434,7 +447,7 @@ function store() {
   return {
     rows,
     refundId: () => refundId(nextRefund++),
-    /** Idempotency keys of the refunds made through this mock. */
+    /** `{paymentId}:{idempotencyKey}` of the refunds made through this mock (keys are per payment). */
     refunds: new Set<string>(),
     /** The API numbers invoices; the mock goes on from the fixtures' numbers. */
     add: (data: Omit<Row, 'id' | 'number'>): Row => {
@@ -595,6 +608,9 @@ export function createInvoicesMock(
         status: 'CANCELED',
         canceledAt: at,
         cancelReason: reason,
+        // A draft was never shown, so it never reaches the portal; a scheduled one keeps its day
+        // (the client saw it as Upcoming) and stays in their history as Canceled.
+        ...(r.status === 'DRAFT' ? { scheduledFor: null } : {}),
         updatedAt: at,
       };
       Object.assign(r, change);
@@ -609,15 +625,18 @@ export function createInvoicesMock(
       const r = find(key);
       const p = r.payments.find((x) => x.id === pid);
       if (!p) throw notFound();
-      // The same key again (a double click, a retry): Stripe answers the first refund.
-      if (s.refunds.has(b.idempotencyKey)) return toInvoice(r, today());
+      // The same key on the same payment again (a double click, a retry after a timeout or a 503):
+      // the first refund stands and the invoice comes back as it is, even once nothing is left
+      // to refund. The API finds it through Stripe (see the yaml's Refund rule).
+      const retryKey = `${p.id}:${b.idempotencyKey}`;
+      if (s.refunds.has(retryKey)) return toInvoice(r, today());
       if (refundable(p) === 0) {
         throw fail(409, 'NOT_REFUNDABLE', 'This payment cannot be refunded');
       }
       if (b.amountCents > refundable(p)) {
         throw fail(409, 'REFUND_TOO_LARGE', 'The refund is more than what is left of the payment');
       }
-      s.refunds.add(b.idempotencyKey);
+      s.refunds.add(retryKey);
       // PENDING until Stripe's webhook confirms it; the mock has no webhook, so it stays so.
       p.refunds.unshift({
         id: s.refundId(),
@@ -666,7 +685,7 @@ export function createMyInvoicesMock(
 ): MyInvoicesClient {
   const s = store();
   const paymentsEnabled = options.paymentsEnabled ?? true;
-  // Never a draft or an invoice canceled before it was issued; never another client's.
+  // Never a draft or a draft canceled before it was sent; never another client's.
   const mine = (day: string) =>
     s.rows.filter((r) => r.clientId === firstClientId && myInvoiceStatus(r, day) !== null);
   const findMine = (id: string, day: string) => {
@@ -715,10 +734,11 @@ export function createMyInvoicesMock(
       if (!paymentsEnabled) {
         throw fail(409, 'PAYMENTS_NOT_SET_UP', 'Online payment is not available yet');
       }
-      // No Stripe behind it: the link opens nothing, and nothing is charged or marked paid.
+      // No Stripe behind it: the link opens nothing, and nothing is charged or marked paid. The
+      // API's Checkout Sessions last 60 minutes.
       return {
         url: `mock:checkout/${r.id}`,
-        expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
       };
     },
   };

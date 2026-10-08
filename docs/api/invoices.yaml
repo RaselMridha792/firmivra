@@ -30,10 +30,17 @@ info:
       payments covering its total. Pay Now sends no amount and marks nothing paid: the API starts
       a Stripe Checkout for what the database says is due and answers its link. The browser never
       sends an amount, a status or a Stripe key, and no card or bank detail ever reaches our API.
+      **No offline payments in this contract:** there is no way to record a check, cash or a bank
+      transfer, and no call marks an invoice paid by hand. Do not build one on the firm's pages;
+      whether beta needs it is open (R7-stripe.md, Open). Until then an invoice paid offline stays
+      open or is canceled.
     - **What the client sees** (`myInvoiceStatus()`, the same in the API and the mock):
       `SCHEDULED` is Upcoming; `OPEN` is Due Soon within 7 days of its due date or once past it,
-      otherwise Pending; Paid; Canceled. Drafts never reach the portal, nor does an invoice
-      canceled before it was issued (it was never a bill). "Today" is the firm's calendar date.
+      otherwise Pending; Paid; Canceled. Drafts never reach the portal, nor does a draft canceled
+      before it was sent (it was never shown). A canceled invoice the client saw (issued, or
+      Upcoming when canceled) stays in their history as Canceled: the API clears `scheduled_for`
+      when it opens an invoice or cancels a draft, and keeps it when it cancels a `SCHEDULED` one.
+      "Today" is the firm's calendar date.
       The view filter (All, Due, Paid, Upcoming, Canceled), the status filter and the search work
       together on one list; `section` gives the Current or Past table.
     - **Pay Now** shows when `canPay`: open, something left to pay, no payment processing and the
@@ -44,8 +51,10 @@ info:
       (`paymentProcessing`, a bank debit can take days) or Paid once the webhook arrives. A failed
       payment leaves the invoice open with Pay Now again.
     - **Refunds** (firm, Owner and Admin): part or all of a `SUCCEEDED` payment, up to its
-      `refundableCents`, through Stripe. The refund is `PENDING` until Stripe's webhook confirms
-      it; refunds the firm makes in its own Stripe dashboard show up the same way. The invoice
+      `refundableCents`, through Stripe. One `idempotencyKey` per refund dialog, sent again
+      unchanged on a retry: a retry of a refund already made answers the invoice as it is (`200`,
+      no second refund), even once that refund used up the payment. The refund is `PENDING` until
+      Stripe's webhook confirms it; refunds the firm makes in its own Stripe dashboard show up the same way. The invoice
       stays `PAID`; a payment refunded in full becomes `REFUNDED` (set by the database). The
       portal has no refund controls; it shows `refundedCents` per payment.
     - **Who may do what.** Owner and Admin: every invoice of the firm, every change and refunds.
@@ -105,19 +114,25 @@ info:
       helper: the invoice number and due date, never an amount in an SMS).
     - **Cancel.** Expire the invoice's open Checkout Sessions at Stripe first (`sessions.expire`);
       refuse with `409 PAYMENT_IN_PROGRESS` while a payment is processing (its checkout completed
-      and Stripe's result is pending).
+      and Stripe's result is pending). Canceling a `DRAFT` clears `scheduled_for` (the portal never
+      shows it); canceling a `SCHEDULED` invoice keeps it (the client saw it as Upcoming, so it
+      stays as Canceled; see `myInvoiceStatus()`).
     - **Pay Now (checkout).** In one transaction, lock the invoice row, check it is `OPEN` with a
       balance and no processing payment, and that the firm's `stripe_accounts` row has
       `charges_enabled` (else `PAYMENTS_NOT_SET_UP`). If an open Checkout Session for this
-      invoice and the same amount exists, answer its URL again (one open checkout per invoice).
+      invoice and the same amount exists with at least 10 minutes left, answer its URL again (one
+      open checkout per invoice); one closer to its end is expired (`sessions.expire`) and a new
+      one made.
       Otherwise create a Checkout Session on the firm's connected account (Stripe Connect, the
       `Stripe-Account` header): mode `payment`, one line with the invoice number and the balance
       due from the database, the invoice's currency, `client_reference_id` and metadata with the
       invoice id and payment id (never the firm id from a request), `payment_intent_data.metadata`
-      the same, `expires_at` 30 minutes, an idempotency key of the payment id, and success and
-      cancel URLs built from `PORTAL_BASE_URL` and the firm's slug. Insert the `PENDING`
+      the same, `expires_at` 60 minutes from now (Stripe takes 30 minutes to 24 hours after it
+      creates the session, so never exactly 30), an idempotency key of the payment id, and success
+      and cancel URLs built from `PORTAL_BASE_URL` and the firm's slug. Insert the `PENDING`
       `payments` row with the session id (`cs_...`) as `processor_ref` and the firm's `account_id`.
-      Answer `{ url, expiresAt }`. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
+      Answer `{ url, expiresAt }`, `expiresAt` from the session's `expires_at` as Stripe returns
+      it. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
       inserted. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) come from the environment
       (Secrets Manager on AWS), never from code.
     - **Payments in answers.** A `PENDING` payment is listed (and `paymentProcessing` is true)
@@ -130,28 +145,53 @@ info:
       scope; an unknown account is acknowledged (`200`) and ignored. Insert `payment_events`
       first (the unique event id makes a duplicate delivery a no-op answered `200`); only the
       type is kept, never the payload. Then, in the same transaction:
-      - `checkout.session.completed` with `payment_status: paid`, or `payment_intent.succeeded`:
-        link the event, set the payment `SUCCEEDED` with `paid_at`, then the invoice `PAID` once
-        `SUCCEEDED` payments cover its total. The amount is Stripe's `amount_total`, checked
-        against the payment row; a mismatch is logged and alarmed, never trusted.
+      - `checkout.session.completed` with `payment_status: paid`, or `payment_intent.succeeded`
+        (the payment from its metadata; a bank debit settles with it): link the event, set the
+        payment `SUCCEEDED` with `paid_at`, then the invoice `PAID` once `SUCCEEDED` payments cover
+        its total. The amount is Stripe's (`amount_total`, or `amount_received`), checked against
+        the payment row; a mismatch is logged and alarmed, never trusted. Both events come for one
+        payment: once it is `SUCCEEDED`, the other is recorded and changes nothing (`paid_at` is
+        set once). The database takes only these two types for `SUCCEEDED`, so
+        `checkout.session.async_payment_succeeded` is ignored.
       - `checkout.session.completed` with `payment_status: unpaid` (a bank debit): record it; the
         payment stays `PENDING` and shows as processing.
-      - `checkout.session.async_payment_failed` or `payment_intent.payment_failed`: `FAILED` with
-        Stripe's short `failure_code`; the invoice stays open.
-      - `checkout.session.expired`: `FAILED` with `checkout_expired`, not listed to anyone.
-      - `charge.refunded`: one `payment_refunds` row per refund in it (Stripe's `re_` id, amount,
-        the payment's account), `SUCCEEDED` with this event; a row Firmivra inserted `PENDING`
-        is confirmed. The database sets the payment `REFUNDED` when they cover it.
-      - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED`.
+      - `payment_intent.payment_failed` changes nothing: on Stripe's Checkout a declined card
+        leaves the session open and the client can try another card in it (a `FAILED` row could
+        never become `SUCCEEDED`). A payment becomes `FAILED` only on
+        `checkout.session.async_payment_failed` (a bank debit; Stripe's short `failure_code` from
+        the payment intent's last error) or `checkout.session.expired` (`checkout_expired`, not
+        listed to anyone); the invoice stays open. e2e (step 6): a declined test card, then a good
+        one in the same session, ends `PAID` with one `SUCCEEDED` payment.
+      - `charge.refunded` (Stripe sends one per refund; the charge in the event does not list its
+        refunds): find the payment from the charge's payment intent and link the event to it. List
+        the charge's refunds at Stripe (`refunds.list` by charge, on the connected account) and
+        confirm exactly one: the oldest that is not failed or canceled at Stripe and has no
+        `SUCCEEDED` or `FAILED` row here. Its `PENDING` row (made by Firmivra) becomes `SUCCEEDED`
+        with this event and `refunded_at`; with no row (made in the firm's Stripe dashboard) it is
+        inserted `SUCCEEDED` with this event (Stripe's `re_` or `pyr_` id, amount, the payment's
+        account). One event confirms one refund (`payment_refunds_one_per_event`); a refund
+        already `SUCCEEDED` or `FAILED` is never touched again; none left to confirm: recorded and
+        ignored. The database sets the payment `REFUNDED` when confirmed refunds cover it.
+      - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED` (its
+        cents are refundable again). One already `SUCCEEDED` is final: logged and alarmed, not
+        changed; one with no row never counted and is ignored.
       - `account.updated`: update the firm's `stripe_accounts` row in platform scope.
       Mark the event `processed_at` and answer `200` quickly; anything else is `200` and ignored.
       A payment of an invoice canceled meanwhile is still recorded (the money was taken); the
       firm refunds it.
-    - **Refund.** Lock the payment row; check `SUCCEEDED` and `refundableCents`; call Stripe's
-      `refunds.create` on the connected account with the payment intent, the amount and
-      `Idempotency-Key: {businessId}:{idempotencyKey}`; insert the `PENDING` `payment_refunds` row
-      with the `re_` id. The same key again answers the same refund (no second row). Stripe
-      errors: `503`, nothing inserted.
+    - **Refund.** Lock the payment row (`404` if it is not this invoice's). When it is
+      `SUCCEEDED` and the amount fits its `refundableCents`, call Stripe's `refunds.create` on the
+      connected account with the payment intent, the amount, `metadata.refund_key` (the
+      `idempotencyKey`) and `Idempotency-Key: {businessId}:{paymentId}:{idempotencyKey}`, then
+      insert the `PENDING` `payment_refunds` row with Stripe's refund id, unless a row with that
+      id exists already (a retry, where Stripe answers the first refund again, or its webhook
+      recorded it first). Otherwise, before answering `409`, look for a retry of a refund already
+      made: when the payment is `SUCCEEDED` or `REFUNDED`, list its refunds at Stripe
+      (`refunds.list` by payment intent) for one with this `metadata.refund_key` whose id has a
+      row here; if there is one, answer the invoice as it is (`200`, nothing new). Else `409
+      NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE`. So a double click or a retry after
+      a timeout or a `503` refunds once and answers `200`, as the mock does (keys per payment).
+      No column keeps the key: Stripe does. Stripe errors: `503`, nothing inserted.
     - **Notifications** (R6's helper): `invoice.sent` to the client when an invoice opens;
       `payment.received` to the client and the firm when a payment succeeds. No amounts or card
       details in SMS; emails name the invoice number.
@@ -290,7 +330,7 @@ paths:
     post:
       tags: [firm]
       operationId: refundPayment
-      summary: Refunds part or all of a SUCCEEDED payment through Stripe; PENDING until confirmed (Owner and Admin)
+      summary: Refunds part or all of a SUCCEEDED payment through Stripe; PENDING until confirmed (Owner and Admin). The same idempotencyKey again answers the invoice as it is
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/RefundPaymentRequest' } } }

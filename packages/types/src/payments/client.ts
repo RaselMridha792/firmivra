@@ -60,7 +60,8 @@ export function createInvoicesClient(request: ApiRequest) {
     /**
      * Refunds part or all of one of its SUCCEEDED payments through Stripe. Answers the invoice
      * with the refund PENDING (it counts once Stripe confirms it). 409 NOT_REFUNDABLE or
-     * REFUND_TOO_LARGE; 503 PAYMENT_PROVIDER_UNAVAILABLE (retry with the same idempotencyKey).
+     * REFUND_TOO_LARGE; 503 PAYMENT_PROVIDER_UNAVAILABLE (retry with the same idempotencyKey). A
+     * retry of a refund already made answers the invoice as it is (no second refund).
      */
     refund: async (id: string, paymentId: string, body: RefundPaymentRequest): Promise<Invoice> =>
       request(Invoice, `${one(id)}/payments/${parseInput(PaymentId, paymentId)}/refunds`, {

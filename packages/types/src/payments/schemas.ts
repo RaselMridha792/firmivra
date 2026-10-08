@@ -90,19 +90,25 @@ interface InvoiceState {
   status: InvoiceStatus;
   dueOn: string | null;
   issuedAt: string | null;
+  /**
+   * Kept on an invoice canceled while SCHEDULED (the client saw it as Upcoming); the API clears it
+   * when it opens an invoice or cancels a DRAFT.
+   */
+  scheduledFor: string | null;
 }
 
 /**
  * What the client sees for an invoice on `today` (YYYY-MM-DD in the firm's time zone), or null
- * when the portal never shows it: a draft, or an invoice canceled before it was issued (it was
- * never a bill). The API and the mocks both use this, so they never disagree.
+ * when the portal never shows it: a draft, or a draft canceled before it was sent (it was never
+ * shown). A canceled invoice the client saw (issued, or Upcoming when canceled) stays in its
+ * history as Canceled. The API and the mocks both use this, so they never disagree.
  */
 export function myInvoiceStatus(invoice: InvoiceState, today: string): MyInvoiceStatus | null {
-  const { status, dueOn, issuedAt } = invoice;
+  const { status, dueOn, issuedAt, scheduledFor } = invoice;
   if (status === 'DRAFT') return null;
   if (status === 'SCHEDULED') return 'UPCOMING';
   if (status === 'PAID') return 'PAID';
-  if (status === 'CANCELED') return issuedAt === null ? null : 'CANCELED';
+  if (status === 'CANCELED') return issuedAt === null && scheduledFor === null ? null : 'CANCELED';
   return dueOn !== null && dueOn <= addDays(today, DUE_SOON_DAYS) ? 'DUE_SOON' : 'PENDING';
 }
 
@@ -228,7 +234,10 @@ export const InvoiceListItem = z.object({
   /** What it is for: the service's title, or else the first line's description. */
   title: z.string(),
   status: InvoiceStatus,
-  /** What the client sees; null while the portal does not show it (a draft, or never issued). */
+  /**
+   * What the client sees; null while the portal does not show it (a draft, or a draft canceled
+   * before it was sent).
+   */
   clientStatus: MyInvoiceStatus.nullable(),
   currency: z.string(),
   totalCents: Cents,
@@ -237,7 +246,10 @@ export const InvoiceListItem = z.object({
    * SCHEDULED or OPEN; 0 once PAID or CANCELED.
    */
   balanceDueCents: Cents,
-  /** SCHEDULED: the day it opens (it shows as Upcoming until then). */
+  /**
+   * SCHEDULED: the day it opens (it shows as Upcoming until then). Kept when a SCHEDULED invoice
+   * is canceled (the client then sees it as Canceled); null once it opens or a draft is canceled.
+   */
   scheduledFor: CalendarDate.nullable(),
   dueOn: CalendarDate.nullable(),
   /** Open and past its due date (the firm's calendar). */
@@ -401,7 +413,8 @@ export const RefundPaymentRequest = z.strictObject({
   /**
    * A new random id each time the refund dialog opens (`crypto.randomUUID()`), sent again
    * unchanged on a retry: the API passes it to Stripe as the idempotency key, so a double click
-   * or a retry after a timeout refunds once.
+   * or a retry after a timeout or a 503 refunds once. A retry of a refund already made answers the
+   * invoice as it is (200, no second refund), even once that refund has used up the payment.
    */
   idempotencyKey: z.uuid(),
 });
@@ -422,7 +435,7 @@ export const MyInvoice = z.object({
   totalCents: Cents,
   /** Current invoices show this (what is left to pay); 0 once paid or canceled. */
   balanceDueCents: Cents,
-  /** The day it was issued, or (Upcoming) the day it will be. */
+  /** The day it was issued, or (Upcoming, or canceled while Upcoming) its scheduled day. */
   issuedOn: CalendarDate,
   dueOn: CalendarDate.nullable(),
   /** Open and past its due date: for styling the date only (the status stays Due Soon). */

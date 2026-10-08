@@ -13,7 +13,12 @@ import {
 
 const today = '2026-10-08';
 const issuedAt = '2026-10-01T14:00:00.000Z';
-const open = (dueOn: string | null) => ({ status: 'OPEN' as const, dueOn, issuedAt });
+const open = (dueOn: string | null) => ({
+  status: 'OPEN' as const,
+  dueOn,
+  issuedAt,
+  scheduledFor: null,
+});
 
 describe('amounts (the database computes them; these preview them)', () => {
   it.each([
@@ -46,19 +51,33 @@ describe('amounts (the database computes them; these preview them)', () => {
 });
 
 describe('what the client sees', () => {
-  it('never shows a draft, or an invoice canceled before it was issued', () => {
-    expect(myInvoiceStatus({ status: 'DRAFT', dueOn: '2026-10-31', issuedAt: null }, today)).toBe(
+  it('never shows a draft, or a draft canceled before it was sent', () => {
+    const draft = { dueOn: '2026-10-31', issuedAt: null, scheduledFor: null };
+    expect(myInvoiceStatus({ status: 'DRAFT', ...draft }, today)).toBe(null);
+    expect(myInvoiceStatus({ status: 'DRAFT', ...draft, scheduledFor: '2026-10-20' }, today)).toBe(
       null,
     );
-    expect(myInvoiceStatus({ status: 'CANCELED', dueOn: null, issuedAt: null }, today)).toBe(null);
-    expect(myInvoiceStatus({ status: 'CANCELED', dueOn: null, issuedAt }, today)).toBe('CANCELED');
+    expect(myInvoiceStatus({ status: 'CANCELED', ...draft }, today)).toBe(null);
+  });
+
+  it('keeps a canceled invoice the client saw: issued, or Upcoming when canceled', () => {
+    const canceled = { status: 'CANCELED' as const, dueOn: '2026-10-31' };
+    expect(myInvoiceStatus({ ...canceled, issuedAt, scheduledFor: null }, today)).toBe('CANCELED');
+    expect(
+      myInvoiceStatus({ ...canceled, issuedAt: null, scheduledFor: '2026-10-20' }, today),
+    ).toBe('CANCELED');
   });
 
   it('maps scheduled to Upcoming and paid to Paid', () => {
     expect(
-      myInvoiceStatus({ status: 'SCHEDULED', dueOn: '2026-11-30', issuedAt: null }, today),
+      myInvoiceStatus(
+        { status: 'SCHEDULED', dueOn: '2026-11-30', issuedAt: null, scheduledFor: '2026-11-01' },
+        today,
+      ),
     ).toBe('UPCOMING');
-    expect(myInvoiceStatus({ status: 'PAID', dueOn: '2026-01-01', issuedAt }, today)).toBe('PAID');
+    expect(
+      myInvoiceStatus({ status: 'PAID', dueOn: '2026-01-01', issuedAt, scheduledFor: null }, today),
+    ).toBe('PAID');
   });
 
   it(`shows an open invoice as Due Soon within ${DUE_SOON_DAYS} days and once past due`, () => {
@@ -76,7 +95,12 @@ describe('what the client sees', () => {
     expect(isInvoiceOverdue(open('2026-10-07'), today)).toBe(true);
     expect(isInvoiceOverdue(open('2026-10-08'), today)).toBe(false);
     expect(isInvoiceOverdue(open(null), today)).toBe(false);
-    expect(isInvoiceOverdue({ status: 'PAID', dueOn: '2026-01-01', issuedAt }, today)).toBe(false);
+    expect(
+      isInvoiceOverdue(
+        { status: 'PAID', dueOn: '2026-01-01', issuedAt, scheduledFor: null },
+        today,
+      ),
+    ).toBe(false);
   });
 
   it('has a label, one table and the All view for every client status', () => {
