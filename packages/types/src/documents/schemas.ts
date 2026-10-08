@@ -351,6 +351,13 @@ export const MyDocument = z.object({
    * `PORTAL_BLOCKED_TEXT[source]` and never says it failed the malware scan.
    */
   status: z.enum(['CHECKING', 'READY', 'BLOCKED']),
+  /**
+   * Who in the household uploaded it (a MINE file): the login's display name, so a PRIMARY or
+   * SPOUSE login can tell its own uploads from the others' (Rasel, q12). Null for the firm's
+   * files (FIRM: no staff names reach the portal) and for a file with no known uploader (carried
+   * over from Begin Online).
+   */
+  uploadedBy: z.object({ name: z.string() }).nullable(),
   /** When the file was stored ("Upload Date"). */
   uploadedAt: DateTime,
 });
