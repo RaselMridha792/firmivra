@@ -6,6 +6,7 @@ Firmivra · Oct 6, 2026 (evening) · who builds which page, and in which file.
 
 - Rasel's R1 session creates every page below as a placeholder inside the right layout: sidebar, header, footer, the sign-in check and the menu links are done for you.
 - You open your page file, replace the `<PagePlaceholder>` with the screen from its mockup, and put the screen's parts in a `_components/` folder next to the page (Next.js ignores folders that start with `_`).
+- `page.tsx` stays a small server file with its `metadata` title line (the tests check each page by its tab title): no `'use client'`, `redirect()` or `notFound()` in `page.tsx`, and no title or title template in any layout except the root layout's default. A page opened straight from its URL (verify-email, verify-phone, sign-up/done, apply/done, begin/done, begin/resume, reset-password, activate) never navigates away by itself. Keep what the tests read: the nav "Main" and `AppShell`; `data-testid="firm-name"`; the header's `me-email`, the user-menu button with the role and its "Sign out"; the portal greeting "Welcome back, <first name>!"; the "Intake Form" tab; the quick sign-in buttons with the email; the sign-in headings "Super Admin console", "Firm workspace" and "Client portal: <slug>".
 - Change only the files listed under your name in "Your files" at the end. CI fails a PR from your branch that changes anything else.
 - Never create, move or rename a route, a layout or a page folder. A page is missing or in the wrong place? Ask Rasel, and R1 adds it.
 - Colours, fonts and spacing come from the tokens in `packages/ui` (Fahad's F01). Never fix a colour inside your page. A colour that looks wrong everywhere is a token: tell Fahad.
@@ -63,7 +64,8 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Ibrahim | F08 | none |
 | `/calendar` | `(workspace)/calendar/page.tsx` | Tumit | F09 | none |
 | `/team` | `(workspace)/team/page.tsx` | Tumit | F05 | none |
-| `/settings` | `(workspace)/settings/layout.tsx` (settings menu; `/settings` opens Profile) | R1 | | |
+| `/audit-log` (Owner and Admin) | `(workspace)/audit-log/page.tsx` | Tumit | F12 | none |
+| `/settings` | `(workspace)/settings/layout.tsx` (settings menu) and `route.ts` (`/settings` opens Profile) | R1 | | |
 | `/settings/profile` | `(workspace)/settings/profile/page.tsx` | Tumit | F05 | none |
 | `/settings/branding` | `(workspace)/settings/branding/page.tsx` | Tumit | F05 | none |
 | `/settings/portal` | `(workspace)/settings/portal/page.tsx` | Tumit | F05 | none |
@@ -71,7 +73,7 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/settings/availability` | `(workspace)/settings/availability/page.tsx` | Tumit | F09 | none |
 | `/settings/tax-statuses` | `(workspace)/settings/tax-statuses/` (the reference screen) | R1 | kit | none |
 
-Sidebar: Dashboard, Clients, Sign-ups, Leads, Messages, Calendar, Invoices, Workspaces, Team, Settings. Sign-ups, Team and Settings show only for Owner and Admin.
+Sidebar: Dashboard, Clients, Sign-ups, Leads, Messages, Calendar, Invoices, Workspaces, Team, Audit log, Settings. Sign-ups, Team, Audit log and Settings show only for Owner and Admin.
 
 ## Client portal: portal.dev.firmivra.com/{firm}
 
@@ -107,7 +109,7 @@ Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 | --- | --- | --- | --- | --- |
 | shell | `(client)/layout.tsx` | Nahid | N01 | `My docs tab.png` |
 | folder tabs and right column | `(client)/(tabs)/layout.tsx` | Nahid | N01 | `My docs tab.png` |
-| `/{firm}/home` | `(client)/home/page.tsx` (opens Intake Forms) | R1 | | |
+| `/{firm}/home` | `(client)/home/route.ts` (opens Intake Forms) | R1 | | |
 | `/{firm}/intake` | `(client)/(tabs)/intake/page.tsx` | Nahid | N06 | `Intake form tab.png` |
 | `/{firm}/business` | `(client)/(tabs)/business/page.tsx` | Nahid | N09 | `Business Tab.png` |
 | `/{firm}/documents` | `(client)/(tabs)/documents/page.tsx` | Nahid | N05 | `My docs tab.png`, `Upload docs popup.png` |
@@ -155,7 +157,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/components/app-shell/`
 - `apps/web/src/app/admin/(console)/`
 - `apps/web/src/app/firm/welcome/`, `firm/apply/`, `firm/setup/`
-- `apps/web/src/app/firm/(workspace)/team/`, `calendar/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
+- `apps/web/src/app/firm/(workspace)/team/`, `audit-log/`, `calendar/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
 - `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
