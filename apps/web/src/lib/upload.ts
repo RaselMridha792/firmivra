@@ -1,7 +1,9 @@
 import {
   ApiRequestError,
+  DOCUMENT_ERRORS,
+  fileNameFitsType,
   UPLOAD_LIMITS,
-  type UploadContentType,
+  uploadContentTypeFor,
   type UploadFileFacts,
   type UploadTicket,
 } from '@firmivra/types';
@@ -22,11 +24,11 @@ export interface UploadSteps<T> {
 
 const hex = (bytes: ArrayBuffer) =>
   Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
-const invalid = (message: string) => new ApiRequestError(400, 'VALIDATION_FAILED', message);
+/** A file refused before anything is sent, with a code the screen can name (DOCUMENT_ERRORS). */
+const refused = (code: 'FILE_TYPE_NOT_ALLOWED' | 'FILE_EMPTY' | 'FILE_TOO_LARGE') =>
+  new ApiRequestError(400, code, DOCUMENT_ERRORS[code]);
 const failed = (status: number) =>
-  new ApiRequestError(status, 'UPLOAD_FAILED', 'The upload did not go through.');
-const isAllowed = (type: string): type is UploadContentType =>
-  Object.hasOwn(UPLOAD_LIMITS.types, type);
+  new ApiRequestError(status, 'UPLOAD_FAILED', DOCUMENT_ERRORS.UPLOAD_FAILED);
 /** Stops before the next step once the caller has cancelled. */
 const checkAborted = (signal?: AbortSignal) => {
   if (signal?.aborted) throw new DOMException('Upload cancelled', 'AbortError');
@@ -37,10 +39,13 @@ const PUT_TIMEOUT_MS = 10 * 60_000;
 /**
  * Uploads one file from the browser in the three steps of docs/api/documents.yaml: ask the API
  * for an upload ticket, PUT the file straight to storage, then confirm. Resolves with the saved
- * document. Checks the type (PDF, JPG, PNG) and size (10 MB) first, and rejects with
- * ApiRequestError like an API error, so `errorMessage(error)` shows every failure (a cancel via
- * `signal` rejects with an AbortError). It sends no credentials to storage, only the ticket's URL
- * and headers:
+ * document. Checks the type (PDF, JPG, PNG, Excel .xlsx or Word .docx), the name's ending and
+ * the size (10 MB) first. A browser may give an .xlsx or .docx no type: the name's ending then
+ * decides (`uploadContentTypeFor`). Rejects with ApiRequestError like an API error: show it with
+ * `errorMessage(error, DOCUMENT_ERRORS)`, since errorMessage() alone knows only the generic codes.
+ * Its own refusals are FILE_TYPE_NOT_ALLOWED, FILE_EMPTY and FILE_TOO_LARGE (400, nothing sent),
+ * and UPLOAD_FAILED when the PUT to storage fails; a cancel via `signal` rejects with an
+ * AbortError. It sends no credentials to storage, only the ticket's URL and headers:
  *
  *   const saved = await uploadFile(file, {
  *     start: (facts) => api.myDocuments(slug).createUpload({ serviceId, requestId, ...facts }),
@@ -49,10 +54,12 @@ const PUT_TIMEOUT_MS = 10 * 60_000;
  *   });
  */
 export async function uploadFile<T>(file: File, steps: UploadSteps<T>): Promise<T> {
-  const contentType = file.type;
-  if (!isAllowed(contentType)) throw invalid('Upload a PDF, JPG or PNG file');
-  if (file.size === 0) throw invalid('The file is empty');
-  if (file.size > UPLOAD_LIMITS.maxBytes) throw invalid('The file is larger than 10 MB');
+  const contentType = uploadContentTypeFor(file.name, file.type);
+  if (!contentType || !fileNameFitsType(file.name, contentType)) {
+    throw refused('FILE_TYPE_NOT_ALLOWED');
+  }
+  if (file.size === 0) throw refused('FILE_EMPTY');
+  if (file.size > UPLOAD_LIMITS.maxBytes) throw refused('FILE_TOO_LARGE');
 
   checkAborted(steps.signal);
   const sha256 = hex(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()));
