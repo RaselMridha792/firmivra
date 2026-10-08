@@ -44,7 +44,7 @@ test('time is blocked, refused over an appointment, and removed', async ({ page 
   const blocks = page.getByTestId('blocked-time');
   await expect(blocks.filter({ hasText: 'Sam Staff · Training' })).toHaveCount(1);
 
-  await page.getByLabel('Who').selectOption({ label: 'Mock User' });
+  await page.getByLabel('Who', { exact: true }).selectOption({ label: 'Mock User' });
   await page.getByLabel('Starts on').fill(nextWeek(0));
   await page.getByLabel('Starts at').fill('13:00');
   await page.getByLabel('Ends on').fill(nextWeek(0));
