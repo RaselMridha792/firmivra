@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   ApiRequestError,
+  AppointmentErrorCode,
+  AppointmentList,
   BookAppointmentRequest,
   CancelAppointmentRequest,
   CreateAppointmentTypeRequest,
+  CreateBlockedTimeRequest,
   createAppointmentsClient,
   createAppointmentTypesClient,
   createAvailabilityClient,
@@ -101,6 +104,49 @@ describe('appointment schemas (#68 review)', () => {
   });
 });
 
+describe('calendar entries (Staff access, Rasel Oct 7)', () => {
+  const busy = {
+    restricted: true,
+    id,
+    staff: member,
+    startsAt: at,
+    endsAt: appointment.endsAt,
+    status: 'SCHEDULED',
+  };
+
+  it('reads a whole appointment and a Busy one; a Busy one never keeps client fields', () => {
+    const list = AppointmentList.parse({
+      items: [
+        { ...appointment, restricted: false },
+        // Sent by mistake with the client's details: the Busy shape drops them.
+        { ...appointment, restricted: true },
+      ],
+    });
+    expect(list.items[0]).toMatchObject({ restricted: false, client: appointment.client });
+    expect(list.items[1]).toEqual(busy);
+    // Every entry says which it is.
+    expect(AppointmentList.safeParse({ items: [appointment] }).success).toBe(false);
+    // A whole appointment needs all its fields.
+    expect(AppointmentList.safeParse({ items: [{ ...busy, restricted: false }] }).success).toBe(
+      false,
+    );
+  });
+
+  it('the calendar list returns both kinds', async () => {
+    const listed = fakeFetch(200, { items: [{ ...appointment, restricted: false }, busy] });
+    const items = await createAppointmentsClient(
+      createRequest({ baseUrl: '', fetch: listed.fn }),
+    ).list({ from: at, to: '2026-10-20T14:00:00.000Z', clientId: appointment.client.id });
+    expect(listed.calls[0]?.url).toBe(
+      `/business/appointments?from=${encodeURIComponent(at)}&to=${encodeURIComponent('2026-10-20T14:00:00.000Z')}&clientId=${appointment.client.id}`,
+    );
+    expect(items.map((a) => (a.restricted ? 'busy' : a.client.displayName))).toEqual([
+      'Jamie Sample',
+      'busy',
+    ]);
+  });
+});
+
 describe('appointment clients', () => {
   it('calls the firm routes with the checked bodies', async () => {
     const types = fakeFetch(200, { items: [] });
@@ -140,5 +186,44 @@ describe('appointment clients', () => {
     expect(err).toBeInstanceOf(ApiRequestError);
     expect(err).toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
     expect(slots.calls).toHaveLength(1);
+  });
+});
+
+describe('appointment schemas (R12 contract follow-ups)', () => {
+  it("takes times and dates from 2000 to 2100 only, the API's calendar years", () => {
+    const book = (startsAt: string) =>
+      BookAppointmentRequest.safeParse({
+        clientId: '0190a000-0000-7000-8000-000000000001',
+        staffUserId: '0190a000-0000-7000-8000-000000000002',
+        durationMinutes: 30,
+        startsAt,
+      }).success;
+    expect(book('2026-10-12T10:00:00Z')).toBe(true);
+    expect(book('2000-01-01T00:00:00Z')).toBe(true);
+    expect(book('2100-12-31T23:45:00Z')).toBe(true);
+    expect(book('1999-12-31T23:45:00Z')).toBe(false);
+    expect(book('2101-01-01T00:00:00Z')).toBe(false);
+    const slots = (from: string, to: string) =>
+      SlotsQuery.safeParse({ typeId: '0190a000-0000-7000-8000-000000000003', from, to }).success;
+    expect(slots('2026-10-12', '2026-10-13')).toBe(true);
+    expect(slots('0000-01-01', '0000-01-02')).toBe(false);
+    expect(slots('9999-12-01', '9999-12-02')).toBe(false);
+  });
+
+  it('names CLIENT_ARCHIVED, BLOCK_LIMIT and, for now, CUTOFF_NOT_SUPPORTED', () => {
+    expect(AppointmentErrorCode.options).toEqual(
+      expect.arrayContaining(['CLIENT_ARCHIVED', 'CUTOFF_NOT_SUPPORTED', 'BLOCK_LIMIT']),
+    );
+  });
+
+  it('takes a block of at most 366 days', () => {
+    const block = (days: number) =>
+      CreateBlockedTimeRequest.safeParse({
+        userId: null,
+        startsAt: '2026-10-12T00:00:00Z',
+        endsAt: new Date(Date.parse('2026-10-12T00:00:00Z') + days * 86_400_000).toISOString(),
+      }).success;
+    expect(block(366)).toBe(true);
+    expect(block(367)).toBe(false);
   });
 });

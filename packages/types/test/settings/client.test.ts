@@ -42,6 +42,11 @@ const settings = {
   portalHeader: null,
   welcomeMessage: null,
   clientSignUpEnabled: true,
+  entityType: null,
+  einLast4: null,
+  teamSize: null,
+  services: [],
+  description: null,
   updatedAt: at,
 };
 const setup = { completedSteps: ['branding'], completedAt: null };

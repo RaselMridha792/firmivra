@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import {
   AdminCreateUserCommand,
   AdminDisableUserCommand,
@@ -10,6 +11,7 @@ import {
   AdminUserGlobalSignOutCommand,
   AssociateSoftwareTokenCommand,
   type AuthenticationResultType,
+  type ContextDataType,
   type CognitoIdentityProviderClient,
   ListUsersCommand,
   type UserType,
@@ -20,6 +22,7 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import { Logger } from '@nestjs/common';
 import type { IdentityPool } from '@firmivra/types';
+import { requestContext } from '../../common/request-context.js';
 import type { Env } from '../../config/env.js';
 import type { SessionTokens } from '../site.js';
 import {
@@ -37,27 +40,58 @@ export interface CognitoPool {
   userPoolId: string;
   clientId: string;
   clientSecret: string;
+  /** The host of the site that signs in with this pool (from config), for ContextData. */
+  serverName?: string;
 }
 
 export function cognitoPoolsFromEnv(env: Env): Partial<Record<IdentityPool, CognitoPool>> {
-  const pool = (userPoolId?: string, clientId?: string, clientSecret?: string) =>
-    userPoolId && clientId && clientSecret ? { userPoolId, clientId, clientSecret } : undefined;
+  const pool = (baseUrl: string, userPoolId?: string, clientId?: string, clientSecret?: string) =>
+    userPoolId && clientId && clientSecret
+      ? { userPoolId, clientId, clientSecret, serverName: new URL(baseUrl).host }
+      : undefined;
   return {
     STAFF: pool(
+      env.APP_BASE_URL,
       env.COGNITO_STAFF_USER_POOL_ID,
       env.COGNITO_STAFF_CLIENT_ID,
       env.COGNITO_STAFF_CLIENT_SECRET,
     ),
     CLIENT: pool(
+      env.PORTAL_BASE_URL,
       env.COGNITO_CLIENTS_USER_POOL_ID,
       env.COGNITO_CLIENTS_CLIENT_ID,
       env.COGNITO_CLIENTS_CLIENT_SECRET,
     ),
     ADMIN: pool(
+      env.ADMIN_BASE_URL,
       env.COGNITO_ADMINS_USER_POOL_ID,
       env.COGNITO_ADMINS_CLIENT_ID,
       env.COGNITO_ADMINS_CLIENT_SECRET,
     ),
+  };
+}
+
+/** The only request headers Cognito ever sees. Never Cookie, Authorization or CSRF headers. */
+const CONTEXT_HEADERS = { 'user-agent': 'userAgent', 'accept-language': 'acceptLanguage' } as const;
+
+/**
+ * What Cognito threat protection (full function on our pools) learns about the viewer, so it
+ * scores the person, not the API task: the viewer's IP (req.ip, from the request context), the
+ * site's host and path, and the allowlisted headers. Undefined outside a request, and when the
+ * viewer's address is not an IP address (#84 follow-up).
+ */
+export function contextData(p: CognitoPool): ContextDataType | undefined {
+  const store = requestContext.getStore();
+  if (!store?.ip || isIP(store.ip) === 0 || !p.serverName) return undefined;
+  const headers = Object.entries(CONTEXT_HEADERS).flatMap(([headerName, field]) => {
+    const headerValue = store[field];
+    return headerValue ? [{ headerName, headerValue: headerValue.slice(0, 512) }] : [];
+  });
+  return {
+    IpAddress: store.ip,
+    ServerName: p.serverName,
+    ServerPath: store.path ?? '/',
+    HttpHeaders: headers,
   };
 }
 
@@ -125,6 +159,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
             PASSWORD: password,
             SECRET_HASH: secretHash(p, username),
           },
+          ContextData: contextData(p),
         }),
       )
       .catch((e: unknown) => fail(e, SIGN_IN_ERRORS));
@@ -162,6 +197,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
             SOFTWARE_TOKEN_MFA_CODE: code,
             SECRET_HASH: secretHash(p, username),
           },
+          ContextData: contextData(p),
         }),
       )
       .catch((e: unknown) => fail(e, CODE_ERRORS));
@@ -208,6 +244,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
           ChallengeName: 'MFA_SETUP',
           Session: verified.Session,
           ChallengeResponses: { USERNAME: username, SECRET_HASH: secretHash(p, username) },
+          ContextData: contextData(p),
         }),
       )
       .catch((e: unknown) => fail(e, CODE_ERRORS));
@@ -228,6 +265,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
           AuthFlow: 'REFRESH_TOKEN_AUTH',
           // The hash uses the Cognito username, which is why the refresh envelope keeps it.
           AuthParameters: { REFRESH_TOKEN: refreshToken, SECRET_HASH: secretHash(p, username) },
+          ContextData: contextData(p),
         }),
       )
       .catch((e: unknown) => fail(e, REFRESH_ERRORS));

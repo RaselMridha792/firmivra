@@ -142,3 +142,16 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   - Mock mode: `portalAuth(slug)` is one `createPortalAuthMock` per firm (signed in as an active client; `NEXT_PUBLIC_API_MOCK_CLIENT` sets another start), and the `me` mock answers `api.portalBusiness`.
   - e2e: `mock/portal-session.spec.ts`; `sites.spec.ts` now expects a client on another firm's portal to be signed out (R3's rule), and checks portal sign-out.
   - With #62 merged locally (a scratch branch, never pushed): sites and skeleton-portal 11/11, mock suite 3/3. It must merge right after #62. Branch `rasel/R1-portal-session`.
+- 2026-10-07, end of day (this session is R1, R4, R5 and R6). Merged today:
+  - #45 kit, #61 R4 contract, #64 reference screen, #65 lazy mocks, #66 path guard, #67 portal session, #73 docs, #74 R4 honeypot;
+  - every Deploy dev run since then succeeded (the last one checked: 4ddd4c9, F01).
+
+  Next, in order:
+  1. #75 (R5 documents contract): review fixes pushed at c2ad3b9; answer the re-review.
+  2. When #75 merges, open the R6 NotifyService PR from this branch (12bcc28; merge fresh main first).
+  3. R5's first API PR also carries Rasel's question 12 answer (Oct 7, household logins and documents): PRIMARY and SPOUSE have the same access ("MINE" is every upload by anyone in the household for this client; both see shared files and all requests, upload to any open service or request, and can say "I don't have this"); AUTHORIZED sees as "MINE" only its own uploads, `source=FIRM` is empty, it sees open requests and may upload for them, but not "I don't have this"; get and download of anything else are 404. For everyone: never INTERNAL, never another client's, every upload records the login, and portal items carry the uploader's name. Write it into R5's Decisions and the yaml's "Household logins" note, and make the mocks follow it. Not into #75 (already approved). Also the lead's "..pdf" nit.
+  4. R4 API step 1 (the read side) as soon as R0's #52 merges. At that R4 touch, also raise or remove the honeypot's 500-character cap (lead's nit: a 400 naming the field tips off a bot).
+  5. Then R4 submit (needs R0's ein columns; otherwise approve first), request info, decline and notes, then approve (KMS and invite: to Rasel before pushing).
+  6. Open for Rasel: R5 file types and replacements; R6 password-reset email; the lead's other R5 questions (FAILED rescans, deferred deletes, uploads to PENDING engagements).
+  7. Keep watching every Deploy dev run.
+- 2026-10-08: #75 merged (4a9f707) with main merged in first (36c4d02); its Deploy dev run succeeded, as did #71's and #77's. A watcher that died on a network error had only been waiting. Next step 2 above: the R6 PR, opened now from fresh main.

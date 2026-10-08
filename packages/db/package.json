@@ -12,7 +12,8 @@
     "db:studio": "prisma studio",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:enums": "tsx prisma/generate-enums.ts"
   },
   "devDependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1146.0",
@@ -25,7 +26,8 @@
     "prisma": "7.10.0",
     "tsx": "^4.23.15",
     "typescript": "catalog:",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "zod": "^4.6.5"
   },
   "type": "module",
   "exports": {

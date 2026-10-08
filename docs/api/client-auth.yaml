@@ -31,16 +31,28 @@ info:
       `/{firm}/sign-up`.
     - **Order:** verify the email, then the phone (`409 WRONG_STEP` otherwise). Change Email and
       Change Phone work until that item is verified (`409 ALREADY_VERIFIED`). Resend works from
-      `resendAvailableAt` (45 s; `429 RATE_LIMITED` before).
-    - **Changed email or phone.** The 45 s gap counts from the last code, whatever its address.
-      A change inside the gap sends no code yet, and the code sent to the old address stops
-      working: show the countdown from `resendAvailableAt`, then Resend.
+      `resendAvailableAt` (`429 RATE_LIMITED` before): the 45 s gap, or later when this IP or
+      network is at its hourly limit, or the sign-up's end when the session has used its 10
+      requests (then sign up again: the sign-up resumes, see below).
+    - **Changed email or phone.** The 45 s gap counts from the sign-up session's last request
+      (sign-up, resend, a change, or the SMS sent after verify-email), whatever its address, and is
+      kept on the server (an older cookie resets nothing). Every change starts the gap again. A
+      change inside the gap sends nothing yet (no code, no notice), and the code sent to the old
+      address stops working: show the countdown from `resendAvailableAt`, then Resend.
     - **Never reveals an account.** Sign-up answers the same for an email that already has an
       account at this firm: the same answers, the same cookie and the same timing. That person
-      gets an email saying so (at most one an hour) instead of a code, and the codes never match.
-      Signing up again over a sign-up nobody finished is allowed; the new attempt gets the
-      account only by verifying the email with its own code. Sign-in, forgot and reset password
-      answer as in auth.yaml.
+      gets an email saying so (at most one an hour) instead of a code, and the codes never match;
+      a declined sign-up's email gets nothing (Rasel, q13: a decline is final).
+      Signing up again over a sign-up nobody finished (no verified phone yet, also one stopped
+      after its email step) is allowed; the new attempt gets the account only by verifying the
+      email with its own code, then goes on to the phone. So a closed tab or a refused SMS never
+      strands a sign-up. Sign-in, forgot and reset password answer as in auth.yaml.
+    - **Contact the firm** (Rasel, q13). Every sign-up ends at step `CONTACT_FIRM` after 5 wrong
+      email codes (the 5th still answers `CODE_INVALID`), counted the same way for every email,
+      so it reveals nothing: a declined person, who never gets a code, lands there instead of
+      "wrong code" forever. Show "We couldn't finish your sign-up online. Please contact
+      {firm}." and a way to start again (a new sign-up works). Its code, resend and change
+      routes answer `409 WRONG_STEP`.
     - **After verify-phone** the account waits for the firm (`PENDING_APPROVAL`). A pending client
       can sign in; `GET me` shows `clientAccounts[0].status: PENDING_APPROVAL`, and the portal
       layout sends them to `/{firm}/sign-up/done`. A declined or disabled client, or one who has
@@ -77,15 +89,31 @@ info:
     `GET /client-sign-ups` lists verified sign-ups waiting for the firm (or declined ones), oldest
     first, for the owner and admins (`x-business-id` selects the firm). Approve creates the firm's
     client record and opens the portal; decline closes the login. The client gets an email either
-    way.
+    way. Both take only a sign-up in the queue (404 for anything else, such as one that never
+    verified both email and phone); one already approved or declined is `409 NOT_PENDING`, so of
+    two staff acting at once only one changes it.
 
     **Linking an existing client record.** Approve with `clientId` links the login to a record the
     firm already has (added by staff, or from Begin Online) instead of creating a duplicate. That
     login then sees the record's tax files, so approve links only if the record's email is the
-    sign-up's verified email (both lower-cased) and the record has no primary portal login yet.
-    Otherwise it answers `409 CLIENT_NOT_LINKABLE` and changes nothing (`404` if the firm has no
-    such record). `existingClient` in the list shows only a record that passes this check; offer
-    linking only for that one.
+    sign-up's verified email (both lower-cased), the record has no primary portal login yet, and it
+    is not archived (restore it first). Otherwise it answers `409 CLIENT_NOT_LINKABLE` and changes
+    nothing (`404` if the firm has no such record). `existingClient` in the list shows only a
+    record that passes this check; offer linking only for that one.
+
+    **Never a second client with one email.** Approve without `clientId` answers
+    `409 DUPLICATE_EMAIL` when a client of the firm already has the sign-up's email (the code the
+    client records API uses), so staff link that record. If that record cannot be linked (it
+    already has a portal login), the sign-up cannot be approved as it is: decline it, or correct
+    the record first. Approve takes the same per-firm email lock as the client records API, so a
+    client created at the same moment with that email never makes a second record. A new record
+    gets an empty profile, as R10's create makes.
+
+    **The queue is audited and strict.** Listing writes `client_sign_ups.listed` (the count only:
+    it returns names, emails and phones). The list query and the decline body refuse unknown
+    fields, and the decline reason is plain text (line breaks allowed, no other control
+    characters). If the approval or decline email fails, the change still stands (the email is
+    retried by R6).
 
     ## Local development
 
@@ -96,11 +124,29 @@ info:
 
     `sign-up`, `verify-email`, `verify-phone`, `resend`, `change-email`, `change-phone`, and the
     sign-in calls answer `429 RATE_LIMITED` when called too often (per viewer IP and per email):
-    - at most 5 sign-ups (or changes to that email) for one email at a firm in a day;
-    - at most 10 code requests (sign-up, resend, changes) in one sign-up session.
+    - at most 5 sign-ups (or changes to that email) for one email from one network at a firm in a
+      day (a person elsewhere is never blocked by them);
+    - at most 10 requests (sign-up, resend, changes, the SMS after verify-email) in one sign-up
+      session;
+    - at most 10 of those requests from one IP address, and 50 from one network (/24 or /48), in an
+      hour, across every firm.
 
-    Codes to one address, and for one account, are capped daily; above the cap nothing is sent
-    and the answer stays the same.
+    The answer is the same for every limit and every email: "Too many attempts. Please try again
+    later." (some limits last a day). Each limit is counted and recorded in one database
+    transaction under a lock that is never waited for: a request that arrives while another for the
+    same network, email or sign-up session is being counted gets the same 429 at once, so parallel
+    requests cannot pass a limit together and a burst never ties up the database. A busy database
+    answers `503 SERVICE_BUSY` with `Retry-After` (auth.yaml). Neither a person's nor a firm's
+    sign-up closes for volume: 20 sign-ups for one email, or 200 at a firm, in a day only raise an
+    alert (once a day). Codes to one address, for one account, and a firm's SMS codes (200 a day)
+    are capped; above a cap nothing is sent and the answer stays the same. The SMS after
+    verify-email is not held to the session's own 10 requests; when it is over the IP or network
+    limit, verify-email still succeeds and the code waits for Resend (`resendAvailableAt` says
+    when). At most one "already registered" email goes to an account an hour, also under parallel
+    sign-ups.
+
+    Sign-in counts failures as in auth.yaml, per firm and email: a client's login at one firm
+    is never locked by failures at another. The firm's audit log holds its clients' sign-ins.
 
 servers:
   - url: /api/v1
@@ -335,12 +381,17 @@ paths:
       tags: [sign-in]
       operationId: portalSignOut
       summary: Sign out of this firm's portal; always succeeds
+      description: |
+        Clears this portal's cookies whatever happens on the server, also at a firm whose portal is
+        closed (the refresh token is revoked there too). If the firm can't be looked up, only the
+        cookies are cleared. A slug that can't be a firm's address is 404.
       requestBody:
         required: false
         content: { application/json: { schema: { $ref: './auth.yaml#/components/schemas/SignOutRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
   /portal/{firmSlug}/auth/forgot-password:
@@ -424,9 +475,10 @@ paths:
       operationId: approveClientSignUp
       summary: Approve; creates the client record (or links an existing one) and opens the portal
       description: |
-        Without a body it creates the firm's client record from the sign-up. With `clientId` (for
-        example `existingClient` from the list) it links the login to that record instead, so the
-        firm gets no duplicate, but only if the record's email is the sign-up's verified email
+        Without a body it creates the firm's client record from the sign-up, or answers
+        `409 DUPLICATE_EMAIL` when a client of the firm already has that email. With `clientId`
+        (for example `existingClient` from the list) it links the login to that record instead, so
+        the firm gets no duplicate, but only if the record's email is the sign-up's verified email
         (both lower-cased) and the record has no primary portal login yet. Otherwise
         `409 CLIENT_NOT_LINKABLE` and nothing changes; `404` if the firm has no such record. Any
         other body field is `400 VALIDATION_FAILED`.
@@ -451,9 +503,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: |
-            `NOT_PENDING` (someone already approved or declined it) or `CLIENT_NOT_LINKABLE` (the
+            `NOT_PENDING` (someone already approved or declined it), `CLIENT_NOT_LINKABLE` (the
             record's email is not the sign-up's verified email, or the record already has a
-            primary portal login)
+            primary portal login) or `DUPLICATE_EMAIL` (no `clientId`, but a client of the firm
+            already has this email)
           content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
@@ -462,6 +515,9 @@ paths:
       tags: [sign-ups]
       operationId: declineClientSignUp
       summary: Decline, with an optional reason; the login is closed
+      description: |
+        The client can no longer sign in, and any session they had ends. The reason stays with the
+        firm (`declineReason` in the declined list); the client's email does not include it.
       security: [{ firmCookie: [] }]
       parameters:
         - { $ref: '#/components/parameters/BusinessId' }
@@ -613,8 +669,15 @@ components:
 
     Phone:
       type: string
-      pattern: '^\+[1-9]\d{7,14}$'
-      description: E.164. The client strips spaces, brackets and dashes before sending.
+      pattern: '^\+1[2-9]\d{2}[2-9]\d{6}$'
+      description: |
+        The sign-up phone, where the SMS code goes (`SmsPhone` in packages/types): a US number in
+        E.164 (+1 and 10 digits), as an SMS cost guard. Caribbean, Canadian, premium-rate (900) and
+        non-geographic area codes (N11, N9X, 37X, 96X, 456, 500, 533, 600, 700, 710, toll-free 8XX,
+        822, 880-889) are refused; US territories are allowed. The client strips spaces, dots,
+        brackets and dashes, and reads 10 digits without +1 as US. Every other phone field (client
+        records, firm applications) takes any country in E.164 (`Phone`; Rasel, Oct 8), and reads
+        10 digits, or 1 and 10 digits, without + as US too; any other country needs its code.
     SignUpRequest:
       type: object
       required: [name, email, phone, password, accountType, accepted]
@@ -634,12 +697,12 @@ components:
       type: object
       required: [step, email, phoneMasked, resendAvailableAt]
       properties:
-        step: { type: string, enum: [VERIFY_EMAIL, VERIFY_PHONE, DONE] }
+        step: { type: string, enum: [VERIFY_EMAIL, VERIFY_PHONE, DONE, CONTACT_FIRM] }
         email: { type: string }
         phoneMasked: { type: string, description: 'For example "(770) ***-0123"' }
         resendAvailableAt:
           oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }]
-          description: When Resend Code works again; null once the step is done
+          description: When Resend Code works again; null at DONE and CONTACT_FIRM
     VerifyCodeRequest:
       type: object
       required: [code]
@@ -739,4 +802,5 @@ components:
         Codes of these routes: SIGN_UP_CLOSED (403), ORIGIN_NOT_ALLOWED (403),
         UNSUPPORTED_MEDIA_TYPE (415), TERMS_OUTDATED (409), SIGN_UP_EXPIRED (410),
         CODE_INVALID (400), ALREADY_VERIFIED (409), WRONG_STEP (409), NOT_PENDING (409),
-        CLIENT_NOT_LINKABLE (409), plus the auth and generic codes in auth.yaml.
+        CLIENT_NOT_LINKABLE (409), DUPLICATE_EMAIL (409), plus the auth and generic codes in
+        auth.yaml.

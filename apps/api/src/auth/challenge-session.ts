@@ -19,6 +19,10 @@ const Challenge = z.object({
   pool: IdentityPool,
   /** Client portal sign-ins: the firm. The challenge opens only on that firm's portal. */
   businessId: z.string().optional(),
+  /** The keyed hash of the email signed in with: wrong MFA codes count against it too. */
+  emailKey: z.string().optional(),
+  /** One sign-in attempt, from the password to the last MFA code: its wrong codes are capped. */
+  attemptId: z.string().optional(),
 });
 export type Challenge = z.infer<typeof Challenge>;
 

@@ -66,6 +66,11 @@ enum PlatformRole {
   SUPER_ADMIN
 }
 
+/// docs/SYSTEM-DESIGN.md, Modules & packs. Only the tax and accounting pack exists now.
+enum IndustryPack {
+  TAX_ACCOUNTING
+}
+
 enum FirmApplicationStatus {
   PENDING_REVIEW
   INFO_REQUESTED
@@ -236,6 +241,13 @@ enum InvoiceStatus {
   CANCELED
 }
 
+/// A refund is PENDING until Stripe's refund event confirms it (SUCCEEDED) or it fails.
+enum PaymentRefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
 enum PaymentStatus {
   PENDING
   SUCCEEDED
@@ -269,34 +281,43 @@ enum LegalDocumentKind {
 
 /// A firm on Firmivra (the tenant).
 model Business {
-  id         String         @id @default(uuid(7)) @db.Uuid
-  name       String
-  legalName  String?        @map("legal_name")
-  slug       String         @unique
-  status     BusinessStatus @default(PENDING_SETUP)
-  termsUrl   String?        @map("terms_url")
-  privacyUrl String?        @map("privacy_url")
-  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  id           String         @id @default(uuid(7)) @db.Uuid
+  name         String
+  legalName    String?        @map("legal_name")
+  slug         String         @unique
+  status       BusinessStatus @default(PENDING_SETUP)
+  termsUrl     String?        @map("terms_url")
+  privacyUrl   String?        @map("privacy_url")
+  /// The firm's own KMS key (per-business key, the fourth wall). Set at approval; platform only.
+  kmsKeyId     String?        @map("kms_key_id")
+  /// What kind of business, from the application. Platform only.
+  businessType String?        @map("business_type")
+  /// The industry pack that sets starter modules and wording. Platform only.
+  pack         IndustryPack   @default(TAX_ACCOUNTING)
+  /// When the firm first became ACTIVE (setup Finish). Set by the database, never changed.
+  activatedAt  DateTime?      @map("activated_at") @db.Timestamptz(3)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  memberships         Membership[]
-  clientAccounts      ClientAccount[]
-  supportAccessGrants SupportAccessGrant[]
-  auditLogs           AuditLog[]
-  firmApplication     FirmApplication?
-  settings            BusinessSettings?
-  legalDocuments      FirmLegalDocument[]
-  taxStatuses         TaxStatus[]
-  invites             Invite[]
-  clients             Client[]
-  services            Service[]
-  documentCategories  DocumentCategory[]
-  notifications       Notification[]
-  notificationPrefs   NotificationPreference[]
-  appointmentTypes    AppointmentType[]
-  contentItems        ContentItem[]
-  calculators         CalculatorDefinition[]
-  stripeAccount       StripeAccount?
+  memberships          Membership[]
+  clientAccounts       ClientAccount[]
+  supportAccessGrants  SupportAccessGrant[]
+  auditLogs            AuditLog[]
+  firmApplication      FirmApplication?
+  settings             BusinessSettings?
+  legalDocuments       FirmLegalDocument[]
+  taxStatuses          TaxStatus[]
+  invites              Invite[]
+  clients              Client[]
+  services             Service[]
+  documentCategories   DocumentCategory[]
+  notifications        Notification[]
+  notificationPrefs    NotificationPreference[]
+  appointmentTypes     AppointmentType[]
+  contentItems         ContentItem[]
+  calculators          CalculatorDefinition[]
+  stripeAccount        StripeAccount?
+  platformOwnerInvites PlatformOwnerInvite[]
 
   @@map("businesses")
 }
@@ -321,6 +342,37 @@ model User {
   @@map("users")
 }
 
+/// Staff and client logins created per day (UTC), for the Super Admin dashboard (R4). Kept by a
+/// trigger on users; admin scope reads it, nobody writes it.
+model PlatformUserSignups {
+  day   DateTime     @db.Date
+  pool  IdentityPool
+  users Int          @default(0)
+
+  @@id([day, pool])
+  @@map("platform_user_signups")
+}
+
+/// The owner activation links the platform sent (invites with `sent_by_platform`), without the
+/// token: what Super Admin reads for ownerInvite and OWNER_INVITED (R4). Kept by triggers on
+/// invites; admin scope reads it, nobody writes it. Admin scope can't read `invites`, so never
+/// include `invite` from here (it would come back null).
+model PlatformOwnerInvite {
+  inviteId     String    @id @map("invite_id") @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  membershipId String?   @map("membership_id") @db.Uuid
+  sentAt       DateTime  @map("sent_at") @db.Timestamptz(3)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(3)
+  acceptedAt   DateTime? @map("accepted_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  invite   Invite   @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, sentAt])
+  @@map("platform_owner_invites")
+}
+
 /// A staff user's role in one business.
 model Membership {
   id         String           @id @default(uuid(7)) @db.Uuid
@@ -328,6 +380,9 @@ model Membership {
   userId     String           @map("user_id") @db.Uuid
   role       MembershipRole
   status     MembershipStatus @default(INVITED)
+  /// Set by the database the first time the membership is ACTIVE; never changes. Until then
+  /// the firm sees only the invite's name and email, never the person's user row.
+  joinedAt   DateTime?        @map("joined_at") @db.Timestamptz(3)
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -454,12 +509,18 @@ model FirmApplication {
   reviewedByUserId String?               @map("reviewed_by_user_id") @db.Uuid
   reviewedAt       DateTime?             @map("reviewed_at") @db.Timestamptz(3)
   businessId       String?               @unique @map("business_id") @db.Uuid
+  /// The EIN's last 4 digits, the only part ever shown. The full EIN is never stored.
+  einLast4         String?               @map("ein_last4")
+  /// HMAC-SHA256 of the EIN with a server-side secret (32 bytes), for the duplicate check.
+  einHash          Bytes?                @map("ein_hash")
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business Business? @relation(fields: [businessId], references: [id])
+  business      Business?                      @relation(fields: [businessId], references: [id])
+  statusHistory FirmApplicationStatusHistory[]
 
   @@index([status, createdAt])
+  @@index([einHash])
   @@map("firm_applications")
 }
 
@@ -492,6 +553,17 @@ model BusinessSettings {
   /// Setup wizard steps done so far, e.g. { "profile": true }.
   setupProgress       Json      @default("{}") @map("setup_progress")
   setupCompletedAt    DateTime? @map("setup_completed_at") @db.Timestamptz(3)
+  /// Setup Step 2, "Business Details". The DBA or display name is `businesses.name`.
+  /// A code from the application's entity types (R4's ENTITY_TYPES; the API checks the list).
+  entityType          String?   @map("entity_type")
+  /// The firm's EIN, encrypted with the firm's KMS key (never plain), and its last 4 digits.
+  einEnc              Bytes?    @map("ein_enc")
+  einLast4            String?   @map("ein_last4")
+  /// People at the firm, 1 to 10,000, as in the application.
+  teamSize            Int?      @map("team_size")
+  /// Codes from the application's services (R4's FIRM_SERVICES; the API checks the list), at most 20.
+  services            String[]  @default([])
+  description         String?
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -549,17 +621,25 @@ model Invite {
   membershipId    String?   @map("membership_id") @db.Uuid
   clientAccountId String?   @map("client_account_id") @db.Uuid
   tokenHash       String    @unique @map("token_hash")
+  /// The name and email the inviter typed (staff invites). The firm shows these until the
+  /// person joins, never the person's user row.
+  name            String?
+  email           String?
   expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
   /// Null when the platform invites a new firm's owner on approval.
   invitedByUserId String?   @map("invited_by_user_id") @db.Uuid
   acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(3)
   revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+  /// Set by the database: true for an invite inserted in platform scope with no inviting member
+  /// (the owner's activation link from Firmivra). Never set or changed by a request.
+  sentByPlatform  Boolean   @default(false) @map("sent_by_platform")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  business      Business       @relation(fields: [businessId], references: [id])
+  business      Business             @relation(fields: [businessId], references: [id])
+  platformCopy  PlatformOwnerInvite?
   // Same-firm foreign keys: FK checks skip RLS, so (business_id, id) stops a link to another firm's row.
-  membership    Membership?    @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
-  clientAccount ClientAccount? @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  membership    Membership?          @relation(fields: [businessId, membershipId], references: [businessId, id], onDelete: Restrict)
+  clientAccount ClientAccount?       @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
 
   @@index([businessId, membershipId])
   @@index([businessId, clientAccountId])
@@ -597,8 +677,8 @@ model Client {
   taxReturns       TaxReturn[]
 
   @@unique([businessId, id])
+  @@unique([businessId, email])
   @@index([businessId, displayName])
-  @@index([businessId, email])
   @@index([businessId, assignedUserId])
   @@map("clients")
 }
@@ -678,12 +758,15 @@ model ClientTaxStatusHistory {
   taxStatusId     String   @map("tax_status_id") @db.Uuid
   clientNote      String?  @map("client_note")
   changedByUserId String?  @map("changed_by_user_id") @db.Uuid
-  changedAt       DateTime @default(now()) @map("changed_at") @db.Timestamptz(3)
+  /// The time of the change itself (not of its transaction's start).
+  changedAt       DateTime @default(dbgenerated("clock_timestamp()")) @map("changed_at") @db.Timestamptz(3)
+  /// The order the rows were written in: the newest is the year's current state.
+  seq             BigInt   @default(autoincrement())
 
   client    Client    @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
   taxStatus TaxStatus @relation(fields: [businessId, taxStatusId], references: [businessId, id], onDelete: Restrict)
 
-  @@index([businessId, clientId, taxYear, changedAt])
+  @@index([businessId, clientId, taxYear, seq])
   @@map("client_tax_status_history")
 }
 
@@ -1460,26 +1543,30 @@ model InvoiceLine {
 /// PENDING; it becomes SUCCEEDED or REFUNDED only after a recorded processor event names it, so
 /// money is confirmed only by a verified webhook. Never deleted.
 model Payment {
-  id           String           @id @default(uuid(7)) @db.Uuid
-  businessId   String           @map("business_id") @db.Uuid
-  invoiceId    String           @map("invoice_id") @db.Uuid
-  amountCents  Int              @map("amount_cents")
-  currency     String           @default("usd")
-  status       PaymentStatus    @default(PENDING)
-  processor    PaymentProcessor @default(STRIPE)
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  businessId          String           @map("business_id") @db.Uuid
+  invoiceId           String           @map("invoice_id") @db.Uuid
+  amountCents         Int              @map("amount_cents")
+  currency            String           @default("usd")
+  status              PaymentStatus    @default(PENDING)
+  processor           PaymentProcessor @default(STRIPE)
   /// The checkout session or payment intent id.
-  processorRef String           @map("processor_ref")
+  processorRef        String           @map("processor_ref")
   /// The firm's Stripe connected account the checkout ran on (acct_...).
-  accountId    String           @map("account_id")
+  accountId           String           @map("account_id")
   /// A short code from the processor when it failed.
-  failureCode  String?          @map("failure_code")
-  paidAt       DateTime?        @map("paid_at") @db.Timestamptz(3)
-  refundedAt   DateTime?        @map("refunded_at") @db.Timestamptz(3)
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  failureCode         String?          @map("failure_code")
+  paidAt              DateTime?        @map("paid_at") @db.Timestamptz(3)
+  refundedAt          DateTime?        @map("refunded_at") @db.Timestamptz(3)
+  /// Kept by the database: the cents of this payment's refunds that are not FAILED. A guard so
+  /// refunds never exceed the payment, even at the same moment; the refund rows stay the record.
+  refundReservedCents Int              @default(0) @map("refund_reserved_cents")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  invoice Invoice        @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  invoice Invoice         @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
   events  PaymentEvent[]
+  refunds PaymentRefund[]
 
   @@unique([processor, processorRef])
   @@unique([businessId, id])
@@ -1502,11 +1589,44 @@ model PaymentEvent {
   receivedAt       DateTime         @default(now()) @map("received_at") @db.Timestamptz(3)
   processedAt      DateTime?        @map("processed_at") @db.Timestamptz(3)
 
-  payment Payment? @relation(fields: [businessId, paymentId], references: [businessId, id], onDelete: Restrict)
+  payment Payment?        @relation(fields: [businessId, paymentId], references: [businessId, id], onDelete: Restrict)
+  refunds PaymentRefund[]
 
   @@unique([processor, processorEventId])
+  @@unique([businessId, id])
   @@index([businessId, paymentId])
   @@map("payment_events")
+}
+
+/// One Stripe refund of a payment (re_ id). The rows are the only record of refunds: a refund
+/// counts once Stripe's charge.refunded event confirms it (SUCCEEDED, with that event), which also
+/// records refunds a firm makes in its own Stripe dashboard. A payment's refunds never add up to
+/// more than the payment; the database sets the payment REFUNDED when they cover all of it. The
+/// invoice stays PAID. Never deleted.
+model PaymentRefund {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  businessId        String              @map("business_id") @db.Uuid
+  paymentId         String              @map("payment_id") @db.Uuid
+  processor         PaymentProcessor    @default(STRIPE)
+  /// Stripe's refund id (re_...).
+  processorRefundId String              @map("processor_refund_id")
+  /// The payment's connected account (acct_...).
+  accountId         String              @map("account_id")
+  amountCents       Int                 @map("amount_cents")
+  currency          String              @default("usd")
+  status            PaymentRefundStatus @default(PENDING)
+  /// The charge.refunded event that confirmed it.
+  eventId           String?             @map("event_id") @db.Uuid
+  refundedAt        DateTime?           @map("refunded_at") @db.Timestamptz(3)
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  payment Payment       @relation(fields: [businessId, paymentId], references: [businessId, id], onDelete: Restrict)
+  event   PaymentEvent? @relation(fields: [businessId, eventId], references: [businessId, id], onDelete: Restrict)
+
+  @@unique([processor, processorRefundId])
+  @@index([businessId, paymentId])
+  @@map("payment_refunds")
 }
 
 /// A content editor record shown in the portal: a resource or tip (markdown body), or an
@@ -1578,6 +1698,25 @@ model StripeAccount {
   business Business @relation(fields: [businessId], references: [id])
 
   @@map("stripe_accounts")
+}
+
+/// Append-only: one row per status change of a firm application (and its submission), written by
+/// a trigger on firm_applications. Platform data: admin and platform scope only.
+model FirmApplicationStatusHistory {
+  id              String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId   String                 @map("application_id") @db.Uuid
+  fromStatus      FirmApplicationStatus? @map("from_status")
+  toStatus        FirmApplicationStatus  @map("to_status")
+  /// The reviewer, when a Super Admin made the change.
+  changedByUserId String?                @map("changed_by_user_id") @db.Uuid
+  /// The decision reason at the time (request for information, decline).
+  reason          String?
+  changedAt       DateTime               @default(now()) @map("changed_at") @db.Timestamptz(3)
+
+  application FirmApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, changedAt])
+  @@map("firm_application_status_history")
 }
 
 /// A client's acceptance of one exact version of the firm's Terms or Privacy (portal sign-up

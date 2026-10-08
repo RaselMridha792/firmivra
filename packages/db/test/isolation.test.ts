@@ -306,6 +306,31 @@ beforeAll(async () => {
           paymentId: pay.id,
         },
       });
+      await tx.payment.update({
+        where: { id: pay.id },
+        data: { status: 'SUCCEEDED', paidAt: new Date() },
+      });
+      const refunded = await tx.paymentEvent.create({
+        data: {
+          businessId: firm,
+          processorEventId: `evt_${randomUUID().replace(/-/g, '')}`,
+          accountId: firmAccount(firm),
+          type: 'charge.refunded',
+          paymentId: pay.id,
+        },
+      });
+      await tx.paymentRefund.create({
+        data: {
+          businessId: firm,
+          paymentId: pay.id,
+          processorRefundId: `re_${randomUUID().replace(/-/g, '')}`,
+          accountId: firmAccount(firm),
+          amountCents: 50,
+          status: 'SUCCEEDED',
+          eventId: refunded.id,
+          refundedAt: new Date(),
+        },
+      });
       await tx.contentItem.create({
         data: { businessId: firm, kind: 'TIP', title: 'Tip', body: 'Keep receipts' },
       });
@@ -316,6 +341,8 @@ beforeAll(async () => {
         data: {
           businessId: firm,
           membershipId: m.id,
+          name: 'Fake Invitee',
+          email: `invitee-${firm}@x.test`,
           tokenHash: tokenHash(firm),
           expiresAt: inDays(7),
         },
@@ -412,6 +439,7 @@ describe('no scope set', () => {
     expect(await unscopedApp.clientPrivateNote.findMany()).toEqual([]);
     expect(await unscopedApp.clientNoteReminder.findMany()).toEqual([]);
     expect(await unscopedApp.stripeAccount.findMany()).toEqual([]);
+    expect(await unscopedApp.paymentRefund.findMany()).toEqual([]);
     expect(await unscopedApp.invoice.findMany()).toEqual([]);
     expect(await unscopedApp.invoiceLine.findMany()).toEqual([]);
     expect(await unscopedApp.payment.findMany()).toEqual([]);
@@ -473,6 +501,7 @@ describe('business scope: firm B', () => {
       await b().payment.findMany(),
       await b().paymentEvent.findMany(),
       await b().stripeAccount.findMany(),
+      await b().paymentRefund.findMany(),
       await b().contentItem.findMany(),
       await b().calculatorDefinition.findMany(),
     ]) {
@@ -694,7 +723,8 @@ describe('platform scope', () => {
     expect(await p.verificationCode.findMany()).toEqual([]);
     expect(await p.taxReturn.findMany()).toEqual([]);
     expect(await p.taxStatus.findMany()).toEqual([]);
-    expect(await p.invite.findMany()).toEqual([]);
+    // Only the activation links the platform sent itself, never a firm's own invites.
+    expect((await p.invite.findMany()).every((i) => i.sentByPlatform)).toBe(true);
     expect(await p.client.findMany()).toEqual([]);
     expect(await p.clientProfile.findMany()).toEqual([]);
     expect(await p.clientTaxStatus.findMany()).toEqual([]);

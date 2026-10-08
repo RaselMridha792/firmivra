@@ -14,6 +14,7 @@ import {
   BlockedTimesQuery,
   BookAppointmentRequest,
   BookMyAppointmentRequest,
+  type CalendarAppointment,
   CancelAppointmentRequest,
   CancelMyAppointmentRequest,
   CreateAppointmentTypeRequest,
@@ -33,13 +34,15 @@ import {
   type WorkingHoursRange,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
-import { firstClientId, type MockFirmRole, mockStaff } from './clients';
+import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 
 /**
  * Mock data for `api.appointmentTypes`, `api.availability`, `api.appointments` and
  * `api.myAppointments(slug)` (R12). Synthetic data only. Same input checks, rules and error codes
  * as the API: roles, 15-minute slots within working hours, SLOT_TAKEN on any overlap, the client's
  * cutoff (CHANGE_WINDOW_CLOSED), final statuses (APPOINTMENT_CLOSED) and the history of changes.
+ * `role: 'STAFF'` is Sam Staff, as in mocks/clients.ts: Sam sees in full his own appointments and
+ * those of clients 1 and 2 (assigned to him); Riley Example's appointment with Mock User is Busy.
  * The firm's timezone is America/New_York; the mock treats it as a fixed UTC-4 (EDT).
  */
 const TIMEZONE = 'America/New_York';
@@ -47,12 +50,25 @@ const OFFSET_MS = -4 * 60 * 60_000;
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
+/**
+ * As the API for now: a type's cutoff can only be 24 hours until R0's column lands (409
+ * CUTOFF_NOT_SUPPORTED). The seeded types keep their 48 and 0 hours, as the portal will show them
+ * then.
+ */
+function onlyDayCutoff(hours: number | undefined): void {
+  if (hours !== undefined && hours !== 24) throw errors.cutoffNotSupported();
+}
+
 /** The signed-in member in mock mode (mocks/me.ts) and Sam Staff (mocks/clients.ts). */
 export const mockMe: MemberRef = {
   userId: '00000000-0000-4000-8000-000000000101',
   name: 'Mock User',
 };
+/** Who is signed in: Sam Staff in the STAFF role (as in mocks/clients.ts), else Mock User. */
+const signedIn = (role?: MockFirmRole): MemberRef => (role === 'STAFF' ? mockStaff : mockMe);
 const client = { id: firstClientId, displayName: 'Jamie Sample' };
+/** Client 3 in mocks/clients.ts: not assigned to Sam Staff. */
+const riley = { id: '0199b6a1-0000-7000-8000-000000000003', displayName: 'Riley Example' };
 const id = (prefix: string, n: number) =>
   `0199b6c${prefix}-0000-7000-8000-${String(n).padStart(12, '0')}`;
 
@@ -85,6 +101,13 @@ const errors = {
     ),
   closed: () => fail(409, 'APPOINTMENT_CLOSED', 'This appointment can no longer change'),
   typeArchived: () => fail(409, 'TYPE_ARCHIVED', 'This appointment type is archived'),
+  notStarted: () => fail(409, 'APPOINTMENT_NOT_STARTED', 'This appointment has not started yet'),
+  blockInPast: () => fail(400, 'VALIDATION_FAILED', 'A block must end in the future'),
+  clientArchived: () => fail(409, 'CLIENT_ARCHIVED', 'Restore the client first'),
+  blockLimit: () =>
+    fail(409, 'BLOCK_LIMIT', 'This calendar has too many blocks. Delete some first.'),
+  cutoffNotSupported: () =>
+    fail(409, 'CUTOFF_NOT_SUPPORTED', 'For now every appointment type has a 24-hour cutoff'),
   blocks: () => fail(409, 'BLOCKS_APPOINTMENT', 'An appointment is scheduled in this time'),
   duplicate: () => fail(409, 'DUPLICATE_NAME', 'An appointment type with this name exists'),
 };
@@ -176,6 +199,9 @@ function seed(): Store {
       cancelledAt: at,
       cancelReason: 'Client asked',
     }),
+    // Riley is not Sam's client: Busy for Sam with Mock User, in full where Sam is the staff member.
+    appointment(4, 0, '14:00', { client: riley, staff: mockMe }),
+    appointment(5, 4, '11:00', { client: riley }),
   ];
   const booked = (a: Appointment): AppointmentEvent => ({
     at,
@@ -334,6 +360,7 @@ export function createAppointmentTypesMock(
       await mockDelay();
       const input = parseInput(CreateAppointmentTypeRequest, body);
       manager();
+      onlyDayCutoff(input.cancelCutoffHours);
       const s = db();
       if (s.types.some((t) => t.name.toLowerCase() === input.name.toLowerCase()))
         throw errors.duplicate();
@@ -350,6 +377,7 @@ export function createAppointmentTypesMock(
       await mockDelay();
       const input = parseInput(UpdateAppointmentTypeRequest, body);
       manager();
+      onlyDayCutoff(input.cancelCutoffHours);
       const t = find(typeId);
       if (
         input.name &&
@@ -379,8 +407,9 @@ export function createAppointmentTypesMock(
 
 /** An in-memory `api.availability`; Staff change only their own hours and blocks. */
 export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): AvailabilityClient {
+  const me = signedIn(options.role);
   const mayChange = (userId: string | null) => {
-    if (options.role === 'STAFF' && userId !== mockMe.userId) throw errors.forbidden();
+    if (options.role === 'STAFF' && userId !== me.userId) throw errors.forbidden();
   };
   return {
     get: async () => {
@@ -414,6 +443,7 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
     block: async (body) => {
       await mockDelay();
       const input = parseInput(CreateBlockedTimeRequest, body);
+      if (Date.parse(input.endsAt) <= Date.now()) throw errors.blockInPast();
       mayChange(input.userId);
       const s = db();
       const m = input.userId === null ? null : member(input.userId);
@@ -428,13 +458,19 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
       ) {
         throw errors.blocks();
       }
+      // As the API: at most 200 blocks that have not ended, per calendar.
+      const open = s.blocks.filter(
+        (b) =>
+          (b.member?.userId ?? null) === (m?.userId ?? null) && Date.parse(b.endsAt) > Date.now(),
+      );
+      if (open.length >= 200) throw errors.blockLimit();
       const created: BlockedTime = {
         id: id('4', s.next++),
         member: m,
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         reason: input.reason ?? null,
-        createdBy: mockMe,
+        createdBy: me,
       };
       s.blocks.push(created);
       return copy(created);
@@ -451,11 +487,32 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
   };
 }
 
-/** An in-memory `api.appointments` (the firm's calendar). Staff can always change appointments. */
-export function createAppointmentsMock(): AppointmentsClient {
-  const staffBy = { kind: 'STAFF' as const, name: mockMe.name };
+/**
+ * An in-memory `api.appointments` (the firm's calendar). Firm users change appointments at any
+ * time; `role: 'STAFF'` sees and changes in full only Sam's own and his clients' (Busy otherwise).
+ */
+export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): AppointmentsClient {
+  const staffOnly = options.role === 'STAFF';
+  const me = signedIn(options.role);
+  const staffBy = { kind: 'STAFF' as const, name: me.name };
+  const assigned = (clientId: string) =>
+    clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === me.userId);
+  const inFull = (a: Appointment) =>
+    !staffOnly || a.staff.userId === me.userId || assigned(a.client.id);
+  const entry = (a: Appointment): CalendarAppointment =>
+    inFull(a)
+      ? { ...a, restricted: false }
+      : {
+          restricted: true,
+          id: a.id,
+          staff: a.staff,
+          startsAt: a.startsAt,
+          endsAt: a.endsAt,
+          status: a.status,
+        };
+  /** Staff: a Busy appointment is 404, like a client record that is not theirs. */
   const find = (appointmentId: string) => {
-    const a = db().appointments.find((x) => x.id === appointmentId);
+    const a = db().appointments.find((x) => x.id === appointmentId && inFull(x));
     if (!a) throw errors.notFound();
     return a;
   };
@@ -466,6 +523,7 @@ export function createAppointmentsMock(): AppointmentsClient {
     await mockDelay();
     const a = find(appointmentId);
     open(a);
+    if (Date.now() < Date.parse(a.startsAt)) throw errors.notStarted();
     const before = copy(a);
     a.status = status;
     record(db(), a, status, staffBy, before, null);
@@ -475,6 +533,7 @@ export function createAppointmentsMock(): AppointmentsClient {
     list: async (query) => {
       await mockDelay();
       const q = parseInput(AppointmentsQuery, query);
+      if (staffOnly && q.clientId && !assigned(q.clientId)) throw errors.notFound();
       return copy(
         db()
           .appointments.filter(
@@ -484,7 +543,8 @@ export function createAppointmentsMock(): AppointmentsClient {
               (!q.clientId || a.client.id === q.clientId) &&
               (!q.status || a.status === q.status),
           )
-          .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+          .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+          .map(entry),
       );
     },
     get: async (appointmentId) => {
@@ -499,6 +559,7 @@ export function createAppointmentsMock(): AppointmentsClient {
       const s = db();
       const t = s.types.find((x) => x.id === q.typeId);
       if (!t) throw errors.notFound();
+      if (t.archivedAt) throw errors.typeArchived();
       const [from, to] = dayRange(q.from, q.to);
       const who = q.staffUserId
         ? [member(q.staffUserId)].filter((m) => m !== undefined)
@@ -515,6 +576,9 @@ export function createAppointmentsMock(): AppointmentsClient {
       await mockDelay();
       const input = parseInput(BookAppointmentRequest, body);
       const s = db();
+      const booked = clientFixtures().find((c) => c.id === input.clientId);
+      if (!booked || (staffOnly && !assigned(booked.id))) throw errors.notFound();
+      if (booked.archivedAt) throw errors.clientArchived();
       const staff = member(input.staffUserId);
       const t = input.typeId ? s.types.find((x) => x.id === input.typeId) : undefined;
       if (!staff || (input.typeId && !t)) throw errors.notFound();
@@ -523,8 +587,7 @@ export function createAppointmentsMock(): AppointmentsClient {
       assertFree(s, { startsAt: input.startsAt, endsAt }, staff.userId, input.clientId);
       const created: Appointment = {
         id: id('3', s.next++),
-        client:
-          input.clientId === client.id ? client : { id: input.clientId, displayName: 'Client' },
+        client: { id: booked.id, displayName: booked.displayName },
         staff,
         type: t ? { id: t.id, name: t.name } : null,
         engagementId: input.engagementId ?? null,
@@ -554,9 +617,13 @@ export function createAppointmentsMock(): AppointmentsClient {
       const minutes = (Date.parse(a.endsAt) - Date.parse(a.startsAt)) / MINUTE;
       const startsAt = new Date(input.startsAt).toISOString();
       const range = { startsAt, endsAt: plus(startsAt, minutes) };
+      const moved = startsAt !== new Date(a.startsAt).toISOString();
+      // The same time and member: nothing changes, nothing is recorded (as the API).
+      if (!moved && staff.userId === a.staff.userId) return copy(a);
       assertFree(s, range, staff.userId, a.client.id, a.id);
       const before = copy(a);
-      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + 1 });
+      // As the database: the count follows time changes, not a change of member only.
+      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + (moved ? 1 : 0) });
       record(s, a, 'RESCHEDULED', staffBy, before, null);
       return copy(a);
     },
@@ -730,7 +797,8 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       const staff = sameFree ? a.staff : pick(minutes, startsAt);
       assertFree(s, range, staff.userId, client.id, a.id);
       const before = copy(a);
-      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + 1 });
+      const moved = startsAt !== new Date(a.startsAt).toISOString();
+      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + (moved ? 1 : 0) });
       record(s, a, 'RESCHEDULED', clientBy, before, null);
       return copy(view(a));
     },
@@ -749,4 +817,17 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       return copy(view(a));
     },
   };
+}
+
+let myAppointmentsMocks: Map<string, MyAppointmentsClient> | undefined;
+
+/** `api.myAppointments(slug)` in mock mode: one mock per firm (by lower-cased slug), kept for the page. */
+export function myAppointmentsMock(firmSlug: string): MyAppointmentsClient {
+  myAppointmentsMocks ??= new Map();
+  const key = firmSlug.toLowerCase();
+  const found = myAppointmentsMocks.get(key);
+  if (found) return found;
+  const created = createMyAppointmentsMock();
+  myAppointmentsMocks.set(key, created);
+  return created;
 }

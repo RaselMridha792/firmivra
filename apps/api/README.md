@@ -24,7 +24,7 @@ The response also sets that site's HttpOnly access cookie (`fv_admin_access` for
 
 1. `requestContextMiddleware`: request id (`x-request-id`), IP and user agent in an AsyncLocalStorage context.
 2. `crossSiteGuard`: POST, PUT, PATCH and DELETE need a JSON body (415 `UNSUPPORTED_MEDIA_TYPE`) and, from a browser, an `Origin` of the route's own site: `ADMIN_BASE_URL` for `/api/v1/admin/*`, `PORTAL_BASE_URL` for `/api/v1/portal/*`, `APP_BASE_URL` or `PORTAL_BASE_URL` otherwise (403 `ORIGIN_NOT_ALLOWED`). No CORS: each site calls the API on its own host.
-3. `ThrottlerGuard`: rate limit (300 a minute per viewer IP; stricter on sensitive routes). Behind CloudFront and the ALB the viewer IP is the second address from the right in `X-Forwarded-For` (`trust proxy` 2).
+3. `ThrottlerGuard`: rate limit (300 a minute per viewer IP; stricter on sensitive routes). Behind CloudFront and the ALB the viewer IP is the second address from the right in `X-Forwarded-For` (`trust proxy` 2). This limit lives in each task's memory; the per-email sign-in limits (`SIGN_IN_LIMIT`, `RESET_LIMIT` in `auth/sign-in.service.ts`) count audit rows, so every task shares them.
 4. `AuthGuard`: token from the route's access cookie (the site's, or on `portal/{slug}/` routes that firm's `fv_portal_{slug}_access`) or `Authorization: Bearer`, verified (Cognito, or the local key), user loaded by Cognito `sub`. Portal routes take only the clients pool. Skipped for `@Public()`.
 5. `TenantGuard`: for routes with a firm role, finds the firm (on `portal/:firmSlug/...` routes the `:firmSlug` param and nothing else; elsewhere the `x-business-id` header, else the caller's only firm) and the caller's role from `Membership` or `ClientAccount`. For clients the context also holds their own `clientAccountId`: portal routes take the client from it, never from the URL. No link to the firm: **404**. Several firms and no header: 400 `BUSINESS_REQUIRED`. Firm not `ACTIVE`: 403 `BUSINESS_SETUP_REQUIRED` (still in setup) or `BUSINESS_INACTIVE` (suspended or closed), unless the route allows that status.
 6. `RolesGuard`: **default deny**. Every non-public route needs `@Roles(...)`. Wrong role: **403**.
@@ -61,11 +61,36 @@ Locally, `APP_BASE_URL`, `PORTAL_BASE_URL` and `ADMIN_BASE_URL` in `.env` must b
 
 Staff invites and activation live in `apps/api/src/auth/invites.service.ts` (R2). Other modules import `SignInModule` and inject `InvitesService`; they never write `invites` or invited memberships themselves.
 
-- `createInvite({ businessId, email, name, role, invitedBy })`: creates the person if needed, an `INVITED` membership and a 7-day link, emails it (`ActivationMailer`), audits `membership.invited` in the firm. `invitedBy` is `{ userId, role }` of the firm owner or admin, or `null` for the platform (R4: a new firm's owner on approval, role `OWNER`). The owner may give `ADMIN` or `STAFF`, an admin only `STAFF` (403 `FORBIDDEN`); only the platform gives `OWNER`. Someone with an open invite gets a new link and the old one stops working; a deactivated member is invited again; an active member is 409 `ALREADY_MEMBER`. The result never shows whether the person has a login at another firm. Emails are lower-cased. The service itself refuses a suspended or closed firm (403 `BUSINESS_INACTIVE`; a firm in setup may invite), and caps links at `INVITE_LIMITS` (50 a day per firm, 5 a day per person, counted in the database; 429 `RATE_LIMITED`).
-- `resendInvite({ businessId, membershipId, invitedBy })` (Team API, T03): a new link for an open invite, same role rules. 409 `NOT_INVITED` when the membership is not `INVITED`, 404 when it is not in this firm.
+- `createInvite({ businessId, email, name, role, invitedBy })`: creates the person if needed, an `INVITED` membership and a 7-day link, emails it (`ActivationMailer`), audits `membership.invited` in the firm. The invite keeps the `name` and `email` the inviter typed (#52: one line, at most 120 characters). The service checks them with `CreateInviteRequest`'s rules for every caller, R4 included (400 `VALIDATION_FAILED`, before any login is created). Until the person joins, those are what the firm shows, never their user row: staff users are shared across firms. `invitedBy` is `{ userId, role }` of the firm owner or admin, or `null` for the platform (R4: a new firm's owner on approval, role `OWNER`). The owner may give `ADMIN` or `STAFF`, an admin only `STAFF` (403 `FORBIDDEN`); only the platform gives `OWNER`. Someone with an open invite gets a new link and the old one stops working; a deactivated member is invited again; an active member is 409 `ALREADY_MEMBER`. The result never shows whether the person has a login at another firm. Emails are lower-cased. The service itself refuses a suspended or closed firm (403 `BUSINESS_INACTIVE`; a firm in setup may invite), and caps links at `INVITE_LIMITS` (50 a day per firm, 5 a day per person, counted in the database; 429 `RATE_LIMITED`).
+- `resendInvite({ businessId, membershipId, invitedBy })` (Team API, T03): a new link for an open invite, to the name and email typed for its newest invite (invites made before #52 have none: then the user row's email and, as the name, the first that `CreateInviteRequest`'s name rule takes of the user row's name and that email, else `Invited person`), with the membership's role, same role rules. 409 `NOT_INVITED` when the membership is not `INVITED`. The membership, its role and those details are read again in the transaction that makes the link, so a deactivation, an activation or a re-invite that commits first wins; 404 when it is not in this firm.
 - The link is `{APP_BASE_URL}/activate#token=...`: the token sits in the fragment, so it never reaches CloudFront, the load balancer, Next.js logs or a Referer header. The page reads it and posts it to `/api/v1/auth/activation/check`, then `activate` (new person) or, after sign-in, `activation/accept` (existing login).
-- Using a link is one transaction: claim the invite (its row stays locked), make the membership `ACTIVE`, and for a new person set the Cognito password last. A second activation or a resend waits and then finds the link used; a failure rolls everything back. Transactions may run 15 s for this (`database.module.ts`).
+- Using a link is one transaction: claim the invite (its row stays locked), make the membership `ACTIVE`, and for a new person set the Cognito password last. A second activation or a resend waits and then finds the link used; a failure rolls everything back. Activation's transaction may run 15 s for this (`OUTSIDE_CALL_LIMITS`), and so may an invite's or a resend's, which can wait for it; accepting keeps Prisma's 5 s.
+- Lock order: the invite rows first, then the membership, in every transaction that changes both (activation, invite and resend, the Team API's deactivate). Invites to one person at one firm also run one at a time (an advisory lock), so one link stays open.
 - Until R6's email sender, `ActivationMailer` logs the link only with `AUTH_MODE=local`; anywhere else it sends nothing and logs neither the token nor the address.
+
+## Email and SMS (`NotifyService`)
+
+Never send email or SMS any other way. Inject the service and send a typed template:
+
+```ts
+constructor(@Inject(NOTIFY_SERVICE) private readonly notify: NotifyService) {}
+
+await this.notify.send({
+  template: 'document.requested',
+  to: client.email,
+  businessId, // the firm it comes from: its name, colours and sender name; null for Firmivra's own
+  recipient: { clientAccountId }, // their notification preferences apply (R6 step 5)
+  data: { name, title, dueOn, link },
+});
+```
+
+- The templates and the data each needs are in `src/notify/notify.types.ts` (`NotifyTemplates`). Add a template there before using it. `TEMPLATE_CHANNEL` says email or SMS; `TEMPLATE_SENDER` says whose it is: `firm-application.*` are Firmivra's (`businessId` null), every other template is a firm's (`businessId` required). A mismatch is refused.
+- The firm's name and colours come from the firm's own record, never from `data`.
+- `data` holds names, dates, titles and links only: never a password, a full SSN or EIN, a bank number, an amount or document content. A code or token goes only in the field made for it.
+- `send()` rejects when a message does not go out, with `NotifyDeliveryError`: the template, the channel and the provider's error name only, never the address or the text. Catch it where a failed email must not fail the request, and log the record's id, as R4's review actions do.
+- No mode logs a recipient, a phone number, a code or a body.
+- `EMAIL_MODE`: `smtp` sends to Mailpit locally (inbox at http://localhost:8025), `ses` sends through Amazon SES in AWS, `log` sends nothing. Production refuses `smtp` and `log`.
+- `SMS_MODE=sns` sends through Amazon SNS once `SMS_ORIGINATION_NUMBER` (the registered toll-free number) is set. Until then, and with `SMS_MODE=log`, nothing is sent and the log notes only the template.
 
 ## Adding a module
 
@@ -91,6 +116,7 @@ export class ClientsController {
 - Roles: `FIRM_STAFF` (owner, admin, staff), `FIRM_MANAGERS` (owner, admin), `'CLIENT'` on portal routes (`portal/:firmSlug/...`), `'SUPER_ADMIN'` on `admin/` routes, `'AUTHENTICATED'` for anyone signed in.
 - Firm status: firm routes work only for `ACTIVE` firms. A route a firm needs before that (the setup wizard after approval) says so: `@AllowBusinessStatuses('PENDING_SETUP', 'ACTIVE')`.
 - Database: `TenantPrisma.db` for firm data (never `businessId` from the body or query). Super Admin routes use `PlatformPrisma.db` for platform tables; it throws unless `RolesGuard` verified a Super Admin for this request. `@Inject(DATABASE)` with `forPlatform()` is for the auth guards and sign-in only; Rasel reviews any other use.
+- Transactions: Prisma's limits apply (2 s to start, 5 s to run). Call no outside service (Cognito, KMS, email, SMS, S3) inside one unless its change must roll back with it. A transaction that does, or that can wait for one that does, passes `OUTSIDE_CALL_LIMITS` (15 s, `database.module.ts`) as `withScope`'s third argument: today activation, invites and resends, and the sign-up's email and phone steps.
 - Request bodies: a zod schema in `packages/types` and `@Body(new ZodValidationPipe(Schema))`.
 - Audit: `AuditService.log(action, entity, metadata)` for every action on client data. No secrets or personal data in metadata.
 - Tests: an e2e test per endpoint, including firm A versus firm B (see `test/e2e/api.e2e.test.ts`).
