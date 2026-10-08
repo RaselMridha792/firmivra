@@ -50,24 +50,25 @@ export const SIGN_IN_LIMIT = {
   windowMs: 15 * 60_000,
 };
 /**
- * One check's open attempts in its window, as SQL: attempt rows with that value and no "passed"
- * row of the same token. The reserve counts every check in one statement and gets numbers back,
- * never rows, so its transaction stays short under bursts (#84 review).
+ * One check's open attempts in its window, as SQL: the tokens with an attempt row and no "passed"
+ * row (both carry the check's value). One pass over the window per check, and the reserve counts
+ * every check in one statement that returns numbers, never rows, so its transaction stays short
+ * under bursts (#84 review).
  */
 function openAttempts(businessId: string | null, actions: Actions, check: LimitCheck) {
-  const inScope = (alias: 'a' | 'p') =>
-    businessId
-      ? Prisma.sql`${Prisma.raw(alias)}.business_id = ${businessId}::uuid`
-      : Prisma.sql`${Prisma.raw(alias)}.business_id IS NULL`;
-  const since = Prisma.sql`now() - ${check.windowMs}::int * interval '1 millisecond'`;
+  const inScope = businessId
+    ? Prisma.sql`business_id = ${businessId}::uuid`
+    : Prisma.sql`business_id IS NULL`;
   return Prisma.sql`(
-    SELECT count(*) FROM audit_logs a
-    WHERE ${inScope('a')} AND a.action = ${actions.attempt} AND a.created_at > ${since}
-      AND a.metadata ->> ${check.field} = ${check.value}
-      AND NOT EXISTS (
-        SELECT 1 FROM audit_logs p
-        WHERE ${inScope('p')} AND p.action = ${actions.passed} AND p.created_at > ${since}
-          AND p.metadata ->> 'token' = a.metadata ->> 'token'))`;
+    SELECT count(*) FROM (
+      SELECT 1 FROM audit_logs
+      WHERE ${inScope}
+        AND created_at > now() - ${check.windowMs}::int * interval '1 millisecond'
+        AND action IN (${actions.attempt}, ${actions.passed})
+        AND metadata ->> ${check.field} = ${check.value}
+      GROUP BY metadata ->> 'token'
+      HAVING bool_and(action = ${actions.attempt})
+    ) open)`;
 }
 /** HKDF label for the key that turns an email into the pseudonymous key the limit counts by. */
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';

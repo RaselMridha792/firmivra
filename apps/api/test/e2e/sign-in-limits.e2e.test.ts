@@ -296,7 +296,7 @@ describe('audit rows', () => {
       .post('/api/v1/auth/sign-in')
       .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
       .set('user-agent', userAgent)
-      .send({ email: `r2-lim-nobody-${tag}@a.test`, password: WRONG });
+      .send({ email: `r2-lim-ua-${tag}@a.test`, password: WRONG });
     expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
     const rows = await asOwner({ kind: 'platform' }, (tx) =>
       tx.auditLog.findMany({
