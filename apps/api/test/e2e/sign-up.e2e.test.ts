@@ -1,7 +1,7 @@
 // End-to-end: client sign-up on a firm's portal (R3 steps 2-3) in AUTH_MODE=local, where every
 // code is 000000. The ClientCodeSender is replaced by an outbox. Contract: docs/api/client-auth.yaml.
 import { randomUUID } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
+import { type INestApplication, Logger } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
@@ -1016,6 +1016,28 @@ describe('client sign-up', () => {
     // The declined person got nothing; a new sign-up still starts.
     expect(sentTo(declinedEmail).length).toBe(sentBefore);
     expect((await visitor().signUp(form(newEmail))).body).toMatchObject({ step: 'VERIFY_EMAIL' });
+  });
+
+  it('warns for every code to one address at the alert level or above (#70 follow-up)', async () => {
+    const level = CODE_LIMITS.targetAlertPerDay;
+    CODE_LIMITS.targetAlertPerDay = 2;
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    try {
+      const email = emailFor('alerted');
+      await withoutGap(async () => {
+        // Three codes to one address, each from its own network.
+        for (const net of ['100.71.1', '100.71.2', '100.71.3']) {
+          expect((await visitor(slug, `${net}.1`).signUp(form(email))).status).toBe(200);
+        }
+      });
+      const alerts = warn.mock.calls.filter(([m]) => String(m).includes('codes in a day'));
+      // The 2nd and the 3rd: at the level and above, not only exactly at it.
+      expect(alerts).toHaveLength(2);
+      expect(JSON.stringify(alerts)).not.toContain(email);
+    } finally {
+      warn.mockRestore();
+      CODE_LIMITS.targetAlertPerDay = level;
+    }
   });
 
   it("sends no SMS past the firm's daily cap, and answers the same", async () => {
