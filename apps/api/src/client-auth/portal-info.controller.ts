@@ -8,7 +8,13 @@ import {
   Param,
 } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
-import { LegalKind, type LegalDocument, type LegalVersion, type PortalInfo } from '@firmivra/types';
+import {
+  FirmSlug,
+  LegalKind,
+  type LegalDocument,
+  type LegalVersion,
+  type PortalInfo,
+} from '@firmivra/types';
 import { Public } from '../auth/decorators.js';
 import { DATABASE } from '../database/database.module.js';
 
@@ -31,14 +37,26 @@ const shown = (v: LegalVersion | null): LegalVersion | null =>
 export class PortalInfoService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  /** An ACTIVE firm by its portal slug (any letter case), or 404. */
+  /** An ACTIVE firm by its portal slug (any letter case), or 404 (also for a slug that can't be one). */
   async activeFirm(firmSlug: string): Promise<{ id: string; slug: string; name: string }> {
+    const slug = FirmSlug.safeParse(firmSlug);
+    if (!slug.success) throw notFound();
     const firm = await this.db.forPlatform().business.findUnique({
-      where: { slug: firmSlug.toLowerCase() },
+      where: { slug: slug.data },
       select: { id: true, slug: true, name: true, status: true },
     });
     if (firm?.status !== 'ACTIVE') throw notFound();
     return firm;
+  }
+
+  /** A firm by its portal slug whatever its status, or null: only for signing out. */
+  async firmBySlug(firmSlug: string): Promise<{ id: string; slug: string; name: string } | null> {
+    const slug = FirmSlug.safeParse(firmSlug);
+    if (!slug.success) return null;
+    return this.db.forPlatform().business.findUnique({
+      where: { slug: slug.data },
+      select: { id: true, slug: true, name: true },
+    });
   }
 
   /** Whether the firm takes sign-ups now, and the documents a sign-up accepts (with their ids). */
