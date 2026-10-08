@@ -15,10 +15,12 @@ import {
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyNotificationsClient,
   createMyProfileClient,
   createMyReportsClient,
   createMyServicesClient,
   createMyTaxReturnsClient,
+  createNotificationsClient,
   createRequest,
   createSettingsClient,
   createTasksClient,
@@ -40,6 +42,7 @@ import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createMeMock } from '../mocks/me';
+import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -152,6 +155,14 @@ export const api = {
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })
       : createAuditLogClient(request),
+  /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
+  notifications:
+    dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
+  /** Notifications (R6): the signed-in client's own, per firm (portal). Same calls as `notifications`. */
+  myNotifications: (firmSlug: string) =>
+    dev && mocked('myNotifications')
+      ? myNotificationsMock(firmSlug)
+      : createMyNotificationsClient(request, firmSlug),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:
     dev && mocked('firmApplications')
