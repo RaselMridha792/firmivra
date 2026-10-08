@@ -962,6 +962,17 @@ describe('the calendar and the Staff rule', () => {
       expectError(await call('post', path, people.staffA, body), 404, 'NOT_FOUND');
     }
     expectError(await call('get', `/appointments/${notMine.id}`, people.staffA), 404, 'NOT_FOUND');
+    // Nor can a Busy one be the appointment being moved in the free slots.
+    const moving = `typeId=${consult.id}&from=${day(10)}&to=${day(10)}&excludeAppointmentId=`;
+    expectError(
+      await call('get', `/appointments/slots?${moving}${notMine.id}`, people.staffA),
+      404,
+      'NOT_FOUND',
+    );
+    exact(
+      SlotList,
+      await call('get', `/appointments/slots?${moving}${assignedToMe.id}`, people.staffA),
+    );
     for (const clientId of [ids.c2, ids.c3, randomUUID()]) {
       expectError(
         await call('get', `/appointments?${range(10, 11)}&clientId=${clientId}`, people.staffA),

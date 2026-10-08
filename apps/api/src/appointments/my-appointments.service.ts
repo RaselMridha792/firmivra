@@ -212,7 +212,9 @@ export class MyAppointmentsService {
   /**
    * Free starts for a bookable type: times when some member is free and the client has nothing
    * else. With `excludeAppointmentId` (the client's own, else 404) its time counts as free, and
-   * its own type may be asked for even when clients can no longer book that type.
+   * while the client may still move it (scheduled, before the cutoff) its own type may be asked
+   * for even when clients cannot book that type. A cancelled, finished or past-cutoff appointment
+   * never opens a type the client cannot book (404, as without it).
    */
   async slots(businessId: string, clientAccountId: string, q: SlotsQ): Promise<MySlotList> {
     return this.inFirm(businessId, async (tx) => {
@@ -224,7 +226,10 @@ export class MyAppointmentsService {
         where: { businessId, id: q.typeId },
         select: { durationMinutes: true, clientBookable: true, archivedAt: true },
       });
-      const ownType = moving !== null && moving.typeId === q.typeId;
+      const ownType =
+        moving !== null &&
+        moving.typeId === q.typeId &&
+        changeableUntil(moving, DEFAULT_CUTOFF_HOURS, Date.now()) !== null;
       if (!type || (!ownType && (!type.clientBookable || type.archivedAt))) {
         throw errors.notFound();
       }

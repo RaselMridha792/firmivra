@@ -479,6 +479,26 @@ describe('free starts', () => {
       expectError(await portal('get', `/slots?${query}`, people.clientA), 400, 'VALIDATION_FAILED');
     }
   });
+
+  it('open a type the client cannot book only while moving their own scheduled appointment of it', async () => {
+    const own = await firmBook({
+      clientId: ids.cA,
+      staffUserId: people.staffP2.id,
+      typeId: internal.id,
+      startsAt: at(14, '09:00'),
+    });
+    const query = `typeId=${internal.id}&from=${day(15)}&to=${day(15)}`;
+    expectError(await portal('get', `/slots?${query}`, people.clientA), 404, 'NOT_FOUND');
+    const moving = await slots(people.clientA, `${query}&excludeAppointmentId=${own.id}`);
+    expect(moving.slots.length).toBeGreaterThan(0);
+    // Once it is cancelled (or finished, or past the cutoff) it opens nothing.
+    exact(Appointment, await firm('post', `/appointments/${own.id}/cancel`, {}));
+    expectError(
+      await portal('get', `/slots?${query}&excludeAppointmentId=${own.id}`, people.clientA),
+      404,
+      'NOT_FOUND',
+    );
+  });
 });
 
 describe('booking', () => {
