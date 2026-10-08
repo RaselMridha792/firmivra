@@ -217,7 +217,7 @@ export class FirmApplicationSubmitService {
       // Never the form's content or the honeypot's value.
       this.logger.warn('Firm application submit dropped: the honeypot was filled');
     } else if (outcome.id && outcome.mail) {
-      this.sendReceived(outcome.id, email, body);
+      this.sendReceived(outcome.id, email);
     }
     return { received: true };
   }
@@ -228,14 +228,15 @@ export class FirmApplicationSubmitService {
    * window), as R3's atLeast does for sign-up. A failed send leaves the application standing, with
    * a warning holding its id only (R8 alarms on it).
    */
-  private sendReceived(id: string, to: string, body: Body): void {
+  private sendReceived(id: string, to: string): void {
     void Promise.resolve()
       .then(() =>
         this.notify.send({
           template: 'firm-application.received',
           to,
           businessId: null,
-          data: { name: body.primaryAdmin.fullName, legalName: body.business.legalName },
+          // Nothing from the form: the address is not verified yet (R6's template is fixed text).
+          data: {},
         }),
       )
       .catch(() => {
