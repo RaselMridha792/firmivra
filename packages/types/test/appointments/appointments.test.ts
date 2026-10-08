@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ApiRequestError,
+  AppointmentErrorCode,
   AppointmentList,
   BookAppointmentRequest,
   CancelAppointmentRequest,
@@ -184,5 +185,33 @@ describe('appointment clients', () => {
     expect(err).toBeInstanceOf(ApiRequestError);
     expect(err).toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
     expect(slots.calls).toHaveLength(1);
+  });
+});
+
+describe('appointment schemas (R12 contract follow-ups)', () => {
+  it("takes times and dates from 2000 to 2100 only, the API's calendar years", () => {
+    const book = (startsAt: string) =>
+      BookAppointmentRequest.safeParse({
+        clientId: '0190a000-0000-7000-8000-000000000001',
+        staffUserId: '0190a000-0000-7000-8000-000000000002',
+        durationMinutes: 30,
+        startsAt,
+      }).success;
+    expect(book('2026-10-12T10:00:00Z')).toBe(true);
+    expect(book('2000-01-01T00:00:00Z')).toBe(true);
+    expect(book('2100-12-31T23:45:00Z')).toBe(true);
+    expect(book('1999-12-31T23:45:00Z')).toBe(false);
+    expect(book('2101-01-01T00:00:00Z')).toBe(false);
+    const slots = (from: string, to: string) =>
+      SlotsQuery.safeParse({ typeId: '0190a000-0000-7000-8000-000000000003', from, to }).success;
+    expect(slots('2026-10-12', '2026-10-13')).toBe(true);
+    expect(slots('0000-01-01', '0000-01-02')).toBe(false);
+    expect(slots('9999-12-01', '9999-12-02')).toBe(false);
+  });
+
+  it('names CLIENT_ARCHIVED and, for now, CUTOFF_NOT_SUPPORTED', () => {
+    expect(AppointmentErrorCode.options).toEqual(
+      expect.arrayContaining(['CLIENT_ARCHIVED', 'CUTOFF_NOT_SUPPORTED']),
+    );
   });
 });
