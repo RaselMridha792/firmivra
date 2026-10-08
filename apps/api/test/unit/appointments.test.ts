@@ -76,6 +76,42 @@ describe('time zones', () => {
     );
   });
 
+  it('maps a skipped time past the gap, and a repeated one to its first occurrence (#102 review)', () => {
+    const iso = (tz: string, date: string, time: string) => {
+      const [h, m] = time.split(':').map(Number);
+      return new Date(zonedInstant(tz, date, (h ?? 0) * 60 + (m ?? 0))).toISOString();
+    };
+    // New York skips 02:00-03:00 on Mar 8: 02:30 is 03:30 EDT, never 01:30 EST.
+    expect(iso(NY, '2026-03-08', '02:30')).toBe('2026-03-08T07:30:00.000Z');
+    expect(iso(NY, '2026-03-08', '03:00')).toBe('2026-03-08T07:00:00.000Z');
+    // Berlin repeats 02:00-03:00 on Oct 25: 02:30 is its first occurrence, in summer time.
+    expect(iso('Europe/Berlin', '2026-10-25', '02:30')).toBe('2026-10-25T00:30:00.000Z');
+    // Santiago skips midnight on Sep 6: the day starts at 01:00 (-03), not the evening before.
+    expect(iso('America/Santiago', '2026-09-06', '00:00')).toBe('2026-09-06T04:00:00.000Z');
+    expect(iso('America/Santiago', '2026-09-05', '23:45')).toBe('2026-09-06T03:45:00.000Z');
+    // Every quarter-hour of 2026 in these zones maps to a time that shows the asked wall clock,
+    // or, in a skipped hour, to the end of the gap plus the minutes into it.
+    for (const tz of [
+      NY,
+      'Europe/Berlin',
+      'America/Santiago',
+      'Asia/Kolkata',
+      'Australia/Lord_Howe',
+    ]) {
+      for (let day = 0; day < 365; day += 1) {
+        const date = new Date(Date.UTC(2026, 0, 1) + day * 24 * HOUR).toISOString().slice(0, 10);
+        for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
+          const t = zonedInstant(tz, date, minutes);
+          const wall = Date.parse(`${date}T00:00:00Z`) + minutes * 60_000;
+          const shown = t + offsetAt(tz, t);
+          // Shown exactly, or later by the gap (at most an hour) when that wall time was skipped.
+          expect(shown - wall, `${tz} ${date} ${minutes}`).toBeGreaterThanOrEqual(0);
+          expect(shown - wall, `${tz} ${date} ${minutes}`).toBeLessThanOrEqual(HOUR);
+        }
+      }
+    }
+  });
+
   it('finds the firm-local date of an instant, and walks dates and weekdays', () => {
     expect(zonedDate(NY, at('2026-10-13T02:00:00Z'))).toBe('2026-10-12');
     expect(zonedDate('Asia/Kolkata', at('2026-10-12T20:00:00Z'))).toBe('2026-10-13');
@@ -432,16 +468,32 @@ describe('a busy calendar lock', () => {
       (e: unknown) => (e instanceof HttpException ? e.getStatus() : 'other error'),
     );
 
-  it('answers 429 RATE_LIMITED when it stays busy, or at once when the pool is busy', async () => {
+  it('answers 429 RATE_LIMITED, with its own message and Retry-After 2, when it stays busy', async () => {
     const started = Date.now();
-    expect(await statusOf(retryWhenBusy(() => Promise.reject(new LockBusy()), 150))).toBe(429);
+    const busy = await retryWhenBusy(() => Promise.reject(new LockBusy()), 150).catch(
+      (e: unknown) => e,
+    );
     expect(Date.now() - started).toBeGreaterThanOrEqual(150);
-    let calls = 0;
-    const pool = retryWhenBusy(() => {
-      calls += 1;
-      return Promise.reject(Object.assign(new Error('pool'), { code: 'P2028' }));
+    expect(busy).toBeInstanceOf(HttpException);
+    expect((busy as HttpException).getStatus()).toBe(429);
+    expect((busy as HttpException).getResponse()).toMatchObject({
+      code: 'RATE_LIMITED',
+      message: expect.stringContaining('calendar is busy') as unknown,
+      retryAfter: 2,
     });
-    expect([await statusOf(pool), calls]).toEqual([429, 1]);
+  });
+
+  it("leaves a busy pool to the global filter's 503, at once (#102 review)", async () => {
+    let calls = 0;
+    const pool = Object.assign(new Error('pool'), { code: 'P2028' });
+    await expect(
+      retryWhenBusy(() => {
+        calls += 1;
+        return Promise.reject(pool);
+      }),
+    ).rejects.toBe(pool);
+    expect(calls).toBe(1);
+    expect(await statusOf(Promise.reject(pool))).toBe('other error');
   });
 
   it('runs a transaction the database aborted as a deadlock again', async () => {

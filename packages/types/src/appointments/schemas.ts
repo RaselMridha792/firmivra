@@ -213,7 +213,11 @@ export const CreateBlockedTimeRequest = z
     endsAt: DateTime,
     reason: Reason,
   })
-  .refine((b) => Date.parse(b.startsAt) < Date.parse(b.endsAt), 'The end must be after the start');
+  .refine((b) => Date.parse(b.startsAt) < Date.parse(b.endsAt), 'The end must be after the start')
+  .refine(
+    (b) => Date.parse(b.endsAt) - Date.parse(b.startsAt) <= 366 * DAY_MS,
+    'A block lasts at most 366 days',
+  );
 export type CreateBlockedTimeRequest = z.input<typeof CreateBlockedTimeRequest>;
 
 // ---------- Appointments (firm) ----------
@@ -456,6 +460,11 @@ export const AppointmentErrorCode = z.enum([
   'TYPE_ARCHIVED',
   /** 409: the blocked time would cover a scheduled appointment. */
   'BLOCKS_APPOINTMENT',
+  /**
+   * 409: the calendar already has 200 blocks that have not ended (a member's, or the whole
+   * firm's): delete some first.
+   */
+  'BLOCK_LIMIT',
   /** 409: the firm already has an appointment type with this name. */
   'DUPLICATE_NAME',
   /**

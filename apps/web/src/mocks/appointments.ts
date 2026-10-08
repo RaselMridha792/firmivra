@@ -102,6 +102,8 @@ const errors = {
   closed: () => fail(409, 'APPOINTMENT_CLOSED', 'This appointment can no longer change'),
   typeArchived: () => fail(409, 'TYPE_ARCHIVED', 'This appointment type is archived'),
   clientArchived: () => fail(409, 'CLIENT_ARCHIVED', 'Restore the client first'),
+  blockLimit: () =>
+    fail(409, 'BLOCK_LIMIT', 'This calendar has too many blocks. Delete some first.'),
   cutoffNotSupported: () =>
     fail(409, 'CUTOFF_NOT_SUPPORTED', 'For now every appointment type has a 24-hour cutoff'),
   blocks: () => fail(409, 'BLOCKS_APPOINTMENT', 'An appointment is scheduled in this time'),
@@ -453,6 +455,12 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
       ) {
         throw errors.blocks();
       }
+      // As the API: at most 200 blocks that have not ended, per calendar.
+      const open = s.blocks.filter(
+        (b) =>
+          (b.member?.userId ?? null) === (m?.userId ?? null) && Date.parse(b.endsAt) > Date.now(),
+      );
+      if (open.length >= 200) throw errors.blockLimit();
       const created: BlockedTime = {
         id: id('4', s.next++),
         member: m,

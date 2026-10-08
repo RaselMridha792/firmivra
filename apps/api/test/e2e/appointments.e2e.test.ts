@@ -29,6 +29,7 @@ import {
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
+import { BLOCK_LIMITS } from '../../src/appointments/availability.service.js';
 import { calendarLockKey } from '../../src/appointments/calendar-locks.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -474,6 +475,34 @@ describe('appointment types', () => {
   });
 });
 
+describe('appointment type audit (#102 review)', () => {
+  it('lists only the fields sent, and writes nothing for a change that changes nothing', async () => {
+    const t = await createType({ name: `Quiet ${run}`, durationMinutes: 30 });
+    exact(
+      AppointmentType,
+      await call('patch', `/appointment-types/${t.id}`, people.ownerA, {
+        durationMinutes: 30,
+        cancelCutoffHours: 24,
+      }),
+    );
+    exact(
+      AppointmentType,
+      await call('patch', `/appointment-types/${t.id}`, people.ownerA, { durationMinutes: 45 }),
+    );
+    const rows = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, entityId: t.id },
+        orderBy: { createdAt: 'asc' },
+        select: { action: true, metadata: true },
+      }),
+    );
+    expect(rows).toEqual([
+      { action: 'appointment_type.created', metadata: { fields: ['durationMinutes', 'name'] } },
+      { action: 'appointment_type.updated', metadata: { fields: ['durationMinutes'] } },
+    ]);
+  });
+});
+
 describe('working hours', () => {
   it("everyone reads every active member's week, in the firm's time zone", async () => {
     const res = exact(Availability, await call('get', '/availability', people.staffA2));
@@ -740,6 +769,72 @@ describe('blocked time', () => {
     }
     expectError(
       await call('delete', '/blocked-times/nope', people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+});
+
+describe('blocked time limits (#102 review)', () => {
+  it('caps a calendar at its blocks that have not ended (409 BLOCK_LIMIT); a block lasts at most 366 days', async () => {
+    const limit = BLOCK_LIMITS.perCalendar;
+    BLOCK_LIMITS.perCalendar = 2;
+    try {
+      // A block that has ended does not count.
+      await asOwner(ids.firmA, (tx) =>
+        tx.blockedTime.create({
+          data: {
+            businessId: ids.firmA,
+            userId: people.adminA.id,
+            startsAt: new Date(at(-3, '09:00')),
+            endsAt: new Date(at(-3, '10:00')),
+            createdByUserId: people.ownerA.id,
+          },
+        }),
+      );
+      for (const [start, end] of [
+        ['09:00', '09:30'],
+        ['10:00', '10:30'],
+      ] as const) {
+        exact(
+          BlockedTime,
+          await call('post', '/blocked-times', people.adminA, {
+            userId: people.adminA.id,
+            startsAt: at(28, start),
+            endsAt: at(28, end),
+          }),
+          201,
+        );
+      }
+      expectError(
+        await call('post', '/blocked-times', people.adminA, {
+          userId: people.adminA.id,
+          startsAt: at(28, '11:00'),
+          endsAt: at(28, '11:30'),
+        }),
+        409,
+        'BLOCK_LIMIT',
+      );
+      // Another member's calendar has its own count (the Owner's has no blocks yet).
+      exact(
+        BlockedTime,
+        await call('post', '/blocked-times', people.ownerA, {
+          userId: people.ownerA.id,
+          startsAt: at(28, '13:00'),
+          endsAt: at(28, '13:30'),
+        }),
+        201,
+      );
+    } finally {
+      BLOCK_LIMITS.perCalendar = limit;
+    }
+    const start = at(29, '09:00');
+    expectError(
+      await call('post', '/blocked-times', people.ownerA, {
+        userId: null,
+        startsAt: start,
+        endsAt: new Date(Date.parse(start) + 367 * 24 * 3_600_000).toISOString(),
+      }),
       400,
       'VALIDATION_FAILED',
     );
@@ -1652,7 +1747,9 @@ describe('at the same time', () => {
       const long = await hold(5_000, () =>
         call('post', '/blocked-times', people.ownerA, body('10:00')),
       );
-      expectError(await long.pending, 429, 'RATE_LIMITED');
+      const refused = await long.pending;
+      expectError(refused, 429, 'RATE_LIMITED');
+      expect(refused.headers['retry-after']).toBe('2');
       const day22 = exact(
         BlockedTimeList,
         await call('get', `/blocked-times?${range(22, 23)}`, people.ownerA),
@@ -1786,7 +1883,9 @@ describe('at the same time', () => {
       const long = await hold(5_000, () =>
         call('post', '/appointments', people.ownerA, body('10:00')),
       );
-      expectError(await long.pending, 429, 'RATE_LIMITED');
+      const refused = await long.pending;
+      expectError(refused, 429, 'RATE_LIMITED');
+      expect(refused.headers['retry-after']).toBe('2');
       const day25 = exact(
         AppointmentList,
         await call('get', `/appointments?${range(25, 26)}`, people.ownerA),

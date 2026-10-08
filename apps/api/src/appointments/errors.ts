@@ -29,6 +29,8 @@ export const errors = {
   typeArchived: () => conflict('TYPE_ARCHIVED', 'This appointment type is archived'),
   blocksAppointment: () =>
     conflict('BLOCKS_APPOINTMENT', 'An appointment is scheduled in this time. Move it first.'),
+  blockLimit: () =>
+    conflict('BLOCK_LIMIT', 'This calendar has too many blocks. Delete some first.'),
   duplicateName: () =>
     conflict('DUPLICATE_NAME', 'An appointment type with this name already exists'),
   /** R10's code: nothing new is booked for an archived client (restore the client first). */
@@ -46,14 +48,17 @@ export const errors = {
       'For now every appointment type has a 24-hour change window: send 24 or leave it out.',
     ),
   /**
-   * A calendar lock stayed busy, or the database had no connection free: answered like the rate
-   * limit (429 RATE_LIMITED), so the screens' "try again in a moment" handling covers it.
+   * A calendar lock stayed busy (another change of the same calendar held it for 2 s): answered
+   * like the rate limit (429 RATE_LIMITED) with a message of its own. A database with no
+   * connection free is the global filter's 503 SERVICE_BUSY instead.
    */
   busy: () =>
     new HttpException(
       {
         code: 'RATE_LIMITED',
-        message: 'The calendar is busy. Please try again in a moment.',
+        message: 'This calendar is busy with another change. Try again in a moment.',
+        // The global filter sends it as Retry-After.
+        retryAfter: 2,
       },
       HttpStatus.TOO_MANY_REQUESTS,
     ),

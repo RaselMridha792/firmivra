@@ -36,8 +36,10 @@ export class AppointmentTypesController {
   create(
     @CurrentTenant() tenant: TenantContext,
     @Body(new ZodValidationPipe(CreateTypeBody)) body: z.output<typeof CreateTypeBody>,
+    // The request as sent (checked above): which fields it named, for the audit row.
+    @Body() sent: object,
   ): Promise<AppointmentType> {
-    return this.types.create(tenant.businessId, body);
+    return this.types.create(tenant.businessId, body, Object.keys(sent));
   }
 
   @Patch(':id')

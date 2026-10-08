@@ -100,8 +100,10 @@ export const BUSY_WAIT_MS = 2_000;
 /**
  * Runs `work` (one whole transaction) and starts it again while a calendar lock is busy, or after
  * the database aborted it as a deadlock or serialization failure, with a short random pause
- * between tries (no transaction is open during the pause). Still busy after `waitMs`, or no
- * connection free in the pool: 429 RATE_LIMITED.
+ * between tries (no transaction is open during the pause). Still busy after `waitMs`: 429
+ * RATE_LIMITED with the calendar's own message. No connection free in the pool is not the
+ * calendar's: it goes to the global filter, which answers 503 SERVICE_BUSY with Retry-After, as
+ * on every other route (#102 review).
  */
 export async function retryWhenBusy<T>(work: () => Promise<T>, waitMs = BUSY_WAIT_MS): Promise<T> {
   const deadline = Date.now() + waitMs;
@@ -109,7 +111,7 @@ export async function retryWhenBusy<T>(work: () => Promise<T>, waitMs = BUSY_WAI
     try {
       return await work();
     } catch (error) {
-      if (isPoolBusy(error)) throw errors.busy();
+      if (isPoolBusy(error)) throw error;
       if (!(error instanceof LockBusy) && !isRetryable(error)) throw error;
       if (Date.now() >= deadline) throw errors.busy();
       await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * 40));
