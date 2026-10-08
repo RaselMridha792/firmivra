@@ -1,7 +1,6 @@
 // Unit tests for R12 step 2's pure pieces: the firm's time zone, free slots on the 15-minute
-// grid, the portal's choice of staff member, the client's change window, and the database errors
-// that mean "this time is taken". The history read back from audit rows comes with the booking
-// routes in the next PR.
+// grid, the portal's choice of staff member, the client's change window, the history read back
+// from audit rows, and the database errors that mean "this time is taken".
 import { HttpException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
@@ -12,6 +11,7 @@ import {
   freeStarts,
   gridStarts,
   HOUR,
+  MINUTE,
   offsetAt,
   pickStaff,
   timeOfDayFromDb,
@@ -46,6 +46,7 @@ import {
   isStaffConflict,
   isUniqueViolation,
 } from '../../src/appointments/errors.js';
+import { historyEvents, historyUserIds } from '../../src/appointments/history.js';
 
 const at = (iso: string) => Date.parse(iso);
 const NY = 'America/New_York';
@@ -172,6 +173,86 @@ describe("the client's change window", () => {
     for (const status of ['CANCELLED', 'COMPLETED', 'NO_SHOW']) {
       expect(changeableUntil({ status, startsAt }, 24, 0)).toBeNull();
     }
+  });
+});
+
+describe('history from audit rows', () => {
+  const placed = (start: string, staffUserId: string) => ({
+    startsAt: start,
+    endsAt: new Date(at(start) + 30 * MINUTE).toISOString(),
+    staffUserId,
+  });
+  const rows = [
+    {
+      action: 'appointment.rescheduled',
+      createdAt: new Date('2026-10-02T10:00:00Z'),
+      actorUserId: 'client-user',
+      metadata: {
+        by: 'CLIENT',
+        clientId: 'c1',
+        from: placed('2026-10-12T09:00:00.000Z', 's1'),
+        to: placed('2026-10-12T10:00:00.000Z', 's2'),
+      },
+    },
+    {
+      action: 'appointment.booked',
+      createdAt: new Date('2026-10-01T10:00:00Z'),
+      actorUserId: 'owner',
+      metadata: {
+        by: 'STAFF',
+        clientId: 'c1',
+        from: null,
+        to: placed('2026-10-12T09:00:00.000Z', 's1'),
+      },
+    },
+    {
+      action: 'appointment.cancelled',
+      createdAt: new Date('2026-10-03T10:00:00Z'),
+      actorUserId: 'gone',
+      metadata: {
+        by: 'STAFF',
+        clientId: 'c1',
+        from: placed('2026-10-12T10:00:00.000Z', 's2'),
+        to: null,
+        reasonGiven: true,
+      },
+    },
+    { action: 'appointment.viewed', createdAt: new Date(), actorUserId: 'owner', metadata: null },
+    {
+      action: 'appointment.completed',
+      createdAt: new Date(),
+      actorUserId: 'owner',
+      metadata: { not: 'a history entry' },
+    },
+  ];
+  const names = {
+    users: new Map([
+      ['owner', 'Olive Owner'],
+      ['client-user', 'Jamie Sample'],
+    ]),
+    members: new Map([['s1', 'Sam Staff']]),
+    clientName: 'Jamie Sample (record)',
+  };
+
+  it('lists the changes oldest first, with names and the reason only on the cancel', () => {
+    const events = historyEvents(rows, names, 'Client asked');
+    expect(events.map((e) => [e.action, e.by.kind, e.by.name, e.reason])).toEqual([
+      ['BOOKED', 'STAFF', 'Olive Owner', null],
+      ['RESCHEDULED', 'CLIENT', 'Jamie Sample', null],
+      ['CANCELLED', 'STAFF', 'Former member', 'Client asked'],
+    ]);
+    expect(events[0]).toMatchObject({
+      from: null,
+      to: { startsAt: '2026-10-12T09:00:00.000Z', staff: { userId: 's1', name: 'Sam Staff' } },
+    });
+    expect(events[1]?.to?.staff).toEqual({ userId: 's2', name: 'Former member' });
+    expect(events[2]?.to).toBeNull();
+  });
+
+  it('asks for the names of the actors and of the staff before and after', () => {
+    const ids = historyUserIds(rows);
+    expect(ids.actors.sort()).toEqual(['client-user', 'gone', 'owner']);
+    expect(ids.staff.sort()).toEqual(['s1', 's2']);
   });
 });
 
