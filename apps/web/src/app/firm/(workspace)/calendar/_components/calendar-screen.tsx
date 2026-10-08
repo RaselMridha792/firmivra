@@ -72,6 +72,7 @@ function Calendar({ availability }: { availability: Availability }) {
       <CalendarToolbar
         view={view}
         label={label}
+        atToday={from <= today && today < addDays(from, days)}
         staff={staff}
         members={availability.members}
         onView={setView}
