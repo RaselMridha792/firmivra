@@ -89,7 +89,9 @@ function Calendar({ availability }: { availability: Availability }) {
         }
       </PageState>
       <Modal open={openId !== null} title="Appointment" onClose={() => setOpenId(null)}>
-        {openId ? <AppointmentDetail id={openId} timeZone={timeZone} /> : null}
+        {openId ? (
+          <AppointmentDetail id={openId} timeZone={timeZone} members={availability.members} />
+        ) : null}
       </Modal>
     </>
   );
