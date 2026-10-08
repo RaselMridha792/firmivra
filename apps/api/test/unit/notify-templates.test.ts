@@ -49,11 +49,41 @@ describe('templates', () => {
     expect(invoice.html).toContain(escapeHtml(FIRM_NAME));
     expect(invoice.html).toContain('background:#1F3A6B');
     expect(invoice.text).toContain(`Sent by ${FIRM_NAME} through Firmivra.`);
-    expect(invoice.text).toContain('notification settings');
+    expect(invoice.fromName).toBe(FIRM_NAME);
     const app = email('firm-application.received');
     expect(app.html).toContain(`background:${FIRMIVRA_BRANDING.primaryColor}`);
     expect(app.text).toContain('Sent by Firmivra.');
-    expect(app.text).not.toContain('notification settings');
+    // No "turn off emails like this" until preferences are read (step 5).
+    for (const t of templates)
+      expect(JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t)))).not.toContain(
+        'notification settings',
+      );
+  });
+
+  it('names the firm the branding was loaded for, never a firm name from the data', () => {
+    const data = { ...SAMPLE_DATA['invoice.sent'], firmName: 'Other Synthetic Firm' };
+    const out = email('invoice.sent', data);
+    expect(JSON.stringify(out)).not.toContain('Other Synthetic Firm');
+    expect(out.subject).toBe(`New invoice from ${FIRM_NAME}`);
+    const sms = render('client.signup-sms-code', { code: '482913', firmName: 'Other' }, firm);
+    expect(sms).toMatchObject({ text: expect.stringContaining(FIRM_NAME) as string });
+  });
+
+  it("refuses a firm's template in Firmivra's branding and the other way round", () => {
+    expect(() => render('invoice.sent', SAMPLE_DATA['invoice.sent'], FIRMIVRA_BRANDING)).toThrow(
+      NotifyTemplateError,
+    );
+    const approved = SAMPLE_DATA['firm-application.approved'];
+    expect(() => render('firm-application.approved', approved, firm)).toThrow(
+      "Firmivra's own message",
+    );
+  });
+
+  it('drops bidi and zero-width characters from the firm name everywhere it shows', () => {
+    const spoof = { ...firm, name: 'Sample Tax \u202Emoc.elpmaxe\u200B' };
+    const out = render('invoice.sent', SAMPLE_DATA['invoice.sent'], spoof) as RenderedEmail;
+    expect(out.fromName).toBe('Sample Tax moc.elpmaxe');
+    expect(JSON.stringify(out)).not.toMatch(/[\u202E\u200B]/);
   });
 
   it('escapes links, keeps the activation fragment and writes dates plainly', () => {
@@ -86,13 +116,11 @@ describe('templates', () => {
     const bad = (t: NotifyTemplate, data: object) => () => render(t, data as never, firm);
     const invite = { ...SAMPLE_DATA['staff.invite'], link: 'javascript:alert(1)' };
     expect(bad('staff.invite', invite)).toThrow(NotifyTemplateError);
-    const blank = { ...SAMPLE_DATA['invoice.sent'], firmName: ' ' };
-    expect(bad('invoice.sent', blank)).toThrow('Template data needs firmName');
+    const blank = { ...SAMPLE_DATA['invoice.sent'], invoiceNumber: ' ' };
+    expect(bad('invoice.sent', blank)).toThrow('Template data needs invoiceNumber');
     const due = { ...SAMPLE_DATA['document.requested'], dueOn: '2026-02-30' };
     expect(bad('document.requested', due)).toThrow('dueOn');
-    expect(bad('client.signup-email-code', { firmName: 'Sample', code: '12 34' })).toThrow(
-      'Invalid code',
-    );
+    expect(bad('client.signup-email-code', { code: '12 34' })).toThrow('Invalid code');
     expect(bad('no.such' as NotifyTemplate, {})).toThrow('Unknown template');
   });
 

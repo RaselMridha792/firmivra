@@ -1,10 +1,11 @@
 import { type Branding, FIRMIVRA_BRANDING, hexColor } from './branding.js';
-import { ALWAYS_SENT, type NotifyTemplate, type NotifyTemplates } from './notify.types.js';
+import { type NotifyTemplate, type NotifyTemplates, TEMPLATE_SENDER } from './notify.types.js';
 
 /**
  * Subject, plain text and simple HTML for every template (R6 step 3). A message holds the
  * template's data and the sender's branding, nothing else: no address, no other record, no
- * amount. Every value is escaped in the HTML.
+ * amount. Every value is escaped in the HTML. A firm template names the firm the branding was
+ * loaded for (`branding.name`), never a name from the data.
  */
 
 /** The template or its data is wrong: a programming error, so NotifyService.send rejects. */
@@ -17,6 +18,8 @@ export class NotifyTemplateError extends Error {
 
 export interface RenderedEmail {
   channel: 'email';
+  /** The sender's name as the email shows it (cleaned like every other value). */
+  fromName: string;
   subject: string;
   text: string;
   html: string;
@@ -46,6 +49,15 @@ type Content = { channel: 'email'; subject: string; blocks: Block[] } | Rendered
 // ---------- Values ----------
 
 const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/gu;
+
+/**
+ * The sender's name for the header, the footer and the From line: one line, without format
+ * characters (bidi overrides and isolates, zero-width marks), so a firm's name can't reverse or
+ * hide part of what the inbox shows.
+ */
+export function senderName(value: string): string {
+  return oneLine(value.replace(/\p{Cf}/gu, ''));
+}
 
 /** One line: line breaks, tabs and control characters become one space. */
 function oneLine(value: string): string {
@@ -154,10 +166,11 @@ function hello(data: { name: string }): Block {
 
 function appointment(
   data: NotifyTemplates['appointment.booked'],
+  b: Branding,
   intro: (firm: string) => string,
   subject: (firm: string) => string,
 ): Content {
-  const firm = required(data, 'firmName');
+  const firm = b.name;
   return {
     channel: 'email',
     subject: subject(firm),
@@ -186,7 +199,7 @@ type Build<T extends NotifyTemplate> = (
 
 const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
   'staff.invite': (d, b) => {
-    const firm = required(d, 'firmName');
+    const firm = b.name;
     return {
       channel: 'email',
       subject: `You're invited to join ${firm} on Firmivra`,
@@ -201,8 +214,8 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'client.signup-email-code': (d) => {
-    const firm = required(d, 'firmName');
+  'client.signup-email-code': (d, b) => {
+    const firm = b.name;
     return {
       channel: 'email',
       subject: `Your ${firm} verification code`,
@@ -216,13 +229,13 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'client.signup-sms-code': (d) => ({
+  'client.signup-sms-code': (d, b) => ({
     channel: 'sms',
-    text: `${code(d)} is your ${required(d, 'firmName')} verification code. Never share it.`,
+    text: `${code(d)} is your ${b.name} verification code. Never share it.`,
   }),
 
-  'client.already-registered': (d) => {
-    const firm = required(d, 'firmName');
+  'client.already-registered': (d, b) => {
+    const firm = b.name;
     return {
       channel: 'email',
       subject: `You already have a ${firm} client portal account`,
@@ -238,8 +251,8 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'client.signup-approved': (d) => {
-    const firm = required(d, 'firmName');
+  'client.signup-approved': (d, b) => {
+    const firm = b.name;
     return {
       channel: 'email',
       subject: `Your ${firm} client portal account is ready`,
@@ -252,8 +265,8 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
   },
 
   // No reason, even if the firm wrote one (Rasel, q18).
-  'client.signup-declined': (d) => {
-    const firm = required(d, 'firmName');
+  'client.signup-declined': (d, b) => {
+    const firm = b.name;
     return {
       channel: 'email',
       subject: `Your ${firm} client portal sign-up`,
@@ -314,8 +327,8 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
-  'document.requested': (d) => {
-    const firm = required(d, 'firmName');
+  'document.requested': (d, b) => {
+    const firm = b.name;
     return {
       channel: 'email',
       subject: `${firm} requested a document`,
@@ -328,29 +341,32 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'appointment.booked': (d) =>
+  'appointment.booked': (d, b) =>
     appointment(
       d,
+      b,
       (firm) => `Your appointment with ${firm} is booked.`,
       (firm) => `Your appointment with ${firm} is booked`,
     ),
 
-  'appointment.changed': (d) =>
+  'appointment.changed': (d, b) =>
     appointment(
       d,
+      b,
       (firm) => `Your appointment with ${firm} has changed. This is the new time:`,
       (firm) => `Your appointment with ${firm} has changed`,
     ),
 
-  'appointment.reminder': (d) =>
+  'appointment.reminder': (d, b) =>
     appointment(
       d,
+      b,
       (firm) => `This is a reminder of your appointment with ${firm}.`,
       (firm) => `Reminder: your appointment with ${firm}`,
     ),
 
-  'invoice.sent': (d) => {
-    const firm = required(d, 'firmName');
+  'invoice.sent': (d, b) => {
+    const firm = b.name;
     return {
       channel: 'email',
       subject: `New invoice from ${firm}`,
@@ -364,8 +380,8 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'payment.received': (d) => {
-    const firm = required(d, 'firmName');
+  'payment.received': (d, b) => {
+    const firm = b.name;
     return {
       channel: 'email',
       subject: `${firm} received your payment`,
@@ -440,13 +456,12 @@ function logo(url: string | null): string | null {
   }
 }
 
-function footer(template: NotifyTemplate, branding: Branding): string[] {
-  return [
-    branding.isFirm ? `Sent by ${branding.name} through Firmivra.` : 'Sent by Firmivra.',
-    ...(ALWAYS_SENT.has(template)
-      ? []
-      : ['You can turn off emails like this in your notification settings.']),
-  ];
+/**
+ * Who sent it. No "turn off emails like this" line until preferences are read (R6 step 5): the
+ * email must not promise a setting that does nothing yet.
+ */
+function footer(branding: Branding): string[] {
+  return [branding.isFirm ? `Sent by ${branding.name} through Firmivra.` : 'Sent by Firmivra.'];
 }
 
 function plainText(blocks: Block[], brand: string, foot: string[]): string {
@@ -561,18 +576,24 @@ export function render<T extends NotifyTemplate>(
   if (typeof data !== 'object' || data === null) {
     throw new NotifyTemplateError(`Template data missing for ${template}`);
   }
+  if (branding.isFirm !== (TEMPLATE_SENDER[template] === 'firm')) {
+    throw new NotifyTemplateError(
+      `${template} is ${TEMPLATE_SENDER[template] === 'firm' ? "a firm's" : "Firmivra's own"} message`,
+    );
+  }
   const b: Branding = {
     ...branding,
-    name: oneLine(branding.name) || FIRMIVRA_BRANDING.name,
+    name: senderName(branding.name) || FIRMIVRA_BRANDING.name,
     primaryColor: hexColor(branding.primaryColor, FIRMIVRA_BRANDING.primaryColor),
     accentColor: hexColor(branding.accentColor, FIRMIVRA_BRANDING.accentColor),
   };
   const content = (TEMPLATES[template] as Build<T>)(data, b, options);
   if (content.channel === 'sms') return { channel: 'sms', text: oneLine(content.text) };
   const subject = oneLine(content.subject);
-  const foot = footer(template, b);
+  const foot = footer(b);
   return {
     channel: 'email',
+    fromName: b.name,
     subject,
     text: plainText(content.blocks, b.name, foot),
     html: html(subject, content.blocks, b, foot),

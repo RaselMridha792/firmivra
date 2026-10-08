@@ -10,7 +10,9 @@ import {
   type NotifyMessage,
   TEMPLATE_CATEGORY,
   TEMPLATE_CHANNEL,
+  TEMPLATE_SENDER,
 } from '../../src/notify/notify.types.js';
+import { NotifyTemplateError } from '../../src/notify/templates.js';
 import {
   type MailTransporter,
   type OutgoingEmail,
@@ -128,7 +130,39 @@ describe('SendingNotifyService', () => {
     expect(mails).toHaveLength(0);
   });
 
+  it("refuses a firm's template without its firm and Firmivra's own with a firm", async () => {
+    const { notify, mails, logger } = setup();
+    await expect(notify.send({ ...invoice, businessId: null })).rejects.toThrow(
+      'needs the businessId',
+    );
+    await expect(notify.send({ ...declined, businessId: FIRM_ID })).rejects.toThrow(
+      'businessId must be null',
+    );
+    await expect(notify.send({ ...smsCode, businessId: null })).rejects.toThrow(
+      NotifyTemplateError,
+    );
+    expect(mails).toHaveLength(0);
+    expect(logger.log).not.toHaveBeenCalled();
+  });
+
+  it('sends from the cleaned firm name, without bidi or zero-width characters', async () => {
+    const spoof = { ...firmBranding, name: 'Sample Tax \u202Emoc.elpmaxe\u200B' };
+    const mails: OutgoingEmail[] = [];
+    const notify = new SendingNotifyService({
+      branding: { load: () => Promise.resolve(spoof) },
+      email: { from: FROM, transport: { send: (m) => (mails.push(m), Promise.resolve()) } },
+      sms: null,
+      logger: { log: vi.fn(), warn: vi.fn() },
+    });
+    await notify.send(invoice);
+    expect(mails[0]!.from).toEqual({ name: 'Sample Tax moc.elpmaxe', address: FROM.address });
+  });
+
   it('keeps the template tables in step', () => {
+    expect(Object.keys(TEMPLATE_SENDER).sort()).toEqual(Object.keys(TEMPLATE_CHANNEL).sort());
+    for (const t of Object.keys(TEMPLATE_SENDER) as (keyof typeof TEMPLATE_SENDER)[]) {
+      expect(TEMPLATE_SENDER[t]).toBe(t.startsWith('firm-application.') ? 'platform' : 'firm');
+    }
     expect(Object.values(TEMPLATE_CHANNEL).filter((c) => c === 'sms')).toHaveLength(1);
     for (const t of ALWAYS_SENT) expect(TEMPLATE_CATEGORY[t]).toBe('ACCOUNT');
     expect(Object.keys(TEMPLATE_CATEGORY).sort()).toEqual(Object.keys(TEMPLATE_CHANNEL).sort());
@@ -145,9 +179,10 @@ describe('email and SMS adapters', () => {
     html: '<p>Html</p>',
   };
 
-  it('SES: one SendEmail in the configuration set, UTF-8, the firm as the sender name', async () => {
+  it('SES: one SendEmail, UTF-8, the firm as the sender name, no configuration set named', async () => {
+    // The identity's default configuration set applies; naming it would need IAM on the set too.
     const send = vi.fn(() => Promise.resolve({}));
-    const ses = new SesEmailTransport({ send } as unknown as Pick<SESv2Client, 'send'>, 'cs-dev');
+    const ses = new SesEmailTransport({ send } as unknown as Pick<SESv2Client, 'send'>);
     await ses.send({ ...mail, replyTo: 'support@example.test' });
     const [[command]] = send.mock.calls as unknown as [[{ input: unknown }]];
     expect(command.input).toEqual({
@@ -163,7 +198,6 @@ describe('email and SMS adapters', () => {
           },
         },
       },
-      ConfigurationSetName: 'cs-dev',
     });
   });
 
@@ -207,6 +241,22 @@ describe('email and SMS adapters', () => {
     expect(formatSender({ name: 'Café', address: 'a@example.test' })).toBe(
       '=?UTF-8?B?Q2Fmw6k=?= <a@example.test>',
     );
+    expect(formatSender({ name: 'Tax \u202Emoc.elpmaxe\u2066', address: 'a@example.test' })).toBe(
+      '"Tax moc.elpmaxe" <a@example.test>',
+    );
+    // A long name outside ASCII: several encoded words of at most 75 characters each.
+    const long = 'Société Fiscale Élégante & Associés de Montréal Québec Canada';
+    const shown = formatSender({ name: long, address: 'a@example.test' });
+    const words = shown.replace(/ <a@example\.test>$/, '').split(' ');
+    expect(words.length).toBeGreaterThan(1);
+    for (const w of words) {
+      expect(w.length).toBeLessThanOrEqual(75);
+      expect(w).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+    }
+    const decoded = words
+      .map((w) => Buffer.from(w.slice(10, -2), 'base64').toString('utf8'))
+      .join('');
+    expect(decoded).toBe(long);
   });
 });
 
@@ -236,11 +286,7 @@ describe('loadNotifyConfig', () => {
 
   it("reads the app stack's dev settings as SES, with texts in the log until the number is set", () => {
     expect(loadNotifyConfig(appStack)).toEqual({
-      email: {
-        mode: 'ses',
-        from: { name: null, address: 'no-reply@dev.example.test' },
-        configurationSet: 'cs-dev',
-      },
+      email: { mode: 'ses', from: { name: null, address: 'no-reply@dev.example.test' } },
       sms: { mode: 'log', unregistered: true },
     });
     const registered = loadNotifyConfig({ ...appStack, SMS_ORIGINATION_NUMBER: '+18885550100' });

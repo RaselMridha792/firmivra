@@ -12,6 +12,7 @@ import {
   type NotifyService,
   type NotifyTemplate,
   TEMPLATE_CHANNEL,
+  TEMPLATE_SENDER,
 } from './notify.types.js';
 import { NotifyTemplateError, render } from './templates.js';
 import {
@@ -72,6 +73,14 @@ export class SendingNotifyService implements NotifyService {
     const { template, businessId } = message;
     const channel = TEMPLATE_CHANNEL[template] as NotifyChannel | undefined;
     if (!channel) throw new NotifyTemplateError(`Unknown template ${template}`);
+    // A firm's template needs its firm, Firmivra's own needs none: never one brand in the other's look.
+    if ((TEMPLATE_SENDER[template] === 'firm') !== (businessId !== null)) {
+      throw new NotifyTemplateError(
+        TEMPLATE_SENDER[template] === 'firm'
+          ? `${template} needs the businessId of the firm it comes from`
+          : `${template} is Firmivra's own: businessId must be null`,
+      );
+    }
     const what = `${channel} "${template}" (${businessId ? `firm ${businessId}` : 'Firmivra'})`;
     const fail = (reason: string) => {
       this.logger.warn(`${what} not sent: ${reason}`);
@@ -95,8 +104,9 @@ export class SendingNotifyService implements NotifyService {
           this.logger.log(`${what} written to the log only (EMAIL_MODE=log)`);
           return;
         }
-        // Firm emails carry the firm's name; Firmivra's own carry EMAIL_FROM's name.
-        const name = branding.isFirm ? branding.name : (email.from.name ?? branding.name);
+        // Firm emails carry the firm's name (as the email shows it); Firmivra's own carry
+        // EMAIL_FROM's name.
+        const name = branding.isFirm ? rendered.fromName : (email.from.name ?? rendered.fromName);
         await email.transport.send({
           from: { name, address: email.from.address },
           to,
@@ -119,6 +129,15 @@ export class SendingNotifyService implements NotifyService {
   }
 }
 
+/**
+ * SES and SNS calls give up after a few seconds, like SMTP's: callers await `send` before they
+ * answer (R4's decline), so a stalled provider must not hold the request open.
+ */
+const AWS_CLIENT = {
+  maxAttempts: 2,
+  requestHandler: { connectionTimeout: 3_000, requestTimeout: 5_000 },
+} as const;
+
 /** The service for the settings: SES or Mailpit, SNS or the log. */
 export function createNotifyService(
   config: NotifyConfig,
@@ -133,7 +152,7 @@ export function createNotifyService(
           from: email.from,
           transport:
             email.mode === 'ses'
-              ? new SesEmailTransport(new SESv2Client({}), email.configurationSet)
+              ? new SesEmailTransport(new SESv2Client(AWS_CLIENT))
               : new SmtpEmailTransport(
                   createTransport({
                     host: email.host,
@@ -152,7 +171,10 @@ export function createNotifyService(
   return new SendingNotifyService({
     branding: new BrandingSource(db),
     email: emailSide,
-    sms: sms.mode === 'sns' ? new SnsSmsTransport(new SNSClient({}), sms.originationNumber) : null,
+    sms:
+      sms.mode === 'sns'
+        ? new SnsSmsTransport(new SNSClient(AWS_CLIENT), sms.originationNumber)
+        : null,
     logger,
   });
 }

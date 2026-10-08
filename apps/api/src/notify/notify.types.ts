@@ -12,23 +12,35 @@ import type { NotificationCategory } from '@firmivra/types';
  * template field made for it (`code`, `link`).
  */
 
-/** The data each template needs. Add a template here (and to TEMPLATE_CHANNEL) before using it. */
+/**
+ * The firm's name in a firm template is always the name of the firm `businessId` names, read by
+ * NotifyService under that firm's own scope; `firmName` is ignored. It stays optional only so
+ * calls written against step 1 still compile; leave it out (R6 removes it after step 6).
+ */
+type IgnoredFirmName = {
+  /** @deprecated Ignored: the name comes from `businessId`. */ firmName?: string;
+};
+
+/**
+ * The data each template needs. Add a template here (and to TEMPLATE_CHANNEL and
+ * TEMPLATE_SENDER) before using it.
+ */
 export interface NotifyTemplates {
   // ----- Staff (R2) -----
   /** Invite to a firm: activation link (`{APP_BASE_URL}/activate#token=...`), 7 days. */
-  'staff.invite': { name: string; firmName: string; link: string; expiresAt: Date };
+  'staff.invite': IgnoredFirmName & { name: string; link: string; expiresAt: Date };
 
   // ----- Client portal (R3) -----
   /** The 6-digit code that verifies a sign-up's email. */
-  'client.signup-email-code': { firmName: string; code: string };
+  'client.signup-email-code': IgnoredFirmName & { code: string };
   /** The 6-digit code that verifies a sign-up's phone. */
-  'client.signup-sms-code': { firmName: string; code: string };
+  'client.signup-sms-code': IgnoredFirmName & { code: string };
   /** Sent instead of a code when the email already has an account at this firm. */
-  'client.already-registered': { firmName: string; signInLink: string };
+  'client.already-registered': IgnoredFirmName & { signInLink: string };
   /** The firm approved the client's sign-up. */
-  'client.signup-approved': { name: string; firmName: string; signInLink: string };
+  'client.signup-approved': IgnoredFirmName & { name: string; signInLink: string };
   /** The firm declined it. No reason goes to the client (Rasel, q18). */
-  'client.signup-declined': { name: string; firmName: string };
+  'client.signup-declined': IgnoredFirmName & { name: string };
 
   // ----- Firm applications (R4; Firmivra's own messages, businessId null) -----
   'firm-application.received': { name: string; legalName: string };
@@ -41,9 +53,8 @@ export interface NotifyTemplates {
 
   // ----- Documents (R5) -----
   /** The firm asks for a document (no content; the client opens the portal to see it). */
-  'document.requested': {
+  'document.requested': IgnoredFirmName & {
     name: string;
-    firmName: string;
     title: string;
     /** YYYY-MM-DD in the firm's calendar, or null. */
     dueOn: string | null;
@@ -56,13 +67,12 @@ export interface NotifyTemplates {
   'appointment.reminder': AppointmentData;
 
   // ----- Invoices (R7; no amounts in messages) -----
-  'invoice.sent': { name: string; firmName: string; invoiceNumber: string; link: string };
-  'payment.received': { name: string; firmName: string; invoiceNumber: string; link: string };
+  'invoice.sent': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
+  'payment.received': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
 }
 
-export interface AppointmentData {
+export interface AppointmentData extends IgnoredFirmName {
   name: string;
-  firmName: string;
   /** What the appointment is, e.g. "Tax review". */
   title: string;
   startsAt: Date;
@@ -92,6 +102,32 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.reminder': 'email',
   'invoice.sent': 'email',
   'payment.received': 'email',
+};
+
+/**
+ * Who a template comes from: `platform` is Firmivra's own (businessId null, Firmivra's branding),
+ * `firm` is a firm's (its businessId, name and colours). NotifyService refuses a message whose
+ * businessId does not fit, so a caller can never send one brand's email in the other's look.
+ */
+export type NotifySender = 'firm' | 'platform';
+
+export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
+  'staff.invite': 'firm',
+  'client.signup-email-code': 'firm',
+  'client.signup-sms-code': 'firm',
+  'client.already-registered': 'firm',
+  'client.signup-approved': 'firm',
+  'client.signup-declined': 'firm',
+  'firm-application.received': 'platform',
+  'firm-application.info-requested': 'platform',
+  'firm-application.approved': 'platform',
+  'firm-application.declined': 'platform',
+  'document.requested': 'firm',
+  'appointment.booked': 'firm',
+  'appointment.changed': 'firm',
+  'appointment.reminder': 'firm',
+  'invoice.sent': 'firm',
+  'payment.received': 'firm',
 };
 
 /**
@@ -140,7 +176,8 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
   to: string;
   /**
    * The firm the message comes from: its name and branding in client emails, and its sender
-   * name. Null for Firmivra's own messages (firm applications).
+   * name. Null for Firmivra's own messages (firm applications). TEMPLATE_SENDER says which; a
+   * mismatch rejects with NotifyTemplateError.
    */
   businessId: string | null;
   /**

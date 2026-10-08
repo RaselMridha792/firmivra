@@ -29,28 +29,48 @@ export interface SmsTransport {
   send(sms: OutgoingSms): Promise<void>;
 }
 
+/** RFC 2047 keeps an encoded word to 75 characters: 45 bytes of UTF-8 in base64, plus 12. */
+const ENCODED_WORD_BYTES = 45;
+
+/** The name as RFC 2047 encoded words, split between characters so each stays within 75. */
+function encodedWords(name: string): string {
+  const words: string[] = [];
+  let chunk = '';
+  for (const char of name) {
+    if (Buffer.byteLength(chunk + char, 'utf8') > ENCODED_WORD_BYTES) {
+      words.push(chunk);
+      chunk = '';
+    }
+    chunk += char;
+  }
+  if (chunk) words.push(chunk);
+  return words.map((w) => `=?UTF-8?B?${Buffer.from(w, 'utf8').toString('base64')}?=`).join(' ');
+}
+
 /**
- * `"Name" <address>` for a From header. The name loses quotes, backslashes and control
- * characters; a name outside ASCII is an RFC 2047 encoded word.
+ * `"Name" <address>` for a From header. The name loses quotes, backslashes, control and format
+ * characters (bidi overrides, zero-width marks); a name outside ASCII becomes RFC 2047 encoded
+ * words.
  */
 export function formatSender(from: Sender): string {
   const name = (from.name ?? '')
+    .replace(/\p{Cf}/gu, '')
     .replace(/[\p{Cc}"\\]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (!name) return from.address;
-  const shown = /^[\x20-\x7e]*$/.test(name)
-    ? `"${name}"`
-    : `=?UTF-8?B?${Buffer.from(name, 'utf8').toString('base64')}?=`;
+  const shown = /^[\x20-\x7e]*$/.test(name) ? `"${name}"` : encodedWords(name);
   return `${shown} <${from.address}>`;
 }
 
-/** Amazon SES, v2 SendEmail with simple content, in the email stack's configuration set. */
+/**
+ * Amazon SES, v2 SendEmail with simple content. The request names no configuration set: the
+ * email stack makes SES_CONFIGURATION_SET the identity's default, so SES applies it anyway, and
+ * naming it would need ses:SendEmail on the configuration set too (the task role is granted the
+ * identity only).
+ */
 export class SesEmailTransport implements EmailTransport {
-  constructor(
-    private readonly client: Pick<SESv2Client, 'send'>,
-    private readonly configurationSet: string | null,
-  ) {}
+  constructor(private readonly client: Pick<SESv2Client, 'send'>) {}
 
   async send(mail: OutgoingEmail): Promise<void> {
     const utf8 = (Data: string) => ({ Data, Charset: 'UTF-8' });
@@ -65,7 +85,6 @@ export class SesEmailTransport implements EmailTransport {
             Body: { Text: utf8(mail.text), Html: utf8(mail.html) },
           },
         },
-        ...(this.configurationSet ? { ConfigurationSetName: this.configurationSet } : {}),
       }),
     );
   }

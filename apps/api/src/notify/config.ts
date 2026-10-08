@@ -2,8 +2,9 @@ import { z } from 'zod';
 
 /**
  * Settings of the email and SMS sender, read and checked by its own module when the app starts.
- * EMAIL_MODE=ses: Amazon SES (v2 API) from EMAIL_FROM, with the task role's permission and the
- * email stack's SES_CONFIGURATION_SET (the default, so a missing value never uses a stand-in).
+ * EMAIL_MODE=ses: Amazon SES (v2 API) from EMAIL_FROM, with the task role's permission (the
+ * default, so a missing value never uses a stand-in). SES_CONFIGURATION_SET is not read: the email
+ * stack makes it the identity's default set, which SES applies without the request naming it.
  * EMAIL_MODE=smtp: an SMTP server without login, i.e. Mailpit. EMAIL_MODE=log: nothing is sent,
  * the API log gets the template and the firm. Both only with NODE_ENV development or test.
  * SMS_MODE=log: texts go to the API log (template and firm only). SMS_MODE=sns: Amazon SNS from
@@ -19,7 +20,6 @@ const Schema = z
     EMAIL_MODE: z.enum(['ses', 'smtp', 'log']).default('ses'),
     /** `Name <address>` or `address`. Firm emails keep the address and show the firm's name. */
     EMAIL_FROM: z.string().optional(),
-    SES_CONFIGURATION_SET: z.string().optional(),
     SMTP_HOST: z.string().optional(),
     SMTP_PORT: z.coerce.number().int().min(1).max(65_535).optional(),
     SMS_MODE: z.enum(['log', 'sns']).default('log'),
@@ -67,7 +67,7 @@ export interface Sender {
 }
 
 export type EmailConfig =
-  | { mode: 'ses'; from: Sender; configurationSet: string | null }
+  | { mode: 'ses'; from: Sender }
   | { mode: 'smtp'; from: Sender; host: string; port: number }
   | { mode: 'log' };
 
@@ -105,7 +105,7 @@ export function loadNotifyConfig(
   const from = env.EMAIL_FROM ? parseSender(env.EMAIL_FROM) : null;
   const email: EmailConfig =
     env.EMAIL_MODE === 'ses'
-      ? { mode: 'ses', from: from!, configurationSet: env.SES_CONFIGURATION_SET ?? null }
+      ? { mode: 'ses', from: from! }
       : env.EMAIL_MODE === 'smtp'
         ? { mode: 'smtp', from: from!, host: env.SMTP_HOST!, port: env.SMTP_PORT! }
         : { mode: 'log' };
