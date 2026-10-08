@@ -150,7 +150,7 @@ export type LocationKind = z.infer<typeof LocationKind>;
 export const MessageDirection = z.enum(['FIRM_TO_CLIENT', 'CLIENT_TO_FIRM']);
 export type MessageDirection = z.infer<typeof MessageDirection>;
 
-/** DRAFT -> SCHEDULED (Upcoming) or OPEN (Pending, Due Soon) -> PAID; CANCELED. PAID and CANCELED are final. */
+/** DRAFT -> SCHEDULED (Upcoming) or OPEN (Pending, Due Soon) -> PAID; CANCELED. PAID and CANCELED are final, except that voiding an offline payment reopens (PAID -> OPEN) a PAID invoice it no longer covers. */
 export const InvoiceStatus = z.enum(['DRAFT', 'SCHEDULED', 'OPEN', 'PAID', 'CANCELED']);
 export type InvoiceStatus = z.infer<typeof InvoiceStatus>;
 
@@ -167,6 +167,10 @@ export type StripeOnboardingStatus = z.infer<typeof StripeOnboardingStatus>;
 
 export const PaymentProcessor = z.enum(['STRIPE']);
 export type PaymentProcessor = z.infer<typeof PaymentProcessor>;
+
+/** How an offline payment arrived. Card and bank payments through Stripe are Payment rows, never these. */
+export const OfflinePaymentMethod = z.enum(['CHECK', 'CASH']);
+export type OfflinePaymentMethod = z.infer<typeof OfflinePaymentMethod>;
 
 /** Content editor records shown in the portal (Business Documents, Resources & Services). */
 export const ContentKind = z.enum(['RESOURCE', 'TIP', 'EXTERNAL_LINK']);

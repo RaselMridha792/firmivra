@@ -5,6 +5,13 @@
 export const DB_ERRORS = {
   /** Demoting, deactivating or deleting a firm's last active owner (memberships_keep_an_owner). */
   LAST_ACTIVE_OWNER: 'FV001',
+  /**
+   * Recording or voiding an offline payment by anyone but the acting person, or by someone who is
+   * not an active Owner or Admin (app_require_firm_manager). The API answers 403.
+   */
+  NOT_FIRM_MANAGER: 'FV002',
+  /** An offline payment above the invoice's balance due (offline_payments_rules). */
+  OVER_BALANCE: 'FV003',
 } as const;
 
 export type DbErrorName = keyof typeof DB_ERRORS;

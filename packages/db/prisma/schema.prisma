@@ -232,7 +232,8 @@ enum MessageDirection {
   CLIENT_TO_FIRM
 }
 
-/// DRAFT -> SCHEDULED (Upcoming) or OPEN (Pending, Due Soon) -> PAID; CANCELED. PAID and CANCELED are final.
+/// DRAFT -> SCHEDULED (Upcoming) or OPEN (Pending, Due Soon) -> PAID; CANCELED. PAID and CANCELED are
+/// final, except that voiding an offline payment reopens (PAID -> OPEN) a PAID invoice it no longer covers.
 enum InvoiceStatus {
   DRAFT
   SCHEDULED
@@ -265,6 +266,12 @@ enum StripeOnboardingStatus {
 
 enum PaymentProcessor {
   STRIPE
+}
+
+/// How an offline payment arrived. Card and bank payments through Stripe are Payment rows, never these.
+enum OfflinePaymentMethod {
+  CHECK
+  CASH
 }
 
 /// Content editor records shown in the portal (Business Documents, Resources & Services).
@@ -397,6 +404,10 @@ model Membership {
   appointments        Appointment[]
   invoicesCreated     Invoice[]
   contentCreated      ContentItem[]
+
+  // Offline payments this member recorded or voided.
+  offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
+  offlinePaymentsVoided   OfflinePayment[] @relation("OfflinePaymentVoidedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -1480,7 +1491,9 @@ model ClientNoteReminder {
 /// A firm's invoice to one client, optionally for one of that client's engagements. Money is in
 /// integer cents. The database keeps the totals: subtotal is the sum of the lines and total is
 /// subtotal minus discount. Lines change only while DRAFT or SCHEDULED. PAID needs SUCCEEDED
-/// payments covering the total; PAID and CANCELED are final. Never deleted.
+/// payments plus live (not voided) offline payments covering the total. PAID and CANCELED are
+/// final, except that the database reopens a PAID invoice when voiding an offline payment leaves
+/// it uncovered. An invoice with live offline payments cannot be canceled. Never deleted.
 model Invoice {
   id              String        @id @default(uuid(7)) @db.Uuid
   businessId      String        @map("business_id") @db.Uuid
@@ -1506,11 +1519,12 @@ model Invoice {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client     Client        @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement?   @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  createdBy  Membership?   @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
-  lines      InvoiceLine[]
-  payments   Payment[]
+  client          Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement      Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  createdBy       Membership?      @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  lines           InvoiceLine[]
+  payments        Payment[]
+  offlinePayments OfflinePayment[]
 
   @@unique([businessId, number])
   @@unique([businessId, id])
@@ -1572,6 +1586,48 @@ model Payment {
   @@unique([businessId, id])
   @@index([businessId, invoiceId])
   @@map("payments")
+}
+
+/// A check or cash payment toward an invoice, recorded by an active Owner or Admin acting as
+/// themselves, on an OPEN invoice, never above the balance due. Separate from Payment (Stripe
+/// only), so no Stripe rule changes. Fixed once recorded and never deleted: a mistake is voided
+/// once, with a reason, and a void that leaves a PAID invoice uncovered reopens it.
+model OfflinePayment {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  businessId       String               @map("business_id") @db.Uuid
+  invoiceId        String               @map("invoice_id") @db.Uuid
+  method           OfflinePaymentMethod
+  amountCents      Int                  @map("amount_cents")
+  /// Always the invoice's currency.
+  currency         String               @default("usd")
+  /// The check number (required for CHECK) or a cash receipt number: 1 to 20 letters, digits or
+  /// hyphens. Never a bank account or routing number.
+  reference        String?
+  /// The day the firm received the money (the firm's calendar); never in the future.
+  receivedOn       DateTime             @map("received_on") @db.Date
+  /// Firm-only note, at most 500 characters.
+  note             String?
+  /// The record request's idempotency key (new per dialog, the same on a retry).
+  idempotencyKey   String               @map("idempotency_key") @db.Uuid
+  /// Always the acting person, an active Owner or Admin (checked by the database).
+  recordedByUserId String               @map("recorded_by_user_id") @db.Uuid
+  /// Set by the database (now()).
+  recordedAt       DateTime             @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  /// The void: all three set together, once, by an active Owner or Admin acting as themselves.
+  /// voidedAt is set by the database.
+  voidedAt         DateTime?            @map("voided_at") @db.Timestamptz(3)
+  voidedByUserId   String?              @map("voided_by_user_id") @db.Uuid
+  voidReason       String?              @map("void_reason")
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  invoice    Invoice     @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  recordedBy Membership  @relation("OfflinePaymentRecordedBy", fields: [businessId, recordedByUserId], references: [businessId, userId], onDelete: Restrict)
+  voidedBy   Membership? @relation("OfflinePaymentVoidedBy", fields: [businessId, voidedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, invoiceId])
+  @@map("offline_payments")
 }
 
 /// One processor webhook event, recorded before it is processed. The event id is unique, so a
