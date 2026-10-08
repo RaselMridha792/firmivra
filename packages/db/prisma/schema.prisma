@@ -185,7 +185,7 @@ enum LeadStatus {
   /// Staff matched or created the client and opened the engagement.
   CONVERTED
   DECLINED
-  /// The draft's resume link ran out.
+  /// The draft ran out (Lead.draftExpiresAt) before it was sent.
   EXPIRED
 }
 
@@ -383,6 +383,9 @@ model Membership {
   /// Set by the database the first time the membership is ACTIVE; never changes. Until then
   /// the firm sees only the invite's name and email, never the person's user row.
   joinedAt   DateTime?        @map("joined_at") @db.Timestamptz(3)
+  /// The member's own video meeting link (Zoom, Meet, Teams) for their VIDEO appointments:
+  /// https only, no spaces or control characters, at most 500 characters (database CHECK).
+  meetingUrl String?          @map("meeting_url")
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -784,6 +787,9 @@ model Service {
   /// The firm's workflow steps for this service, in order. An engagement's stage is one of them.
   stages          String[]        @default([])
   sortOrder       Int             @default(0) @map("sort_order")
+  /// Offered on the firm's Begin Online pages. At most one live (not archived) Begin Online
+  /// service per kind in a firm, never OTHER (SQL only: Prisma ignores partial unique indexes).
+  beginOnline     Boolean         @default(false) @map("begin_online")
   archivedAt      DateTime?       @map("archived_at") @db.Timestamptz(3)
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -972,10 +978,10 @@ model DocumentCategory {
 /// A file in the firm's vault, always within one engagement. The file is in S3 under the firm's
 /// prefix (`tenant/<business_id>/...`, under a UUID name) and its key never changes; it starts in
 /// quarantine (PENDING) and only a CLEAN file can be downloaded. INTERNAL documents are never
-/// shown to the client. Database rules: a client uploads only while the engagement is open; the
-/// scan result is set once; retentionUntil only moves later; a document is deleted only without
-/// a legal hold, and either after retentionUntil or, for a client upload, while its engagement
-/// is open.
+/// shown to the client. Database rules: a client file (an upload or a carried-over Begin Online
+/// file) goes only into an ACTIVE engagement; the scan result is set once; retentionUntil only
+/// moves later; a document is deleted only without a legal hold, and either after
+/// retentionUntil or, for a client upload, while its engagement is ACTIVE.
 model Document {
   id               String            @id @default(uuid(7)) @db.Uuid
   businessId       String            @map("business_id") @db.Uuid
@@ -987,6 +993,12 @@ model Document {
   /// Set when the document was carried over from a Begin Online upload at lead conversion: it
   /// then shares that upload's S3 key, file and scan result (checked by the database).
   leadUploadId     String?           @map("lead_upload_id") @db.Uuid
+  /// A client file in an intake's upload slot (intakeSlot is the field's key). Both are set on
+  /// insert, for an intake of the same engagement that is open for changes (or, carried over,
+  /// for the intake of the upload's lead and its slot). Removing the file from the intake clears
+  /// both while the intake is open; nothing else changes them.
+  intakeId         String?           @map("intake_id") @db.Uuid
+  intakeSlot       String?           @map("intake_slot")
   direction        DocumentDirection
   /// The uploader's file name, for display only.
   fileName         String            @map("file_name")
@@ -1010,6 +1022,7 @@ model Document {
   category           DocumentCategory?   @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
   request            DocumentRequest?    @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
   leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  intake             Intake?             @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
   reports            EngagementReport[]
   messageAttachments MessageAttachment[]
   taxReturns         TaxReturn[]
@@ -1022,6 +1035,7 @@ model Document {
   @@unique([businessId, engagementId, id])
   @@index([businessId, clientId, createdAt])
   @@index([businessId, requestId])
+  @@index([businessId, intakeId])
   @@map("documents")
 }
 
@@ -1097,10 +1111,18 @@ model Intake {
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  /// The firm's request for changes: set exactly while the status is NEEDS_CORRECTION (the API
+  /// clears it with the status change that ends it). Up to 2,000 characters, line breaks
+  /// allowed, no other control or invisible characters.
+  correctionNote        String?   @map("correction_note")
+  /// Set by the database (its clock) whenever correctionNote is set or changed; cleared with it.
+  correctionRequestedAt DateTime? @map("correction_requested_at") @db.Timestamptz(3)
+
   form        IntakeForm         @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict)
   engagement  Engagement?        @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
   lead        Lead?              @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
   submissions IntakeSubmission[]
+  documents   Document[]
 
   @@unique([businessId, id])
   @@index([businessId, engagementId])
@@ -1117,6 +1139,9 @@ model IntakeSubmission {
   intakeId          String    @map("intake_id") @db.Uuid
   version           Int
   answers           Json      @default("{}")
+  /// The steps saved at least once (step keys, at most 10, none twice): the stepper's ticks.
+  /// Locked with the rest of the version on submit.
+  savedSteps        String[]  @default([]) @map("saved_steps")
   submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(3)
   /// Null for Begin Online (no login).
   submittedByUserId String?   @map("submitted_by_user_id") @db.Uuid
@@ -1135,8 +1160,9 @@ model IntakeSubmission {
 
 /// A Begin Online visitor's request for a service, from the firm's public site (no login, no
 /// account). Holds the intake and uploads until staff review it; converting sets the client
-/// and the new engagement once (that engagement belongs to that client). The resume link
-/// stores only the token's SHA-256 and lasts at most 30 days.
+/// and the new engagement once (that engagement belongs to that client and is ACTIVE then).
+/// The resume link stores only the token's SHA-256 and lasts at most 30 days. createdAt is the
+/// database's clock; neither the draft nor its link outlives createdAt + 90 days.
 model Lead {
   id               String     @id @default(uuid(7)) @db.Uuid
   businessId       String     @map("business_id") @db.Uuid
@@ -1146,6 +1172,13 @@ model Lead {
   lastName         String     @map("last_name")
   email            String
   phone            String?
+  /// The year the firm prepares (2000 to 2100), fixed at the draft's start: set once, while a
+  /// draft, then never changed.
+  taxYear          Int?       @map("tax_year")
+  /// When the draft runs out. Required while DRAFT (on insert the database fills 30 days from
+  /// now); a renewal is at most 30 days from then; frozen once the lead leaves DRAFT. An expired
+  /// draft cannot be submitted.
+  draftExpiresAt   DateTime?  @map("draft_expires_at") @db.Timestamptz(3)
   resumeTokenHash  String?    @unique @map("resume_token_hash")
   resumeExpiresAt  DateTime?  @map("resume_expires_at") @db.Timestamptz(3)
   submittedAt      DateTime?  @map("submitted_at") @db.Timestamptz(3)
@@ -1284,6 +1317,10 @@ model AppointmentType {
   archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Clients reschedule or cancel until this many hours before the start (0 to 720; 0 = until
+  /// the start).
+  cancelCutoffHours Int @default(24) @map("cancel_cutoff_hours")
 
   business     Business      @relation(fields: [businessId], references: [id])
   appointments Appointment[]
