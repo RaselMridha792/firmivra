@@ -104,14 +104,31 @@ export function ApplicationForm() {
       className="flex flex-col gap-5"
       noValidate
     >
-      <div aria-label="Application progress" className="grid grid-cols-2 gap-3 rounded-card border border-border bg-surface p-4 shadow-sm sm:p-5">
-        <div className={`flex items-center gap-3 rounded-control px-3 py-2 ${review ? 'text-success' : 'bg-info-soft text-action'}`}>
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-sm font-bold">1</span>
-          <span><span className="block text-xs text-muted">Step 1</span><span className="block text-sm font-semibold">Application details</span></span>
+      <div
+        aria-label="Application progress"
+        className="grid grid-cols-2 gap-3 rounded-card border border-border bg-surface p-4 shadow-sm sm:p-5"
+      >
+        <div
+          className={`flex items-center gap-3 rounded-control px-3 py-2 ${review ? 'text-success' : 'bg-info-soft text-action'}`}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-sm font-bold">
+            1
+          </span>
+          <span>
+            <span className="block text-xs text-muted">Step 1</span>
+            <span className="block text-sm font-semibold">Application details</span>
+          </span>
         </div>
-        <div className={`flex items-center gap-3 rounded-control px-3 py-2 ${review ? 'bg-info-soft text-action' : 'text-muted'}`}>
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-sm font-bold">2</span>
-          <span><span className="block text-xs text-muted">Step 2</span><span className="block text-sm font-semibold">Review and submit</span></span>
+        <div
+          className={`flex items-center gap-3 rounded-control px-3 py-2 ${review ? 'bg-info-soft text-action' : 'text-muted'}`}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-sm font-bold">
+            2
+          </span>
+          <span>
+            <span className="block text-xs text-muted">Step 2</span>
+            <span className="block text-sm font-semibold">Review and submit</span>
+          </span>
         </div>
       </div>
       {review ? (
