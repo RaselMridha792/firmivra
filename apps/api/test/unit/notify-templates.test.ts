@@ -61,11 +61,15 @@ describe('templates', () => {
     const app = email('firm-application.received');
     expect(app.html).toContain(`background:${FIRMIVRA_BRANDING.primaryColor}`);
     expect(app.text).toContain('Sent by Firmivra.');
-    // "Turn off emails like this" only where a preference can switch it off (step 5).
+    // "Turn off emails like this" only where a preference can switch it off (step 5): a message
+    // to someone with an account (canOptOut), never an ALWAYS_SENT one or a bare address.
     for (const t of templates) {
-      const out = JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t)));
+      const out = JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t), { canOptOut: true }));
       if (ALWAYS_SENT.has(t)) expect(out).not.toContain('notification settings');
       else expect(out).toContain('turn off emails like this in your notification settings');
+      expect(JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t)))).not.toContain(
+        'notification settings',
+      );
     }
   });
 

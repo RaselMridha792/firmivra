@@ -23,6 +23,8 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NotificationInputError, Notifier } from '../../src/notifications/notifier.js';
 import { BrandingSource } from '../../src/notify/branding.js';
+import type { NotifyConfig } from '../../src/notify/config.js';
+import { NOTIFY_CONFIG } from '../../src/notify/notify.module.js';
 import { SendingNotifyService } from '../../src/notify/notify.service.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { PreferenceSource } from '../../src/notify/preferences.js';
@@ -43,12 +45,18 @@ const people = {
   staff1: person('staff-1', 'STAFF'),
   /** Assigned to nobody. */
   staff2: person('staff-2', 'STAFF'),
+  /** Assigned to client c4, but no longer an ACTIVE member. */
+  staff3: person('staff-3', 'STAFF'),
+  /** An Admin who is no longer an ACTIVE member. */
+  adminGone: person('admin-gone', 'STAFF'),
   /** c1's PRIMARY login. */
   primary1: person('primary-1', 'CLIENT'),
   /** c1's SPOUSE login. */
   spouse1: person('spouse-1', 'CLIENT'),
   /** c2's PRIMARY login (c2 has no assignee). */
   primary2: person('primary-2', 'CLIENT'),
+  /** c3's only PRIMARY login, still waiting for approval (not ACTIVE). */
+  pending3: person('pending-3', 'CLIENT'),
   ownerB: person('owner-b', 'STAFF'),
   clientB: person('client-b', 'CLIENT'),
 };
@@ -61,8 +69,13 @@ const ids = {
   slugB: `r6n-b-${run}`,
   c1: '',
   c2: '',
+  c3: '',
+  c4: '',
   invoice1: '',
   invoice2: '',
+  invoice3: '',
+  thread4: '',
+  appointment1: '',
   invoiceB: '',
   thread1: '',
   thread2: '',
@@ -178,14 +191,16 @@ beforeAll(async () => {
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
     const A = { businessId: ids.firmA };
-    for (const [who, role] of [
-      [people.ownerA, 'OWNER'],
-      [people.adminA, 'ADMIN'],
-      [people.staff1, 'STAFF'],
-      [people.staff2, 'STAFF'],
+    for (const [who, role, status] of [
+      [people.ownerA, 'OWNER', 'ACTIVE'],
+      [people.adminA, 'ADMIN', 'ACTIVE'],
+      [people.staff1, 'STAFF', 'ACTIVE'],
+      [people.staff2, 'STAFF', 'ACTIVE'],
+      [people.staff3, 'STAFF', 'DEACTIVATED'],
+      [people.adminGone, 'ADMIN', 'DEACTIVATED'],
     ] as const) {
       const m = await tx.membership.create({
-        data: { ...A, userId: who.id, role, status: 'ACTIVE' },
+        data: { ...A, userId: who.id, role, status },
       });
       if (who === people.adminA) ids.membershipAdmin = m.id;
     }
@@ -195,13 +210,40 @@ beforeAll(async () => {
       })
     ).id;
     ids.c2 = (await tx.client.create({ data: { ...A, displayName: 'Riley Example (fake)' } })).id;
-    const login = (who: Who, clientId: string, portalRole: 'PRIMARY' | 'SPOUSE') =>
+    ids.c3 = (await tx.client.create({ data: { ...A, displayName: 'Casey Pending (fake)' } })).id;
+    ids.c4 = (
+      await tx.client.create({
+        data: { ...A, displayName: 'Drew Former (fake)', assignedUserId: people.staff3.id },
+      })
+    ).id;
+    const login = (
+      who: Who,
+      clientId: string,
+      portalRole: 'PRIMARY' | 'SPOUSE',
+      status: 'ACTIVE' | 'PENDING_APPROVAL' = 'ACTIVE',
+    ) =>
       tx.clientAccount.create({
-        data: { ...A, userId: who.id, clientId, email: who.email, portalRole, status: 'ACTIVE' },
+        data: { ...A, userId: who.id, clientId, email: who.email, portalRole, status },
       });
     await login(people.primary1, ids.c1, 'PRIMARY');
     await login(people.spouse1, ids.c1, 'SPOUSE');
     ids.account2 = (await login(people.primary2, ids.c2, 'PRIMARY')).id;
+    await login(people.pending3, ids.c3, 'PRIMARY', 'PENDING_APPROVAL');
+    ids.invoice3 = (
+      await tx.invoice.create({ data: { ...A, clientId: ids.c3, number: 'R6-3' } })
+    ).id;
+    ids.appointment1 = (
+      await tx.appointment.create({
+        data: {
+          ...A,
+          clientId: ids.c1,
+          staffUserId: people.staff1.id,
+          startsAt: new Date('2026-11-02T15:00:00.000Z'),
+          endsAt: new Date('2026-11-02T15:30:00.000Z'),
+          locationKind: 'PHONE',
+        },
+      })
+    ).id;
     ids.invoice1 = (
       await tx.invoice.create({ data: { ...A, clientId: ids.c1, number: 'R6-1' } })
     ).id;
@@ -212,6 +254,7 @@ beforeAll(async () => {
       tx.messageThread.create({ data: { ...A, clientId, subject: 'Private subject (fake)' } });
     ids.thread1 = (await thread(ids.c1)).id;
     ids.thread2 = (await thread(ids.c2)).id;
+    ids.thread4 = (await thread(ids.c4)).id;
   });
   // The spouse's own private note, with a reminder that is due (only its owner may make it).
   await runInScope(
@@ -347,7 +390,50 @@ describe('Notifier: who gets an event', () => {
     expect(await got(people.adminA)).toBe(1);
     expect(await got(people.staff1)).toBe(0);
     expect(await got(people.staff2)).toBe(0);
+    expect(await got(people.adminGone)).toBe(0);
     expect(await got(people.primary2)).toBe(0);
+  });
+
+  it('an assignee who is no longer ACTIVE: the ACTIVE Owners and Admins, never a Staff member', async () => {
+    await notifier.notify({
+      ...A(),
+      event: 'message.received',
+      recordId: ids.thread4,
+      audience: 'staff',
+    });
+    const got = async (who: Who) =>
+      (await rowsOf(who)).filter((r) => r.entityId === ids.thread4).length;
+    expect([await got(people.ownerA), await got(people.adminA)]).toEqual([1, 1]);
+    for (const who of [people.staff3, people.staff1, people.staff2, people.adminGone]) {
+      expect(await got(who)).toBe(0);
+    }
+  });
+
+  it('a client whose PRIMARY login is not ACTIVE gets nothing, and no email', async () => {
+    outbox.length = 0;
+    expect(
+      await notifier.notify({ ...A(), event: 'invoice.sent', recordId: ids.invoice3 }),
+    ).toEqual({ written: 0 });
+    expect(await rowsOf(people.pending3)).toEqual([]);
+    expect(outbox).toEqual([]);
+  });
+
+  it('a client who acted gets no bell item but keeps the email copy (a confirmation)', async () => {
+    outbox.length = 0;
+    expect(
+      await notifier.notify({
+        ...A(),
+        event: 'appointment.booked',
+        recordId: ids.appointment1,
+        actorUserId: people.primary1.id,
+      }),
+    ).toEqual({ written: 1 });
+    const booked = async (who: Who) =>
+      (await rowsOf(who)).filter((r) => r.entityId === ids.appointment1).length;
+    expect([await booked(people.primary1), await booked(people.staff1)]).toEqual([0, 1]);
+    expect(outbox.map((m) => [m.template, m.to, m.recipient])).toEqual([
+      ['appointment.booked', people.primary1.email, { userId: people.primary1.id }],
+    ]);
   });
 
   it('both sides; the actor is never told of their own action', async () => {
@@ -430,6 +516,10 @@ describe('Notifier: who gets an event', () => {
     await expect(
       notifier.notify({ ...A(), event: 'invoice.sent', recordId: 'not-a-uuid' }),
     ).rejects.toBeInstanceOf(NotificationInputError);
+    // A message goes one way: the caller names the side.
+    await expect(
+      notifier.notify({ ...A(), event: 'message.received', recordId: ids.thread1 }),
+    ).rejects.toBeInstanceOf(NotificationInputError);
   });
 
   it('never logs an address, a name or a record text', () => {
@@ -438,7 +528,7 @@ describe('Notifier: who gets an event', () => {
       expect(text).not.toContain(p.email);
       expect(text).not.toContain(p.name);
     }
-    for (const value of ['Jamie Sample', 'Private subject', 'Secret note']) {
+    for (const value of ['Jamie Sample', 'Drew Former', 'Private subject', 'Secret note']) {
       expect(text).not.toContain(value);
     }
   });
@@ -552,8 +642,13 @@ describe('firm routes: the member’s own', () => {
       action: 'notification_preferences.updated',
       actorUserId: people.staff1.id,
       entityId: people.staff1.id,
-      metadata: { items: [{ category: 'MESSAGES', email: false }] },
     });
+    // Exactly the categories and switches: no address, name or phone number beside them.
+    expect(audit[0]!.metadata).toEqual({ items: [{ category: 'MESSAGES', email: false }] });
+    const metadata = JSON.stringify(audit[0]!.metadata);
+    for (const value of [people.staff1.email, people.staff1.name, '+1']) {
+      expect(metadata).not.toContain(value);
+    }
   });
 });
 
@@ -612,6 +707,78 @@ describe('portal routes: the client login’s own', () => {
         await portal('get', '/notification-preferences', people.primary2),
       ),
     ).toEqual(prefs);
+  });
+});
+
+describe('SMS is offered only once texts can go out and the person has a verified phone', () => {
+  const setPhone = async (phone: string | null, verified: boolean) => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.user.update({ where: { id: people.spouse1.id }, data: { phone } }),
+      );
+      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.clientAccount.updateMany({
+          where: { businessId: ids.firmA, userId: people.spouse1.id },
+          data: { phoneVerifiedAt: verified ? new Date() : null },
+        }),
+      );
+    } finally {
+      await owner.$disconnect();
+    }
+  };
+  const channels = async (who: Who, side: 'firm' | 'portal') =>
+    exact(
+      NotificationPreferences,
+      side === 'firm'
+        ? await firm('get', '/notification-preferences', who)
+        : await portal('get', '/notification-preferences', who),
+    ).channels;
+  const optIn = { items: [{ category: 'DOCUMENTS', sms: true }] };
+
+  it('client: only with SMS_MODE=sns, a phone number and its verification; staff never', async () => {
+    const config = app.get<NotifyConfig>(NOTIFY_CONFIG);
+    const saved = config.sms;
+    config.sms = { mode: 'sns', originationNumber: '+15555550100' };
+    try {
+      // No phone number: EMAIL only, and an SMS opt-in is refused.
+      expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL']);
+      expectError(
+        await portal('patch', '/notification-preferences', people.spouse1, optIn),
+        400,
+        'VALIDATION_FAILED',
+      );
+      // A number that was never verified: still EMAIL only.
+      await setPhone('+15555550123', false);
+      expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL']);
+      // A verified number but none on the account: EMAIL only.
+      await setPhone(null, true);
+      expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL']);
+      // Both: SMS is offered and the opt-in is kept.
+      await setPhone('+15555550123', true);
+      expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL', 'SMS']);
+      const prefs = exact(
+        NotificationPreferences,
+        await portal('patch', '/notification-preferences', people.spouse1, optIn),
+      );
+      expect(prefs.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({ sms: true });
+      // Staff have no verified number in Firmivra: EMAIL only, and the opt-in is refused.
+      expect(await channels(people.ownerA, 'firm')).toEqual(['EMAIL']);
+      expectError(
+        await firm('patch', '/notification-preferences', people.ownerA, optIn),
+        400,
+        'VALIDATION_FAILED',
+      );
+    } finally {
+      config.sms = saved;
+    }
+    // Texts cannot go out (SMS_MODE=log): EMAIL only again, and the stored choice shows off.
+    const off = exact(
+      NotificationPreferences,
+      await portal('get', '/notification-preferences', people.spouse1),
+    );
+    expect(off.channels).toEqual(['EMAIL']);
+    expect(off.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({ sms: false });
   });
 });
 
@@ -758,6 +925,16 @@ describe('NotifyService reads the preferences (step 5)', () => {
     } finally {
       await db.disconnect();
     }
+  });
+
+  it('the bell item is written even when the person switched that email off', async () => {
+    // primary2 switched BILLING email off above (portal PATCH); the bell has no switch.
+    const before = (await rowsOf(people.primary2)).filter((r) => r.entityId === ids.invoice2);
+    expect(
+      await notifier.notify({ ...A(), event: 'invoice.sent', recordId: ids.invoice2 }),
+    ).toEqual({ written: 1 });
+    const after = (await rowsOf(people.primary2)).filter((r) => r.entityId === ids.invoice2);
+    expect(after.length).toBe(before.length + 1);
   });
 
   it('a new or removed phone number clears every stored SMS choice', async () => {

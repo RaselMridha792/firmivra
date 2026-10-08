@@ -73,6 +73,14 @@ export interface NotifyDeps {
 }
 
 /**
+ * Whether the recipient could switch this message off: a firm's message to someone with an account
+ * (`recipient`) that is not ALWAYS_SENT. Only then does NotifyService read the preferences and
+ * the email say "You can turn off emails like this".
+ */
+const canOptOut = (message: NotifyMessage): boolean =>
+  Boolean(message.recipient) && message.businessId !== null && !ALWAYS_SENT.has(message.template);
+
+/**
  * Renders a template with the sender's branding and hands it to the provider. Its log lines hold
  * the channel, the template, the firm's id and an error name only: never an address, a phone
  * number, a subject or a body (hard rule 4).
@@ -109,11 +117,8 @@ export class SendingNotifyService implements NotifyService {
     if (replyTo !== null && !EMAIL.safeParse(replyTo).success) {
       throw new NotifyTemplateError('replyTo must be an email address');
     }
-    if (await this.skipped(message, channel, fail)) {
-      this.logger.log(`${what} not sent: the recipient turned this off`);
-      return;
-    }
-
+    // The firm first: an unknown or malformed businessId is UnknownFirmError (the caller's
+    // mistake) before any preference is read, never a delivery error or a silent skip.
     let branding: Branding;
     try {
       branding = await this.deps.branding.load(businessId);
@@ -123,8 +128,13 @@ export class SendingNotifyService implements NotifyService {
       if (error instanceof UnknownFirmError) throw error;
       throw fail(`BrandingUnavailable:${errorName(error)}`);
     }
+    if (await this.skipped(message, channel, fail)) {
+      this.logger.log(`${what} not sent: the recipient turned this off`);
+      return;
+    }
     const rendered = render(template, message.data, branding, {
       canReply: replyTo !== null,
+      canOptOut: canOptOut(message),
       linkOrigins: this.deps.linkOrigins,
     });
     try {
@@ -169,7 +179,7 @@ export class SendingNotifyService implements NotifyService {
     fail: (reason: string) => NotifyDeliveryError,
   ): Promise<boolean> {
     const { template, businessId, recipient } = message;
-    if (!recipient || businessId === null || ALWAYS_SENT.has(template)) return false;
+    if (!recipient || businessId === null || !canOptOut(message)) return false;
     const id = 'userId' in recipient ? recipient.userId : recipient.clientAccountId;
     if (typeof id !== 'string' || !UUID.test(id)) {
       throw new NotifyTemplateError('recipient must name a user or client account by its id');

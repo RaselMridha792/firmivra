@@ -39,6 +39,11 @@ export interface RenderOptions {
   /** The email has a Reply-To (for example Firmivra support), so the text may ask for a reply. */
   canReply?: boolean;
   /**
+   * The recipient can switch this message off (NotifyService: a firm's message to someone with an
+   * account, not ALWAYS_SENT), so the footer may say where. Never for a bare address.
+   */
+  canOptOut?: boolean;
+  /**
    * The origins a link may go to: the app, portal and admin sites from config (NotifyConfig's
    * `linkOrigins`). Without them every link is refused.
    */
@@ -484,13 +489,13 @@ function logo(url: string | null): string | null {
 }
 
 /**
- * Who sent it, and on a message the person can switch off (not ALWAYS_SENT) where to do that:
- * NotifyService reads the preferences since R6 step 5.
+ * Who sent it, and on a message the person can switch off (`canOptOut`, never ALWAYS_SENT) where
+ * to do that: NotifyService reads the preferences since R6 step 5.
  */
-function footer(branding: Branding, template: NotifyTemplate): string[] {
+function footer(branding: Branding, template: NotifyTemplate, canOptOut: boolean): string[] {
   return [
     branding.isFirm ? `Sent by ${branding.name} through Firmivra.` : 'Sent by Firmivra.',
-    ...(ALWAYS_SENT.has(template)
+    ...(!canOptOut || ALWAYS_SENT.has(template)
       ? []
       : ['You can turn off emails like this in your notification settings.']),
   ];
@@ -622,7 +627,7 @@ export function render<T extends NotifyTemplate>(
   const content = (TEMPLATES[template] as Build<T>)(data, b, options);
   if (content.channel === 'sms') return { channel: 'sms', text: oneLine(content.text) };
   const subject = oneLine(content.subject);
-  const foot = footer(b, template);
+  const foot = footer(b, template, options.canOptOut === true);
   return {
     channel: 'email',
     fromName: b.name,

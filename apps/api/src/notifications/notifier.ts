@@ -32,15 +32,38 @@ export interface NotifyEventInput {
   /** The record's id; its kind is `NOTIFICATION_EVENTS[event].kind`. */
   recordId: string;
   /**
-   * For an event that goes to `both` sides, the side this occurrence is for (the client's message
-   * reaches the firm, the firm's reaches the client). Defaults to the event's own `to`.
+   * For an event that goes to `both` sides, the side this occurrence is for. Defaults to the
+   * event's own `to`, except for a DIRECTIONAL event (one message goes one way): there it is
+   * required and must be 'client' or 'staff' (the client's message reaches the firm, the firm's
+   * reaches the client).
    */
   audience?: Side | 'both';
-  /** Who caused it: never notified of their own action. */
+  /**
+   * Who caused it: never gets a bell item for their own action. A client who acted still gets the
+   * event's email copy (their confirmation of a booking or a payment).
+   */
   actorUserId?: string | null;
   /** The producer's stable key: a retried job never writes a second item for the same person. */
   eventKey?: string;
 }
+
+/** What `notify` did: the bell items written, and `failed` when the database step failed. */
+export interface NotifyResult {
+  written: number;
+  /**
+   * The bell items could not be written (the database failed). A job retries the same call with
+   * the same `eventKey`; nobody to notify is `{ written: 0 }` without it.
+   */
+  failed?: true;
+}
+
+/**
+ * Events whose occurrences go one way, so the caller names the side (`audience`): a message is
+ * either the client's (to the firm) or the firm's (to the client), never both.
+ */
+export const DIRECTIONAL_EVENTS: ReadonlySet<NotificationEvent> = new Set<NotificationEvent>([
+  'message.received',
+]);
 
 /** A programming error in the call (unknown event, bad id, a side the event never reaches). */
 export class NotificationInputError extends Error {
@@ -285,7 +308,8 @@ async function recipientsOf(
  * email copy (NOTIFICATION_EVENTS names that match a NotifyService template) through
  * NotifyService, where the recipient's preferences apply. It rejects only for a programming error
  * (NotificationInputError); a database or delivery failure is logged with ids only and resolves,
- * so the caller's change stands.
+ * so the caller's change stands: `{ written: 0, failed: true }` when the bell items could not be
+ * written (a job retries with the same eventKey). The bell item never depends on preferences.
  */
 @Injectable()
 export class Notifier {
@@ -297,7 +321,7 @@ export class Notifier {
     @Inject(ENV) private readonly env: Env,
   ) {}
 
-  async notify(input: NotifyEventInput): Promise<{ written: number }> {
+  async notify(input: NotifyEventInput): Promise<NotifyResult> {
     const { businessId, event, recordId } = input;
     const def = Object.hasOwn(NOTIFICATION_EVENTS, event) ? NOTIFICATION_EVENTS[event] : null;
     if (!def) throw new NotificationInputError(`Unknown notification event ${String(event)}`);
@@ -306,6 +330,13 @@ export class Notifier {
         throw new NotificationInputError(`${event}: ids must be UUIDs`);
       }
     }
+    if (
+      DIRECTIONAL_EVENTS.has(event) &&
+      input.audience !== 'client' &&
+      input.audience !== 'staff'
+    ) {
+      throw new NotificationInputError(`${event} goes one way: audience must be client or staff`);
+    }
     const audience = input.audience ?? def.to;
     if (def.to !== 'both' && audience !== def.to) {
       throw new NotificationInputError(`${event} only reaches the ${def.to} side`);
@@ -313,16 +344,30 @@ export class Notifier {
     const sides: Side[] = audience === 'both' ? ['client', 'staff'] : [audience];
     const what = `${event} for ${def.kind} ${recordId.toLowerCase()}`;
 
-    let written: { id: string; recipient: Recipient; values: Payload }[];
+    type Copy = { id: string | null; recipient: Recipient; values: Payload };
+    let written: Copy[];
+    const actor: { copy: Copy | null } = { copy: null };
     try {
       written = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         const record = await RECORDS[def.kind](tx, businessId, recordId.toLowerCase());
         if (!record) return [];
         const { recipients, clientName } = await recipientsOf(tx, businessId, sides, record);
-        const actor = input.actorUserId?.toLowerCase();
+        const actorId = input.actorUserId?.toLowerCase();
+        // The client who acted gets no bell item but keeps the email copy (a confirmation), once:
+        // a retried call with the same eventKey sends it again only if nothing was written before.
+        const acting = recipients.find((r) => r.userId === actorId && r.side === 'client');
+        if (acting && EMAIL_EVENTS.has(event)) {
+          const before = input.eventKey
+            ? await tx.notification.findFirst({
+                where: { businessId, eventKey: input.eventKey },
+                select: { id: true },
+              })
+            : null;
+          if (!before) actor.copy = { id: null, recipient: acting, values: record.values };
+        }
         const seen = new Set<string>();
         const to = recipients.filter(
-          (r) => r.userId !== actor && !seen.has(r.userId) && seen.add(r.userId),
+          (r) => r.userId !== actorId && !seen.has(r.userId) && seen.add(r.userId),
         );
         if (to.length === 0) return [];
         const rows = await tx.notification.createManyAndReturn({
@@ -347,12 +392,12 @@ export class Notifier {
       });
     } catch (error) {
       this.logger.warn(`${what}: not written (${errorName(error)})`);
-      return { written: 0 };
+      return { written: 0, failed: true };
     }
     if (written.length === 0) this.logger.log(`${what}: nobody to notify`);
 
     if (EMAIL_EVENTS.has(event)) {
-      for (const item of written) {
+      for (const item of actor.copy ? [actor.copy, ...written] : written) {
         if (item.recipient.side !== 'client' || !item.recipient.email) continue;
         await this.sendCopy(event as NotifyTemplate, businessId, item.id, item.recipient, {
           kind: def.kind,
@@ -386,7 +431,7 @@ export class Notifier {
   private async sendCopy(
     template: NotifyTemplate,
     businessId: string,
-    notificationId: string,
+    notificationId: string | null,
     recipient: Recipient,
     target: { kind: NotificationTargetKind; id: string; values: Payload },
   ): Promise<void> {
@@ -425,7 +470,7 @@ export class Notifier {
       } as NotifyMessage);
     } catch (error) {
       this.logger.warn(
-        `${template} email for notification ${notificationId} not sent (${errorName(error)})`,
+        `${template} email for ${notificationId ? `notification ${notificationId}` : `the actor of ${target.kind} ${target.id}`} not sent (${errorName(error)})`,
       );
     }
   }

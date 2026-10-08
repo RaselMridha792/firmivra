@@ -1,14 +1,17 @@
 // Unit: R6 step 7's text per event and stored type names, and step 5 in NotifyService (an off
 // channel is skipped; ALWAYS_SENT, ACCOUNT and messages without a recipient never ask).
 import { NOTIFICATION_EVENTS, type NotificationEvent } from '@firmivra/types';
+import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import {
   eventOfType,
   notificationText,
   storedType,
 } from '../../src/notifications/notification-text.js';
-import { FIRMIVRA_BRANDING } from '../../src/notify/branding.js';
+import { NotificationInputError, Notifier } from '../../src/notifications/notifier.js';
+import { BrandingSource, FIRMIVRA_BRANDING, UnknownFirmError } from '../../src/notify/branding.js';
 import { NotifyDeliveryError, SendingNotifyService } from '../../src/notify/notify.service.js';
+import { PreferenceSource } from '../../src/notify/preferences.js';
 import { NotifyTemplateError } from '../../src/notify/templates.js';
 import { FIRM_NAME, LINK_ORIGINS, SAMPLE_DATA } from './notify-fixtures.js';
 
@@ -89,18 +92,21 @@ describe('NotifyService and preferences (step 5)', () => {
   const USER_ID = '00000000-0000-4000-8000-000000000002';
   const TO = 'robin@example.test';
 
-  function setup(allows: () => Promise<boolean>) {
+  function setup(
+    allows: () => Promise<boolean>,
+    branding: Pick<BrandingSource, 'load'> = {
+      load: (id) =>
+        Promise.resolve(
+          id ? { ...FIRMIVRA_BRANDING, name: FIRM_NAME, isFirm: true } : FIRMIVRA_BRANDING,
+        ),
+    },
+  ) {
     const mails: unknown[] = [];
     const texts: unknown[] = [];
     const logger = { log: vi.fn(), warn: vi.fn() };
     const preferences = { allows: vi.fn(allows) };
     const notify = new SendingNotifyService({
-      branding: {
-        load: (id) =>
-          Promise.resolve(
-            id ? { ...FIRMIVRA_BRANDING, name: FIRM_NAME, isFirm: true } : FIRMIVRA_BRANDING,
-          ),
-      },
+      branding,
       preferences,
       email: {
         from: { name: null, address: 'no-reply@example.test' },
@@ -159,5 +165,103 @@ describe('NotifyService and preferences (step 5)', () => {
     expect(error).toBeInstanceOf(NotifyDeliveryError);
     expect(error).toMatchObject({ reason: 'PreferencesUnavailable:Error' });
     expect(JSON.stringify([String(error), down.logged()])).not.toContain(TO);
+  });
+
+  it('says "turn off emails like this" only to someone with an account who can', async () => {
+    const s = setup(() => Promise.resolve(true));
+    await s.notify.send(invoice);
+    await s.notify.send({ ...invoice, recipient: undefined });
+    const [toAccount, toAddress] = s.mails.map((m) => JSON.stringify(m));
+    expect(toAccount).toContain('turn off emails like this in your notification settings');
+    expect(toAddress).not.toContain('notification settings');
+  });
+
+  it('an unknown or malformed firm is UnknownFirmError before any preference is read', async () => {
+    const noFirm = new BrandingSource({
+      forBusiness: () => ({
+        business: { findUnique: () => Promise.resolve(null) },
+        businessSettings: { findUnique: () => Promise.resolve(null) },
+      }),
+    } as never);
+    for (const businessId of ["x' OR 1=1 --", FIRM_ID]) {
+      const s = setup(() => Promise.resolve(false), noFirm);
+      const error = await s.notify.send({ ...invoice, businessId }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(UnknownFirmError);
+      expect(s.preferences.allows).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('PreferenceSource', () => {
+  const FIRM_ID = '00000000-0000-4000-8000-000000000001';
+  const USER_ID = '00000000-0000-4000-8000-000000000002';
+
+  it('the locked ACCOUNT category always goes out, without a query, on both channels', async () => {
+    const forBusiness = vi.fn(() => {
+      throw new Error('queried');
+    });
+    const source = new PreferenceSource({ forBusiness } as never);
+    for (const channel of ['email', 'sms'] as const) {
+      await expect(source.allows(FIRM_ID, { userId: USER_ID }, 'ACCOUNT', channel)).resolves.toBe(
+        true,
+      );
+    }
+    expect(forBusiness).not.toHaveBeenCalled();
+  });
+
+  it("reads the person's own choice, and the defaults (email on, SMS off) without one", async () => {
+    const row = { email: false, sms: true };
+    const findUnique = vi.fn(() => Promise.resolve<typeof row | null>(row));
+    const source = new PreferenceSource({
+      forBusiness: () => ({ notificationPreference: { findUnique } }),
+    } as never);
+    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'email')).toBe(false);
+    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'sms')).toBe(true);
+    findUnique.mockResolvedValue(null);
+    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'email')).toBe(true);
+    expect(await source.allows(FIRM_ID, { userId: USER_ID }, 'BILLING', 'sms')).toBe(false);
+  });
+});
+
+describe('Notifier input and failures', () => {
+  const FIRM_ID = '00000000-0000-4000-8000-000000000001';
+  const RECORD_ID = '00000000-0000-4000-8000-000000000003';
+
+  function notifierWith(withScope: () => Promise<unknown>) {
+    const send = vi.fn(() => Promise.resolve());
+    const database = { withScope: vi.fn(withScope) };
+    return { notifier: new Notifier(database as never, { send }, {} as never), send, database };
+  }
+
+  it('a message goes one way: message.received needs audience client or staff', async () => {
+    const { notifier, database } = notifierWith(() => Promise.resolve([]));
+    for (const audience of [undefined, 'both'] as const) {
+      await expect(
+        notifier.notify({
+          businessId: FIRM_ID,
+          event: 'message.received',
+          recordId: RECORD_ID,
+          ...(audience ? { audience } : {}),
+        }),
+      ).rejects.toBeInstanceOf(NotificationInputError);
+    }
+    expect(database.withScope).not.toHaveBeenCalled();
+  });
+
+  it('a database failure is { written: 0, failed: true }, logged with ids only', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const { notifier, send } = notifierWith(() =>
+        Promise.reject(new Error('timeout for robin@example.test')),
+      );
+      expect(
+        await notifier.notify({ businessId: FIRM_ID, event: 'invoice.sent', recordId: RECORD_ID }),
+      ).toEqual({ written: 0, failed: true });
+      expect(send).not.toHaveBeenCalled();
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('robin@');
+      expect(JSON.stringify(warn.mock.calls)).toContain(RECORD_ID);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -99,20 +99,28 @@ info:
       has no assignee (none, or no longer active) or the record has no client (a sign-up waiting,
       `staff.joined`). The client's row is locked `FOR SHARE` while the recipients are chosen.
       `account.password-changed` reaches only that person, and only with a place in the firm.
-      The person who caused the event (`actorUserId`) is never told of their own action.
+      The person who caused the event (`actorUserId`) gets no bell item for their own action; a
+      client who acted still gets the event's email copy (the confirmation of a booking or a
+      payment), once per `eventKey`.
     - The helper: `Notifier.notify({ businessId, event, recordId, audience?, actorUserId?,
       eventKey? })` (`apps/api/src/notifications/notifier.ts`), called after the caller's change
       commits. It reads the record (of the event's kind) in the firm's own scope: its client, the
       recipients and the safe values for the text. Callers never pass a URL, a client id or text.
-      `audience` picks the side of a `both` event (a client's message reaches the firm). It
-      rejects only a programming error (`NotificationInputError`); a database or delivery failure
-      is logged with ids only and the caller's change stands. `eventKey` makes a retry write
-      nothing new (and send no second email).
+      `audience` picks the side of a `both` event. `message.received` goes one way (the
+      client's message reaches the firm, the firm's reaches the client), so its `audience` is
+      required and must be `client` or `staff`. It rejects only a programming error
+      (`NotificationInputError`); a database or delivery failure is logged with ids only and the
+      caller's change stands. It resolves `{ written }` (0 when there is nobody to notify), and
+      `{ written: 0, failed: true }` when the bell items could not be written, so a job retries
+      the same call. `eventKey` makes a retry write nothing new (and send no second email). The
+      bell item never depends on preferences (there is no in-app switch).
     - Email copies: events named like a NotifyService template (`document.requested`,
       `appointment.*`, `invoice.sent`, `payment.received`) send that email to each new client
       recipient's login address, with a portal link built by `notificationLink`. The templates are
       written for clients, so staff get bell items only. NotifyService skips the email when the
-      person switched the category off (step 5).
+      person switched the category off (step 5). An email says "You can turn off emails like
+      this" only when it names a `recipient` (an account with preferences) and is not
+      `ALWAYS_SENT`; NotifyService checks the firm (UnknownFirmError) before it reads them.
     - Every query filters by the firm (`TenantPrisma.db`) **and** `recipient_user_id` = the
       caller's user. Tenant-isolation e2e: firm B's member gets `404` for firm A's notification,
       and so does a second member of the same firm; a client of firm A gets `404` at firm B's
