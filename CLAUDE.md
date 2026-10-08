@@ -22,7 +22,7 @@ Firmivra is one multi-tenant platform shared by many businesses. Each business (
 - `docs/PROJECT-DRAFT-v2.md`: scope, the 62 screens, security requirements, API outline, acceptance criteria.
 - `docs/AUTH-DESIGN.md`: Cognito pools, sign-in flow, cookies, guards (see "Authentication" below).
 - `docs/SCRUM-PLAN.md`: team, process, sprints, Definition of Ready and Done.
-- `docs/mockups/{begin-online,client-portal,super-admin}/`: Octavia's mockups. Screens must match them.
+- `docs/mockups/{begin-online,client-portal,super-admin,firm-workspace}/`: Octavia's mockups. Screens must match them.
 - `docs/specs/`: Octavia's written instructions (.docx) for each area.
 - `docs/tasks/<NAME>.md`: each developer's ticket plan.
 

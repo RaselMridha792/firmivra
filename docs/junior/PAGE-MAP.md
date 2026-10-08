@@ -124,7 +124,7 @@ Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 | `/{firm}/resources/payroll` | `(client)/resources/payroll/page.tsx` | Nahid | N10 | `payroll_resources_dashboard.png` |
 | `/{firm}/resources/tax-deductions` | `(client)/resources/tax-deductions/page.tsx` | Nahid | N10 | `LVP_Tax_Deductions_Small_Businesses.png` |
 | `/{firm}/resources/external-links` | `(client)/resources/external-links/page.tsx` | Nahid | N09 | `External links .png` |
-| `/{firm}/calculator` | `(client)/calculator/page.tsx` | Nahid | N10 | none |
+| `/{firm}/calculator` | `(client)/calculator/page.tsx` | R14 | calculators (Oct 18 plan) | none |
 | `/{firm}/notifications` | `(client)/notifications/page.tsx` | Nahid | N10 | none |
 
 Sidebar: Home, My Documents, Intake Forms, Messages (unread count), Appointments, Invoices & Payments, My Services, My Profile, Log Out.
@@ -150,7 +150,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/components/auth/`, `apps/web/src/components/sign-in-panel.tsx`, `apps/web/src/components/notification-bell.tsx`
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
-- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/`, `sign-ups/`, `messages/`, `invoices/`, `workspaces/`
+- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's), `sign-ups/`, `messages/`, `invoices/`, `workspaces/`
 - `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
 **Tumit**
@@ -163,8 +163,8 @@ These are the only files a PR from your branch may change. A folder means everyt
 
 **Nahid**
 - `apps/web/src/app/portal/[firmSlug]/layout.tsx`
-- `apps/web/src/app/portal/[firmSlug]/(public)/`, except `begin/`
-- `apps/web/src/app/portal/[firmSlug]/(client)/`, except `appointments/` and `home/`
+- `apps/web/src/app/portal/[firmSlug]/(public)/`, except `begin/` and `calculators/` (R14's)
+- `apps/web/src/app/portal/[firmSlug]/(client)/`, except `appointments/`, `home/`, `calculator/` (R14's) and `signatures/` (R13-web's)
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
 **Arfan**
