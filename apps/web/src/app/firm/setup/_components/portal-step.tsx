@@ -2,27 +2,37 @@
 
 import type { FirmSettings } from '@firmivra/types';
 import { Badge, Checkbox, Input } from '@firmivra/ui';
+import { MonitorSmartphone } from 'lucide-react';
 import { BrandPreview } from './brand-preview';
 import { TextArea } from './fields';
 import type { StepProps } from './shared';
-import { StepFrame, useStepForm } from './step-form';
+import { type StepForm, StepFrame, useStepForm } from './step-form';
+
+export const portalValues = (firm: FirmSettings) => ({
+  portalHeader: firm.portalHeader ?? '',
+  welcomeMessage: firm.welcomeMessage ?? '',
+  clientSignUpEnabled: firm.clientSignUpEnabled,
+});
 
 /** Step 4: what clients see first on the portal, and whether they may sign up themselves. */
 export function PortalStep({ firm, onBack, onNext }: StepProps & { firm: FirmSettings }) {
-  const stepForm = useStepForm(
-    'clientPortal',
-    {
-      portalHeader: firm.portalHeader ?? '',
-      welcomeMessage: firm.welcomeMessage ?? '',
-      clientSignUpEnabled: firm.clientSignUpEnabled,
-    },
-    onNext,
-  );
-  const { form } = stepForm;
-  const [header, welcome] = form.watch(['portalHeader', 'welcomeMessage']);
-
+  const stepForm = useStepForm('clientPortal', portalValues(firm), onNext);
   return (
-    <StepFrame title="Client portal" stepForm={stepForm} onBack={onBack}>
+    <StepFrame title="Client portal" icon={MonitorSmartphone} stepForm={stepForm} onBack={onBack}>
+      <PortalFields form={stepForm.form} firm={firm} />
+    </StepFrame>
+  );
+}
+
+/** Also Settings > Client portal. */
+export function PortalFields({ form, firm }: { form: StepForm; firm: FirmSettings }) {
+  const [header, welcome, signUp] = form.watch([
+    'portalHeader',
+    'welcomeMessage',
+    'clientSignUpEnabled',
+  ]);
+  return (
+    <>
       <Input
         label="Portal heading"
         placeholder={`Welcome to ${firm.portalName ?? `${firm.name} Client Portal`}`}
@@ -47,7 +57,8 @@ export function PortalStep({ firm, onBack, onNext }: StepProps & { firm: FirmSet
         accent={firm.accentColor}
         header={header}
         welcome={welcome}
+        signUp={signUp}
       />
-    </StepFrame>
+    </>
   );
 }

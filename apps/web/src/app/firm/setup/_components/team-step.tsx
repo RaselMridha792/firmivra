@@ -3,6 +3,7 @@
 import { CreateInviteRequest, type FirmSettings } from '@firmivra/types';
 import { Badge, Button, Card, Input, Select } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { UsersRound } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { PageState } from '../../../../components/page-state';
@@ -12,9 +13,9 @@ import { staffAuth } from '../../../../lib/auth';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../lib/query';
 import { FIRM_SETTINGS, SETUP_ERRORS, TEAM, type StepProps } from './shared';
-import { StepActions } from './step-form';
+import { StepActions, StepTitle } from './step-form';
 
-const ROLE_LABELS = { OWNER: 'Owner', ADMIN: 'Admin', STAFF: 'Staff' } as const;
+export const ROLE_LABELS = { OWNER: 'Owner', ADMIN: 'Admin', STAFF: 'Staff' } as const;
 
 /** Step 3: who is on the team, and invites. Owners invite Admins or Staff; Admins invite Staff. */
 export function TeamStep({ firm, onBack, onNext }: StepProps & { firm: FirmSettings }) {
@@ -28,7 +29,10 @@ export function TeamStep({ firm, onBack, onNext }: StepProps & { firm: FirmSetti
   });
 
   return (
-    <Card title="Team and access" className="flex flex-col gap-4">
+    <Card
+      title={<StepTitle icon={UsersRound}>Team and access</StepTitle>}
+      className="flex flex-col gap-4"
+    >
       <p className="text-sm text-muted">
         Invite the people who work with you. Each one gets an email to set up their sign-in.
       </p>
@@ -85,7 +89,7 @@ export function TeamStep({ firm, onBack, onNext }: StepProps & { firm: FirmSetti
   );
 }
 
-function InviteForm({ roles }: { roles: ('ADMIN' | 'STAFF')[] }) {
+export function InviteForm({ roles }: { roles: ('ADMIN' | 'STAFF')[] }) {
   const form = useForm({
     resolver: zodResolver(CreateInviteRequest),
     defaultValues: { name: '', email: '', role: 'STAFF' as const },

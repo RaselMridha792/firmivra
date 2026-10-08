@@ -2,9 +2,10 @@
 
 import { ENTITY_TYPES, FIRM_SERVICES, type FirmSettings } from '@firmivra/types';
 import { Checkbox, Input, Select } from '@firmivra/ui';
+import { Building2 } from 'lucide-react';
 import { TextArea } from './fields';
 import type { StepProps } from './shared';
-import { LockedName, StepFrame, useStepForm } from './step-form';
+import { LockedName, type StepForm, StepFrame, useStepForm } from './step-form';
 
 const TEXT_FIELDS = [
   ['name', 'Display name (DBA)'],
@@ -21,24 +22,29 @@ const TEXT_FIELDS = [
 /** A blank select or number is left out, so Save draft works before it is filled in. */
 const blankAsMissing = (value: string) => (value === '' ? undefined : value);
 
+export const businessValues = (firm: FirmSettings) => ({
+  ...Object.fromEntries(TEXT_FIELDS.map(([field]) => [field, firm[field] ?? ''])),
+  entityType: firm.entityType ?? undefined,
+  teamSize: firm.teamSize ?? undefined,
+  services: firm.services,
+  description: firm.description ?? '',
+});
+
 /** Step 2: the details from the application. The EIN is write-only: only its last 4 come back. */
 export function BusinessStep({ firm, onBack, onNext }: StepProps & { firm: FirmSettings }) {
-  const stepForm = useStepForm(
-    'businessDetails',
-    {
-      ...Object.fromEntries(TEXT_FIELDS.map(([field]) => [field, firm[field] ?? ''])),
-      entityType: firm.entityType ?? undefined,
-      teamSize: firm.teamSize ?? undefined,
-      services: firm.services,
-      description: firm.description ?? '',
-    },
-    onNext,
-  );
-  const { form } = stepForm;
-  const errors = form.formState.errors;
-
+  const stepForm = useStepForm('businessDetails', businessValues(firm), onNext);
   return (
-    <StepFrame title="Business details" stepForm={stepForm} onBack={onBack}>
+    <StepFrame title="Business details" icon={Building2} stepForm={stepForm} onBack={onBack}>
+      <BusinessFields form={stepForm.form} firm={firm} />
+    </StepFrame>
+  );
+}
+
+/** Also Settings > Profile. */
+export function BusinessFields({ form, firm }: { form: StepForm; firm: FirmSettings }) {
+  const errors = form.formState.errors;
+  return (
+    <>
       <LockedName firm={firm} />
       <div className="grid gap-4 sm:grid-cols-2">
         {TEXT_FIELDS.map(([field, label]) => (
@@ -90,6 +96,6 @@ export function BusinessStep({ firm, onBack, onNext }: StepProps & { firm: FirmS
         error={errors.description?.message}
         {...form.register('description')}
       />
-    </StepFrame>
+    </>
   );
 }
