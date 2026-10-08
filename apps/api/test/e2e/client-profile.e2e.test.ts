@@ -415,6 +415,7 @@ describe('portal: My Profile', () => {
       portalRole: 'AUTHORIZED',
       fullName: 'Fake Person',
       dateOfBirth: null,
+      dateOfBirthUnavailable: false,
       email: people.authorized.email,
       phone: null,
       address: {
