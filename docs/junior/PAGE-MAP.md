@@ -43,6 +43,7 @@ Pages without the sidebar:
 | `/apply` | `firm/apply/page.tsx` | Tumit | N04 | none |
 | `/apply/done` | `firm/apply/done/page.tsx` | Tumit | N04 | none |
 | `/setup` | `firm/setup/page.tsx` (signed in, own layout without the sidebar) | Tumit | F05 | none |
+| `/firm-sign/in-person/[requestId]` (kiosk: the client signs on the staff's device) | `firm/(kiosk)/firm-sign/in-person/[requestId]/page.tsx` and `firm/(kiosk)/layout.tsx` | R13 | Firm Sign | Firm Sign spec |
 
 Pages with the sidebar, in `firm/(workspace)/`:
 
@@ -65,15 +66,30 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/calendar` | `(workspace)/calendar/page.tsx` | Tumit | F09 | none |
 | `/team` | `(workspace)/team/page.tsx` | Tumit | F05 | none |
 | `/audit-log` (Owner and Admin) | `(workspace)/audit-log/page.tsx` | Tumit | F12 | none |
+| `/firm-sign` (dashboard) | `(workspace)/firm-sign/page.tsx` | R13 | Firm Sign | `FirmSign_Dashboard_Mockup.png` (Octavia's Oct 8 files) |
+| `/firm-sign/new` | `(workspace)/firm-sign/new/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/firm-sign/requests` | `(workspace)/firm-sign/requests/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/firm-sign/requests/[id]` | `(workspace)/firm-sign/requests/[id]/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/firm-sign/requests/[id]/prepare` | `(workspace)/firm-sign/requests/[id]/prepare/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/firm-sign/templates` | `(workspace)/firm-sign/templates/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/firm-sign/templates/[id]` | `(workspace)/firm-sign/templates/[id]/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/firm-sign/bulk` | `(workspace)/firm-sign/bulk/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/firm-sign/reports` | `(workspace)/firm-sign/reports/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/firm-sign/settings` | `(workspace)/firm-sign/settings/page.tsx` | R13 | Firm Sign | Firm Sign spec |
+| `/clients/[id]/signatures` | `(workspace)/clients/[id]/signatures/page.tsx` | R13 | Firm Sign | Firm Sign spec |
 | `/settings` | `(workspace)/settings/layout.tsx` (settings menu) and `route.ts` (`/settings` opens Profile) | R1 | | |
 | `/settings/profile` | `(workspace)/settings/profile/page.tsx` | Tumit | F05 | none |
 | `/settings/branding` | `(workspace)/settings/branding/page.tsx` | Tumit | F05 | none |
 | `/settings/portal` | `(workspace)/settings/portal/page.tsx` | Tumit | F05 | none |
 | `/settings/legal` | `(workspace)/settings/legal/page.tsx` | Tumit | F05 | none |
 | `/settings/availability` | `(workspace)/settings/availability/page.tsx` | Tumit | F09 | none |
+| `/settings/payments` (Owner connects, Admin reads only, Staff never see it) | `(workspace)/settings/payments/page.tsx` | R16 | R7 Stripe | none |
 | `/settings/tax-statuses` | `(workspace)/settings/tax-statuses/` (the reference screen) | R1 | kit | none |
 
 Sidebar: Dashboard, Clients, Sign-ups, Leads, Messages, Calendar, Invoices, Workspaces, Team, Audit log, Settings. Sign-ups, Team, Audit log and Settings show only for Owner and Admin.
+
+- "Firm Sign" shows only when `api.esign.status()` says enabled. Fahad adds that menu line in F06, with the client page's "Send for Signature" button and its "Signatures" tab link.
+- "Payments" (Owner and Admin) is one line in `settings/layout.tsx`. R16 adds it in the /settings/payments PR; the rest of that file stays R1's.
 
 ## Client portal: portal.dev.firmivra.com/{firm}
 
@@ -102,6 +118,18 @@ Public pages (firm header and footer, no sidebar), in `portal/[firmSlug]/(public
 | `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | Arfan | N07c | none |
 | `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | Arfan | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
 | form blocks for all six services | `(public)/begin/_blocks/` | Arfan | N07a | |
+| `/{firm}/calculators` (hub) | `(public)/calculators/page.tsx` | R14 | calculators | none yet |
+| `/{firm}/calculators/tax-return` | `(public)/calculators/tax-return/page.tsx` | R14 | calculators | none yet |
+| `/{firm}/calculators/quarterly-estimate` | `(public)/calculators/quarterly-estimate/page.tsx` | R14 | calculators | none yet |
+| `/{firm}/calculators/tax-bracket` | `(public)/calculators/tax-bracket/page.tsx` | R14 | calculators | none yet |
+
+The public calculator pages need no sign-in, and the firm's `calculators` module must be on.
+
+Signer pages (firm branding, no sidebar, no sign-in, noindex), in `portal/[firmSlug]/(signing)/`:
+
+| URL | File | Owner | Ticket | Mockup |
+| --- | --- | --- | --- | --- |
+| `/{firm}/sign` (the signing link; the token stays in the URL fragment) | `(signing)/sign/page.tsx` and `(signing)/layout.tsx` | R13 | Firm Sign | Firm Sign spec |
 
 Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 
@@ -124,10 +152,15 @@ Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 | `/{firm}/resources/payroll` | `(client)/resources/payroll/page.tsx` | Nahid | N10 | `payroll_resources_dashboard.png` |
 | `/{firm}/resources/tax-deductions` | `(client)/resources/tax-deductions/page.tsx` | Nahid | N10 | `LVP_Tax_Deductions_Small_Businesses.png` |
 | `/{firm}/resources/external-links` | `(client)/resources/external-links/page.tsx` | Nahid | N09 | `External links .png` |
-| `/{firm}/calculator` | `(client)/calculator/page.tsx` | R14 | calculators (Oct 18 plan) | none |
+| `/{firm}/calculator` (the signed-in hub) | `(client)/calculator/page.tsx` | R14 | calculators | none yet |
+| `/{firm}/calculator/tax-return` | `(client)/calculator/tax-return/page.tsx` | R14 | calculators | none yet |
+| `/{firm}/calculator/quarterly-estimate` | `(client)/calculator/quarterly-estimate/page.tsx` | R14 | calculators | none yet |
+| `/{firm}/calculator/tax-bracket` | `(client)/calculator/tax-bracket/page.tsx` | R14 | calculators | none yet |
+| `/{firm}/signatures` (Signature center) | `(client)/signatures/page.tsx` | R13 | Firm Sign | Firm Sign spec |
 | `/{firm}/notifications` | `(client)/notifications/page.tsx` | Nahid | N10 | none |
 
 Sidebar: Home, My Documents, Intake Forms, Messages (unread count), Appointments, Invoices & Payments, My Services, My Profile, Log Out.
+Nahid adds two menu lines in `(client)/layout.tsx`: "Signatures", shown only when `api.esign.status()` says enabled, and "Tax Calculators", shown only when the client's calculator list isn't empty. R14 owns the eight calculator files (the public hub and three calculators, the signed-in hub and three calculators).
 Folder tabs: Intake Form, Business Documents & Resources, My Uploaded Documents, Tax Returns, Receipts & Invoices, Messages and Notes.
 
 ## Shared code
