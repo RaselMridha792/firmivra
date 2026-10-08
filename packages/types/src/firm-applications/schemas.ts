@@ -184,7 +184,8 @@ export const SubmitFirmApplicationRequest = z
     }),
     /** The person who becomes the firm's owner (first Firm Admin) after approval. */
     primaryAdmin: z.strictObject({
-      fullName: text(200, 'one', 'Enter the full name'),
+      /** At most 120 characters on one line: the owner invite's name rule (#52's invites_name). */
+      fullName: text(120, 'one', 'Enter the full name'),
       email: Email,
       phone: Phone,
       title: clearable(text(100)),
@@ -353,7 +354,10 @@ export type FirmApplicationCounts = z.infer<typeof FirmApplicationCounts>;
  */
 export const FirmApplicationCheck = z.object({
   key: z.enum([
-    /** Another application or firm has the same EIN (keyed hash). SKIPPED without an EIN. */
+    /**
+     * Another application has the same EIN (keyed hash; a firm keeps its EIN encrypted with its
+     * own key, so firms aren't compared). SKIPPED without an EIN.
+     */
     'DUPLICATE_EIN',
     /** Another application or firm has the same legal name. */
     'DUPLICATE_NAME',

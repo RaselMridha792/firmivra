@@ -172,6 +172,19 @@ describe('api.firmApplications: submit', () => {
     ['a team size of 0', { account: { ...application().account, teamSize: 0 } }],
     ['a team size that is not a number', { account: { ...application().account, teamSize: true } }],
     ['an unknown field', { businessId: id }],
+    // The owner invite's name rule (#52's invites_name), so approve never fails on it.
+    [
+      'an administrator name over 120 characters',
+      { primaryAdmin: { ...application().primaryAdmin, fullName: 'J'.repeat(121) } },
+    ],
+    [
+      'a control character in the administrator name',
+      { primaryAdmin: { ...application().primaryAdmin, fullName: 'Jordan\u0007Sample' } },
+    ],
+    [
+      'a line break in the legal name',
+      { business: { ...application().business, legalName: 'Sample\nTax' } },
+    ],
   ])('refuses %s before sending', async (_, change) => {
     const { fn, calls } = fakeFetch(201, { received: true });
     const body = { ...application(), ...change } as SubmitFirmApplicationRequest;
