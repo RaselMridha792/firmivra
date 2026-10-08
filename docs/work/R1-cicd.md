@@ -43,7 +43,57 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
 
 ## Needs from others
 
+Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
+
+- **Rasel: `aws sso login --profile firmivra-dev`, then tell R1.** R1 then:
+  - runs the real `cdk diff` for #101 (read-only), posts it on the PR, and checks that no user pool, client, database or bucket is replaced;
+  - runs R2's leaked-password dev test. It needs a dev account whose inbox Rasel reads: its password is reset to a known leaked one, the API must answer `RESET_CODE_INVALID` (docs/api/auth.yaml), and Cognito's auth events must show the compromised-credentials block.
+- **Rasel: #101's order after the diff.**
+  1. The two bootstrap policy versions (his commands in the PR).
+  2. The merge, which deploys `firmivra-dev-app`; R1 watches the run.
+  3. `cdk deploy firmivra-dev-auth` and one real password reset.
+  4. The LVP key one-off, then its `--check`.
+  5. One firm application on dev from a verified sandbox address: the received email must arrive, and `/firmivra/dev/api` must have no "could not be sent" line.
+- **Rasel, yes or no: workflow changes in R1's paths.**
+  - `path-guard.yml`: add `apps/web/src/app/firm/(workspace)/audit-log/` to Tumit's paths before he starts F12. PAGE-MAP already lists it (#99).
+  - `ci.yml`: an s3mock service, so the documents adapter's S3 round trip also runs in CI (today it is skipped there).
+- **Rasel, yes or no: infra, after #101.** `SCAN_MODE=local` on the dev API task. Without it, every dev upload stays "checking" until GuardDuty. The API allows local mode in production only when `APP_ENV=dev`.
+- **Rasel, later: R5's infra, each with a cdk diff first.**
+  - GuardDuty Malware Protection for S3, its EventBridge rule and SQS queue, and the alarm.
+  - Expiry for unconfirmed uploads: a tag on the PUT, `s3:PutObjectTagging` and `s3:DeleteObjectTagging` for the API, and a tag-filtered lifecycle rule.
+  - Per-firm KMS keys for S3 objects, each tied to its `tenant/{businessId}/` prefix.
+- **Rasel:** who gives a new firm its default document categories (R4's approve, or R0), plus a one-off for LVP on dev. Today only the seed makes them (from #118's review).
+
 - R8: the notes in R8-hardening.md "Decisions and notes (Oct 8)" (prod SES, sign-up and SMS alarms, KMS key count).
+
+## Handoff (R1 session, Oct 8 evening)
+
+Where R1 (also acting as R4, R5, R6 and R7) stands, for a fresh session or after a context reset. Newest state first.
+
+- **Open PRs:**
+  - #101: infra (firm keys, the LVP key command, the EIN-hash secret, Cognito reset emails through SES). The real `cdk diff` is posted on it, and Rasel did step 1 himself: both bootstrap policies are at v2, with `email.cognito-idp` in them. It waits for the cloud review and Rasel's merge. Steps 3 to 5 and R2's leaked-password test (with a throwaway staff user) come as Rasel's "From me, follow it." block. Merging it deploys `firmivra-dev-app`; R1 watches that run.
+  - #118: R5 documents API part 1, the firm side. The lead's review and the cloud review are fixed (head `22d1ee2`); it waits for the cloud OK.
+  - #124: this file's "Needs from others", the R4 approve plan and this handoff.
+- **Being built:** R5 part 2, branch `rasel/R5-documents-api-part2`, stacked on #118: the portal routes with the household rule, the request routes, the request path of confirm, and the scan-result method with q22 and q24. Its first commit, `MyDocument.uploadedBy`, goes out as its own contract PR from main after #124 merges. The API PR opens when a slot is free (at most 2 open).
+- **Next, in order (Scrum, Oct 8):**
+  1. R5 part 2.
+  2. R6's remaining NotifyService work: email and SMS for invites, document requests and reminders. A staff event never reaches Staff who aren't assigned to the client (q27).
+  3. R4 approve, from the plan in R4's file. It also creates the default document categories; LVP on dev gets them through a one-off task, after telling Rasel.
+- **After #101 merges** (Rasel's yes, Oct 8): four small PRs, one at a time, each with its real `cdk diff` where it touches AWS:
+  - (a) `audit-log/` under Tumit in `path-guard.yml`;
+  - (b) an s3mock service in `ci.yml`;
+  - (c) `SCAN_MODE=local` on the dev API task only;
+  - (d) R5's infra: GuardDuty with its result queue and alarm, expiry for unconfirmed uploads, and per-firm document keys.
+
+  Any AWS step or deploy outside Deploy dev goes to Rasel first.
+
+- **Answered by Rasel (Oct 8):** yes to (a) to (d); R4's approve makes the default categories; q22 to q24 for documents; q12 household logins.
+- **Local:**
+  - The R1 checkout `F:/firmivra-R1` uses database `firmivra_r1b`. Prisma refuses an AI-run `migrate reset` without Rasel's own consent, so the old `firmivra_r1` is left for Rasel to drop.
+  - `.env` has the `.env.example` `EIN_HASH_KEY`; local uploads need `SCAN_MODE=local`.
+  - One worktree only, one heavy command at a time, at most 2 agents (Rasel, Oct 8).
+- **Saved work:** `C:/Users/RASEL/firmivra-wip-patches/rasel_R4-api-approve.patch` (approve; adapt it to the plan in R4's file).
+- **Deploy dev:** R1 watches every run, and only R1 starts, cancels or re-runs one. A pending run cancelled by a newer push is normal; the newer run ships both.
 
 ## Progress log
 
@@ -172,5 +222,6 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   - Checks on a local scratch merge with #58 (head 154b519, never pushed): lint and typecheck clean; test:e2e 30/30 (one earlier run lost sites' portal test to a cold compile; it passes alone and on the re-run). test:e2e:mock 4/5: #58's `tumit-dashboard` expects 3 pending applications, but R4's mock on main (#79) now has 4; it fails the same way on main + #58 without this branch, so #58 needs that update.
   - `next build` with `NEXT_PUBLIC_API_MOCK=all`, on this branch and on the scratch merge: no `morgan.admin@example.test` and no `0199b6a2-0000-7000-8000-0000000000a1` in `.next/static`.
 - 2026-10-08, finding (not fixed here): a production build of main already carries sample text from mocks in a client chunk (Jamie Sample, Sam Staff, john@example.com, Mock User). It comes through imports between mock files (`mockMe` from appointments.ts in tasks.ts, `clientFixtures`, `taxStatusFixtures`) and the hoisted `portalAuthMock` in lib/auth.ts. Mock behaviour stays off and the data is invented, but it breaks the "no mock strings in .next/static" rule from the lazy-mocks work (Oct 7).
+- 2026-10-08 evening: Rasel's new setup: only R0 and R1 run, the cloud threads review on GitHub, and Rasel merges. BOARD.md is closed, so R1's questions for Rasel are now under "Needs from others" here. Merged today: #91, #99, #106, #107, #110, #112, #113 (and #79 and #81). #101 and #118 are open. Every Deploy dev run since #99 was green.
 - 2026-10-08, step 14: branch `rasel/R1-kms-secret-ses` (main merged at b482fc9). API task role: six tag-conditioned `FirmKeys*` statements (create, tag at creation, alias name, env keys, use with the encryption-context rule, deny the lockout bypass) and `APP_ENV`; R4's EIN-hash secret `firmivra/dev/firm-applications/ein-hash-key` as `EIN_HASH_KEY` (app stack, retained, never rotated); Cognito reset codes through SES with the decided wording; `email.cognito-idp.amazonaws.com` in both bootstrap policies. In R4's module: the FirmKeys adapter and the `create-firm-key` command (with `--check`). R10's KMS need is covered (dev, once LVP has its key); R6 q18's code change is left for R6's next PR. No `cdk diff` against AWS yet (the SSO session had expired); local synth and tests pass.
 - 2026-10-08, step 14 review fixes (three findings, all real): the adapter now checks every key it adopts by its alias (customer key of this account, `AWS_KMS`, one Region, symmetric, exactly the firm's tags, KMS's default key policy, no grants) and sends `Origin` and `MultiRegion`; CreateKey requires `kms:KeyOrigin=AWS_KMS` and `kms:MultiRegion=false`; tagging can no longer rewrite a firm tag (`StringEqualsIfExists` against the requested values), nor touch a CDK key; alias and use need a firm key (env and purpose tags, `AWS_KMS`, one Region); a read-only statement for the adapter's checks (seven `FirmKeys*` statements now). SETUP-LOG step 14 has the exact commands (diffs, policy versions, the one-off task, log reading, read-only checks) and a rollback per item. `cdk diff` still not run (SSO expired); Rasel runs it before review.
