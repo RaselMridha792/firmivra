@@ -7,7 +7,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { portalCookies } from '@firmivra/types';
 import {
   AllowBusinessStatuses,
@@ -131,7 +131,7 @@ async function createApp(controllers: unknown[]) {
 }
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   pendingFirm = await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [p, pool] of [
       [people.pendingOwner, 'STAFF'],
@@ -224,7 +224,7 @@ describe('firm routes', () => {
 
 describe('firm from the portal slug only; client id from the session (#25 review)', () => {
   it("gives a client their own ClientAccount id, whatever the slug's letter case", async () => {
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const account = await runInScope(owner, { kind: 'business', businessId: fx.firmA.id }, (tx) =>
       tx.clientAccount.findFirstOrThrow({
         where: { userId: fx.users.clientA.id },

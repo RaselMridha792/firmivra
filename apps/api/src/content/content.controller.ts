@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Module,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -115,7 +116,8 @@ export class MyContentController {
     @CurrentTenant() tenant: TenantContext,
     @Query(new ZodValidationPipe(MyListQuery)) query: z.output<typeof MyListQuery>,
   ): Promise<MyContentList> {
-    if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
+    if (tenant.kind !== 'client')
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
     return { items: await this.content.mine(tenant.businessId, tenant.clientAccountId, query) };
   }
 }

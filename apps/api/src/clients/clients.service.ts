@@ -2,8 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  HttpException,
-  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -11,6 +9,7 @@ import {
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   ClientListItem,
+  ClientProfile,
   ClientRecord,
   CreateClientRequest,
   ListClientsQuery,
@@ -22,6 +21,15 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockClientEmails } from '../client-auth/client-records.js';
+import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { reassignClientTasks } from '../workspaces/tasks.service.js';
+import { uuidv7 } from './client-ids.js';
+import {
+  changedFields,
+  readDateOfBirth,
+  readDateOfBirthAfterWrite,
+  secretColumns,
+} from './client-secrets.js';
 
 type ListQuery = z.output<typeof ListClientsQuery>;
 type CreateBody = z.output<typeof CreateClientRequest>;
@@ -41,17 +49,6 @@ const duplicateEmail = () =>
   new ConflictException({ code: 'DUPLICATE_EMAIL', message: 'Another client has this email' });
 const archived = () =>
   new ConflictException({ code: 'CLIENT_ARCHIVED', message: 'Restore the client first' });
-
-/** SSN, EIN and date of birth are stored through the field-encryption helper from step 4. */
-const sensitiveNotReady = () =>
-  new HttpException(
-    {
-      code: 'NOT_IMPLEMENTED',
-      message:
-        'SSN, EIN and date of birth can be saved soon. Save the client without them for now.',
-    },
-    HttpStatus.NOT_IMPLEMENTED,
-  );
 
 /** LIKE wildcards in a search term are plain characters (Prisma's `contains` does not escape). */
 export function likeEscape(term: string): string {
@@ -119,7 +116,8 @@ function toListItem(row: ListRow): ClientListItem {
   };
 }
 
-function toRecord(row: RecordRow): ClientRecord {
+/** `dateOfBirth`: decrypted by the caller (firm staff see it in full). */
+function toRecord(row: RecordRow, dateOfBirth: string | null): ClientRecord {
   const p = row.profile;
   const primary = row.accounts.find((a) => a.portalRole === 'PRIMARY');
   return {
@@ -131,8 +129,7 @@ function toRecord(row: RecordRow): ClientRecord {
       preferredName: p?.preferredName ?? null,
       businessName: p?.businessName ?? null,
       entityType: p?.entityType ?? null,
-      // Decrypted through the field-encryption helper from R10 step 4; nothing stores it before.
-      dateOfBirth: null,
+      dateOfBirth,
       ssnLast4: p?.ssnLast4 ?? null,
       einLast4: p?.einLast4 ?? null,
       address: {
@@ -158,11 +155,8 @@ function toRecord(row: RecordRow): ClientRecord {
   };
 }
 
-/** The profile columns of a request, without the encrypted fields (step 4). */
+/** The plain profile columns of a request; SSN, EIN and date of birth go through `secretColumns`. */
 function profileData(body: ProfileBody): Prisma.ClientProfileUncheckedUpdateInput {
-  if (body.ssn !== undefined || body.ein !== undefined || body.dateOfBirth !== undefined) {
-    throw sensitiveNotReady();
-  }
   const { address, ssn: _s, ein: _e, dateOfBirth: _d, ...rest } = body;
   const data: Record<string, unknown> = { ...rest };
   if (address) {
@@ -187,7 +181,24 @@ export class ClientsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly fe: FieldEncryption,
   ) {}
+
+  /**
+   * The record as the firm sees it: SSN and EIN as last 4 only, the date of birth in full. After a
+   * committed write (`written`), the date of birth is the one just written when the request set
+   * it, and an unreadable one answers null, never an error for a change that was saved.
+   */
+  private async record(
+    businessId: string,
+    row: RecordRow,
+    written?: { dateOfBirth?: string | null },
+  ): Promise<ClientRecord> {
+    const dobEnc = row.profile?.dobEnc;
+    if (!written) return toRecord(row, await readDateOfBirth(this.fe, businessId, row.id, dobEnc));
+    if (written.dateOfBirth !== undefined) return toRecord(row, written.dateOfBirth);
+    return toRecord(row, await readDateOfBirthAfterWrite(this.fe, businessId, row.id, dobEnc));
+  }
 
   /** Which clients the actor may reach. */
   private reach(actor: ClientsActor): Prisma.ClientWhereInput {
@@ -246,18 +257,22 @@ export class ClientsService {
   async get(businessId: string, actor: ClientsActor, id: string): Promise<ClientRecord> {
     const row = await this.inFirm(businessId, (tx) => this.find(tx, businessId, actor, id));
     await this.audit.log('client.viewed', { type: 'client', id });
-    return toRecord(row);
+    return this.record(businessId, row);
   }
 
   async create(businessId: string, actor: ClientsActor, body: CreateBody): Promise<ClientRecord> {
     if (actor.role === 'STAFF' && body.assignedUserId) throw forbidden();
     const profile = body.profile ? profileData(body.profile) : {};
     const assignedUserId = actor.role === 'STAFF' ? actor.userId : (body.assignedUserId ?? null);
+    // Sealed before the transaction, to the id the client is then created with.
+    const id = uuidv7();
+    const secrets = body.profile ? await secretColumns(this.fe, businessId, id, body.profile) : {};
     const row = await this.write(businessId, async (tx) => {
       if (assignedUserId) await this.activeMember(tx, businessId, assignedUserId);
       await this.uniqueEmail(tx, businessId, body.email ?? null);
       const client = await tx.client.create({
         data: {
+          id,
           businessId,
           accountType: body.accountType,
           displayName: body.displayName,
@@ -272,6 +287,7 @@ export class ClientsService {
           businessId,
           clientId: client.id,
           ...profile,
+          ...secrets,
         } as Prisma.ClientProfileUncheckedCreateInput,
       });
       return this.find(tx, businessId, actor, client.id);
@@ -281,10 +297,10 @@ export class ClientsService {
       { type: 'client', id: row.id },
       {
         fields: Object.keys(body).sort(),
-        profileFields: Object.keys(profile).sort(),
+        profileFields: changedFields(body.profile ?? {}),
       },
     );
-    return toRecord(row);
+    return this.record(businessId, row, { dateOfBirth: body.profile?.dateOfBirth ?? null });
   }
 
   async update(
@@ -303,14 +319,62 @@ export class ClientsService {
         await this.uniqueEmail(tx, businessId, body.email);
       }
       await tx.client.update({ where: { businessId_id: { businessId, id } }, data });
-      return this.find(tx, businessId, actor, id);
+      // A new assignee: the open tasks the previous Staff assignee held move along (R12).
+      const before = current.assignedMember?.userId ?? null;
+      const reassigned = body.assignedUserId !== undefined && body.assignedUserId !== before;
+      const tasksMoved = reassigned
+        ? await reassignClientTasks(tx, businessId, id, before, body.assignedUserId ?? null)
+        : undefined;
+      return { row: await this.find(tx, businessId, actor, id), tasksMoved };
     });
     await this.audit.log(
       'client.updated',
       { type: 'client', id },
-      { fields: Object.keys(data).sort() },
+      {
+        fields: Object.keys(data).sort(),
+        ...(row.tasksMoved === undefined ? {} : { tasksMoved: row.tasksMoved }),
+      },
     );
-    return toRecord(row);
+    return this.record(businessId, row.row, {});
+  }
+
+  /**
+   * The firm's edit of the client's profile. SSN, EIN and date of birth are stored only through
+   * the field-encryption helper; the response has SSN and EIN as their last 4 digits and the
+   * date of birth in full. The audit names the fields, never a value.
+   */
+  async updateProfile(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: ProfileBody,
+  ): Promise<ClientProfile> {
+    // Reach and archive first; seal outside any transaction; then write under the client's lock
+    // (checked again there: an archive or reassignment may have committed meanwhile).
+    const reachable = await this.inFirm(businessId, (tx) => this.find(tx, businessId, actor, id));
+    if (reachable.archivedAt) throw archived();
+    const secrets = await secretColumns(this.fe, businessId, reachable.id, body);
+    const row = await this.inFirm(businessId, async (tx) => {
+      const current = await this.findForChange(tx, businessId, actor, id);
+      if (current.archivedAt) throw archived();
+      const data = { ...profileData(body), ...secrets };
+      await tx.clientProfile.upsert({
+        where: { clientId: current.id },
+        create: {
+          businessId,
+          clientId: current.id,
+          ...data,
+        } as Prisma.ClientProfileUncheckedCreateInput,
+        update: data,
+      });
+      return this.find(tx, businessId, actor, id);
+    });
+    await this.audit.log(
+      'client.profile_updated',
+      { type: 'client', id },
+      { fields: changedFields(body) },
+    );
+    return (await this.record(businessId, row, { dateOfBirth: body.dateOfBirth })).profile;
   }
 
   /** Owner and Admin (the route says so). Hidden from the default list; never deleted. */
@@ -337,10 +401,13 @@ export class ClientsService {
       });
       return { row: await this.find(tx, businessId, actor, id), changed: true };
     });
-    if (changed) {
-      await this.audit.log(archive ? 'client.archived' : 'client.restored', { type: 'client', id });
+    // Nothing changed: the answer is still a read of the client's record (its date of birth).
+    if (!changed) {
+      await this.audit.log('client.viewed', { type: 'client', id });
+      return this.record(businessId, row);
     }
-    return toRecord(row);
+    await this.audit.log(archive ? 'client.archived' : 'client.restored', { type: 'client', id });
+    return this.record(businessId, row, {});
   }
 
   /** A change in the firm's scope; a unique email collision becomes 409 DUPLICATE_EMAIL. */

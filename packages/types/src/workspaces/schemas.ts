@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
-import { clearable, text } from '../clients/text.js';
+import { clearable, SearchText, text } from '../clients/text.js';
 import { EngagementStatus } from '../engagements/schemas.js';
 
 // Service workspaces (R12): the Bookkeeping and Tax Planning work for one engagement: status and
@@ -68,6 +68,11 @@ export const ReportData = z.object({
 });
 export type ReportData = z.infer<typeof ReportData>;
 
+/**
+ * At most 50 lines with notes of 400 characters: with the summary, title and period, the largest
+ * report is about 87 KB even in 3-byte characters (Bengali, Chinese), under the API's 100 KB
+ * request limit (#109 review).
+ */
 const ReportDataInput = z.strictObject({
   summary: optionalText(2_000, 'many'),
   lines: z
@@ -75,10 +80,10 @@ const ReportDataInput = z.strictObject({
       z.strictObject({
         label: text(120),
         amountCents: Cents.nullable().default(null),
-        note: optionalText(500, 'many'),
+        note: optionalText(400, 'many'),
       }),
     )
-    .max(200)
+    .max(50)
     .default([]),
 });
 
@@ -146,12 +151,6 @@ export type UpdateReportRequest = z.input<typeof UpdateReportRequest>;
 
 // ---------- Workspaces ----------
 const ClientRef = z.object({ id: z.uuid(), displayName: z.string() });
-/** One line, without control characters. */
-const SearchText = z
-  .string()
-  .trim()
-  .max(100)
-  .regex(/^[^\p{Cc}]*$/u, 'Remove the special characters');
 
 /** One engagement in the workspaces list. */
 export const WorkspaceListItem = z.object({

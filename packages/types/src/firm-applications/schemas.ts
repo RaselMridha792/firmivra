@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { Email } from '../auth/schemas.js';
 import { Phone } from '../client-auth/schemas.js';
 import { CalendarDate, ContactMethod } from '../clients/schemas.js';
-import { clearable, text } from '../clients/text.js';
+import { clearable, SearchText, text } from '../clients/text.js';
 import { BusinessSummary } from '../schemas.js';
 
 // Firm applications (R4): a business applies on the firm site without an account; a Firmivra
@@ -101,8 +101,11 @@ export const REQUIRED_CREDENTIALS: Readonly<Record<PracticeType, readonly Creden
 };
 
 // ---------- Fields ----------
-/** 9 digits; dashes and spaces are dropped. Write-only: only `einLast4` ever comes back. */
-const Ein = z
+/**
+ * 9 digits; dashes and spaces are dropped. Write-only: only `einLast4` ever comes back. Setup
+ * Step 2 (settings) takes the EIN with the same rule.
+ */
+export const Ein = z
   .string()
   .transform((s) => s.replace(/[\s-]/g, ''))
   .pipe(z.string().regex(/^\d{9}$/, 'Enter the 9-digit EIN'));
@@ -184,7 +187,8 @@ export const SubmitFirmApplicationRequest = z
     }),
     /** The person who becomes the firm's owner (first Firm Admin) after approval. */
     primaryAdmin: z.strictObject({
-      fullName: text(200, 'one', 'Enter the full name'),
+      /** At most 120 characters on one line: the owner invite's name rule (#52's invites_name). */
+      fullName: text(120, 'one', 'Enter the full name'),
       email: Email,
       phone: Phone,
       title: clearable(text(100)),
@@ -308,7 +312,7 @@ export type FirmApplicationListItem = z.infer<typeof FirmApplicationListItem>;
 export const ListFirmApplicationsQuery = z
   .strictObject({
     status: FirmApplicationReviewStatus.optional(),
-    search: z.string().trim().max(100).optional(),
+    search: SearchText.optional(),
     from: DateTime.optional(),
     to: DateTime.optional(),
     order: z.enum(['newest', 'oldest']).optional().default('newest'),
@@ -353,7 +357,10 @@ export type FirmApplicationCounts = z.infer<typeof FirmApplicationCounts>;
  */
 export const FirmApplicationCheck = z.object({
   key: z.enum([
-    /** Another application or firm has the same EIN (keyed hash). SKIPPED without an EIN. */
+    /**
+     * Another application has the same EIN (keyed hash; a firm keeps its EIN encrypted with its
+     * own key, so firms aren't compared). SKIPPED without an EIN.
+     */
     'DUPLICATE_EIN',
     /** Another application or firm has the same legal name. */
     'DUPLICATE_NAME',
@@ -588,7 +595,7 @@ export type FirmListItem = z.infer<typeof FirmListItem>;
 /** GET /admin/firms. Search matches the firm name, owner name and owner email. Newest first. */
 export const ListFirmsQuery = z.strictObject({
   status: FirmStatusFilter.optional(),
-  search: z.string().trim().max(100).optional(),
+  search: SearchText.optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });

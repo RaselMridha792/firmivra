@@ -26,8 +26,12 @@ import { NotifyModule } from './notify/notify.module.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
 import { SettingsModule } from './settings/settings.controller.js';
+import { AppointmentsModule } from './appointments/appointments.module.js';
+import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
 import { ContentModule } from './content/content.controller.js';
+import { TeamModule } from './team/team.controller.js';
+import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -74,8 +78,12 @@ export class AppModule {
         TaxStatusesModule,
         ClientsModule,
         SettingsModule,
+        TeamModule,
         CalculatorsModule,
         ContentModule,
+        AppointmentsModule,
+        AuditViewerModule,
+        WorkspacesModule,
         SignInModule,
         PortalInfoModule,
         SignUpModule,

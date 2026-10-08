@@ -45,7 +45,7 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 | Oct 5 | Local sign-in | `AUTH_MODE=local` allowed in `development` and `test` (tests need it), refused in `production` | development only (AUTH-DESIGN.md) |
 | Oct 5 | Authentication | `docs/AUTH-DESIGN.md` (decided Oct 4): Cognito, three pools, roles from the database, our own screens, `HttpOnly` cookies | — |
 
-Team on GitHub: Fahad `Sefat-Ullah-Fahad`, Tumit `tumit-h-r-75`, Ibrahim `BFIbrahim`, Nahid `asratulhasannahid`. Octavia is not a collaborator.
+Team on GitHub: Fahad `Sefat-Ullah-Fahad`, Tumit `tumit-h-r-75`, Ibrahim `BFIbrahim`, Nahid `asratulhasannahid`. Octavia is not a collaborator. On Oct 8 Arfan replaced Ibrahim; his GitHub username is added when Rasel invites him.
 
 ## Step 1: tools (done)
 
@@ -128,14 +128,14 @@ Oct 5, all four branches: LocalStack replaced with s3mock, Mailpit and a local k
 ## Left for Rasel
 
 - [ ] Board: switch "View 1" to Board layout and save (the API cannot change the layout).
-- [ ] Nahid and Ibrahim: accept their repo invitations.
+- [ ] Nahid and Arfan: accept their repo invitations.
 - [ ] Confirm with Octavia that her mockups and specs can be public.
 - [ ] Step 8: add `ci` as a required status check in `protect-main` after the first CI run.
 - [ ] Root user MFA on account `778127141557` (sign in as root → Security credentials → Assign MFA device); root password in Octavia's password manager.
 - [ ] Stripe: create the Firmivra account in test mode; the test keys go into GitHub environment secrets in Step 8.
 - [ ] Company details from Octavia (pending; nothing blocks on them): legal name, address, support email, privacy and terms URLs. They go in one place, `apps/web/src/lib/company.ts` (placeholders now), then into the two requests below.
 - [ ] SES production access: **send before beta, needs company details from Octavia** and a firmivra.com page that describes the product. Request text: `docs/aws/SES-PRODUCTION-REQUEST.md`. Until then SES stays in the sandbox (200 a day, verified addresses only).
-- [ ] SES sandbox: the team's 6 addresses (Rasel, Fahad, Nahid, Tumit, Ibrahim, Octavia) were added Oct 5 and are pending until each person clicks the link in the AWS email (valid 24 hours). Addresses are not listed here (public repo). Check: `aws sesv2 list-email-identities --profile firmivra-dev --region us-east-1`.
+- [ ] SES sandbox: the team's 6 addresses (Rasel, Fahad, Nahid, Tumit, Ibrahim, Octavia) were added Oct 5 and are pending until each person clicks the link in the AWS email (valid 24 hours). Addresses are not listed here (public repo). Check: `aws sesv2 list-email-identities --profile firmivra-dev --region us-east-1`. Arfan's address is not added yet (an AWS change that needs Rasel's yes).
 - [ ] SNS SMS: **send before beta, needs company details from Octavia** and a live firmivra.com page. What the registration needs: `docs/aws/SNS-SMS-REGISTRATION.md`; clicks under "SNS SMS steps" below. Review takes 2 to 3 weeks; the earlier target was to submit by Oct 16 so SMS works by Sprint 2 (Nov 2).
 - [x] GoDaddy (done by Rasel, Oct 5): **My Products → firmivra.com → DNS → Add New Record**, type **NS**, name **dev**, value one name server, TTL 1 hour. Repeat for all 4: `ns-1114.awsdns-11.org`, `ns-705.awsdns-24.net`, `ns-168.awsdns-21.com`, `ns-1942.awsdns-50.co.uk`. Check: `Resolve-DnsName dev.firmivra.com -Type NS` lists the four.
 

@@ -27,7 +27,7 @@ export function isActive(pathname: string, href: string): boolean {
   return href === '/' ? path === '/' : path === href || path.startsWith(`${href}/`);
 }
 
-/** "Octavia Holder" -> "OH". Words that don't start with a letter, like "(fake)", are skipped. */
+/** Extract initials from a name; words that start with punctuation are skipped. */
 export function initials(name: string): string {
   const parts = name
     .trim()

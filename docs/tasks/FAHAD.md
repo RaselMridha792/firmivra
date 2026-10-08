@@ -7,7 +7,7 @@ Read `docs/junior/GUIDE.md`, `docs/junior/AI-RULES.md` and `docs/junior/PAGE-MAP
 
 Frontend. You own the design system (`packages/ui`, Storybook) and the firm workspace (app.dev.firmivra.com).
 
-From Oct 7, Tumit and Ibrahim build screens too, and Rasel's sessions build every API, so your list is shorter. The Super Admin site, setup wizard, settings, team page and calendar moved to Tumit; the leads inbox moved to Ibrahim.
+From Oct 7, Tumit and Arfan build screens too, and Rasel's sessions build every API, so your list is shorter. The Super Admin site, setup wizard, settings, team page and calendar moved to Tumit; the leads inbox moved to Arfan.
 
 You are the only one who adds to `packages/ui`. The others ask you for components.
 
@@ -29,7 +29,7 @@ You are the only one who adds to `packages/ui`. The others ask you for component
 | - | Oct 17 | Fixes from Octavia's review | |
 | - | Oct 18 | Production smoke test | |
 
-Moved to others: F04, F05, F09 and the team page went to Tumit; F08 went to Ibrahim.
+Moved to others: F04, F05, F09 and the team page went to Tumit; F08 went to Arfan.
 
 ## Ticket cards
 
@@ -77,9 +77,13 @@ Checklist:
 
 Checklist:
 
-- [ ] Works at 375 px
-- [ ] Staff don't see Sign-ups, Team or Settings
-- [ ] Playwright: the owner sees Settings, staff don't
+- [x] Works at 375 px
+- [x] Staff don't see Sign-ups, Team or Settings
+- [x] Playwright: the owner sees Settings, staff don't
+
+Local validation (Oct 8): dashboard has eight empty work queues; existing R1 menu and
+firm-name wiring retained. Four desktop/mobile Owner/Staff tests, web lint, typecheck
+and production build pass. Review, merge and dev-site verification remain pending.
 
 ### F06 · Oct 9-10 · Clients, client record and pending sign-ups
 

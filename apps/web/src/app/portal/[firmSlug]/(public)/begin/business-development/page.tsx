@@ -8,7 +8,7 @@ export default function BusinessDevelopmentPage() {
     <PagePlaceholder
       title="Business development"
       ticket="N07b"
-      owner="Ibrahim"
+      owner="Arfan"
       mockup="begin-online/Development intake*.png (4 files)"
     />
   );
