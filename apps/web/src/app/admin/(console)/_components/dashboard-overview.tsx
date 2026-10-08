@@ -69,8 +69,8 @@ function StatCard({
   const iconTone = {
     blue: 'bg-brand-50 text-brand-700',
     green: 'bg-success/10 text-success',
-    purple: 'bg-accent-500/10 text-accent-600',
-    gold: 'bg-brand-100 text-brand-900',
+    purple: 'bg-brand-50 text-brand-700',
+    gold: 'bg-warning-soft text-warning',
   }[stat.tone];
   const formattedValue =
     stat.key === 'monthlyRevenueCents'
@@ -200,13 +200,13 @@ export function DashboardOverview() {
     api.firmApplications.dashboard(),
   );
   const recent = useApiQuery(['firm-applications', 'recent'], () =>
-    api.firmApplications.list({ pageSize: 5 }),
+    api.firmApplications.list({ pageSize: 1 }),
   );
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
   const isMockMode = mocked('firmApplications');
 
   return (
-    <div data-testid="dashboard" className="flex flex-col gap-4">
+    <div data-testid="dashboard" className="flex flex-col gap-3">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="font-display text-3xl font-semibold tracking-tight text-brand-900">
@@ -224,15 +224,17 @@ export function DashboardOverview() {
 
       <PageState<AdminDashboard> query={dashboard}>
         {(data) => (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {dashboardStats.map((stat) => (
-              <StatCard key={stat.key} stat={stat} value={data[stat.key]} />
-            ))}
+          <div className="grid min-h-30 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {dashboardStats.map((stat) => {
+              const value = data[stat.key];
+              const previewValue = isMockMode && value === null ? 0 : value;
+              return <StatCard key={stat.key} stat={stat} value={previewValue} />;
+            })}
           </div>
         )}
       </PageState>
 
-      <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
+      <div className="mt-1 grid gap-4 lg:grid-cols-12 lg:items-start">
         <div className="grid content-start gap-4 lg:col-span-8 xl:col-span-9">
           <Card className="!p-4 xl:min-h-48">
             <SectionTitle
@@ -271,8 +273,10 @@ export function DashboardOverview() {
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
-            <Card data-testid="platform-growth" className="!p-4">
-              <SectionTitle icon={ChartColumn}>Platform Growth</SectionTitle>
+            <Card data-testid="platform-growth" className="!p-4 min-h-70">
+              <SectionTitle icon={ChartColumn}>
+                Platform Growth <span className="text-sm font-normal text-muted">(Beta)</span>
+              </SectionTitle>
               <p className="flex min-h-40 items-center justify-center text-sm text-muted">
                 Coming soon
               </p>
@@ -281,7 +285,13 @@ export function DashboardOverview() {
               <SectionTitle icon={CircleCheck}>Tasks Requiring Attention</SectionTitle>
               <ul className="divide-y divide-border">
                 {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
-                  const count = key && dashboard.data ? (dashboard.data[key] ?? '—') : '—';
+                  const value = key && dashboard.data ? dashboard.data[key] : null;
+                  const count =
+                    key && dashboard.data
+                      ? (value ?? (isMockMode ? 0 : '—'))
+                      : isMockMode
+                        ? 0
+                        : '—';
                   const canOpen = href && typeof count === 'number' && count > 0;
                   return (
                     <li
@@ -346,13 +356,11 @@ export function DashboardOverview() {
               <button
                 type="button"
                 disabled
-                className="flex cursor-not-allowed items-center gap-3 rounded-control bg-canvas px-3 py-3 text-left text-sm text-muted"
+                className="flex cursor-not-allowed items-center gap-3 rounded-control bg-accent-500/10 px-3 py-3 text-left text-sm text-accent-600"
               >
                 <Settings aria-hidden className="size-5" />
                 <span className="flex-1">Platform Settings</span>
-                <span className="rounded-control bg-brand-100 px-2 py-0.5 text-xs text-brand-700">
-                  Soon
-                </span>
+                <ChevronRight aria-hidden className="size-4" />
               </button>
             </div>
           </Card>
@@ -384,7 +392,7 @@ export function DashboardOverview() {
         </div>
       </div>
 
-      <Card className="!p-4 !pt-3">
+      <Card className="mt-0.5 !p-4 !pt-3">
         <SectionTitle icon={Building}>Platform Modules</SectionTitle>
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {platformModules.map(([label, Icon], index) => (
