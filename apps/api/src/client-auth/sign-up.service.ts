@@ -1,5 +1,4 @@
 import { createHmac, randomUUID } from 'node:crypto';
-import { isIPv4, isIPv6 } from 'node:net';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
@@ -20,6 +19,9 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
+import { canonicalIp, networkOf } from './network.js';
+
+export { canonicalIp, networkOf };
 import { PortalInfoService } from './portal-info.controller.js';
 import {
   SIGN_UP_SECONDS,
@@ -135,39 +137,6 @@ export function maskPhone(phone: string): string {
   return /^\+1\d{10}$/.test(phone)
     ? `(${phone.slice(2, 5)}) ***-${phone.slice(-4)}`
     : `${phone.slice(0, 3)} *** ${phone.slice(-4)}`;
-}
-
-/**
- * One form per address: IPv4 without the IPv4-mapped prefix (::ffff:), IPv6 with all eight groups
- * written out in lower case (no zone). Anything else is 'unknown', one shared bucket, so a missing
- * or odd IP never skips the limits.
- */
-export function canonicalIp(ip: string | undefined): string {
-  const raw = (ip ?? '').trim().replace(/%.*$/, '');
-  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(raw);
-  const v4 = mapped ? mapped[1]! : raw;
-  if (isIPv4(v4)) return v4;
-  if (!isIPv6(raw)) return 'unknown';
-  let groups = raw.toLowerCase();
-  // An IPv4 tail (64:ff9b::1.2.3.4) as two groups.
-  const tail = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(groups);
-  if (tail) {
-    const [a, b, c, d] = tail[1]!.split('.').map(Number) as [number, number, number, number];
-    groups = `${groups.slice(0, -tail[1]!.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
-  }
-  const [head = '', rest] = groups.split('::') as [string, string | undefined];
-  const left = head ? head.split(':') : [];
-  const right = rest ? rest.split(':') : [];
-  const middle = rest === undefined ? [] : Array<string>(8 - left.length - right.length).fill('0');
-  return [...left, ...middle, ...right].map((g) => g.padStart(4, '0')).join(':');
-}
-
-/** The /24 (IPv4) or /48 (IPv6) network of an IP, from its canonical form. */
-export function networkOf(ip: string | undefined): string {
-  const canonical = canonicalIp(ip);
-  if (canonical === 'unknown') return canonical;
-  if (isIPv4(canonical)) return `${canonical.split('.').slice(0, 3).join('.')}.0/24`;
-  return `${canonical.split(':').slice(0, 3).join(':')}::/48`;
 }
 
 /**
@@ -287,13 +256,17 @@ export class SignUpService {
       });
       if (owns && owns.id !== account.id) throw await this.wrongCode(s.userId);
       const owner = this.owner(s.businessId, account.id, s.userId);
-      if (!(await this.codes.check(owner, 'EMAIL', account.email, code))) {
-        throw await this.wrongCode(s.userId);
-      }
+      const codeId = await this.codes.match(owner, 'EMAIL', account.email, code);
+      if (!codeId) throw await this.wrongCode(s.userId);
       const user = await this.attemptUser(s.userId);
       const tookOver = account.userId !== s.userId;
+      // Cognito first, outside any transaction (a network call must not hold a pooled
+      // connection). It only marks this attempt's own login, so a later refusal leaves no harm.
+      await this.identity.updateContact('CLIENT', user.cognitoSub, { emailVerified: true });
       try {
         await this.db.withScope({ kind: 'business', businessId: s.businessId }, async (tx) => {
+          // The code is used up with the step it proves: a failure later leaves it for the retry.
+          if (!(await this.codes.consume(tx, codeId))) throw signUpErrors.codeInvalid();
           // Exactly the account as it was read: same login, same email proof, still unfinished.
           const proved = await tx.clientAccount.updateMany({
             where: {
@@ -314,8 +287,6 @@ export class SignUpService {
             { tookOver },
             { businessId: s.businessId, actorUserId: s.userId },
           );
-          // In the transaction: if Cognito fails, the account is not marked verified either.
-          await this.identity.updateContact('CLIENT', user.cognitoSub, { emailVerified: true });
         });
       } catch (e) {
         if (isUniqueViolation(e)) throw signUpErrors.codeInvalid();
@@ -356,10 +327,12 @@ export class SignUpService {
       }
       const user = await this.attemptUser(s.userId);
       const owner = this.owner(s.businessId, account.id, s.userId);
-      if (!(await this.codes.check(owner, 'PHONE', user.phone ?? s.phone, code))) {
-        throw signUpErrors.codeInvalid();
-      }
+      const codeId = await this.codes.match(owner, 'PHONE', user.phone ?? s.phone, code);
+      if (!codeId) throw signUpErrors.codeInvalid();
+      // Cognito first, outside any transaction (as for the email).
+      await this.identity.updateContact('CLIENT', user.cognitoSub, { phoneVerified: true });
       await this.db.withScope({ kind: 'business', businessId: s.businessId }, async (tx) => {
+        if (!(await this.codes.consume(tx, codeId))) throw signUpErrors.codeInvalid();
         const proved = await tx.clientAccount.updateMany({
           where: { id: account.id, userId: s.userId, phoneVerifiedAt: null },
           data: { phoneVerifiedAt: new Date() },
@@ -369,7 +342,6 @@ export class SignUpService {
           data: s.documents.map((d) => acceptance(s.businessId, account.id, d, req)),
           skipDuplicates: true,
         });
-        await this.identity.updateContact('CLIENT', user.cognitoSub, { phoneVerified: true });
       });
       await this.log(s.businessId, s.userId, 'client_account.verified', account.id);
       return this.stateOf(s, expiresAt);
@@ -443,10 +415,17 @@ export class SignUpService {
           select: ACCOUNT,
         });
         if (!taken || taken.id === owned.id) {
+          let moved = true;
           if (owned.email !== email) {
-            await scope.clientAccount.update({ where: { id: owned.id }, data: { email } });
+            try {
+              await scope.clientAccount.update({ where: { id: owned.id }, data: { email } });
+            } catch (e) {
+              // Another sign-up took this email a moment ago: the same as a taken email.
+              if (!isUniqueViolation(e)) throw e;
+              moved = false;
+            }
           }
-          accountId = owned.id;
+          accountId = moved ? owned.id : null;
         } else {
           // The login already owns its first account, so it cannot take over another one.
           if (sendNow && !unfinished(taken) && taken.status !== 'DECLINED') {
@@ -865,12 +844,19 @@ export class SignUpService {
     return [policy.terms.id, policy.privacy.id];
   }
 
-  /** Sends a code when the gap and the daily caps allow; otherwise the answer stays the same. */
+  /**
+   * Sends a code when the gap and the daily caps allow; otherwise the answer stays the same. A
+   * failed send is logged by account id and the answer stays the same too (Resend works later).
+   */
   private async sendCode(owner: CodeOwner, channel: Channel, target: string, firm: Firm) {
     const issued = await this.codes.issue(owner, channel, target);
     if (issued.sent) {
       const message = { to: target, code: issued.code, businessName: firm.name };
-      await (channel === 'EMAIL' ? this.sender.emailCode(message) : this.sender.smsCode(message));
+      try {
+        await (channel === 'EMAIL' ? this.sender.emailCode(message) : this.sender.smsCode(message));
+      } catch {
+        this.logger.warn(`Could not send a ${channel} code for account ${owner.clientAccountId}`);
+      }
     }
     return issued;
   }
@@ -959,7 +945,10 @@ export class SignUpService {
     const at =
       attempt && attempt.requests >= SIGN_UP_LIMITS.sendsPerSession
         ? expiresAt * 1000
-        : Math.max(attempt ? attempt.resendAt : Date.now(), await this.limitsOpenAt());
+        : Math.min(
+            Math.max(attempt ? attempt.resendAt : Date.now(), await this.limitsOpenAt()),
+            expiresAt * 1000,
+          );
     return { step, ...shown, resendAvailableAt: new Date(at).toISOString() };
   }
 

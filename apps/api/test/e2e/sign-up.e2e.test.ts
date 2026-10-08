@@ -5,11 +5,15 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { portalCookies, SignUpState } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import {
+  IDENTITY_PROVIDER,
+  type IdentityProvider,
+} from '../../src/auth/identity/identity-provider.js';
 import { CLIENT_CODE_SENDER } from '../../src/client-auth/client-code-sender.js';
 import { SIGN_UP_LIMITS } from '../../src/client-auth/sign-up.service.js';
 import { CODE_LIMITS } from '../../src/client-auth/verification-codes.service.js';
@@ -775,7 +779,9 @@ describe('client sign-up', () => {
       expect(outbox.filter((m) => m.kind === 'sms').length).toBe(before);
       const wait =
         Date.parse((verified.body as { resendAvailableAt: string }).resendAvailableAt) - Date.now();
-      expect(wait).toBeGreaterThan(50 * 60_000);
+      // When the IP may ask again, but never past the sign-up's own end (30 minutes).
+      expect(wait).toBeGreaterThan(20 * 60_000);
+      expect(wait).toBeLessThanOrEqual(30 * 60_000);
       expect(codeOf(await v.post('/resend', { channel: 'phone' }))).toBe('RATE_LIMITED');
     } finally {
       SIGN_UP_LIMITS.perIpPerHour = perIp;
@@ -859,6 +865,84 @@ describe('client sign-up', () => {
     const written = await acceptances();
     expect(written.map((a) => a.legalDocumentId).sort()).toEqual([...docIds].sort());
     expect(written.map((a) => a.ip)).toEqual([takerIp, takerIp]);
+  });
+
+  it("never lets a stranger's codes from other networks silence a person's own (#70 re-review)", async () => {
+    const perAccount = CODE_LIMITS.perAccountPerDay;
+    CODE_LIMITS.perAccountPerDay = 2;
+    try {
+      await withoutGap(async () => {
+        const email = emailFor('silenced');
+        // Strangers on two other networks sign up with the person's email, twice each.
+        for (const net of ['100.70.1', '100.70.2']) {
+          for (let i = 1; i <= 2; i += 1) {
+            await visitor(slug, `${net}.${i}`).signUp(form(email));
+          }
+        }
+        // The person's own network still gets a code.
+        const before = sentTo(email).filter((k) => k === 'email').length;
+        const own = visitor(slug, '100.70.3.1');
+        await own.signUp(form(email));
+        expect(sentTo(email).filter((k) => k === 'email').length).toBe(before + 1);
+        expect((await own.post('/verify-email', { code: '000000' })).body).toMatchObject({
+          step: 'VERIFY_PHONE',
+        });
+      });
+    } finally {
+      CODE_LIMITS.perAccountPerDay = perAccount;
+    }
+  });
+
+  it('sends both SMS when two people verify at one firm at the same moment (#70 re-review)', async () => {
+    const [a, b] = [visitor(), visitor()];
+    await a.signUp(form(emailFor('twin1')));
+    await b.signUp(form(emailFor('twin2')));
+    const before = outbox.filter((m) => m.kind === 'sms').length;
+    const results = await Promise.all([
+      a.post('/verify-email', { code: '000000' }),
+      b.post('/verify-email', { code: '000000' }),
+    ]);
+    expect(results.map((r) => (r.body as { step: string }).step)).toEqual([
+      'VERIFY_PHONE',
+      'VERIFY_PHONE',
+    ]);
+    expect(outbox.filter((m) => m.kind === 'sms').length).toBe(before + 2);
+  });
+
+  it('answers, never 500, when two sign-ups move to one email at the same moment (#70 re-review)', async () => {
+    const [a, b] = [visitor(), visitor()];
+    await a.signUp(form(emailFor('move1')));
+    await b.signUp(form(emailFor('move2')));
+    const target = emailFor('movedto');
+    const results = await Promise.all([
+      a.post('/change-email', { email: target }),
+      b.post('/change-email', { email: target }),
+    ]);
+    // One moves; the other is refused while that email is busy (429) or goes nowhere (200).
+    const statuses = results.map((r) => r.status);
+    expect(statuses.filter((x) => x !== 200 && x !== 429)).toEqual([]);
+    expect(statuses).toContain(200);
+    const count = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.count({ where: { email: target } }),
+    );
+    expect(count).toBeLessThanOrEqual(1);
+  });
+
+  it('keeps the code when the step after it fails, so the retry works (#70 re-review)', async () => {
+    const v = visitor();
+    await v.signUp(form(emailFor('retry')));
+    const identity = app.get<IdentityProvider>(IDENTITY_PROVIDER);
+    const spy = vi
+      .spyOn(identity, 'updateContact')
+      .mockRejectedValueOnce(new Error('Cognito is down for a moment'));
+    try {
+      const failed = await v.post('/verify-email', { code: '000000' });
+      expect(failed.status).toBeGreaterThanOrEqual(500);
+      const retried = await v.post('/verify-email', { code: '000000' });
+      expect(retried.body).toMatchObject({ step: 'VERIFY_PHONE' });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('answers a declined email exactly like a new one, through 5 wrong codes to CONTACT_FIRM (q13)', async () => {
