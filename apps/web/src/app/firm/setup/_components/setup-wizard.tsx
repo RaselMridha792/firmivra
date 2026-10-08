@@ -8,7 +8,9 @@ import { PageState } from '../../../../components/page-state';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
 import { BrandingStep } from './branding-step';
+import { BusinessStep } from './business-step';
 import { FIRM_SETTINGS, SETUP_PROGRESS, STEPS } from './shared';
+import { TeamStep } from './team-step';
 
 /** /setup: the firm's first sign-in. Owner and Admin only; Staff get the no-permission state. */
 export function SetupWizard() {
@@ -52,12 +54,15 @@ function Steps({ progress, firm }: { progress: FirmSetup; firm: FirmSettings }) 
   return (
     <>
       <Stepper steps={STEPS} current={step} />
-      {step === 'branding' ? <BrandingStep {...props} /> : <NextUpdate onBack={props.onBack} />}
+      {step === 'branding' ? <BrandingStep {...props} /> : null}
+      {step === 'businessDetails' ? <BusinessStep {...props} /> : null}
+      {step === 'team' ? <TeamStep {...props} /> : null}
+      {step === 'clientPortal' || step === 'finish' ? <NextUpdate onBack={props.onBack} /> : null}
     </>
   );
 }
 
-/** Steps 2 to 5 arrive in the next F05 changes. */
+/** Client portal and Finish arrive in the next F05 change. */
 function NextUpdate({ onBack }: { onBack?: () => void }) {
   return (
     <Card data-testid="step-next-update" className="flex flex-col items-start gap-3">
