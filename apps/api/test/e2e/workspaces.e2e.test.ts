@@ -1149,3 +1149,97 @@ describe('audit', () => {
     ).toContain(people.clientA.id);
   });
 });
+
+describe('#109 review', () => {
+  it('takes the largest report the contract allows, in 3-byte characters (201)', async () => {
+    const wide = (n: number) => '日'.repeat(n);
+    const body = {
+      kind: 'REPORT',
+      title: wide(160),
+      periodLabel: wide(60),
+      data: {
+        summary: wide(2_000),
+        lines: Array.from({ length: 50 }, () => ({
+          label: wide(120),
+          amountCents: -123_456_789,
+          note: wide(400),
+        })),
+      },
+    };
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeGreaterThan(80_000);
+    const created = await createReport(eng.bk1, body);
+    expect([created.data.lines.length, created.data.lines[49]?.note]).toEqual([50, wide(400)]);
+  });
+
+  it('answers 413 PAYLOAD_TOO_LARGE for a body over 100 KB, and 400 for one not JSON', async () => {
+    const huge = await call('post', `/workspaces/${eng.bk1}/reports`, people.ownerA, 'a', {
+      kind: 'REPORT',
+      title: 'Too large',
+      data: { summary: 'x'.repeat(150_000) },
+    });
+    expectError(huge, 413, 'PAYLOAD_TOO_LARGE');
+    const broken = await request(app.getHttpServer())
+      .post(`/api/v1/business/workspaces/${eng.bk1}/reports`)
+      .set('x-business-id', firms.a.id)
+      .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`)
+      .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+      .set('content-type', 'application/json')
+      .send('{"kind":');
+    expectError(broken, 400, 'BAD_REQUEST');
+  });
+
+  it('waits for a reassignment of the client under way, then answers as it says (q5)', async () => {
+    // c1 is staffA's; a reassignment to staffA2 is under way when staffA publishes.
+    const r = await draft(eng.bk1, 'REPORT', `Race q5 ${run}`);
+    const reassigning = asOwner({ kind: 'business', businessId: firms.a.id }, async (tx) => {
+      await tx.client.update({
+        where: { id: clients.c1 },
+        data: { assignedUserId: people.staffA2.id },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const res = await reportCall(r.id, 'publish', people.staffA);
+      await reassigning;
+      expectError(res, 404, 'NOT_FOUND');
+      expect((await stored(r.id))?.status).toBe('DRAFT');
+    } finally {
+      await reassigning.catch(() => undefined);
+      await inA((tx) =>
+        tx.client.update({ where: { id: clients.c1 }, data: { assignedUserId: people.staffA.id } }),
+      );
+    }
+  });
+
+  it("shows no reports of the client's service without a workspace, whatever a row says", async () => {
+    await insertReport({
+      engagementId: eng.at1,
+      kind: 'REPORT',
+      title: `Stray ${run}`,
+      status: 'PUBLISHED',
+    });
+    expect((await mine(people.clientA, eng.at1)).items).toEqual([]);
+  });
+
+  it('a publish and a delete of its attached document at the same time never deadlock', async () => {
+    const r = await createReport(eng.bk1, {
+      kind: 'REPORT',
+      title: `Document race ${run}`,
+      documentId: docs.upload,
+    });
+    // As a document delete does: the document's row first, then the reports that refer to it.
+    const deleting = asOwner({ kind: 'business', businessId: firms.a.id }, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM documents WHERE id = ${docs.upload}::uuid FOR UPDATE`;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await tx.document.delete({ where: { id: docs.upload } });
+    }).then(
+      () => 'deleted',
+      (e: unknown) => (/deadlock|40P01|P2034/i.test(String(e)) ? 'deadlock' : 'refused'),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const res = await reportCall(r.id, 'publish');
+    // The publish lands; the delete then meets the report's foreign key and is refused.
+    expect([res.status, await deleting], JSON.stringify(res.body)).toEqual([200, 'refused']);
+  });
+});

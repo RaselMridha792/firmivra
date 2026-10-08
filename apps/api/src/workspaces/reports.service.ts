@@ -17,6 +17,7 @@ import { DATABASE } from '../database/database.module.js';
 import {
   conflict,
   isForeignKeyViolation,
+  lockClient,
   memberNames,
   memberRef,
   notFound,
@@ -29,7 +30,7 @@ import type {
   UpdateReportBody,
 } from './input.js';
 import { decodeTimeCursor, encodeTimeCursor, type TimeCursor } from './paging.js';
-import { findWorkspace } from './workspaces.service.js';
+import { findWorkspace, workspaceKindOf } from './workspaces.service.js';
 
 type ListQuery = z.output<typeof ReportsListQuery>;
 type MineQuery = z.output<typeof MyReportsListQuery>;
@@ -207,6 +208,9 @@ export class ReportsService {
     body: CreateBody,
   ): Promise<Report> {
     const { report, clientId } = await this.inFirm(businessId, async (tx) => {
+      // The client first, then the engagement (requireOpen), as every change here and R10's
+      // reassignment take them: who reaches the workspace (q5) holds until this commits.
+      await this.lockClientOf(tx, businessId, engagementId);
       const workspace = await findWorkspace(tx, businessId, actor, engagementId);
       await this.requireOpen(tx, businessId, workspace.id);
       if (!REPORT_KINDS[workspace.kind].includes(body.kind)) throw wrongKind();
@@ -373,9 +377,13 @@ export class ReportsService {
       if (!account?.clientId) throw notFound();
       const engagement = await tx.engagement.findFirst({
         where: { businessId, id: engagementId, clientId: account.clientId },
-        select: { id: true },
+        select: { id: true, service: { select: { kind: true } } },
       });
       if (!engagement) throw notFound();
+      // Their service without a workspace has no reports, whatever a row says (#109 review).
+      if (!workspaceKindOf(engagement.service.kind)) {
+        return { rows: [], clientId: account.clientId, serviceId: engagement.id };
+      }
       const rows = await tx.engagementReport.findMany({
         where: {
           AND: [
@@ -426,7 +434,10 @@ export class ReportsService {
   /**
    * Locks the report for this change (one change of a report at a time) and checks that the
    * actor sees its workspace (a Bookkeeping or Tax Planning engagement; Staff: their client's);
-   * else 404.
+   * else 404. Locks in one order, the client (FOR SHARE), then the report, then the engagement
+   * (requireOpen), as tasks and R10's reassignment take them, so who reaches the workspace (q5)
+   * holds until this change commits (#109 review). A report never changes engagement, nor an
+   * engagement client, so they are read first without a lock.
    */
   private async lock(
     tx: TxClient,
@@ -434,11 +445,17 @@ export class ReportsService {
     actor: ClientsActor,
     id: string,
   ): Promise<Locked> {
+    const owner = await tx.engagementReport.findFirst({
+      where: { businessId, id },
+      select: { engagementId: true },
+    });
+    if (!owner) throw notFound();
+    await this.lockClientOf(tx, businessId, owner.engagementId);
     const [locked] = await tx.$queryRaw<{ engagement_id: string }[]>`
       SELECT engagement_id::text AS engagement_id FROM engagement_reports
       WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
       FOR UPDATE`;
-    if (!locked) throw notFound();
+    if (!locked || locked.engagement_id !== owner.engagementId) throw notFound();
     const workspace = await findWorkspace(tx, businessId, actor, locked.engagement_id);
     const row = await tx.engagementReport.findFirst({
       where: { businessId, id },
@@ -446,6 +463,15 @@ export class ReportsService {
     });
     if (!row) throw notFound();
     return { ...row, engagementId: workspace.id, clientId: workspace.clientId };
+  }
+
+  /** The engagement's client, locked FOR SHARE (404 for an engagement this firm doesn't have). */
+  private async lockClientOf(tx: TxClient, businessId: string, engagementId: string) {
+    const engagement = await tx.engagement.findFirst({
+      where: { businessId, id: engagementId },
+      select: { clientId: true },
+    });
+    if (!engagement || !(await lockClient(tx, businessId, engagement.clientId))) throw notFound();
   }
 
   /**
@@ -466,8 +492,10 @@ export class ReportsService {
   /**
    * The document belongs to this engagement (409 DOCUMENT_MISMATCH: another engagement's,
    * another firm's or none) and the client may see it (409 INTERNAL_DOCUMENT; a document's
-   * direction never changes). FOR KEY SHARE keeps it from being deleted before this change
-   * commits.
+   * direction never changes). A plain read: the reports' RESTRICT foreign key keeps an attached
+   * document from being deleted, and attaching one takes its key lock through that check (a
+   * document gone meanwhile is 409, documentGone). Locking it here, after the report, deadlocked
+   * with a document delete, which takes the document first (#109 review).
    */
   private async attachable(
     tx: TxClient,
@@ -478,8 +506,7 @@ export class ReportsService {
     const [document] = await tx.$queryRaw<{ direction: string }[]>`
       SELECT direction::text AS direction FROM documents
       WHERE business_id = ${businessId}::uuid AND engagement_id = ${engagementId}::uuid
-        AND id = ${documentId}::uuid
-      FOR KEY SHARE`;
+        AND id = ${documentId}::uuid`;
     if (!document) throw documentMismatch();
     if (document.direction === 'INTERNAL') throw internalDocument();
   }
