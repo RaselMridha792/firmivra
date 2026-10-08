@@ -47,10 +47,14 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - Later: when R8 adds a Content-Security-Policy, it needs `worker-src 'self'`.
 - `pdfjs-dist` pulls the optional `@napi-rs/canvas` (Node only) into the lockfile; the browser never loads it.
 
+## Open design points
+
+- Kiosk: the staff session stays signed in while the signer holds the device, so hiding the menu is not enough. The kiosk step needs a signer-only session from R13-api's in-person API and a way back to the workspace that asks the staff member again (for example a PIN or the password). To settle with R13-api before step 8.
+
 ## Needs from others
 
 - R13-api: `packages/types/src/esign` contract and mocks (`api.esign`, `api.signing(slug)`, `api.mySignatures(slug)`).
-- Fahad: "Firm Sign" in the firm menu; the Send for Signature button and Signatures tab link on the client record (F06).
+- Fahad: "Firm Sign" in the firm menu; the Send for Signature button and the "Signatures" entry in the client record's tabs (`clients/[id]/layout.tsx`, F06).
 - Nahid: "Signatures" in the portal menu.
 - R1: PAGE-MAP rows for the Firm Sign pages.
 - Rasel: OK from Octavia before `FirmSign_Dashboard_Mockup.png` goes into the public repo.
@@ -58,4 +62,4 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 ## Progress log
 
 - 2026-10-08: pdf.js spike done, verdict above (loader on branch `rasel/R13-web-pdf-spike`, goes in with the PdfPages viewer PR).
-- 2026-10-08: routes PR: 14 placeholder pages with tab titles, the kiosk layout (signed in, no menu), the signer layout (firm name, no account), noindex on signer and kiosk pages, `e2e/mock/esign-routes.spec.ts` (15 tests green locally).
+- 2026-10-08: routes PR: 14 placeholder pages with tab titles, the kiosk layout (signed in, no menu), the signer layout (firm name, no account), noindex on the signer and kiosk layouts, the kiosk runs the same firm checks as the workspace, the signer frame shows the firm logo and the portal footer, `e2e/mock/esign-routes.spec.ts` (15 tests green locally).
