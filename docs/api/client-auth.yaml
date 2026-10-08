@@ -145,6 +145,9 @@ info:
     when). At most one "already registered" email goes to an account an hour, also under parallel
     sign-ups.
 
+    Sign-in counts failures as in auth.yaml, per firm and email: a client's login at one firm
+    is never locked by failures at another. The firm's audit log holds its clients' sign-ins.
+
 servers:
   - url: /api/v1
     description: Same host as the site.

@@ -30,8 +30,12 @@ export interface PlatformContext {
 
 export interface RequestStore {
   requestId: string;
+  /** The viewer's IP: req.ip, with trust proxy set to our hops (never raw X-Forwarded-For). */
   ip?: string;
   userAgent?: string;
+  /** For Cognito threat protection only (auth/identity/cognito-identity.provider.ts). */
+  acceptLanguage?: string;
+  path?: string;
   auth?: AuthContext;
   tenant?: TenantContext;
   platform?: PlatformContext;
@@ -53,6 +57,8 @@ declare global {
 export const requestContext = new AsyncLocalStorage<RequestStore>();
 
 const REQUEST_ID = /^[A-Za-z0-9._-]{1,100}$/;
+/** Audit rows keep this much of the User-Agent, anonymous sign-in attempts included (#84 review). */
+const USER_AGENT_MAX = 512;
 
 /** First middleware: gives every request an id (x-request-id) and opens its context. */
 export function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -60,5 +66,14 @@ export function requestContextMiddleware(req: Request, res: Response, next: Next
   const requestId = incoming && REQUEST_ID.test(incoming) ? incoming : randomUUID();
   req.id = requestId;
   res.setHeader('x-request-id', requestId);
-  requestContext.run({ requestId, ip: req.ip, userAgent: req.get('user-agent') }, next);
+  requestContext.run(
+    {
+      requestId,
+      ip: req.ip,
+      userAgent: req.get('user-agent')?.slice(0, USER_AGENT_MAX),
+      acceptLanguage: req.get('accept-language'),
+      path: req.path,
+    },
+    next,
+  );
 }

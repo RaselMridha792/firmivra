@@ -20,8 +20,8 @@
 - [x] 4. GET /me: user, firm memberships, role from our DB
 - [x] 5. Guards: @Roles(owner, admin, staff), firm scope from the host/route, platform scope for Super Admin; 404 when no firm link, 403 when wrong role
 - [x] 6. Staff invites: create invite, email link (log until R6), /activate sets password + MFA
-- [ ] 7. Rate limit sign-in and MFA attempts; audit every sign-in, failure and invite with AuditService.log
-- [ ] 8. e2e tests: sign-in, MFA, wrong firm, wrong role, expired invite
+- [x] 7. Rate limit sign-in and MFA attempts; audit every sign-in, failure and invite with AuditService.log
+- [x] 8. e2e tests: sign-in, MFA, wrong firm, wrong role, expired invite
 
 ## Done when
 
@@ -49,8 +49,9 @@ A staff user and a Super Admin can sign in with MFA on dev; Fahad's F02 screens 
 - Resolved Oct 6 (R1, deploy run 37448823378 of d62849a): CloudFront (Managed-AllViewer) and the load balancer pass `Origin` and `Sec-Fetch-Site` to `/api/*` unchanged. On live dev the cross-site check answers 401 for each site's own origin (and for `Sec-Fetch-Site: same-origin`) and 403 `ORIGIN_NOT_ALLOWED` for another origin, `cross-site`, and app's origin on the admin sign-in.
 - Resolved Oct 6: Smart App Control blocked SWC's native binary and turbo on Rasel's machine; Rasel turned it off, and the root checks run again (the scratchpad TypeScript stand-in config is deleted).
 - R0: a unique index on `users (pool, email)` for the STAFF and ADMIN pools (clients may repeat across firms). Sign-in refuses an email that matches two users of a pool, so duplicates would lock that person out.
-- Rasel (decision, #41 review item 3): `resendInvite` (and T03's team list) show `users.name`, which for someone with a login elsewhere is their real name, not the name the inviter typed, so the inviter learns they have an account. The lead's proposal: R0 adds `invites.name` (the typed name) and R2 and T03 show it for INVITED members. Also, the `users_select` policy lets a firm read the user row of anyone it merely invited. Not changed in #41.
-- `/activate` page (R1's placeholder, then its screen owner): clear the `#token=` fragment once read (`history.replaceState`), so it does not stay in the address bar or history (#41 review nit).
+- R0 (#52, Rasel's decision on #41 review item 3): `invites.name` and `invites.email` (what the inviter typed), `memberships.joined_at`, and a per-call timeout `db.withScope(scope, fn, { timeout })`. After #52 merges, R2's small PR: `createInvite` writes the typed name and email on every invite, resend and anything shown for an INVITED member use the open invite's name and email (never `users.*`), activation reads the person through the invite or platform identity work (not the user row in firm scope), and only activation's transaction gets 15 s (the API default goes back to Prisma's). Then R0 ships the enforcement (invites need the typed name and email; `users_select` hides a staff member's user row from the firm until `joined_at`).
+- R8 (Rasel): the answer-time difference between a new and an existing email when inviting (AdminCreateUser only for new people), from #41's review.
+- Fahad (F02, Rasel): the `/activate` page clears the `#token=` fragment once read (`history.replaceState`), from #41's review.
 
 ## Progress log
 
@@ -85,3 +86,19 @@ A staff user and a Super Admin can sign in with MFA on dev; Fahad's F02 screens 
   - Nits: audit before sending; the orphaned Cognito login of a create race is disabled (new `IdentityProvider.disableUser`, AdminDisableUser; the API may not delete users). Not changed: the timing difference between a new and an existing email (AdminCreateUser only for new people); the `/activate` fragment is the page's job (Needs from others).
   - 3: Rasel's decision (Needs from others).
   - Tests: two activations at once, a resend during activation, a resend first, a firm in setup, a suspended firm (service and activation), audit metadata (ids only, no token or address), accept by a client (404) or Super Admin (401) login, both caps; unit tests for the database-clock 410, the orphan, and `disableUser`.
+- 2026-10-07, step 7 (local branch `rasel/R2-step7`, on R3 steps 5-6 because both change sign-in; Rasel: go, counting from audit rows, no new index):
+  - Every wrong password and wrong MFA code writes `auth.sign_in_failed` (keyed email hash, step, pool, the attempt's id); `SIGN_IN_LIMIT`: 10 failures per email in 15 minutes, then 429 for real and unknown emails alike; 5 wrong MFA codes per sign-in attempt, then `CHALLENGE_EXPIRED`. Wrong codes count for the email too: the sealed challenge carries the email hash and a random attempt id across MFA setup.
+  - Every sign-in writes `auth.signed_in` (actor: the person). Staff and Super Admin rows are platform rows; a client's portal rows (and reset failures) are in the firm's log, keyed per firm and email.
+  - Cognito `ContextData` on sign-in, MFA, MFA setup and refresh: `req.ip` from the request context (trust proxy two hops, never raw `X-Forwarded-For`), the site's host from `*_BASE_URL`, the path, and only User-Agent and Accept-Language. CloudFront's Managed-AllViewer policy already forwards both.
+  - Step 8: sign-in and MFA (`auth.e2e.test.ts`, `sign-in-limits.e2e.test.ts`), wrong firm 404 and wrong role 403 (`guards.e2e.test.ts`), expired invite 410 (`invites.e2e.test.ts`).
+  - Tests: `test/e2e/sign-in-limits.e2e.test.ts` (4: per-email lock for real and unknown emails, the MFA cap counting for the email, audit rows without the email, per-firm portal counts in the firm's log); unit tests for `ContextData` (fields, none outside a request, `req.ip` and no secret headers kept, each pool's host). The per-IP test now uses a new email per attempt.
+- 2026-10-08, step 7 rebased in content on main (merged origin/main, #62 and #51 now squash-merged): the merge result differs from main in exactly step 7's 11 files, each line for line as in 95adaaa (checked file by file). The #62 follow-ups, in the same branch:
+  - Portal sign-out on a firm that is no longer ACTIVE finds the firm by slug whatever its status, so the refresh token is revoked too (`PortalInfoService.firmBySlug`). A slug that can't be a firm address (`a%3Bb`) is 404 before any cookie name is built (was 500).
+  - Every sign-out with a session writes `auth.signed_out` (pool, everywhere) where its sign-in was: the firm's log on a portal, the platform's for staff and Super Admins. Portal sign-in limits and sign-in audit were already in step 7.
+  - The refresh cookie's Max-Age is the session's full lifetime on sign-in (it was one second short when the clock ticked between two reads); rotations still take the time left. The portal test now expects exactly 2592000.
+  - The firm site keeps the CLIENT pool, confirmed rather than dropped: a client token there gets 403 from the roles guard on every staff route and `GET /me` shows their own data; client cookies are portal-path only. Dropping it broke 15 tests across R10, T02, T03 and T04 that rely on that 403.
+  - Dev: the token lookup has a steady order; `POST /dev/sign-out` takes an optional `{ firmSlug }` and clears that portal's access cookie (its path keeps it from the dev route), and `api.devSignOut(firmSlug?)` passes it (R1 can use it in the portal's local sign-out).
+  - Tests: refresh after DISABLED; revoke and audit on sign-out after suspension; the 404 slug; a Super Admin token on a portal route (401); dev sign-out clearing a portal cookie.
+  - Waits for a PR slot (#70 and #72 open). The PlatformPrisma to forAdmin change follows #52.
+- 2026-10-08, step 7, the limits under parallel attempts (the pattern the lead made a must-fix in #70): sign-in, MFA and password reset reserve each attempt before Cognito is asked. In one scoped transaction under a try-lock on the email's key (busy: the same 429, never waited for), the open attempts in the window (recorded, with no "passed" row: failed or still in flight) must be under the limit; then the attempt is recorded (`auth.sign_in_attempt` / `auth.password_reset_attempt`, with a token). A success writes `auth.sign_in_passed` / `auth.password_reset_passed` with that token; failures still write `auth.sign_in_failed` (now with the token). The limits and their numbers are unchanged; parallel guesses can no longer all pass a count taken before any of them failed. Tests: 30 parallel wrong passwords for one email give at most 10 401s and the rest 429; 20 parallel wrong MFA codes give at most 5 MFA_CODE_INVALID; no 500.
+
