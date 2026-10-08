@@ -13,7 +13,7 @@
 
 ## Steps
 
-- [x] 1. Publish docs/api/documents.yaml by Oct 9 (Ibrahim I05 and Nahid N05 build on it)
+- [x] 1. Publish docs/api/documents.yaml by Oct 9 (Arfan I05 and Nahid N05 build on it)
 - [x] 2. Presigned PUT for upload with content type and size limits; keys under tenant/{businessId}/... (the `documents.s3_key` CHECK and the API's IAM policy require this prefix) (API part 1)
 - [x] 3. Confirm upload: check size and type server side, store the document record (Oct 8: Excel and Word must be a real Office Open XML package without macros or a password; the yaml's "Excel and Word (confirm)") (API part 1; the portal's confirm in part 2)
 - [ ] 4. Presigned GET for download, short expiry, only after the firm-scope check (firm side done in API part 1; portal in part 2)

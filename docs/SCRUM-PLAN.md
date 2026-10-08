@@ -20,11 +20,11 @@ Five people build Firmivra Phase 1 (beta) in 2-week sprints: a Sprint 0 where Ra
 | --- | --- | --- | --- |
 | Rasel | Technical Project Manager, System Architect | Backlog, sprint planning, architecture, database (Prisma schema and migrations), server and AWS infrastructure, CI/CD, review and merge of every PR into `main`, talking to Octavia | Everyone |
 | Fahad | Frontend Developer | Design system and shared UI kit, firm workspace (app.firmivra.com) | Tumit |
-| Nahid | Frontend Developer | Client portal (portal.firmivra.com), Begin Online intake, Super Admin screens | Ibrahim |
+| Nahid | Frontend Developer | Client portal (portal.firmivra.com), Begin Online intake, Super Admin screens | Arfan |
 | Tumit | Backend Developer | API modules for auth and roles, businesses, users, invites, sign-up approval, support access, appointments, notifications (center and email/SMS), audit log | Fahad |
-| Ibrahim | Backend Developer | API modules for clients, documents, intake, services, service workspaces, messages, invoices and Stripe, tax statuses, calculator | Nahid |
+| Arfan | Backend Developer | API modules for clients, documents, intake, services, service workspaces, messages, invoices and Stripe, tax statuses, calculator | Nahid |
 
-**Who reviews whom:** developers only write code and push it to their own branches. Before Rasel looks at a PR, the developer on the same side gives it a quick pre-review (Fahad and Nahid, Tumit and Ibrahim). Rasel then reviews, tests and merges every PR into `main`. Backend developers never change the database schema or AWS resources themselves; they ask Rasel through a ticket labelled `schema` or `infra`.
+**Who reviews whom:** developers only write code and push it to their own branches. Before Rasel looks at a PR, the developer on the same side gives it a quick pre-review (Fahad and Nahid, Tumit and Arfan). Rasel then reviews, tests and merges every PR into `main`. Backend developers never change the database schema or AWS resources themselves; they ask Rasel through a ticket labelled `schema` or `infra`.
 
 **Pairs:** each frontend developer is paired with one backend developer. The pair agrees the API contract for a feature at the start of the sprint, so both sides build in parallel against the same spec.
 
@@ -103,7 +103,7 @@ Rasel builds the base everyone else codes on; the four developers spend Sprint 0
 | Fahad | Extract the design system from Octavia's mockups: colours, type scale, spacing, buttons, inputs, cards, tables, modals, sidebar layout. Build them in `packages/ui` with Storybook once the repo exists. Add the firm-side routes for calendar, service workspaces and pending sign-ups. |
 | Nahid | Map every client portal and Begin Online mockup to a route and list the components each screen needs, including sign-in, password reset, My Services, appointments, notifications and calculator; flag screens that don't match the written instructions or have no mockup. |
 | Tumit | For auth, roles, invites, sign-up approval, support access, legal documents and appointments: list the fields each feature needs and send them to Rasel for the schema; write the role and permission matrix and the OpenAPI spec for these endpoints. |
-| Ibrahim | For clients, documents, intake, services, service workspaces, notifications, messages, invoices and Stripe, tax statuses: list the fields each feature needs and send them to Rasel for the schema; write the OpenAPI spec for these endpoints. |
+| Arfan | For clients, documents, intake, services, service workspaces, notifications, messages, invoices and Stripe, tax statuses: list the fields each feature needs and send them to Rasel for the schema; write the OpenAPI spec for these endpoints. |
 
 **Sprint 0 exit:** a developer can clone the repo, run it locally, open a PR, see CI pass, and after Rasel merges, see the change on dev.firmivra.com with a working login.
 
@@ -130,7 +130,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Fahad | Login and /activate screens, app shell (sidebar, header, routing by role), empty firm dashboard |
 | Nahid | Public firm application form, Super Admin login, applications list, application detail with approve, request info, decline |
 | Tumit | Cognito pools and role claims, firm application API, approve and activate flow, invite emails through SES |
-| Ibrahim | Business settings API, firm-defined tax statuses API, client record CRUD API |
+| Arfan | Business settings API, firm-defined tax statuses API, client record CRUD API |
 
 ### Sprint 2: firm workspace and client sign-up
 
@@ -141,7 +141,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Fahad | First-time setup wizard (including the firm's Terms and Privacy), team page, clients list and client detail, pending sign-ups queue with approve and decline |
 | Nahid | Branded portal landing page, client sign-up, verify email, verify phone, account confirmation, portal sign-in, forgot and reset password, firm legal links in sign-up, login and footer |
 | Tumit | Role-based access on every endpoint (owner, admin, staff), team invite API, client self sign-up with firm approval, firm-scoped Cognito password reset that never reveals whether an account exists, per-firm legal documents setting |
-| Ibrahim | Client profile API, tax status tracking per client, firm-side status update API |
+| Arfan | Client profile API, tax status tracking per client, firm-side status update API |
 
 ### Sprint 3: documents, services, notifications
 
@@ -152,7 +152,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Fahad | Client documents view, request a document, document status on the firm side, notification bell and center in the shared UI kit (read and unread, history, link to the record) |
 | Nahid | My Docs tab, upload popup, My Profile tab, My Services page (active, recurring, completed, cancelled) |
 | Tumit | Audit log API and viewer, Super Admin support access only with the firm owner's time-limited, logged approval, notification center API |
-| Ibrahim | Pre-signed S3 uploads, per-business KMS keys, file type and size checks, document categories, services and engagement API |
+| Arfan | Pre-signed S3 uploads, per-business KMS keys, file type and size checks, document categories, services and engagement API |
 
 ### Sprint 4: intake, taxes, service workspaces
 
@@ -163,7 +163,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Fahad | Leads inbox, review lead, convert lead to client, intake review on the client record, service workspace template (status, tasks, documents, notes, reports) for Bookkeeping and Tax Planning, portal Business tab, External links, resource dashboards |
 | Nahid | Begin Online flows for the 6 services, review and submit, success pages, Intake form tab, Taxes tab |
 | Tumit | Lead to client conversion API, notification service (email through SES, SMS through SNS), external links configuration API |
-| Ibrahim | Intake form definitions and submissions API, tax returns API, service workspace API (Bookkeeping reconciliation and reports, Tax Planning projections) |
+| Arfan | Intake form definitions and submissions API, tax returns API, service workspace API (Bookkeeping reconciliation and reports, Tax Planning projections) |
 
 ### Sprint 5: appointments, messages, billing, calculator
 
@@ -174,7 +174,7 @@ Six feature sprints take Firmivra from login to the LVP launch. Superseded on Oc
 | Fahad | Firm calendar, staff availability, working hours and blocked time, firm messages and notes, create and send invoice |
 | Nahid | Client booking, reschedule and cancel, portal Messages, Invoices tab with Stripe checkout, Tax Return Calculator and the other approved calculators with disclaimer |
 | Tumit | Appointments API with double-booking lock, reminder and change notifications, notification preferences |
-| Ibrahim | Messages API, invoices API, Stripe payments and webhooks, calculator formulas and validation |
+| Arfan | Messages API, invoices API, Stripe payments and webhooks, calculator formulas and validation |
 
 This is the heaviest sprint. If Sprint 2's velocity shows we are behind, the calculator and the resource dashboards move after beta first.
 

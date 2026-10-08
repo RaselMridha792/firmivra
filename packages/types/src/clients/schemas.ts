@@ -26,7 +26,7 @@ export const CalendarDate = z.iso.date();
 const PastDate = CalendarDate.refine(
   (d) => d <= new Date().toISOString().slice(0, 10),
   'The date cannot be in the future',
-);
+).refine((d) => d >= '1900-01-01', 'Enter a date from 1900 on');
 
 /** A client id in a path: anything else gets 400 VALIDATION_FAILED. */
 export const ClientId = z.uuid();
@@ -158,12 +158,8 @@ const digits = (count: number, message: string) =>
     .transform((s) => s.replace(/[\s-]/g, ''))
     .pipe(z.string().regex(new RegExp(`^\\d{${count}}$`), message));
 
-/**
- * PUT /business/clients/{id}/profile (firm). Send only the fields to change; `null` or `''`
- * clears one. `ssn`, `ein` (9 digits, dashes allowed) and `dateOfBirth` are stored encrypted and
- * come back only as ssnLast4, einLast4 and dateOfBirth.
- */
-export const UpdateClientProfileRequest = z.strictObject({
+/** The profile fields a request may send (see UpdateClientProfileRequest). */
+const ProfileFields = z.strictObject({
   firstName: clearable(text(100)),
   middleName: clearable(text(100)),
   lastName: clearable(text(100)),
@@ -178,6 +174,16 @@ export const UpdateClientProfileRequest = z.strictObject({
   referralSource: clearable(text(200)),
   additionalInfo: clearable(text(2000, 'many')),
 });
+
+/**
+ * PUT /business/clients/{id}/profile (firm). Send only the fields to change; `null` or `''`
+ * clears one. `ssn`, `ein` (9 digits, dashes allowed) and `dateOfBirth` are stored encrypted and
+ * come back only as ssnLast4, einLast4 and dateOfBirth.
+ */
+export const UpdateClientProfileRequest = ProfileFields.refine(
+  (body) => Object.values(body).some((v) => v !== undefined),
+  'Change at least one field',
+);
 export type UpdateClientProfileRequest = z.input<typeof UpdateClientProfileRequest>;
 
 /**
@@ -190,7 +196,8 @@ export const CreateClientRequest = z.strictObject({
   email: clearable(Email),
   phone: clearable(Phone),
   assignedUserId: z.uuid().optional(),
-  profile: UpdateClientProfileRequest.optional(),
+  /** The same fields as the profile update; `{}` is the same as leaving it out. */
+  profile: ProfileFields.optional(),
 });
 export type CreateClientRequest = z.input<typeof CreateClientRequest>;
 
@@ -248,6 +255,11 @@ export type ClientTaxYearHistory = z.infer<typeof ClientTaxYearHistory>;
  * GET /portal/{firmSlug}/me/profile (mockup "My Profile"). Name and date of birth are locked.
  * Spouse and authorized logins see the record without the date of birth (null) and cannot edit
  * it (`portalRole` tells the screen to hide the controls).
+ */
+/**
+ * GET /portal/{firmSlug}/me/profile. The date of birth is the primary login's only. An AUTHORIZED
+ * login sees the name only (Rasel's q21): every other field reads as empty, as for a client with
+ * nothing on file, and `email` is always the signed-in login's own.
  */
 export const MyProfile = z.object({
   portalRole: ClientPortalRole,
@@ -308,5 +320,7 @@ export const ClientErrorCode = z.enum([
   'TAX_STATUS_ARCHIVED',
   /** 409: a name change request is already open. */
   'NAME_CHANGE_PENDING',
+  /** 503: SSN, EIN and date of birth can't be saved or shown right now (no firm key yet, KMS down). */
+  'ENCRYPTION_UNAVAILABLE',
 ]);
 export type ClientErrorCode = z.infer<typeof ClientErrorCode>;
