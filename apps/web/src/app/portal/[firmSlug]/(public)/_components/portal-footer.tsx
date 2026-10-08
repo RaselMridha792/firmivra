@@ -44,7 +44,7 @@ export function PortalFooter({ contact = false, width }: { contact?: boolean; wi
           {items}
         </PageContainer>
       ) : (
-        <div className={`px-6 ${ROW}`}>{items}</div>
+        <div className={`px-4 md:px-6 ${ROW}`}>{items}</div>
       )}
       <Modal open={kind !== null} title={title} onClose={() => setKind(null)}>
         {kind && <LegalText slug={business.slug} kind={kind} />}
