@@ -105,11 +105,11 @@ Checklist:
 
 Checklist:
 
-- [ ] The wizard works while the firm is still Pending Setup
-- [ ] Owner and Admin only; staff see the no-permission state
-- [ ] Playwright: finish the wizard in mock mode
+- [x] The wizard works while the firm is still Pending Setup
+- [x] Owner and Admin only; staff see the no-permission state
+- [x] Playwright: finish the wizard in mock mode
 
-**Status (Oct 8, 2026):** The wizard comes in three PRs to stay under 400 lines. Part 1 (`tumit/FIR-F05-setup-wizard`): the step frame with Save draft, Back and Continue, and Branding with a live portal preview. Part 2 (`tumit/FIR-F05-setup-team`): Business details and Team. Part 3: Client portal and Finish. Settings and Team pages follow.
+**Status (Oct 8, 2026):** The wizard comes in three PRs to stay under 400 lines. Part 1 (`tumit/FIR-F05-setup-wizard`): the step frame with Save draft, Back and Continue, and Branding with a live portal preview. Part 2 (`tumit/FIR-F05-setup-team`): Business details and Team. Part 3 (`tumit/FIR-F05-setup-finish`): Client portal and Finish. Settings and Team pages follow.
 
 ### F09 · Oct 12-13 · Firm calendar and availability
 
