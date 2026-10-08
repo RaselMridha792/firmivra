@@ -2,6 +2,7 @@
 
 import { ENTITY_TYPES, FIRM_SERVICES, type FirmSettings } from '@firmivra/types';
 import { Checkbox, Input, Select } from '@firmivra/ui';
+import { Building2 } from 'lucide-react';
 import { TextArea } from './fields';
 import type { StepProps } from './shared';
 import { LockedName, type StepForm, StepFrame, useStepForm } from './step-form';
@@ -33,7 +34,7 @@ export const businessValues = (firm: FirmSettings) => ({
 export function BusinessStep({ firm, onBack, onNext }: StepProps & { firm: FirmSettings }) {
   const stepForm = useStepForm('businessDetails', businessValues(firm), onNext);
   return (
-    <StepFrame title="Business details" stepForm={stepForm} onBack={onBack}>
+    <StepFrame title="Business details" icon={Building2} stepForm={stepForm} onBack={onBack}>
       <BusinessFields form={stepForm.form} firm={firm} />
     </StepFrame>
   );

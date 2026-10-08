@@ -2,6 +2,7 @@
 
 import type { FirmSettings } from '@firmivra/types';
 import { Badge, Input } from '@firmivra/ui';
+import { Palette } from 'lucide-react';
 import { BrandPreview } from './brand-preview';
 import { ColorField } from './fields';
 import type { StepProps } from './shared';
@@ -17,7 +18,7 @@ export const brandingValues = (firm: FirmSettings) => ({
 export function BrandingStep({ firm, onBack, onNext }: StepProps & { firm: FirmSettings }) {
   const stepForm = useStepForm('branding', brandingValues(firm), onNext);
   return (
-    <StepFrame title="Branding" stepForm={stepForm} onBack={onBack}>
+    <StepFrame title="Branding" icon={Palette} stepForm={stepForm} onBack={onBack}>
       <BrandingFields form={stepForm.form} firm={firm} />
     </StepFrame>
   );
@@ -44,7 +45,14 @@ export function BrandingFields({ form, firm }: { form: StepForm; firm: FirmSetti
       <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
         Logo: the Firmivra logo until you upload yours. <Badge>Upload soon</Badge>
       </p>
-      <BrandPreview name={portalName || defaultName} primary={primary} accent={accent} />
+      <BrandPreview
+        name={portalName || defaultName}
+        primary={primary}
+        accent={accent}
+        header={firm.portalHeader}
+        welcome={firm.welcomeMessage}
+        signUp={firm.clientSignUpEnabled}
+      />
     </>
   );
 }

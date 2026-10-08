@@ -4,6 +4,7 @@ import { type FirmSettings, type SetupStep, UpdateFirmSettingsRequest } from '@f
 import { Button, Card } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { type ReactNode, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
@@ -54,11 +55,13 @@ export type StepForm = ReturnType<typeof useStepForm>['form'];
 /** The step's card: title, fields, and Back, Save draft and Continue. */
 export function StepFrame({
   title,
+  icon,
   stepForm,
   onBack,
   children,
 }: {
   title: string;
+  icon: LucideIcon;
   stepForm: ReturnType<typeof useStepForm>;
   onBack?: () => void;
   children: ReactNode;
@@ -66,7 +69,7 @@ export function StepFrame({
   const { save, draftSaved, submit } = stepForm;
   return (
     <form onSubmit={submit(true)} noValidate>
-      <Card title={title} className="flex flex-col gap-4">
+      <Card title={<StepTitle icon={icon}>{title}</StepTitle>} className="flex flex-col gap-4">
         {children}
         <StepActions onBack={onBack} onSaveDraft={submit(false)} pending={save.isPending} />
         {draftSaved ? (
@@ -107,6 +110,16 @@ export function StepActions({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** A step's heading with its icon, in the Super Admin cards' style (docs/mockups/super-admin). */
+export function StepTitle({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-2 font-display text-xl font-bold text-heading">
+      <Icon aria-hidden className="size-5 text-link" />
+      {children}
+    </span>
   );
 }
 

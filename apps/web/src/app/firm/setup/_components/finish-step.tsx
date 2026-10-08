@@ -2,11 +2,13 @@
 
 import type { FirmSetup } from '@firmivra/types';
 import { Badge, Button, Card } from '@firmivra/ui';
+import { CircleCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation } from '../../../../lib/query';
 import { FIRM_SETTINGS, SETUP_ERRORS, STEPS, type WizardStep } from './shared';
+import { StepTitle } from './step-form';
 
 /** Step 5: the checklist, a way back to any step, and Complete setup (the firm becomes Active). */
 export function FinishStep({
@@ -23,7 +25,7 @@ export function FinishStep({
   const steps = STEPS.filter((step) => step.id !== 'finish');
 
   return (
-    <Card title="Finish" className="flex flex-col gap-4">
+    <Card title={<StepTitle icon={CircleCheck}>Finish</StepTitle>} className="flex flex-col gap-4">
       <ul className="divide-y divide-border rounded-card border border-border">
         {steps.map((step) => {
           const done = progress.completedSteps.some((completed) => completed === step.id);

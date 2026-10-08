@@ -22,7 +22,7 @@ export function SetupWizard() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 data-testid="page-title" className="font-serif text-3xl font-bold text-heading">
+        <h1 data-testid="page-title" className="font-display text-3xl font-bold text-heading">
           Set up your firm
         </h1>
         <p className="mt-1 text-sm text-muted">

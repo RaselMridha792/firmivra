@@ -2,6 +2,7 @@
 
 import type { FirmSettings } from '@firmivra/types';
 import { Badge, Checkbox, Input } from '@firmivra/ui';
+import { MonitorSmartphone } from 'lucide-react';
 import { BrandPreview } from './brand-preview';
 import { TextArea } from './fields';
 import type { StepProps } from './shared';
@@ -17,7 +18,7 @@ export const portalValues = (firm: FirmSettings) => ({
 export function PortalStep({ firm, onBack, onNext }: StepProps & { firm: FirmSettings }) {
   const stepForm = useStepForm('clientPortal', portalValues(firm), onNext);
   return (
-    <StepFrame title="Client portal" stepForm={stepForm} onBack={onBack}>
+    <StepFrame title="Client portal" icon={MonitorSmartphone} stepForm={stepForm} onBack={onBack}>
       <PortalFields form={stepForm.form} firm={firm} />
     </StepFrame>
   );
@@ -25,7 +26,11 @@ export function PortalStep({ firm, onBack, onNext }: StepProps & { firm: FirmSet
 
 /** Also Settings > Client portal. */
 export function PortalFields({ form, firm }: { form: StepForm; firm: FirmSettings }) {
-  const [header, welcome] = form.watch(['portalHeader', 'welcomeMessage']);
+  const [header, welcome, signUp] = form.watch([
+    'portalHeader',
+    'welcomeMessage',
+    'clientSignUpEnabled',
+  ]);
   return (
     <>
       <Input
@@ -52,6 +57,7 @@ export function PortalFields({ form, firm }: { form: StepForm; firm: FirmSetting
         accent={firm.accentColor}
         header={header}
         welcome={welcome}
+        signUp={signUp}
       />
     </>
   );
