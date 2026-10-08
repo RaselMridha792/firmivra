@@ -117,10 +117,9 @@ export class SupportAccessService {
         return { rows, firms: new Map(firms.map((f) => [f.id, f])), names };
       },
     );
-    const now = Date.now();
     const items = rows.slice(0, q.limit).flatMap((row) => {
       const firm = firms.get(row.businessId);
-      return firm ? [toAdmin(row, firm, names, now)] : [];
+      return firm ? [toAdmin(row, firm, names, row.dbNow.getTime())] : [];
     });
     return {
       items,
@@ -139,9 +138,8 @@ export class SupportAccessService {
         return { rows, names: await namesIn(tx, approvers) };
       },
     );
-    const now = Date.now();
     return {
-      items: rows.slice(0, q.limit).map((row) => toFirm(row, names, now)),
+      items: rows.slice(0, q.limit).map((row) => toFirm(row, names, row.dbNow.getTime())),
       nextCursor: rows.length > q.limit ? encodeOffset(offset + q.limit) : null,
     };
   }
@@ -263,7 +261,11 @@ const grantSelect = {
   createdAt: true,
 } satisfies Prisma.SupportAccessGrantSelect;
 
-/** One page of `support_access_grants g`, open ones first, then newest. */
+/**
+ * One page of `support_access_grants g`, open ones first, then newest. Each row carries the
+ * transaction's now(), which the filter and the order used, so its status is labelled by the
+ * same clock (a grant expiring during the request never lists as ACTIVE but labelled EXPIRED).
+ */
 function page(tx: TxClient, q: ListQuery, offset: number, businessId?: string) {
   const conditions = [
     businessId ? Prisma.sql`g.business_id = ${businessId}::uuid` : null,
@@ -272,8 +274,8 @@ function page(tx: TxClient, q: ListQuery, offset: number, businessId?: string) {
   const where = conditions.length
     ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
     : Prisma.empty;
-  return tx.$queryRaw<GrantRow[]>`
-    SELECT ${GRANT_COLUMNS} FROM support_access_grants g
+  return tx.$queryRaw<(GrantRow & { dbNow: Date })[]>`
+    SELECT ${GRANT_COLUMNS}, now() AS "dbNow" FROM support_access_grants g
     ${where}
     ORDER BY ${RANK_SQL}, g.created_at DESC, g.id DESC
     LIMIT ${q.limit + 1} OFFSET ${offset}`;

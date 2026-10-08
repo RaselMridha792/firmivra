@@ -33,6 +33,8 @@ Isolation suite green in CI; prod stacks deployed and empty.
 
 - R0 (lead sent it, high priority): a database-checked support scope, the fourth wall for a grant. For example a SECURITY DEFINER `app_enter_support_scope(business_id)` that sets the firm's context only while `app_current_admin_id()` holds an ACTIVE grant for it (approved, not revoked, `expires_at > now()`), so every business policy applies unchanged. Until it lands the API checks the grant and opens a business scope in the same transaction, with the grant row FOR SHARE.
 - R0 (low priority): a policy letting the requesting Super Admin withdraw their own PENDING request (set `revoked_at`). Today only the firm ends a request.
+- R0 (low priority), R0's open item (c): asks now run in the admin scope, so drop the platform branch of `support_access_grants_request`. Today a bug in any platform-scope caller could still plant a request naming anyone, a firm's own staff member included, whose rows the firm's log would then show as Firmivra Support. The test fixtures that insert grants in platform scope (`packages/db/test/policies.test.ts`, and my `apps/api/test/e2e/audit-log.e2e.test.ts`) move to the admin scope with it.
+- R0 (low priority): let the admin scope read the name of a Super Admin who asked for support access (`users_admin_platform_admins` has those who reviewed applications, not these), so a former Super Admin's asks keep their name in `GET /admin/support-access`. Today the name is `''`.
 - R6: a notice to the firm's Owners when Firmivra Support asks for access (and, optionally, when a grant is about to expire). Until then the API logs it by id.
 
 ## Decisions (Rasel's q31, defaults the lead gave on Oct 8; they may change)

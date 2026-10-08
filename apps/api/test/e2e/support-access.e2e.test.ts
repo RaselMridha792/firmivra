@@ -10,7 +10,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope } from '@firmivra/db';
+import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { AdminSupportAccess, AdminSupportAccessList, FirmSupportAccess } from '@firmivra/types';
 import { z } from 'zod';
@@ -141,6 +141,48 @@ async function expire(grantId: string) {
       WHERE id = ${grantId}::uuid`;
   });
   await db.$disconnect();
+}
+
+type Db = ReturnType<typeof owner>;
+
+/**
+ * Takes a lock in a transaction of its own (`take`) and holds it until `release`. `pid` is that
+ * transaction's backend, which `blockedBy` looks for.
+ */
+async function hold(db: Db, take: (tx: TxClient) => Promise<unknown>) {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let ready = (_pid: number) => {};
+  const taken = new Promise<number>((resolve) => (ready = resolve));
+  const done = db.$transaction(
+    async (tx) => {
+      const [me] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+      await take(tx);
+      ready(me?.pid ?? 0);
+      await held;
+    },
+    { timeout: 20_000 },
+  );
+  const pid = await Promise.race([taken, done.then(() => 0)]);
+  return {
+    pid,
+    release: async () => {
+      release();
+      await done;
+    },
+  };
+}
+
+/** Waits until some backend waits for a lock that backend `pid` holds. */
+async function blockedBy(db: Db, pid: number) {
+  for (let tries = 0; tries < 200; tries++) {
+    const [row] = await db.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM pg_stat_activity
+      WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`;
+    if ((row?.n ?? 0) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Nothing waited for backend ${pid}`);
 }
 
 beforeAll(async () => {
@@ -327,6 +369,11 @@ describe("the firm's side", () => {
       const again = await firmCall('post', `/${id}/${action}`, people.ownerA, 'a', {});
       expect([again.status, codeOf(again)], action).toEqual([409, 'SUPPORT_REQUEST_DECIDED']);
     }
+    // An active grant is open too: no second request beside it.
+    const ask2 = await adminCall('post', `/firms/${firms.a.id}/support-access`, people.super1, {
+      reason: 'While active',
+    });
+    expect([ask2.status, codeOf(ask2)]).toEqual([409, 'SUPPORT_REQUEST_OPEN']);
     expect(await auditOf(id, firms.a.id)).toEqual([
       ['support.requested', people.super1.id, {}],
       ['support.approved', people.ownerA.id, { hours: 2 }],
@@ -362,50 +409,39 @@ describe("the firm's side", () => {
   it('the database has the last word: an Owner demoted while approving gets 403', async () => {
     const id = asked.super2A2.id;
     const db = owner();
-    let release = () => {};
-    const held = new Promise<void>((resolve) => (release = resolve));
-    let locked = () => {};
-    const isLocked = new Promise<void>((resolve) => (locked = resolve));
-    // Hold the request's row, so the approval waits after its role check.
-    const holder = db.$transaction(
-      async (tx) => {
-        await tx.$queryRaw`SELECT id FROM support_access_grants WHERE id = ${id}::uuid FOR UPDATE`;
-        locked();
-        await held;
-      },
-      { timeout: 20_000 },
-    );
-    await isLocked;
-    const approving = firmCall('post', `/${id}/approve`, people.ownerA2, 'a', {});
-    // The approval's own query ("dbNow") waits for the row.
-    for (let tries = 0; ; tries++) {
-      const [waiting] = await db.$queryRaw<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM pg_stat_activity
-        WHERE wait_event_type = 'Lock' AND query LIKE '%"dbNow"%'`;
-      if ((waiting?.n ?? 0) > 0) break;
-      if (tries > 200) throw new Error('The approval never waited for the row');
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    try {
+      // Hold the request's row, so the approval waits after its role check.
+      const row = await hold(
+        db,
+        (tx) =>
+          tx.$queryRaw`SELECT id FROM support_access_grants WHERE id = ${id}::uuid FOR UPDATE`,
+      );
+      const approving = firmCall('post', `/${id}/approve`, people.ownerA2, 'a', {});
+      try {
+        await blockedBy(db, row.pid);
+        await runInScope(db, { kind: 'business', businessId: firms.a.id }, (tx) =>
+          tx.membership.updateMany({
+            where: { businessId: firms.a.id, userId: people.ownerA2.id },
+            data: { role: 'ADMIN' },
+          }),
+        );
+      } finally {
+        await row.release();
+      }
+      const res = await approving;
+      // Refused by R0's trigger after the role check had passed (the guard's 403 says otherwise).
+      expect([res.status, res.body]).toEqual([
+        403,
+        {
+          error: expect.objectContaining({
+            code: 'FORBIDDEN',
+            message: 'Only an Owner answers support access requests',
+          }) as unknown,
+        },
+      ]);
+    } finally {
+      await db.$disconnect();
     }
-    await runInScope(db, { kind: 'business', businessId: firms.a.id }, (tx) =>
-      tx.membership.updateMany({
-        where: { businessId: firms.a.id, userId: people.ownerA2.id },
-        data: { role: 'ADMIN' },
-      }),
-    );
-    release();
-    await holder;
-    const res = await approving;
-    // Refused by R0's trigger after the role check had passed (the guard's 403 says otherwise).
-    expect([res.status, res.body]).toEqual([
-      403,
-      {
-        error: expect.objectContaining({
-          code: 'FORBIDDEN',
-          message: 'Only an Owner answers support access requests',
-        }) as unknown,
-      },
-    ]);
-    await db.$disconnect();
     const { items } = await firmList('?status=PENDING');
     expect(items.map((i) => i.id)).toContain(id);
     expect((await auditOf(id, firms.a.id)).map(([action]) => action)).toEqual([
@@ -436,6 +472,36 @@ describe("the firm's side", () => {
     ]);
   });
 
+  it('an ask that finds another ask in progress is 409 at once; 72 hours is the most', async () => {
+    const db = owner();
+    const key = `fv-support-access:${firms.b.id}:${people.super2.id}`;
+    try {
+      // Another ask by the same Super Admin for the same firm holds the pair's lock.
+      const other = await hold(db, async (tx) => {
+        const [lock] = await tx.$queryRaw<{ ok: boolean }[]>`
+          SELECT pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) AS ok`;
+        if (lock?.ok !== true) throw new Error('The test could not take the lock');
+      });
+      try {
+        const res = await adminCall('post', `/firms/${firms.b.id}/support-access`, people.super2, {
+          reason: 'Meanwhile',
+        });
+        expect([res.status, codeOf(res)]).toEqual([409, 'SUPPORT_REQUEST_OPEN']);
+      } finally {
+        await other.release();
+      }
+    } finally {
+      await db.$disconnect();
+    }
+    const asked2 = await ask('b', people.super2);
+    const before = Date.now();
+    const res = await firmCall('post', `/${asked2.id}/approve`, people.ownerB, 'b', { hours: 72 });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const expiresAt = Date.parse(FirmView.parse(res.body).expiresAt ?? '');
+    expect(expiresAt).toBeGreaterThan(before + 72 * HOUR - 60_000);
+    expect(expiresAt).toBeLessThan(Date.now() + 72 * HOUR + 60_000);
+  });
+
   it('a grant expires on its own: EXPIRED, no revoke, and a new request may follow', async () => {
     await expire(asked.super1A.id);
     const { items } = await firmList('?status=EXPIRED');
@@ -447,20 +513,16 @@ describe("the firm's side", () => {
 });
 
 describe("the Super Admins' list", () => {
-  it("one firm's or every firm's: open ones first, then newest; paged; a bad cursor is 400", async () => {
+  it("one firm's or every firm's: pending, then active, then the rest, newest first; paged", async () => {
+    // The older of the two pending requests becomes active.
+    await answer(asked.super2A2.id, 'approve');
     const all = await adminList(`?businessId=${firms.a.id.toUpperCase()}&limit=100`);
     expect(all.items.every((i) => i.firm.id === firms.a.id)).toBe(true);
-    expect(all.items.map((i) => [i.id, i.status])).toEqual([
-      [asked.super1A2.id, 'PENDING'],
-      [asked.super2A2.id, 'PENDING'],
-      [asked.super2A.id, 'DECLINED'],
-      [asked.super1A.id, 'EXPIRED'],
-    ]);
-    expect(all.items.map((i) => i.admin.name)).toEqual([
-      'Fake R8 super1',
-      'Fake R8 super2',
-      'Fake R8 super2',
-      'Fake R8 super1',
+    expect(all.items.map((i) => [i.id, i.status, i.admin.name])).toEqual([
+      [asked.super1A2.id, 'PENDING', 'Fake R8 super1'],
+      [asked.super2A2.id, 'ACTIVE', 'Fake R8 super2'],
+      [asked.super2A.id, 'DECLINED', 'Fake R8 super2'],
+      [asked.super1A.id, 'EXPIRED', 'Fake R8 super1'],
     ]);
 
     const paged: string[] = [];
