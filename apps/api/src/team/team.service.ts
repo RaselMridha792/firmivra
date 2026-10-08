@@ -5,7 +5,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { type Database, databaseErrorCode, isDbError, type TxClient } from '@firmivra/db';
+import {
+  type Database,
+  databaseErrorCode,
+  isDbError,
+  type Prisma,
+  type TxClient,
+} from '@firmivra/db';
 import type { MembershipRole, TeamMember } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { InvitesService } from '../auth/invites.service.js';
@@ -24,26 +30,64 @@ const memberSelect = {
   userId: true,
   role: true,
   status: true,
+  joinedAt: true,
   createdAt: true,
   user: { select: { id: true, name: true, email: true } },
-  // The newest open invite (an expired one still shows, so the screen can offer Resend).
+  // The newest invite, open or not: its typed name and email until the person joins (#52), and,
+  // while it is open, when it was sent and expires (an expired one still shows, for Resend).
   invites: {
-    where: { acceptedAt: null, revokedAt: null },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: 1,
-    select: { createdAt: true, expiresAt: true },
+    select: {
+      name: true,
+      email: true,
+      createdAt: true,
+      expiresAt: true,
+      acceptedAt: true,
+      revokedAt: true,
+    },
   },
-} as const;
+} satisfies Prisma.MembershipSelect;
 
 type MemberRow = {
   id: string;
   userId: string;
   role: MembershipRole;
   status: TeamMember['status'];
+  joinedAt: Date | null;
   createdAt: Date;
   user: { id: string; name: string; email: string };
-  invites: { createdAt: Date; expiresAt: Date }[];
+  invites: {
+    name: string | null;
+    email: string | null;
+    createdAt: Date;
+    expiresAt: Date;
+    acceptedAt: Date | null;
+    revokedAt: Date | null;
+  }[];
 };
+
+/**
+ * Who the firm sees: until the person joins, the name and email the inviter typed on the newest
+ * invite (#52: never the person's own user row, which another firm or the person may have filled
+ * in); the user row only for what an invite made before #52 lacks, as R2's resend does. Once the
+ * person has joined, their user row.
+ */
+export function shownPerson(row: Pick<MemberRow, 'joinedAt' | 'status' | 'user' | 'invites'>): {
+  id: string;
+  name: string;
+  email: string;
+} {
+  const latest = row.invites[0];
+  // Joined: the database stamped joined_at, the member is active, or their invite was used.
+  const joined = row.joinedAt !== null || row.status === 'ACTIVE' || !!latest?.acceptedAt;
+  if (joined || !latest) return row.user;
+  return {
+    id: row.user.id,
+    name: latest.name ?? row.user.name,
+    email: latest.email ?? row.user.email,
+  };
+}
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 
@@ -95,7 +139,8 @@ export class TeamService {
     const rows = await this.database
       .forBusiness(businessId)
       .membership.findMany({ where: { businessId }, select: memberSelect });
-    return rows.sort(byRoleThenName).map((row) => this.toMember(row, actor));
+    // Sorted by the name the firm sees (the typed one until the person joins).
+    return rows.map((row) => this.toMember(row, actor)).sort(byRoleThenName);
   }
 
   /** Owners only (the route allows OWNER), for ACTIVE members. */
@@ -105,7 +150,7 @@ export class TeamService {
     memberId: string,
     role: MembershipRole,
   ): Promise<TeamMember> {
-    const { row, from } = await this.change(businessId, actor, async (tx) => {
+    const row = await this.change(businessId, actor, async (tx) => {
       const target = await this.find(tx, businessId, memberId);
       assertManageable(actor, target);
       if (target.status !== 'ACTIVE') {
@@ -114,42 +159,49 @@ export class TeamService {
           message: 'Invite this person again to change their role',
         });
       }
-      if (target.role === role) return { row: target, from: role };
+      if (target.role === role) return target;
       // Only if the member is still as we read them (not deactivated or changed meanwhile).
       await this.updateIfUnchanged(tx, businessId, target, { role });
-      return { row: await this.find(tx, businessId, memberId), from: target.role };
-    });
-    if (from !== role) {
-      await this.audit.log(
+      // With the change, so both land or neither does (and a retry writes it once).
+      await this.audit.logIn(
+        tx,
         'membership.role_changed',
         { type: 'membership', id: memberId },
-        { from, to: role },
+        { from: target.role, to: role },
+        { businessId },
       );
-    }
+      return this.find(tx, businessId, memberId);
+    });
     return this.toMember(row, actor);
   }
 
-  /** Ends access to this firm only and cancels an open invite. Repeating is harmless. */
+  /**
+   * Ends access to this firm only and cancels an open invite. Repeating is harmless. The open
+   * invite is revoked first, then the membership changed: the lock order of activation (R2's
+   * use()) and resend. While an activation holds those invite rows (it sets the password in
+   * Cognito under OUTSIDE_CALL_LIMITS, #92), this waits; if that outlasts this transaction's own
+   * time limit, the answer is 503 SERVICE_BUSY (the global P2028 mapping) and nothing changed.
+   */
   async deactivate(businessId: string, actor: TeamActor, memberId: string): Promise<TeamMember> {
-    const { row, changed } = await this.change(businessId, actor, async (tx) => {
+    const row = await this.change(businessId, actor, async (tx) => {
       const target = await this.find(tx, businessId, memberId);
       assertManageable(actor, target);
-      if (target.status === 'DEACTIVATED') return { row: target, changed: false };
-      // Invites first, then the membership: the same lock order as activation (R2).
+      if (target.status === 'DEACTIVATED') return target;
       await tx.invite.updateMany({
         where: { businessId, membershipId: memberId, acceptedAt: null, revokedAt: null },
         data: { revokedAt: new Date() },
       });
       await this.updateIfUnchanged(tx, businessId, target, { status: 'DEACTIVATED' });
-      return { row: await this.find(tx, businessId, memberId), changed: true };
-    });
-    if (changed) {
-      await this.audit.log(
+      // With the change, so both land or neither does (and a retry writes it once).
+      await this.audit.logIn(
+        tx,
         'membership.deactivated',
         { type: 'membership', id: memberId },
-        { role: row.role },
+        { role: target.role },
+        { businessId },
       );
-    }
+      return this.find(tx, businessId, memberId);
+    });
     return this.toMember(row, actor);
   }
 
@@ -249,11 +301,15 @@ export class TeamService {
   }
 
   private toMember(row: MemberRow, actor: TeamActor): TeamMember {
-    const invite = row.status === 'INVITED' ? row.invites[0] : undefined;
+    // The open invite of an invited member (the newest invite; resend revokes the one before).
+    const latest = row.invites[0];
+    const invite =
+      row.status === 'INVITED' && latest && !latest.acceptedAt && !latest.revokedAt
+        ? latest
+        : undefined;
     return {
       id: row.id,
-      // Until #52's invites.name: the user row's name (R2 follow-up shows the typed name).
-      user: { id: row.user.id, name: row.user.name, email: row.user.email },
+      user: shownPerson(row),
       role: row.role,
       status: row.status,
       invite: invite

@@ -9,7 +9,7 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { z } from 'zod';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { TeamMember as MemberShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -98,7 +98,7 @@ async function list(who = people.ownerA, firm = firms.a): Promise<TeamMember[]> 
 }
 
 async function asOwner<T>(businessId: string, fn: Parameters<typeof runInScope<T>>[2]) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     return await runInScope(owner, { kind: 'business', businessId }, fn);
   } finally {
@@ -107,7 +107,7 @@ async function asOwner<T>(businessId: string, fn: Parameters<typeof runInScope<T
 }
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
       const pool = key === 'clientA' ? 'CLIENT' : 'STAFF';
@@ -402,5 +402,117 @@ describe('more rules and races', () => {
     expect((done.body as TeamMember).status).toBe('DEACTIVATED');
     const suspended = await call('get', '/business/team', fx.users.ownerSuspended, fx.suspended.id);
     expect([suspended.status, codeOf(suspended)]).toEqual([403, 'BUSINESS_INACTIVE']);
+  });
+});
+
+describe('who the firm sees, and resend against deactivate', () => {
+  it('shows the typed name and email until the person joins, never their own user row', async () => {
+    // staffB already has a login (and a profile name) through firm B; firm A invites the same
+    // address under a name of its own.
+    const typed = { email: people.staffB.email, name: 'Sam Typed' };
+    const invited = await call('post', '/auth/invites', people.ownerA, firms.a.id, {
+      ...typed,
+      role: 'STAFF',
+    });
+    expect(invited.status).toBe(201);
+    const memberId = (invited.body as { membershipId: string }).membershipId;
+    const shown = (await list()).find((m) => m.id === memberId);
+    expect(shown?.user).toEqual({ id: people.staffB.id, name: 'Sam Typed', email: typed.email });
+    expect(JSON.stringify(await list())).not.toContain('Fake staffB');
+
+    // Deactivated before joining: still the typed name, never the user row.
+    const early = { email: `t03-early-${run}@t03.test`, name: 'Eli Early' };
+    const earlyInvite = await call('post', '/auth/invites', people.ownerA, firms.a.id, {
+      ...early,
+      role: 'STAFF',
+    });
+    expect(earlyInvite.status).toBe(201);
+    const earlyId = (earlyInvite.body as { membershipId: string }).membershipId;
+    expect((await team('post', `/${earlyId}/deactivate`, people.ownerA)).status).toBe(200);
+    const gone = (await list()).find((m) => m.id === earlyId);
+    expect([gone?.status, gone?.user.name, gone?.user.email]).toEqual([
+      'DEACTIVATED',
+      'Eli Early',
+      early.email,
+    ]);
+
+    // Once the person has joined (the database stamps joined_at), the firm sees their user row.
+    await asOwner(firms.a.id, (tx) =>
+      tx.membership.update({ where: { id: memberId }, data: { status: 'ACTIVE' } }),
+    );
+    const joined = (await list()).find((m) => m.id === memberId);
+    expect([joined?.status, joined?.user.name]).toEqual(['ACTIVE', 'Fake staffB']);
+  });
+
+  it('a resend racing a deactivate never leaves an open invite on a deactivated member', async () => {
+    for (let round = 0; round < 6; round++) {
+      const who = { email: `t03-race-${round}-${run}@t03.test`, name: `Rae Race ${round}` };
+      const invited = await call('post', '/auth/invites', people.ownerA, firms.a.id, {
+        ...who,
+        role: 'STAFF',
+      });
+      expect(invited.status).toBe(201);
+      const memberId = (invited.body as { membershipId: string }).membershipId;
+      const [resend, deactivate] = await Promise.all([
+        team('post', `/${memberId}/resend-invite`, people.ownerA),
+        team('post', `/${memberId}/deactivate`, people.ownerA),
+      ]);
+      expect(deactivate.status).toBe(200);
+      // Before the deactivation, a new link; after it, nothing to resend.
+      expect(
+        resend.status === 200 || (resend.status === 409 && codeOf(resend) === 'NOT_INVITED'),
+      ).toBe(true);
+      const state = await asOwner(firms.a.id, async (tx) => ({
+        status: (await tx.membership.findUniqueOrThrow({ where: { id: memberId } })).status,
+        open: await tx.invite.count({
+          where: { membershipId: memberId, acceptedAt: null, revokedAt: null },
+        }),
+      }));
+      expect(state).toEqual({ status: 'DEACTIVATED', open: 0 });
+    }
+  });
+
+  it('writes the role change and the deactivation audit rows with the change, once', async () => {
+    const fresh = person('audit-staff');
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    try {
+      await runInScope(owner, { kind: 'platform' }, (tx) =>
+        tx.user.create({
+          data: {
+            id: fresh.id,
+            cognitoSub: fresh.id,
+            pool: 'STAFF',
+            email: fresh.email,
+            name: 'Fake audit staff',
+          },
+        }),
+      );
+    } finally {
+      await owner.$disconnect();
+    }
+    const staff = (
+      await asOwner(firms.a.id, (tx) =>
+        tx.membership.create({
+          data: { businessId: firms.a.id, userId: fresh.id, role: 'STAFF', status: 'ACTIVE' },
+          select: { id: true },
+        }),
+      )
+    ).id;
+    expect(
+      (await team('patch', `/${staff}`, people.ownerA, firms.a, { role: 'ADMIN' })).status,
+    ).toBe(200);
+    expect(
+      (await team('patch', `/${staff}`, people.ownerA, firms.a, { role: 'ADMIN' })).status,
+    ).toBe(200);
+    const rows = await asOwner(firms.a.id, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: firms.a.id, action: 'membership.role_changed', entityId: staff },
+        select: { actorUserId: true, metadata: true },
+      }),
+    );
+    // The repeat changed nothing and wrote nothing.
+    expect(rows).toEqual([
+      { actorUserId: people.ownerA.id, metadata: { from: 'STAFF', to: 'ADMIN' } },
+    ]);
   });
 });
