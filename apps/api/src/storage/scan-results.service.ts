@@ -18,14 +18,19 @@ export interface ScanResult {
 /**
  * What became of the document: its new scan status; UNSCANNED for a password-protected PDF,
  * accepted unscanned (CLEAN, q24); PENDING when the scan broke on our side (the alarm and a
- * rescan); IGNORED for an unknown key or a document whose result is already set.
+ * rescan); UNKNOWN for a documents key with no document yet (the confirm may still come: the
+ * handler leaves the message for redelivery, then dead-letters it to the alarm); IGNORED for a
+ * key outside the documents prefixes or a document whose result is already set (delete it).
  */
-export type ScanOutcome = 'CLEAN' | 'INFECTED' | 'FAILED' | 'UNSCANNED' | 'PENDING' | 'IGNORED';
+export type ScanOutcome =
+  'CLEAN' | 'INFECTED' | 'FAILED' | 'UNSCANNED' | 'PENDING' | 'UNKNOWN' | 'IGNORED';
 
 /** UNSUPPORTED because of the file itself (docs/api/documents.yaml, "Scan results"). */
 const FILE_REASON =
   /^(PASSWORD_PROTECTED|OBJECT_SIZE_LIMIT_EXCEEDED|EXTRACTED_[A-Z_]+_LIMIT_EXCEEDED|EXTRACTION_RATIO_LIMIT_EXCEEDED)$/;
-const KEY = /^tenant\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/documents\//;
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+/** tenant/{businessId}/documents/{uploadId}, as uploads.service.ts names a new object. */
+const KEY = new RegExp(`^tenant/(${UUID})/documents/(${UUID})$`);
 
 /** The scan status a result gives a file of this type, or null for "our side, still PENDING". */
 function statusFor(
@@ -49,11 +54,12 @@ function statusFor(
  * results"). The GuardDuty result handler (the SQS consumer, with the infra) calls this; there is
  * no route. The document is found by its S3 key in the firm its prefix names, never by a firm id
  * in the message, and only a PENDING document takes a result (the database refuses to change one
- * once set). q22: a request whose newest file becomes INFECTED or FAILED goes back to REQUESTED,
- * in the same transaction. q24: UNSUPPORTED with PASSWORD_PROTECTED on a PDF is accepted unscanned
- * (CLEAN, the reason audited); other file reasons are FAILED; everything else is our side and
- * leaves the file PENDING for the alarm and a rescan. Lock order: the request, then the document.
- * Audited with ids and codes only.
+ * once set). q22: a SUBMITTED request whose newest file becomes INFECTED or FAILED goes back to
+ * REQUESTED, in the same transaction. q24: UNSUPPORTED with PASSWORD_PROTECTED on a PDF is
+ * accepted unscanned (CLEAN, the reason audited); other file reasons are FAILED; everything else
+ * is our side and leaves the file PENDING for the alarm and a rescan. A result that comes before
+ * the confirm saves its document is UNKNOWN, for redelivery. Lock order: the request, then the
+ * document. Audited with ids and codes only.
  */
 @Injectable()
 export class ScanResultsService {
@@ -65,14 +71,18 @@ export class ScanResultsService {
   ) {}
 
   async recordScanResult(result: ScanResult): Promise<ScanOutcome> {
-    const businessId = KEY.exec(result.key)?.[1];
-    if (!businessId) return 'IGNORED';
+    const [, businessId, uploadId] = KEY.exec(result.key) ?? [];
+    if (!businessId || !uploadId) return 'IGNORED';
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const doc = await tx.document.findFirst({
         where: { businessId, s3Key: result.key },
         select: { id: true, clientId: true, requestId: true, contentType: true },
       });
-      if (!doc) return 'IGNORED';
+      if (!doc) {
+        // GuardDuty scans on the PUT; the confirm that saves the document can come later.
+        this.logger.warn(`Scan result for upload ${uploadId} has no document yet; redeliver`);
+        return 'UNKNOWN';
+      }
       const request = doc.requestId ? await lockRequest(tx, businessId, doc.requestId) : null;
       const [locked] = await tx.$queryRaw<{ scan_status: ScanStatus }[]>`
         SELECT scan_status::text AS scan_status FROM documents

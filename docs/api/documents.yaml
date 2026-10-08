@@ -198,7 +198,8 @@ info:
       must reach it, else 404) and then the request; `ACCEPTED` and `CANCELLED` are closed
       (`409 REQUEST_CLOSED`), accept and reject need `SUBMITTED` (`409 NOTHING_SUBMITTED`), and
       accept a `CLEAN` newest file (`409 SCAN_PENDING` while it is checked). "I don't have this"
-      takes only an open request. A new answer (an upload) clears the old `statusNote`.
+      takes only an open request of a client that isn't archived (`409 NO_OPEN_SERVICE`, as
+      for its uploads). A new answer (an upload) clears the old `statusNote`.
     - **Scan results (GuardDuty Malware Protection for S3).** Results reach the API only
       through a private channel: an EventBridge rule (source `aws.guardduty`, detail-type
       `GuardDuty Malware Protection Object Scan Result`, the documents bucket) to an SQS queue
@@ -218,8 +219,17 @@ info:
         bucket, a changed ETag) and `FAILED`. The alarm fires and we rescan it with GuardDuty's
         on-demand scan (`SendObjectMalwareScan` with the key and the confirmed version id); the
         object is never rewritten or copied to rescan it.
-      - A request whose newest file becomes `INFECTED` or `FAILED` goes back to `REQUESTED` in
-        the same transaction (see "Requests"; kept, Rasel q22).
+      - A `SUBMITTED` request whose newest file becomes `INFECTED` or `FAILED` goes back to
+        `REQUESTED` in the same transaction (see "Requests"; kept, Rasel q22). A request the
+        firm cancelled or marked missing, or the client answered "I don't have this", keeps its
+        status and note.
+      - GuardDuty scans the object as soon as the PUT ends, so a result can arrive before the
+        confirm commits the document (a confirm may come up to the token's 15 minutes later,
+        after a `503`). Such a result is `UNKNOWN` (logged with the upload id): the handler
+        leaves the message on the queue for redelivery (a visibility timeout and a max receive
+        count that cover 30 minutes), then dead-letters it to the alarm (an upload never
+        confirmed or refused, its object deleted). `IGNORED` (delete the message) is only for a
+        result already set or a key outside `tenant/{businessId}/documents/`.
       - Built (R5 API part 2): `ScanResultsService.recordScanResult({ key, status, reasons })`
         does all of the above for the handler to call (locks the request, then the document;
         audits `document.scanned` with the result and reasons, `document.scan_unfinished` for
@@ -500,7 +510,7 @@ paths:
         '200': { description: MyDocumentRequest }
         '403': { description: 'FORBIDDEN: an AUTHORIZED login' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: REQUEST_CLOSED }
+        '409': { description: 'NO_OPEN_SERVICE (an archived client) or REQUEST_CLOSED' }
 
 components:
   parameters:

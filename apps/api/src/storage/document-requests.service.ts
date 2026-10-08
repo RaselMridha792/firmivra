@@ -309,18 +309,20 @@ export class DocumentRequestsService {
 
   /**
    * "I don't have this", with the client's reason: 403 for an AUTHORIZED login, 404 for a
-   * request that isn't this client's, 409 REQUEST_CLOSED unless it is open (REQUESTED or
-   * REJECTED). Lock order: the client, then the request.
+   * request that isn't this client's, 409 NO_OPEN_SERVICE for an archived client (as its
+   * uploads), then REQUEST_CLOSED unless it is open (REQUESTED or REJECTED). Lock order: the
+   * client, then the request.
    */
   async notAvailable(caller: PortalCaller, id: string, reason: string): Promise<MyDocumentRequest> {
     return this.inFirm(caller.businessId, async (tx) => {
       const login = await portalLogin(tx, caller);
       if (!login.household) throw forbidden();
-      if (!login.clientId || !(await lockClient(tx, caller.businessId, login.clientId))) {
-        throw notFound();
-      }
+      const client = login.clientId && (await lockClient(tx, caller.businessId, login.clientId));
+      if (!client) throw notFound();
       const locked = await lockRequest(tx, caller.businessId, id);
       if (locked?.client_id !== login.clientId) throw notFound();
+      // An archived client has no open service, as for its uploads.
+      if (client.archived) throw refusal('NO_OPEN_SERVICE');
       if (!isOpen(locked.status)) throw refusal('REQUEST_CLOSED');
       const row = await tx.documentRequest.update({
         where: { id },

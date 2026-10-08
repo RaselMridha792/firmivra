@@ -98,9 +98,9 @@ R5 defaults (answer 4, all accepted):
 - An AUTHORIZED login's `upload-targets` lists only services with an open request (it may upload only for one), and its request list only open requests.
 - "Request a document" emails every ACTIVE portal login of the client, AUTHORIZED ones too (they may answer it); the email has the title, the due date and a link only.
 - A new answer clears the old `statusNote` (SUBMITTED, ACCEPTED, and REQUESTED again after a blocked file); a cancel keeps it.
-- "I don't have this" takes any open request, also one of a service that is no longer open (an answer needs no upload). It leaves `resolvedAt` empty, as the mock does.
+- "I don't have this" takes any open request, also one of a service that is no longer open (an answer needs no upload), but not from an archived client (409 `NO_OPEN_SERVICE`, as its uploads; the part 2 review). It leaves `resolvedAt` empty, as the mock does.
 - A portal upload's tax year defaults to its service's (the mock does the same); the firm's stays as given.
-- Scan results: a result on a document that is no longer PENDING, or a key outside `tenant/{uuid}/documents/`, is ignored; UNSUPPORTED counts as FAILED only for the file reasons in the yaml, and as "accepted unscanned" only when a PDF's only file reason is PASSWORD_PROTECTED.
+- Scan results: a result on a document that is no longer PENDING, or a key that isn't `tenant/{uuid}/documents/{uuid}`, is ignored (`IGNORED`: delete the message); a documents key with no document yet is `UNKNOWN` (logged with the upload id; the confirm can come up to 15 minutes after the PUT): the handler keeps the message for redelivery, then dead-letters it to the alarm; UNSUPPORTED counts as FAILED only for the file reasons in the yaml, and as "accepted unscanned" only when a PDF's only file reason is PASSWORD_PROTECTED.
 
 ## Open (Rasel)
 
@@ -137,7 +137,7 @@ Infra for these needs Rasel's yes first.
 
 - R0 (a schema request with the `schema` label): a column that marks a document accepted unscanned (q24), for example `documents.scan_note` or `unscanned boolean`, so the firm's document can show "not scanned" (a `FirmDocument` field then). Today the mark is only in the `document.scanned` audit entry (`unscanned: true`).
 - R6: the bell (in-app notification) for a new document request, once R6's notifications land; the email is sent today.
-- Infra and R5: the GuardDuty result handler (EventBridge to SQS, read with the API role) that calls `ScanResultsService.recordScanResult`.
+- Infra and R5: the GuardDuty result handler (EventBridge to SQS, read with the API role) that calls `ScanResultsService.recordScanResult`. It deletes the message on every outcome but `UNKNOWN` (no document yet), which stays for redelivery: a visibility timeout and max receive count that cover 30 minutes, then a dead-letter queue with an alarm.
 
 - R0 or R4 (approve): a new firm gets the default document categories (Tax Documents, Business Documents, Identification). Today only `packages/db/prisma/seed.ts` creates them, so a firm made by approve, and LVP on dev, have none and every upload goes without a category (Rasel to choose who; a one-off for LVP on dev). From the cloud review of #118.
 - Rasel: `SCAN_MODE=local` on the dev API task (an app-stack line, after #101 adds `APP_ENV`). Until then every dev upload stays "checking" and dev downloads are blocked. The API already allows it only when `APP_ENV=dev`.
@@ -212,3 +212,8 @@ Infra for these needs Rasel's yes first.
   - tests: `test/e2e/documents-portal.e2e.test.ts` (every portal and request route; PRIMARY, SPOUSE and AUTHORIZED; the token bound to the login and the role re-checked at confirm; each request transition and 409; the reopen rule and an older file that must not reopen; q24; client A never sees or downloads client B's files or requests, firm B never firm A's, Staff never an unassigned client's, AUTHORIZED never another login's uploads; `document_request.submitted` in the document's transaction, by `xmin`);
   - the yaml: household logins, request emails, "Requests (API)" with the lock order, the built scan-result method, the portal 403s;
   - size: about 2,300 changed lines with the tests; it could split into (1) the portal routes and the request path of confirm and (2) the request routes and the scan results.
+- 2026-10-08, two reviewers on part 2 (`fix: review findings (R5)`):
+  - "I don't have this" from an archived client is 409 `NO_OPEN_SERVICE` after the 404s (e2e, nothing changed or audited);
+  - `recordScanResult` answers `UNKNOWN` (logged with the upload id) for a documents key with no document yet, so the handler keeps a result that comes before the confirm; `IGNORED` only for a result already set or a key outside `tenant/{uuid}/documents/{uuid}` (e2e: a result before the confirm, then the redelivered one makes the file CLEAN and the request acceptable);
+  - e2e: a cancelled, a marked-missing and an "I don't have this" request keep their status and note when their newest file comes back INFECTED (fails with the SUBMITTED guard removed);
+  - e2e races on the request lock (another session holds the request's row until both calls wait, then lets them go): two logins confirm for one request (one 200, one 409 `REQUEST_CLOSED`, its object deleted, one `submitted` entry) and a cancel with a confirm (consistent either way); both fail with `FOR UPDATE` removed from `lockRequest`.

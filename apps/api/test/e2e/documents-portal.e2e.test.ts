@@ -239,6 +239,42 @@ async function scanned<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Holds the request's row lock (FOR UPDATE, another session) while `work` starts, until `waiters`
+ * sessions wait behind it (directly or behind each other), then lets them all go at once: the
+ * calls race for the request, whatever their timing.
+ */
+async function racing<T>(requestId: string, waiters: number, work: () => Promise<T>): Promise<T> {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+  let started: Promise<T> | undefined;
+  try {
+    await runInScope(
+      owner,
+      { kind: 'business', businessId: firms.a.id },
+      async (tx) => {
+        const [me] = await tx.$queryRaw<{ pid: number }[]>`
+          SELECT pg_backend_pid() AS pid FROM document_requests
+          WHERE id = ${requestId}::uuid FOR UPDATE`;
+        started = work();
+        for (let i = 0; i < 200; i++) {
+          const [row] = await owner.$queryRaw<{ n: number }[]>`
+            WITH w AS (SELECT pid, pg_blocking_pids(pid) AS b FROM pg_stat_activity)
+            SELECT count(*)::int AS n FROM w
+            WHERE ${me?.pid}::int = ANY(w.b)
+               OR EXISTS (SELECT 1 FROM w AS v WHERE ${me?.pid}::int = ANY(v.b) AND v.pid = ANY(w.b))`;
+          if ((row?.n ?? 0) >= waiters) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error('the calls never waited on the request');
+      },
+      { timeout: 20_000 },
+    );
+    return await started!;
+  } finally {
+    await owner.$disconnect();
+  }
+}
+
 beforeAll(async () => {
   await asOwner(null, async (tx) => {
     for (const { id, pool, email, name } of Object.values(people)) {
@@ -918,6 +954,120 @@ describe('document requests', () => {
     expect(open).toEqual([...open].sort((a, b) => Number(b) - Number(a)));
     expect(items.some((i) => i.status === 'CANCELLED')).toBe(false);
   });
+
+  it('takes no "I don\'t have this" from an archived client: 404 first, then NO_OPEN_SERVICE', async () => {
+    const r = await newRequest();
+    const theirs = exact(
+      FirmDocumentRequest,
+      await call('post', `/clients/${ids.c2}/document-requests`, people.ownerA, {
+        serviceId: ids.e2,
+        title: 'Their W-2',
+      }),
+    );
+    const answer = (id: string) =>
+      call('post', `/me/document-requests/${id}/not-available`, people.primary, {
+        reason: 'We had none',
+      });
+    const setArchived = (archivedAt: Date | null) =>
+      asOwner(firms.a.id, (tx) =>
+        tx.client.update({ where: { id: ids.c1 }, data: { archivedAt } }),
+      );
+    await setArchived(new Date());
+    try {
+      expectError(await answer(theirs.id), 404, 'NOT_FOUND');
+      expectError(await answer(r.id), 409, 'NO_OPEN_SERVICE');
+    } finally {
+      await setArchived(null);
+    }
+    expect(await requestRow(r.id)).toMatchObject({ status: 'REQUESTED', statusNote: null });
+    expect((await auditOf(r.id)).map((a) => a.action)).toEqual(['document_request.created']);
+    expect(exact(MyDocumentRequest, await answer(r.id)).status).toBe('NOT_AVAILABLE');
+  });
+
+  it('takes one answer per request when two logins confirm at once (the request lock)', async () => {
+    const r = await newRequest();
+    const ticketOf = async (who: Person, label: string) => {
+      const bytes = pdf(label);
+      const t = exact(
+        UploadTicket,
+        await call('post', '/me/documents/uploads', who, {
+          ...facts(bytes),
+          serviceId: ids.e1,
+          requestId: r.id,
+        }),
+      );
+      const key = t.url.slice('memory:'.length);
+      storage.objects.set(key, bytes);
+      return { who, key, uploadToken: t.uploadToken };
+    };
+    const tickets = [
+      await ticketOf(people.primary, 'race 1'),
+      await ticketOf(people.spouse, 'race 2'),
+    ];
+    const results = await racing(r.id, 2, () =>
+      Promise.all(
+        tickets.map((t) =>
+          call('post', '/me/documents/uploads/confirm', t.who, { uploadToken: t.uploadToken }),
+        ),
+      ),
+    );
+    expect(results.map((res) => res.status).sort()).toEqual([200, 409]);
+    const refused = results.findIndex((res) => res.status === 409);
+    expectError(results[refused]!, 409, 'REQUEST_CLOSED');
+    expect(storage.objects.has(tickets[refused]!.key)).toBe(false);
+    expect(storage.objects.has(tickets[1 - refused]!.key)).toBe(true);
+    const submitted = (await auditOf(r.id)).filter(
+      (a) => a.action === 'document_request.submitted',
+    );
+    expect(submitted).toHaveLength(1);
+    expect((await requestRow(r.id)).status).toBe('SUBMITTED');
+    const saved = await asOwner(firms.a.id, (tx) =>
+      tx.document.count({ where: { requestId: r.id } }),
+    );
+    expect(saved).toBe(1);
+  });
+
+  it('keeps a cancel and a confirm at once consistent', async () => {
+    const r = await newRequest();
+    const bytes = pdf('cancel race');
+    const t = exact(
+      UploadTicket,
+      await call('post', '/me/documents/uploads', people.primary, {
+        ...facts(bytes),
+        serviceId: ids.e1,
+        requestId: r.id,
+      }),
+    );
+    const key = t.url.slice('memory:'.length);
+    storage.objects.set(key, bytes);
+    const [cancel, confirm] = await racing(r.id, 2, () =>
+      Promise.all([
+        decide(r.id, 'cancel'),
+        call('post', '/me/documents/uploads/confirm', people.primary, {
+          uploadToken: t.uploadToken,
+        }),
+      ]),
+    );
+    expect(cancel.status, JSON.stringify(cancel.body)).toBe(200);
+    expect((await requestRow(r.id)).status).toBe('CANCELLED');
+    const actions = (await auditOf(r.id)).map((a) => a.action);
+    const saved = await asOwner(firms.a.id, (tx) =>
+      tx.document.count({ where: { requestId: r.id } }),
+    );
+    if (confirm.status === 200) {
+      // The upload came first: saved and SUBMITTED, then cancelled.
+      expect(actions).toEqual([
+        'document_request.created',
+        'document_request.submitted',
+        'document_request.cancelled',
+      ]);
+      expect([saved, storage.objects.has(key)]).toEqual([1, true]);
+    } else {
+      expectError(confirm, 409, 'REQUEST_CLOSED');
+      expect(actions).toEqual(['document_request.created', 'document_request.cancelled']);
+      expect([saved, storage.objects.has(key)]).toEqual([0, false]);
+    }
+  });
 });
 
 describe('scan results (q22, q24)', () => {
@@ -950,6 +1100,69 @@ describe('scan results (q22, q24)', () => {
     );
     expect((await requestRow(r.id)).status).toBe('SUBMITTED');
     expect(await scan(third.id, 'UNSUPPORTED', ['PASSWORD_PROTECTED'])).toBe('UNSCANNED');
+    exact(FirmDocumentRequest, await decide(r.id, 'accept'));
+  });
+
+  it('reopens only a SUBMITTED request: cancelled, missing and "I don\'t have this" stay', async () => {
+    const [cancelled, missing, none] = [await newRequest(), await newRequest(), await newRequest()];
+    const files = await scanned(async () => [
+      await mine(people.primary, { requestId: cancelled.id }),
+      await mine(people.primary, { requestId: missing.id }),
+      await mine(people.primary, { requestId: none.id }),
+    ]);
+    exact(FirmDocumentRequest, await decide(cancelled.id, 'cancel'));
+    exact(FirmDocumentRequest, await decide(missing.id, 'reject'));
+    exact(FirmDocumentRequest, await decide(none.id, 'reject'));
+    exact(
+      MyDocumentRequest,
+      await call('post', `/me/document-requests/${none.id}/not-available`, people.primary, {
+        reason: 'We had none',
+      }),
+    );
+    for (const file of files) expect(await scan(file.id, 'THREATS_FOUND')).toBe('INFECTED');
+    expect(await requestRow(cancelled.id)).toMatchObject({ status: 'CANCELLED' });
+    expect(await requestRow(missing.id)).toMatchObject({
+      status: 'REJECTED',
+      statusNote: 'Pages are missing',
+    });
+    expect(await requestRow(none.id)).toMatchObject({
+      status: 'NOT_AVAILABLE',
+      statusNote: 'We had none',
+    });
+    for (const r of [cancelled, missing, none]) {
+      const actions = (await auditOf(r.id)).map((a) => a.action);
+      expect(actions).not.toContain('document_request.reopened');
+    }
+  });
+
+  it('answers UNKNOWN (for redelivery) to a result that comes before the confirm, then records it', async () => {
+    const r = await newRequest();
+    const bytes = pdf('early result');
+    const t = await scanned(async () =>
+      exact(
+        UploadTicket,
+        await call('post', '/me/documents/uploads', people.primary, {
+          ...facts(bytes),
+          serviceId: ids.e1,
+          requestId: r.id,
+        }),
+      ),
+    );
+    const key = t.url.slice('memory:'.length);
+    storage.objects.set(key, bytes);
+    expect(await scans.recordScanResult({ key, status: 'NO_THREATS_FOUND' })).toBe('UNKNOWN');
+    const doc = await scanned(async () =>
+      exact(
+        MyDocument,
+        await call('post', '/me/documents/uploads/confirm', people.primary, {
+          uploadToken: t.uploadToken,
+        }),
+      ),
+    );
+    expect(doc.status).toBe('CHECKING');
+    expectError(await decide(r.id, 'accept'), 409, 'SCAN_PENDING');
+    // The redelivered message.
+    expect(await scans.recordScanResult({ key, status: 'NO_THREATS_FOUND' })).toBe('CLEAN');
     exact(FirmDocumentRequest, await decide(r.id, 'accept'));
   });
 
@@ -987,14 +1200,20 @@ describe('scan results (q22, q24)', () => {
       }),
     );
     expect(pending.map((d) => d.scanStatus)).toEqual(['PENDING', 'PENDING']);
-    // Found by the key in its own firm only: firm B's prefix with firm A's object is nobody's.
+    // Found by the key in its own firm only: firm B's prefix with firm A's object has no
+    // document there (UNKNOWN, firm A's file untouched); a key outside the prefixes is IGNORED.
     const key = await keyOf(ours.id);
     const elsewhere = key.replace(firms.a.id, firms.b.id);
     expect(await scans.recordScanResult({ key: elsewhere, status: 'THREATS_FOUND' })).toBe(
-      'IGNORED',
+      'UNKNOWN',
     );
-    expect(await scans.recordScanResult({ key: 'not-a-key', status: 'THREATS_FOUND' })).toBe(
-      'IGNORED',
+    const ignored = ['not-a-key', `${key}/x`, key.replace('/documents/', '/other/')];
+    for (const k of ignored) {
+      expect(await scans.recordScanResult({ key: k, status: 'THREATS_FOUND' })).toBe('IGNORED');
+    }
+    const untouched = await asOwner(firms.a.id, (tx) =>
+      tx.document.findUniqueOrThrow({ where: { id: ours.id }, select: { scanStatus: true } }),
     );
+    expect(untouched.scanStatus).toBe('PENDING');
   });
 });
