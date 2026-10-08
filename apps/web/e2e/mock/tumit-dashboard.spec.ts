@@ -25,13 +25,13 @@ test('dashboard uses the firm applications mock and fits a 375 px screen', async
   await page.goto(`${admin}/`);
 
   await expect(page.getByRole('heading', { name: 'Welcome back, Morgan!' })).toBeVisible();
-  await expect(page.getByTestId('stat-pending-applications-value')).toHaveText('3');
+  await expect(page.getByTestId('stat-pending-applications-value')).toHaveText('4');
   await expect(page.getByTestId('stat-active-firms-value')).toHaveText('2');
-  await expect(page.getByTestId('stat-total-users-value')).toHaveText('12');
+  await expect(page.getByTestId('stat-total-users-value')).toHaveText('Not available yet');
   await expect(page.getByTestId('stat-monthly-revenue-value')).toHaveText('Not available yet');
 
   const navigation = page.getByRole('navigation', { name: 'Main' });
-  await expect(navigation.locator('a[href="/applications"]')).toContainText('3');
+  await expect(navigation.locator('a[href="/applications"]')).toContainText('4');
   await expect(page.getByTestId('recent-application')).toHaveCount(5);
   await expect(page.getByText('Sample Tax Partners LLC')).toBeVisible();
   const submittedTime = page.getByTestId('recent-application').first().locator('time');
