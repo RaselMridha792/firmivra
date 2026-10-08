@@ -59,7 +59,11 @@ Checklist:
 - **API:** R4's typed `api.firmApplications.*` contract is on `main`. Use `NEXT_PUBLIC_API_MOCK=firmApplications` for the API-shaped mock until dev data is available.
 - **Build:** stat cards; tabs All, Pending, Approved, Declined with counts; search, status and date filters; table with paging. Detail page with all application fields, automated checks, internal notes and history. Actions Approve, Request Information (with a message) and Decline (with a reason), each with a confirm dialog.
 
-**Status (Oct 8, 2026):** F04b is synced with `main` and pushed at `9f6d658`; list, counts, detail, actions and notes use the typed API and shared React Query invalidation. Typecheck, lint, format and build pass. All 7 mock Playwright cases report `ok`, but Windows server teardown hangs and the runner needs interruption. GitHub refused PR creation because the authenticated account is not a repository collaborator. The 1,000-addition diff is above the approximate 400-line review guideline.
+**Status (Oct 8, 2026):** F04b is on `tumit/FIR-F04b-applications`. The last published branch head is `2ae5b90`; locally it has been merged forward through `main` `0947e76`. The list, counts, detail, notes and approve/request-info/decline actions use the typed R4 API and shared React Query invalidation. After syncing main, I fixed the `formReadable: false` case where `business`, `primaryAdmin` and `account` are null: top-level applicant fields and review actions remain available, missing values render safely, and the detail explains that the form could not be read. Mock expectations now match the current eight-application fixture.
+
+**Verification:** Shared types build, web typecheck, ESLint, production build and `git diff --check` pass on the latest main merge. All 8 mock Playwright cases report `ok`, including the unreadable-form regression; Windows leaves the dev server running after the cases, so the runner was interrupted and exits 1 during teardown. The complete F04b diff remains above the approximate 400-line review guideline. Screenshots, Fahad's pre-review and Rasel's review remain outstanding.
+
+**GitHub status:** The authenticated identity cannot create the PR (`must be a collaborator`). The nullability and fixture-test follow-up is local and has not been pushed; the published branch is still at `2ae5b90`.
 
 Checklist:
 
