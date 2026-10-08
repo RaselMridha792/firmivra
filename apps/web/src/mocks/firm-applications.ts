@@ -29,6 +29,7 @@ import { mockBusiness } from './me';
  * (400, then 404, then 409), and the API's error codes are returned, so a screen built on it works
  * unchanged against the real API. Nothing is built until the first call.
  */
+// The mock Super Admin, the same person that mocks/admin-auth.ts signs in: keep these the same.
 const ADMIN: AdminRef = { userId: '0199b6a2-0000-7000-8000-0000000000a1', name: 'Morgan Admin' };
 const uuid = (prefix: string, n: number) =>
   `${prefix}-0000-7000-8000-${String(n).padStart(12, '0')}`;

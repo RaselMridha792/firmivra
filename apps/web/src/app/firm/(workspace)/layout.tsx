@@ -8,6 +8,7 @@ import {
   House,
   MessageSquare,
   Receipt,
+  ScrollText,
   Settings,
   Target,
   UserPlus,
@@ -36,6 +37,7 @@ const items: (NavItem & { managers?: true })[] = [
   { label: 'Invoices', icon: Receipt, href: '/invoices' },
   { label: 'Workspaces', icon: Briefcase, href: '/workspaces' },
   { label: 'Team', icon: UsersRound, href: '/team', managers: true },
+  { label: 'Audit log', icon: ScrollText, href: '/audit-log', managers: true },
   { label: 'Settings', icon: Settings, href: '/settings', managers: true },
 ];
 
