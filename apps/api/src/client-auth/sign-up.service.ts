@@ -6,6 +6,7 @@ import type { Database, TxClient } from '@firmivra/db';
 import {
   type AccountType,
   portalCookies,
+  SIGN_UP_WRONG_EMAIL_CODES,
   type SignUpRequest,
   type SignUpState,
 } from '@firmivra/types';
@@ -38,8 +39,11 @@ import {
 
 type Step = SignUpState['step'];
 type Firm = { id: string; slug: string; name: string };
-/** An attempt's code requests so far, and when the next code may go out (ms since epoch). */
-type AttemptState = { requests: number; resendAt: number };
+/**
+ * An attempt's code requests so far, when the next code may go out (ms since epoch), and its
+ * wrong email codes (any path), which end it at CONTACT_FIRM.
+ */
+type AttemptState = { requests: number; resendAt: number; wrongEmailCodes: number };
 /** A request let through (with the attempt's state as it was before it), or refused. */
 type Admission = { ok: true; before: AttemptState | null } | { ok: false };
 
@@ -79,6 +83,8 @@ const SIGN_UP_ALERT = 'client_auth.sign_up_alert';
  * rows, on the server.
  */
 const CODE_REQUEST = 'client_auth.code_request';
+/** A wrong email code (on any path, the dead end included): a platform row, actor the attempt. */
+const CODE_WRONG = 'client_auth.code_wrong';
 const HOUR_MS = 60 * 60_000;
 const REGISTERED_NOTICE = 'client_account.registered_notice';
 /** Same key as portal sign-in's per-email limit: an email is counted per firm. */
@@ -114,9 +120,17 @@ const unfinished = (a: Pick<AccountRow, 'status' | 'phoneVerifiedAt' | 'clientId
   a.status === 'PENDING_APPROVAL' && !a.phoneVerifiedAt && !a.clientId;
 const stepOf = (a: AccountRow): Step =>
   !a.emailVerifiedAt ? 'VERIFY_EMAIL' : !a.phoneVerifiedAt ? 'VERIFY_PHONE' : 'DONE';
-/** The step for this attempt: one that doesn't own the account yet must prove the email first. */
-const stepFor = (s: SignUpSession, a: AccountRow | null): Step =>
-  a && a.userId === s.userId ? stepOf(a) : 'VERIFY_EMAIL';
+/**
+ * The step for this attempt: one that doesn't own the account yet must prove the email first, and
+ * the email step ends at CONTACT_FIRM after SIGN_UP_WRONG_EMAIL_CODES wrong codes (Rasel, q13),
+ * counted the same way on every path.
+ */
+const stepFor = (s: SignUpSession, a: AccountRow | null, attempt: AttemptState | null): Step => {
+  const step = a && a.userId === s.userId ? stepOf(a) : 'VERIFY_EMAIL';
+  return step === 'VERIFY_EMAIL' && (attempt?.wrongEmailCodes ?? 0) >= SIGN_UP_WRONG_EMAIL_CODES
+    ? 'CONTACT_FIRM'
+    : step;
+};
 
 /** "(770) ***-0123" for US numbers, "+44 *** 0123" elsewhere. */
 export function maskPhone(phone: string): string {
@@ -229,9 +243,10 @@ export class SignUpService {
    */
   verifyEmail(firmSlug: string, code: string, req: Request): Promise<SignUpState> {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s, expiresAt } = await this.session(firmSlug, req);
+      const { session: s, attempt, expiresAt } = await this.session(firmSlug, req);
       const account = await this.attemptAccount(s);
-      if (!account) throw signUpErrors.codeInvalid();
+      if (stepFor(s, account, attempt) === 'CONTACT_FIRM') throw signUpErrors.wrongStep();
+      if (!account) throw await this.wrongCode(s.userId);
       if (account.userId === s.userId && account.emailVerifiedAt) throw signUpErrors.wrongStep();
       // A login owns one account: an attempt that already owns another (a replayed older cookie)
       // can never take this one.
@@ -239,10 +254,10 @@ export class SignUpService {
         where: { userId: s.userId },
         select: { id: true },
       });
-      if (owns && owns.id !== account.id) throw signUpErrors.codeInvalid();
+      if (owns && owns.id !== account.id) throw await this.wrongCode(s.userId);
       const owner = this.owner(s.businessId, account.id, s.userId);
       const codeId = await this.codes.match(owner, 'EMAIL', account.email, code);
-      if (!codeId) throw signUpErrors.codeInvalid();
+      if (!codeId) throw await this.wrongCode(s.userId);
       const user = await this.attemptUser(s.userId);
       const tookOver = account.userId !== s.userId;
       // Cognito first, outside any transaction (a network call must not hold a pooled
@@ -304,10 +319,12 @@ export class SignUpService {
    */
   verifyPhone(firmSlug: string, code: string, req: Request): Promise<SignUpState> {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s, expiresAt } = await this.session(firmSlug, req);
+      const { session: s, attempt, expiresAt } = await this.session(firmSlug, req);
       const account = await this.attemptAccount(s);
       // Without its own account this session is in the email step, as a real one would be.
-      if (stepFor(s, account) !== 'VERIFY_PHONE' || !account) throw signUpErrors.wrongStep();
+      if (stepFor(s, account, attempt) !== 'VERIFY_PHONE' || !account) {
+        throw signUpErrors.wrongStep();
+      }
       const user = await this.attemptUser(s.userId);
       const owner = this.owner(s.businessId, account.id, s.userId);
       const codeId = await this.codes.match(owner, 'PHONE', user.phone ?? s.phone, code);
@@ -342,9 +359,10 @@ export class SignUpService {
     res: Response,
   ): Promise<SignUpState> {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s, expiresAt } = await this.session(firmSlug, req);
+      const { session: s, attempt, expiresAt } = await this.session(firmSlug, req);
       const account = await this.attemptAccount(s);
-      const step = stepFor(s, account);
+      const step = stepFor(s, account, attempt);
+      if (step === 'CONTACT_FIRM') throw signUpErrors.wrongStep();
       if (channel === 'email' ? step !== 'VERIFY_EMAIL' : step === 'DONE') {
         throw signUpErrors.alreadyVerified();
       }
@@ -374,7 +392,10 @@ export class SignUpService {
    */
   changeEmail(firmSlug: string, email: string, req: Request, res: Response) {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s, expiresAt } = await this.session(firmSlug, req);
+      const { session: s, attempt, expiresAt } = await this.session(firmSlug, req);
+      if (stepFor(s, await this.attemptAccount(s), attempt) === 'CONTACT_FIRM') {
+        throw signUpErrors.wrongStep();
+      }
       const firm = await this.portal.activeFirm(s.firmSlug);
       const scope = this.db.forBusiness(firm.id);
       const owned = await scope.clientAccount.findUnique({
@@ -407,7 +428,9 @@ export class SignUpService {
           accountId = moved ? owned.id : null;
         } else {
           // The login already owns its first account, so it cannot take over another one.
-          if (sendNow && !unfinished(taken)) await this.notifyRegistered(firm, taken.id, email);
+          if (sendNow && !unfinished(taken) && taken.status !== 'DECLINED') {
+            await this.notifyRegistered(firm, taken.id, email);
+          }
           accountId = null;
         }
       } else {
@@ -436,7 +459,10 @@ export class SignUpService {
   /** A different phone, until it is verified: the attempt's own login only. */
   changePhone(firmSlug: string, phone: string, req: Request, res: Response) {
     return atLeast(this.minResponseMs, async () => {
-      const { session: s, expiresAt } = await this.session(firmSlug, req);
+      const { session: s, attempt, expiresAt } = await this.session(firmSlug, req);
+      if (stepFor(s, await this.attemptAccount(s), attempt) === 'CONTACT_FIRM') {
+        throw signUpErrors.wrongStep();
+      }
       const owned = await this.db.forBusiness(s.businessId).clientAccount.findUnique({
         where: { userId: s.userId },
         select: ACCOUNT,
@@ -515,7 +541,10 @@ export class SignUpService {
       select: ACCOUNT,
     });
     if (existing && !unfinished(existing)) {
-      if (notify) await this.notifyRegistered(firm, existing.id, email);
+      // A declined sign-up is final and gets nothing (Rasel, q13); the others get one notice.
+      if (notify && existing.status !== 'DECLINED') {
+        await this.notifyRegistered(firm, existing.id, email);
+      }
       return null;
     }
     if (existing) {
@@ -720,6 +749,16 @@ export class SignUpService {
     return admission;
   }
 
+  /**
+   * A wrong email code, on any path (a real code, or a session that goes nowhere): recorded for
+   * the attempt, so every sign-up reaches CONTACT_FIRM after the same number of them (q13).
+   * Returns the answer to throw: 400 CODE_INVALID, also for the last one.
+   */
+  private async wrongCode(attemptUserId: string): Promise<Error> {
+    await this.audit.log(CODE_WRONG, { type: 'sign_up' }, {}, { actorUserId: attemptUserId });
+    return signUpErrors.codeInvalid();
+  }
+
   /** Whether the attempt's wait had passed when this request was let in (read under its lock). */
   private waitedOut(admission: Admission): boolean {
     return admission.ok && admission.before !== null && Date.now() >= admission.before.resendAt;
@@ -781,8 +820,11 @@ export class SignUpService {
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
     });
+    const wrongEmailCodes = await platform.auditLog.count({
+      where: { ...where, action: CODE_WRONG },
+    });
     const lastAt = Math.max(user.createdAt.getTime(), last?.createdAt.getTime() ?? 0);
-    return { requests: 1 + count, resendAt: lastAt + CODE_LIMITS.resendGapMs };
+    return { requests: 1 + count, resendAt: lastAt + CODE_LIMITS.resendGapMs, wrongEmailCodes };
   }
 
   /** The current Terms and Privacy for a sign-up: their ids, checked against the accepted versions. */
@@ -859,7 +901,9 @@ export class SignUpService {
       where: { businessId_email: { businessId: firm.id, email } },
       select: ACCOUNT,
     });
-    if (account && !unfinished(account)) await this.notifyRegistered(firm, account.id, email);
+    if (account && !unfinished(account) && account.status !== 'DECLINED') {
+      await this.notifyRegistered(firm, account.id, email);
+    }
   }
 
   private owner(businessId: string, clientAccountId: string, attemptUserId: string): CodeOwner {
@@ -894,9 +938,10 @@ export class SignUpService {
    */
   private async stateOf(s: SignUpSession, expiresAt: number): Promise<SignUpState> {
     const shown = { email: s.email, phoneMasked: maskPhone(s.phone) };
-    const step = stepFor(s, await this.attemptAccount(s));
-    if (step === 'DONE') return { step, ...shown, resendAvailableAt: null };
     const attempt = await this.attemptState(s.userId);
+    const step = stepFor(s, await this.attemptAccount(s), attempt);
+    if (step === 'DONE' || step === 'CONTACT_FIRM')
+      return { step, ...shown, resendAvailableAt: null };
     const at =
       attempt && attempt.requests >= SIGN_UP_LIMITS.sendsPerSession
         ? expiresAt * 1000

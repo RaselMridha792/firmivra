@@ -124,10 +124,11 @@ export class VerificationCodesService {
         return { sent: false, reason: 'cap' };
       }
       const toTarget = await tx.auditLog.count({ where: { AND: [issued, meta('tgt', tgt)] } });
-      if (toTarget + 1 === CODE_LIMITS.targetAlertPerDay) {
+      // At the level or above, not only at it: two codes at once can both read one short of it.
+      if (toTarget + 1 >= CODE_LIMITS.targetAlertPerDay) {
         // Ids only (hard rule 4). R8 turns this line into an alarm.
         this.logger.warn(
-          `An address (key ${tgt.slice(0, 12)}) at firm ${businessId} reached ${CODE_LIMITS.targetAlertPerDay} codes in a day`,
+          `An address (key ${tgt.slice(0, 12)}) at firm ${businessId} has ${toTarget + 1} codes in a day (alert at ${CODE_LIMITS.targetAlertPerDay})`,
         );
       }
       if (channel === 'PHONE') {
