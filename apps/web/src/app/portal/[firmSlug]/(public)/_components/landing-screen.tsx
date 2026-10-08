@@ -30,7 +30,7 @@ export function LandingScreen() {
   ];
   return (
     <div data-testid="portal-landing" className="text-firm-primary">
-      <PageSection className="relative overflow-hidden bg-linear-to-br from-surface to-folder-surface py-12 md:py-16 md:after:absolute md:after:right-0 md:after:bottom-0 md:after:h-64 md:after:w-1/3 md:after:rounded-tl-full md:after:border-l md:after:border-firm-accent md:after:bg-folder-surface *:relative *:z-10">
+      <PageSection className="relative overflow-hidden bg-linear-to-br from-surface to-folder-surface py-12 md:py-16 lg:after:absolute lg:after:right-0 lg:after:bottom-0 lg:after:h-64 lg:after:w-1/3 lg:after:rounded-tl-full lg:after:border-l lg:after:border-firm-accent lg:after:bg-folder-surface *:relative *:z-10">
         <p className="text-sm font-bold tracking-eyebrow text-firm-accent uppercase">
           {branding.portalName}
         </p>

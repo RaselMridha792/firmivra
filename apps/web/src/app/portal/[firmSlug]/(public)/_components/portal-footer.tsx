@@ -10,6 +10,8 @@ import { useApiQuery } from '../../../../../lib/query';
 import { usePortal } from '../../layout';
 
 const YEAR = new Date().getFullYear();
+const ROW =
+  'flex flex-wrap items-center gap-4 py-4 [&>button]:text-on-action [&>button:hover]:text-firm-primary';
 
 /**
  * The portal footer: the firm's Terms and Privacy, and "Contact Us" for signed-in clients. With a
@@ -19,8 +21,6 @@ export function PortalFooter({ contact = false, width }: { contact?: boolean; wi
   const { business, legal } = usePortal();
   const [kind, setKind] = useState<LegalKind | null>(null);
   const title = kind === 'privacy' ? 'Privacy Policy' : 'Terms of Service';
-  const row =
-    'flex flex-wrap items-center gap-4 py-4 [&>button]:text-on-action [&>button:hover]:text-firm-primary';
   const items = (
     <>
       <span>
@@ -40,11 +40,11 @@ export function PortalFooter({ contact = false, width }: { contact?: boolean; wi
   return (
     <footer className="border-t border-border bg-firm-primary text-sm text-on-action">
       {width ? (
-        <PageContainer width={width} className={row}>
+        <PageContainer width={width} className={ROW}>
           {items}
         </PageContainer>
       ) : (
-        <div className={`px-6 ${row}`}>{items}</div>
+        <div className={`px-6 ${ROW}`}>{items}</div>
       )}
       <Modal open={kind !== null} title={title} onClose={() => setKind(null)}>
         {kind && <LegalText slug={business.slug} kind={kind} />}
