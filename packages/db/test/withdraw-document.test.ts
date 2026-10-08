@@ -18,7 +18,9 @@ const asOwner = <T>(fn: (tx: TxClient) => Promise<T>, businessId = ids.firmA) =>
   runInScope(owner, { kind: 'business', businessId }, fn);
 
 /** A firm file shared with the client, linked from a tax return, a report and a message. */
-async function sharedFile(extra: { legalHold?: boolean } = {}) {
+async function sharedFile(
+  extra: { legalHold?: boolean; direction?: 'FIRM_TO_CLIENT' | 'CLIENT_TO_FIRM' } = {},
+) {
   return asOwner(async (tx) => {
     const A = { businessId: ids.firmA };
     const doc = await tx.document.create({
@@ -26,7 +28,7 @@ async function sharedFile(extra: { legalHold?: boolean } = {}) {
         ...A,
         clientId: ids.client,
         engagementId: ids.engagement,
-        direction: 'FIRM_TO_CLIENT',
+        direction: extra.direction ?? 'FIRM_TO_CLIENT',
         fileName: 'fake-return.pdf',
         contentType: 'application/pdf',
         sizeBytes: 2048,
@@ -137,6 +139,50 @@ describe('withdraw_document', () => {
     expect(await asOwner((tx) => tx.document.count({ where: { id: doc.id } }))).toBe(1);
   });
 
+  it('a member of the migrate role that is no superuser (as on RDS) goes through the withdrawal policy only', async () => {
+    // The test owner is a superuser and skips RLS; a plain member of the migrate role does not.
+    const role = `fv_ops_${run}`;
+    const [me] = await owner.$queryRaw<{ owner: string }[]>`SELECT current_user AS owner`;
+    const ownerRole = me!.owner;
+    await owner.$executeRawUnsafe(`CREATE ROLE ${role} NOSUPERUSER NOBYPASSRLS NOLOGIN`);
+    await owner.$executeRawUnsafe(`GRANT "${ownerRole}" TO ${role}`);
+    try {
+      const asOps = <T>(fn: (tx: TxClient) => Promise<T>) =>
+        owner.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
+          return fn(tx);
+        });
+      const { doc } = await sharedFile();
+      const held = await sharedFile({ legalHold: true });
+      // Without the function: the retention rule holds, also with the setting, also for a hold.
+      const plain = await asOps(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.scope', 'business', true),
+          set_config('app.current_business_id', ${ids.firmA}, true)`;
+        const before = await tx.$executeRaw`DELETE FROM documents WHERE id = ${doc.id}::uuid`;
+        await tx.$executeRaw`SELECT set_config('app.withdraw_document_id', ${held.doc.id}, true)`;
+        const heldDeleted =
+          await tx.$executeRaw`DELETE FROM documents WHERE id = ${held.doc.id}::uuid`;
+        return [before, heldDeleted];
+      });
+      expect(plain).toEqual([0, 0]);
+      // Through the function: removed, with its audit row.
+      const [row] = await asOps(
+        (tx) =>
+          tx.$queryRaw<{ key: string }[]>`
+          SELECT withdraw_document(${ids.firmA}::uuid, ${doc.id}::uuid, ${REASON}) AS key`,
+      );
+      expect(row!.key).toBe(doc.s3Key);
+      expect(await asOwner((tx) => tx.document.count({ where: { id: doc.id } }))).toBe(0);
+      expect(
+        await asOwner((tx) =>
+          tx.auditLog.count({ where: { action: 'document.withdrawn', entityId: doc.id } }),
+        ),
+      ).toBe(1);
+    } finally {
+      await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
+    }
+  });
+
   it('the migrate role removes it with its links, writes an audit row and gets the S3 key', async () => {
     const { doc, taxReturn, report, attachment } = await sharedFile();
     const [row] = await withdraw(ids.firmA, doc.id, REASON);
@@ -161,7 +207,6 @@ describe('withdraw_document', () => {
       reason: REASON,
       clientId: ids.client,
       engagementId: ids.engagement,
-      direction: 'FIRM_TO_CLIENT',
       taxReturnsCleared: 1,
       reportsCleared: 1,
       attachmentsRemoved: 1,
@@ -172,14 +217,28 @@ describe('withdraw_document', () => {
   it('refuses a blank reason, another firm or an unknown document, and one under legal hold', async () => {
     const { doc } = await sharedFile();
     const held = await sharedFile({ legalHold: true });
-    await expect(withdraw(ids.firmA, doc.id, ' ')).rejects.toThrow(/give a reason/);
-    await expect(withdraw(ids.firmA, doc.id, null)).rejects.toThrow(/give a reason/);
-    await expect(withdraw(ids.firmA, doc.id, 'x'.repeat(501))).rejects.toThrow(/give a reason/);
+    await expect(withdraw(ids.firmA, doc.id, ' ')).rejects.toThrow(/give a one-line reason/);
+    await expect(withdraw(ids.firmA, doc.id, null)).rejects.toThrow(/give a one-line reason/);
+    await expect(withdraw(ids.firmA, doc.id, 'x'.repeat(501))).rejects.toThrow(
+      /give a one-line reason/,
+    );
+    for (const bad of ['\t\n', 'Ticket 1\u001b[2J', 'Ticket 1 \u202Edesrever', 'two\nlines']) {
+      await expect(withdraw(ids.firmA, doc.id, bad), JSON.stringify(bad)).rejects.toThrow(
+        /give a one-line reason/,
+      );
+    }
     await expect(withdraw(ids.firmB, doc.id, REASON)).rejects.toThrow(/no such document/);
     await expect(withdraw(ids.firmA, randomUUID(), REASON)).rejects.toThrow(/no such document/);
     await expect(withdraw(ids.firmA, held.doc.id, REASON)).rejects.toThrow(/legal hold/);
+    // Only a file the firm shared: never the client's own upload (or a Begin Online one).
+    const upload = await sharedFile({ direction: 'CLIENT_TO_FIRM' });
+    await expect(withdraw(ids.firmA, upload.doc.id, REASON)).rejects.toThrow(
+      /only a file the firm shared/,
+    );
     expect(
-      await asOwner((tx) => tx.document.count({ where: { id: { in: [doc.id, held.doc.id] } } })),
-    ).toBe(2);
+      await asOwner((tx) =>
+        tx.document.count({ where: { id: { in: [doc.id, held.doc.id, upload.doc.id] } } }),
+      ),
+    ).toBe(3);
   });
 });
