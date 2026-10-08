@@ -32,6 +32,11 @@ test('working hours are checked, then saved', async ({ page }) => {
   await mockUser.getByLabel('Saturday to').fill('12:00');
   await mockUser.getByRole('button', { name: 'Save working hours' }).click();
   await expect(mockUser.getByText('Working hours saved.')).toBeVisible();
+
+  // One person at a time: yours first, then anyone else's.
+  await page.getByLabel('Whose hours').selectOption({ label: 'Sam Staff' });
+  await expect(page.getByTestId('member-hours')).toHaveCount(1);
+  await expect(page.getByTestId('member-hours')).toContainText('Sam Staff');
 });
 
 test('time is blocked, refused over an appointment, and removed', async ({ page }) => {
@@ -39,7 +44,7 @@ test('time is blocked, refused over an appointment, and removed', async ({ page 
   const blocks = page.getByTestId('blocked-time');
   await expect(blocks.filter({ hasText: 'Sam Staff · Training' })).toHaveCount(1);
 
-  await page.getByLabel('Who').selectOption({ label: 'Mock User' });
+  await page.getByLabel('Who', { exact: true }).selectOption({ label: 'Mock User' });
   await page.getByLabel('Starts on').fill(nextWeek(0));
   await page.getByLabel('Starts at').fill('13:00');
   await page.getByLabel('Ends on').fill(nextWeek(0));
