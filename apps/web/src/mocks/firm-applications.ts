@@ -546,7 +546,13 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
     resendOwnerInvite: async (id) => {
       await mockDelay();
       const row = find(parseInput(FirmApplicationId, id));
-      if (row.status !== 'APPROVED' || row.ownerInvite?.status === 'ACCEPTED') {
+      const firmStatus = firms.find((f) => f.firm.id === row.firm?.id)?.firm.status;
+      // As in the API: approved, the firm in setup or active, and the owner not joined yet.
+      if (
+        row.status !== 'APPROVED' ||
+        (firmStatus !== 'PENDING_SETUP' && firmStatus !== 'ACTIVE') ||
+        row.ownerInvite?.status === 'ACCEPTED'
+      ) {
         throw fail(409, 'INVITE_NOT_NEEDED', 'There is no activation link to send');
       }
       return save({

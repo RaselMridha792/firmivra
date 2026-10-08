@@ -415,7 +415,10 @@ export const FirmApplicationRecord = z.object({
   decision: z
     .object({ by: AdminRef.nullable(), at: DateTime, reason: z.string().nullable() })
     .nullable(),
-  /** PENDING_REVIEW: the free portal address approve uses unless the Super Admin picks another. */
+  /**
+   * PENDING_REVIEW (or APPROVED while `firm` is null, see approve): the free portal address
+   * approve uses unless the Super Admin picks another.
+   */
   suggestedSlug: z.string().nullable(),
   /** APPROVED: the firm it created. */
   firm: BusinessSummary.nullable(),
@@ -463,7 +466,9 @@ export const NewFirmSlug = z
 /**
  * POST /admin/firm-applications/{id}/approve. Creates the firm (PENDING_SETUP, named after the
  * legal name) at `slug` (default `suggestedSlug`) and emails the primary administrator an owner
- * activation link. 409 APPLICATION_DECIDED or SLUG_TAKEN.
+ * activation link. 409 APPLICATION_DECIDED or SLUG_TAKEN. If creating the firm fails part way,
+ * the application reads APPROVED with `firm` null: offer Approve again, which picks up where it
+ * stopped (a slug may be chosen again).
  */
 export const ApproveFirmApplicationRequest = z.strictObject({ slug: NewFirmSlug.optional() });
 export type ApproveFirmApplicationRequest = z.input<typeof ApproveFirmApplicationRequest>;
@@ -568,7 +573,10 @@ export const FirmApplicationErrorCode = z.enum([
   'APPLICATION_DECIDED',
   /** 409: another firm has this portal address. */
   'SLUG_TAKEN',
-  /** 409: no owner link to send (not approved, or the owner has already signed in). */
+  /**
+   * 409: no owner link to send (not approved, the firm is suspended or closed, or the owner has
+   * already signed in).
+   */
   'INVITE_NOT_NEEDED',
 ]);
 export type FirmApplicationErrorCode = z.infer<typeof FirmApplicationErrorCode>;

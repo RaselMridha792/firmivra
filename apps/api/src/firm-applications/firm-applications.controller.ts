@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from
 import type { z } from 'zod';
 import {
   type AdminDashboard,
+  ApproveFirmApplicationRequest,
   DeclineFirmApplicationRequest,
   FirmApplicationId,
   type FirmApplicationCounts,
@@ -17,14 +18,17 @@ import {
   SaveFirmNotesRequest,
 } from '@firmivra/types';
 import { Roles } from '../auth/decorators.js';
+import { SignInModule } from '../auth/sign-in.controller.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AdminPrisma } from './admin-prisma.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
+import { createFirmKeys, FIRM_KEYS, loadFirmKeysConfig } from './firm-keys.js';
 
 /**
  * Firm applications for the Super Admin (R4; contract in packages/types/src/firm-applications):
- * the list with filters and pages, the counts, and the review page. Super Admins only (the
- * Super Admin site's session); admin scope in the database.
+ * the list with filters and pages, the counts, the review page, the review actions and approval.
+ * Super Admins only (the Super Admin site's session); admin scope in the database, platform scope
+ * only for approval's provisioning.
  */
 @Controller('admin/firm-applications')
 export class AdminFirmApplicationsController {
@@ -52,6 +56,31 @@ export class AdminFirmApplicationsController {
     @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
   ): Promise<FirmApplicationRecord> {
     return this.applications.get(id);
+  }
+
+  /**
+   * Creates the firm (with its KMS key) and invites its owner. 409 APPLICATION_DECIDED or
+   * SLUG_TAKEN. Approved without a firm (a failure part way): picks up where it stopped.
+   */
+  @Post(':id/approve')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  approve(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+    @Body(new ZodValidationPipe(ApproveFirmApplicationRequest))
+    body: z.output<typeof ApproveFirmApplicationRequest>,
+  ): Promise<FirmApplicationRecord> {
+    return this.applications.approve(id, body.slug);
+  }
+
+  /** A new activation link for the firm's owner. 409 INVITE_NOT_NEEDED; 429 RATE_LIMITED. */
+  @Post(':id/owner-invite')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  resendOwnerInvite(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+  ): Promise<FirmApplicationRecord> {
+    return this.applications.resendOwnerInvite(id);
   }
 
   /** Request Information: emails the applicant; stays pending. 409 APPLICATION_DECIDED. */
@@ -128,7 +157,14 @@ export class AdminDashboardController {
 }
 
 @Module({
+  // InvitesService: the new firm's owner is invited with R2's invites.
+  imports: [SignInModule],
   controllers: [AdminFirmApplicationsController, AdminFirmsController, AdminDashboardController],
-  providers: [AdminPrisma, FirmApplicationsService],
+  providers: [
+    AdminPrisma,
+    FirmApplicationsService,
+    // Settings are checked when the app starts, so a bad KMS_MODE never reaches an approval.
+    { provide: FIRM_KEYS, useFactory: () => createFirmKeys(loadFirmKeysConfig()) },
+  ],
 })
 export class FirmApplicationsModule {}
