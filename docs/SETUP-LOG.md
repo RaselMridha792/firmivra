@@ -270,7 +270,18 @@ pnpm exec cdk diff firmivra-dev-auth -c env=dev --exclusively --profile firmivra
 
 Expected: app, the API task role's policy (the seven `FirmKeys*` statements), a new API task definition revision (`APP_ENV`, `EIN_HASH_KEY`), the new secret `EinHashKey` and its read right on the API execution role. Auth, `EmailConfiguration` (SES, `From`, `SourceArn`, `ConfigurationSet`) and `VerificationMessageTemplate` on the three pools, nothing replaced. Anything else: stop.
 
-**1. Bootstrap policy versions** (before the auth deploy):
+**1. Bootstrap policy versions** (before the auth deploy). Rasel made both on Oct 8: v2 is the default, with `email.cognito-idp` in it. Check that first (read-only); if both lines say v2 and at least 1 line, skip the rest of this step (no v3):
+
+```bash
+for name in firmivra-cdk-cfn-exec firmivra-permissions-boundary; do
+  arn=arn:aws:iam::778127141557:policy/$name
+  v=$(aws iam get-policy --policy-arn "$arn" --query Policy.DefaultVersionId --output text --profile firmivra-dev)
+  n=$(aws iam get-policy-version --policy-arn "$arn" --version-id "$v" --output json --profile firmivra-dev | grep -c email.cognito-idp)
+  echo "$name: default $v, $n line(s) with email.cognito-idp"
+done
+```
+
+Otherwise:
 
 ```bash
 cd infra
@@ -333,11 +344,20 @@ aws kms list-grants --key-id <key arn> --profile firmivra-dev
 
 A `Failed: The key ... ; a person decides` line means the alias names a key the adapter would not make: nothing was stored; look at that key before anything else.
 
+**5. The email check** (the first dev application). Send one firm application on dev from an SES-verified address (sandbox). The received email must arrive, and the API log must have no "could not be sent" line in the last hour (read-only; empty output is the pass):
+
+```bash
+aws logs filter-log-events --log-group-name /firmivra/dev/api --filter-pattern '"could not be sent"' \
+  --start-time $(( ($(date +%s) - 3600) * 1000 )) --query 'events[].message' --output text --profile firmivra-dev
+```
+
+From this application on, rollback (c) is no longer safe: its stored EIN hash needs the same key.
+
 ### Step 14 rollback, per item (no full revert needed)
 
 - **(a) KMS rights and `APP_ENV`:** a PR that drops the `firmKeyStatements` loop (and `APP_ENV`) from `app-stack.ts`; its merge deploys the app stack. Only before any value is encrypted with a firm key: after that, the API could no longer read it. Until R4 approve lands, only the one-off command can make a key (no `FIRM_KEYS` provider is registered), so not running step 4 is enough to stop key creation.
 - **(b) The LVP key**, only while nothing is encrypted with it: clear `businesses.kms_key_id` for LVP in platform scope (a one-off migrate-task SQL with R0; the app cannot), then `aws kms delete-alias --alias-name alias/firmivra/dev/business/<LVP id> --profile firmivra-dev` and `aws kms schedule-key-deletion --key-id <key arn> --pending-window-in-days 30 --profile firmivra-dev`. Undo within 30 days: `aws kms cancel-key-deletion --key-id <key arn>`, then `aws kms enable-key --key-id <key arn>` (a cancelled key comes back disabled), then `aws kms create-alias` again.
-- **(c) The EIN-hash secret:** leave it. R4 submit reads it since #107, so removing it is safe only before the first dev application: after that, the stored hashes need the same key. If it must go: a PR that removes `EinHashKey` and `EIN_HASH_KEY` (the secret stays, retained). The name stays taken while the secret exists or waits for deletion, so a later PR that adds it again fails the app deploy (and Deploy dev rolls the stack back). Before adding it again, while no hash is stored: `aws secretsmanager delete-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --force-delete-without-recovery --profile firmivra-dev`. After a `delete-secret --recovery-window-in-days 30`, run `aws secretsmanager restore-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --profile firmivra-dev` and then force-delete it, or keep the restored one and bring it back into the stack with `cdk import`.
+- **(c) The EIN-hash secret:** leave it. R4 submit reads it since #107, so removing it is safe only before the first dev application (step 5): after that, the stored hashes need the same key. If it must go: a PR that removes `EinHashKey` and `EIN_HASH_KEY` (the secret stays, retained). The name stays taken while the secret exists or waits for deletion, so a later PR that adds it again fails the app deploy (and Deploy dev rolls the stack back). Before adding it again, while no hash is stored: `aws secretsmanager delete-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --force-delete-without-recovery --profile firmivra-dev`. After a `delete-secret --recovery-window-in-days 30`, run `aws secretsmanager restore-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --profile firmivra-dev` and then force-delete it, or keep the restored one and bring it back into the stack with `cdk import`.
 - **(d) Cognito email:** a PR that removes `cognitoEmail` from the dev config (the pools go back to `COGNITO_DEFAULT`), then `pnpm exec cdk deploy firmivra-dev-auth -c env=dev --exclusively --profile firmivra-dev`. The policies: `aws iam set-default-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --version-id <previous vN> --profile firmivra-dev` for each. The service-linked role stays (harmless).
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
