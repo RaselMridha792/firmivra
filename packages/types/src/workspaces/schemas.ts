@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
-import { clearable, text } from '../clients/text.js';
+import { clearable, SearchText, text } from '../clients/text.js';
 import { EngagementStatus } from '../engagements/schemas.js';
 
 // Service workspaces (R12): the Bookkeeping and Tax Planning work for one engagement: status and
@@ -151,12 +151,6 @@ export type UpdateReportRequest = z.input<typeof UpdateReportRequest>;
 
 // ---------- Workspaces ----------
 const ClientRef = z.object({ id: z.uuid(), displayName: z.string() });
-/** One line, without control characters. */
-const SearchText = z
-  .string()
-  .trim()
-  .max(100)
-  .regex(/^[^\p{Cc}]*$/u, 'Remove the special characters');
 
 /** One engagement in the workspaces list. */
 export const WorkspaceListItem = z.object({

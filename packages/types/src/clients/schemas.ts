@@ -3,7 +3,7 @@ import { Email } from '../auth/schemas.js';
 import { Phone } from '../client-auth/schemas.js';
 import { ClientAccountType, ClientPortalRole, ContactMethod } from '../db-enums.js';
 import { ClientAccountStatus } from '../schemas.js';
-import { clearable, text } from './text.js';
+import { clearable, SearchText, text } from './text.js';
 
 // Database enums, also exported from here as before db-enums.ts (other modules import them).
 export { ClientAccountType, ClientPortalRole, ContactMethod };
@@ -85,7 +85,7 @@ export type ClientListItem = z.infer<typeof ClientListItem>;
  * their own clients; `assignedUserId` is for Owner and Admin (403 for Staff).
  */
 export const ListClientsQuery = z.strictObject({
-  search: z.string().trim().max(100).optional(),
+  search: SearchText.optional(),
   status: z.enum(['active', 'archived', 'all']).optional().default('active'),
   assignedUserId: z.uuid().optional(),
   /** From the previous page's nextCursor. */
