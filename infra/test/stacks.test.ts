@@ -5,9 +5,11 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import { AwsSolutionsChecks } from 'cdk-nag';
 import { describe, expect, it } from 'vitest';
 import { cdkJsonContext } from '../src/cdk-context';
-import { configFor, DEV_FIRMIVRA_COM, type EnvConfig } from '../src/config';
+import { configFor, DEV_FIRMIVRA_COM, type EnvConfig, resourceName } from '../src/config';
+import { FIRM_KEY_PURPOSE, FIRM_KEY_TAG } from '../src/firm-key-policy';
 import { addNagSuppressions } from '../src/nag';
 import { createStacks } from '../src/stacks';
+import { RESET_EMAIL } from '../src/stacks/auth-stack';
 
 function build(overrides: Partial<EnvConfig> = {}) {
   const app = new App({ context: { ...cdkJsonContext(), env: 'dev' } });
@@ -25,7 +27,7 @@ const tpl = (stack: Stack | undefined) => {
   if (!stack) throw new Error('stack not created');
   return Template.fromStack(stack);
 };
-const t = (name: 'network' | 'data' | 'auth' | 'app' | 'ci') => tpl(stacks[name]);
+const t = (name: 'network' | 'data' | 'auth' | 'email' | 'app' | 'ci') => tpl(stacks[name]);
 /** The setup before the switch (and after switching back): customDomain unset. */
 const cloudFront = build({ customDomain: undefined }).stacks;
 
@@ -314,6 +316,321 @@ describe('app', () => {
           FixedResponseConfig: Match.objectLike({ StatusCode: '403' }),
         }),
       ],
+    });
+  });
+});
+
+type Statement = {
+  Sid?: string;
+  Effect: 'Allow' | 'Deny';
+  Action: string | string[];
+  Resource: unknown;
+  Condition?: Record<string, Record<string, unknown>>;
+};
+type Policy = { Properties: { Roles: unknown; PolicyDocument: { Statement: Statement[] } } };
+/** Every statement of the inline policies on the role whose logical id contains `role`. */
+const roleStatements = (template: Template, role: string) =>
+  (Object.values(template.findResources('AWS::IAM::Policy')) as Policy[])
+    .filter((p) => JSON.stringify(p.Properties.Roles).includes(role))
+    .flatMap((p) => p.Properties.PolicyDocument.Statement);
+const actionsOf = (s: Statement) => [s.Action].flat();
+const container = (template: Template, family: string) =>
+  (
+    Object.values(
+      template.findResources('AWS::ECS::TaskDefinition', { Properties: { Family: family } }),
+    )[0] as {
+      Properties: {
+        ContainerDefinitions: {
+          Environment: { Name: string; Value: unknown }[];
+          Secrets?: { Name: string; ValueFrom: unknown }[];
+        }[];
+      };
+    }
+  ).Properties.ContainerDefinitions[0]!;
+
+describe('app: firm KMS keys on the API task role (R1 step 14)', () => {
+  const statements = roleStatements(t('app'), 'ApiTaskTaskRole');
+  const keys = 'arn:aws:kms:us-east-1:778127141557:key/*';
+  const requestTags = {
+    StringEquals: {
+      'aws:RequestTag/firmivra:env': 'dev',
+      'aws:RequestTag/firmivra:purpose': 'firm-data',
+    },
+    StringLike: { 'aws:RequestTag/firmivra:businessId': '????????-????-????-????-????????????' },
+    'ForAllValues:StringEquals': {
+      'aws:TagKeys': ['firmivra:env', 'firmivra:businessId', 'firmivra:purpose'],
+    },
+  };
+
+  it('has exactly the six FirmKeys statements', () => {
+    const firm = Object.fromEntries(
+      statements.filter((s) => s.Sid?.startsWith('FirmKeys')).map((s) => [s.Sid, s]),
+    );
+    expect(firm).toEqual({
+      FirmKeysCreate: {
+        Sid: 'FirmKeysCreate',
+        Effect: 'Allow',
+        Action: 'kms:CreateKey',
+        Resource: '*',
+        Condition: {
+          ...requestTags,
+          StringEquals: {
+            ...requestTags.StringEquals,
+            'kms:KeySpec': 'SYMMETRIC_DEFAULT',
+            'kms:KeyUsage': 'ENCRYPT_DECRYPT',
+          },
+        },
+      },
+      FirmKeysTagOnCreate: {
+        Sid: 'FirmKeysTagOnCreate',
+        Effect: 'Allow',
+        Action: 'kms:TagResource',
+        Resource: keys,
+        Condition: {
+          ...requestTags,
+          Null: {
+            'aws:ResourceTag/firmivra:env': 'true',
+            'aws:ResourceTag/firmivra:businessId': 'true',
+            'kms:ResourceAliases': 'true',
+          },
+        },
+      },
+      FirmKeysAliasName: {
+        Sid: 'FirmKeysAliasName',
+        Effect: 'Allow',
+        Action: 'kms:CreateAlias',
+        Resource: 'arn:aws:kms:us-east-1:778127141557:alias/firmivra/dev/business/*',
+      },
+      FirmKeysOnEnvKeys: {
+        Sid: 'FirmKeysOnEnvKeys',
+        Effect: 'Allow',
+        Action: ['kms:CreateAlias', 'kms:DescribeKey'],
+        Resource: keys,
+        Condition: { StringEquals: { 'aws:ResourceTag/firmivra:env': 'dev' } },
+      },
+      FirmKeysUse: {
+        Sid: 'FirmKeysUse',
+        Effect: 'Allow',
+        Action: ['kms:Decrypt', 'kms:GenerateDataKey'],
+        Resource: keys,
+        Condition: {
+          StringEquals: {
+            'aws:ResourceTag/firmivra:env': 'dev',
+            'kms:EncryptionContext:businessId': '${aws:ResourceTag/firmivra:businessId}',
+          },
+        },
+      },
+      FirmKeysNoLockoutBypass: {
+        Sid: 'FirmKeysNoLockoutBypass',
+        Effect: 'Deny',
+        Action: 'kms:CreateKey',
+        Resource: '*',
+        Condition: { Bool: { 'kms:BypassPolicyLockoutSafetyCheck': 'true' } },
+      },
+    });
+    // The same names as the API's adapter (apps/api/src/firm-applications/firm-keys.ts).
+    expect(FIRM_KEY_TAG).toEqual({
+      env: 'firmivra:env',
+      businessId: 'firmivra:businessId',
+      purpose: 'firmivra:purpose',
+    });
+    expect(FIRM_KEY_PURPOSE).toBe('firm-data');
+  });
+
+  it('never lets the API delete, disable, re-tag or re-point a key, or change its policy', () => {
+    const allowed = statements.filter((s) => s.Effect === 'Allow').flatMap(actionsOf);
+    for (const action of [
+      'kms:ScheduleKeyDeletion',
+      'kms:DisableKey',
+      'kms:PutKeyPolicy',
+      'kms:UntagResource',
+      'kms:UpdateAlias',
+      'kms:DeleteAlias',
+      'kms:CreateGrant',
+    ]) {
+      expect(allowed).not.toContain(action);
+    }
+    expect(allowed.filter((a) => a.includes('*'))).toEqual([]);
+    // The only TagResource tags a key with no firm tags and no alias yet: the one CreateKey makes.
+    const tagging = statements.filter((s) => actionsOf(s).includes('kms:TagResource'));
+    expect(tagging.map((s) => s.Sid)).toEqual(['FirmKeysTagOnCreate']);
+    expect(tagging[0]?.Condition?.['Null']).toEqual({
+      'aws:ResourceTag/firmivra:env': 'true',
+      'aws:ResourceTag/firmivra:businessId': 'true',
+      'kms:ResourceAliases': 'true',
+    });
+    expect(tagging[0]?.Condition).toMatchObject(requestTags);
+    const creating = statements.filter(
+      (s) => s.Effect === 'Allow' && actionsOf(s).includes('kms:CreateKey'),
+    );
+    expect(creating).toHaveLength(1);
+    expect(creating[0]?.Condition).toMatchObject({
+      StringLike: requestTags.StringLike,
+      'ForAllValues:StringEquals': requestTags['ForAllValues:StringEquals'],
+      StringEquals: requestTags.StringEquals,
+    });
+  });
+
+  it('uses a firm key only with its env tag and the encryption context of its own business', () => {
+    const using = statements.filter(
+      (s) =>
+        s.Effect === 'Allow' &&
+        actionsOf(s).some((a) => a === 'kms:GenerateDataKey' || a === 'kms:Decrypt'),
+    );
+    expect(using.map((s) => s.Sid).sort()).toEqual(['DocumentsKey', 'FirmKeysUse']);
+    for (const s of using) {
+      if (s.Sid === 'DocumentsKey') {
+        // The CDK documents key alone, by its ARN from the data stack.
+        expect(JSON.stringify(s.Resource)).toContain('DocumentsKey');
+        expect(JSON.stringify(s.Resource)).not.toContain('*');
+      } else {
+        expect(s.Condition?.['StringEquals']).toEqual({
+          'aws:ResourceTag/firmivra:env': 'dev',
+          'kms:EncryptionContext:businessId': '${aws:ResourceTag/firmivra:businessId}',
+        });
+      }
+    }
+  });
+
+  it('denies CreateKey with the key policy lockout check bypassed', () => {
+    expect(statements.filter((s) => s.Effect === 'Deny')).toEqual([
+      expect.objectContaining({
+        Sid: 'FirmKeysNoLockoutBypass',
+        Action: 'kms:CreateKey',
+        Condition: { Bool: { 'kms:BypassPolicyLockoutSafetyCheck': 'true' } },
+      }),
+    ]);
+  });
+
+  it('gives the API APP_ENV=dev and KMS_MODE=kms, and the web and migrate roles no KMS rights', () => {
+    const env = Object.fromEntries(
+      container(t('app'), 'firmivra-dev-api').Environment.map((e) => [e.Name, e.Value]),
+    );
+    expect(env).toMatchObject({ APP_ENV: 'dev', KMS_MODE: 'kms' });
+    for (const role of ['WebTaskTaskRole', 'MigrateTaskTaskRole']) {
+      const kms = roleStatements(t('app'), role)
+        .flatMap(actionsOf)
+        .filter((a) => a.startsWith('kms:'));
+      expect(kms).toEqual([]);
+    }
+  });
+});
+
+describe('app: the EIN-hash key of R4 (R1 step 14)', () => {
+  const einHashKey = () =>
+    t('app').findResources('AWS::SecretsManager::Secret', {
+      Properties: { Name: 'firmivra/dev/firm-applications/ein-hash-key' },
+    });
+
+  it('is generated once, never rotated, and kept if the stack is deleted', () => {
+    // Never change these: a new name or new generation settings make a new value, and every
+    // stored ein_hash would stop matching.
+    const secrets = einHashKey();
+    expect(Object.keys(secrets)).toHaveLength(1);
+    const secret = Object.values(secrets)[0] as {
+      Properties: Record<string, unknown>;
+      DeletionPolicy: string;
+      UpdateReplacePolicy: string;
+    };
+    expect(secret.Properties['GenerateSecretString']).toEqual({
+      PasswordLength: 64,
+      ExcludePunctuation: true,
+      ExcludeUppercase: true,
+      ExcludeCharacters: 'ghijklmnopqrstuvwxyz',
+      IncludeSpace: false,
+    });
+    expect(secret.DeletionPolicy).toBe('RetainExceptOnCreate');
+    expect(secret.UpdateReplacePolicy).toBe('Retain');
+    t('app').resourceCountIs('AWS::SecretsManager::RotationSchedule', 0);
+  });
+
+  it('reaches only the API container, as EIN_HASH_KEY', () => {
+    const [id] = Object.keys(einHashKey());
+    const api = container(t('app'), 'firmivra-dev-api');
+    expect(api.Secrets?.find((s) => s.Name === 'EIN_HASH_KEY')?.ValueFrom).toEqual({ Ref: id });
+    for (const family of ['firmivra-dev-web', 'firmivra-dev-migrate']) {
+      expect(JSON.stringify(container(t('app'), family))).not.toContain(id!);
+    }
+    const reading = (Object.values(t('app').findResources('AWS::IAM::Policy')) as Policy[]).filter(
+      (p) => JSON.stringify(p.Properties.PolicyDocument).includes(id!),
+    );
+    expect(reading.map((p) => JSON.stringify(p.Properties.Roles))).toEqual([
+      expect.stringContaining('ApiTaskExecutionRole'),
+    ]);
+  });
+});
+
+describe('auth: reset codes through SES (R1 step 14)', () => {
+  const byName = (template: Template, name: string) =>
+    (
+      Object.values(
+        template.findResources('AWS::Cognito::UserPool', {
+          Properties: { UserPoolName: `firmivra-dev-${name}` },
+        }),
+      )[0] as { Properties: Record<string, unknown> }
+    ).Properties;
+  const wording = (name: string) => (name === 'clients' ? RESET_EMAIL.clients : RESET_EMAIL.staff);
+
+  it('has the decided wording', () => {
+    expect(RESET_EMAIL.staff.body).toBe('Your Firmivra password reset code is {####}');
+    expect(RESET_EMAIL.clients.body).toBe(
+      'Your client portal password reset code is {####}. Enter it on the page where you asked to reset your password.',
+    );
+  });
+
+  const setups = [
+    {
+      setup: 'dev.firmivra.com: through the email stack SES identity',
+      template: () => t('auth'),
+      sending: {
+        EmailSendingAccount: 'DEVELOPER',
+        From: 'no-reply@dev.firmivra.com',
+        SourceArn: 'arn:aws:ses:us-east-1:778127141557:identity/dev.firmivra.com',
+        ConfigurationSet: 'firmivra-dev-email',
+      },
+    },
+    {
+      setup: 'CloudFront domains: the Cognito default sender',
+      template: () => tpl(cloudFront.auth),
+      sending: { EmailSendingAccount: 'COGNITO_DEFAULT' },
+    },
+  ];
+  for (const { setup, template, sending } of setups) {
+    it(`sends each pool's reset code with its wording (${setup})`, () => {
+      for (const name of ['staff', 'clients', 'admins']) {
+        const pool = byName(template(), name);
+        const { subject, body } = wording(name);
+        expect(pool['EmailConfiguration']).toEqual(sending);
+        expect(pool).toMatchObject({
+          EmailVerificationSubject: subject,
+          EmailVerificationMessage: body,
+          VerificationMessageTemplate: {
+            DefaultEmailOption: 'CONFIRM_WITH_CODE',
+            EmailSubject: subject,
+            EmailMessage: body,
+          },
+        });
+        // Nothing makes Cognito send the same message to verify a changed attribute.
+        expect(pool['AutoVerifiedAttributes']).toBeUndefined();
+        expect(pool['UserAttributeUpdateSettings']).toBeUndefined();
+      }
+    });
+  }
+
+  it('names the email stack resources in config, without a cross-stack reference', () => {
+    expect(JSON.stringify(t('auth').toJSON())).not.toMatch(/Fn::ImportValue|Fn::GetStackOutput/);
+    expect(stacks.auth.dependencies).toContain(stacks.email);
+    const config = configFor('dev');
+    expect(config.cognitoEmail).toEqual({
+      from: stacks.email?.fromAddress,
+      sesVerifiedDomain: config.customDomain?.zoneName,
+      configurationSet: resourceName(config, 'email'),
+    });
+    t('email').hasResourceProperties('AWS::SES::ConfigurationSet', {
+      Name: config.cognitoEmail?.configurationSet,
+    });
+    t('email').hasResourceProperties('AWS::SES::EmailIdentity', {
+      EmailIdentity: config.cognitoEmail?.sesVerifiedDomain,
     });
   });
 });
