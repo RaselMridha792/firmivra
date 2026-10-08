@@ -683,7 +683,8 @@ async function main() {
           id: SEED_INTAKE_IDS.leadSubmission,
           intakeId: SEED_INTAKE_IDS.leadIntake,
           version: 1,
-          answers: { fullName: 'Lena Lead (fake)', package: 'Growth' },
+          // Only the stored form's questions (fullName; priorReturn is the upload).
+          answers: { fullName: 'Lena Lead (fake)' },
           submittedAt: signedAt,
           signerName: 'Lena Lead (fake)',
           signedAt,

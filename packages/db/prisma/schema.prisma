@@ -981,7 +981,7 @@ model DocumentCategory {
 /// shown to the client. Database rules: a client file (an upload or a carried-over Begin Online
 /// file) goes only into an ACTIVE engagement; the scan result is set once; retentionUntil only
 /// moves later; a document is deleted only without a legal hold, and either after
-/// retentionUntil or, for a client upload, while its engagement is ACTIVE.
+/// retentionUntil or, for a client upload, while its engagement is ACTIVE (and its intake open).
 model Document {
   id               String            @id @default(uuid(7)) @db.Uuid
   businessId       String            @map("business_id") @db.Uuid
@@ -995,8 +995,9 @@ model Document {
   leadUploadId     String?           @map("lead_upload_id") @db.Uuid
   /// A client file in an intake's upload slot (intakeSlot is the field's key). Both are set on
   /// insert, for an intake of the same engagement that is open for changes (or, carried over,
-  /// for the intake of the upload's lead and its slot). Removing the file from the intake clears
-  /// both while the intake is open; nothing else changes them.
+  /// for the intake of the upload's lead and its slot). The file leaves the intake (both cleared,
+  /// or deleted before retentionUntil) only while the intake is open: a submit detaches hidden
+  /// slots' files before it changes the status. Nothing else changes them.
   intakeId         String?           @map("intake_id") @db.Uuid
   intakeSlot       String?           @map("intake_slot")
   direction        DocumentDirection
@@ -1112,8 +1113,8 @@ model Intake {
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// The firm's request for changes: set exactly while the status is NEEDS_CORRECTION (the API
-  /// clears it with the status change that ends it). Up to 2,000 characters, line breaks
-  /// allowed, no other control or invisible characters.
+  /// clears it with the status change that ends it). Up to 2,000 characters, not only blanks,
+  /// line breaks allowed, no other control, filler or invisible characters.
   correctionNote        String?   @map("correction_note")
   /// Set by the database (its clock) whenever correctionNote is set or changed; cleared with it.
   correctionRequestedAt DateTime? @map("correction_requested_at") @db.Timestamptz(3)
@@ -1176,8 +1177,8 @@ model Lead {
   /// draft, then never changed.
   taxYear          Int?       @map("tax_year")
   /// When the draft runs out. Required while DRAFT (on insert the database fills 30 days from
-  /// now); a renewal is at most 30 days from then; frozen once the lead leaves DRAFT. An expired
-  /// draft cannot be submitted.
+  /// now); a renewal is at most 30 days from then; kept as the lead leaves DRAFT, and frozen.
+  /// An expired draft is not renewed and only becomes EXPIRED; no lead goes back to DRAFT.
   draftExpiresAt   DateTime?  @map("draft_expires_at") @db.Timestamptz(3)
   resumeTokenHash  String?    @unique @map("resume_token_hash")
   resumeExpiresAt  DateTime?  @map("resume_expires_at") @db.Timestamptz(3)

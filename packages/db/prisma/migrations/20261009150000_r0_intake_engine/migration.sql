@@ -87,12 +87,14 @@ ALTER TABLE intake_submissions ADD CONSTRAINT intake_submissions_saved_steps
 -- ---------- 2. The firm's request for changes ----------
 -- Set exactly while NEEDS_CORRECTION (no reader filters a stale note; the audit log keeps the
 -- history): the API clears it with the status change that ends it. Up to 2,000 characters with
--- something visible; tabs and line breaks, no other control (C0, C1) or invisible characters.
+-- something visible (not only blanks); tabs and \r\n line breaks, no other control (C0, C1),
+-- line separator, filler or invisible characters (emoji joiners and selectors stay).
 ALTER TABLE intakes ADD CONSTRAINT intakes_correction
   CHECK ((correction_note IS NULL) = (correction_requested_at IS NULL)
          AND (status = 'NEEDS_CORRECTION') = (correction_note IS NOT NULL)
-         AND correction_note ~ '[^[:space:]]' AND char_length(correction_note) <= 2000
-         AND correction_note !~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\u061C\u180E\u200B\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB]');
+         AND correction_note ~ '[^[:space:]\xA0\u1680\u2000-\u200F\u202F\u205F\u2800\u3000\uFE00-\uFE0F]'
+         AND char_length(correction_note) <= 2000
+         AND correction_note !~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\xAD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B\u2028-\u202E\u2060-\u2064\u2066-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB\U000E0000-\U000E007F]');
 
 -- The request's time is the database clock: stamped when the note is set or changed, cleared
 -- with it, otherwise kept, whatever the caller sends.
@@ -114,7 +116,7 @@ CREATE TRIGGER intakes_correction
 
 -- ---------- 4, 6 and 8. Leads ----------
 -- Hours, not days (30 and 90), so a daylight saving change in the session's time zone moves
--- nothing. A DRAFT always has its expiry; a sent lead keeps the one it had.
+-- nothing. A DRAFT always has its expiry; a lead keeps it as it leaves DRAFT, and for good.
 ALTER TABLE leads ADD CONSTRAINT leads_tax_year CHECK (tax_year BETWEEN 2000 AND 2100);
 ALTER TABLE leads ADD CONSTRAINT leads_draft_expiry
   CHECK ((status <> 'DRAFT' OR draft_expires_at IS NOT NULL)
@@ -123,9 +125,10 @@ ALTER TABLE leads ADD CONSTRAINT leads_draft_expiry
 
 -- Beside leads_rules (r0_intake): created_at is the database clock, so the 90 days count from
 -- it; a new draft runs 30 days unless the API says less, and a renewal reaches at most 30 days
--- from now (1 minute of slack); a sent lead's expiry is frozen and an expired draft is never
--- submitted; the tax year is set once, while a draft; a lead converts only into an ACTIVE
--- engagement, held until commit so it is still ACTIVE when the carried-over files arrive.
+-- from now (1 minute of slack); the expiry is frozen once the lead leaves DRAFT, no lead goes
+-- back to DRAFT, and an expired draft is neither renewed nor sent on (it only becomes EXPIRED);
+-- the tax year is set once, while a draft; a lead converts only into an ACTIVE engagement,
+-- held until commit so it is still ACTIVE when the carried-over files arrive.
 CREATE FUNCTION leads_draft_rules() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
@@ -135,10 +138,15 @@ BEGIN
     IF NEW.status = 'DRAFT' AND NEW.draft_expires_at IS NULL THEN
       NEW.draft_expires_at := now() + interval '720 hours';
     END IF;
-  ELSIF OLD.status <> 'DRAFT' AND NEW.draft_expires_at IS DISTINCT FROM OLD.draft_expires_at THEN
+  ELSIF NEW.status = 'DRAFT' AND OLD.status <> 'DRAFT' THEN
+    RAISE EXCEPTION 'leads: a lead never goes back to being a draft'
+      USING ERRCODE = 'check_violation';
+  ELSIF NEW.status <> 'DRAFT' AND NEW.draft_expires_at IS DISTINCT FROM OLD.draft_expires_at THEN
     RAISE EXCEPTION 'leads: only a draft''s expiry can change' USING ERRCODE = 'check_violation';
-  ELSIF OLD.status = 'DRAFT' AND NEW.status = 'SUBMITTED' AND OLD.draft_expires_at <= now() THEN
-    RAISE EXCEPTION 'leads: the draft expired and cannot be submitted'
+  ELSIF OLD.status = 'DRAFT' AND OLD.draft_expires_at <= now()
+        AND (NEW.status NOT IN ('DRAFT', 'EXPIRED')
+             OR NEW.draft_expires_at IS DISTINCT FROM OLD.draft_expires_at) THEN
+    RAISE EXCEPTION 'leads: the draft expired; it only becomes EXPIRED'
       USING ERRCODE = 'check_violation';
   ELSIF NEW.tax_year IS DISTINCT FROM OLD.tax_year
         AND (OLD.tax_year IS NOT NULL OR OLD.status <> 'DRAFT') THEN
@@ -176,15 +184,17 @@ CREATE UNIQUE INDEX services_one_begin_online_per_kind ON services (business_id,
   WHERE begin_online AND archived_at IS NULL;
 
 -- ---------- 1 and 7. Documents ----------
--- Same as r0_intake, plus:
--- - every client file, uploaded or carried over, goes only into an ACTIVE engagement (a PENDING
---   one takes none: R5's 409 NO_OPEN_SERVICE), held until commit (as R5 locks it), so a status
---   change waits for the upload;
--- - an intake upload is a client file for an intake of the same engagement, open for changes
---   (SENT, IN_PROGRESS, NEEDS_CORRECTION; held, so a submit waits) or, carried over, the intake
---   of the upload's lead in the upload's slot. It only leaves the intake (both cleared), while
---   the intake is open.
-CREATE OR REPLACE FUNCTION documents_rules() RETURNS trigger
+-- Beside documents_rules (r0_intake), which keeps checking the file, the scan and the rest:
+-- - every client file, uploaded or carried over, goes only into an ACTIVE engagement (stricter
+--   than its PENDING or ACTIVE: R5's 409 NO_OPEN_SERVICE), held until commit (as R5 locks it),
+--   so a status change waits for the upload;
+-- - an intake upload is a client file for an intake of the same engagement that is open (SENT,
+--   IN_PROGRESS, NEEDS_CORRECTION) or, carried over, the intake of the upload's lead in the
+--   upload's slot;
+-- - a file leaves its intake (detached, both cleared; or deleted before its retention ends)
+--   only while the intake is open. The intake is held each time, so a submit waits; a submit
+--   detaches the files of hidden slots before it moves the status on.
+CREATE FUNCTION documents_intake_rules() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
 DECLARE
@@ -193,22 +203,6 @@ DECLARE
   intake_open boolean;
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    IF NEW.lead_upload_id IS NOT NULL THEN
-      IF NEW.direction <> 'CLIENT_TO_FIRM' OR NOT EXISTS (
-        SELECT 1 FROM lead_uploads u JOIN leads l ON l.id = u.lead_id
-        WHERE u.id = NEW.lead_upload_id
-          AND u.s3_key = NEW.s3_key AND u.sha256 = NEW.sha256 AND u.size_bytes = NEW.size_bytes
-          AND u.content_type = NEW.content_type
-          AND u.scan_status = NEW.scan_status AND u.scanned_at IS NOT DISTINCT FROM NEW.scanned_at
-          AND l.status = 'CONVERTED' AND l.engagement_id = NEW.engagement_id
-      ) THEN
-        RAISE EXCEPTION 'documents: a carried-over upload must match its lead upload and the converted engagement'
-          USING ERRCODE = 'check_violation';
-      END IF;
-    ELSIF NEW.scan_status <> 'PENDING' THEN
-      RAISE EXCEPTION 'documents: a new document starts unscanned (PENDING)'
-        USING ERRCODE = 'check_violation';
-    END IF;
     IF NEW.direction = 'CLIENT_TO_FIRM' THEN
       PERFORM 1 FROM engagements e WHERE e.id = NEW.engagement_id AND e.status = 'ACTIVE' FOR SHARE;
       IF NOT FOUND THEN
@@ -233,43 +227,25 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF NEW.id <> OLD.id OR NEW.business_id <> OLD.business_id OR NEW.client_id <> OLD.client_id
-     OR NEW.engagement_id <> OLD.engagement_id OR NEW.direction <> OLD.direction
-     OR NEW.s3_key <> OLD.s3_key OR NEW.content_type <> OLD.content_type
-     OR NEW.sha256 <> OLD.sha256 OR NEW.size_bytes <> OLD.size_bytes
-     OR NEW.lead_upload_id IS DISTINCT FROM OLD.lead_upload_id
-     OR NEW.uploaded_by_user_id IS DISTINCT FROM OLD.uploaded_by_user_id
-     OR NEW.created_at <> OLD.created_at THEN
-    RAISE EXCEPTION 'documents: the file, its S3 key, its engagement and its uploader cannot change'
-      USING ERRCODE = 'check_violation';
-  END IF;
-
-  IF NEW.intake_id IS DISTINCT FROM OLD.intake_id
-     OR NEW.intake_slot IS DISTINCT FROM OLD.intake_slot THEN
+  IF (CASE TG_OP WHEN 'DELETE'
+        THEN OLD.intake_id IS NOT NULL AND NOT coalesce(OLD.retention_until < current_date, false)
+        ELSE (NEW.intake_id, NEW.intake_slot) IS DISTINCT FROM (OLD.intake_id, OLD.intake_slot) END) THEN
     PERFORM 1 FROM intakes i
-      WHERE NEW.intake_id IS NULL AND i.id = OLD.intake_id
+      WHERE i.id = OLD.intake_id AND (TG_OP = 'DELETE' OR NEW.intake_id IS NULL)
         AND i.status IN ('SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION')
       FOR SHARE;
     IF NOT FOUND THEN
-      RAISE EXCEPTION 'documents: a file only leaves its intake (both cleared), while the intake is open'
+      RAISE EXCEPTION 'documents: a file only leaves its intake (detached, both cleared, or deleted) while the intake is open'
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
-
-  IF OLD.scan_status <> 'PENDING'
-     AND (NEW.scan_status <> OLD.scan_status OR NEW.scanned_at IS DISTINCT FROM OLD.scanned_at) THEN
-    RAISE EXCEPTION 'documents: a scan result cannot change'
-      USING ERRCODE = 'check_violation';
-  END IF;
-
-  IF (OLD.retention_until IS NULL AND NEW.retention_until IS NOT NULL)
-     OR NEW.retention_until < OLD.retention_until THEN
-    RAISE EXCEPTION 'documents: retention_until can only move later'
-      USING ERRCODE = 'check_violation';
-  END IF;
-  RETURN NEW;
+  RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
 END
 $$;
+
+CREATE TRIGGER documents_intake_rules
+  BEFORE INSERT OR UPDATE OR DELETE ON documents
+  FOR EACH ROW EXECUTE FUNCTION documents_intake_rules();
 
 -- A client deletes their own upload only while the engagement is ACTIVE, like the uploads (the
 -- rest as in r0_documents).
@@ -283,11 +259,11 @@ CREATE POLICY documents_delete ON documents FOR DELETE
                               WHERE e.id = documents.engagement_id AND e.status = 'ACTIVE'))));
 
 -- ---------- 9 and 10. Meeting links and cancel cutoffs ----------
--- https only; no whitespace, control or invisible characters (listed: the locale decides what
--- [:space:] covers); at most 500 characters.
+-- https only; no whitespace, control, filler or invisible characters (listed: the locale decides
+-- what [:space:] covers); at most 500 characters.
 ALTER TABLE memberships ADD CONSTRAINT memberships_meeting_url
   CHECK (char_length(meeting_url) <= 500
-         AND meeting_url ~ '^https://[^[:space:]\x01-\x20\x7F-\xA0\u061C\u1680\u180E\u2000-\u200F\u2028-\u202F\u205F-\u206F\u3000\uFEFF\uFFF9-\uFFFB]+$');
+         AND meeting_url ~ '^https://[^[:space:]\x01-\x20\x7F-\xA0\xAD\u034F\u061C\u115F\u1160\u1680\u17B4\u17B5\u180B-\u180F\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\U000E0000-\U000E007F]+$');
 -- Hours before the start (0 = until the start), at most 30 days.
 ALTER TABLE appointment_types ADD CONSTRAINT appointment_types_cancel_cutoff_hours
   CHECK (cancel_cutoff_hours BETWEEN 0 AND 720);

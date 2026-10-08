@@ -4,6 +4,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import type { Prisma } from '../src/generated/prisma/client.js';
 import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
@@ -31,6 +32,7 @@ const A = () => ({ businessId: ids.firmA });
 /** A file for the client, by default a client upload into the ACTIVE tax engagement. */
 type Upload = Partial<Record<'engagementId' | 'intakeId' | 'intakeSlot', string>> & {
   direction?: 'FIRM_TO_CLIENT';
+  retentionUntil?: Date;
 };
 const upload = (data: Upload = {}) =>
   firmA().document.create({
@@ -60,6 +62,8 @@ const engagement = (serviceId: string, status: 'ACTIVE' | 'PENDING' | 'COMPLETED
   });
 const newIntake = (engagementId = ids.active) =>
   firmA().intake.create({ data: { ...A(), formId: more.taxForm, engagementId } });
+const setEngagement = (id: string, status: 'ACTIVE' | 'PENDING') =>
+  firmA().engagement.update({ where: { id }, data: { status } });
 const setIntake = (
   id: string,
   status: 'SUBMITTED' | 'IN_PROGRESS' | 'UNDER_REVIEW' | 'COMPLETED',
@@ -136,12 +140,13 @@ describe('meeting links and cancel cutoffs', () => {
   it('a meeting link is https, with no whitespace, control or invisible characters, up to 500', async () => {
     const set = (meetingUrl: string | null) =>
       firmA().membership.update({ where: { id: more.staff }, data: { meetingUrl } });
+    const inside = (c: string) => `https://zoom.us/j/000${c}0000001`;
     for (const bad of [
       'http://zoom.us/j/0000000001',
       'javascript:alert(1)',
       'HTTPS://zoom.us/j/0000000001',
       'https://',
-      ...[' ', '\t', '\n', '\u00a0', '\u200b'].map((c) => `https://zoom.us/j/000${c}0000001`),
+      ...[...' \t\n\u00a0\u200b\u00ad\u2800\u3164\ufe0f\u{e0069}'].map(inside),
       `https://${'a'.repeat(493)}`,
     ]) {
       await expect(set(bad)).rejects.toThrow(CHECK);
@@ -218,17 +223,29 @@ describe('leads: tax year, draft expiry and the 90-day cap', () => {
     await expect(link(19)).resolves.toMatchObject({ status: 'DRAFT' });
   });
 
-  it('an expired draft cannot be submitted; a sent lead keeps its expiry', async () => {
-    const expired = await newLead();
-    await firmA().lead.update({ where: { id: expired.id }, data: { draftExpiresAt: days(-1) } });
-    await expect(submit(expired.id)).rejects.toThrow(/draft expired/);
-    const sent = await newLead();
-    await submit(sent.id);
-    for (const draftExpiresAt of [days(5), null]) {
-      await expect(
-        firmA().lead.update({ where: { id: sent.id }, data: { draftExpiresAt } }),
-      ).rejects.toThrow(/only a draft's expiry/);
+  it('an expired draft only becomes EXPIRED; no lead goes back to DRAFT; a sent lead keeps its expiry', async () => {
+    const [expired, sent] = [(await newLead()).id, (await newLead()).id];
+    const set = (id: string, data: Prisma.LeadUncheckedUpdateInput) =>
+      firmA().lead.update({ where: { id }, data });
+    await set(expired, { draftExpiresAt: days(-1) });
+    const send = { status: 'SUBMITTED', submittedAt: new Date() } as const;
+    const books = (await engagement(ids.books)).id;
+    for (const data of [
+      { draftExpiresAt: days(29) },
+      send,
+      { ...send, status: 'IN_REVIEW' },
+      { ...send, status: 'CONVERTED', clientId: ids.client, engagementId: books },
+    ] as const) {
+      await expect(set(expired, data)).rejects.toThrow(/draft expired/);
     }
+    await expect(set(expired, { status: 'EXPIRED' })).resolves.toMatchObject({ status: 'EXPIRED' });
+    await expect(set(expired, { status: 'DRAFT' })).rejects.toThrow(/never goes back/);
+    // Not moved or cleared by the update that sends the lead, nor afterwards.
+    for (const draftExpiresAt of [days(5), null])
+      await expect(set(sent, { ...send, draftExpiresAt })).rejects.toThrow(/only a draft's/);
+    await set(sent, send);
+    for (const draftExpiresAt of [days(5), null])
+      await expect(set(sent, { draftExpiresAt })).rejects.toThrow(/only a draft's/);
   });
 
   it('the tax year is 2000 to 2100, set once while a draft', async () => {
@@ -295,12 +312,17 @@ describe('converting a lead', () => {
           direction: 'CLIENT_TO_FIRM',
         },
       });
-    // It keeps its upload's slot; the intake (SUBMITTED) need not be open.
+    // Into an ACTIVE engagement only; it keeps its upload's slot; the intake (SUBMITTED) need not
+    // be open, but the file then stays in it.
+    await setEngagement(e.id, 'PENDING');
+    await expect(carry('priorReturn')).rejects.toThrow(/open engagement/);
+    await setEngagement(e.id, 'ACTIVE');
     await expect(carry('governmentId')).rejects.toThrow(/intake upload/);
-    await expect(carry('priorReturn')).resolves.toMatchObject({
-      intakeSlot: 'priorReturn',
-      scanStatus: 'CLEAN',
-    });
+    const doc = await carry('priorReturn');
+    expect(doc).toMatchObject({ intakeSlot: 'priorReturn', scanStatus: 'CLEAN' });
+    await expect(firmA().document.delete({ where: { id: doc.id } })).rejects.toThrow(
+      /only leaves its intake/,
+    );
   });
 });
 
@@ -312,12 +334,10 @@ describe('documents', () => {
     ).resolves.toBeTruthy();
     const e = await engagement(ids.tax);
     const doc = await upload({ engagementId: e.id });
-    const setStatus = (status: 'ACTIVE' | 'PENDING') =>
-      firmA().engagement.update({ where: { id: e.id }, data: { status } });
     const remove = async () => (await firmA().document.deleteMany({ where: { id: doc.id } })).count;
-    await setStatus('PENDING');
+    await setEngagement(e.id, 'PENDING');
     expect(await remove()).toBe(0);
-    await setStatus('ACTIVE');
+    await setEngagement(e.id, 'ACTIVE');
     expect(await remove()).toBe(1);
   });
 
@@ -357,23 +377,31 @@ describe('documents', () => {
     await expect(into()).resolves.toMatchObject({ intakeSlot: 'governmentId' });
   });
 
-  it('a file only leaves its intake (both cleared), while the intake is open', async () => {
+  it('a file only leaves its intake (detached or deleted) while it is open, or past retention', async () => {
     const intake = await newIntake();
-    const doc = await upload({ intakeId: intake.id, intakeSlot: 'governmentId' });
+    const slot = { intakeId: intake.id, intakeSlot: 'governmentId' };
+    const [doc, other, kept] = [
+      await upload(slot),
+      await upload(slot),
+      await upload({ ...slot, retentionUntil: days(-3) }),
+    ];
     const plain = await upload();
+    const remove = async (id: string) =>
+      (await firmA().document.deleteMany({ where: { id } })).count;
     const update = (id: string, data: { intakeId?: string | null; intakeSlot?: string | null }) =>
       firmA().document.update({ where: { id }, data });
     const LEAVES = /only leaves its intake/;
-    await expect(
-      update(plain.id, { intakeId: intake.id, intakeSlot: 'governmentId' }),
-    ).rejects.toThrow(LEAVES);
+    await expect(update(plain.id, slot)).rejects.toThrow(LEAVES);
     await expect(update(doc.id, { intakeSlot: 'spouseGovernmentId' })).rejects.toThrow(LEAVES);
     await expect(update(doc.id, { intakeSlot: null })).rejects.toThrow(LEAVES);
     const detach = () => update(doc.id, { intakeId: null, intakeSlot: null });
     await setIntake(intake.id, 'SUBMITTED');
     await expect(detach()).rejects.toThrow(LEAVES);
+    await expect(remove(doc.id)).rejects.toThrow(LEAVES);
+    expect(await remove(kept.id)).toBe(1);
     await setIntake(intake.id, 'IN_PROGRESS');
     await expect(detach()).resolves.toMatchObject({ intakeId: null, intakeSlot: null });
+    expect(await remove(other.id)).toBe(1);
   });
 });
 
@@ -399,15 +427,21 @@ describe('intakes and their versions', () => {
         correctionRequestedAt: asked.correctionRequestedAt,
       });
     }
+    // A changed note is a new request: stamped again.
+    const again = await set({ correctionNote: 'Add your W-2 and 1099-INT.' });
+    expect(Number(again.correctionRequestedAt)).toBeGreaterThan(
+      Number(asked.correctionRequestedAt),
+    );
     await expect(set({ status: 'SUBMITTED' })).rejects.toThrow(CHECK);
     await expect(set({ status: 'SUBMITTED', correctionNote: null })).resolves.toMatchObject({
       correctionRequestedAt: null,
     });
-    // Up to 2,000 characters with something visible; line breaks, no other control or invisible.
-    for (const bad of [' \n\t', 'x'.repeat(2001), 'a\u0007', 'a\u0085', 'a\u200bb', 'a\u202eb']) {
+    // Up to 2,000 characters, not only blanks; line breaks, no other control, filler or invisible.
+    const inside = [...'\u0007\u0085\u200b\u202e\u00ad\u2028\u3164\u{e0069}'].map((c) => `a${c}b`);
+    for (const bad of [' \n\t', '\u00a0\u3000', '\u2800', 'x'.repeat(2001), ...inside]) {
       await expect(set({ status: 'NEEDS_CORRECTION', correctionNote: bad })).rejects.toThrow(CHECK);
     }
-    for (const good of ['Line 1\r\n\tLine 2', 'x'.repeat(2000)]) {
+    for (const good of ['Line 1\r\n\tLine 2', '\u26a0\ufe0f Add your W-2.', 'x'.repeat(2000)]) {
       await expect(set({ status: 'NEEDS_CORRECTION', correctionNote: good })).resolves.toBeTruthy();
     }
   });
@@ -423,14 +457,15 @@ describe('intakes and their versions', () => {
     for (const bad of [['personal', 'personal'], ['Personal'], [''], ['constructor'], steps(11)]) {
       await expect(save(bad)).rejects.toThrow(CHECK);
     }
-    const raw = (nulls: 'element' | 'column') =>
-      db.withScope({ kind: 'business', businessId: ids.firmA }, (tx) =>
-        nulls === 'column'
-          ? tx.$executeRaw`UPDATE intake_submissions SET saved_steps = NULL WHERE id = ${draft.id}::uuid`
-          : tx.$executeRaw`UPDATE intake_submissions SET saved_steps = '{a,NULL}' WHERE id = ${draft.id}::uuid`,
+    const raw = (savedSteps: string | null) =>
+      db.withScope(
+        { kind: 'business', businessId: ids.firmA },
+        (tx) =>
+          tx.$executeRaw`UPDATE intake_submissions SET saved_steps = ${savedSteps}::text[] WHERE id = ${draft.id}::uuid`,
       );
-    await expect(raw('element')).rejects.toThrow(CHECK);
-    await expect(raw('column')).rejects.toThrow(/not-null/i);
+    // No NULL step, one dimension (unnest would flatten {{a,b},{c,d}}), never a NULL list.
+    for (const bad of ['{a,NULL}', '{{a,b},{c,d}}']) await expect(raw(bad)).rejects.toThrow(CHECK);
+    await expect(raw(null)).rejects.toThrow(/not-null/i);
     await expect(save(steps(10))).resolves.toMatchObject({ savedSteps: steps(10) });
   });
 });
