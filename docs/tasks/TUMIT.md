@@ -81,7 +81,9 @@ Checklist:
 
 **Status (Oct 8, 2026):** Implemented on `tumit/FIR-N04-application`, based on `main` at `b205833`. The public form uses the R4 schema and `api.firmApplications.submit`; review masks the EIN to its last four digits, and submit controls disable during the request. Welcome and received screens explain the next steps. The Super Admin firms page uses `listFirms` and `firmCounts` for status filters, search and paging, with `PageState` loading, error and permission handling.
 
-**Verification:** Typecheck, lint, formatting, diff check and production build with Next webpack pass. Both N04 mock Playwright cases report `ok`; the Windows runner hangs during server teardown and was interrupted, so its process exits 1. The full mock suite also has an existing portal-session sign-out test failure unrelated to N04. Turbopack cannot use the linked dependency directory in this local clone. PR screenshots and reviewer access are pending.
+**Verification:** Typecheck, lint, formatting, diff check and production build with Next webpack pass. Both N04 mock Playwright cases report `ok`; the Windows runner hangs during server teardown and was interrupted, so its process exits 1. The full mock suite also has an existing portal-session sign-out test failure unrelated to N04. Turbopack cannot use the linked dependency directory in this local clone.
+
+**GitHub status:** The five feature/test/documentation commits are `3425a2c`, `821f3aa`, `6c14017`, `5d4f118` and `5d2f73f`; this status correction is a separate documentation commit. Push to `RaselMridha792/firmivra` was rejected because the authenticated GitHub identity `onamika-yesmin` has no write permission. No PR was created; screenshots and collaborator review are still pending. No dependencies or lockfiles were changed. The diff is 814 additions and 19 deletions, above the guide's approximate 400-line review target.
 
 ### F05 · Oct 10-11 · Setup wizard, settings and team
 
