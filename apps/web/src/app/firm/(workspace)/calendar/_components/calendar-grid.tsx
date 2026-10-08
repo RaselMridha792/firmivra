@@ -33,7 +33,7 @@ export function WeekGrid({
             key={date}
             data-testid="calendar-day"
             aria-label={dayLabel(date)}
-            className="flex min-h-32 flex-col gap-2 rounded-card border border-border bg-surface p-2"
+            className="flex flex-col gap-2 rounded-card border border-border bg-surface p-2 md:min-h-32"
           >
             <button
               type="button"
