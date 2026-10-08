@@ -50,6 +50,15 @@ const OFFSET_MS = -4 * 60 * 60_000;
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
+/**
+ * As the API for now: a type's cutoff can only be 24 hours until R0's column lands (409
+ * CUTOFF_NOT_SUPPORTED). The seeded types keep their 48 and 0 hours, as the portal will show them
+ * then.
+ */
+function onlyDayCutoff(hours: number | undefined): void {
+  if (hours !== undefined && hours !== 24) throw errors.cutoffNotSupported();
+}
+
 /** The signed-in member in mock mode (mocks/me.ts) and Sam Staff (mocks/clients.ts). */
 export const mockMe: MemberRef = {
   userId: '00000000-0000-4000-8000-000000000101',
@@ -92,6 +101,9 @@ const errors = {
     ),
   closed: () => fail(409, 'APPOINTMENT_CLOSED', 'This appointment can no longer change'),
   typeArchived: () => fail(409, 'TYPE_ARCHIVED', 'This appointment type is archived'),
+  clientArchived: () => fail(409, 'CLIENT_ARCHIVED', 'Restore the client first'),
+  cutoffNotSupported: () =>
+    fail(409, 'CUTOFF_NOT_SUPPORTED', 'For now every appointment type has a 24-hour cutoff'),
   blocks: () => fail(409, 'BLOCKS_APPOINTMENT', 'An appointment is scheduled in this time'),
   duplicate: () => fail(409, 'DUPLICATE_NAME', 'An appointment type with this name exists'),
 };
@@ -344,6 +356,7 @@ export function createAppointmentTypesMock(
       await mockDelay();
       const input = parseInput(CreateAppointmentTypeRequest, body);
       manager();
+      onlyDayCutoff(input.cancelCutoffHours);
       const s = db();
       if (s.types.some((t) => t.name.toLowerCase() === input.name.toLowerCase()))
         throw errors.duplicate();
@@ -360,6 +373,7 @@ export function createAppointmentTypesMock(
       await mockDelay();
       const input = parseInput(UpdateAppointmentTypeRequest, body);
       manager();
+      onlyDayCutoff(input.cancelCutoffHours);
       const t = find(typeId);
       if (
         input.name &&
@@ -551,6 +565,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       const s = db();
       const booked = clientFixtures().find((c) => c.id === input.clientId);
       if (!booked || (staffOnly && !assigned(booked.id))) throw errors.notFound();
+      if (booked.archivedAt) throw errors.clientArchived();
       const staff = member(input.staffUserId);
       const t = input.typeId ? s.types.find((x) => x.id === input.typeId) : undefined;
       if (!staff || (input.typeId && !t)) throw errors.notFound();

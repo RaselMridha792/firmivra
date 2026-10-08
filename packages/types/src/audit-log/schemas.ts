@@ -55,8 +55,9 @@ export const AuditEntry = z
 export type AuditEntry = z.infer<typeof AuditEntry>;
 
 /**
- * Filters: a date range, both ends or neither (then the last 30 days), at most 366 days; an action
- * or its prefix ("appointment." for every appointment action); the person; the record.
+ * Filters: a date range, both ends or neither (then the last 30 days), at most 366 days, inclusive
+ * at both ends, so a screen sending the end of a day gets that day's last rows; an action or its
+ * prefix ("appointment." for every appointment action); the person; the record.
  */
 export const AuditLogQuery = z
   .strictObject({
