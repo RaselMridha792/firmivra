@@ -23,7 +23,11 @@ import type { Env } from '../config/env.js';
 import { DATABASE, OUTSIDE_CALL_LIMITS } from '../database/database.module.js';
 import { ACTIVATION_MAILER, type ActivationMailer } from './activation-mailer.js';
 import { runFlow } from './auth-errors.js';
-import { IDENTITY_PROVIDER, type IdentityProvider } from './identity/identity-provider.js';
+import {
+  AuthFlowError,
+  IDENTITY_PROVIDER,
+  type IdentityProvider,
+} from './identity/identity-provider.js';
 
 /** Activation links last 7 days (docs/AUTH-DESIGN.md; the database refuses longer). */
 const INVITE_DAYS = 7;
@@ -446,20 +450,29 @@ export class InvitesService {
   }
 
   /**
-   * A new person sets their password and joins the firm. Refused with 409 ACCOUNT_EXISTS when the
-   * login already has a password: an invite must never reset an existing account's password.
-   * The password is set only while this request holds the link (see `use`), so a link used,
-   * resent or revoked a moment earlier can never set it. Returns who to sign in next.
+   * A new person sets their password and joins the firm. An invite never resets an existing
+   * account's password: a login that already has one gets 409 ACCOUNT_EXISTS (sign in, then
+   * accept), with one exception, a stuck activation. When this link's activation set the
+   * password in Cognito and then failed to commit, the link is still open and the login has a
+   * password but no MFA yet: the typed password proves it is the same person, and the
+   * activation finishes without setting it again. The password is set only while this request
+   * holds the link (see `use`), so a link used, resent or revoked a moment earlier can never set
+   * it. Returns who to sign in next.
    */
   async activate(token: string, password: string, name?: string) {
     const found = await this.openInvite(token);
     const { user } = found;
-    if (await this.identity.hasPassword('STAFF', user.cognitoSub)) throw accountExists();
-    await this.use(found, async () => {
-      // Checked again now that nobody else can use the link.
-      if (await this.identity.hasPassword('STAFF', user.cognitoSub)) throw accountExists();
-      await runFlow(() => this.identity.setPassword('STAFF', user.cognitoSub, password));
-    });
+    const finishing = await this.identity.hasPassword('STAFF', user.cognitoSub);
+    if (finishing) {
+      await this.assertStuckActivation(user.cognitoSub, password);
+      await this.use(found);
+    } else {
+      await this.use(found, async () => {
+        // Checked again now that nobody else can use the link.
+        if (await this.identity.hasPassword('STAFF', user.cognitoSub)) throw accountExists();
+        await runFlow(() => this.identity.setPassword('STAFF', user.cognitoSub, password));
+      });
+    }
     if (name && name !== user.name) {
       await this.db.forUser(user.id).user.update({ where: { id: user.id }, data: { name } });
     }
@@ -468,9 +481,34 @@ export class InvitesService {
       { userId: user.id, cognitoSub: user.cognitoSub, pool: 'STAFF' },
       'membership.activated',
       { type: 'membership', id: found.membership.id },
-      { inviteId: found.inviteId, via: 'activate' },
+      { inviteId: found.inviteId, via: finishing ? 'activate_finished' : 'activate' },
     );
     return { userId: user.id, sub: user.cognitoSub };
+  }
+
+  /**
+   * 409 ACCOUNT_EXISTS unless `password` is the login's own and it has no MFA set up yet (a
+   * stuck activation, see `activate`). An account with MFA joins only by signing in and
+   * accepting, so a password alone never stands in for its second factor. The check opens no
+   * session: tokens Cognito hands out for it are revoked at once.
+   */
+  private async assertStuckActivation(sub: string, password: string): Promise<void> {
+    const step = await runFlow(async () => {
+      try {
+        return await this.identity.signIn('STAFF', sub, password);
+      } catch (e) {
+        // A wrong password says nothing new: the answer is the same 409 as before.
+        if (e instanceof AuthFlowError && e.code === 'INVALID_CREDENTIALS') throw accountExists();
+        throw e;
+      }
+    });
+    if (step.kind === 'tokens') {
+      const { refreshToken } = step.tokens;
+      // Best effort: the access token expires on its own; the activation stands either way.
+      if (refreshToken) await this.identity.revoke('STAFF', refreshToken).catch(() => undefined);
+      return;
+    }
+    if (step.step !== 'MFA_SETUP') throw accountExists();
   }
 
   /** A signed-in person with a login joins the firm they were invited to. 404 for anyone else. */

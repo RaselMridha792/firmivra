@@ -461,6 +461,62 @@ describe('a link is used once, even under races (#41 review)', () => {
   const signInWith = (email: string, password: string) =>
     publicPost('/api/v1/auth/sign-in', { email, password });
 
+  it('a stuck activation (password set, commit lost) finishes with the same password only', async () => {
+    const email = `r2-stuck-${randomUUID()}@a.test`;
+    expect((await invite(email, 'STAFF')).status).toBe(201);
+    const token = tokenSentTo(email);
+    const { id: userId, cognitoSub } = await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.findFirstOrThrow({
+        where: { email, pool: 'STAFF' },
+        select: { id: true, cognitoSub: true },
+      }),
+    );
+    // Cognito took the password, then the transaction that used the link failed to commit.
+    await identity.setPassword('STAFF', cognitoSub, 'Stuck-password-12');
+    const wrong = await publicPost('/api/v1/auth/activate', {
+      token,
+      password: 'Another-password-1',
+    });
+    expect([wrong.status, codeOf(wrong)]).toEqual([409, 'ACCOUNT_EXISTS']);
+    const done = await publicPost('/api/v1/auth/activate', {
+      token,
+      password: 'Stuck-password-12',
+    }).expect(200);
+    expect((done.body as SignInResult).status).toBe('MFA_SETUP_REQUIRED');
+    const after = await asOwner({ kind: 'business', businessId: fx.firmA.id }, async (tx) => ({
+      status: (await tx.membership.findFirstOrThrow({ where: { userId } })).status,
+      via: (
+        await tx.auditLog.findFirstOrThrow({
+          where: { action: 'membership.activated', actorUserId: userId },
+        })
+      ).metadata,
+    }));
+    expect(after.status).toBe('ACTIVE');
+    expect(after.via).toMatchObject({ via: 'activate_finished' });
+    // The link is used now: nothing more to finish.
+    const again = await publicPost('/api/v1/auth/activate', {
+      token,
+      password: 'Stuck-password-12',
+    });
+    expect([again.status, codeOf(again)]).toEqual([404, 'INVITE_INVALID']);
+  });
+
+  it('a login with MFA set up never joins with its password alone (409, sign in to accept)', async () => {
+    const email = `r2-mfa-${randomUUID()}@a.test`;
+    expect((await invite(email, 'STAFF')).status).toBe(201);
+    const token = tokenSentTo(email);
+    const { cognitoSub } = await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.findFirstOrThrow({ where: { email, pool: 'STAFF' }, select: { cognitoSub: true } }),
+    );
+    await identity.setPassword('STAFF', cognitoSub, 'Mfa-ready-pass-12');
+    await identity.finishMfaSetup('STAFF', cognitoSub, 'session', LOCAL_MFA_CODE);
+    const res = await publicPost('/api/v1/auth/activate', {
+      token,
+      password: 'Mfa-ready-pass-12',
+    });
+    expect([res.status, codeOf(res)]).toEqual([409, 'ACCOUNT_EXISTS']);
+  });
+
   it('two activations at once: one sets the password, the other changes nothing', async () => {
     const email = `r2-race-${randomUUID()}@a.test`;
     await invite(email, 'STAFF');
