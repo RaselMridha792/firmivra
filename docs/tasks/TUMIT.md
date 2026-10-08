@@ -118,6 +118,8 @@ Checklist:
 - **API:** R12's `api.appointments.*` and availability (contract by Oct 10).
 - **Build:** day and week views as a simple grid from `@firmivra/ui` (ask Rasel before adding a calendar package); appointment detail (client, type, location or video details); create, reschedule and cancel; each staff member's working hours and blocked time. Show a clear message when someone else just took a slot.
 
+**Status (Oct 8, 2026):** Seven stacked PRs, each under 400 lines, with no calendar package: `tumit/FIR-F09-calendar` (week and day grid, staff filter), `tumit/FIR-F09-appointment-detail`, `tumit/FIR-F09-reschedule-cancel` (free times, and a clear message on 409 SLOT_TAKEN), `tumit/FIR-F09-new-appointment`, `tumit/FIR-F09-availability` (working hours), `tumit/FIR-F09-blocked-time` and `tumit/FIR-F09-polish` (fixes from the visual review). `api.clients` has no mock switch in `lib/api.ts`, so the booking test answers the client search itself.
+
 ### N08 · Oct 14 · Portal appointments
 
 - **Pages:** portal `/{firm}/appointments`, in `portal/[firmSlug]/(client)/appointments/`.
