@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 
-test('an owner saves branding, business details and the team', async ({ page }) => {
+test('an owner finishes the setup wizard', async ({ page }) => {
   await page.goto(app('/setup'));
   await expect(page.getByTestId('mock-badge')).toBeVisible();
   const current = page.locator('[aria-current="step"]');
@@ -32,16 +32,28 @@ test('an owner saves branding, business details and the team', async ({ page }) 
   await expect(page.getByLabel('EIN (saved, ends in 6789)')).toHaveValue('');
   await page.getByRole('button', { name: 'Continue' }).click();
 
-  // Team and access: an invite joins the list; Continue opens step 4.
+  // Team and access: an invite joins the list.
   await expect(current).toContainText('Team and access');
   await page.getByLabel('Name', { exact: true }).fill('Taylor Sample');
   await page.getByLabel('Email', { exact: true }).fill('taylor@lvp.test');
   await page.getByRole('button', { name: 'Send invite' }).click();
   await expect(page.getByTestId('team-member').filter({ hasText: 'Taylor Sample' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(current).toContainText('Client portal');
 
+  // Client portal, then Finish: every step is done and the firm opens its dashboard.
+  await expect(current).toContainText('Client portal');
+  await page.getByLabel('Welcome message').fill('We are glad you are here.');
+  await expect(page.getByTestId('brand-preview')).toContainText('We are glad you are here.');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByTestId('finish-item').filter({ hasText: 'Done' })).toHaveCount(4);
+  await page.getByRole('button', { name: 'Complete setup' }).click();
+  await expect(page).toHaveURL(app('/'));
+});
+
+test('the wizard fits a 375 px screen', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(app('/setup'));
+  await expect(page.getByTestId('brand-preview')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(375);
