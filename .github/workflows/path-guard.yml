@@ -100,7 +100,7 @@ jobs:
               ],
             },
             arfan: {
-              logins: [],
+              logins: ['arfan-ahmed-shohag'],
               files: [
                 `${WEB}portal/[firmSlug]/(public)/begin/`,
                 `${WEB}firm/(workspace)/leads/`,
