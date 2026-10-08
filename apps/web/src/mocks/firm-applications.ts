@@ -386,7 +386,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
             'DUPLICATE_EIN',
             others.find((r) => einKeys.get(r.id) === einKey),
             'EIN',
-            'No other application or firm has this EIN',
+            'No other application has this EIN',
           )
         : { key: 'DUPLICATE_EIN', result: 'SKIPPED', note: 'No EIN given' },
       check(
