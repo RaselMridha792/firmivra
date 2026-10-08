@@ -571,7 +571,7 @@ components:
       required: [email, name, role]
       properties:
         email: { $ref: '#/components/schemas/Email' }
-        name: { type: string, minLength: 1, maxLength: 120, description: 'Trimmed; one line, no control characters' }
+        name: { type: string, minLength: 1, maxLength: 120, description: 'Trimmed; one line: no control characters, line or paragraph separators, or invisible direction and zero-width characters (U+061C, U+200B, U+202A to U+202E, U+2060, U+2066 to U+2069, U+FEFF)' }
         role: { $ref: '#/components/schemas/InviteRole' }
     InviteResponse:
       type: object

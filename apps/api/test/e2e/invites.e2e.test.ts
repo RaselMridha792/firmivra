@@ -22,7 +22,7 @@ import {
   LOCAL_MFA_CODE,
   LocalIdentityProvider,
 } from '../../src/auth/identity/local-identity.provider.js';
-import { INVITE_LIMITS, InvitesService } from '../../src/auth/invites.service.js';
+import { INVITE_LIMITS, InvitesService, UNNAMED_INVITE } from '../../src/auth/invites.service.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -512,6 +512,29 @@ describe('a link is used once, even under races (#41 review)', () => {
     }));
     expect(state).toEqual({ membership: { status: 'ACTIVE' }, openInvites: 0 });
   });
+
+  // Prisma's own limit is 5 s: only OUTSIDE_CALL_LIMITS (15 s) keeps both transactions alive.
+  it('Cognito slower than 5 s: the activation commits, and the resend waiting for it answers', async () => {
+    const email = `r2-slow-cognito-${randomUUID()}@a.test`;
+    const { membershipId } = (await invite(email, 'STAFF')).body as InviteResponse;
+    const token = tokenSentTo(email);
+
+    const gate = identity.holdNextSetPassword();
+    const activation = start('/api/v1/auth/activate', { token, password: 'Slow-cognito-pass-1' });
+    await gate.reached; // the activation holds the link and waits in Cognito
+    const resend = invite(email, 'STAFF'); // waits to revoke that link
+    await pause(6_000);
+    gate.release();
+
+    const [activated, resent] = await Promise.all([activation, resend]);
+    expect(activated.status).toBe(200);
+    expect([resent.status, codeOf(resent)]).toEqual([409, 'ALREADY_MEMBER']);
+    expect((await signInWith(email, 'Slow-cognito-pass-1')).status).toBe(200);
+    const status = await asOwner({ kind: 'business', businessId: fx.firmA.id }, (tx) =>
+      tx.membership.findUniqueOrThrow({ where: { id: membershipId }, select: { status: true } }),
+    );
+    expect(status).toEqual({ status: 'ACTIVE' });
+  }, 30_000);
 
   it('a resend that wins first leaves the old link unable to set a password', async () => {
     const email = `r2-resend-first-${randomUUID()}@a.test`;
@@ -1035,16 +1058,25 @@ describe('resend, deactivation and activation races, and the typed details (#57 
     expect(stored).toEqual(fromRow);
   });
 
-  it('fits a user row name invites.name would refuse, for an invite from before #52', async () => {
+  it("names an invite from before #52 by the route's rule: the user row name, else the email", async () => {
     const firm = await newFirm('fit');
-    // users.name took up to 200 characters and control characters (it has no CHECK).
-    const rows = [
-      { rowName: 'N'.repeat(150), fitted: 'N'.repeat(120) },
-      { rowName: 'Tab\tName\u0007', fitted: 'Tab Name' },
+    // users.name took up to 200 characters and any character (it has no CHECK).
+    const refused = `${'A'.repeat(64)}\u2028${'B'.repeat(32)}\u202E${'C'.repeat(32)}`;
+    const EMAIL = Symbol('the email');
+    const rows: { rowName: string; label: string; named: string | typeof EMAIL }[] = [
+      { rowName: '  Row Name  ', label: 'fit', named: 'Row Name' },
+      { rowName: 'N'.repeat(150), label: 'fit', named: EMAIL },
+      { rowName: 'Tab\tName\u0007', label: 'fit', named: EMAIL },
+      { rowName: refused, label: 'fit', named: EMAIL },
+      // An address over 120 characters is no name either.
+      { rowName: refused, label: `fit-${'x'.repeat(80)}`, named: UNNAMED_INVITE },
     ];
     const got: unknown[] = [];
-    for (const { rowName } of rows) {
-      const person = await newPerson('fit', rowName);
+    const want: unknown[] = [];
+    for (const { rowName, label, named } of rows) {
+      const person = await newPerson(label, rowName);
+      const name = named === EMAIL ? person.email : named;
+      want.push([name, name, name]);
       const membershipId = await legacyInvite(firm, person);
       const said = await settle(
         service.resendInvite({ businessId: firm.id, membershipId, invitedBy: firm.owner }),
@@ -1059,7 +1091,7 @@ describe('resend, deactivation and activation races, and the typed details (#57 
       // Answered, stored and emailed.
       got.push([said.value.name, stored.name, outbox.at(-1)?.name]);
     }
-    expect(got).toEqual(rows.map(({ fitted }) => [fitted, fitted, fitted]));
+    expect(got).toEqual(want);
   });
 
   it("the platform's owner invite (R4, invitedBy null) keeps the typed details too", async () => {

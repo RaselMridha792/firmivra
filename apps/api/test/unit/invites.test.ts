@@ -3,7 +3,8 @@
 import { GoneException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { Database } from '@firmivra/db';
-import { InvitesService } from '../../src/auth/invites.service.js';
+import { CreateInviteRequest } from '@firmivra/types';
+import { InvitesService, UNNAMED_INVITE } from '../../src/auth/invites.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
 const env = loadEnv({
@@ -196,6 +197,9 @@ function invitedMember(options: {
     user: { findUniqueOrThrow: userRow },
   };
   const before = options.before ?? { role: 'STAFF', typed: options.typed };
+  const withScope = vi.fn(
+    (_scope: unknown, fn: (t: typeof tx) => Promise<unknown>, _limits?: unknown) => fn(tx),
+  );
   const db = {
     forBusiness: () => ({
       membership: {
@@ -213,7 +217,7 @@ function invitedMember(options: {
     forPlatform: () => {
       throw new Error('a resend never looks the person up by email');
     },
-    withScope: (_scope: unknown, fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+    withScope,
   } as unknown as Database;
   const sent = { send: vi.fn().mockResolvedValue(undefined) };
   const audited = { log: vi.fn().mockResolvedValue(undefined) };
@@ -224,7 +228,7 @@ function invitedMember(options: {
       membershipId: 'm1',
       invitedBy: { userId: 'o1', role: 'OWNER' },
     });
-  return { tx, userRow, sent, audited, resend };
+  return { tx, userRow, sent, audited, resend, withScope };
 }
 
 describe('InvitesService.resendInvite', () => {
@@ -254,27 +258,58 @@ describe('InvitesService.resendInvite', () => {
     );
   });
 
-  // users.name took 200 characters and control characters; invites.name takes neither.
+  // users.name took up to 200 characters and any character. A resend stores only a name the
+  // route's rule (CreateInviteRequest.name) takes, so it fits invites_name too.
+  const rowEmail = 'row@lvp.test';
   it.each([
-    ['over 120 characters', 'N'.repeat(150), 'N'.repeat(120)],
-    ['with control characters', ' Tab\tName\u0007\u0008 ', 'Tab Name'],
-    ['cut between characters, never inside one', `${'N'.repeat(119)}\u{1F600}`, 'N'.repeat(119)],
-    ['of control characters only (then the email)', '\u0007\u0008', 'row@lvp.test'],
+    ['one the rule takes: kept, trimmed as the route trims it', '  Zoë Ng  ', rowEmail, 'Zoë Ng'],
+    ['over 120 characters: the email', 'N'.repeat(121), rowEmail, rowEmail],
+    ['with control characters: the email', 'Tab\tName\u0007', rowEmail, rowEmail],
+    ['with a line separator: the email', 'Line\u2028Break', rowEmail, rowEmail],
+    ['with a right-to-left override: the email', 'Pat \u202Etxt.exe', rowEmail, rowEmail],
+    ['of spaces only: the email', '   ', rowEmail, rowEmail],
+    [
+      'the rule refuses, with an email over 120 characters: UNNAMED_INVITE',
+      '\u0007',
+      `${'e'.repeat(120)}@lvp.test`,
+      UNNAMED_INVITE,
+    ],
   ])(
-    'fits a user row name %s to invites.name, for an invite made before #52',
-    async (_, rowName, fitted) => {
+    'names an invite made before #52 from a user row name %s',
+    async (_, rowName, email, named) => {
       const { tx, sent, resend } = invitedMember({
         typed: { name: null, email: null },
         inTx: [{ status: 'INVITED' }],
-        userRow: { name: rowName, email: 'row@lvp.test' },
+        userRow: { name: rowName, email },
       });
-      await expect(resend()).resolves.toMatchObject({ name: fitted });
+      await expect(resend()).resolves.toMatchObject({ name: named });
       expect(tx.invite.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ name: fitted }) }),
+        expect.objectContaining({ data: expect.objectContaining({ name: named }) }),
       );
-      expect(sent.send).toHaveBeenCalledWith(expect.objectContaining({ name: fitted }));
+      expect(sent.send).toHaveBeenCalledWith(expect.objectContaining({ name: named }));
+      expect(CreateInviteRequest.shape.name.parse(named)).toBe(named);
     },
   );
+
+  it('never stores a user row name with U+2028, U+202E and 130 characters: the email instead', async () => {
+    const rowName = `${'A'.repeat(64)}\u2028${'B'.repeat(32)}\u202E${'C'.repeat(32)}`;
+    expect(rowName).toHaveLength(130);
+    const { tx, sent, resend } = invitedMember({
+      typed: { name: null, email: null },
+      inTx: [{ status: 'INVITED' }],
+      userRow: { name: rowName, email: rowEmail },
+    });
+    await expect(resend()).resolves.toMatchObject({ name: rowEmail, email: rowEmail });
+    const [[stored]] = tx.invite.create.mock.calls as [[{ data: { name: string } }]];
+    expect(stored.data.name).toBe(rowEmail);
+    // The route's rule takes it unchanged, and so does invites_name: not blank, at most 120
+    // characters, no control characters.
+    expect(CreateInviteRequest.shape.name.parse(stored.data.name)).toBe(stored.data.name);
+    expect(stored.data.name.trim()).not.toBe('');
+    expect([...stored.data.name].length).toBeLessThanOrEqual(120);
+    expect(stored.data.name).not.toMatch(/\p{Cc}/u);
+    expect(sent.send).toHaveBeenCalledWith(expect.objectContaining({ name: rowEmail }));
+  });
 
   it('takes the per-person lock, reads the details, then revokes the links before moving the membership', async () => {
     const { tx, resend } = invitedMember({
@@ -343,5 +378,80 @@ describe('InvitesService.resendInvite', () => {
     expect(tx.membership.findFirst).toHaveBeenCalledTimes(2);
     expect(tx.invite.create).not.toHaveBeenCalled();
     expect(sent.send).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A link to member m1 of firm b1 (person u1, no password yet) and a database whose withScope
+ * records the limits it is given.
+ */
+function openLink() {
+  const tx = {
+    invite: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    membership: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+  };
+  const withScope = vi.fn(
+    (_scope: unknown, fn: (t: typeof tx) => Promise<unknown>, _limits?: unknown) => fn(tx),
+  );
+  const db = {
+    forInvite: () => ({
+      invite: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'i1',
+          businessId: 'b1',
+          membershipId: 'm1',
+          expiresAt: new Date(Date.now() + 60_000),
+          acceptedAt: null,
+          revokedAt: null,
+        }),
+      },
+    }),
+    forBusiness: () => ({
+      membership: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'm1',
+          role: 'STAFF',
+          status: 'INVITED',
+          user: { id: 'u1', email: 'new@lvp.test', name: 'New', cognitoSub: 'sub-1' },
+        }),
+      },
+      business: {
+        findUniqueOrThrow: vi
+          .fn()
+          .mockResolvedValue({ id: 'b1', slug: 'lvp', name: 'LVP', status: 'ACTIVE' }),
+      },
+    }),
+    withScope,
+  } as unknown as Database;
+  const identity = {
+    hasPassword: vi.fn().mockResolvedValue(false),
+    setPassword: vi.fn().mockResolvedValue(undefined),
+  };
+  const service = new InvitesService(db, identity as never, mailer, audit as never, env);
+  return { service, identity, withScope };
+}
+
+// Prisma's limits (5 s) apply to every transaction but these (database.module.ts).
+describe('InvitesService transaction limits', () => {
+  it('activation may run 15 s: it sets the Cognito password inside its transaction', async () => {
+    const { service, identity, withScope } = openLink();
+    await service.activate('token', 'New-password-12');
+    expect(identity.setPassword).toHaveBeenCalledOnce();
+    expect(withScope.mock.calls.map((call) => call[2])).toEqual([{ timeout: 15_000 }]);
+  });
+
+  it('accepting with a login keeps the defaults: it calls nothing outside in its transaction', async () => {
+    const { service, withScope } = openLink();
+    await service.accept('token', { userId: 'u1', cognitoSub: 'sub-1', pool: 'STAFF' });
+    expect(withScope.mock.calls.map((call) => call[2])).toEqual([undefined]);
+  });
+
+  it('an invite or a resend may run 15 s: revoking a link waits for an activation holding it', async () => {
+    const { resend, withScope } = invitedMember({
+      typed: { name: 'Typed Name', email: 'typed@lvp.test' },
+      inTx: [{ status: 'INVITED' }],
+    });
+    await resend();
+    expect(withScope.mock.calls.map((call) => call[2])).toEqual([{ timeout: 15_000 }]);
   });
 });

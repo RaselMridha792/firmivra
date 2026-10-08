@@ -20,7 +20,7 @@ import { type AuthContext, requestContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
-import { DATABASE } from '../database/database.module.js';
+import { DATABASE, OUTSIDE_CALL_LIMITS } from '../database/database.module.js';
 import { ACTIVATION_MAILER, type ActivationMailer } from './activation-mailer.js';
 import { runFlow } from './auth-errors.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from './identity/identity-provider.js';
@@ -85,21 +85,21 @@ type NewLink =
  */
 const typedRules = new ZodValidationPipe(CreateInviteRequest.pick({ name: true, email: true }));
 
-/** invites.name's limit (#52), in UTF-16 units as CreateInviteRequest counts it. */
-const NAME_MAX = 120;
+/** The name an invite made before #52 gets when its person's user row gives none the rule takes. */
+export const UNNAMED_INVITE = 'Invited person';
 
 /**
- * A user row's name made to fit invites.name, for an invite made before #52: users.name took
- * up to 200 characters and control characters. Each run of control characters becomes one
- * space, and the name is cut to NAME_MAX, between characters. Empty when nothing else is left.
+ * The name for an invite made before #52, which kept none: the person's user row name if the
+ * route's rule takes it (CreateInviteRequest.name, stored as the route stores it: trimmed), else
+ * their email address under the same rule, else UNNAMED_INVITE. users.name took up to 200
+ * characters and any character; whatever this returns passes the rule, and so invites_name.
  */
-function fitName(name: string): string {
-  let fitted = '';
-  for (const char of name.replace(/\p{Cc}+/gu, ' ').trim()) {
-    if (fitted.length + char.length > NAME_MAX) break;
-    fitted += char;
+function legacyName(user: { name: string; email: string }): string {
+  for (const candidate of [user.name, user.email]) {
+    const parsed = CreateInviteRequest.shape.name.safeParse(candidate);
+    if (parsed.success) return parsed.data;
   }
-  return fitted.trim();
+  return UNNAMED_INVITE;
 }
 
 const inviteInvalid = () =>
@@ -229,63 +229,71 @@ export class InvitesService {
     // Retried once if a parallel invite created the membership first (then it is a resend), or
     // an activation or a deactivation changed it meanwhile (then the new state decides).
     const { inviteId, membershipId, resent, name, email, role } = await retryOnConflict(() =>
-      this.db.withScope({ kind: 'business', businessId }, async (tx) => {
-        // Invites to one person at one firm run one at a time, so each revokes the link made by
-        // the one before. Only invites take this lock, before any row: no new lock order.
-        const key = `staff-invite:${businessId}:${userId}`;
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
-        const existing = await tx.membership.findFirst({
-          where: { userId },
-          select: { id: true, status: true, role: true },
-        });
-        let details: InviteDetails;
-        if (link.kind === 'resend') {
-          // Checked again here (and on the retry): a deactivation or an activation that
-          // committed since resendInvite read the membership wins.
-          if (existing?.id !== link.membershipId || existing.status !== 'INVITED') {
-            throw notInvited();
-          }
-          // What the membership has now, read under the lock: a re-invite that committed
-          // meanwhile (another role, a corrected name) is kept, never written back over.
-          details = { role: existing.role, ...(await this.typedDetails(tx, existing.id, userId)) };
-        } else {
-          details = { name: link.name, email: link.email, role: link.role };
-        }
-        if (existing?.status === 'ACTIVE') throw alreadyMember();
-        // Re-inviting changes an existing membership: the inviter must be allowed its role too.
-        if (existing) assertMayInvite(invitedBy, existing.role);
-        if (existing) {
-          const toThisPerson = await tx.invite.count({
-            where: { membershipId: existing.id, createdAt: { gt: since } },
+      this.db.withScope(
+        { kind: 'business', businessId },
+        async (tx) => {
+          // Invites to one person at one firm run one at a time, so each revokes the link made by
+          // the one before. Only invites take this lock, before any row: no new lock order.
+          const key = `staff-invite:${businessId}:${userId}`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+          const existing = await tx.membership.findFirst({
+            where: { userId },
+            select: { id: true, status: true, role: true },
           });
-          if (toThisPerson >= INVITE_LIMITS.perPerson) throw tooManyInvites();
-        }
-        const membership = existing
-          ? await this.reinvite(tx, existing, details.role)
-          : await tx.membership.create({
-              data: { businessId, userId, role: details.role, status: 'INVITED' },
-              select: { id: true },
+          let details: InviteDetails;
+          if (link.kind === 'resend') {
+            // Checked again here (and on the retry): a deactivation or an activation that
+            // committed since resendInvite read the membership wins.
+            if (existing?.id !== link.membershipId || existing.status !== 'INVITED') {
+              throw notInvited();
+            }
+            // What the membership has now, read under the lock: a re-invite that committed
+            // meanwhile (another role, a corrected name) is kept, never written back over.
+            details = {
+              role: existing.role,
+              ...(await this.typedDetails(tx, existing.id, userId)),
+            };
+          } else {
+            details = { name: link.name, email: link.email, role: link.role };
+          }
+          if (existing?.status === 'ACTIVE') throw alreadyMember();
+          // Re-inviting changes an existing membership: the inviter must be allowed its role too.
+          if (existing) assertMayInvite(invitedBy, existing.role);
+          if (existing) {
+            const toThisPerson = await tx.invite.count({
+              where: { membershipId: existing.id, createdAt: { gt: since } },
             });
-        const invite = await tx.invite.create({
-          data: {
-            businessId,
+            if (toThisPerson >= INVITE_LIMITS.perPerson) throw tooManyInvites();
+          }
+          const membership = existing
+            ? await this.reinvite(tx, existing, details.role)
+            : await tx.membership.create({
+                data: { businessId, userId, role: details.role, status: 'INVITED' },
+                select: { id: true },
+              });
+          const invite = await tx.invite.create({
+            data: {
+              businessId,
+              membershipId: membership.id,
+              tokenHash: sha256(token),
+              // What the inviter typed (#52): the firm sees this, never the person's user row.
+              name: details.name,
+              email: details.email,
+              expiresAt,
+              invitedByUserId: invitedBy?.userId ?? null,
+            },
+            select: { id: true },
+          });
+          return {
+            inviteId: invite.id,
             membershipId: membership.id,
-            tokenHash: sha256(token),
-            // What the inviter typed (#52): the firm sees this, never the person's user row.
-            name: details.name,
-            email: details.email,
-            expiresAt,
-            invitedByUserId: invitedBy?.userId ?? null,
-          },
-          select: { id: true },
-        });
-        return {
-          inviteId: invite.id,
-          membershipId: membership.id,
-          resent: existing?.status === 'INVITED',
-          ...details,
-        };
-      }),
+            resent: existing?.status === 'INVITED',
+            ...details,
+          };
+        },
+        // Revoking an open link waits for an activation that holds it while it calls Cognito.
+        OUTSIDE_CALL_LIMITS,
+      ),
     );
 
     // Audited before sending: a failed send still leaves the invite on record.
@@ -400,8 +408,8 @@ export class InvitesService {
 
   /**
    * The name and email typed for the membership's newest invite. Invites made before #52 have
-   * none: then the person's user row, only for what is missing, its name made to fit the rule
-   * (or, if nothing of it is left, the email address).
+   * none: then the person's user row, only for what is missing, with a name the route's rule
+   * takes (`legacyName`).
    */
   private async typedDetails(
     tx: TxClient,
@@ -419,7 +427,7 @@ export class InvitesService {
       select: { name: true, email: true },
     });
     return {
-      name: latest?.name ?? (fitName(user.name) || fitName(user.email)),
+      name: latest?.name ?? legacyName(user),
       email: latest?.email ?? user.email,
     };
   }
@@ -537,26 +545,32 @@ export class InvitesService {
    * row, so a second activation or a resend waits, then finds it used), makes the membership
    * ACTIVE, then runs `last` (activation sets the Cognito password there, so nothing but the
    * commit follows it). Any failure rolls everything back and the link still works. The
-   * database's clock decides expiry: its refusal is 410 INVITE_EXPIRED.
+   * database's clock decides expiry: its refusal is 410 INVITE_EXPIRED. With `last` the
+   * transaction may run 15 s (OUTSIDE_CALL_LIMITS); accepting calls nothing outside, so it keeps
+   * Prisma's 5 s.
    */
   private async use(
     found: { inviteId: string; businessId: string; membership: { id: string } },
     last?: () => Promise<void>,
   ): Promise<void> {
     try {
-      await this.db.withScope({ kind: 'business', businessId: found.businessId }, async (tx) => {
-        const used = await tx.invite.updateMany({
-          where: { id: found.inviteId, acceptedAt: null, revokedAt: null },
-          data: { acceptedAt: new Date() },
-        });
-        if (used.count !== 1) throw inviteInvalid();
-        const joined = await tx.membership.updateMany({
-          where: { id: found.membership.id, status: 'INVITED' },
-          data: { status: 'ACTIVE' },
-        });
-        if (joined.count !== 1) throw inviteInvalid();
-        await last?.();
-      });
+      await this.db.withScope(
+        { kind: 'business', businessId: found.businessId },
+        async (tx) => {
+          const used = await tx.invite.updateMany({
+            where: { id: found.inviteId, acceptedAt: null, revokedAt: null },
+            data: { acceptedAt: new Date() },
+          });
+          if (used.count !== 1) throw inviteInvalid();
+          const joined = await tx.membership.updateMany({
+            where: { id: found.membership.id, status: 'INVITED' },
+            data: { status: 'ACTIVE' },
+          });
+          if (joined.count !== 1) throw inviteInvalid();
+          await last?.();
+        },
+        last ? OUTSIDE_CALL_LIMITS : undefined,
+      );
     } catch (e) {
       if (expiredByDatabase(e)) throw inviteExpired();
       throw e;
