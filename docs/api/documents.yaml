@@ -98,8 +98,14 @@ info:
       AUTHORIZED login sees only what it uploaded itself as `MINE`, an empty `FIRM` list and only
       open requests; it uploads only for an open request (403 without a `requestId`), never sees
       `INTERNAL` files and never answers "I don't have this" (403). Every upload records the
-      login that made it, and portal items carry the uploader's name. (The portal routes come in
-      R5 API part 2.)
+      login that made it (`uploaded_by_user_id`, and the client account in the sealed token and
+      the audit), and portal items carry the uploader's name (`MyDocument.uploadedBy`: the
+      household login's name on a `MINE` file, null on the firm's files, so no staff names reach
+      the portal). An AUTHORIZED login's `upload-targets` lists only the services with an open
+      request, and its `document-requests` only the open requests.
+    - **Request emails.** "Request a document" emails every ACTIVE portal login of the client
+      (`document.requested`: the title, the due date and a link to the portal; R6 applies their
+      preferences). A failed email never undoes the request.
     - **Audit and privacy.** Uploads, views (`get`), every download link issued and request
       changes are audited with ids only. File contents, names of other clients and storage URLs
       never reach logs, emails or SMS.
@@ -183,6 +189,16 @@ info:
       unscanned, not `FAILED`: the firm can download it and accept its request. The reason goes
       into its audit entry, and the firm's document shows that it was not scanned (a contract
       field that comes with the result handler).
+    - **Requests (API).** Every change locks in one order: the client (FOR SHARE), the
+      engagement, the category, then the request (FOR UPDATE). An upload for a request seals
+      `requestId` into its token; confirm locks the request last, refuses one that is no longer
+      open (`409 REQUEST_CLOSED`, the object deleted and the refusal audited like every other)
+      and sets it `SUBMITTED` in the transaction that saves the document, with its
+      `document_request.submitted` audit entry. Accept, reject and cancel lock the client (Staff
+      must reach it, else 404) and then the request; `ACCEPTED` and `CANCELLED` are closed
+      (`409 REQUEST_CLOSED`), accept and reject need `SUBMITTED` (`409 NOTHING_SUBMITTED`), and
+      accept a `CLEAN` newest file (`409 SCAN_PENDING` while it is checked). "I don't have this"
+      takes only an open request. A new answer (an upload) clears the old `statusNote`.
     - **Scan results (GuardDuty Malware Protection for S3).** Results reach the API only
       through a private channel: an EventBridge rule (source `aws.guardduty`, detail-type
       `GuardDuty Malware Protection Object Scan Result`, the documents bucket) to an SQS queue
@@ -204,6 +220,12 @@ info:
         object is never rewritten or copied to rescan it.
       - A request whose newest file becomes `INFECTED` or `FAILED` goes back to `REQUESTED` in
         the same transaction (see "Requests"; kept, Rasel q22).
+      - Built (R5 API part 2): `ScanResultsService.recordScanResult({ key, status, reasons })`
+        does all of the above for the handler to call (locks the request, then the document;
+        audits `document.scanned` with the result and reasons, `document.scan_unfinished` for
+        our side, `document_request.reopened`). A password-protected PDF becomes `CLEAN` with
+        `unscanned: true` in its audit entry; the firm's document shows it once R0 adds a column
+        for it (the contract field comes with that column).
     - **Replays.** A presigned PUT can be replayed until it expires and the bucket is versioned,
       so a download pins the confirmed version (R0: `documents.s3_version_id`) or the API checks
       the checksum before signing the GET. Today it checks the size, S3's checksum and that no
@@ -435,6 +457,7 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/CreateMyUploadRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/UploadTicket' }
+        '403': { description: 'FORBIDDEN: an AUTHORIZED login without a requestId' }
         '409': { description: 'NO_OPEN_SERVICE, REQUEST_CLOSED or CATEGORY_ARCHIVED' }
         '404': { $ref: '#/components/responses/NotFound' }
   /portal/{firmSlug}/me/documents/uploads/confirm:
@@ -445,7 +468,8 @@ paths:
       requestBody: { $ref: '#/components/requestBodies/ConfirmUploadRequest' }
       responses:
         '200': { description: MyDocument (status CHECKING) }
-        '409': { description: 'UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS' }
+        '403': { description: 'FORBIDDEN: the login is AUTHORIZED now and the upload has no request' }
+        '409': { description: 'UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED, FILE_HAS_MACROS, NO_OPEN_SERVICE, REQUEST_CLOSED or CATEGORY_ARCHIVED' }
         '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed or is busy; nothing is deleted' }
         '410': { description: UPLOAD_EXPIRED }
   /portal/{firmSlug}/me/document-categories:
@@ -474,6 +498,7 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/NotAvailableRequest' } } }
       responses:
         '200': { description: MyDocumentRequest }
+        '403': { description: 'FORBIDDEN: an AUTHORIZED login' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: REQUEST_CLOSED }
 

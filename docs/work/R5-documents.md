@@ -16,10 +16,10 @@
 - [x] 1. Publish docs/api/documents.yaml by Oct 9 (Arfan I05 and Nahid N05 build on it)
 - [x] 2. Presigned PUT for upload with content type and size limits; keys under tenant/{businessId}/... (the `documents.s3_key` CHECK and the API's IAM policy require this prefix) (API part 1)
 - [x] 3. Confirm upload: check size and type server side, store the document record (Oct 8: Excel and Word must be a real Office Open XML package without macros or a password; the yaml's "Excel and Word (confirm)") (API part 1; the portal's confirm in part 2)
-- [ ] 4. Presigned GET for download, short expiry, only after the firm-scope check (firm side done in API part 1; portal in part 2)
+- [x] 4. Presigned GET for download, short expiry, only after the firm-scope check (firm side in API part 1; portal in part 2)
 - [ ] 5. KMS encryption on every object; per-business key context (today: the bucket's default SSE-KMS with the documents key; per-firm keys need their own IAM statement, see "Infra needs")
-- [ ] 6. Audit uploads, downloads and deletes (no delete routes at launch, Oct 8); e2e test that firm B can't fetch firm A's file
-- [ ] 7. Plus I05 (Oct 6): document categories and document requests (Requested, Received, Accepted, Missing with a reason); the browser upload helper `uploadFile()` in apps/web/src/lib; Begin Online draft uploads with R11. Contract by Oct 9 (Nahid N05, Fahad F07)
+- [x] 6. Audit uploads, downloads and deletes (no delete routes at launch, Oct 8); e2e test that firm B can't fetch firm A's file (parts 1 and 2)
+- [ ] 7. Plus I05 (Oct 6): document categories and document requests (Requested, Received, Accepted, Missing with a reason); the browser upload helper `uploadFile()` in apps/web/src/lib; Begin Online draft uploads with R11. Contract by Oct 9 (Nahid N05, Fahad F07) (categories, requests and `uploadFile()` done in parts 1 and 2; Begin Online with R11 left)
 - The field-encryption helper for SSN and date of birth (assigned to R5 on Oct 5) moved to R10 on Oct 6.
 
 ## Done when
@@ -78,18 +78,29 @@ R5 defaults (answer 4, all accepted):
 - Search terms (both list queries) and file names refuse control characters and lone surrogates (400 `VALIDATION_FAILED`; Postgres refuses NUL). R2 will move every search filter to one shared rule later.
 - SCAN_MODE on the dev environment: `SCAN_MODE=local` is allowed in production only with `APP_ENV` exactly `dev` (not `DEV`, not empty, not unset; prod and staging refused). The dev API task gets `SCAN_MODE=local` only through a later app-stack line, with Rasel's yes, after #101 (which adds `APP_ENV` to the API task). Until then dev uploads stay PENDING.
 
-## API part 2 (next)
+## API part 2 (built Oct 8, branch `rasel/R5-documents-api-part2`, stacked on #118)
 
-- The portal routes: list (MINE and FIRM), get, download (FILE_BLOCKED in `PORTAL_BLOCKED_TEXT` words), categories, upload-targets, uploads and confirm, with the household rules above, plus `MyDocument.uploadedBy` in the contract and the mock (contract PR first).
-- The request routes: both lists, create, accept, reject, cancel and "I don't have this", and the rule that puts a request back to REQUESTED when its newest file ends INFECTED or FAILED.
-- The request path of confirm, moved out of part 1 in its review (it had no route and no test there): `requestId` in the sealed claim, the request locked FOR UPDATE after the client and the engagement, `REQUEST_CLOSED` in `findTarget` (open: REQUESTED or REJECTED), the request set SUBMITTED in confirm's transaction and the `document_request.submitted` audit, with e2e tests for SUBMITTED and REQUEST_CLOSED.
-- Work in progress for it: the local branch `rasel/R5-documents-part2-wip` in the R1 checkout (part 1 plus the portal service, controller and e2e, not pushed), and the requests service in the saved patch `rasel_R5-documents-api.patch`.
+- The portal routes (`my-documents.controller.ts`, `my-documents.service.ts`): list (MINE and FIRM, newest first or by name, cursor pages, the source's years), get, download (only CLEAN; `FILE_BLOCKED` in `PORTAL_BLOCKED_TEXT[source]` words, with the firm side's size, checksum and Content-Encoding checks), categories (active), upload-targets (ACTIVE services with their open requests; empty is the STOP state, also for an archived or unlinked client), uploads and confirm (part 1's flow, the token bound to the client account), with the household rules (q12). `MyDocument.uploadedBy` in the contract and the mock (its own commit, for the contract PR).
+- The request routes (`document-requests.service.ts`): the firm's list (per client), create (with the `document.requested` email), accept, reject and cancel; the portal's list and "I don't have this".
+- The request path of confirm: `requestId` in the sealed claim, the request locked FOR UPDATE after the client, the engagement and the category, `REQUEST_CLOSED` in `findTarget`, the request SUBMITTED in confirm's transaction with `document_request.submitted`.
+- `ScanResultsService.recordScanResult` (`scan-results.service.ts`) for the future GuardDuty handler: q22 (newest file INFECTED or FAILED puts a SUBMITTED request back to REQUESTED) and q24 (a password-protected PDF accepted unscanned).
+- What part 2 leaves: the GuardDuty result handler itself (the SQS consumer, with the infra); the "not scanned" field on the firm's document (needs an R0 column, see "Needs from others"); the bell for a new request (R6's in-app notifications); Begin Online uploads (R11); a request's upload does not take the request's category unless the client names one (as the mock does).
 
 ## Decisions (Rasel, Oct 8 evening: q22 to q24)
 
 - q22: keep both #91 defaults. A request whose newest file comes back `INFECTED` or `FAILED` goes back to `REQUESTED`, so the client uploads again for it, and the firm accepts only a `CLEAN` newest file (409 `SCAN_PENDING` while it is being checked). A `BLOCKED` file the firm shared shows "This file couldn't be checked. Ask your firm to share it again." (`PORTAL_BLOCKED_TEXT.FIRM`).
 - q23: Word and Excel files with active content other than macros are accepted: links to outside templates, objects or pictures, embedded OLE objects, ActiveX controls, altChunk imports and DDE fields. Only macro files stay refused (409 `FILE_HAS_MACROS`). The code already does this.
 - q24: password-protected PDFs are accepted unscanned: the firm can still download them and accept their requests. Confirm already stores them (it checks a PDF's magic bytes only). When the GuardDuty result handler is built, `UNSUPPORTED` with `PASSWORD_PROTECTED` on a PDF is not `FAILED`: the file becomes downloadable, the reason is audited, and the firm's document shows it was not scanned (a contract field added with the handler).
+
+## Decisions (Oct 8, API part 2; defaults until Rasel says otherwise)
+
+- `MyDocument.uploadedBy` is `{ name }` of the household login on a MINE file and null on the firm's files (no staff names in the portal) or a file without a known uploader.
+- An AUTHORIZED login's `upload-targets` lists only services with an open request (it may upload only for one), and its request list only open requests.
+- "Request a document" emails every ACTIVE portal login of the client, AUTHORIZED ones too (they may answer it); the email has the title, the due date and a link only.
+- A new answer clears the old `statusNote` (SUBMITTED, ACCEPTED, and REQUESTED again after a blocked file); a cancel keeps it.
+- "I don't have this" takes any open request, also one of a service that is no longer open (an answer needs no upload). It leaves `resolvedAt` empty, as the mock does.
+- A portal upload's tax year defaults to its service's (the mock does the same); the firm's stays as given.
+- Scan results: a result on a document that is no longer PENDING, or a key outside `tenant/{uuid}/documents/`, is ignored; UNSUPPORTED counts as FAILED only for the file reasons in the yaml, and as "accepted unscanned" only when a PDF's only file reason is PASSWORD_PROTECTED.
 
 ## Open (Rasel)
 
@@ -123,6 +134,10 @@ Infra for these needs Rasel's yes first.
 - Until GuardDuty is deployed, new uploads on dev stay "checking" (`PENDING`).
 
 ## Needs from others
+
+- R0 (a schema request with the `schema` label): a column that marks a document accepted unscanned (q24), for example `documents.scan_note` or `unscanned boolean`, so the firm's document can show "not scanned" (a `FirmDocument` field then). Today the mark is only in the `document.scanned` audit entry (`unscanned: true`).
+- R6: the bell (in-app notification) for a new document request, once R6's notifications land; the email is sent today.
+- Infra and R5: the GuardDuty result handler (EventBridge to SQS, read with the API role) that calls `ScanResultsService.recordScanResult`.
 
 - R0 or R4 (approve): a new firm gets the default document categories (Tax Documents, Business Documents, Identification). Today only `packages/db/prisma/seed.ts` creates them, so a firm made by approve, and LVP on dev, have none and every upload goes without a category (Rasel to choose who; a one-off for LVP on dev). From the cloud review of #118.
 - Rasel: `SCAN_MODE=local` on the dev API task (an app-stack line, after #101 adds `APP_ENV`). Until then every dev upload stays "checking" and dev downloads are blocked. The API already allows it only when `APP_ENV=dev`.
@@ -191,3 +206,9 @@ Infra for these needs Rasel's yes first.
   - the presigned GET signs `response-content-encoding=identity` and `response-cache-control=private, no-store` (unit test on the URL);
   - a race test where confirm #2 holds the key lock with its insert not committed (stopped on the client's row lock) while #1 refuses: #1 waits, then 410, the file stays; it fails with the lock removed from `refuse` or from confirm's transaction.
 - 2026-10-08, #118 after the lead's review and the cloud Scrum thread's review (`7777573`, `a16f237`, and this push): every item of the lead's review with a proving test (search terms refuse `\p{Cc}` and lone surrogates; storage failures are 503 with Retry-After; HEAD asks for the checksum only for downloads; refusals take the key lock; at most 4 file checks at once; S3 timeouts and no S3 call inside a transaction; Content-Encoding refused at confirm and pinned to identity on downloads; `\p{Cs}` in file names; the nits; zip hardening); `SCAN_MODE=local` in production only when `APP_ENV=dev`; `.env.example` has `SCAN_MODE=local`. The cloud review: the upload token now lives 15 minutes (a slow PUT that starts near the URL's end no longer ends in 410 and an orphaned object), confirm looks back 30 minutes for refusals, and no S3 call runs inside the confirm transaction (so its 15-second limit holds). Rasel's q22 to q24 are written into the Decisions and the yaml.
+- 2026-10-08, API part 2 (branch `rasel/R5-documents-api-part2`, stacked on #118's `rasel/R5-documents-api`; reused the WIP portal service and the saved requests service, adapted to today's part 1):
+  - contract commit first (`MyDocument.uploadedBy`, its tests, the mock with a spouse's upload), for its own contract PR from main;
+  - `apps/api/src/storage/`: the portal routes with the household rules, the firm's and the portal's request routes, the request path of confirm (`requestId` sealed, the request locked FOR UPDATE last, `REQUEST_CLOSED`, SUBMITTED and its audit in confirm's transaction), `lockClient` shared by both sides, `ScanResultsService.recordScanResult` (q22 reopen, q24 unscanned PDFs, our-side results left PENDING), audit of every list, view, link, upload and request change (ids and codes only);
+  - tests: `test/e2e/documents-portal.e2e.test.ts` (every portal and request route; PRIMARY, SPOUSE and AUTHORIZED; the token bound to the login and the role re-checked at confirm; each request transition and 409; the reopen rule and an older file that must not reopen; q24; client A never sees or downloads client B's files or requests, firm B never firm A's, Staff never an unassigned client's, AUTHORIZED never another login's uploads; `document_request.submitted` in the document's transaction, by `xmin`);
+  - the yaml: household logins, request emails, "Requests (API)" with the lock order, the built scan-result method, the portal 403s;
+  - size: about 2,300 changed lines with the tests; it could split into (1) the portal routes and the request path of confirm and (2) the request routes and the scan results.
