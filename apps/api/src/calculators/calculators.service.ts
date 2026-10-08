@@ -57,6 +57,9 @@ export class CalculatorsService {
       { kind: 'business', businessId },
       async (tx) => {
         const d = CALCULATOR_DEFAULTS[key];
+        // No config: the column's default `{}` keeps showing the current default figures, so a
+        // firm that only renamed its calculator gets the new figures when the defaults change,
+        // the same as a firm without a row (never a frozen copy of the placeholders).
         const inserted = await tx.calculatorDefinition.createMany({
           data: [
             {
@@ -66,7 +69,6 @@ export class CalculatorsService {
               disclaimer: d.disclaimer,
               enabled: d.enabled,
               sortOrder: d.sortOrder,
-              config: d.config as Prisma.InputJsonValue,
             },
           ],
           skipDuplicates: true,

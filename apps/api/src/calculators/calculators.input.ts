@@ -1,10 +1,11 @@
 import { UpdateCalculatorRequest } from '@firmivra/types';
 import type { z } from 'zod';
 
-// The contract's schema, plus what Postgres text cannot hold: half of a UTF-16 surrogate pair
-// ("\ud800" in JSON) reaches the driver as an encoding error, so the API refuses it as 400
-// VALIDATION_FAILED instead of answering 500. (The contract's text rule already refuses NUL and
-// the other control characters.)
+// The contract's schema, plus what UTF-8 (so Postgres text) cannot hold: half of a UTF-16
+// surrogate pair ("\ud800" in JSON). The driver would store it as U+FFFD without an error, so the
+// saved title or disclaimer would differ from what was sent; the API refuses it as 400
+// VALIDATION_FAILED instead. (The contract's text rule already refuses NUL and the other control
+// characters.)
 
 /** A lone surrogate: a pair is one astral code point in a `u` regex, never `Cs`. */
 const LONE_SURROGATE = /\p{Cs}/u;

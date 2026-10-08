@@ -132,6 +132,44 @@ const taxReturn = (items: FirmCalc[]) => {
   return found;
 };
 
+/**
+ * Starts the calls while a table lock holds back every write to calculator_definitions, waits
+ * until `writers` of them are queued on it, then lets them go at once. Without the lock the calls
+ * may run one after the other, and a check-then-insert would pass; with it, such code collides on
+ * the unique key (500) every time.
+ */
+async function releasedTogether(
+  writers: number,
+  start: () => Promise<Response>[],
+): Promise<Response[]> {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  try {
+    let calls: Promise<Response>[] = [];
+    await runInScope(
+      owner,
+      { kind: 'platform' },
+      async (tx) => {
+        await tx.$executeRaw`LOCK TABLE calculator_definitions IN SHARE ROW EXCLUSIVE MODE`;
+        calls = start();
+        for (let i = 0; i < 200; i += 1) {
+          // pg_locks lists every database on the server: count this one's waiters only.
+          const [queued] = await tx.$queryRaw<{ n: number }[]>`
+            SELECT count(*)::int AS n FROM pg_locks
+            WHERE database = (SELECT oid FROM pg_database WHERE datname = current_database())
+              AND relation = 'calculator_definitions'::regclass AND NOT granted`;
+          if ((queued?.n ?? 0) >= writers) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error(`fewer than ${writers} writes reached calculator_definitions`);
+      },
+      { timeout: 15_000 },
+    );
+    return await Promise.all(calls);
+  } finally {
+    await owner.$disconnect();
+  }
+}
+
 beforeAll(async () => {
   await asOwner({ kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
@@ -249,14 +287,14 @@ describe('who changes what', () => {
   });
 
   it('two first changes at once create one row, and both apply', async () => {
-    const [x, y] = await Promise.all([
+    const both = await releasedTogether(2, () => [
       call('patch', '/tax_return', people.ownerA, 'a', { title: 'Estimate your 2025 return' }),
       call('patch', '/tax_return', people.adminA, 'a', {
         disclaimer: 'An estimate, not tax advice (fake firm A).',
       }),
     ]);
-    ok(x);
-    ok(y);
+    expect(both).toHaveLength(2);
+    for (const res of both) ok(res);
     const rows = await rowsOf('a');
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
@@ -264,6 +302,11 @@ describe('who changes what', () => {
       disclaimer: 'An estimate, not tax advice (fake firm A).',
       enabled: true,
     });
+    // The row holds no copy of the default figures: they keep coming from the defaults.
+    expect(rows[0]?.config).toEqual({});
+    expect(taxReturn(await list()).config).toEqual(
+      taxReturn(await list(people.ownerB, 'b')).config,
+    );
     const audit = await asOwner({ kind: 'business', businessId: firms.a.id }, (tx) =>
       tx.auditLog.findMany({ where: { businessId: firms.a.id, action: 'calculator.updated' } }),
     );
@@ -302,6 +345,9 @@ describe('the portal', () => {
       expect((await portal(who)).status).toBe(404);
       expect((await portal(who, '/tax_return')).status).toBe(404);
     }
+    // Firm A's client on firm B's portal: no account there, so nothing of either firm.
+    expect((await portal(people.clientA, '', 'b')).status).toBe(404);
+    expect((await portal(people.clientA, '/tax_return', 'b')).status).toBe(404);
   });
 });
 
@@ -339,7 +385,8 @@ describe('validation', () => {
       { title: 'Line\nbreak' },
       { disclaimer: 'x'.repeat(2_001) },
       { title: 'Tax‮estimate' },
-      // NUL and half a surrogate pair: refused, never a 500 from the database.
+      // NUL and half a surrogate pair: refused. Postgres text cannot hold NUL, and the driver
+      // would store half a pair as U+FFFD (200, with text other than what was sent).
       '{"title":"Tax\\u0000estimate"}',
       '{"disclaimer":"Estimate\\u0000only"}',
       '{"title":"Tax \\ud800 estimate"}',
