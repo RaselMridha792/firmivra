@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Patch, Post } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   type MyProfile,
@@ -31,7 +31,8 @@ export class MyProfileController {
     return this.profiles.get(tenant.businessId, accountOf(tenant));
   }
 
-  @Put()
+  /** PATCH, as the contract client sends it (partial: only the fields given change). */
+  @Patch()
   update(
     @CurrentTenant() tenant: TenantContext,
     @Body(new ZodValidationPipe(UpdateMyProfileRequest))

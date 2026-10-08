@@ -9,7 +9,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import { ClientTaxYear as YearShape, MyTaxYearList as MineShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -101,7 +101,7 @@ const setYear = async (clientId: string, year: number, body: object, who = peopl
 };
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
       const pool = key.toLowerCase().includes('client') ? 'CLIENT' : 'STAFF';
@@ -231,7 +231,7 @@ describe('firm: tax status per year', () => {
     expect([res.status, codeOf(res)]).toEqual([409, 'TAX_STATUS_ARCHIVED']);
 
     await setYear(ids.client1, 2020, { taxStatusId: ids.laterArchived });
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
       tx.taxStatus.update({ where: { id: ids.laterArchived }, data: { archivedAt: new Date() } }),
     );
@@ -327,7 +327,7 @@ describe('audit', () => {
     await setYear(ids.client1, 2021, { taxStatusId: ids.filed, clientNote: 'Secret-ish note' });
     await firm('get', `/${ids.client1}/tax-years/2021/history`, people.ownerA);
     await portal(people.clientA);
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const rows = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
       tx.auditLog.findMany({ where: { businessId: ids.firmA, entityId: ids.client1 } }),
     );
@@ -357,7 +357,7 @@ describe('audit', () => {
  * released: a change at the same time as a PUT, committed while the PUT waits on it.
  */
 async function holdChange(change: (tx: TxClient) => Promise<unknown>) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   let letGo!: () => void;
   const released = new Promise<void>((resolve) => (letGo = resolve));
   let held!: (pid: number) => void;
@@ -406,7 +406,7 @@ function holdYear(clientId: string, taxYear: number, during?: (tx: TxClient) => 
 }
 
 async function inFirmA<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     return await runInScope(owner, { kind: 'business', businessId: ids.firmA }, fn);
   } finally {

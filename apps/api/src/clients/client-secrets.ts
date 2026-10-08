@@ -1,5 +1,5 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
-import type { Prisma, TxClient } from '@firmivra/db';
+import { HttpException, HttpStatus, Logger } from '@nestjs/common';
+import type { Prisma } from '@firmivra/db';
 import {
   type FieldContext,
   type FieldEncryption,
@@ -52,11 +52,11 @@ async function guarded<T>(work: () => Promise<T>): Promise<T> {
  * The profile's encrypted columns for what the request sent: each value through the
  * field-encryption helper (the firm's key, bound to this client and field), the SSN and EIN with
  * their last 4 digits (the only part ever returned). The contract already normalised them.
- * `tx` is the caller's write transaction: in AWS mode the firm's key id is read in it.
+ * Called BEFORE the write transaction: no KMS call ever runs while a transaction holds a pooled
+ * connection and the client's locks (the house rule since #92).
  */
 export async function secretColumns(
   fe: FieldEncryption,
-  tx: TxClient,
   businessId: string,
   clientId: string,
   body: SecretInput,
@@ -64,7 +64,7 @@ export async function secretColumns(
   return guarded(async () => {
     const data: Prisma.ClientProfileUncheckedUpdateInput = {};
     const seal = (field: string, value: string) =>
-      fe.encrypt(context(businessId, clientId, field), value, { tx });
+      fe.encrypt(context(businessId, clientId, field), value);
     if (body.ssn !== undefined) {
       data.ssnEnc = body.ssn === null ? null : await seal('ssn', body.ssn);
       data.ssnLast4 = body.ssn === null ? null : body.ssn.slice(-4);
@@ -90,6 +90,28 @@ export async function readDateOfBirth(
 ): Promise<string | null> {
   if (!dobEnc) return null;
   return guarded(() => fe.decrypt(context(businessId, clientId, 'date_of_birth'), dobEnc));
+}
+
+const log = new Logger('ClientSecrets');
+
+/**
+ * The date of birth for a response after a write that is already committed: the change is
+ * saved, so a failed decrypt answers null (and a warning without values) instead of an error
+ * that would look like the save failed.
+ */
+export async function readDateOfBirthAfterWrite(
+  fe: FieldEncryption,
+  businessId: string,
+  clientId: string,
+  dobEnc: Uint8Array | null | undefined,
+): Promise<string | null> {
+  try {
+    return await readDateOfBirth(fe, businessId, clientId, dobEnc);
+  } catch (error) {
+    const name = error instanceof Error ? error.name : 'UnknownError';
+    log.warn(`Date of birth not readable after a write for client ${clientId}: ${name}`);
+    return null;
+  }
 }
 
 /** The names of the fields a request changed, for the audit log (never their values). */

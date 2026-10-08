@@ -26,7 +26,7 @@ export const CalendarDate = z.iso.date();
 const PastDate = CalendarDate.refine(
   (d) => d <= new Date().toISOString().slice(0, 10),
   'The date cannot be in the future',
-);
+).refine((d) => d >= '1900-01-01', 'Enter a date from 1900 on');
 
 /** A client id in a path: anything else gets 400 VALIDATION_FAILED. */
 export const ClientId = z.uuid();
@@ -163,21 +163,23 @@ const digits = (count: number, message: string) =>
  * clears one. `ssn`, `ein` (9 digits, dashes allowed) and `dateOfBirth` are stored encrypted and
  * come back only as ssnLast4, einLast4 and dateOfBirth.
  */
-export const UpdateClientProfileRequest = z.strictObject({
-  firstName: clearable(text(100)),
-  middleName: clearable(text(100)),
-  lastName: clearable(text(100)),
-  preferredName: clearable(text(100)),
-  businessName: clearable(text(200)),
-  entityType: clearable(text(50)),
-  dateOfBirth: clearable(PastDate),
-  ssn: clearable(digits(9, 'Enter the 9-digit SSN')),
-  ein: clearable(digits(9, 'Enter the 9-digit EIN')),
-  address: AddressInput.optional(),
-  preferredContactMethod: clearable(ContactMethod),
-  referralSource: clearable(text(200)),
-  additionalInfo: clearable(text(2000, 'many')),
-});
+export const UpdateClientProfileRequest = z
+  .strictObject({
+    firstName: clearable(text(100)),
+    middleName: clearable(text(100)),
+    lastName: clearable(text(100)),
+    preferredName: clearable(text(100)),
+    businessName: clearable(text(200)),
+    entityType: clearable(text(50)),
+    dateOfBirth: clearable(PastDate),
+    ssn: clearable(digits(9, 'Enter the 9-digit SSN')),
+    ein: clearable(digits(9, 'Enter the 9-digit EIN')),
+    address: AddressInput.optional(),
+    preferredContactMethod: clearable(ContactMethod),
+    referralSource: clearable(text(200)),
+    additionalInfo: clearable(text(2000, 'many')),
+  })
+  .refine((body) => Object.values(body).some((v) => v !== undefined), 'Change at least one field');
 export type UpdateClientProfileRequest = z.input<typeof UpdateClientProfileRequest>;
 
 /**

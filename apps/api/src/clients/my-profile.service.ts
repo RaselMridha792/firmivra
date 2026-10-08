@@ -11,7 +11,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
-import { changedFields, readDateOfBirth } from './client-secrets.js';
+import { changedFields, readDateOfBirth, readDateOfBirthAfterWrite } from './client-secrets.js';
 
 type UpdateBody = z.output<typeof UpdateMyProfileRequest>;
 type NameChangeBody = z.output<typeof RequestNameChangeRequest>;
@@ -71,7 +71,7 @@ export class MyProfileService {
     if (forChange) {
       await tx.$queryRaw`
         SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${account.clientId}::uuid
-        FOR UPDATE`;
+        FOR NO KEY UPDATE`;
     }
     const client = await tx.client.findFirst({
       where: { businessId, id: account.clientId },
@@ -81,9 +81,11 @@ export class MyProfileService {
     return { account, client };
   }
 
+  /** `afterWrite`: the change is saved, so an unreadable date of birth answers null. */
   private async view(
     businessId: string,
     { account, client }: Awaited<ReturnType<MyProfileService['mine']>>,
+    afterWrite = false,
   ): Promise<MyProfile> {
     const p = client.profile;
     const name = [p?.firstName, p?.middleName, p?.lastName].filter(Boolean).join(' ');
@@ -91,9 +93,11 @@ export class MyProfileService {
     return {
       portalRole: account.portalRole,
       fullName: name || p?.businessName || client.displayName,
-      dateOfBirth: primary
-        ? await readDateOfBirth(this.fe, businessId, client.id, p?.dobEnc)
-        : null,
+      dateOfBirth: !primary
+        ? null
+        : afterWrite
+          ? await readDateOfBirthAfterWrite(this.fe, businessId, client.id, p?.dobEnc)
+          : await readDateOfBirth(this.fe, businessId, client.id, p?.dobEnc),
       email: account.email,
       phone: client.phone,
       address: {
@@ -157,7 +161,7 @@ export class MyProfileService {
       { type: 'client', id: mine.client.id },
       { fields: changedFields(body) },
     );
-    return this.view(businessId, mine);
+    return this.view(businessId, mine, true);
   }
 
   /**
@@ -169,6 +173,11 @@ export class MyProfileService {
     clientAccountId: string,
     body: NameChangeBody,
   ): Promise<{ ok: true }> {
+    const pending = () =>
+      new ConflictException({
+        code: 'NAME_CHANGE_PENDING',
+        message: 'Your firm is already looking at a name change request',
+      });
     const { clientId, taskId } = await this.inFirm(businessId, async (tx) => {
       const { account, client } = await this.mine(tx, businessId, clientAccountId, true);
       if (account.portalRole !== 'PRIMARY') throw primaryOnly();
@@ -177,12 +186,14 @@ export class MyProfileService {
         where: { businessId, clientId: client.id, kind: 'NAME_CHANGE', status: 'OPEN' },
         select: { id: true },
       });
-      if (open) {
-        throw new ConflictException({
-          code: 'NAME_CHANGE_PENDING',
-          message: 'Your firm is already looking at a name change request',
-        });
-      }
+      if (open) throw pending();
+      // The assigned staff member, while they are an active member; otherwise nobody yet.
+      const assignee = client.assignedUserId
+        ? await tx.membership.findFirst({
+            where: { businessId, userId: client.assignedUserId, status: 'ACTIVE' },
+            select: { userId: true },
+          })
+        : null;
       const task = await tx.task.create({
         data: {
           businessId,
@@ -192,11 +203,15 @@ export class MyProfileService {
           details: body.reason
             ? `New name: ${body.newName}\nReason: ${body.reason}`
             : `New name: ${body.newName}`,
-          assignedUserId: client.assignedUserId,
+          assignedUserId: assignee?.userId ?? null,
         },
         select: { id: true },
       });
       return { clientId: client.id, taskId: task.id };
+    }).catch((error: unknown) => {
+      // One open name change per client (the database's partial unique index agrees).
+      if ((error as { code?: string }).code === 'P2002') throw pending();
+      throw error;
     });
     await this.audit.log(
       'portal.name_change_requested',
