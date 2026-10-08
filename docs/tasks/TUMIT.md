@@ -21,17 +21,17 @@ On Oct 15-16 you and Ibrahim test everything on dev.
 
 ## Tickets
 
-| Ticket | Day | Title | API (built by Rasel's sessions) |
-| --- | --- | --- | --- |
-| F04a | Oct 7 | Super Admin sidebar, header and dashboard | `adminAuth.me()` on main; the rest mock |
-| F04b | Oct 8 | Firm applications: list, detail, approve, request info, decline | R4 |
-| N04 | Oct 9 | Public firm application form, and the Super Admin firms list | R4 |
-| F05 | Oct 10-11 | First-time setup wizard, settings and team | T02-T04 (lead), R2 invites |
-| F09 | Oct 12-13 | Firm calendar and availability | R12 |
-| N08 | Oct 14 | Portal appointments: book, reschedule, cancel | R12 |
-| Q03 | Oct 15-16 | Full test pass on dev (with Ibrahim) | |
-| - | Oct 17 | Fixes from Octavia's review | |
-| - | Oct 18 | Production smoke test | |
+| Ticket | Day       | Title                                                           | API (built by Rasel's sessions)         |
+| ------ | --------- | --------------------------------------------------------------- | --------------------------------------- |
+| F04a   | Oct 7     | Super Admin sidebar, header and dashboard                       | `adminAuth.me()` on main; the rest mock |
+| F04b   | Oct 8     | Firm applications: list, detail, approve, request info, decline | R4                                      |
+| N04    | Oct 9     | Public firm application form, and the Super Admin firms list    | R4                                      |
+| F05    | Oct 10-11 | First-time setup wizard, settings and team                      | T02-T04 (lead), R2 invites              |
+| F09    | Oct 12-13 | Firm calendar and availability                                  | R12                                     |
+| N08    | Oct 14    | Portal appointments: book, reschedule, cancel                   | R12                                     |
+| Q03    | Oct 15-16 | Full test pass on dev (with Ibrahim)                            |                                         |
+| -      | Oct 17    | Fixes from Octavia's review                                     |                                         |
+| -      | Oct 18    | Production smoke test                                           |                                         |
 
 ## Ticket cards
 
@@ -79,11 +79,11 @@ Checklist:
 - [x] The thank-you page says what happens next
 - [x] EIN masked on the review step
 
-**Status (Oct 8, 2026):** N04 implementation is prepared on local branch `tumit/FIR-N04-application`. It uses R4's submit/list/count functions, masks the EIN on review, prevents repeat submission while pending, and shows the application receipt and firm-status/search/paging states. The branch was last synced at `0947e76`; fetched `main` is now `c45fc7a` (8 commits ahead). Sync and PR publication remain after F04b's ordered review/merge. The earlier GitHub write-permission error is no longer current; F04a and F04b pushes now succeed.
+**Status (Oct 8, 2026):** N04 implementation is prepared on local branch `tumit/FIR-N04-apply-form`, synced with `main` through `c45fc7a`. It uses R4's submit/list/count functions, masks the EIN on review, prevents repeat submission while pending, and shows the application receipt and firm-status/search/paging states. The branch has not been pushed or opened as a PR; publication follows the F04b review/merge order.
 
-**Verification (Oct 8):** Web typecheck, ESLint and a production webpack build pass. Both mock Playwright cases reported `ok`, including submit/EIN masking and the 375 px firms flow; Windows server teardown hangs, so the runner was interrupted and exits 1. Default Turbopack rejects this isolated worktree's `apps/web/node_modules` junction to the F04b sibling. A temporary local-only Turbopack root covering both worktrees allowed the mock run; it was reverted, and no config change remains. Repeat checks after the required latest-main sync.
+**Verification (Oct 8):** Web typecheck, ESLint and a production webpack build pass. Both mock Playwright cases reported `ok`, including submit/EIN masking and the 375 px firms flow; Windows server teardown hangs, so the runner was interrupted and exits 1. Default Turbopack rejects this isolated worktree's `apps/web/node_modules` junction to the F04b sibling. A temporary local-only Turbopack root covering both worktrees allowed the mock run; it was reverted, and no config change remains. These checks were run on the current `c45fc7a` main base.
 
-**Review prep:** Desktop/mobile screenshots and Fahad/Rasel review remain pending. The branch diff is above the guide's approximate 400-line review target; split into smaller PRs only if Rasel requests it.
+**Review prep:** Desktop/mobile screenshots and Fahad/Rasel review remain pending. The current full diff is 816 added lines, above the junior guide's 400-line limit; split the ticket into reviewable PRs of fewer than 400 changed lines before publishing.
 
 ### F05 · Oct 10-11 · Setup wizard, settings and team
 
