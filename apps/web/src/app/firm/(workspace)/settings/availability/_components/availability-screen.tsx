@@ -1,15 +1,18 @@
 'use client';
 
+import { Select } from '@firmivra/ui';
+import { useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { useFirm } from '../../../../../../components/firm-context';
 import { useMe } from '../../../../../../components/signed-in';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { AVAILABILITY } from '../../../calendar/_components/shared';
+import { BlockedTimes } from './blocked-times';
 import { WorkingHours } from './working-hours';
 
 /**
- * Settings > Availability: everyone's regular hours, in the firm's time zone.
+ * Settings > Availability: everyone's regular hours and time away, in the firm's time zone.
  * Everyone reads; Owner and Admin change anyone's, Staff their own (the API checks again).
  */
 export function AvailabilityScreen() {
@@ -17,6 +20,8 @@ export function AvailabilityScreen() {
   const { me } = useMe();
   const availability = useApiQuery(AVAILABILITY, () => api.availability.get());
   const manager = role === 'OWNER' || role === 'ADMIN';
+  // One person's week at a time; yours first.
+  const [who, setWho] = useState(me.user.id);
 
   return (
     <div className="flex flex-col gap-4">
@@ -29,18 +34,36 @@ export function AvailabilityScreen() {
         </p>
       </div>
       <PageState query={availability}>
-        {({ timezone, members }) => (
-          <>
-            <p className="text-sm text-muted">Times are in {timezone}.</p>
-            {members.map((member) => (
-              <WorkingHours
-                key={member.member.userId}
-                member={member}
-                editable={manager || member.member.userId === me.user.id}
+        {({ timezone, members }) => {
+          const shown = members.find(({ member }) => member.userId === who) ?? members[0];
+          return (
+            <>
+              <p className="text-sm text-muted">Times are in {timezone}.</p>
+              <Select
+                label="Whose hours"
+                value={shown?.member.userId ?? ''}
+                onChange={(event) => setWho(event.target.value)}
+                options={members.map(({ member }) => ({
+                  value: member.userId,
+                  label: member.name,
+                }))}
               />
-            ))}
-          </>
-        )}
+              {shown ? (
+                <WorkingHours
+                  key={shown.member.userId}
+                  member={shown}
+                  editable={manager || shown.member.userId === me.user.id}
+                />
+              ) : null}
+              <BlockedTimes
+                members={members}
+                timeZone={timezone}
+                me={me.user.id}
+                manager={manager}
+              />
+            </>
+          );
+        }}
       </PageState>
     </div>
   );

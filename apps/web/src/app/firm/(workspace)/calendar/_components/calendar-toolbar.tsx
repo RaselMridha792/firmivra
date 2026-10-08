@@ -10,6 +10,7 @@ export type CalendarView = 'day' | 'week';
 export function CalendarToolbar({
   view,
   label,
+  atToday,
   staff,
   members,
   onView,
@@ -20,6 +21,8 @@ export function CalendarToolbar({
 }: {
   view: CalendarView;
   label: string;
+  /** Today is already in view. */
+  atToday: boolean;
   staff: string;
   members: MemberAvailability[];
   onView: (view: CalendarView) => void;
@@ -34,7 +37,7 @@ export function CalendarToolbar({
         <Button variant="secondary" onClick={() => onMove(-1)} aria-label={`Previous ${view}`}>
           <ChevronLeft aria-hidden className="size-4" />
         </Button>
-        <Button variant="secondary" onClick={onToday}>
+        <Button variant="secondary" onClick={onToday} disabled={atToday}>
           Today
         </Button>
         <Button variant="secondary" onClick={() => onMove(1)} aria-label={`Next ${view}`}>
