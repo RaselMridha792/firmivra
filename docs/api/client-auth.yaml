@@ -145,6 +145,9 @@ info:
     when). At most one "already registered" email goes to an account an hour, also under parallel
     sign-ups.
 
+    Sign-in counts failures as in auth.yaml, per firm and email: a client's login at one firm
+    is never locked by failures at another. The firm's audit log holds its clients' sign-ins.
+
 servers:
   - url: /api/v1
     description: Same host as the site.
@@ -668,7 +671,8 @@ components:
         non-geographic area codes (N11, N9X, 37X, 96X, 456, 500, 533, 600, 700, 710, toll-free 8XX,
         822, 880-889) are refused; US territories are allowed. The client strips spaces, dots,
         brackets and dashes, and reads 10 digits without +1 as US. Every other phone field (client
-        records, firm applications) takes any country in E.164 (`Phone`; Rasel, Oct 8).
+        records, firm applications) takes any country in E.164 (`Phone`; Rasel, Oct 8), and reads
+        10 digits, or 1 and 10 digits, without + as US too; any other country needs its code.
     SignUpRequest:
       type: object
       required: [name, email, phone, password, accountType, accepted]

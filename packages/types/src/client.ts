@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import {
   ApiError,
   BusinessSummary,
+  DevSignOutRequest,
   DevTokenRequest,
   DevTokenResponse,
   HealthResponse,
@@ -113,7 +114,12 @@ export function createApiClient(options: ApiClientOptions) {
         method: 'POST',
         body: DevTokenRequest.parse(body),
       }),
-    devSignOut: () => request(OkResponse, '/dev/sign-out', { method: 'POST' }),
+    /** With `firmSlug`, that firm's portal cookie is cleared too. */
+    devSignOut: (firmSlug?: string) =>
+      request(OkResponse, '/dev/sign-out', {
+        method: 'POST',
+        ...(firmSlug ? { body: parseInput(DevSignOutRequest, { firmSlug }) } : {}),
+      }),
   };
 }
 
