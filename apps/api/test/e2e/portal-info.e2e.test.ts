@@ -7,7 +7,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { LegalDocument, PortalInfo } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import {
@@ -25,7 +25,7 @@ const slug = `r3-portal-${randomUUID().slice(0, 8)}`;
 const get = (path: string) => request(app.getHttpServer()).get(path);
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   const firm = await runInScope(owner, { kind: 'platform' }, (tx) =>
     tx.business.create({
       data: { slug, name: 'R3 Test Firm', status: 'ACTIVE' },

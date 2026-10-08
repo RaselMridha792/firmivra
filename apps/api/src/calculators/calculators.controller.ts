@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Module, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Module, NotFoundException, Param, Patch } from '@nestjs/common';
 import {
   type Calculator,
   CalculatorKey,
@@ -52,7 +52,8 @@ export class MyCalculatorsController {
 
   @Get()
   async list(@CurrentTenant() tenant: TenantContext): Promise<CalculatorList> {
-    if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
+    if (tenant.kind !== 'client')
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
     return { items: await this.calculators.mine(tenant.businessId) };
   }
 
@@ -61,7 +62,8 @@ export class MyCalculatorsController {
     @CurrentTenant() tenant: TenantContext,
     @Param('key', keyPipe) key: CalculatorKey,
   ): Promise<Calculator> {
-    if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
+    if (tenant.kind !== 'client')
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
     return this.calculators.mineOne(tenant.businessId, key);
   }
 }

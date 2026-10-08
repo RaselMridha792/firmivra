@@ -12,13 +12,13 @@
 
 ## Steps
 
-- [ ] 1. Contract first, by Oct 10: schemas, client functions and mock fixtures for all five modules (Tumit F09 and N08, Nahid N09 and N10, Fahad F11)
-- [ ] 2. Appointments: working hours, blocked time, appointment types, free slots, book (by staff or by the client), reschedule, cancel; R0's constraint stops double booking, so return a clear SLOT_TAKEN error; confirmations and reminders through R6 (`reminder_sent_at`)
-- [ ] 3. Content: resources, tips and external links per firm (`content_items`, `icon_key`), the firm's editor and the portal's read; seed LVP's links
-- [ ] 4. Audit log viewer: the firm's Owner and Admins read their firm's audit log with filters and paging; a Super Admin only through an active support grant
-- [ ] 5. Calculators: the Tax Return Calculator first, with validated inputs and the disclaimer; definitions as data (placeholders until Octavia sends the list)
-- [ ] 6. Service workspaces: Bookkeeping and Tax Planning per engagement: status, tasks, documents, notes, reports
-- [ ] 7. Audit and e2e, including isolation
+- [x] 1. Contract first, by Oct 10: schemas, client functions and mock fixtures for all five modules (Tumit F09 and N08, Nahid N09 and N10, Fahad F11) On main: #68, #71, #77, #86, #103.
+- [x] 2. Appointments: working hours, blocked time, appointment types, free slots, book (by staff or by the client), reschedule, cancel; R0's constraint stops double booking, so return a clear SLOT_TAKEN error; confirmations and reminders through R6 (`reminder_sent_at`) On main: #102 (types, hours, blocks), #108 (the firm's calendar), #114 (the client's own); the reminders and a cancellation notice wait for R6.
+- [x] 3. Content: resources, tips and external links per firm (`content_items`, `icon_key`), the firm's editor and the portal's read; seed LVP's links. On main: #97; LVP's links are R0's seed.
+- [x] 4. Audit log viewer: the firm's Owner and Admins read their firm's audit log with filters and paging; a Super Admin only through an active support grant. On main: #100; the Super Admin route waits for R8's support grants.
+- [x] 5. Calculators: the Tax Return Calculator first, with validated inputs and the disclaimer; definitions as data (placeholders until Octavia sends the list) On main: #98; the real figures wait for Octavia.
+- [x] 6. Service workspaces: Bookkeeping and Tax Planning per engagement: status, tasks, documents, notes, reports. On main: #104 (tasks), #109 (workspaces and reports).
+- [x] 7. Audit and e2e, including isolation. In every PR above: audit rows with ids only, isolation and race tests.
 
 ## Done when
 
@@ -143,3 +143,11 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
   - Audit: `tasks.listed`, `task.created`, `task.updated`, with ids, statuses, counts and field names only.
   - A client's new assignee (Decisions): `reassignClientTasks`, tested as R10 will call it, in one firm transaction under row-level security with the client's change.
   - Tests: `test/e2e/tasks.e2e.test.ts` (roles, q5, assignees, isolation, 409s, paging, 400s, audit, the reassignment), `test/unit/workspaces.test.ts` (cursors, input, completedAt; the report data tests come with part 2).
+- 2026-10-08, step 2 parts B and C (#108, #114, from fresh main after A, as the lead split it): the firm's calendar (list, detail with history, free slots, book, reschedule, cancel, complete, no-show; Staff see in full only their own and their clients' appointments, Busy otherwise) and the client's own on the portal (types, free starts, book with the server's staff pick, reschedule and cancel until the cutoff).
+  - #102 review, in B: `zonedInstant` handles daylight-saving gaps and repeats (the lead's algorithm, swept over the days around each 2026 change in five zones); a busy pool is the global filter's 503, and only a calendar key that stays busy answers 429 with `Retry-After: 2` (the filter sends an exception's `retryAfter`, at most an hour); at most 200 blocks that have not ended per calendar (409 `BLOCK_LIMIT`, counted under the block's lock) and a block of at most 366 days; a type's created `fields` lists only what was sent, a PATCH that changes nothing writes nothing, and the type row is locked FOR NO KEY UPDATE.
+  - #108 review: every uuid in a request is lower-cased (`lowerIds` on the input schemas, `idParam` on the path ids, and in the lock-key builders), since two spellings of one id made two lock keys; complete and no-show only once the appointment started (409 `APPOINTMENT_NOT_STARTED`); a block that has already ended is 400 (an API rule, not the contract's); history rows are written in the change's own transaction, notices after the commit; booking locks the client FOR SHARE; the end must fall in 2000 to 2100; an archived type's slots are 409 `TYPE_ARCHIVED`; the mock counts reschedules as the database does.
+  - Open for Rasel (the lead's list): Staff deleting a manager's block on their calendar, the block reason other Staff read, and a staff member who is not the client's assignee moving that client's appointment (the #68 leftover).
+- 2026-10-08, step 6 part 2 (#109): the Bookkeeping and Tax Planning workspaces and their reports, and the portal's published reports, as on `rasel/R12-api-workspaces` (b4e104d).
+  - #104 review: a task's update locks the client, then the task, as `create()` and R10's reassignment do (it deadlocked with a reassignment of the same client; the race test gets 500 on the old order).
+  - #109 review: a report has at most 50 lines with notes of 400 characters, so the largest fits the 100 KB body even in 3-byte characters; the filter keeps body-parser refusals (413 `PAYLOAD_TOO_LARGE`, 400 for a body that isn't JSON) instead of 500; report changes lock the client, then the report, then the engagement, so q5 holds until they commit; the attached document is read without a lock (locking it deadlocked with a document delete); the portal shows no reports of a service without a workspace.
+- 2026-10-08, R12 follow-ups (branch `rasel/R12-followups-2`): #97's nits: content changes write their audit rows in their own transaction (a change and its record land together; tested with a failing audit insert), and the portal routes of content and calculators answer 404, never a bare Error (500), for a tenant that isn't a client (unreachable under `@Roles('CLIENT')`).
