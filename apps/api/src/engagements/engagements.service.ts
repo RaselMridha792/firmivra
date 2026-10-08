@@ -194,7 +194,9 @@ export class EngagementsService {
         SELECT client_id FROM engagements WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
         FOR UPDATE`;
       if (!locked) throw notFound();
-      await this.client(tx, businessId, actor, locked.client_id, true);
+      const client = await this.client(tx, businessId, actor, locked.client_id, true);
+      // As for the client's own record: an archived client's engagements don't change.
+      if (client.archivedAt) throw conflict('CLIENT_ARCHIVED', 'Restore the client first');
     }
     const row = await tx.engagement.findFirst({
       where: { businessId, id, client: this.reach(actor) },
@@ -384,7 +386,15 @@ export class EngagementsService {
           'A cancelled engagement can be reactivated only within 90 days',
         );
       }
-      return { status: 'ACTIVE', cancelledAt: null, cancellationReason: null };
+      // A new start: the client's earlier cancellation request was answered by the cancel, so
+      // it goes too, and the client can ask again.
+      return {
+        status: 'ACTIVE',
+        cancelledAt: null,
+        cancellationReason: null,
+        cancelRequestedAt: null,
+        cancelRequestReason: null,
+      };
     });
   }
 

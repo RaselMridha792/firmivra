@@ -388,6 +388,37 @@ describe('firm: change and lifecycle', () => {
     expect([window.status, codeOf(window)]).toEqual([409, 'REACTIVATION_WINDOW_PASSED']);
   });
 
+  it("an archived client's engagements don't change: 409 CLIENT_ARCHIVED, nothing written", async () => {
+    const clientId = await inFirm(
+      async (tx) =>
+        (await tx.client.create({ data: { businessId: ids.firmA, displayName: `Arch ${run}` } }))
+          .id,
+    );
+    const open = await create(clientId, { serviceId: ids.books, title: `Open ${run}` });
+    const ended = await create(clientId, { serviceId: ids.books, title: `Ended ${run}` });
+    expectOk(await firm('post', `/engagements/${ended.id}/cancel`, people.ownerA, { reason: 'x' }));
+    await inFirm((tx) =>
+      tx.client.update({ where: { id: clientId }, data: { archivedAt: new Date() } }),
+    );
+    const cases: [string, string, object | undefined][] = [
+      ['patch', `/engagements/${open.id}`, { title: 'Changed' }],
+      ['post', `/engagements/${open.id}/complete`, undefined],
+      ['post', `/engagements/${open.id}/cancel`, { reason: 'x' }],
+      ['post', `/engagements/${ended.id}/reactivate`, undefined],
+    ];
+    for (const [method, path, body] of cases) {
+      const res = await firm(method as 'post' | 'patch', path, people.ownerA, body);
+      expect([path, res.status, codeOf(res)]).toEqual([path, 409, 'CLIENT_ARCHIVED']);
+    }
+    const rows = await inFirm((tx) =>
+      tx.engagement.findMany({ where: { clientId }, orderBy: { createdAt: 'asc' } }),
+    );
+    expect(rows.map((r) => [r.title, r.status])).toEqual([
+      [`Open ${run}`, 'ACTIVE'],
+      [`Ended ${run}`, 'CANCELLED'],
+    ]);
+  });
+
   it('history: every status or stage change, newest first, by whom', async () => {
     const res = expectOk(await firm('get', `/engagements/${e.id}/history`, people.ownerA));
     const items = (
@@ -468,6 +499,37 @@ describe('portal: My Services', () => {
       const res = await portal('post', `/${id}/cancel-request`, who, {});
       expect([res.status, codeOf(res)]).toEqual([status, code]);
     }
+  });
+
+  it('after a request, the firm cancel and a reactivation, the client can ask again (stored, audited)', async () => {
+    const e = await create(ids.one, {
+      serviceId: ids.books,
+      title: `Asks again ${run}`,
+      nextBillingOn: inDays(60),
+    });
+    const first = Mine.parse(
+      expectOk(
+        await portal('post', `/${e.id}/cancel-request`, people.primary, { reason: 'First ask.' }),
+      ).body,
+    );
+    expectOk(await firm('post', `/engagements/${e.id}/cancel`, people.ownerA, { reason: 'x' }));
+    expectOk(await firm('post', `/engagements/${e.id}/reactivate`, people.ownerA));
+    const cleared = await inFirm((tx) => tx.engagement.findUniqueOrThrow({ where: { id: e.id } }));
+    expect([cleared.cancelRequestedAt, cleared.cancelRequestReason]).toEqual([null, null]);
+    const second = Mine.parse(
+      expectOk(
+        await portal('post', `/${e.id}/cancel-request`, people.primary, { reason: 'Second ask.' }),
+      ).body,
+    );
+    expect(second.cancelRequestedAt).not.toBeNull();
+    expect(second.cancelRequestedAt).not.toBe(first.cancelRequestedAt);
+    const after = await inFirm(async (tx) => ({
+      reason: (await tx.engagement.findUniqueOrThrow({ where: { id: e.id } })).cancelRequestReason,
+      audited: await tx.auditLog.count({
+        where: { action: 'portal.cancellation_requested', entityId: e.id },
+      }),
+    }));
+    expect(after).toEqual({ reason: 'Second ask.', audited: 2 });
   });
 
   it("a cancelled service keeps its documents open for 60 days from the firm's cancel date", async () => {

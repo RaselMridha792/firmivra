@@ -119,6 +119,12 @@ const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const now = () => new Date().toISOString();
 const newestFirst = (a: Engagement, b: Engagement) =>
   b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+/** An archived client's engagements don't change, and it takes no new one (as in the API). */
+const assertNotArchived = (clientId: string) => {
+  if (clientFixtures().find((c) => c.id === clientId)?.archivedAt) {
+    throw fail(409, 'CLIENT_ARCHIVED', 'Restore the client first');
+  }
+};
 /** The clients a role may reach (Staff: their assigned ones). */
 const reachable = (role?: MockFirmRole) =>
   new Set(
@@ -197,6 +203,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       if (options.role === 'STAFF' && assignedUserId) throw forbidden();
       const service = services.find((s) => s.id === serviceId);
       if (!clients.has(id) || !service) throw notFound();
+      assertNotArchived(id);
       checkStage(serviceId, data.stage);
       const billingInterval = data.billingInterval ?? 'ONE_TIME';
       return save(
@@ -217,6 +224,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       const { assignedUserId, ...data } = parseInput(UpdateEngagementRequest, body);
       if (options.role === 'STAFF' && assignedUserId !== undefined) throw forbidden();
       const row = find(eid);
+      assertNotArchived(row.clientId);
       checkStage(row.service.id, data.stage);
       return save({
         ...row,
@@ -230,6 +238,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
     complete: async (id) => {
       await pause();
       const row = find(parseInput(EngagementId, id));
+      assertNotArchived(row.clientId);
       if (row.status === 'COMPLETED' || row.status === 'CANCELLED') {
         throw fail(409, 'INVALID_STATUS', 'Only a pending or active engagement can be completed');
       }
@@ -240,6 +249,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       const eid = parseInput(EngagementId, id);
       const { reason } = parseInput(CancelEngagementRequest, body);
       const row = find(eid);
+      assertNotArchived(row.clientId);
       if (row.status === 'CANCELLED') throw fail(409, 'INVALID_STATUS', 'Already cancelled');
       return save({
         ...row,
@@ -252,6 +262,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
     reactivate: async (id) => {
       await pause();
       const row = find(parseInput(EngagementId, id));
+      assertNotArchived(row.clientId);
       if (row.status !== 'CANCELLED') {
         throw fail(409, 'INVALID_STATUS', 'Only a cancelled engagement can be reactivated');
       }
@@ -267,6 +278,8 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
         status: 'ACTIVE',
         cancelledAt: null,
         cancellationReason: null,
+        cancelRequestedAt: null,
+        cancelRequestReason: null,
         updatedAt: now(),
       });
     },
