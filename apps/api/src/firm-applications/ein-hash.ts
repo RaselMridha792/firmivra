@@ -12,12 +12,23 @@ export type EinHashKey = { ok: true; key: Buffer } | { ok: false; problem: strin
 /** Nest injection token of the loaded key (tests replace it with their own). */
 export const EIN_HASH_KEY = Symbol('EIN_HASH_KEY');
 
+/**
+ * The dev-only value in .env.example (public: anyone could hash EINs with it). Production refuses
+ * it, so a deploy that copied .env.example never hashes with a public key. A test keeps the two the
+ * same.
+ */
+export const ENV_EXAMPLE_EIN_HASH_KEY =
+  '102dcded0ec45ed7c175d62bcec17f0b8bf2ec6ecc2c3cb20155d0e1c05bbdcb';
+
 /** The problem names the setting, never its value. */
 export function loadEinHashKey(raw: Record<string, string | undefined> = process.env): EinHashKey {
   const value = raw.EIN_HASH_KEY?.trim() ?? '';
   if (value === '') return { ok: false, problem: 'EIN_HASH_KEY is not set' };
   if (!/^[0-9a-f]{64}$/i.test(value)) {
     return { ok: false, problem: 'EIN_HASH_KEY must be 64 hex characters (32 bytes)' };
+  }
+  if (raw.NODE_ENV === 'production' && value.toLowerCase() === ENV_EXAMPLE_EIN_HASH_KEY) {
+    return { ok: false, problem: 'EIN_HASH_KEY is the .env.example value' };
   }
   const key = Buffer.from(value, 'hex');
   if (key.every((byte) => byte === key[0])) {
