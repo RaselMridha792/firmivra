@@ -15,6 +15,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
+import { endsInCalendar } from './appointments.service.js';
 import {
   changeableUntil,
   DEFAULT_CUTOFF_HOURS,
@@ -271,9 +272,10 @@ export class MyAppointmentsService {
       if (me.archivedAt) throw errors.clientArchivedPortal();
       const start = Date.parse(body.startsAt);
       const slot = { start, end: start + type.durationMinutes * MINUTE };
+      endsInCalendar(slot.end);
       const staff = await this.choose(tx, businessId, me, slot, retry);
       await lockForBooking(tx, businessId, staff.userId);
-      return tx.appointment.create({
+      const created = await tx.appointment.create({
         data: {
           businessId,
           clientId: me.clientId,
@@ -286,8 +288,10 @@ export class MyAppointmentsService {
         },
         select: appointmentSelect,
       });
+      // In the change's transaction, as the firm's routes (#108 review).
+      await this.history.record(tx, 'BOOKED', created, { by: 'CLIENT', from: null, to: created });
+      return created;
     });
-    await this.history.record('BOOKED', row, { by: 'CLIENT', from: null, to: row });
     await this.notices.send('appointment.booked', businessId, row.id, { clientAccountId });
     return toMine(row, Date.now());
   }
@@ -305,6 +309,7 @@ export class MyAppointmentsService {
       const start = Date.parse(body.startsAt);
       if (!me || start === current.startsAt.getTime()) return { before: current, after: null };
       const slot = { start, end: start + lengthOf(current) };
+      endsInCalendar(slot.end);
       const staff = await this.choose(tx, businessId, me, slot, retry, current);
       await lockForBooking(tx, businessId, staff.userId);
       const updated = await tx.appointment.update({
@@ -316,10 +321,14 @@ export class MyAppointmentsService {
         },
         select: appointmentSelect,
       });
+      await this.history.record(tx, 'RESCHEDULED', updated, {
+        by: 'CLIENT',
+        from: current,
+        to: updated,
+      });
       return { before: current, after: updated };
     });
     if (!after) return toMine(before, Date.now());
-    await this.history.record('RESCHEDULED', after, { by: 'CLIENT', from: before, to: after });
     await this.notices.send('appointment.changed', businessId, after.id, { clientAccountId });
     return toMine(after, Date.now());
   }
@@ -330,7 +339,7 @@ export class MyAppointmentsService {
     id: string,
     reason: string | null | undefined,
   ): Promise<MyAppointment> {
-    const { before, after } = await this.change(businessId, async (tx) => {
+    const after = await this.change(businessId, async (tx) => {
       const me = await this.me(tx, businessId, clientAccountId);
       const current = await this.changeable(tx, businessId, me, id);
       const updated = await tx.appointment.update({
@@ -338,9 +347,14 @@ export class MyAppointmentsService {
         data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason ?? null },
         select: appointmentSelect,
       });
-      return { before: current, after: updated };
+      await this.history.record(tx, 'CANCELLED', updated, {
+        by: 'CLIENT',
+        from: current,
+        to: null,
+        reason,
+      });
+      return updated;
     });
-    await this.history.record('CANCELLED', after, { by: 'CLIENT', from: before, to: null, reason });
     return toMine(after, Date.now());
   }
 

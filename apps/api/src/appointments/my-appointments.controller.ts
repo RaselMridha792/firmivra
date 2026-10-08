@@ -14,13 +14,14 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
   BookMineBody,
   CancelMineBody,
+  idParam,
   MineSlotsQuery,
   RescheduleMineBody,
 } from './appointments.input.js';
 import { MyAppointmentsService } from './my-appointments.service.js';
 import { optionalBody, portalLogin } from './request-actors.js';
 
-const idPipe = new ZodValidationPipe(AppointmentId);
+const idPipe = new ZodValidationPipe(idParam(AppointmentId));
 
 /**
  * The signed-in client's appointments at one firm (portal, R12 step 2). The firm comes from the
