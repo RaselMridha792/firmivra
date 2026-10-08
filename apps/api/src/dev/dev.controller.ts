@@ -50,7 +50,9 @@ export class DevController {
     const found = await this.db.forPlatform().user.findMany({
       where: { email: body.email, ...(body.pool ? { pool: body.pool } : {}) },
       select: { id: true, email: true, name: true, pool: true, cognitoSub: true },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      // Newest first: a client's sign-ups leave a login each, and the one with the account is
+      // usually the latest (#84 follow-up).
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 20,
     });
     // Portal sign-up makes a login per attempt: of a client's logins, only one has the account.
