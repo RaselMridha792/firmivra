@@ -169,9 +169,10 @@ export const UploadTicket = z.object({
   method: z.literal('PUT'),
   /**
    * Send exactly these with the PUT (the content type and checksum are signed). Never
-   * Content-Length: the browser sets it from the file.
+   * Content-Length: the browser sets it from the file (also signed).
    */
   headers: z.record(z.string(), z.string()),
+  /** Start the PUT before this (4 minutes); confirm within 5 minutes of the ticket. */
   expiresAt: DateTime,
 });
 export type UploadTicket = z.infer<typeof UploadTicket>;
@@ -265,6 +266,7 @@ export const DocumentCategory = Ref.extend({
 });
 export type DocumentCategory = z.infer<typeof DocumentCategory>;
 export const DocumentCategoryList = z.object({ items: z.array(DocumentCategory) });
+export type DocumentCategoryList = z.infer<typeof DocumentCategoryList>;
 
 /** A document request as the firm sees it. */
 export const FirmDocumentRequest = z.object({

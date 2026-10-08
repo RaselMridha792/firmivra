@@ -93,9 +93,12 @@ info:
     - **File names** are display only: no control or invisible formatting characters, no line
       separators, no `/` or `\`, and the ending must fit the type (`.pdf` for a PDF, `.xlsx` for
       Excel). Storage keys are never built from them.
-    - **Household logins.** How SPOUSE and AUTHORIZED portal logins use these routes (and what
-      "MINE" means for them) is pending Rasel's answer; until then the rules above are for the
-      client's primary login.
+    - **Household logins (Rasel, q12).** PRIMARY and SPOUSE logins have the same access. An
+      AUTHORIZED login sees only what it uploaded itself as `MINE`, an empty `FIRM` list and only
+      open requests; it uploads only for an open request (403 without a `requestId`), never sees
+      `INTERNAL` files and never answers "I don't have this" (403). Every upload records the
+      login that made it, and portal items carry the uploader's name. (The portal routes come in
+      R5 API part 2.)
     - **Audit and privacy.** Uploads, views (`get`), every download link issued and request
       changes are audited with ids only. File contents, names of other clients and storage URLs
       never reach logs, emails or SMS.
@@ -106,10 +109,11 @@ info:
     - **Ticket.** The `uploadToken` is sealed (or stored) by the API and binds the business, the
       uploader (user and side), the client, service, request, category, direction, the S3 key,
       size, SHA-256 and an expiry of 5 minutes or less.
-    - **Presigned PUT.** `Content-Type`, `Content-Length`, `x-amz-checksum-sha256` and the SSE-KMS
-      headers are in `X-Amz-SignedHeaders`; expiry 5 minutes or less. (`Content-Length` is signed
-      but not in `ticket.headers`: the browser sends it.) s3mock does not check signatures, so a
-      unit test checks the presigned URL itself (signed headers, expiry).
+    - **Presigned PUT.** `Content-Type`, `Content-Length` and `x-amz-checksum-sha256` are in
+      `X-Amz-SignedHeaders`; expiry 4 minutes (the token's 5 cover the confirm). (`Content-Length`
+      is signed but not in `ticket.headers`: the browser sends it.) No SSE headers: objects take
+      the bucket's default SSE-KMS with the documents key (see "KMS"). s3mock does not check
+      signatures, so a unit test checks the presigned URL itself (signed headers, expiry).
     - **Confirm** re-reads the object (size, checksum, magic bytes; Excel and Word as below).
       Missing or different: `409 UPLOAD_MISMATCH`, and the API deletes the object. The unique
       `s3_key` makes confirm single use (`410 UPLOAD_EXPIRED` the second time).
@@ -184,10 +188,19 @@ info:
       type (never `inline`), with an RFC 5987 file name, `response-content-type` set to the
       stored type, expiry 5 minutes, and an audit entry for every link.
     - **KMS (pending).** Today infra has one bucket key (data stack) and the API's IAM policy
-      covers only it; per-firm keys come with `businesses.kms_key_id` (#52) and R10 step 2's key
-      creation. Until then objects use the bucket key.
+      covers only it; objects take the bucket's default encryption with it. Per-firm keys for S3
+      need their own IAM statement first: S3's encryption context is `aws:s3:arn` (the bucket or
+      object ARN), not the firm, so a tag-conditioned statement for the firms' keys must allow
+      `kms:GenerateDataKey` and `kms:Decrypt` through S3 (`kms:ViaService`) for objects under that
+      firm's `tenant/{businessId}/` prefix. Then the PUT signs `x-amz-server-side-encryption`
+      and the firm's key id.
+    - **Scan mode.** `SCAN_MODE=guardduty` (the default) leaves a confirmed file `PENDING` for
+      GuardDuty's result; `SCAN_MODE=local` marks it `CLEAN` at confirm and is refused by the
+      settings check unless `NODE_ENV` is development or test (like `AUTH_MODE=local`).
     - **Leftovers.** The API deletes every upload confirm refuses (mismatch, password, macros); a
-      bucket lifecycle rule expires objects never confirmed (infra, with Rasel's yes).
+      bucket lifecycle rule expires objects never confirmed (infra, with Rasel's yes). The bucket
+      is versioned, so that delete leaves a noncurrent version: the lifecycle rule also expires
+      noncurrent versions under `tenant/`.
     - **Infra (Rasel's AWS list, each with his yes first):**
       - GuardDuty Malware Protection for S3 on the documents bucket, its role as in AWS's
         template: `kms:Decrypt` and `kms:GenerateDataKey` through S3 (`kms:ViaService`) on the

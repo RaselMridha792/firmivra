@@ -31,6 +31,7 @@ import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
 import { ContentModule } from './content/content.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
+import { DocumentsModule } from './storage/documents.controller.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -82,6 +83,7 @@ export class AppModule {
         AppointmentsModule,
         AuditViewerModule,
         WorkspacesModule,
+        DocumentsModule,
         SignInModule,
         PortalInfoModule,
         SignUpModule,

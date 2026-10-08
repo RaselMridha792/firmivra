@@ -14,10 +14,10 @@
 ## Steps
 
 - [x] 1. Publish docs/api/documents.yaml by Oct 9 (Ibrahim I05 and Nahid N05 build on it)
-- [ ] 2. Presigned PUT for upload with content type and size limits; keys under tenant/{businessId}/... (the `documents.s3_key` CHECK and the API's IAM policy require this prefix)
-- [ ] 3. Confirm upload: check size and type server side, store the document record (Oct 8: Excel and Word must be a real Office Open XML package without macros or a password; the yaml's "Excel and Word (confirm)")
-- [ ] 4. Presigned GET for download, short expiry, only after the firm-scope check
-- [ ] 5. KMS encryption on every object; per-business key context
+- [x] 2. Presigned PUT for upload with content type and size limits; keys under tenant/{businessId}/... (the `documents.s3_key` CHECK and the API's IAM policy require this prefix) (API part 1)
+- [x] 3. Confirm upload: check size and type server side, store the document record (Oct 8: Excel and Word must be a real Office Open XML package without macros or a password; the yaml's "Excel and Word (confirm)") (API part 1; the portal's confirm in part 2)
+- [ ] 4. Presigned GET for download, short expiry, only after the firm-scope check (firm side done in API part 1; portal in part 2)
+- [ ] 5. KMS encryption on every object; per-business key context (today: the bucket's default SSE-KMS with the documents key; per-firm keys need their own IAM statement, see "Infra needs")
 - [ ] 6. Audit uploads, downloads and deletes (no delete routes at launch, Oct 8); e2e test that firm B can't fetch firm A's file
 - [ ] 7. Plus I05 (Oct 6): document categories and document requests (Requested, Received, Accepted, Missing with a reason); the browser upload helper `uploadFile()` in apps/web/src/lib; Begin Online draft uploads with R11. Contract by Oct 9 (Nahid N05, Fahad F07)
 - The field-encryption helper for SSN and date of birth (assigned to R5 on Oct 5) moved to R10 on Oct 6.
@@ -53,6 +53,22 @@ R5 defaults (answer 4, all accepted):
 - Clients see a failed file as "couldn't be checked, please upload it again", not "failed the malware scan" (portal `BLOCKED` and its `FILE_BLOCKED` for the client's own upload: "This file couldn't be checked. Please upload it again."; a file the firm shared: see Open). The firm keeps the exact `scanStatus`.
 - No delete routes at launch. Uploads to ACTIVE engagements only.
 - Rasel's AWS list gets GuardDuty Malware Protection for S3, its result event, the alarm, and `kms:Decrypt` for its role on the documents key and each per-firm key (see "Infra needs"). Until that is deployed, new uploads on dev stay "checking".
+
+## Decisions (Oct 8, API part 1)
+
+- Household logins (Rasel, q12): PRIMARY and SPOUSE logins have the same access. AUTHORIZED sees only MINE (its own uploads); source FIRM is empty for it; it may upload only for an open request (403 without a `requestId`), never sees INTERNAL, and never answers "I don't have this" (403). Uploads record the login (`uploaded_by_user_id`, and the client account in the sealed token and the audit); portal items carry the uploader's name (`MyDocument.uploadedBy`, a contract change that ships with part 2).
+- Scan (the lead's idea): `SCAN_MODE=local` marks a confirmed file CLEAN at once and is refused by the settings check unless `NODE_ENV` is development or test (like `AUTH_MODE=local`); `SCAN_MODE=guardduty` leaves it PENDING for GuardDuty's result event (its consumer comes with the infra). The default is `guardduty` everywhere, so a missing value never skips the scan; local development sets `SCAN_MODE=local` in `.env`.
+- Encryption: objects take the bucket's default SSE-KMS (the documents key); the presigned PUT signs only Content-Type, Content-Length and the SHA-256 checksum. Per-firm keys for S3 need their own IAM statement first: S3's encryption context is `aws:s3:arn`, not the firm, so the statement has to tie each firm's key to its `tenant/{businessId}/` prefix (see "Infra needs").
+- Confirm reads the whole object (at most 10 MB, in memory), computes its SHA-256 itself and runs the yaml's checks in order; every refusal deletes the object and is audited (`document.upload_refused`, ids and the code only). Downloads re-check the stored size and S3's checksum before signing the GET (no version id yet).
+- The upload token is a sealed JWE (5 minutes) bound to the firm, the uploader (user, side, client account), the client, service, request, category, direction, key, size and SHA-256; the unique `s3_key` makes confirm single use (410 `UPLOAD_EXPIRED`).
+- Error messages are the contract's `DOCUMENT_ERRORS` words.
+- Contract fixes (small, for the API): `DocumentCategoryList` gets its type; `UploadTicket` says Content-Length is also signed and what `expiresAt` means.
+
+## API part 2 (next)
+
+- The portal routes: list (MINE and FIRM), get, download (FILE_BLOCKED in `PORTAL_BLOCKED_TEXT` words), categories, upload-targets, uploads and confirm, with the household rules above, plus `MyDocument.uploadedBy` in the contract and the mock (contract PR first).
+- The request routes: both lists, create, accept, reject, cancel and "I don't have this", and the rule that puts a request back to REQUESTED when its newest file ends INFECTED or FAILED.
+- Work in progress for it: the local branch `rasel/R5-documents-part2-wip` in the R1 checkout (part 1 plus the portal service, controller and e2e, not pushed), and the requests service in the saved patch `rasel_R5-documents-api.patch`.
 
 ## Open (Rasel)
 
@@ -92,6 +108,9 @@ Infra for these needs Rasel's yes first.
 
 ## Needs from others
 
+- Lead: `.env.example` gets `SCAN_MODE=local` (with a comment: local marks uploads CLEAN at once; development and test only), so local uploads become downloadable; without it they stay PENDING (`guardduty`, the default).
+- R0 (CI, `.github/workflows/ci.yml`): an s3mock service like docker-compose.yml's, so `test/unit/documents.test.ts`'s S3 round trip runs in CI too (it is skipped when s3mock is not running; the e2e tests use an in-memory storage).
+- Infra (Rasel's AWS list): the bucket is versioned, so the API's delete of a refused upload leaves a noncurrent version; the lifecycle rule should also expire noncurrent versions under `tenant/`. Per-firm KMS keys for S3 need an IAM statement that ties each key to its firm's prefix (S3's encryption context is `aws:s3:arn`).
 - R0: `documents.s3_version_id` if downloads pin the confirmed version (see the yaml).
 - R0 (a schema request with the `schema` label): the `documents_rules` trigger still lets a client's upload (`CLIENT_TO_FIRM`) into a PENDING engagement; uploads are for ACTIVE engagements only (Oct 8), so the second wall should say ACTIVE too.
 
@@ -123,3 +142,11 @@ Infra for these needs Rasel's yes first.
   - error words: `DOCUMENT_ERRORS` (every code) and `PORTAL_BLOCKED_TEXT` (by source; a file the firm shared says "Ask your firm to share it again.") in `@firmivra/types`; `uploadFile()` refuses with `FILE_TYPE_NOT_ALLOWED`, `FILE_EMPTY` or `FILE_TOO_LARGE` instead of `VALIDATION_FAILED`, and its doc says to use `errorMessage(error, DOCUMENT_ERRORS)`;
   - the yaml: the Excel and Word checks in order (macros before the main part, so a renamed .xlsm is `FILE_HAS_MACROS`), the inflate cap counted on the output, methods 0 and 8, names without case and no duplicates, no DTDs, a bounded CFB walk; GuardDuty's `statusReasons` (`UNSUPPORTED_STORAGE_CLASS` is our side), results only through EventBridge and SQS, the rescan with `SendObjectMalwareScan`; the role as in AWS's template and the validation object; active content and password PDFs in Open; three response descriptions quoted (an unquoted comma had made a stray key);
   - Needs from others: R0's trigger to ACTIVE for client uploads, and the error words for N05 and F07.
+- 2026-10-08, API part 1 (steps 2 to 4 for the firm; branch `rasel/R5-documents-api`), in `apps/api/src/storage/`:
+  - the S3 adapter (`document-storage.ts`): s3mock locally (S3_ENDPOINT, path-style) and the task role in AWS; presigned PUT signing Content-Type, Content-Length and the checksum, 4 minutes; HEAD with the checksum; GetObject; delete; presigned GET as an attachment with an RFC 5987 name and the stored type, 5 minutes;
+  - settings (`config.ts`): the bucket, s3mock settings refused in production, `SCAN_MODE`;
+  - confirm's checks (`file-checks.ts`): magic bytes for PDF, JPG and PNG; for Excel and Word the bounded CFB walk (`FILE_PASSWORD_PROTECTED`), the central directory under caps, `[Content_Types].xml` inflated with the 1 MB cap on the output and no DTDs or other entities, macros before the main part;
+  - the firm's routes: list (service, category, tax year, direction, search, cursor), get, upload ticket and confirm, download (only CLEAN; 409 `SCAN_PENDING` or `FILE_BLOCKED`), categories; Staff only their assigned clients (404);
+  - audit: `document.upload_started`, `document.uploaded`, `document.upload_refused`, `documents.listed`, `document.viewed`, `document.download_link_issued`, ids only;
+  - tests: `test/unit/documents.test.ts` (settings, the presigned URLs, the file checks with generated files, an s3mock round trip), `test/e2e/documents.e2e.test.ts` (every firm route, the refusals deleting the object, the token's single use and binding, SCAN_MODE, Staff, firm B never sees or downloads firm A's file); generated files in `test/office-files.ts`;
+  - moved to part 2 to keep the PR near size: the portal side and the requests (see "API part 2").
