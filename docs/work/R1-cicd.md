@@ -33,13 +33,17 @@
 - [x] 12. Cognito refresh token validity per pool: staff 7 days, admins 1 day, clients 30 days (Rasel, Oct 5). Show the `cdk diff` of firmivra-dev-auth, deploy with Rasel's yes, and tell R2 the new values.
 - [x] 13. One-off "link dev users" command in the migrate image, run as an ECS task by Rasel after the first deploy is healthy. Cognito subs, emails, names and roles come in as task overrides (`LINK_USERS`), never committed. It creates the `users` rows (`SUPER_ADMIN` in the ADMIN pool; `OWNER`, `ADMIN` or `STAFF` in the STAFF pool), `platform_admins` for the Super Admin, and an ACTIVE membership in LVP for staff. LVP itself gets only the `businesses` row (ACTIVE) and `business_settings`; legal documents and tax statuses come through the setup wizard on dev. Code: `packages/db/src/link-users.ts` (uses `runInScope`), `packages/db/scripts/link-dev-users.mjs`, a test against the test database, and `packages/db/Dockerfile` ships `dist`. Guard: the migrate task gets `APP_ENV=dev` and the script refuses any other value. No CLIENT role until R3 asks. Rasel's go (Oct 5) for those `packages/db` paths; tell R0 in R0's "Needs from others".
 
+- [ ] 14. Per-firm KMS keys (API role, tag-conditioned), the create-firm-key command for LVP, R4's EIN-hash secret, Cognito reset emails through SES (Rasel and the lead, Oct 8). One PR; nothing in AWS before Rasel's yes; merging deploys firmivra-dev-app. Deploy order: bootstrap policy versions, merge (Deploy dev), `firmivra-dev-auth`, one real reset on dev, then the LVP key and `--check`.
+
 ## Done when
 
 https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.dev.firmivra.com/lvp answer 200 after a merge to main.
 
 ## Needs from others
 
-(none yet)
+- Lead: a placeholder for `EIN_HASH_KEY` in `.env.example` when R4 submit reads it (step 14).
+- R6: drop `reason` from `client.signup-declined`'s template data in R6's next code PR (q18, step 14).
+- R8: the notes in R8-hardening.md "Decisions and notes (Oct 8)" (prod SES, sign-up and SMS alarms, KMS key count).
 
 ## Progress log
 
@@ -155,3 +159,4 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   6. Open for Rasel: R5 file types and replacements; R6 password-reset email; the lead's other R5 questions (FAILED rescans, deferred deletes, uploads to PENDING engagements).
   7. Keep watching every Deploy dev run.
 - 2026-10-08: #75 merged (4a9f707) with main merged in first (36c4d02); its Deploy dev run succeeded, as did #71's and #77's. A watcher that died on a network error had only been waiting. Next step 2 above: the R6 PR, opened now from fresh main.
+- 2026-10-08, step 14: branch `rasel/R1-kms-secret-ses` (main merged at b482fc9). API task role: six tag-conditioned `FirmKeys*` statements (create, tag at creation, alias name, env keys, use with the encryption-context rule, deny the lockout bypass) and `APP_ENV`; R4's EIN-hash secret `firmivra/dev/firm-applications/ein-hash-key` as `EIN_HASH_KEY` (app stack, retained, never rotated); Cognito reset codes through SES with the decided wording; `email.cognito-idp.amazonaws.com` in both bootstrap policies. In R4's module: the FirmKeys adapter and the `create-firm-key` command (with `--check`). R10's KMS need is covered (dev, once LVP has its key); R6 q18's code change is left for R6's next PR. No `cdk diff` against AWS yet (the SSO session had expired); local synth and tests pass.

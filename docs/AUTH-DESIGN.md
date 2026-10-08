@@ -1,7 +1,7 @@
 # Firmivra authentication design (decided)
 
 Owner: Rasel (architecture). Builder: Tumit (API, Sprint 1 and 2). Consumers: Fahad and Nahid (sign-in screens).
-Status: decided Oct 4, 2026. Updated Oct 5 to match the R2 auth contract (`docs/api/auth.yaml`, `packages/types/src/auth`), and with one session per site (`GET /api/v1/admin/me`).
+Status: decided Oct 4, 2026. Updated Oct 5 to match the R2 auth contract (`docs/api/auth.yaml`, `packages/types/src/auth`), and with one session per site (`GET /api/v1/admin/me`). Updated Oct 8: password reset email.
 
 ## Summary
 
@@ -68,7 +68,23 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 - **Staff:** invited by owner or admin; same activation flow.
 - **Clients:** self sign-up on the firm's portal (email and phone verified with 6-digit codes), then status `PENDING_APPROVAL` until the firm approves. A pending client can sign in only to see "waiting for approval".
 - **Forgot password:** our API wraps Cognito `ForgotPassword` / `ConfirmForgotPassword` so the flow stays inside the firm's portal. Same response whether or not the account exists. Rate-limited.
-- **Emails:** sent by our API through SES with Firmivra or firm branding (Cognito's own emails are turned off).
+- **Emails:** sent by our API through SES (NotifyService) with Firmivra or firm branding. The one exception is the password reset code: Cognito's `ForgotPassword` sends it, through our SES identity (next section).
+
+## Password reset email (decided Oct 8)
+
+Cognito keeps `ForgotPassword` and `ConfirmForgotPassword` and sends the code itself, through our SES identity. No API, contract or screen change, and no NotifyService template.
+
+- **Sending:** Cognito's DEVELOPER mode (`UserPoolEmail.withSES` in `infra/src/stacks/auth-stack.ts`), with the sender, SES domain identity and configuration set per environment in `infra/src/config.ts` (`cognitoEmail`). Dev: from `no-reply@dev.firmivra.com`, identity `dev.firmivra.com`, configuration set `firmivra-dev-email`. Cognito sends with its service-linked role `AWSServiceRoleForAmazonCognitoIdpEmailService`; no SES identity policy is needed. An environment without a custom domain uses Cognito's default sender (COGNITO_DEFAULT).
+- **Wording** (plain, no firm branding):
+
+  | Pool | Subject | Body |
+  | --- | --- | --- |
+  | staff, admins | Firmivra password reset code | Your Firmivra password reset code is {####} |
+  | clients | Client portal password reset code | Your client portal password reset code is {####}. Enter it on the page where you asked to reset your password. |
+
+- **What else uses this message:** Cognito sends the same verification message for self sign-up confirmation (`SignUp`, `ResendConfirmationCode`), attribute verification (`UpdateUserAttributes`, `AdminUpdateUserAttributes` on a pool that verifies changed attributes, `GetUserAttributeVerificationCode`) and `AdminResetUserPassword`. Our pools never send it for those: self sign-up is off, the API never calls `SignUp`, `ResendConfirmationCode`, `GetUserAttributeVerificationCode` or `AdminResetUserPassword`, the pools have no auto-verified attributes, and every `AdminUpdateUserAttributes` call sets `email_verified` or `phone_number_verified` itself (R3 verifies addresses with its own codes). The invitation message is separate and suppressed (`MessageAction: SUPPRESS`), MFA is TOTP only, and threat protection sends no notices. So the message only ever carries the reset code.
+- **Dev SES is in the sandbox:** a reset email reaches only SES-verified addresses (the team's), at most 200 emails a day shared with the API's own, one per second. For any other address the API still answers the same and logs `No reset code sent: <error name>`.
+- **Prod plan (R8):** prod pools get their own SES identity and From address. Without SES production access by Oct 17, prod stays on COGNITO_DEFAULT (sender `no-reply@verificationemail.com`, at most 50 such emails a day for the whole AWS account; dev no longer uses them). Firm-branded client reset emails come later through a custom message Lambda.
 
 ## Super Admin access to a firm
 

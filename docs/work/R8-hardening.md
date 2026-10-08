@@ -29,6 +29,14 @@ Isolation suite green in CI; prod stacks deployed and empty.
 - Contract first for every module (Rasel, Oct 6): the module's first PR is its zod schemas and client functions in `packages/types`, registered on `api` in `apps/web/src/lib/api.ts`, plus typed mock fixtures in `apps/web/src/mocks/<module>.ts`. The developers build the screen against it the same day.
 - Never edit screens: in apps/web change only `src/mocks/<module>.ts` and your lines in `src/lib/api.ts`.
 
+## Decisions and notes (Oct 8)
+
+- Prod Cognito pools get their own SES identity and From address. Without SES production access by Oct 17, prod stays on COGNITO_DEFAULT (at most 50 such emails a day for the whole account). Firm-branded client reset emails come later through a custom message Lambda (docs/AUTH-DESIGN.md, "Password reset email").
+- (q2) The per-IP and per-network sign-up limits stay shared across firms for the beta, with a CloudWatch alarm on R3's warning lines (ids only; see R3-client-auth.md "R8 (note)"). A refusal at the per-IP or per-network limit answers 429 without a warning line today; decide whether refusals need a line of their own.
+- (q3) The silent SMS skip at a firm's daily cap stays, with an alarm on "is at its daily SMS cap" before real SMS. That alarm is a release blocker for real SMS.
+- KMS key count: one key per firm, made only by approve and the create-firm-key command (R1 step 14). Add an alarm on the number of keys tagged `firmivra:env=<env>`, or an AWS Budgets alert on KMS, before real firms sign up.
+- Prod: the EIN-hash secret and the firm key rights for `firmivra-prod-*`; the create-firm-key command refuses anything but `APP_ENV=dev`.
+
 ## Needs from others
 
 (none yet)

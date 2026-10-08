@@ -152,7 +152,7 @@ Console menu names change from time to time; pick the closest match.
 - Cookie `SameSite`: the auth design says `Lax`, SYSTEM-DESIGN.md and PROJECT-DRAFT-v2.md say `Strict`.
 - Cookie names: solved by the same-origin decision. Each site calls `/api/v1` on its own host, so `fv_access` on `app.` and on `portal.` are separate cookies. Step 7 must route `/api/*` on every site host to the API (CloudFront behaviour).
 - `fv_refresh` path `/api/v1/auth/refresh` is not sent to the portal or admin refresh routes.
-- Cognito sends forgot-password codes itself; branded SES email needs a Cognito custom email sender (Lambda + KMS key, Step 7) or our own reset codes.
+- Settled Oct 8 (see docs/AUTH-DESIGN.md, "Password reset email"): Cognito sends the forgot-password code through our SES identity, with plain wording; firm branding later through a custom message Lambda (R8).
 - Schema: done in 6.3 (`users.email` not unique; `client_accounts` unique on business and email).
 
 ## Database rules tightened (Oct 5, before the first push of Step 6)
@@ -231,6 +231,30 @@ If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and em
 3. **Run it** with the subnets and security group from the `firmivra-dev-app` outputs (`TaskSubnets`, `MigrateSecurityGroup`):
    `aws ecs run-task --cluster firmivra-dev-cluster --task-definition firmivra-dev-migrate --capacity-provider-strategy capacityProvider=FARGATE,weight=1 --network-configuration "awsvpcConfiguration={subnets=[<subnets>],securityGroups=[<sg>],assignPublicIp=ENABLED}" --overrides file://<that file> --profile firmivra-dev`
 4. **Read the result** in the log group `/firmivra/dev/migrate`.
+
+## Firm KMS keys, EIN-hash key, Cognito email (R1 step 14, Oct 8)
+
+Nothing here is in AWS before Rasel's yes. Merging the PR deploys `firmivra-dev-app` at once (Deploy dev); the bootstrap policies and `firmivra-dev-auth` are manual.
+
+**API task role, firm keys** (`infra/src/firm-key-policy.ts`). Each firm gets its own KMS key, tagged `firmivra:env=<env>`, `firmivra:businessId=<id>` and `firmivra:purpose=firm-data`, and named `alias/firmivra/<env>/business/<id>`. The role may:
+- create a key only with exactly those three tags (env pinned, a UUID-shaped id) and only a symmetric encryption key; CreateKey with the key policy lockout check bypassed is denied;
+- tag only a key that has no firm tags and no alias yet (CreateKey with tags needs `kms:TagResource`; this is the key being made), so no existing key can be re-tagged;
+- create aliases only under `alias/firmivra/<env>/business/`, on keys tagged with the env; describe those keys;
+- use a key (`GenerateDataKey`, `Decrypt`, the only calls field encryption makes) only when it is tagged with the env and the encryption context's `businessId` equals its `firmivra:businessId` tag.
+
+Never: `ScheduleKeyDeletion`, `DisableKey`, `PutKeyPolicy`, `UntagResource`, `UpdateAlias`, `DeleteAlias`, `CreateGrant`. A person removes a key.
+
+**Key policy:** the adapter sends none, so KMS attaches its default for keys made through the API: one statement, `kms:*` for the account root (`arn:aws:iam::778127141557:root`), which hands control to IAM. Check it once: `aws kms get-key-policy --key-id <key arn> --policy-name default --profile firmivra-dev --output text`.
+
+**The LVP key** (one-off, after the app deploy is green). The `create-firm-key` command (`apps/api/src/firm-applications/create-firm-key.ts`) runs as a one-off task on the API task definition, with the same subnets and security group as the link task (`TaskSubnets`, `MigrateSecurityGroup`): command override `["node","dist/firm-applications/create-firm-key.cli.js","lvp"]`. It runs only where `APP_ENV=dev`, uses the app role in platform scope, stores the key ARN in `businesses.kms_key_id` with a `business.kms_key_set` platform audit row, and is safe to run again. Five minutes later the same task with `"lvp","--check"` proves the encryption-context rule on the real key. Log group `/firmivra/dev/api`, stream `api/api/<task id>`. Read-only checks: `aws kms describe-key --key-id alias/firmivra/dev/business/<LVP id>`, `aws kms list-resource-tags --key-id <key arn>`.
+
+**EIN-hash key** (R4 submit): Secrets Manager `firmivra/dev/firm-applications/ein-hash-key`, in the app stack, 64 lower-case hex characters (32 random bytes), injected into the API task as `EIN_HASH_KEY`. Never rotate it and never change its name or generation settings: a new value breaks the duplicate-EIN check. Kept if the stack is deleted (RetainExceptOnCreate). Never `get-secret-value` in a shared terminal.
+
+**Cognito through SES:** the pools send reset codes from `no-reply@dev.firmivra.com` through the `dev.firmivra.com` identity and `firmivra-dev-email`. Cognito creates the service-linked role `AWSServiceRoleForAmazonCognitoIdpEmailService` on the first pool update, with the CloudFormation execution role, so `email.cognito-idp.amazonaws.com` was added to the service-linked roles both bootstrap policies allow. SES is still in the sandbox: only verified addresses get the email.
+
+**Bootstrap policies:** new versions of `firmivra-cdk-cfn-exec` and `firmivra-permissions-boundary` (print each with `pnpm exec tsx scripts/bootstrap-policies.ts exec|boundary` from `infra/`, then `aws iam create-policy-version ... --set-as-default`; IAM keeps 5 versions, so delete the oldest non-default one first if needed).
+
+**Rollback:** the KMS rights and `APP_ENV`: revert through a PR (only before any value is encrypted with a firm key). The LVP key, only while nothing is encrypted with it: `aws kms delete-alias`, then `aws kms schedule-key-deletion --pending-window-in-days 30` (undo: `cancel-key-deletion`). The EIN-hash key, only before any hash is stored: revert (the secret stays, retained), then `aws secretsmanager delete-secret --recovery-window-in-days 30`. Cognito: revert and deploy `firmivra-dev-auth`; the policies: `aws iam set-default-policy-version` to the previous version.
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 

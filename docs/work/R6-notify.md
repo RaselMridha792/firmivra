@@ -28,9 +28,10 @@ Every flow above sends a real email to a verified address on dev.
 - Contract first for every module (Rasel, Oct 6): the module's first PR is its zod schemas and client functions in `packages/types`, registered on `api` in `apps/web/src/lib/api.ts`, plus typed mock fixtures in `apps/web/src/mocks/<module>.ts`. The developers build the screen against it the same day.
 - Never edit screens: in apps/web change only `src/mocks/<module>.ts` and your lines in `src/lib/api.ts`.
 
-## Open (Rasel)
+## Decisions (Rasel, Oct 8)
 
-- Password reset: Cognito's ForgotPassword sends its own code email today (staff and clients). Keep Cognito's email (configured to send through SES), or move it to a custom email sender that calls this service (needs a Cognito trigger Lambda: an AWS change)?
+- (q18) `client.signup-declined` carries no reason: drop `reason` from its template data in R6's next code PR. `firm-application.declined` keeps it.
+- (q19) Password reset is Cognito's ForgotPassword, sending through our SES identity (R1 step 14, docs/AUTH-DESIGN.md). No NotifyService template, so step 3's "password reset" is not one of ours.
 
 ## Needs from others
 
