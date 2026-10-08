@@ -132,28 +132,35 @@ export class ContentService {
     return rows.map(toItem);
   }
 
-  /** A draft: clients see it only after `publish`. */
+  /**
+   * A draft: clients see it only after `publish`. Every change writes its audit row in its own
+   * transaction, so a change and its record land together or not at all (#97 review).
+   */
   async create(businessId: string, userId: string, body: CreateBody): Promise<ContentItem> {
-    const row = await this.database.forBusiness(businessId).contentItem.create({
-      data: {
-        businessId,
-        kind: body.kind,
-        category: body.category ?? null,
-        title: body.title,
-        description: body.description ?? null,
-        body: body.body ?? null,
-        url: body.url ?? null,
-        iconKey: body.iconKey ?? null,
-        sortOrder: body.sortOrder ?? 0,
-        createdByUserId: userId,
-      },
-      select: itemSelect,
+    const row = await this.inFirm(businessId, async (tx) => {
+      const created = await tx.contentItem.create({
+        data: {
+          businessId,
+          kind: body.kind,
+          category: body.category ?? null,
+          title: body.title,
+          description: body.description ?? null,
+          body: body.body ?? null,
+          url: body.url ?? null,
+          iconKey: body.iconKey ?? null,
+          sortOrder: body.sortOrder ?? 0,
+          createdByUserId: userId,
+        },
+        select: itemSelect,
+      });
+      await this.audit.logIn(
+        tx,
+        'content.created',
+        { type: 'content_item', id: created.id },
+        { kind: created.kind, fields: Object.keys(body).sort() },
+      );
+      return created;
     });
-    await this.audit.log(
-      'content.created',
-      { type: 'content_item', id: row.id },
-      { kind: row.kind, fields: Object.keys(body).sort() },
-    );
     return toItem(row);
   }
 
@@ -164,13 +171,15 @@ export class ContentService {
       const current = await this.lock(tx, businessId, id);
       const problem = contentKindProblem({ ...current, ...data });
       if (problem) throw kindProblem(problem);
-      return tx.contentItem.update({ where: { id }, data, select: itemSelect });
+      const updated = await tx.contentItem.update({ where: { id }, data, select: itemSelect });
+      await this.audit.logIn(
+        tx,
+        'content.updated',
+        { type: 'content_item', id },
+        { kind: updated.kind, fields: Object.keys(data).sort() },
+      );
+      return updated;
     });
-    await this.audit.log(
-      'content.updated',
-      { type: 'content_item', id },
-      { kind: row.kind, fields: Object.keys(data).sort() },
-    );
     return toItem(row);
   }
 
@@ -188,33 +197,36 @@ export class ContentService {
     id: string,
     publish: boolean,
   ): Promise<ContentItem> {
-    const { row, changed } = await this.inFirm(businessId, async (tx) => {
+    const row = await this.inFirm(businessId, async (tx) => {
       const current = await this.lock(tx, businessId, id);
-      if (!!current.publishedAt === publish) return { row: current, changed: false };
+      if (!!current.publishedAt === publish) return current;
       const updated = await tx.contentItem.update({
         where: { id },
         data: { publishedAt: publish ? new Date() : null },
         select: itemSelect,
       });
-      return { row: updated, changed: true };
-    });
-    if (changed) {
-      await this.audit.log(
+      await this.audit.logIn(
+        tx,
         publish ? 'content.published' : 'content.unpublished',
         { type: 'content_item', id },
-        { kind: row.kind },
+        { kind: updated.kind },
       );
-    }
+      return updated;
+    });
     return toItem(row);
   }
 
   async remove(businessId: string, id: string): Promise<{ ok: true }> {
-    const kind = await this.inFirm(businessId, async (tx) => {
+    await this.inFirm(businessId, async (tx) => {
       const current = await this.lock(tx, businessId, id);
       await tx.contentItem.delete({ where: { id } });
-      return current.kind;
+      await this.audit.logIn(
+        tx,
+        'content.deleted',
+        { type: 'content_item', id },
+        { kind: current.kind },
+      );
     });
-    await this.audit.log('content.deleted', { type: 'content_item', id }, { kind });
     return { ok: true };
   }
 
