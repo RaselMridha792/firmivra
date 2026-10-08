@@ -38,7 +38,10 @@ export function AppointmentChip({
         onClick={() => onOpen(item.id)}
         className={`w-full rounded-control border-l-4 px-2 py-1 text-left text-xs ${cancelled ? 'border-border bg-subtle text-muted line-through' : 'border-action bg-info-soft text-text hover:bg-accent-soft'}`}
       >
-        <span className="block font-semibold">{time}</span>
+        <span className="block font-semibold">
+          {time}
+          {cancelled ? <span className="sr-only"> (cancelled)</span> : null}
+        </span>
         <span className="block">{item.client.displayName}</span>
         <span className="block text-muted">
           {item.type?.name ?? 'Appointment'}
