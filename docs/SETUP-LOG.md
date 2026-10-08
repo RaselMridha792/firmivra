@@ -4,46 +4,46 @@ Running checklist for the initial setup, following `SETUP-GUIDE.md` (Steps 1 to 
 
 ## Status
 
-| Step | What | Status |
-| --- | --- | --- |
-| 1 | Tools | Done (Oct 4) |
-| 2 | GitHub repo, rules, labels, environments, board | Done (Oct 4), 2 items left for Rasel |
-| 3 | Clone | Not needed: the existing clone at `F:\Business-full-stack-project` is the repo |
-| 4 | Docs and repo conventions | Done (Oct 4, PR #1) |
-| 5 | AWS foundation (one account: CLI, budget, Route 53, SES, SNS, Stripe) | In progress: CLI, budget, hosted zone and GoDaddy delegation done; root MFA, Stripe and SNS SMS open |
-| 6 | Monorepo, Docker, database, API, web | Done. 6.1 and 6.2 merged (PR #2); 6.3 to 6.5 committed on `rasel/setup-foundations` (Oct 5, not pushed) |
-| 7 | CDK infrastructure, deploy to dev | Done (Oct 5, PR #7): all six stacks deployed; bootstrap narrowed; `admin.`, `app.` and `portal.dev.firmivra.com` answer 503 until Step 8 starts the tasks |
-| 8 | CI/CD | In progress (R1): `ci.yml` on every PR (PR #11); `deploy-dev.yml` on `rasel/R1-deploy-dev` |
-| 9 | Developer branches, task docs, Sprint 0 and 1 issues | Branches and task docs done (Oct 4); issues to do |
-| 10 | Sprint 0 done checklist | To do |
+| Step | What                                                                  | Status                                                                                                                                                    |
+| ---- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Tools                                                                 | Done (Oct 4)                                                                                                                                              |
+| 2    | GitHub repo, rules, labels, environments, board                       | Done (Oct 4), 2 items left for Rasel                                                                                                                      |
+| 3    | Clone                                                                 | Not needed: the existing clone at `F:\Business-full-stack-project` is the repo                                                                            |
+| 4    | Docs and repo conventions                                             | Done (Oct 4, PR #1)                                                                                                                                       |
+| 5    | AWS foundation (one account: CLI, budget, Route 53, SES, SNS, Stripe) | In progress: CLI, budget, hosted zone and GoDaddy delegation done; root MFA, Stripe and SNS SMS open                                                      |
+| 6    | Monorepo, Docker, database, API, web                                  | Done. 6.1 and 6.2 merged (PR #2); 6.3 to 6.5 committed on `rasel/setup-foundations` (Oct 5, not pushed)                                                   |
+| 7    | CDK infrastructure, deploy to dev                                     | Done (Oct 5, PR #7): all six stacks deployed; bootstrap narrowed; `admin.`, `app.` and `portal.dev.firmivra.com` answer 503 until Step 8 starts the tasks |
+| 8    | CI/CD                                                                 | In progress (R1): `ci.yml` on every PR (PR #11); `deploy-dev.yml` on `rasel/R1-deploy-dev`                                                                |
+| 9    | Developer branches, task docs, Sprint 0 and 1 issues                  | Branches and task docs done (Oct 4); issues to do                                                                                                         |
+| 10   | Sprint 0 done checklist                                               | To do                                                                                                                                                     |
 
 ## Decisions from Rasel
 
-| Date | Topic | Decision | Guide default it replaces |
-| --- | --- | --- | --- |
-| Oct 4 | Dev machine | Native Windows 11 (PowerShell and Git Bash), no WSL | WSL2 Ubuntu |
-| Oct 4 | GitHub owner | Personal repo `RaselMridha792/firmivra`; no organization or teams | Organization `firmivra` |
-| Oct 4 | Visibility | Public | Private |
-| Oct 4 | Client docs in the repo | Commit all of them (option B): design, draft, mockups, specs. To confirm with Octavia | — |
-| Oct 4 | Collaborators | Added by Rasel with Write; Claude only creates the developer branches | Org invites and teams |
-| Oct 4 | Commits | Authored as RaselMridha792 only, no AI co-author lines | — |
-| Oct 4 | AWS accounts | One existing account `778127141557`; no new dev and prod accounts. Only `firmivra-dev-*` stacks for now; prod stacks later, decided with Octavia | Separate dev and prod accounts under AWS Organizations |
-| Oct 5 | Budget alerts | info@exprovia.com and octaviakholder@gmail.com | — |
-| Oct 5 | Root MFA, Stripe, SNS SMS | Postponed; tracked under "Left for Rasel" | Done in Step 5 |
-| Oct 5 | Local AWS stand-ins | No LocalStack (it now needs a paid token for commercial use). s3mock for S3, Mailpit for email, SMS to the API log, a local key from `.env` instead of KMS | LocalStack (S3, SES, SNS, KMS) |
-| Oct 5 | Lint and TypeScript | ESLint 10 (ESLint 9 is end of life) with `@eslint-react`; TypeScript 5.9.3 (typescript-eslint supports below 6.1) | — |
-| Oct 5 | Dev infrastructure (Step 7) | No NAT gateway: Fargate tasks in public subnets, inbound only from the ALB. 1 task each for api and web at 0.25 vCPU / 0.5 GB, **Fargate Spot**, x86, running 24/7. RDS PostgreSQL db.t4g.micro single-AZ. Cognito Plus tier (compromised-credential checks). Tags `project=firmivra`, `env=dev` on everything. `cdk diff` shown and approved before every deploy. Prod stays on-demand | NAT gateway, private subnets |
-| Oct 5 | Database instance | `db.t3.micro` (x86, $13.14 a month): `db.t4g.micro` is not offered for PostgreSQL in this account, so the first data deploy failed and rolled back. Cleanup: empty stack deleted, empty access-logs bucket deleted, unused KMS key scheduled for deletion on Oct 12. Retained resources now use "retain except on create" so a failed first deploy cleans up | `db.t4g.micro` |
-| Oct 5 | Documents CORS | Exactly the three site origins: the CloudFront domains (config `cloudFrontHosts`, filled in after the first app deploy), later the custom hosts. `https://*.cloudfront.net` only until the domains are known | `*.cloudfront.net` |
-| Oct 5 | Dev domain (Step 7) | Do not wait for `dev.firmivra.com`: three CloudFront distributions (admin, app, portal) on their free `*.cloudfront.net` domains; no ACM certificate, no Route 53 records, no SES domain yet. The web app picks the site from config (`ADMIN_HOST`, `APP_HOST`, `PORTAL_HOST`); every base URL comes from config. Switching later is config only (see below) | Wait for the GoDaddy NS records |
-| Oct 5 | CloudFront to load balancer | CloudFront VPC origin to an internal load balancer (HTTP 80 inside the VPC, plus the secret origin header). Without a certificate CloudFront cannot use HTTPS to a public load balancer, and plain HTTP over the internet would expose session cookies. Also removes the load balancer's 2 public IPv4 addresses | Public load balancer with HTTPS and the CloudFront prefix list |
-| Oct 5 | Audit helper | `AuditService.log(action, entity, metadata)` everywhere, as in CLAUDE.md | — |
-| Oct 5 | Framework versions | Prisma 7.10 (npm's "latest" tag points at 8.0 rc), NestJS 12 (ES modules), Next.js 16 (`proxy.ts` instead of `middleware.ts`), Storybook 10, Tailwind 4, Playwright 1.63, zod 4, vitest 5 | Nest 11, Next 15, Storybook 8 |
-| Oct 5 | Database scopes | Three scopes instead of one: `forBusiness` (firm data), `forUser` (own memberships for `/me`), `forPlatform` (Super Admin tables); no scope sees nothing. RLS on **every** table, not only tenant tables | `forBusiness` and `forPlatform` |
-| Oct 5 | Local ports | Docker Postgres on host port **5433** (a local PostgreSQL install often holds 5432). Ports are `.env` settings (`WEB_PORT`, `API_PORT`); Rasel's machine uses 3300/4300 because other apps hold 3000, 3100 and 4000 | 5432, 3000, 4000 |
-| Oct 5 | API calls from the browser | Same origin: each site calls `/api/v1` on its own host (Next forwards locally, CloudFront in AWS), so session cookies are per site | Browser calls the API host directly |
-| Oct 5 | Local sign-in | `AUTH_MODE=local` allowed in `development` and `test` (tests need it), refused in `production` | development only (AUTH-DESIGN.md) |
-| Oct 5 | Authentication | `docs/AUTH-DESIGN.md` (decided Oct 4): Cognito, three pools, roles from the database, our own screens, `HttpOnly` cookies | — |
+| Date  | Topic                       | Decision                                                                                                                                                                                                                                                                                                                                                                                | Guide default it replaces                                      |
+| ----- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Oct 4 | Dev machine                 | Native Windows 11 (PowerShell and Git Bash), no WSL                                                                                                                                                                                                                                                                                                                                     | WSL2 Ubuntu                                                    |
+| Oct 4 | GitHub owner                | Personal repo `RaselMridha792/firmivra`; no organization or teams                                                                                                                                                                                                                                                                                                                       | Organization `firmivra`                                        |
+| Oct 4 | Visibility                  | Public                                                                                                                                                                                                                                                                                                                                                                                  | Private                                                        |
+| Oct 4 | Client docs in the repo     | Commit all of them (option B): design, draft, mockups, specs. To confirm with Octavia                                                                                                                                                                                                                                                                                                   | —                                                              |
+| Oct 4 | Collaborators               | Added by Rasel with Write; Claude only creates the developer branches                                                                                                                                                                                                                                                                                                                   | Org invites and teams                                          |
+| Oct 4 | Commits                     | Authored as RaselMridha792 only, no AI co-author lines                                                                                                                                                                                                                                                                                                                                  | —                                                              |
+| Oct 4 | AWS accounts                | One existing account `778127141557`; no new dev and prod accounts. Only `firmivra-dev-*` stacks for now; prod stacks later, decided with Octavia                                                                                                                                                                                                                                        | Separate dev and prod accounts under AWS Organizations         |
+| Oct 5 | Budget alerts               | info@exprovia.com and octaviakholder@gmail.com                                                                                                                                                                                                                                                                                                                                          | —                                                              |
+| Oct 5 | Root MFA, Stripe, SNS SMS   | Postponed; tracked under "Left for Rasel"                                                                                                                                                                                                                                                                                                                                               | Done in Step 5                                                 |
+| Oct 5 | Local AWS stand-ins         | No LocalStack (it now needs a paid token for commercial use). s3mock for S3, Mailpit for email, SMS to the API log, a local key from `.env` instead of KMS                                                                                                                                                                                                                              | LocalStack (S3, SES, SNS, KMS)                                 |
+| Oct 5 | Lint and TypeScript         | ESLint 10 (ESLint 9 is end of life) with `@eslint-react`; TypeScript 5.9.3 (typescript-eslint supports below 6.1)                                                                                                                                                                                                                                                                       | —                                                              |
+| Oct 5 | Dev infrastructure (Step 7) | No NAT gateway: Fargate tasks in public subnets, inbound only from the ALB. 1 task each for api and web at 0.25 vCPU / 0.5 GB, **Fargate Spot**, x86, running 24/7. RDS PostgreSQL db.t4g.micro single-AZ. Cognito Plus tier (compromised-credential checks). Tags `project=firmivra`, `env=dev` on everything. `cdk diff` shown and approved before every deploy. Prod stays on-demand | NAT gateway, private subnets                                   |
+| Oct 5 | Database instance           | `db.t3.micro` (x86, $13.14 a month): `db.t4g.micro` is not offered for PostgreSQL in this account, so the first data deploy failed and rolled back. Cleanup: empty stack deleted, empty access-logs bucket deleted, unused KMS key scheduled for deletion on Oct 12. Retained resources now use "retain except on create" so a failed first deploy cleans up                            | `db.t4g.micro`                                                 |
+| Oct 5 | Documents CORS              | Exactly the three site origins: the CloudFront domains (config `cloudFrontHosts`, filled in after the first app deploy), later the custom hosts. `https://*.cloudfront.net` only until the domains are known                                                                                                                                                                            | `*.cloudfront.net`                                             |
+| Oct 5 | Dev domain (Step 7)         | Do not wait for `dev.firmivra.com`: three CloudFront distributions (admin, app, portal) on their free `*.cloudfront.net` domains; no ACM certificate, no Route 53 records, no SES domain yet. The web app picks the site from config (`ADMIN_HOST`, `APP_HOST`, `PORTAL_HOST`); every base URL comes from config. Switching later is config only (see below)                            | Wait for the GoDaddy NS records                                |
+| Oct 5 | CloudFront to load balancer | CloudFront VPC origin to an internal load balancer (HTTP 80 inside the VPC, plus the secret origin header). Without a certificate CloudFront cannot use HTTPS to a public load balancer, and plain HTTP over the internet would expose session cookies. Also removes the load balancer's 2 public IPv4 addresses                                                                        | Public load balancer with HTTPS and the CloudFront prefix list |
+| Oct 5 | Audit helper                | `AuditService.log(action, entity, metadata)` everywhere, as in CLAUDE.md                                                                                                                                                                                                                                                                                                                | —                                                              |
+| Oct 5 | Framework versions          | Prisma 7.10 (npm's "latest" tag points at 8.0 rc), NestJS 12 (ES modules), Next.js 16 (`proxy.ts` instead of `middleware.ts`), Storybook 10, Tailwind 4, Playwright 1.63, zod 4, vitest 5                                                                                                                                                                                               | Nest 11, Next 15, Storybook 8                                  |
+| Oct 5 | Database scopes             | Three scopes instead of one: `forBusiness` (firm data), `forUser` (own memberships for `/me`), `forPlatform` (Super Admin tables); no scope sees nothing. RLS on **every** table, not only tenant tables                                                                                                                                                                                | `forBusiness` and `forPlatform`                                |
+| Oct 5 | Local ports                 | Docker Postgres on host port **5433** (a local PostgreSQL install often holds 5432). Ports are `.env` settings (`WEB_PORT`, `API_PORT`); Rasel's machine uses 3300/4300 because other apps hold 3000, 3100 and 4000                                                                                                                                                                     | 5432, 3000, 4000                                               |
+| Oct 5 | API calls from the browser  | Same origin: each site calls `/api/v1` on its own host (Next forwards locally, CloudFront in AWS), so session cookies are per site                                                                                                                                                                                                                                                      | Browser calls the API host directly                            |
+| Oct 5 | Local sign-in               | `AUTH_MODE=local` allowed in `development` and `test` (tests need it), refused in `production`                                                                                                                                                                                                                                                                                          | development only (AUTH-DESIGN.md)                              |
+| Oct 5 | Authentication              | `docs/AUTH-DESIGN.md` (decided Oct 4): Cognito, three pools, roles from the database, our own screens, `HttpOnly` cookies                                                                                                                                                                                                                                                               | —                                                              |
 
 Team on GitHub: Fahad `Sefat-Ullah-Fahad`, Tumit `tumit-h-r-75`, Ibrahim `BFIbrahim`, Nahid `asratulhasannahid`. Octavia is not a collaborator. On Oct 8 Arfan replaced Ibrahim; his GitHub username is added when Rasel invites him.
 
@@ -98,15 +98,15 @@ git 2.55.0, node 22.23.2, pnpm 10.32.1, Docker 29.8.0, gh 2.101.0 (scopes includ
 
 ## Step 7: dev cost estimate (Oct 5, us-east-1 prices from the AWS Pricing API)
 
-| Resource | Monthly |
-| --- | --- |
-| Fargate Spot, 2 tasks × 0.25 vCPU / 0.5 GB, 24/7 (on-demand would be $18.02) | ~$5.50 |
-| Application Load Balancer (hourly + light LCU) | ~$16.90 |
-| Public IPv4: 2 for the ALB, 1 per task | $14.60 |
-| RDS db.t4g.micro single-AZ + 20 GB gp3 | $13.98 |
-| KMS, Secrets Manager, CloudWatch, Route 53, ECR, S3, Cognito Plus (~20 users) | ~$5.60 |
-| CloudFront, ACM, SES, SQS, Lambda, egress under 100 GB | $0 |
-| **Total** | **≈ $57** |
+| Resource                                                                      | Monthly   |
+| ----------------------------------------------------------------------------- | --------- |
+| Fargate Spot, 2 tasks × 0.25 vCPU / 0.5 GB, 24/7 (on-demand would be $18.02)  | ~$5.50    |
+| Application Load Balancer (hourly + light LCU)                                | ~$16.90   |
+| Public IPv4: 2 for the ALB, 1 per task                                        | $14.60    |
+| RDS db.t4g.micro single-AZ + 20 GB gp3                                        | $13.98    |
+| KMS, Secrets Manager, CloudWatch, Route 53, ECR, S3, Cognito Plus (~20 users) | ~$5.60    |
+| CloudFront, ACM, SES, SQS, Lambda, egress under 100 GB                        | $0        |
+| **Total**                                                                     | **≈ $57** |
 
 Later: SMS toll-free number $2 a month once approved. Not in dev: WAF, GuardDuty, Security Hub, CloudTrail trail (prod).
 
@@ -208,6 +208,7 @@ Migration `tighten_grants_users_businesses`; RLS decides which rows a scope can 
 ## Link dev users (R1 step 13, one-off ECS task)
 
 Links people who already exist in Cognito to the dev database:
+
 - `users` rows: `SUPER_ADMIN` goes in the ADMIN pool; `OWNER`, `ADMIN` and `STAFF` in the STAFF pool;
 - `platform_admins` for the Super Admin;
 - an ACTIVE membership in LVP for staff.
@@ -223,10 +224,23 @@ If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and em
    - then `admin-set-user-password --permanent`.
 
    MFA is set up at the first sign-in. The pool ids are in the `firmivra-dev-auth` outputs.
+
 2. **Overrides file** outside the repo, for example `%TEMP%\link-users.json`. `LINK_USERS` holds subs and roles only; optional: `LINK_FIRM_SLUG` (default `lvp`) and `LINK_FIRM_NAME` (used only when the firm is created).
    ```json
-   {"containerOverrides":[{"name":"migrate","command":["node","scripts/link-dev-users.mjs"],"environment":[
-     {"name":"LINK_USERS","value":"[{\"sub\":\"<admins-pool sub>\",\"role\":\"SUPER_ADMIN\"},{\"sub\":\"<staff-pool sub>\",\"role\":\"OWNER\"}]"}]}]}
+   {
+     "containerOverrides": [
+       {
+         "name": "migrate",
+         "command": ["node", "scripts/link-dev-users.mjs"],
+         "environment": [
+           {
+             "name": "LINK_USERS",
+             "value": "[{\"sub\":\"<admins-pool sub>\",\"role\":\"SUPER_ADMIN\"},{\"sub\":\"<staff-pool sub>\",\"role\":\"OWNER\"}]"
+           }
+         ]
+       }
+     ]
+   }
    ```
 3. **Run it** with the subnets and security group from the `firmivra-dev-app` outputs (`TaskSubnets`, `MigrateSecurityGroup`):
    `aws ecs run-task --cluster firmivra-dev-cluster --task-definition firmivra-dev-migrate --capacity-provider-strategy capacityProvider=FARGATE,weight=1 --network-configuration "awsvpcConfiguration={subnets=[<subnets>],securityGroups=[<sg>],assignPublicIp=ENABLED}" --overrides file://<that file> --profile firmivra-dev`
@@ -237,6 +251,7 @@ If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and em
 Nothing here is in AWS before Rasel's yes. Merging the PR deploys `firmivra-dev-app` at once (Deploy dev); the bootstrap policies and `firmivra-dev-auth` are manual.
 
 **API task role, firm keys** (`infra/src/firm-key-policy.ts`). Each firm gets its own KMS key, tagged `firmivra:env=<env>`, `firmivra:businessId=<id>` and `firmivra:purpose=firm-data`, and named `alias/firmivra/<env>/business/<id>`. The role may:
+
 - create a key only with exactly those three tags (env pinned, a UUID-shaped id), and only a single-Region symmetric encryption key with key material from KMS (`kms:KeyOrigin=AWS_KMS`, `kms:MultiRegion=false`; the adapter sends both). CreateKey with the key policy lockout check bypassed is denied;
 - tag a key (CreateKey with tags needs `kms:TagResource`) only with the three firm tags, never changing a firm tag a key already has to another value (`StringEqualsIfExists` against the requested values), never on a key that has an alias, and never on a CDK key (they carry the `project` tag). This holds whether or not KMS fills the new key's tags from the request, so the first real run needs no fallback;
 - create aliases only under `alias/firmivra/<env>/business/`, and only on firm keys of the env (env and purpose tags, KMS key material, one Region);
@@ -248,6 +263,7 @@ Never: `ScheduleKeyDeletion`, `DisableKey`, `PutKeyPolicy`, `UntagResource`, `Up
 **Key policy:** the adapter sends none, so KMS attaches its default for keys made through the API: one statement, `kms:*` for the account root (`arn:aws:iam::778127141557:root`), which hands control to IAM. For a key the adapter made, the statements above are all the API can do with it.
 
 **Known limits, and what covers them:**
+
 - KMS has no condition key for CreateKey's `Policy`. A compromised API task could make a key with a firm's tags and its own key policy (or grants), and name it with that firm's alias before the firm has a key. So the adapter checks every key it adopts by its alias (a repeat, or a key another call named first): enabled, a customer key of this account, `AWS_KMS`, one Region, symmetric encryption, exactly the three tags of that firm, KMS's default key policy, and no grants. Anything else stops with `FirmKeyError`, and nothing is stored; a person decides.
 - `TagResource` can add firm tags to a key outside CDK that has no tags and no alias. The adapter refuses such a key unless its policy is the default and it has no grants, so it can do no more than a key the adapter made.
 - Tags take up to five minutes to reach authorization. In that window IAM sees a new firm key as untagged, so a compromised task could give it another firm's id. Use still needs the encryption context to equal the tag: this can make a key unusable for its firm, but never lets one firm's id open another firm's data. `--check` after five minutes proves the tags on the real key, and R8 gets an alarm on `TagResource` calls by the API role.
@@ -260,7 +276,7 @@ Never: `ScheduleKeyDeletion`, `DisableKey`, `PutKeyPolicy`, `UntagResource`, `Up
 
 Every command is for the dev account and takes `--profile firmivra-dev`. `aws sso login --profile firmivra-dev` first if the session has expired.
 
-**0. The diffs, before review** (read-only; not run yet: the SSO session had expired when the PR was built):
+**0. The diffs, before review** (read-only). Run on Oct 8 after Rasel's `aws sso login`, results on #101: network, data, email and ci had no differences; auth had property updates only on the three pools (no replacement); app had this PR's changes plus the two usual image-tag lines that every diff without the pipeline's tags shows. The commands:
 
 ```bash
 cd infra
@@ -337,7 +353,7 @@ A `Failed: The key ... ; a person decides` line means the alias names a key the 
 
 - **(a) KMS rights and `APP_ENV`:** a PR that drops the `firmKeyStatements` loop (and `APP_ENV`) from `app-stack.ts`; its merge deploys the app stack. Only before any value is encrypted with a firm key: after that, the API could no longer read it. Until R4 approve lands, only the one-off command can make a key (no `FIRM_KEYS` provider is registered), so not running step 4 is enough to stop key creation.
 - **(b) The LVP key**, only while nothing is encrypted with it: clear `businesses.kms_key_id` for LVP in platform scope (a one-off migrate-task SQL with R0; the app cannot), then `aws kms delete-alias --alias-name alias/firmivra/dev/business/<LVP id> --profile firmivra-dev` and `aws kms schedule-key-deletion --key-id <key arn> --pending-window-in-days 30 --profile firmivra-dev`. Undo within 30 days: `aws kms cancel-key-deletion --key-id <key arn>`, then `aws kms enable-key --key-id <key arn>` (a cancelled key comes back disabled), then `aws kms create-alias` again.
-- **(c) The EIN-hash secret:** leave it; nothing reads it until R4 submit. If it must go: a PR that removes `EinHashKey` and `EIN_HASH_KEY` (the secret stays, retained). The name stays taken while the secret exists or waits for deletion, so a later PR that adds it again fails the app deploy (and Deploy dev rolls the stack back). Before adding it again, while no hash is stored: `aws secretsmanager delete-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --force-delete-without-recovery --profile firmivra-dev`. After a `delete-secret --recovery-window-in-days 30`, run `aws secretsmanager restore-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --profile firmivra-dev` and then force-delete it, or keep the restored one and bring it back into the stack with `cdk import`.
+- **(c) The EIN-hash secret:** leave it. R4 submit reads it since #107, so removing it is safe only before the first dev application: after that, the stored hashes need the same key. If it must go: a PR that removes `EinHashKey` and `EIN_HASH_KEY` (the secret stays, retained). The name stays taken while the secret exists or waits for deletion, so a later PR that adds it again fails the app deploy (and Deploy dev rolls the stack back). Before adding it again, while no hash is stored: `aws secretsmanager delete-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --force-delete-without-recovery --profile firmivra-dev`. After a `delete-secret --recovery-window-in-days 30`, run `aws secretsmanager restore-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --profile firmivra-dev` and then force-delete it, or keep the restored one and bring it back into the stack with `cdk import`.
 - **(d) Cognito email:** a PR that removes `cognitoEmail` from the dev config (the pools go back to `COGNITO_DEFAULT`), then `pnpm exec cdk deploy firmivra-dev-auth -c env=dev --exclusively --profile firmivra-dev`. The policies: `aws iam set-default-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --version-id <previous vN> --profile firmivra-dev` for each. The service-linked role stays (harmless).
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)

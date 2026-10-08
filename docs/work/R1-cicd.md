@@ -43,8 +43,6 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
 
 ## Needs from others
 
-- Lead: a placeholder for `EIN_HASH_KEY` in `.env.example` when R4 submit reads it (step 14).
-- R6: drop `reason` from `client.signup-declined`'s template data in R6's next code PR (q18, step 14).
 - R8: the notes in R8-hardening.md "Decisions and notes (Oct 8)" (prod SES, sign-up and SMS alarms, KMS key count).
 
 ## Progress log

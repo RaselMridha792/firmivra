@@ -38,11 +38,6 @@ Every flow above sends a real email to a verified address on dev.
 - Contract first for every module (Rasel, Oct 6): the module's first PR is its zod schemas and client functions in `packages/types`, registered on `api` in `apps/web/src/lib/api.ts`, plus typed mock fixtures in `apps/web/src/mocks/<module>.ts`. The developers build the screen against it the same day.
 - Never edit screens: in apps/web change only `src/mocks/<module>.ts` and your lines in `src/lib/api.ts`.
 
-## Decisions (Rasel, Oct 8)
-
-- (q18) `client.signup-declined` carries no reason (done in #113). `firm-application.declined` keeps it.
-- (q19) Password reset is Cognito's ForgotPassword, sending through our SES identity (R1 step 14, docs/AUTH-DESIGN.md). No NotifyService template, so step 3's "password reset" is not one of ours.
-
 ## Decisions (Oct 8, notifications contract)
 
 - Routes: the firm side is `/business/me/notifications...` and `/business/me/notification-preferences` (the signed-in member's own, in the firm the request acts in; every firm role), the same shape as the portal's `/portal/{firmSlug}/me/...`. One client type for both, so Fahad's bell serves both sites.
