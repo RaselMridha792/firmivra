@@ -45,12 +45,15 @@ On Oct 15-16 you and Ibrahim test everything on dev.
   2. Header with the search box (no search yet), the bell and the user menu.
   3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Leave Platform Growth as an empty card saying "Coming soon" (a chart needs a package; ask Rasel later).
 
+**Status (Oct 8, 2026):** PR #58 is open on `tumit/FIR-F04a-admin-dashboard`. This branch now includes a normal merge of `origin/main` through `a93950a`; the dashboard mock test expectations match the current R4 fixture (4 pending applications, 2 active firms, unavailable user and revenue totals). The focused Playwright assertion passes (1/1); Windows hangs during server teardown, so the runner needs interruption after the passing result. Fresh synthetic-data desktop and 375 px screenshots are embedded in the PR description. Full CI and the path guard passed on code head `c4c11c2`; this documentation refresh is a separate follow-up. Local quick-sign-in E2E remains unverified because the API and database are not running here. Fahad's pre-review and Rasel's final approval are still required; PR #99's R1 admin mock must reach `main` before #58 can merge.
+
 Checklist:
 
-- [ ] Close to the mockup at desktop; the sidebar collapses at 375 px
-- [ ] The firm site (app.localhost) still looks right with the same shell
-- [ ] Loading and error states
-- [ ] Playwright: the dashboard loads in mock mode
+- [x] Close to the mockup at desktop
+- [x] At 375 px, the sidebar opens as a drawer and the page has no horizontal overflow (mock-mode Playwright)
+- [x] The firm site (app.localhost) still looks right with the same shell at desktop and 375 px (mock mode)
+- [x] Signed-in loading, error and retry states (mock-mode Playwright)
+- [x] Playwright: the dashboard loads in mock mode
 
 ### F04b · Oct 8 · Firm applications
 
