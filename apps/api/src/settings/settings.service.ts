@@ -1,6 +1,15 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
+  EntityType,
+  FirmService,
   type FirmLegalOverview,
   type FirmSettings,
   type FirmSetup,
@@ -12,8 +21,24 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import {
+  type FieldContext,
+  FieldEncryption,
+  FieldEncryptionError,
+} from '../field-encryption/field-encryption.service.js';
 
 type SettingsPatch = z.output<typeof UpdateFirmSettingsRequest>;
+
+/** Where the firm's EIN is sealed: its settings row, whose id is the firm's id. */
+export const einContext = (businessId: string): FieldContext => ({
+  businessId,
+  table: 'business_settings',
+  recordId: businessId,
+  field: 'ein',
+});
+
+/** Encryption failures that mean "not now": no key for the firm yet, or KMS down or refusing. */
+const UNAVAILABLE = new Set(['KEY_NOT_PROVISIONED', 'KMS_UNAVAILABLE', 'KEY_ACCESS_DENIED']);
 
 const KIND = { terms: 'TERMS', privacy: 'PRIVACY' } as const;
 
@@ -58,9 +83,12 @@ const toDocument = (
  */
 @Injectable()
 export class SettingsService {
+  private readonly logger = new Logger(SettingsService.name);
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly fieldEncryption: FieldEncryption,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -72,10 +100,22 @@ export class SettingsService {
   }
 
   async update(businessId: string, patch: SettingsPatch): Promise<FirmSettings> {
-    const { name, primaryColor, ...rest } = patch;
+    const { name, primaryColor, ein, ...rest } = patch;
     const fields = Object.keys(patch).sort();
-    const settings = { ...rest, ...(primaryColor !== undefined && { brandColor: primaryColor }) };
-    const result = await this.inFirm(businessId, async (tx) => {
+    // The EIN is sealed before the transaction, so a KMS call never holds a pooled connection or
+    // the settings row. Null removes it. Only its last 4 digits are stored in the clear.
+    const einColumns =
+      ein === undefined
+        ? {}
+        : ein === null
+          ? { einEnc: null, einLast4: null }
+          : { einEnc: await this.sealEin(businessId, ein), einLast4: ein.slice(-4) };
+    const settings = {
+      ...rest,
+      ...einColumns,
+      ...(primaryColor !== undefined && { brandColor: primaryColor }),
+    };
+    return this.inFirm(businessId, async (tx) => {
       // The settings row before the business row, the same order as Finish: no deadlock.
       if (Object.keys(settings).length > 0) {
         await tx.businessSettings.upsert({
@@ -87,10 +127,31 @@ export class SettingsService {
       if (name !== undefined) {
         await tx.business.update({ where: { id: businessId }, data: { name } });
       }
+      // With the change, so both land or neither does. Field names only ("ein", never its value).
+      await this.audit.logIn(
+        tx,
+        'settings.updated',
+        { type: 'business', id: businessId },
+        { fields },
+        { businessId },
+      );
       return this.view(tx, businessId);
     });
-    await this.audit.log('settings.updated', { type: 'business', id: businessId }, { fields });
-    return result;
+  }
+
+  /** The EIN sealed with the firm's key, or 503 ENCRYPTION_UNAVAILABLE when that can't be done now. */
+  private async sealEin(businessId: string, ein: string): Promise<Uint8Array<ArrayBuffer>> {
+    try {
+      return await this.fieldEncryption.encrypt(einContext(businessId), ein);
+    } catch (e) {
+      if (!(e instanceof FieldEncryptionError) || !UNAVAILABLE.has(e.code)) throw e;
+      // The reason's code only, never the EIN.
+      this.logger.warn(`Firm ${businessId}: the EIN could not be sealed (${e.code})`);
+      throw new ServiceUnavailableException({
+        code: 'ENCRYPTION_UNAVAILABLE',
+        message: 'The EIN cannot be saved right now. Try again later.',
+      });
+    }
   }
 
   getSetup(businessId: string): Promise<FirmSetup> {
@@ -253,8 +314,18 @@ export class SettingsService {
       where: { id: businessId },
       select: { id: true, slug: true, legalName: true, status: true, name: true, updatedAt: true },
     });
-    const s = await tx.businessSettings.findUnique({ where: { businessId } });
+    // Never the sealed EIN: nothing here reads it.
+    const s = await tx.businessSettings.findUnique({
+      where: { businessId },
+      omit: { einEnc: true },
+    });
     const updatedAt = s && s.updatedAt > business.updatedAt ? s.updatedAt : business.updatedAt;
+    // A code outside today's lists (the API never writes one) reads as not set.
+    const entityType = EntityType.safeParse(s?.entityType);
+    const services = (s?.services ?? []).flatMap((code) => {
+      const service = FirmService.safeParse(code);
+      return service.success ? [service.data] : [];
+    });
     return {
       business: {
         id: business.id,
@@ -282,6 +353,11 @@ export class SettingsService {
       portalHeader: s?.portalHeader ?? null,
       welcomeMessage: s?.welcomeMessage ?? null,
       clientSignUpEnabled: s?.clientSignUpEnabled ?? true,
+      entityType: entityType.success ? entityType.data : null,
+      einLast4: s?.einLast4 ?? null,
+      teamSize: s?.teamSize ?? null,
+      services,
+      description: s?.description ?? null,
       updatedAt: updatedAt.toISOString(),
     };
   }
