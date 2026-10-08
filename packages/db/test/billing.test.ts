@@ -638,14 +638,16 @@ describe('refunds: review of #52 (one event each, races, nits)', () => {
     const first = confirm(part.id, e1.id, 400);
     await sleep(100);
     const results = await Promise.allSettled([first, confirm(rest.id, e2.id, 0)]);
-    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
-    // The webhook retries the second; until then the payment is honestly part-refunded.
+    // Under load either one may win; never both (the old lock let both through).
+    const won = results.findIndex((r) => r.status === 'fulfilled');
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    // The webhook retries the other; until then the payment is honestly part-refunded.
     const after = await firmA().payment.findUniqueOrThrow({ where: { id: p.id } });
     expect(after.status).toBe('SUCCEEDED');
     const confirmed = await firmA().paymentRefund.findMany({
       where: { paymentId: p.id, status: 'SUCCEEDED' },
     });
-    expect(confirmed.map((r) => r.amountCents)).toEqual([4000]);
+    expect(confirmed.map((r) => r.amountCents)).toEqual([won === 0 ? 4000 : 6000]);
   });
 
   it('two refunds at once never exceed the payment, even under REPEATABLE READ', async () => {

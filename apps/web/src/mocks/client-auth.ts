@@ -28,6 +28,7 @@ import {
   type PortalAuthClient,
   PortalInfo,
   ResendCodeRequest,
+  SIGN_UP_WRONG_EMAIL_CODES,
   ResetPasswordRequest,
   SignInRequest,
   SignInResult,
@@ -231,7 +232,7 @@ function buildFixtures() {
     /** 401 on sign-in, also for an unknown email or a declined account. */
     invalidCredentials: error('INVALID_CREDENTIALS', 'Email or password is incorrect'),
     /** 429 on any rate-limited call. */
-    rateLimited: error('RATE_LIMITED', 'Too many attempts. Wait a few minutes and try again.'),
+    rateLimited: error('RATE_LIMITED', 'Too many attempts. Please try again later.'),
     /** 409 on approve or decline when someone else already handled the sign-up. */
     notPending: error('NOT_PENDING', 'This sign-up was already handled'),
     /** 409 on approve with a client record that has another email or already has a login. */
@@ -297,8 +298,10 @@ export interface PortalAuthMockOptions {
  * CODE_INVALID); signing in afterwards answers the pending account, as the API does. As in the
  * API, a changed email or phone gets its code only once the 45 s gap since the last code has
  * passed (until then the old code no longer works: press Resend), and a session has 10 code
- * requests. Sign-in works with any password except MOCK_WRONG_PASSWORD; `signedIn` starts with a
- * session.
+ * requests. After SIGN_UP_WRONG_EMAIL_CODES wrong email codes the sign-up ends at CONTACT_FIRM
+ * (its code, resend and change routes then answer WRONG_STEP), as in the API; `signUpStep:
+ * 'CONTACT_FIRM'` starts there. Sign-in works with any password except MOCK_WRONG_PASSWORD;
+ * `signedIn` starts with a session.
  */
 export function createPortalAuthMock(
   firmSlug: string,
@@ -316,6 +319,8 @@ export function createPortalAuthMock(
     /** Whether the current step's code was sent to the current address. */
     codeSent: boolean;
     sends: number;
+    /** Wrong email codes so far in this sign-up. */
+    wrongEmailCodes: number;
   };
   let signUp: Walk | null = options.signUpStep
     ? {
@@ -325,6 +330,7 @@ export function createPortalAuthMock(
         resendAt: 0,
         codeSent: true,
         sends: 1,
+        wrongEmailCodes: 0,
       }
     : null;
   const SENDS_PER_SESSION = 10;
@@ -354,7 +360,9 @@ export function createPortalAuthMock(
       email: signUp.email,
       phoneMasked: masked(signUp.phone),
       resendAvailableAt:
-        signUp.step === 'DONE' ? null : new Date(signUp.resendAt + RESEND_GAP_MS).toISOString(),
+        signUp.step === 'DONE' || signUp.step === 'CONTACT_FIRM'
+          ? null
+          : new Date(signUp.resendAt + RESEND_GAP_MS).toISOString(),
     };
   };
   const at = (step: SignUpState['step']) => {
@@ -402,6 +410,7 @@ export function createPortalAuthMock(
         resendAt: Date.now(),
         codeSent: true,
         sends: 1,
+        wrongEmailCodes: 0,
       };
       return state();
     },
@@ -414,7 +423,12 @@ export function createPortalAuthMock(
       await pause();
       const { code } = parseInput(VerifyCodeRequest, body);
       const s = at('VERIFY_EMAIL');
-      if (code !== MOCK_CODE || !s.codeSent) throw fail(400, errors.codeInvalid);
+      if (code !== MOCK_CODE || !s.codeSent) {
+        // The last wrong code still answers CODE_INVALID; the sign-up then ends at CONTACT_FIRM.
+        s.wrongEmailCodes += 1;
+        if (s.wrongEmailCodes >= SIGN_UP_WRONG_EMAIL_CODES) s.step = 'CONTACT_FIRM';
+        throw fail(400, errors.codeInvalid);
+      }
       s.step = 'VERIFY_PHONE';
       // The SMS code goes out when the gap allows, as in the API.
       s.codeSent = Date.now() >= s.resendAt + RESEND_GAP_MS;
@@ -435,6 +449,7 @@ export function createPortalAuthMock(
       const { channel } = parseInput(ResendCodeRequest, body);
       const s = state();
       const wanted = channel === 'email' ? 'VERIFY_EMAIL' : 'VERIFY_PHONE';
+      if (s.step === 'CONTACT_FIRM') throw fail(409, errors.wrongStep);
       if (s.step === 'DONE' || (channel === 'email' && s.step === 'VERIFY_PHONE')) {
         throw fail(409, errors.alreadyVerified);
       }
@@ -449,6 +464,7 @@ export function createPortalAuthMock(
     changeEmail: async (body) => {
       await pause();
       const { email } = parseInput(ChangeEmailRequest, body);
+      if (state().step === 'CONTACT_FIRM') throw fail(409, errors.wrongStep);
       if (state().step !== 'VERIFY_EMAIL') throw fail(409, errors.alreadyVerified);
       if (signUp) changed(signUp, { email });
       return state();
@@ -457,6 +473,7 @@ export function createPortalAuthMock(
       await pause();
       const { phone } = parseInput(ChangePhoneRequest, body);
       const step = state().step;
+      if (step === 'CONTACT_FIRM') throw fail(409, errors.wrongStep);
       if (step === 'DONE') throw fail(409, errors.alreadyVerified);
       // Before the phone step a new number only changes the login; no SMS is due yet.
       if (signUp && step === 'VERIFY_PHONE') changed(signUp, { phone });

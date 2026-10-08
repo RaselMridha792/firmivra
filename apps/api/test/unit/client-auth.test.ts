@@ -9,7 +9,12 @@ import {
 import { LogClientCodeSender } from '../../src/client-auth/client-code-sender.js';
 import { linkable } from '../../src/client-auth/client-records.js';
 import { decodeCursor, encodeCursor } from '../../src/client-auth/client-sign-ups.service.js';
-import { atLeast, maskPhone } from '../../src/client-auth/sign-up.service.js';
+import {
+  atLeast,
+  canonicalIp,
+  maskPhone,
+  networkOf,
+} from '../../src/client-auth/sign-up.service.js';
 import { VerificationCodesService } from '../../src/client-auth/verification-codes.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -93,7 +98,7 @@ describe('atLeast: sign-up answers in AWS take a fixed minimum time (#51 review)
   });
 });
 
-describe('VerificationCodesService.check (#51 review)', () => {
+describe('VerificationCodesService.match (#51 review)', () => {
   const env = loadEnv({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
@@ -118,7 +123,7 @@ describe('VerificationCodesService.check (#51 review)', () => {
       }),
     };
     const codes = new VerificationCodesService(db as never, env);
-    await expect(codes.check(owner, 'EMAIL', 'jane@example.com', '000000')).resolves.toBe(false);
+    await expect(codes.match(owner, 'EMAIL', 'jane@example.com', '000000')).resolves.toBeNull();
     expect(updateMany).toHaveBeenCalledTimes(1);
     expect(updateMany).toHaveBeenCalledWith({
       where: {
@@ -144,8 +149,30 @@ describe('VerificationCodesService.check (#51 review)', () => {
       }),
     };
     const codes = new VerificationCodesService(db as never, env);
-    await expect(codes.check(owner, 'EMAIL', 'new@example.com', '000000')).resolves.toBe(false);
+    await expect(codes.match(owner, 'EMAIL', 'new@example.com', '000000')).resolves.toBeNull();
     expect(updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('canonicalIp and networkOf: one form per address for the limits (#70 review)', () => {
+  it('reads IPv4-mapped addresses as IPv4, and writes IPv6 out in full', () => {
+    expect(canonicalIp('::ffff:198.51.100.7')).toBe('198.51.100.7');
+    expect(canonicalIp('::FFFF:198.51.100.7')).toBe('198.51.100.7');
+    expect(canonicalIp('2001:DB8:42::1')).toBe('2001:0db8:0042:0000:0000:0000:0000:0001');
+    expect(canonicalIp('fe80::1%eth0')).toBe('fe80:0000:0000:0000:0000:0000:0000:0001');
+    expect(canonicalIp('::')).toBe('0000:0000:0000:0000:0000:0000:0000:0000');
+    expect(canonicalIp('64:ff9b::192.0.2.33')).toBe('0064:ff9b:0000:0000:0000:0000:c000:0221');
+  });
+
+  it('puts every written form of a network in one bucket, and anything else in "unknown"', () => {
+    expect(networkOf('198.51.100.7')).toBe('198.51.100.0/24');
+    expect(networkOf('::ffff:198.51.100.200')).toBe('198.51.100.0/24');
+    expect(networkOf('2001:db8:42::1')).toBe(networkOf('2001:0db8:0042:ffff::9'));
+    expect(networkOf('2001:db8:42::1')).toBe('2001:0db8:0042::/48');
+    expect(networkOf('2001:db8:43::1')).not.toBe(networkOf('2001:db8:42::1'));
+    for (const odd of [undefined, '', 'not-an-ip', '1.2.3', '300.1.1.1']) {
+      expect([odd, networkOf(odd)]).toEqual([odd, 'unknown']);
+    }
   });
 });
 
