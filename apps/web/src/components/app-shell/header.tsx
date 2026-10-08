@@ -23,7 +23,7 @@ export function Header({
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3 md:px-6">
+    <header className="flex h-[70px] shrink-0 items-center gap-3 border-b border-border bg-canvas px-4 md:px-6">
       <button
         type="button"
         onClick={onOpenMenu}
@@ -35,7 +35,7 @@ export function Header({
 
       {search ? (
         // No search yet: the box is here so the layout matches the mockup.
-        <label className="hidden max-w-md flex-1 items-center gap-2 rounded-control border border-border px-3 py-2 text-sm text-muted md:flex">
+        <label className="ml-auto hidden w-full max-w-[325px] items-center gap-2 rounded-control border border-border px-3 py-2 text-sm text-muted md:flex">
           <Search aria-hidden className="size-4" />
           <input
             type="search"
@@ -47,7 +47,7 @@ export function Header({
       ) : null}
       {greeting ? <p className="text-lg font-semibold text-text">{greeting}</p> : null}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className={`${search ? 'ml-4' : 'ml-auto'} flex items-center gap-2`}>
         <button
           type="button"
           aria-label="Notifications"
