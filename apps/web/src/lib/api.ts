@@ -1,4 +1,5 @@
 import {
+  createAdminSupportAccessClient,
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
@@ -25,6 +26,7 @@ import {
   createNotificationsClient,
   createRequest,
   createSettingsClient,
+  createSupportAccessClient,
   createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
@@ -38,6 +40,7 @@ import {
   myAppointmentsMock,
 } from '../mocks/appointments';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
@@ -158,6 +161,16 @@ export const api = {
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })
       : createAuditLogClient(request),
+  /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
+  supportAccess:
+    dev && mocked('supportAccess')
+      ? createSupportAccessMock({ role: MOCK_ROLE })
+      : createSupportAccessClient(request),
+  /** Support access (R8): a Super Admin's requests to firms (admin site). */
+  adminSupportAccess:
+    dev && mocked('adminSupportAccess')
+      ? createAdminSupportAccessMock()
+      : createAdminSupportAccessClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
