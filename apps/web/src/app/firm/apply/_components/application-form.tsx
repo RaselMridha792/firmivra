@@ -104,9 +104,19 @@ export function ApplicationForm() {
       className="flex flex-col gap-5"
       noValidate
     >
+      <div aria-label="Application progress" className="grid grid-cols-2 gap-3 rounded-card border border-border bg-surface p-4 shadow-sm sm:p-5">
+        <div className={`flex items-center gap-3 rounded-control px-3 py-2 ${review ? 'text-success' : 'bg-info-soft text-action'}`}>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-sm font-bold">1</span>
+          <span><span className="block text-xs text-muted">Step 1</span><span className="block text-sm font-semibold">Application details</span></span>
+        </div>
+        <div className={`flex items-center gap-3 rounded-control px-3 py-2 ${review ? 'bg-info-soft text-action' : 'text-muted'}`}>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-sm font-bold">2</span>
+          <span><span className="block text-xs text-muted">Step 2</span><span className="block text-sm font-semibold">Review and submit</span></span>
+        </div>
+      </div>
       {review ? (
-        <Card>
-          <h2 className="text-xl font-semibold text-text">Review your application</h2>
+        <Card className="border-t-4 border-t-action shadow-sm">
+          <h2 className="font-serif text-2xl font-bold text-heading">Review your application</h2>
           <p className="mt-1 text-sm text-muted">Check these details before submitting.</p>
           <dl className="mt-4 divide-y divide-border">
             <ReviewRow label="Practice">{PRACTICE_TYPES[values.business.practiceType]}</ReviewRow>
@@ -175,8 +185,8 @@ export function ApplicationForm() {
         </Card>
       ) : (
         <>
-          <Card className="flex flex-col gap-4">
-            <h2 className="text-xl font-semibold text-text">Business details</h2>
+          <Card className="flex flex-col gap-4 border-t-4 border-t-action shadow-sm">
+            <h2 className="font-serif text-2xl font-bold text-heading">Business details</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <Select
                 label="Practice type"
@@ -280,8 +290,8 @@ export function ApplicationForm() {
             </fieldset>
           </Card>
 
-          <Card className="flex flex-col gap-4">
-            <h2 className="text-xl font-semibold text-text">Primary administrator</h2>
+          <Card className="flex flex-col gap-4 border-t-4 border-t-action shadow-sm">
+            <h2 className="font-serif text-2xl font-bold text-heading">Primary administrator</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
                 label="Full name"
@@ -323,8 +333,8 @@ export function ApplicationForm() {
             </div>
           </Card>
 
-          <Card className="flex flex-col gap-4">
-            <h2 className="text-xl font-semibold text-text">Plan and team</h2>
+          <Card className="flex flex-col gap-4 border-t-4 border-t-action shadow-sm">
+            <h2 className="font-serif text-2xl font-bold text-heading">Plan and team</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <Select
                 label="Requested plan"
@@ -419,8 +429,8 @@ export function ApplicationForm() {
             </fieldset>
           </Card>
 
-          <Card className="flex flex-col gap-2">
-            <h2 className="text-lg font-semibold text-text">Agreements</h2>
+          <Card className="flex flex-col gap-3 border-t-4 border-t-action shadow-sm">
+            <h2 className="font-serif text-xl font-bold text-heading">Agreements</h2>
             <Checkbox
               label="I accept Firmivra’s terms and privacy notice."
               {...form.register('agreement.acceptedTerms')}

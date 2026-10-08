@@ -1,29 +1,35 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { ArrowRight, CheckCircle2 } from 'lucide-react';
 import { Card } from '@firmivra/ui';
+import { BrandLockup } from '../../../../components/app-shell/brand-lockup';
 
 export const metadata: Metadata = { title: 'Application received' };
 
 export default function ApplicationSentPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl items-center p-6">
-      <Card className="w-full">
-        <p className="text-sm font-medium text-link">Firmivra business account</p>
-        <h1 className="mt-2 text-2xl font-semibold text-text">Application received</h1>
-        <p className="mt-3 text-muted">
+    <main className="flex min-h-screen flex-col bg-canvas px-4 py-8 sm:px-8">
+      <div className="mx-auto w-full max-w-5xl"><BrandLockup subtitle="Firm application" /></div>
+      <div className="mx-auto flex w-full max-w-2xl flex-1 items-center py-8">
+      <Card className="w-full p-7 text-center shadow-card sm:p-10">
+        <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-success-soft text-success">
+          <CheckCircle2 aria-hidden className="size-9" />
+        </span>
+        <p className="mt-5 text-sm font-semibold text-success">Application submitted</p>
+        <h1 className="mt-2 font-serif text-3xl font-bold text-heading">Application received</h1>
+        <p className="mx-auto mt-4 max-w-lg leading-7 text-muted">
           Thank you for applying. Our team will review your information and email the next steps to
           the contact address you provided.
         </p>
-        <p className="mt-2 text-sm text-muted">
-          You can close this page or return to the welcome screen.
-        </p>
         <Link
           href="/welcome"
-          className="mt-6 inline-flex min-h-11 items-center rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          className="mt-7 inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-5 py-2 text-sm font-semibold text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
         >
           Back to welcome
+          <ArrowRight aria-hidden className="size-4" />
         </Link>
       </Card>
+      </div>
     </main>
   );
 }
