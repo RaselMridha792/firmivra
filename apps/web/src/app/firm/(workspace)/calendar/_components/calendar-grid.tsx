@@ -55,3 +55,28 @@ export function WeekGrid({
     </div>
   );
 }
+
+const hourLabel = (hour: number) =>
+  `${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}`;
+
+/** One day by the hour: 8 AM to 6 PM, wider when appointments fall outside. */
+export function DayGrid(grid: GridProps) {
+  const hourOf = (item: CalendarAppointment) =>
+    Number(localParts(item.startsAt, grid.timeZone).time.slice(0, 2));
+  const hours = grid.items.map(hourOf);
+  const first = Math.min(8, ...hours);
+  const last = Math.max(18, ...hours);
+  return (
+    <div className="rounded-card border border-border bg-surface">
+      {Array.from({ length: last - first + 1 }, (_, i) => first + i).map((hour) => {
+        const items = grid.items.filter((item) => hourOf(item) === hour);
+        return (
+          <div key={hour} className="flex gap-3 border-t border-border p-2 first:border-t-0">
+            <span className="w-14 shrink-0 text-xs text-muted">{hourLabel(hour)}</span>
+            <ul className="flex min-w-0 flex-1 flex-col gap-1">{chips({ ...grid, items })}</ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
