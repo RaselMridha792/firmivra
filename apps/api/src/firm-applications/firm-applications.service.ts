@@ -25,6 +25,7 @@ import {
   ListFirmsQuery,
   type ListFirmsResponse,
   RESERVED_FIRM_SLUGS,
+  websiteHost,
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -33,13 +34,17 @@ import { AdminPrisma } from './admin-prisma.js';
 
 /**
  * What `firm_applications.data` holds: the review page's groups, as submit (R4 step 2) stores
- * them. The full EIN is never in it, only `business.einLast4`.
+ * them, without any part of the EIN. R0's #80 refuses a key starting with "ein" anywhere in it
+ * (any case); the last 4 digits get their own column, `ein_last4`. An older row's
+ * `business.einLast4` is dropped when read, and nothing reads it. The database doesn't check the
+ * rest, so a row in another shape (written before this one, or edited by hand) is shown from the
+ * table's own columns instead (`formReadable` false).
  */
 const R = FirmApplicationRecord.shape;
 export const StoredApplication = z.object({
-  business: R.business,
-  primaryAdmin: R.primaryAdmin,
-  account: R.account,
+  business: R.business.unwrap().omit({ einLast4: true }),
+  primaryAdmin: R.primaryAdmin.unwrap(),
+  account: R.account.unwrap(),
   credentials: R.credentials,
 });
 export type StoredApplication = z.infer<typeof StoredApplication>;
@@ -78,6 +83,14 @@ export function startOfMonthIn(timeZone: string, now = new Date()): Date {
   return new Date(guess.getTime() - (wall - guess.getTime()));
 }
 
+/**
+ * LIKE wildcards in a search term or a compared name are plain characters: Prisma's insensitive
+ * `contains` and `equals` are ILIKE on PostgreSQL, and it doesn't escape them.
+ */
+export function likeEscape(term: string): string {
+  return term.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 /** The legal name as a portal address: lower case, single hyphens, at most 56 characters. */
 export function slugBase(name: string): string {
   return (
@@ -87,6 +100,50 @@ export function slugBase(name: string): string {
       .slice(0, 56)
       .replace(/^-+|-+$/g, '') || 'firm'
   );
+}
+
+/** Free email services: an administrator's address there says nothing about the firm. */
+export const FREE_MAIL_DOMAINS: readonly string[] = [
+  'gmail.com',
+  'googlemail.com',
+  'yahoo.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'icloud.com',
+  'me.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+  'gmx.com',
+  'mail.com',
+  'yandex.com',
+  'zoho.com',
+];
+
+/**
+ * The EMAIL_DOMAIN check: a free email address is a WARN whatever the website. Otherwise the
+ * email's domain is compared with the website's, which is SKIPPED when there is no website or it
+ * isn't a valid address.
+ */
+export function emailDomainCheck(email: string, website: string | null): FirmApplicationCheck {
+  const check = (result: FirmApplicationCheck['result'], note: string): FirmApplicationCheck => ({
+    key: 'EMAIL_DOMAIN',
+    result,
+    note,
+  });
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  if (FREE_MAIL_DOMAINS.includes(domain)) return check('WARN', 'A free email address');
+  const site = website?.trim();
+  if (!site) return check('SKIPPED', 'No website to compare with');
+  // As the contract's Website field reads it: `example.com` is `https://example.com`, and `N/A`
+  // or `ftp://example.com` has no domain name for a host.
+  const host = websiteHost(site)?.replace(/^www\./, '');
+  if (!host) return check('SKIPPED', "The website isn't a valid address");
+  return domain && (host === domain || host.endsWith(`.${domain}`))
+    ? check('PASS', 'The email domain matches the website')
+    : check('WARN', "The email domain doesn't match the website");
 }
 
 const reviewStatus = (s: FirmApplication['status']): FirmApplicationReviewStatus =>
@@ -109,16 +166,17 @@ export class FirmApplicationsService {
 
   async list(q: ListQuery): Promise<ListFirmApplicationsResponse> {
     const db = this.admin.db;
+    const term = q.search ? likeEscape(q.search) : undefined;
     const where: Prisma.FirmApplicationWhereInput = {
       ...(q.status === 'PENDING_REVIEW'
         ? { status: { in: [...PENDING] } }
         : q.status
           ? { status: q.status }
           : {}),
-      ...(q.search
+      ...(term
         ? {
             OR: (['legalName', 'dbaName', 'contactName', 'contactEmail'] as const).map((f) => ({
-              [f]: { contains: q.search, mode: 'insensitive' as const },
+              [f]: { contains: term, mode: 'insensitive' as const },
             })),
           }
         : {}),
@@ -310,14 +368,16 @@ export class FirmApplicationsService {
 
   // ---------- Mapping ----------
 
-  /** The stored form, or a clear error for a row written before the stored shape existed. */
-  private stored(row: FirmApplication): StoredApplication {
+  /**
+   * The stored form, or null when the row's data is not in the stored shape: the row is then
+   * shown from the table's own columns. Never throws, so one such row can't break a page.
+   */
+  private stored(row: FirmApplication): StoredApplication | null {
     const parsed = StoredApplication.safeParse(row.data);
-    if (!parsed.success) {
-      this.logger.error(`Firm application ${row.id}: data is not in the stored shape`);
-      throw new Error(`Firm application ${row.id} has data in an old shape`);
-    }
-    return parsed.data;
+    if (parsed.success) return parsed.data;
+    // The id only: the data holds the applicant's personal details.
+    this.logger.warn(`Firm application ${row.id}: the stored form could not be read`);
+    return null;
   }
 
   private listItem(row: FirmApplication): FirmApplicationListItem {
@@ -327,13 +387,14 @@ export class FirmApplicationsService {
       status: reviewStatus(row.status),
       legalName: row.legalName,
       dbaName: row.dbaName,
-      practiceType: d.business.practiceType,
-      entityType: d.business.entityType,
-      services: d.business.services,
-      requestedPlan: d.account.requestedPlan,
+      formReadable: d !== null,
+      practiceType: d?.business.practiceType ?? null,
+      entityType: d?.business.entityType ?? null,
+      services: d?.business.services ?? [],
+      requestedPlan: d?.account.requestedPlan ?? null,
       contactName: row.contactName,
       contactEmail: row.contactEmail,
-      contactPhone: row.contactPhone ?? d.primaryAdmin.phone,
+      contactPhone: row.contactPhone ?? d?.primaryAdmin.phone ?? null,
       submittedAt: row.createdAt.toISOString(),
       decidedAt: decided(row) && row.reviewedAt ? row.reviewedAt.toISOString() : null,
     };
@@ -365,10 +426,18 @@ export class FirmApplicationsService {
       id: row.id,
       status: reviewStatus(row.status),
       submittedAt: row.createdAt.toISOString(),
-      business: d.business,
-      primaryAdmin: d.primaryAdmin,
-      account: d.account,
-      credentials: d.credentials,
+      legalName: row.legalName,
+      dbaName: row.dbaName,
+      contactName: row.contactName,
+      contactEmail: row.contactEmail,
+      contactPhone: row.contactPhone,
+      formReadable: d !== null,
+      // The EIN's last 4 are never in the stored form. Null until R0's `ein_last4` column (#80) is
+      // on main; the column replaces this then.
+      business: d ? { ...d.business, einLast4: null } : null,
+      primaryAdmin: d?.primaryAdmin ?? null,
+      account: d?.account ?? null,
+      credentials: d?.credentials ?? [],
       documents: [],
       checks: await this.checks(row, d),
       internalNotes: row.internalNotes,
@@ -421,12 +490,14 @@ export class FirmApplicationsService {
     );
   }
 
+  /** Run from the table's columns, so they work when the stored form can't be read (`d` null). */
   private async checks(
     row: FirmApplication,
-    d: StoredApplication,
+    d: StoredApplication | null,
   ): Promise<FirmApplicationCheck[]> {
     const db = this.admin.db;
-    const same = (value: string) => ({ equals: value, mode: 'insensitive' as const });
+    // Insensitive equals is ILIKE too: a `_` in a name or email matches only a `_`.
+    const same = (value: string) => ({ equals: likeEscape(value), mode: 'insensitive' as const });
     const label = (r: { legalName: string; status: FirmApplication['status'] }) =>
       `${r.legalName} (${reviewStatus(r.status).toLowerCase().replace('_', ' ')})`;
     const [sameNameApp, sameNameFirm, sameEmail] = await Promise.all([
@@ -446,10 +517,6 @@ export class FirmApplicationsService {
         select: { legalName: true, status: true },
       }),
     ]);
-    const host = d.business.website
-      ? new URL(d.business.website).hostname.replace(/^www\./, '')
-      : null;
-    const domain = row.contactEmail.split('@')[1]?.toLowerCase();
     return [
       // The keyed EIN hash arrives with R0's ein columns (step 2).
       { key: 'DUPLICATE_EIN', result: 'SKIPPED', note: 'The EIN check comes with the EIN fields' },
@@ -469,15 +536,7 @@ export class FirmApplicationsService {
       sameEmail
         ? { key: 'DUPLICATE_EMAIL', result: 'WARN', note: `Same email as ${label(sameEmail)}` }
         : { key: 'DUPLICATE_EMAIL', result: 'PASS', note: 'No other application uses this email' },
-      !host
-        ? { key: 'EMAIL_DOMAIN', result: 'SKIPPED', note: 'No website given' }
-        : host === domain || host.endsWith(`.${domain ?? ''}`)
-          ? { key: 'EMAIL_DOMAIN', result: 'PASS', note: 'The email domain matches the website' }
-          : {
-              key: 'EMAIL_DOMAIN',
-              result: 'WARN',
-              note: "The email domain doesn't match the website",
-            },
+      emailDomainCheck(row.contactEmail, d?.business.website ?? null),
     ];
   }
 
@@ -538,8 +597,8 @@ export class FirmApplicationsService {
     const applicationOf = new Map(applications.map((a) => [a.businessId, a]));
     return firms.map((f) => {
       const a = applicationOf.get(f.id);
-      // Only the owner fallback and the plan come from it, so an older form shape just leaves them out.
-      const d = a ? (StoredApplication.safeParse(a.data).data ?? null) : null;
+      // Only the owner fallback and the plan come from it; an unreadable form leaves them out.
+      const d = a ? this.stored(a) : null;
       return {
         id: f.id,
         slug: f.slug,

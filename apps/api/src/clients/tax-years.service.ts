@@ -122,13 +122,19 @@ export class TaxYearsService {
       const key = taxYearLockKey(businessId, clientId, taxYear);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
       await this.client(tx, businessId, actor, clientId);
-      // FOR SHARE: archiving the client or the status at the same time waits for this change,
-      // or has already committed and is seen here.
-      const [client] = await tx.$queryRaw<{ archived_at: Date | null }[]>`
-        SELECT archived_at FROM clients
+      // FOR SHARE: archiving or reassigning the client, or archiving the status, at the same
+      // time waits for this change, or has already committed and is seen here.
+      const [client] = await tx.$queryRaw<
+        { archived_at: Date | null; assigned_user_id: string | null }[]
+      >`
+        SELECT archived_at, assigned_user_id FROM clients
         WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid
         FOR SHARE`;
-      if (!client) throw notFound();
+      // Staff reach again, on the locked row: a reassignment that committed while this change
+      // waited has taken the client away from them.
+      if (!client || (actor.role === 'STAFF' && client.assigned_user_id !== actor.userId)) {
+        throw notFound();
+      }
       if (client.archived_at) {
         throw new ConflictException({
           code: 'CLIENT_ARCHIVED',

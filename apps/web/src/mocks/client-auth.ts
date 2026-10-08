@@ -28,6 +28,7 @@ import {
   type PortalAuthClient,
   PortalInfo,
   ResendCodeRequest,
+  SIGN_UP_WRONG_EMAIL_CODES,
   ResetPasswordRequest,
   SignInRequest,
   SignInResult,
@@ -72,9 +73,11 @@ interface MockClientRecord {
   displayName: string;
   email: string | null;
   hasPrimaryLogin: boolean;
+  /** Archived records are restored first: never linkable. */
+  archived?: boolean;
 }
 const JANE_CLIENT_ID = '00000000-0000-4000-a000-000000000402';
-const JOHN_CLIENT_ID = '00000000-0000-4000-a000-000000000403';
+const SAM_CLIENT_ID = '00000000-0000-4000-a000-000000000403';
 const CLIENT_RECORDS: readonly MockClientRecord[] = [
   // Added by staff before Jane signed up: linkable to Jane's sign-up.
   {
@@ -83,16 +86,19 @@ const CLIENT_RECORDS: readonly MockClientRecord[] = [
     email: 'Jane@Example.com',
     hasPrimaryLogin: false,
   },
-  // Same email as John's sign-up, but it already has a portal login: never linkable.
+  // Same email as Sam's sign-up, but it already has a portal login: never linkable, and Sam's
+  // sign-up cannot be approved as a new client either (DUPLICATE_EMAIL).
   {
-    clientId: JOHN_CLIENT_ID,
-    displayName: 'John Doe',
-    email: 'john@example.com',
+    clientId: SAM_CLIENT_ID,
+    displayName: 'Sam Poe',
+    email: 'sam@example.com',
     hasPrimaryLogin: true,
   },
 ];
 const linkable = (signUp: { email: string }, record: MockClientRecord) =>
-  !record.hasPrimaryLogin && record.email?.toLowerCase() === signUp.email.toLowerCase();
+  !record.hasPrimaryLogin &&
+  !record.archived &&
+  record.email?.toLowerCase() === signUp.email.toLowerCase();
 const existingClientFor = (email: string): ClientSignUp['existingClient'] => {
   const record = CLIENT_RECORDS.find((r) => linkable({ email }, r));
   return record ? { clientId: record.clientId, displayName: record.displayName } : null;
@@ -234,6 +240,11 @@ function buildFixtures() {
       'CLIENT_NOT_LINKABLE',
       'This client record cannot be linked to this sign-up',
     ),
+    /** 409 on approve without clientId when a client of the firm already has the email. */
+    duplicateEmail: error(
+      'DUPLICATE_EMAIL',
+      'A client of this firm already has this email. Link the sign-up to that record.',
+    ),
   } as const;
   return {
     portalInfo,
@@ -287,8 +298,10 @@ export interface PortalAuthMockOptions {
  * CODE_INVALID); signing in afterwards answers the pending account, as the API does. As in the
  * API, a changed email or phone gets its code only once the 45 s gap since the last code has
  * passed (until then the old code no longer works: press Resend), and a session has 10 code
- * requests. Sign-in works with any password except MOCK_WRONG_PASSWORD; `signedIn` starts with a
- * session.
+ * requests. After SIGN_UP_WRONG_EMAIL_CODES wrong email codes the sign-up ends at CONTACT_FIRM
+ * (its code, resend and change routes then answer WRONG_STEP), as in the API; `signUpStep:
+ * 'CONTACT_FIRM'` starts there. Sign-in works with any password except MOCK_WRONG_PASSWORD;
+ * `signedIn` starts with a session.
  */
 export function createPortalAuthMock(
   firmSlug: string,
@@ -306,6 +319,8 @@ export function createPortalAuthMock(
     /** Whether the current step's code was sent to the current address. */
     codeSent: boolean;
     sends: number;
+    /** Wrong email codes so far in this sign-up. */
+    wrongEmailCodes: number;
   };
   let signUp: Walk | null = options.signUpStep
     ? {
@@ -315,6 +330,7 @@ export function createPortalAuthMock(
         resendAt: 0,
         codeSent: true,
         sends: 1,
+        wrongEmailCodes: 0,
       }
     : null;
   const SENDS_PER_SESSION = 10;
@@ -344,7 +360,9 @@ export function createPortalAuthMock(
       email: signUp.email,
       phoneMasked: masked(signUp.phone),
       resendAvailableAt:
-        signUp.step === 'DONE' ? null : new Date(signUp.resendAt + RESEND_GAP_MS).toISOString(),
+        signUp.step === 'DONE' || signUp.step === 'CONTACT_FIRM'
+          ? null
+          : new Date(signUp.resendAt + RESEND_GAP_MS).toISOString(),
     };
   };
   const at = (step: SignUpState['step']) => {
@@ -392,6 +410,7 @@ export function createPortalAuthMock(
         resendAt: Date.now(),
         codeSent: true,
         sends: 1,
+        wrongEmailCodes: 0,
       };
       return state();
     },
@@ -404,7 +423,12 @@ export function createPortalAuthMock(
       await pause();
       const { code } = parseInput(VerifyCodeRequest, body);
       const s = at('VERIFY_EMAIL');
-      if (code !== MOCK_CODE || !s.codeSent) throw fail(400, errors.codeInvalid);
+      if (code !== MOCK_CODE || !s.codeSent) {
+        // The last wrong code still answers CODE_INVALID; the sign-up then ends at CONTACT_FIRM.
+        s.wrongEmailCodes += 1;
+        if (s.wrongEmailCodes >= SIGN_UP_WRONG_EMAIL_CODES) s.step = 'CONTACT_FIRM';
+        throw fail(400, errors.codeInvalid);
+      }
       s.step = 'VERIFY_PHONE';
       // The SMS code goes out when the gap allows, as in the API.
       s.codeSent = Date.now() >= s.resendAt + RESEND_GAP_MS;
@@ -425,6 +449,7 @@ export function createPortalAuthMock(
       const { channel } = parseInput(ResendCodeRequest, body);
       const s = state();
       const wanted = channel === 'email' ? 'VERIFY_EMAIL' : 'VERIFY_PHONE';
+      if (s.step === 'CONTACT_FIRM') throw fail(409, errors.wrongStep);
       if (s.step === 'DONE' || (channel === 'email' && s.step === 'VERIFY_PHONE')) {
         throw fail(409, errors.alreadyVerified);
       }
@@ -439,6 +464,7 @@ export function createPortalAuthMock(
     changeEmail: async (body) => {
       await pause();
       const { email } = parseInput(ChangeEmailRequest, body);
+      if (state().step === 'CONTACT_FIRM') throw fail(409, errors.wrongStep);
       if (state().step !== 'VERIFY_EMAIL') throw fail(409, errors.alreadyVerified);
       if (signUp) changed(signUp, { email });
       return state();
@@ -447,6 +473,7 @@ export function createPortalAuthMock(
       await pause();
       const { phone } = parseInput(ChangePhoneRequest, body);
       const step = state().step;
+      if (step === 'CONTACT_FIRM') throw fail(409, errors.wrongStep);
       if (step === 'DONE') throw fail(409, errors.alreadyVerified);
       // Before the phone step a new number only changes the login; no SMS is due yet.
       if (signUp && step === 'VERIFY_PHONE') changed(signUp, { phone });
@@ -513,9 +540,11 @@ export function createPortalAuthMock(
 /**
  * An in-memory `api.clientSignUps` with the API's rules: approve and decline only pending
  * sign-ups (409 NOT_PENDING), unknown ids 404, and `role: 'STAFF'` gets 403 FORBIDDEN.
- * Jane Roe's sign-up has an `existingClient`: approve with its `clientId` links to it. Any other
- * record is 409 CLIENT_NOT_LINKABLE (for example John Doe's, which already has a login), and an
- * unknown `clientId` 404. Pages of two, so a screen can try `nextCursor`.
+ * Jane Roe's sign-up has an `existingClient`: approve with its `clientId` links to it, and
+ * approve without one is 409 DUPLICATE_EMAIL. Any other record is 409 CLIENT_NOT_LINKABLE (for
+ * example Sam Poe's, which already has a login, so Sam's sign-up cannot be approved), and an
+ * unknown `clientId` 404. John Doe's sign-up approves as a new client. Pages of two, so a screen
+ * can try `nextCursor`.
  */
 export function createClientSignUpsMock(
   options: { role?: 'OWNER' | 'ADMIN' | 'STAFF' } = {},
@@ -575,6 +604,8 @@ export function createClientSignUpsMock(
         if (!record) throw fail(404, error('NOT_FOUND', 'Not found'));
         if (!linkable(row, record)) throw fail(409, errors.clientNotLinkable);
         record.hasPrimaryLogin = true;
+      } else if (records.some((r) => r.email?.toLowerCase() === row.email.toLowerCase())) {
+        throw fail(409, errors.duplicateEmail);
       }
       rows = rows.filter((r) => r !== row);
       return {

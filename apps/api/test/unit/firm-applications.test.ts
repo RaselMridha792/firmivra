@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { slugBase, startOfMonthIn } from '../../src/firm-applications/firm-applications.service.js';
+import {
+  likeEscape,
+  slugBase,
+  startOfMonthIn,
+} from '../../src/firm-applications/firm-applications.service.js';
+
+describe('likeEscape: search terms and compared names are plain text', () => {
+  it('makes LIKE wildcards and the escape character plain', () => {
+    expect(likeEscape('100%')).toBe('100\\%');
+    expect(likeEscape('Tax_Group')).toBe('Tax\\_Group');
+    expect(likeEscape('back\\slash')).toBe('back\\\\slash');
+    expect(likeEscape('%_\\')).toBe('\\%\\_\\\\');
+    expect(likeEscape('plain')).toBe('plain');
+  });
+});
 
 describe('startOfMonthIn: "this month" on the counts, in US Eastern time', () => {
   it('starts at midnight on the 1st in New York, summer and winter', () => {

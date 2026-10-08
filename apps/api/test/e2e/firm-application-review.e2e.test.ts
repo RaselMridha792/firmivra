@@ -29,7 +29,6 @@ const stored = (n: number) => ({
     legalName: `Sample Review ${tag} ${n}`,
     dbaName: null,
     entityType: 'LLC',
-    einLast4: null,
     email: null,
     phone: null,
     website: null,
