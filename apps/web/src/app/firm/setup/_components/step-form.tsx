@@ -10,13 +10,29 @@ import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation } from '../../../../lib/query';
 import { FIRM_SETTINGS, SETUP_ERRORS } from './shared';
 
+const checkSettings = zodResolver(UpdateFirmSettingsRequest);
+
+/**
+ * The API's schema, for every settings form. Its website rule throws on text that is not an
+ * address at all (its refine calls `new URL()` after the URL check fails), which would leave the
+ * form stuck: show that as a website error instead, until packages/types handles it.
+ */
+export const settingsResolver: typeof checkSettings = async (...args) => {
+  try {
+    return await checkSettings(...args);
+  } catch {
+    const message = 'Enter a web address that starts with https://';
+    return { values: {}, errors: { website: { type: 'url', message } } };
+  }
+};
+
 /** A settings step: Save draft saves the fields; Continue also marks the step done. */
 export function useStepForm(
   step: SetupStep,
   defaultValues: UpdateFirmSettingsRequest,
   onNext: () => void,
 ) {
-  const form = useForm({ resolver: zodResolver(UpdateFirmSettingsRequest), defaultValues });
+  const form = useForm({ resolver: settingsResolver, defaultValues });
   const [draftSaved, setDraftSaved] = useState(false);
   const save = useApiMutation(
     async ({ values, done }: { values: UpdateFirmSettingsRequest; done: boolean }) => {
