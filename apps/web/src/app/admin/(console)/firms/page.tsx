@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../components/page-placeholder';
+import { FirmsList } from './_components/firms-list';
 
 export const metadata: Metadata = { title: 'Firms' };
 
-export default function Firms() {
-  return <PagePlaceholder title="Firms" ticket="N04" owner="Tumit" />;
+export default function FirmsPage() {
+  return <FirmsList />;
 }
