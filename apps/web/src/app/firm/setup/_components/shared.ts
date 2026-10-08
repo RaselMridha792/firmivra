@@ -3,6 +3,7 @@ import type { SetupStep } from '@firmivra/types';
 /** Settings and setup progress share a prefix, so one invalidate refreshes both. */
 export const FIRM_SETTINGS = ['firm-settings'];
 export const SETUP_PROGRESS = ['firm-settings', 'setup'];
+export const TEAM = ['team'];
 
 export type WizardStep = SetupStep | 'finish';
 
@@ -17,6 +18,7 @@ export const STEPS: { id: WizardStep; label: string }[] = [
 
 export const SETUP_ERRORS: Record<string, string> = {
   SETUP_INCOMPLETE: 'Finish the steps marked "Not done yet" first.',
+  ENCRYPTION_UNAVAILABLE: "The EIN can't be saved right now. Clear it to save the rest.",
 };
 
 export interface StepProps {
