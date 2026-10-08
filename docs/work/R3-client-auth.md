@@ -145,4 +145,4 @@ Nahid's sign-up and sign-in screens work end to end on dev; Fahad's pending sign
   - Cognito calls left the verify transactions: the contact flag is set before the transaction (it only marks the attempt's own login).
   - Nits: `resendAvailableAt` never later than the sign-up's end; a failed code send is logged by id and answers the same. The capacity note is under Needs (R8).
   - Tests: sign-up e2e 35 (a stranger's codes from other networks, two verifies at once, two moves to one email, a retry after a failed step) and the unit tests for `match`.
-
+- 2026-10-08, q13 contract (contract-only PR from fresh main, `rasel/R3-contract-contact-firm`; the API follows after #70): `SignUpState.step` gains `CONTACT_FIRM`. Every sign-up ends there after `SIGN_UP_WRONG_EMAIL_CODES` (5) wrong email codes, counted the same way on every path (new, registered or declined email), so it reveals nothing; a declined email gets no notice at all. Its code, resend and change routes answer 409 `WRONG_STEP`; `resendAvailableAt` is null; a new sign-up works. The mock follows it (`signUpStep: 'CONTACT_FIRM'` starts there); client-auth.yaml says the same.

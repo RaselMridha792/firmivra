@@ -221,17 +221,27 @@ export const SignUpRequest = z.object({
 });
 export type SignUpRequest = z.input<typeof SignUpRequest>;
 
+/** Wrong email codes in one sign-up before it ends at CONTACT_FIRM (the same for every email). */
+export const SIGN_UP_WRONG_EMAIL_CODES = 5;
+
 /**
  * Where a sign-up stands, read from the sign-up cookie (the pages store nothing). Every sign-up
  * call answers this. The same for an email that already has an account at this firm: that person
- * gets an email saying so instead of a code, and the codes simply never match.
+ * gets an email saying so instead of a code (a declined one gets nothing), and the codes simply
+ * never match.
+ * - CONTACT_FIRM (Rasel, Oct 8, q13): this sign-up can't go on online. Every sign-up ends here
+ *   after SIGN_UP_WRONG_EMAIL_CODES wrong email codes, counted the same way for every email, so
+ *   it shows nothing about the email (a declined person, who never gets a code, lands here
+ *   instead of "wrong code" forever). Show "We couldn't finish your sign-up online. Please
+ *   contact {firm}." and a way to start again: a new sign-up works. Its code, resend and change
+ *   routes answer 409 WRONG_STEP.
  */
 export const SignUpState = z.object({
-  step: z.enum(['VERIFY_EMAIL', 'VERIFY_PHONE', 'DONE']),
+  step: z.enum(['VERIFY_EMAIL', 'VERIFY_PHONE', 'DONE', 'CONTACT_FIRM']),
   email: z.string(),
   /** For example "(770) ***-0123". */
   phoneMasked: z.string(),
-  /** When "Resend Code" works again (the 45 s countdown); null once that step is done. */
+  /** When "Resend Code" works again (the 45 s countdown); null at DONE and CONTACT_FIRM. */
   resendAvailableAt: z.iso.datetime({ offset: true }).nullable(),
 });
 export type SignUpState = z.infer<typeof SignUpState>;
