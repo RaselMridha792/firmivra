@@ -100,7 +100,7 @@ export function FirmsList() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-content flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm font-semibold text-link">Super Admin Portal</p>
@@ -252,7 +252,7 @@ export function FirmsList() {
                       ))}
                     </ul>
                     <div className="hidden overflow-x-auto sm:block">
-                      <table className="w-full min-w-[850px] border-collapse text-left">
+                      <table className="w-full min-w-4xl border-collapse text-left">
                         <thead className="bg-canvas text-sm text-heading">
                           <tr>
                             <th scope="col" className="px-5 py-4 font-semibold">

@@ -55,6 +55,8 @@ Checklist:
 - [x] Signed-in loading, error and retry states (mock-mode Playwright)
 - [x] Playwright: the dashboard loads in mock mode
 
+**Visual follow-up (Oct 8):** Compared a 1536 px preview with `Dashboard Active .png` and adjusted the dashboard spacing, card heights, stat icon colours, the Platform Growth "(Beta)" label and the Platform Settings quick action. Platform Growth stays "Coming soon" as the ticket specifies. Ported to main on Oct 8 (F04 polish PR); the shared header and sidebar stay as on main.
+
 ### F04b · Oct 8 · Firm applications
 
 - **Pages:** `/applications` and `/applications/[id]`, in `admin/(console)/applications/`.
@@ -70,6 +72,8 @@ Checklist:
 - [x] After an action, the list and the counts refresh
 - [x] An unknown id shows not-found
 - [x] Playwright: approve an application in mock mode
+
+**Visual follow-up (Oct 8):** Widened the applications content to the console width, enlarged the headings and table text, and gave the detail actions their approve, request and decline colours (they still show as disabled while a request runs). Checked at 1672 px and 375 px. Ported to main on Oct 8 (F04 polish PR).
 
 ### N04 · Oct 9 · Public firm application form, and the firms list
 

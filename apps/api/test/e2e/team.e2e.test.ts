@@ -2,7 +2,7 @@
 // active members; Admins manage Staff only; nobody changes themselves; resend goes through R2's
 // InvitesService. One firm never sees or changes another's team.
 import { randomUUID } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
+import { ForbiddenException, type INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
@@ -12,6 +12,7 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { TeamMember as MemberShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { InvitesService } from '../../src/auth/invites.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -470,6 +471,86 @@ describe('who the firm sees, and resend against deactivate', () => {
       }));
       expect(state).toEqual({ status: 'DEACTIVATED', open: 0 });
     }
+  });
+
+  it('a deactivate waits for a link being made to that person, then revokes it', async () => {
+    const who = { email: `t03-lock-${run}@t03.test`, name: 'Lou Lock' };
+    const invited = await call('post', '/auth/invites', people.ownerA, firms.a.id, {
+      ...who,
+      role: 'STAFF',
+    });
+    expect(invited.status).toBe(201);
+    const memberId = (invited.body as { membershipId: string }).membershipId;
+    const { userId } = await asOwner(firms.a.id, (tx) =>
+      tx.membership.findUniqueOrThrow({ where: { id: memberId }, select: { userId: true } }),
+    );
+    // A resend in progress: it holds InvitesService's lock for this person and makes a new link.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    let letGo!: () => void;
+    const released = new Promise<void>((resolve) => (letGo = resolve));
+    let held!: (pid: number) => void;
+    const holding = new Promise<number>((resolve) => (held = resolve));
+    const resend = runInScope(owner, { kind: 'business', businessId: firms.a.id }, async (tx) => {
+      const key = `staff-invite:${firms.a.id}:${userId}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+      const [row] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+      held(row!.pid);
+      await released;
+      await tx.invite.updateMany({
+        where: { membershipId: memberId, acceptedAt: null, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await tx.invite.create({
+        data: {
+          businessId: firms.a.id,
+          membershipId: memberId,
+          tokenHash: `${randomUUID()}${randomUUID()}`.replaceAll('-', ''),
+          name: who.name,
+          email: who.email,
+          expiresAt: new Date(Date.now() + 7 * 24 * 3_600_000),
+        },
+      });
+    });
+    try {
+      const pid = await holding;
+      const deactivate = team('post', `/${memberId}/deactivate`, people.ownerA);
+      for (let i = 0; ; i++) {
+        const [row] = await owner.$queryRaw<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM pg_stat_activity
+          WHERE ${pid}::int = ANY (pg_blocking_pids(pid))`;
+        if (row!.n > 0) break;
+        if (i === 300) throw new Error('the deactivate never waited for the invite lock');
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      letGo();
+      await resend;
+      expect((await deactivate).status).toBe(200);
+    } finally {
+      letGo();
+      await owner.$disconnect();
+    }
+    const open = await asOwner(firms.a.id, (tx) =>
+      tx.invite.count({ where: { membershipId: memberId, acceptedAt: null, revokedAt: null } }),
+    );
+    expect(open).toBe(0);
+  });
+
+  it("the inviter's role is read again where the link is made: a stale Admin role sends nothing", async () => {
+    const who = { email: `t03-stale-${run}@t03.test`, name: 'Sid Stale' };
+    const invited = await call('post', '/auth/invites', people.ownerA, firms.a.id, {
+      ...who,
+      role: 'STAFF',
+    });
+    expect(invited.status).toBe(201);
+    const memberId = (invited.body as { membershipId: string }).membershipId;
+    // staffA acting with the Admin role a request read before a demotion.
+    await expect(
+      app.get(InvitesService).resendInvite({
+        businessId: firms.a.id,
+        membershipId: memberId,
+        invitedBy: { userId: people.staffA.id, role: 'ADMIN' },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('writes the role change and the deactivation audit rows with the change, once', async () => {
