@@ -2,10 +2,14 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { AuditLogPage } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
+import { deriveKey, poolSecrets } from '../auth/sealed.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import {
   actionFilter,
   type AuditLogFilters,
+  type CursorScope,
   decodeCursor,
   encodeCursor,
   type KnownActors,
@@ -13,6 +17,15 @@ import {
   toEntry,
   viewedMetadata,
 } from './audit-log.logic.js';
+
+/** HKDF label for the key that signs paging cursors (the readers are staff logins). */
+const CURSOR_KEY_LABEL = 'fv-audit-cursor-v1';
+
+/** Who reads: the firm from TenantGuard and the signed-in member. */
+export interface AuditLogReader {
+  businessId: string;
+  userId: string;
+}
 
 /** Every column the viewer shows; never the user agent or the firm id. */
 const rowSelect = {
@@ -30,17 +43,28 @@ const rowSelect = {
 /**
  * The firm's audit log (R12 step 4; contract in packages/types/src/audit-log). Reads run in the
  * firm's business scope with `businessId` from TenantGuard, so row-level security shows only this
- * firm's rows and only its own people. The first page of each read is itself audited.
+ * firm's rows and only its own people. The first page of each read is itself audited; later
+ * pages need a cursor signed for this firm, reader and filters, which only that page hands out.
  */
 @Injectable()
 export class AuditLogViewerService {
+  private readonly cursorKey: Uint8Array;
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
-  ) {}
+    @Inject(ENV) env: Env,
+  ) {
+    const secret = poolSecrets(env).STAFF;
+    if (!secret) throw new Error('No key for audit log cursors');
+    this.cursorKey = deriveKey(secret, 'STAFF', CURSOR_KEY_LABEL);
+  }
 
-  async list(businessId: string, q: AuditLogFilters): Promise<AuditLogPage> {
-    const after = q.cursor !== undefined ? decodeCursor(q.cursor) : undefined;
+  async list(reader: AuditLogReader, q: AuditLogFilters): Promise<AuditLogPage> {
+    const { businessId } = reader;
+    const scope: CursorScope = { businessId, userId: reader.userId, filters: q };
+    const after =
+      q.cursor !== undefined ? decodeCursor(q.cursor, this.cursorKey, scope) : undefined;
     const range = resolveRange(q, new Date());
     const where: Prisma.AuditLogWhereInput = {
       AND: [
@@ -113,7 +137,7 @@ export class AuditLogViewerService {
     }
     return {
       items: page.map((row) => toEntry(row, known)),
-      nextCursor: rows.length > q.limit && last ? encodeCursor(last) : null,
+      nextCursor: rows.length > q.limit && last ? encodeCursor(last, this.cursorKey, scope) : null,
     };
   }
 

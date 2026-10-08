@@ -1,8 +1,8 @@
 import { Controller, ForbiddenException, Get, Module, Query } from '@nestjs/common';
 import { AuditLogQuery, type AuditLogPage } from '@firmivra/types';
 import type { z } from 'zod';
-import { CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decorators.js';
-import type { TenantContext } from '../common/request-context.js';
+import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decorators.js';
+import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AuditLogViewerService } from './audit-log.service.js';
 
@@ -17,10 +17,11 @@ export class AuditLogController {
 
   @Get()
   list(
+    @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Query(new ZodValidationPipe(AuditLogQuery)) query: z.output<typeof AuditLogQuery>,
   ): Promise<AuditLogPage> {
-    return this.viewer.list(tenant.businessId, query);
+    return this.viewer.list({ businessId: tenant.businessId, userId: auth.userId }, query);
   }
 }
 

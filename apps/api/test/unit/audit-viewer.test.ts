@@ -1,10 +1,12 @@
 // R12 step 4: the audit log viewer's pure helpers (range, action filter, cursor, actor, entry).
+import { createHmac } from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
 import { AuditEntry, AuditLogQuery } from '@firmivra/types';
 import { describe, expect, it } from 'vitest';
 import {
   actionFilter,
   actorOf,
+  type CursorScope,
   decodeCursor,
   encodeCursor,
   FIRMIVRA_SUPPORT,
@@ -66,27 +68,87 @@ describe('actionFilter', () => {
 });
 
 describe('paging cursor', () => {
-  it('round-trips the last row', () => {
-    const row = { createdAt: new Date('2026-10-07T12:00:00.123Z'), id: STAFF_ID };
-    expect(decodeCursor(encodeCursor(row))).toEqual(row);
+  const key = new Uint8Array(32).fill(7);
+  const scope: CursorScope = {
+    businessId: '0199b6a1-0000-7000-8000-0000000000b1',
+    userId: STAFF_ID,
+    filters: { action: 'client.' },
+  };
+  const row = { createdAt: new Date('2026-10-07T12:00:00.123Z'), id: STAFF_ID };
+  const b64 = (s: string) => Buffer.from(s).toString('base64url');
+  /** Any position signed as the server signs it for `scope` (only the server's key can). */
+  const signed = (position: string) => {
+    const bound = [scope.businessId, STAFF_ID, null, null, 'client.', null, null, null, position];
+    const mac = createHmac('sha256', key).update(JSON.stringify(bound)).digest('base64url');
+    return `${b64(position)}.${mac}`;
+  };
+
+  it('round-trips the last row for the same firm, reader and filters', () => {
+    const cursor = encodeCursor(row, key, scope);
+    expect(cursor).toBe(signed('2026-10-07T12:00:00.123Z|' + STAFF_ID));
+    expect(cursor.length).toBeLessThanOrEqual(200);
+    expect(decodeCursor(cursor, key, scope)).toEqual(row);
+    // The page size is not bound: a later page may ask for more or fewer rows.
+    const later = { ...scope.filters, limit: 10, cursor };
+    expect(decodeCursor(cursor, key, { ...scope, filters: later })).toEqual(row);
   });
 
-  it('refuses anything encodeCursor did not write with 400', () => {
-    const b64 = (s: string) => Buffer.from(s).toString('base64url');
+  it('refuses a cursor for another firm, reader, filter set or key (400)', () => {
+    const cursor = encodeCursor(row, key, scope);
+    for (const other of [
+      { ...scope, businessId: '0199b6a1-0000-7000-8000-0000000000b2' },
+      { ...scope, userId: CLIENT_ID },
+      { ...scope, filters: {} },
+      { ...scope, filters: { action: 'client.created' } },
+      { ...scope, filters: { ...scope.filters, entityId: 'abc' } },
+      {
+        ...scope,
+        filters: { ...scope.filters, from: '2026-10-01T00:00:00Z', to: '2026-10-02T00:00:00Z' },
+      },
+    ]) {
+      expect(() => decodeCursor(cursor, key, other), JSON.stringify(other)).toThrow(
+        BadRequestException,
+      );
+    }
+    expect(() => decodeCursor(cursor, new Uint8Array(32).fill(8), scope)).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('refuses a crafted or changed cursor with 400', () => {
+    const real = encodeCursor(row, key, scope);
+    const [position, mac] = real.split('.') as [string, string];
+    const far = b64(`9999-12-31T23:59:59.999Z|ffffffff-ffff-4fff-bfff-ffffffffffff`);
     for (const bad of [
       '',
       'not a cursor',
       'abc\u0000',
-      b64('2026-10-07|nope'),
-      b64(`2026-10-07T12:00:00Z|${STAFF_ID}`),
-      b64(`-100000-01-01T00:00:00.000Z|${STAFF_ID}`),
-      b64(`0000-01-01T00:00:00.000Z|${STAFF_ID}`),
-      b64(`2026-02-30T00:00:00.000Z|${STAFF_ID}`),
-      b64(`2026-10-07T12:00:00.000Z|${STAFF_ID}|x`),
-      b64(`2026-10-07T12:00:00.000Z|${STAFF_ID}\u0000`),
-      b64(`2026-10-07T12:00:00.000Z|\ud800`),
+      position,
+      `${far}.${mac}`,
+      `${position}.${mac.slice(0, -1)}`,
+      `${position}.${mac}A`,
+      `${position}.${mac}.${mac}`,
+      `${b64('2026-10-07T12:00:00.124Z')}${position}.${mac}`,
+      b64(`2026-10-07T12:00:00.000Z|${STAFF_ID}`),
     ]) {
-      expect(() => decodeCursor(bad), bad).toThrow(BadRequestException);
+      expect(() => decodeCursor(bad, key, scope), bad).toThrow(BadRequestException);
+    }
+  });
+
+  it('refuses a signed position encodeCursor never writes (400)', () => {
+    for (const position of [
+      '2026-10-07|nope',
+      `2026-10-07T12:00:00Z|${STAFF_ID}`,
+      `-100000-01-01T00:00:00.000Z|${STAFF_ID}`,
+      `0000-01-01T00:00:00.000Z|${STAFF_ID}`,
+      `2026-02-30T00:00:00.000Z|${STAFF_ID}`,
+      `2026-10-07T12:00:00.000Z|${STAFF_ID}|x`,
+      `2026-10-07T12:00:00.000Z|${STAFF_ID}\u0000`,
+      `2026-10-07T12:00:00.000Z|\ud800`,
+    ]) {
+      expect(() => decodeCursor(signed(position), key, scope), position).toThrow(
+        BadRequestException,
+      );
     }
   });
 });
@@ -163,5 +225,16 @@ describe('viewedMetadata', () => {
       entityType: 'client',
       limit: 10,
     });
+  });
+
+  it('keeps the record filter only when it is an id, never free text', () => {
+    const range = { from: new Date(0), to: new Date(1000) };
+    const id = AuditLogQuery.parse({ entityId: CLIENT_ID });
+    expect(viewedMetadata(id, range)).toMatchObject({ entityId: CLIENT_ID });
+    for (const text of ['000-00-0000', 'someone@example.test', 'thing-1']) {
+      const meta = viewedMetadata(AuditLogQuery.parse({ entityId: text }), range);
+      expect(meta).toMatchObject({ entityIdText: true });
+      expect(JSON.stringify(meta)).not.toContain(text);
+    }
   });
 });

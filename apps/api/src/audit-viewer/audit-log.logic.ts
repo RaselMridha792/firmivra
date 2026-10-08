@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
 import type { AuditActor, AuditEntry, AuditLogQuery } from '@firmivra/types';
 import type { z } from 'zod';
@@ -45,15 +46,63 @@ export function actionFilter(action: string | undefined) {
     : { action: { equals: action } };
 }
 
-/** The opaque paging cursor: the last row's time and id (rows are newest first, then by id). */
-export function encodeCursor(row: { createdAt: Date; id: string }): string {
-  return Buffer.from(`${row.createdAt.toISOString()}|${row.id}`).toString('base64url');
+/**
+ * What a cursor is good for: one reader's read of one firm's log with these filters (not the page
+ * size). Only a read whose first page wrote `audit_log.viewed` hands out a cursor, so a later
+ * page is never a way to read without that row, and a cursor never moves to another firm, another
+ * reader or other filters.
+ */
+export interface CursorScope {
+  businessId: string;
+  userId: string;
+  filters: Pick<
+    AuditLogFilters,
+    'from' | 'to' | 'action' | 'actorUserId' | 'entityType' | 'entityId'
+  >;
 }
 
-/** Refuses anything `encodeCursor` did not write (400), so a crafted cursor never reaches SQL. */
-export function decodeCursor(cursor: string): { createdAt: Date; id: string } {
-  if (!/^[A-Za-z0-9_-]+$/.test(cursor)) throw badCursor();
-  const parts = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+/** HMAC-SHA256 of the position and everything the cursor is bound to. */
+function cursorMac(key: Uint8Array, scope: CursorScope, position: string): Buffer {
+  const { from, to, action, actorUserId, entityType, entityId } = scope.filters;
+  const filters = [from, to, action, actorUserId, entityType, entityId].map((v) => v ?? null);
+  return createHmac('sha256', key)
+    .update(JSON.stringify([scope.businessId, scope.userId, ...filters, position]))
+    .digest();
+}
+
+/** Base64url position, ".", base64url MAC (32 bytes: 43 characters). */
+const SIGNED_CURSOR = /^([A-Za-z0-9_-]{1,150})\.([A-Za-z0-9_-]{43})$/;
+
+/**
+ * The opaque paging cursor: the last row's time and id (rows are newest first, then by id),
+ * signed with the server's key for `scope`.
+ */
+export function encodeCursor(
+  row: { createdAt: Date; id: string },
+  key: Uint8Array,
+  scope: CursorScope,
+): string {
+  const position = `${row.createdAt.toISOString()}|${row.id}`;
+  const mac = cursorMac(key, scope, position).toString('base64url');
+  return `${Buffer.from(position).toString('base64url')}.${mac}`;
+}
+
+/**
+ * Refuses (400) anything `encodeCursor` did not write for this firm, reader and filters, so a
+ * crafted, changed or borrowed cursor never reaches SQL.
+ */
+export function decodeCursor(
+  cursor: string,
+  key: Uint8Array,
+  scope: CursorScope,
+): { createdAt: Date; id: string } {
+  const [, encoded, mac] = SIGNED_CURSOR.exec(cursor) ?? [];
+  if (encoded === undefined || mac === undefined) throw badCursor();
+  const position = Buffer.from(encoded, 'base64url').toString('utf8');
+  const given = Buffer.from(mac, 'base64url');
+  const expected = cursorMac(key, scope, position);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw badCursor();
+  const parts = position.split('|');
   const [at, id] = parts;
   if (parts.length !== 2 || !at || !id || !ISO_MS.test(at) || !UUID.test(id)) throw badCursor();
   const createdAt = new Date(at);
@@ -131,8 +180,19 @@ export function toEntry(row: AuditRow, known: KnownActors): AuditEntry {
   };
 }
 
-/** What `audit_log.viewed` records: the filters as read, never the rows. */
+/**
+ * What `audit_log.viewed` records: the filters as read, never the rows and never free text. The
+ * record filter is the only free text (any line of up to 100 characters), so it is kept only when
+ * it is an id (a UUID, as the log's records are); anything else is `entityIdText: true`, since a
+ * reader may type anything there, an SSN or an email included (CLAUDE.md rule 4).
+ */
 export function viewedMetadata(q: AuditLogFilters, range: { from: Date; to: Date }) {
+  const entity =
+    q.entityId === undefined
+      ? {}
+      : UUID.test(q.entityId)
+        ? { entityId: q.entityId }
+        : { entityIdText: true };
   return {
     from: range.from.toISOString(),
     to: range.to.toISOString(),
@@ -140,7 +200,7 @@ export function viewedMetadata(q: AuditLogFilters, range: { from: Date; to: Date
     ...(q.action !== undefined ? { action: q.action } : {}),
     ...(q.actorUserId !== undefined ? { actorUserId: q.actorUserId } : {}),
     ...(q.entityType !== undefined ? { entityType: q.entityType } : {}),
-    ...(q.entityId !== undefined ? { entityId: q.entityId } : {}),
+    ...entity,
     limit: q.limit,
   };
 }

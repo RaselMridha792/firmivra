@@ -29,6 +29,7 @@ const people = {
   admin2: person('admin2'),
 };
 const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
+const DELETED_USER_ID = randomUUID();
 const USER_AGENT = `SecretAgent/9.9 r12al-${run}`;
 const HOUR = 60 * 60_000;
 const DAY = 24 * HOUR;
@@ -71,13 +72,13 @@ const asOwner = async (query: string, firm: 'a' | 'b' = 'a') => {
 };
 
 /** Every page of a read, following nextCursor. */
-async function all(query: string, limit = 100): Promise<AuditEntry[]> {
+async function all(query: string, limit = 100, firm: 'a' | 'b' = 'a'): Promise<AuditEntry[]> {
   const items: AuditEntry[] = [];
   let cursor: string | null = null;
   const sep = query ? '&' : '?';
   do {
     const c: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
-    const page = await asOwner(`${query}${sep}limit=${limit}${c}`);
+    const page = await asOwner(`${query}${sep}limit=${limit}${c}`, firm);
     items.push(...page.items);
     cursor = page.nextCursor;
   } while (cursor);
@@ -206,6 +207,15 @@ beforeAll(async () => {
       ip: '198.51.100.8',
       createdAt: at(5 * HOUR + 1000),
     },
+    // A login that no longer exists (R3 deletes a replaced sign-up login): no user row at all.
+    {
+      ...common,
+      action: 'rtest.deleted_user',
+      actorUserId: DELETED_USER_ID,
+      entityId: 'thing-3',
+      ip: '203.0.113.15',
+      createdAt: at(5 * HOUR + 2000),
+    },
     {
       ...common,
       action: 'rtest.old',
@@ -240,7 +250,35 @@ beforeAll(async () => {
       requestId: 'req-firm-b',
       createdAt: at(1 * HOUR),
     },
+    // Two pages of one row for firm B, so it gets a cursor to try on firm A.
+    ...Array.from({ length: 2 }, () => ({
+      ...common,
+      action: 'rpage.firm_b',
+      entityType: 'page_thing',
+      requestId: 'req-firm-b-page',
+      createdAt: at(7 * HOUR),
+    })),
   ]);
+  // Platform rows (no firm: staff and Super Admin sign-ins, sign-up counters), here even with
+  // firm A's staff member, record and request id: never in any firm's log.
+  const platform = owner();
+  await runInScope(platform, { kind: 'platform' }, (tx) =>
+    tx.auditLog.createMany({
+      data: [
+        {
+          ...common,
+          businessId: null,
+          action: 'rtest.platform',
+          actorUserId: people.staffA.id,
+          entityId: 'thing-1',
+          ip: '203.0.113.77',
+          requestId: 'req-platform',
+          createdAt: at(30 * 60_000),
+        },
+      ],
+    }),
+  );
+  await platform.$disconnect();
 
   const env = loadEnv({
     ...process.env,
@@ -291,6 +329,28 @@ describe('who reads the log', () => {
     expect(a.map((i) => i.requestId)).not.toContain('req-firm-b');
     expect(JSON.stringify(a)).not.toContain(people.ownerB.id);
   });
+
+  it('never shows a platform row (no firm), by any filter', async () => {
+    const from = new Date(now - 60 * DAY).toISOString();
+    const to = new Date(now + HOUR).toISOString();
+    for (const q of [
+      '',
+      '?action=rtest.platform',
+      '?action=rtest.',
+      `?actorUserId=${people.staffA.id}`,
+      '?entityType=rtest_thing&entityId=thing-1',
+      `?from=${from}&to=${to}`,
+    ]) {
+      for (const firm of ['a', 'b'] as const) {
+        const rows = await all(q, 100, firm);
+        expect(
+          rows.map((r) => r.action),
+          `${firm} ${q}`,
+        ).not.toContain('rtest.platform');
+        expect(JSON.stringify(rows), `${firm} ${q}`).not.toMatch(/req-platform|203\.0\.113\.77/);
+      }
+    }
+  });
 });
 
 describe('what a row shows', () => {
@@ -307,6 +367,10 @@ describe('what a row shows', () => {
       expect(Object.keys(item).sort()).toEqual(
         ['action', 'actor', 'at', 'entity', 'id', 'ip', 'metadata', 'requestId'].sort(),
       );
+      expect(Object.keys(item['entity'] as object).sort()).toEqual(['id', 'type']);
+      if (item['actor'] !== null) {
+        expect(Object.keys(item['actor'] as object).sort()).toEqual(['kind', 'name', 'userId']);
+      }
     }
   });
 
@@ -338,14 +402,17 @@ describe('what a row shows', () => {
     // Not linked to the firm: the firm cannot tell who it was, so neither person nor IP.
     expect(by('rtest.stranger')).toMatchObject({ actor: null, ip: null });
     expect(by('rtest.admin_no_grant')).toMatchObject({ actor: null, ip: null });
+    expect(by('rtest.deleted_user')).toMatchObject({ actor: null, ip: null });
     const text = JSON.stringify(rows);
     for (const hidden of [
       fx.users.admin.id,
       people.admin2.id,
       people.stranger.id,
+      DELETED_USER_ID,
       '198.51.100.7',
       '198.51.100.8',
       '203.0.113.13',
+      '203.0.113.15',
     ]) {
       expect(text).not.toContain(hidden);
     }
@@ -388,7 +455,13 @@ describe('filters', () => {
     ]);
     // Only the firm's own people: a Super Admin's or a stranger's id finds nothing, so the
     // filter never confirms that an id acted here.
-    for (const id of [fx.users.admin.id, people.admin2.id, people.stranger.id, people.ownerB.id]) {
+    for (const id of [
+      fx.users.admin.id,
+      people.admin2.id,
+      people.stranger.id,
+      people.ownerB.id,
+      DELETED_USER_ID,
+    ]) {
       expect(await all(`?actorUserId=${id}`), id).toHaveLength(0);
     }
   });
@@ -458,6 +531,49 @@ describe('paging', () => {
   });
 });
 
+describe('cursors', () => {
+  const firstCursor = async (query: string, who: { email: string }, firm: 'a' | 'b' = 'a') => {
+    const res = await call(query, who, firm);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const cursor = AuditLogPage.parse(res.body).nextCursor;
+    expect(cursor).not.toBeNull();
+    return cursor as string;
+  };
+  const withCursor = (query: string, cursor: string) =>
+    `${query}&cursor=${encodeURIComponent(cursor)}`;
+
+  it('work only for the firm, the reader and the filters they were given for', async () => {
+    const q = '?action=rpage.&limit=1';
+    const fromB = await firstCursor(q, people.ownerB, 'b');
+    const own = await firstCursor(q, people.ownerA);
+    expect((await call(withCursor(q, own), people.ownerA)).status).toBe(200);
+    for (const [query, cursor, who] of [
+      [q, fromB, people.ownerA],
+      [q, own, people.adminA],
+      ['?action=rpage.same&limit=1', own, people.ownerA],
+      ['?action=rpage.&entityType=page_thing&limit=1', own, people.ownerA],
+    ] as const) {
+      const res = await call(withCursor(query, cursor), who);
+      expect([res.status, codeOf(res)], query).toEqual([400, 'VALIDATION_FAILED']);
+      expect(JSON.stringify(res.body)).not.toMatch(/req-firm-b|rpage/);
+    }
+  });
+
+  it('a made-up or changed cursor is refused, so no read skips audit_log.viewed', async () => {
+    const before = (await viewedRows(firms.a.id)).length;
+    const own = await firstCursor('?action=rpage.&limit=1', people.ownerA);
+    const [position, mac] = own.split('.') as [string, string];
+    // Before every row: unsigned it would read the whole first page without a viewed row.
+    const top = Buffer.from('9999-12-31T23:59:59.999Z|ffffffff-ffff-4fff-bfff-ffffffffffff');
+    const forged = top.toString('base64url');
+    for (const cursor of [forged, `${forged}.${mac}`, `${position}.${mac.slice(1)}A`]) {
+      const res = await call(`?action=rpage.&limit=1&cursor=${cursor}`, people.ownerA);
+      expect([res.status, codeOf(res)], cursor).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    expect((await viewedRows(firms.a.id)).length).toBe(before + 1);
+  });
+});
+
 describe('reading the log is audited', () => {
   it('the first page writes audit_log.viewed with the filters, never the rows; later pages none', async () => {
     const before = (await viewedRows(firms.a.id)).length;
@@ -491,6 +607,17 @@ describe('reading the log is audited', () => {
     // The viewed row shows in the log itself, as the reader.
     const viewed = await all('?action=audit_log.viewed');
     expect(viewed.some((v) => v.actor?.userId === people.adminA.id)).toBe(true);
+  });
+
+  it('records the record filter only when it is an id, never the text typed', async () => {
+    const [typed, byText] = ['000-00-0000', newViewer()];
+    const [id, byId] = [randomUUID(), newViewer()];
+    expect((await call(`?entityId=${typed}`, people.ownerA, 'a', byText)).status).toBe(200);
+    expect((await call(`?entityId=${id}`, people.ownerA, 'a', byId)).status).toBe(200);
+    const rows = await viewedRows(firms.a.id);
+    expect(rows.find((r) => r.ip === byText)?.metadata).toMatchObject({ entityIdText: true });
+    expect(rows.find((r) => r.ip === byId)?.metadata).toMatchObject({ entityId: id });
+    expect(JSON.stringify(rows.map((r) => r.metadata))).not.toContain(typed);
   });
 
   it('a refused read writes nothing, and nothing in another firm', async () => {
