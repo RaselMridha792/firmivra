@@ -17,4 +17,10 @@ test('the mock Super Admin opens the console, moves around and signs out', async
   await expect(page.getByTestId('me-email')).toHaveText('morgan.admin@example.test');
   await page.getByRole('menuitem', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(admin('/sign-in'));
+
+  // The mock session has ended, not only the page: going back (client side, so the mock keeps
+  // its state) opens the console again, me and refresh answer 401, and it sends us to sign-in.
+  await page.goBack();
+  await expect(page).toHaveURL(admin('/sign-in'));
+  await expect(page.getByTestId('me-email')).toHaveCount(0);
 });

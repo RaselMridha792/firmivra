@@ -18,8 +18,9 @@ Rules:
 2. My page file already exists as a placeholder: replace the placeholder, keep the layout.
    Never create, move or rename a route, layout or page folder; if a page is missing, STOP and tell me.
    Copy the patterns of the reference screen apps/web/src/app/firm/(workspace)/settings/tax-statuses/.
-   page.tsx stays a small server file with its metadata title line: no 'use client', redirect()
-   or notFound() in page.tsx; no title or title template in any layout (only the root layout's default).
+   page.tsx stays a small server file with its metadata title line (the tests check each page by
+   its tab title): no 'use client', redirect() or notFound() in page.tsx; no title or title template
+   in any layout except the root layout's default.
    A page opened straight from its URL (verify-email, verify-phone, sign-up/done, apply/done,
    begin/done, begin/resume, reset-password, activate) never navigates away by itself.
    Keep what the tests read: nav "Main" and AppShell; data-testid firm-name; the header's me-email,

@@ -122,12 +122,18 @@ test('a malformed slug before /home is a 404, never a redirect to another site',
     expect(res.status(), path).toBe(404);
     expect(res.headers()['location'], path).toBeUndefined();
   }
-  // A raw "//" never reaches the app: Next.js first answers 308 to the same path with single
-  // slashes, on this site, and that path is a 404 (a dot is not a slug).
+  // A raw "//" may never reach the app: Next.js (16.3) first answers 308 to the same path with
+  // single slashes. Check what matters, not Next's exact answer: a 404, or a redirect that stays
+  // on this site (one leading "/", not "//" or a backslash), and the place it points to is a 404.
   const doubled = await portalGet(request, '//evil.example.test/home');
-  expect(doubled.status()).toBe(308);
-  expect(doubled.headers()['location']).toBe('/evil.example.test/home');
-  const res = await portalGet(request, '/evil.example.test/home');
-  expect(res.status()).toBe(404);
-  expect(res.headers()['location']).toBeUndefined();
+  expect([308, 404]).toContain(doubled.status());
+  const location = doubled.headers()['location'];
+  if (doubled.status() === 404) {
+    expect(location).toBeUndefined();
+  } else {
+    expect(location).toMatch(/^\/[^/\\]/);
+    const res = await portalGet(request, location ?? '');
+    expect(res.status()).toBe(404);
+    expect(res.headers()['location']).toBeUndefined();
+  }
 });
