@@ -54,7 +54,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
     <AppShell
       subtitle="Super Admin Portal"
       sections={sections}
-      roleLabel="Super Admin"
+      roleLabel="Owner / Super Admin"
       search="Search firms, applications, users..."
     >
       {children}

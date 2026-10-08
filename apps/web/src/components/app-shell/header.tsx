@@ -25,7 +25,7 @@ export function Header({
   return (
     <header
       onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
-      className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2 md:px-6"
+      className="flex min-h-16 items-center gap-3 border-b border-border bg-canvas px-4 py-2 md:px-4"
     >
       <button
         type="button"
@@ -43,7 +43,7 @@ export function Header({
             type="search"
             placeholder={search}
             aria-label="Search firms, applications, users"
-            className="w-full bg-transparent outline-none"
+            className="h-5 min-h-0 w-full min-w-0 bg-transparent outline-none"
           />
         </label>
       ) : null}
@@ -51,15 +51,16 @@ export function Header({
 
       <div
         className={
-          search ? 'ml-auto flex items-center gap-2 md:ml-5' : 'ml-auto flex items-center gap-2'
+          search ? 'ml-auto flex items-center gap-4 md:ml-5' : 'ml-auto flex items-center gap-4'
         }
       >
         <button
           type="button"
           aria-label="Notifications"
-          className="rounded-control p-2 text-text hover:bg-canvas"
+          className="relative rounded-control p-2 text-text hover:bg-surface"
         >
           <Bell aria-hidden className="size-5" />
+          <span aria-hidden className="absolute right-2 top-2 size-2 rounded-full bg-danger" />
         </button>
 
         <div className="relative">
@@ -68,13 +69,13 @@ export function Header({
             aria-haspopup="menu"
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
-            className="flex items-center gap-2 rounded-control p-1 pr-2 hover:bg-canvas"
+            className="flex items-center gap-2 rounded-control border-l border-border py-0 pl-4 pr-2 hover:bg-surface"
           >
             <span className="flex size-10 items-center justify-center rounded-full bg-brand-900 text-sm font-semibold text-white">
               {initials(me.user.name)}
             </span>
             <span className="hidden text-left text-sm sm:block">
-              <span className="block font-semibold text-text">{me.user.name}</span>
+              <span className="block text-base font-semibold text-text">{me.user.name}</span>
               <span className="block text-muted">{roleLabel}</span>
             </span>
             <ChevronDown aria-hidden className="size-4 text-muted" />

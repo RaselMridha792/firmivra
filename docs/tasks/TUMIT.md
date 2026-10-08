@@ -55,6 +55,8 @@ Checklist:
 - [x] Signed-in loading, error and retry states (mock-mode Playwright)
 - [x] Playwright: the dashboard loads in mock mode
 
+**Visual follow-up (Oct 8):** Compared a fresh 1536 px preview with `Dashboard Active .png` and adjusted the shared header height, logo-side navigation scale, dashboard spacing and card heights to the reference. The recent-applications panel shows one row as in the mockup; the profile label now reads “Owner / Super Admin.” A 375 px preview has no horizontal overflow and opens the compact menu. The Platform Growth panel remains empty with “Coming soon” as the ticket specifies, even though the reference image shows a chart. Browser console had no app errors. The shared shell changes stay in this F04a branch so later ticket branches do not carry another copy.
+
 ### F04b · Oct 8 · Firm applications
 
 - **Pages:** `/applications` and `/applications/[id]`, in `admin/(console)/applications/`.

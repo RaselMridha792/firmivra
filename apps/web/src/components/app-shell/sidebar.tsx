@@ -48,7 +48,9 @@ export function Sidebar({
                   <Icon aria-hidden className="size-5 shrink-0" />
                   <span className="flex-1">{item.label}</span>
                   {item.soon ? (
-                    <span className="rounded-control bg-brand-700 px-2 py-0.5 text-xs">Soon</span>
+                    <span className="rounded-control bg-platform-navy-raised px-2 py-0.5 text-xs">
+                      Soon
+                    </span>
                   ) : null}
                   {item.badge ? (
                     <span className="rounded-control bg-brand-500 px-2 py-0.5 text-xs font-semibold">
@@ -57,7 +59,7 @@ export function Sidebar({
                   ) : null}
                 </>
               );
-              const row = 'flex items-center gap-3 rounded-control px-3 py-3 text-sm';
+              const row = 'flex items-center gap-3 rounded-control px-3 py-3 text-base';
               if (!item.href) {
                 return (
                   <li key={item.label} aria-disabled="true" className={`${row} text-brand-100`}>
@@ -76,8 +78,8 @@ export function Sidebar({
                       row +
                       ' border-l-2 ' +
                       (active
-                        ? 'border-accent-500 bg-brand-700 font-semibold'
-                        : 'border-transparent hover:bg-brand-700')
+                        ? 'border-platform-blue bg-platform-navy-raised font-semibold'
+                        : 'border-transparent hover:bg-platform-navy-raised')
                     }
                   >
                     {body}
@@ -91,7 +93,7 @@ export function Sidebar({
 
       <div className="flex flex-col gap-4 border-t border-brand-700 px-3 pb-10 pt-5">
         <div className="flex items-center gap-3 px-3">
-          <span className="flex size-10 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-900">
+          <span className="flex size-10 items-center justify-center rounded-full bg-canvas text-sm font-semibold text-brand-900">
             {initials(me.user.name)}
           </span>
           <span className="flex flex-1 flex-col text-sm">
