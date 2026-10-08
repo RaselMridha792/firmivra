@@ -91,7 +91,8 @@ info:
 
     `sign-in`, `mfa`, `mfa/setup`, `forgot-password`, `reset-password`, `activation/check` and
     `activate` answer `429 RATE_LIMITED` when called too often. Limits count per viewer IP (the
-    address CloudFront saw, not the load balancer's) and per email, shared across API tasks:
+    address CloudFront saw, not the load balancer's), in each API task's memory, and per email, in
+    the database, shared by every API task:
     - 10 failed sign-ins for one email in 15 minutes (wrong passwords and wrong MFA codes alike):
       then every sign-in for it answers `429 RATE_LIMITED` until the window passes, the same for
       an email with no account;
@@ -100,9 +101,13 @@ info:
 
     Each attempt is recorded before Cognito is asked and counted until it succeeds, so parallel
     attempts never get past a limit together; one that arrives while another for the same email is
-    being counted gets the same 429. Show "Too many attempts. Wait a few minutes and try again."
-    Every sign-in, attempt and failure is audited (`auth.signed_in`, `auth.sign_in_attempt`,
-    `auth.sign_in_passed`, `auth.sign_in_failed`); the email is stored only as a keyed hash. Cognito
+    being counted gets the same 429. An attempt that ends without a verdict on the credential (an
+    error of ours or an outage; at the MFA step anything but a wrong code) is released and not
+    counted. Show "Too many attempts. Wait a few minutes and try again."
+    Every attempt let past the limits is audited with its end (`auth.sign_in_attempt`, then
+    `auth.sign_in_passed`, `auth.sign_in_released` or `auth.sign_in_failed`, and `auth.signed_in`;
+    password resets the same with `auth.password_reset_*`); a 429 writes no row. The email is
+    stored only as a keyed hash. Cognito
     threat protection gets the viewer's IP and browser (User-Agent, Accept-Language), never
     cookies or tokens.
 
@@ -381,7 +386,8 @@ components:
           Always succeeds and clears this site's cookies, even when already signed out or when
           the body cannot be read (then it is not `everywhere`). Revokes the refresh token. With
           `everywhere: true` and a valid session, also ends the person's sessions on every other
-          device.
+          device. A failure on the server (revoking, the `auth.signed_out` audit row) is logged
+          and never changes the answer.
         requestBody:
           required: false
           content: { application/json: { schema: { $ref: '#/components/schemas/SignOutRequest' } } }

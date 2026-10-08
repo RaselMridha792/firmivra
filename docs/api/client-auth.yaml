@@ -381,12 +381,17 @@ paths:
       tags: [sign-in]
       operationId: portalSignOut
       summary: Sign out of this firm's portal; always succeeds
+      description: |
+        Clears this portal's cookies whatever happens on the server, also at a firm whose portal is
+        closed (the refresh token is revoked there too). If the firm can't be looked up, only the
+        cookies are cleared. A slug that can't be a firm's address is 404.
       requestBody:
         required: false
         content: { application/json: { schema: { $ref: './auth.yaml#/components/schemas/SignOutRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
   /portal/{firmSlug}/auth/forgot-password:

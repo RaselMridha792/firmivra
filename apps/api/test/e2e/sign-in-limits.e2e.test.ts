@@ -6,11 +6,16 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import type { MfaSetupResponse, SignInResult } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import {
+  AuthFlowError,
+  IDENTITY_PROVIDER,
+  type IdentityProvider,
+} from '../../src/auth/identity/identity-provider.js';
 import { LOCAL_MFA_CODE, LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
 import { SIGN_IN_LIMIT } from '../../src/auth/sign-in.service.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -31,6 +36,7 @@ const staff = {
   locked: person('locked'),
   bystander: person('bystander'),
   mfa: person('mfa'),
+  released: person('released'),
   audited: person('audited'),
 };
 const firmX = { id: '', slug: `r2-lim-x-${tag}` };
@@ -306,5 +312,78 @@ describe('audit rows', () => {
     );
     expect(rows.map((r) => r.action)).toContain('auth.sign_in_attempt');
     for (const row of rows) expect(row.userAgent).toBe(userAgent.slice(0, 512));
+  });
+});
+
+describe('outcomes that say nothing about the credential (#84 follow-up)', () => {
+  it('never count an error of ours against the email, and close it as released', async () => {
+    const email = `r2-lim-release-${tag}@a.test`;
+    const userAgent = `r2-lim-release-${tag}`;
+    const perEmail = SIGN_IN_LIMIT.perEmail;
+    SIGN_IN_LIMIT.perEmail = 1;
+    const identity = app.get<IdentityProvider>(IDENTITY_PROVIDER);
+    const signIn = vi
+      .spyOn(identity, 'signIn')
+      .mockRejectedValueOnce(new Error('Cognito is unreachable for a moment'));
+    try {
+      const failed = await request(app.getHttpServer())
+        .post('/api/v1/auth/sign-in')
+        .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+        .set('user-agent', userAgent)
+        .send({ email, password: WRONG });
+      expect(failed.status).toBe(500);
+      // Released: the next wrong password is still answered, and only then the limit holds.
+      const wrong = await staffSignIn(email, WRONG);
+      expect([wrong.status, codeOf(wrong)]).toEqual([401, 'INVALID_CREDENTIALS']);
+      const over = await staffSignIn(email, WRONG);
+      expect([over.status, codeOf(over)]).toEqual([429, 'RATE_LIMITED']);
+      // The failed request's rows: its attempt, closed by its own action, never "passed".
+      const rows = await asOwner({ kind: 'platform' }, (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: null, userAgent },
+          select: { action: true, metadata: true },
+          orderBy: { createdAt: 'asc' },
+        }),
+      );
+      expect(rows.map((r) => r.action)).toEqual(['auth.sign_in_attempt', 'auth.sign_in_released']);
+      const [attempt, released] = rows.map((r) => r.metadata as Record<string, unknown>);
+      expect(released).toMatchObject({ token: attempt?.['token'], outcome: 'ERROR' });
+    } finally {
+      signIn.mockRestore();
+      SIGN_IN_LIMIT.perEmail = perEmail;
+    }
+  });
+
+  it('never count an expired MFA session against the attempt', async () => {
+    const first = await staffSignIn(staff.released.email, LOCAL_PASSWORD);
+    const setup = await post('/api/v1/auth/mfa/setup', {
+      session: (first.body as { session: string }).session,
+    });
+    await post('/api/v1/auth/mfa', {
+      session: (setup.body as MfaSetupResponse).session,
+      code: LOCAL_MFA_CODE,
+    }).expect(200);
+    const signIn = await staffSignIn(staff.released.email, LOCAL_PASSWORD);
+    const step = signIn.body as SignInResult;
+    if (step.status !== 'MFA_REQUIRED') throw new Error(`unexpected ${step.status}`);
+
+    const perAttempt = SIGN_IN_LIMIT.perAttempt;
+    SIGN_IN_LIMIT.perAttempt = 1;
+    const identity = app.get<IdentityProvider>(IDENTITY_PROVIDER);
+    const answer = vi
+      .spyOn(identity, 'answerMfa')
+      .mockRejectedValueOnce(new AuthFlowError('CHALLENGE_EXPIRED'));
+    try {
+      const expired = await post('/api/v1/auth/mfa', { session: step.session, code: '111111' });
+      expect([expired.status, codeOf(expired)]).toEqual([401, 'CHALLENGE_EXPIRED']);
+      // Released: the next code is still checked, and only a wrong one ends the attempt.
+      const wrong = await post('/api/v1/auth/mfa', { session: step.session, code: '111111' });
+      expect([wrong.status, codeOf(wrong)]).toEqual([401, 'MFA_CODE_INVALID']);
+      const over = await post('/api/v1/auth/mfa', { session: step.session, code: LOCAL_MFA_CODE });
+      expect([over.status, codeOf(over)]).toEqual([401, 'CHALLENGE_EXPIRED']);
+    } finally {
+      answer.mockRestore();
+      SIGN_IN_LIMIT.perAttempt = perAttempt;
+    }
   });
 });
