@@ -28,13 +28,20 @@ export function CalendarScreen() {
           <h1 data-testid="page-title" className="text-2xl font-semibold text-text">
             Calendar
           </h1>
-          <p className="text-sm text-muted">Appointments, in your firm&apos;s time zone.</p>
+          <p className="text-sm text-muted">Your firm&apos;s appointments by week or day.</p>
         </div>
         <Link href="/settings/availability" className="text-sm font-medium text-link">
           Working hours and blocked time
         </Link>
       </div>
-      <PageState query={availability}>{(data) => <Calendar availability={data} />}</PageState>
+      <PageState query={availability}>
+        {(data) => (
+          <>
+            <p className="text-sm text-muted">Times are in {data.timezone}.</p>
+            <Calendar availability={data} />
+          </>
+        )}
+      </PageState>
     </div>
   );
 }
