@@ -62,7 +62,7 @@ test('filters the firms list and stays usable at mobile width', async ({ page })
   await expect(page.getByTestId('firm-row').first()).toBeVisible();
 
   await page.getByRole('tab', { name: /Inactive/ }).click();
-  await expect(page.getByText('Old Example Firm')).toBeVisible();
+  await expect(page.getByTestId('firm-row').getByText('Old Example Firm')).toBeVisible();
   await page.getByRole('searchbox', { name: 'Search firms' }).fill('no matching firm');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.getByTestId('firms-empty')).toBeVisible();
