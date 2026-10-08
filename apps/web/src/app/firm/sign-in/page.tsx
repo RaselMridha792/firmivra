@@ -1,5 +1,5 @@
-import { SignInPanel } from '../../../components/sign-in-panel';
+import { SignIn } from '../../../components/auth/sign-in';
 
 export default function FirmSignIn() {
-  return <SignInPanel title="Firm workspace" pool="STAFF" homePath="/" />;
+  return <SignIn site="firm" />;
 }

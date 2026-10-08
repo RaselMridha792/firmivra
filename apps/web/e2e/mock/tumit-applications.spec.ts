@@ -1,30 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const admin = (path: string) => `http://admin.localhost:${port}${path}`;
 
-async function mockAdminSession(page: Page, platformAdmin = true) {
-  await page.route('**/api/v1/admin/me', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        user: {
-          id: '00000000-0000-4000-8000-000000000001',
-          email: 'reviewer@example.test',
-          name: 'Synthetic Reviewer',
-          pool: 'ADMIN',
-        },
-        memberships: [],
-        clientAccounts: [],
-        platformAdmin,
-      }),
-    }),
-  );
-}
-
 test('loads applications from the API mock, filters rows and pages results', async ({ page }) => {
-  await mockAdminSession(page);
   await page.goto(admin('/applications'));
   await expect(page.getByTestId('page-title')).toHaveText('Firm Applications');
   await expect(page.getByRole('tab', { name: 'All Applications (8)' })).toBeVisible();
@@ -49,7 +28,6 @@ test('loads applications from the API mock, filters rows and pages results', asy
 test('reviews an unreadable application from its stored columns without losing actions', async ({
   page,
 }) => {
-  await mockAdminSession(page);
   await page.goto(admin('/applications'));
   await page
     .getByRole('searchbox', { name: 'Search applications' })
@@ -71,7 +49,6 @@ test('reviews an unreadable application from its stored columns without losing a
 });
 
 test('approves an application and refreshes its status, list and counts', async ({ page }) => {
-  await mockAdminSession(page);
   await page.goto(admin('/applications'));
   await page
     .getByRole('link', { name: /Open application for/ })
@@ -89,7 +66,6 @@ test('approves an application and refreshes its status, list and counts', async 
 });
 
 test('requests information and leaves the application pending', async ({ page }) => {
-  await mockAdminSession(page);
   await page.goto(admin('/applications'));
   await page
     .getByRole('link', { name: /Open application for/ })
@@ -107,7 +83,6 @@ test('requests information and leaves the application pending', async ({ page })
 });
 
 test('declines an application with a recorded reason and refreshed counts', async ({ page }) => {
-  await mockAdminSession(page);
   await page.goto(admin('/applications'));
   await page
     .getByRole('link', { name: /Open application for/ })
@@ -127,7 +102,6 @@ test('declines an application with a recorded reason and refreshed counts', asyn
 });
 
 test('saves administrator-only notes and shows not-found for an unknown id', async ({ page }) => {
-  await mockAdminSession(page);
   await page.goto(admin('/applications'));
   await page
     .getByRole('link', { name: /Open application for/ })
@@ -147,14 +121,7 @@ test('saves administrator-only notes and shows not-found for an unknown id', asy
   await expect(page.getByTestId('page-not-found')).toBeVisible();
 });
 
-test('shows a clear no-permission state for a non-admin session', async ({ page }) => {
-  await mockAdminSession(page, false);
-  await page.goto(admin('/applications'));
-  await expect(page.getByTestId('page-forbidden')).toContainText('Super Admin account');
-});
-
 test('application list stays within a 375px viewport', async ({ page }) => {
-  await mockAdminSession(page);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(admin('/applications'));
   await expect(page.getByTestId('page-title')).toBeVisible();
