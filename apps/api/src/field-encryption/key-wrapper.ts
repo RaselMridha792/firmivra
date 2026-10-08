@@ -165,7 +165,7 @@ export class AwsKmsKeyWrapper implements KeyWrapper {
     } catch (error) {
       throw kmsError(error, 'GenerateDataKey', businessId, this.logger);
     }
-    if (!out.Plaintext || !out.CiphertextBlob) {
+    if (!out.Plaintext || !out.CiphertextBlob || out.CiphertextBlob.length === 0) {
       // A data key without its wrapped form can never be used: zero it before giving up.
       out.Plaintext?.fill(0);
       throw new FieldEncryptionError('KMS_UNAVAILABLE', 'The key service returned no data key');

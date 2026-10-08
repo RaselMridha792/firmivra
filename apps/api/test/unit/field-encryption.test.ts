@@ -276,15 +276,19 @@ describe('field encryption (AWS KMS mode)', () => {
     for (const key of handedOut) expect(key.every((byte) => byte === 0)).toBe(true);
   });
 
-  it('zeroes a data key KMS returns without its wrapped form', async () => {
-    const handed = new Uint8Array(32).fill(7);
-    const kms = { send: async () => ({ Plaintext: handed }) } as unknown as Pick<KMSClient, 'send'>;
-    const fe = new FieldEncryption(
-      new AwsKmsKeyWrapper(kms, logger()),
-      keyIds({ [FIRM_A]: KEY_A }),
-    );
-    expect(code(await failure(fe.encrypt(ctx(), SSN)))).toBe('KMS_UNAVAILABLE');
-    expect(handed.every((byte) => byte === 0)).toBe(true);
+  it('zeroes a data key KMS returns without its wrapped form, or with an empty one', async () => {
+    for (const wrapped of [undefined, new Uint8Array(0)]) {
+      const handed = new Uint8Array(32).fill(7);
+      const kms = {
+        send: async () => ({ Plaintext: handed, CiphertextBlob: wrapped }),
+      } as unknown as Pick<KMSClient, 'send'>;
+      const fe = new FieldEncryption(
+        new AwsKmsKeyWrapper(kms, logger()),
+        keyIds({ [FIRM_A]: KEY_A }),
+      );
+      expect(code(await failure(fe.encrypt(ctx(), SSN)))).toBe('KMS_UNAVAILABLE');
+      expect(handed.every((byte) => byte === 0)).toBe(true);
+    }
   });
 
   it('a value too short for a wrapped key, iv and tag fails before KMS is asked', async () => {
