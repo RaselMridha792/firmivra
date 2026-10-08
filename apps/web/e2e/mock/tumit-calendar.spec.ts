@@ -8,10 +8,15 @@ const app = (path: string) => `http://app.localhost:${port}${path}`;
 test('the week shows every appointment, by staff member and by day', async ({ page }) => {
   await page.goto(app('/calendar'));
   await expect(page.getByTestId('page-title')).toHaveText('Calendar');
+  await expect(page.getByText('Times are in America/New_York.')).toBeVisible();
+  const todayButton = page.getByRole('button', { name: 'Today' });
+  await expect(todayButton).toBeDisabled();
   await page.getByRole('button', { name: 'Next week' }).click();
+  await expect(todayButton).toBeEnabled();
   const appointments = page.getByTestId('appointment');
   await expect(appointments).toHaveCount(5);
   await expect(appointments.filter({ hasText: 'Jamie Sample' })).toHaveCount(3);
+  await expect(appointments.filter({ hasText: '(cancelled)' })).toHaveCount(1);
 
   const monday = page.getByTestId('calendar-day').first();
   await expect(monday.getByTestId('appointment')).toHaveCount(2);
