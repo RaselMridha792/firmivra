@@ -1,10 +1,12 @@
 -- Offline payments (Rasel, Oct 8, q28 h): an Owner or Admin records a check or cash payment on an
--- invoice. A separate table, so no Stripe table, rule, CHECK, index or enum changes. A payment is
--- recorded by an active Owner or Admin acting as themselves, on an OPEN invoice, in its currency,
--- never above the balance due. It never changes and is never deleted: a mistake is voided once,
--- with a reason. One formula, app_invoice_paid_cents, counts the money (SUCCEEDED Stripe payments
--- plus live offline payments) for the PAID gate, the cap and the reopen. A void that leaves a PAID
--- invoice uncovered reopens it (PAID -> OPEN); an invoice with live offline money can't be canceled.
+-- invoice. A separate table, so no Stripe table, CHECK, index or enum changes; the Stripe rules
+-- gain only the balance check on a new checkout. A payment is recorded by an active Owner or Admin
+-- acting as themselves, on an OPEN invoice, in its currency, never above the balance due and never
+-- while a Stripe checkout on the invoice is open. It never changes and is never deleted: a mistake
+-- is voided once, with a reason, through app_void_offline_payment. One formula,
+-- app_invoice_paid_cents, counts the money (what Stripe took, refunded or not, plus live offline
+-- payments) for the PAID gate, both balance checks and the reopen. A void that leaves a PAID
+-- invoice uncovered reopens it (PAID -> OPEN); an invoice that holds money can't be canceled.
 
 -- CreateEnum
 CREATE TYPE "OfflinePaymentMethod" AS ENUM ('CHECK', 'CASH');
@@ -76,20 +78,25 @@ ALTER TABLE offline_payments
             AND btrim(void_reason) <> '' AND char_length(void_reason) <= 500));
 
 -- One live record of a check number per invoice (any case). It can be recorded again after a void,
--- or on another invoice. Retries are caught by the unique (business_id, idempotency_key).
+-- or on another invoice. A retry of the same request is a duplicate idempotency key instead.
 CREATE UNIQUE INDEX offline_payments_one_live_check
   ON offline_payments (business_id, invoice_id, upper(reference))
   WHERE method = 'CHECK' AND voided_at IS NULL;
 
--- ---------- The money that counts toward an invoice ----------
--- SUCCEEDED Stripe payments (a partly refunded one counts in full, a REFUNDED one not: today's
--- PAID gate) plus offline payments that are not voided. The one formula behind the PAID gate, the
--- over-balance cap and the reopen. Runs under the caller's RLS (another firm's invoice counts 0).
+-- ---------- The money paid toward an invoice ----------
+-- What Stripe took (SUCCEEDED payments, and REFUNDED ones too, in full) plus offline payments that
+-- are not voided. A refund gives money back from a payment and never makes an invoice owed again
+-- (r0_refunds keeps a refunded invoice PAID), so a partial and a full refund count the same way,
+-- and a later void reopens an invoice only for the money the void removed. Until this migration
+-- the PAID gate left REFUNDED payments out, which mattered only for a payment refunded before its
+-- invoice was marked PAID; it now counts like a refund after PAID always did. The one formula
+-- behind the PAID gate, the balance checks on a recording and on a new checkout, and the reopen.
+-- Runs under the caller's RLS (another firm's invoice counts 0).
 CREATE FUNCTION app_invoice_paid_cents(p_invoice_id uuid) RETURNS bigint
   LANGUAGE sql STABLE
   AS $$
   SELECT (SELECT coalesce(sum(p.amount_cents), 0) FROM payments p
-           WHERE p.invoice_id = p_invoice_id AND p.status = 'SUCCEEDED')
+           WHERE p.invoice_id = p_invoice_id AND p.status IN ('SUCCEEDED', 'REFUNDED'))
        + (SELECT coalesce(sum(o.amount_cents), 0) FROM offline_payments o
            WHERE o.invoice_id = p_invoice_id AND o.voided_at IS NULL) $$;
 REVOKE ALL ON FUNCTION app_invoice_paid_cents(uuid) FROM PUBLIC;
@@ -123,14 +130,18 @@ REVOKE ALL ON FUNCTION app_require_firm_manager(uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app_require_firm_manager(uuid, uuid) TO firmivra_app;
 
 -- ---------- Offline payments: recorded on an open invoice within the balance; then only voided ----------
--- Before counting, the trigger writes the invoice row (a no-op update, not just a lock: under
--- REPEATABLE READ only a real update makes a concurrent writer fail to serialize). So recordings,
--- voids, PAID and cancel on one invoice take turns, and the cap holds at any isolation level.
+-- A recording writes the invoice row before it counts (a no-op update, not just a lock: under
+-- REPEATABLE READ only a real update makes a concurrent writer fail to serialize). A new Stripe
+-- checkout writes it too (payments_rules, below) and a void locks it before the payment
+-- (app_void_offline_payment), so money writes on one invoice take turns and the balance checks
+-- hold at any isolation level. A Stripe payment becoming SUCCEEDED does not write the invoice; it
+-- is never refused (the money has moved), which is why a recording waits for open checkouts.
 -- recorded_at and voided_at come from the database clock.
 CREATE FUNCTION offline_payments_rules() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
 DECLARE
+  inv_found boolean;
   inv_status "InvoiceStatus";
   inv_currency text;
   inv_total integer;
@@ -151,11 +162,32 @@ BEGIN
     UPDATE invoices i SET updated_at = i.updated_at
      WHERE i.business_id = NEW.business_id AND i.id = NEW.invoice_id
      RETURNING i.status, i.currency, i.total_cents INTO inv_status, inv_currency, inv_total;
-    IF NOT FOUND OR inv_status <> 'OPEN' OR inv_currency <> NEW.currency THEN
+    inv_found := FOUND;
+    -- A retry of a recording that went through is a duplicate key, whatever the invoice is now
+    -- (paid in full, or PAID). Checked after the invoice write, which gives a fresh snapshot, so a
+    -- retry racing its original sees it too.
+    IF EXISTS (SELECT 1 FROM offline_payments o
+               WHERE o.business_id = NEW.business_id AND o.idempotency_key = NEW.idempotency_key) THEN
+      RAISE EXCEPTION 'duplicate key value violates unique constraint "offline_payments_business_id_idempotency_key_key"'
+        USING ERRCODE = 'unique_violation',
+              CONSTRAINT = 'offline_payments_business_id_idempotency_key_key',
+              TABLE = 'offline_payments',
+              DETAIL = format('Key (business_id, idempotency_key)=(%s, %s) already exists.',
+                              NEW.business_id, NEW.idempotency_key);
+    END IF;
+    IF NOT inv_found OR inv_status <> 'OPEN' OR inv_currency <> NEW.currency THEN
       RAISE EXCEPTION 'offline payments: only an open invoice takes a payment, in its own currency'
         USING ERRCODE = 'check_violation';
     END IF;
-    -- A fresh snapshot after the wait above: it counts a payment another transaction just committed.
+    -- An open checkout may still take the balance, and its success can't be refused: the API
+    -- expires it at Stripe (and marks its payment FAILED) first, or answers that a payment is in
+    -- progress.
+    IF EXISTS (SELECT 1 FROM payments p
+               WHERE p.business_id = NEW.business_id AND p.invoice_id = NEW.invoice_id
+                 AND p.status = 'PENDING') THEN
+      RAISE EXCEPTION 'PAYMENT_IN_PROGRESS: a Stripe checkout on this invoice is still open'
+        USING ERRCODE = 'FV004';
+    END IF;
     IF app_invoice_paid_cents(NEW.invoice_id) + NEW.amount_cents > inv_total THEN
       RAISE EXCEPTION 'OVER_BALANCE: an offline payment cannot be more than the balance due'
         USING ERRCODE = 'FV003';
@@ -178,7 +210,12 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- The void (the CHECK then requires the reason).
+  -- The void (the CHECK then requires the reason). Only through app_void_offline_payment: a
+  -- plain UPDATE has locked this row before this trigger runs, the wrong order (see below).
+  IF current_setting('app.offline_payment_void', true) IS DISTINCT FROM NEW.id::text THEN
+    RAISE EXCEPTION 'offline payments: void a payment with app_void_offline_payment(id, reason), which locks its invoice first'
+      USING ERRCODE = 'check_violation';
+  END IF;
   PERFORM app_require_firm_manager(NEW.business_id, NEW.voided_by_user_id);
   NEW.voided_at := now();
   UPDATE invoices i SET updated_at = i.updated_at
@@ -197,9 +234,47 @@ CREATE TRIGGER offline_payments_rules
   BEFORE INSERT OR UPDATE ON offline_payments
   FOR EACH ROW EXECUTE FUNCTION offline_payments_rules();
 
+-- ---------- The void: one entry point that locks the invoice first ----------
+-- PostgreSQL locks the row an UPDATE changes before its BEFORE trigger runs, and the trigger then
+-- writes the invoice: payment, then invoice. A transaction voiding two payments of one invoice
+-- holds the invoice when it reaches the second payment, so a plain void of that payment at the
+-- same moment would deadlock with it. This function takes the order every money write takes (the
+-- actor's membership, the invoice, then the payment), and the trigger refuses a void made any
+-- other way. The voider is the session's actor. Returns the voided row, or no row when no such
+-- payment is visible. Runs as the caller, under RLS.
+CREATE FUNCTION app_void_offline_payment(p_payment_id uuid, p_reason text)
+  RETURNS SETOF offline_payments
+  LANGUAGE plpgsql
+  AS $$
+DECLARE
+  pay offline_payments;
+BEGIN
+  SELECT o.* INTO pay FROM offline_payments o WHERE o.id = p_payment_id;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+  PERFORM app_require_firm_manager(pay.business_id, app_current_actor_id());
+  PERFORM 1 FROM invoices i
+   WHERE i.business_id = pay.business_id AND i.id = pay.invoice_id
+     FOR NO KEY UPDATE;
+  PERFORM set_config('app.offline_payment_void', p_payment_id::text, true);
+  UPDATE offline_payments o
+     SET voided_by_user_id = app_current_actor_id(), void_reason = p_reason, updated_at = now()
+   WHERE o.id = p_payment_id
+  RETURNING o.* INTO pay;
+  PERFORM set_config('app.offline_payment_void', '', true);
+  RETURN NEXT pay;
+END
+$$;
+REVOKE ALL ON FUNCTION app_void_offline_payment(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app_void_offline_payment(uuid, text) TO firmivra_app;
+
 -- A void that leaves a PAID invoice uncovered reopens it in the same statement: PAID -> OPEN,
--- paid_at cleared; issued_at, number and lines kept. It updates invoices only, never payments, so
--- the payment triggers' one-level-down gates (REFUNDED, the refund reserve) are never reached.
+-- paid_at cleared; issued_at, number and lines kept. A PAID invoice is always covered before a
+-- void (refunds don't lower app_invoice_paid_cents, and a void is one payment per statement), so
+-- an invoice short after the void is short because of it, by at most the voided amount. It
+-- updates invoices only, never payments, so the payment triggers' one-level-down gates
+-- (REFUNDED, the refund reserve) are never reached.
 CREATE FUNCTION offline_payments_reopen() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
@@ -216,13 +291,94 @@ CREATE TRIGGER offline_payments_reopen
   FOR EACH ROW WHEN (OLD.voided_at IS NULL AND NEW.voided_at IS NOT NULL)
   EXECUTE FUNCTION offline_payments_reopen();
 
+-- ---------- Payments: a new checkout is never for more than the balance due ----------
+-- As r0_review_fixes, except the insert: it writes the invoice row first (as a recording does),
+-- so a checkout and an offline recording on one invoice take turns, and it refuses a checkout
+-- above what the invoice still needs (OVER_BALANCE). Several open checkouts are still allowed (an
+-- abandoned one and a new one); if more than one succeeds, Stripe's money is recorded anyway and
+-- the firm refunds it, as before. The PENDING row is inserted when the checkout is created, before
+-- the client can pay; a webhook never inserts one.
+CREATE OR REPLACE FUNCTION payments_rules() RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+DECLARE
+  inv_status "InvoiceStatus";
+  inv_currency text;
+  inv_total integer;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'PENDING' OR NEW.paid_at IS NOT NULL OR NEW.refunded_at IS NOT NULL
+       OR NEW.failure_code IS NOT NULL OR NEW.refund_reserved_cents <> 0 THEN
+      RAISE EXCEPTION 'payments: a payment starts PENDING' USING ERRCODE = 'check_violation';
+    END IF;
+    UPDATE invoices i SET updated_at = i.updated_at
+     WHERE i.business_id = NEW.business_id AND i.id = NEW.invoice_id
+     RETURNING i.status, i.currency, i.total_cents INTO inv_status, inv_currency, inv_total;
+    IF NOT FOUND OR inv_status <> 'OPEN' OR inv_currency <> NEW.currency THEN
+      RAISE EXCEPTION 'payments: only an open invoice can be paid, in its own currency'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM stripe_accounts a
+                   WHERE a.business_id = NEW.business_id AND a.account_id = NEW.account_id
+                     AND a.charges_enabled) THEN
+      RAISE EXCEPTION 'payments: a payment runs only on the firm''s own connected account, with charges enabled'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF app_invoice_paid_cents(NEW.invoice_id) + NEW.amount_cents > inv_total THEN
+      RAISE EXCEPTION 'OVER_BALANCE: a checkout cannot be for more than the balance due'
+        USING ERRCODE = 'FV003';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.id <> OLD.id OR NEW.business_id <> OLD.business_id OR NEW.invoice_id <> OLD.invoice_id
+     OR NEW.amount_cents <> OLD.amount_cents OR NEW.currency <> OLD.currency
+     OR NEW.processor <> OLD.processor OR NEW.processor_ref <> OLD.processor_ref
+     OR NEW.account_id <> OLD.account_id OR NEW.created_at <> OLD.created_at THEN
+    RAISE EXCEPTION 'payments: the invoice, amount, account and processor reference cannot change'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.refund_reserved_cents <> OLD.refund_reserved_cents AND pg_trigger_depth() < 2 THEN
+    RAISE EXCEPTION 'payments: refund_reserved_cents is kept by the database from the refunds'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF (OLD.paid_at IS NOT NULL AND NEW.paid_at IS DISTINCT FROM OLD.paid_at)
+     OR (OLD.refunded_at IS NOT NULL AND NEW.refunded_at IS DISTINCT FROM OLD.refunded_at)
+     OR (OLD.failure_code IS NOT NULL AND NEW.failure_code IS DISTINCT FROM OLD.failure_code) THEN
+    RAISE EXCEPTION 'payments: paid_at, refunded_at and failure_code are set once'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.status <> OLD.status THEN
+    IF NOT ((OLD.status = 'PENDING' AND NEW.status IN ('SUCCEEDED', 'FAILED'))
+         OR (OLD.status = 'SUCCEEDED' AND NEW.status = 'REFUNDED')) THEN
+      RAISE EXCEPTION 'payments: a payment cannot go from % to %', OLD.status, NEW.status
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.status = 'SUCCEEDED'
+       AND NOT EXISTS (SELECT 1 FROM payment_events e
+                       WHERE e.payment_id = NEW.id AND e.account_id = NEW.account_id
+                         AND e.type IN ('payment_intent.succeeded', 'checkout.session.completed')) THEN
+      RAISE EXCEPTION 'payments: SUCCEEDED needs a recorded success event for this payment'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.status = 'REFUNDED' AND pg_trigger_depth() < 2 THEN
+      RAISE EXCEPTION 'payments: REFUNDED is set by the database when confirmed refunds cover the payment'
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END
+$$;
+
 -- ---------- Invoices: the review version (20261007064925), plus offline money ----------
--- Changes: the PAID gate counts app_invoice_paid_cents; an invoice with live offline payments is
--- not canceled; and PAID -> OPEN ("reopening") is allowed only one trigger level down, changing
--- only status and paid_at, when a voided offline payment leaves the invoice uncovered.
+-- Changes: the PAID gate counts app_invoice_paid_cents; an invoice that holds money (live offline
+-- payments, or a SUCCEEDED Stripe payment not yet refunded in full) is not canceled; and
+-- PAID -> OPEN ("reopening") is allowed only one trigger level down, changing only status and
+-- paid_at, when a voided offline payment leaves the invoice uncovered.
 -- The only triggers that write invoices one level down are invoice_lines_total (the subtotal,
--- never on a PAID invoice), offline_payments_rules (a no-op write) and offline_payments_reopen.
--- No other trigger may change an invoice's status: it would pass as a reopen.
+-- never on a PAID invoice), offline_payments_rules and payments_rules (no-op writes) and
+-- offline_payments_reopen. No other trigger may change an invoice's status: it would pass as a
+-- reopen.
 CREATE OR REPLACE FUNCTION invoices_rules() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
@@ -285,12 +441,17 @@ BEGIN
       RAISE EXCEPTION 'invoices: a paid invoice reopens only when a voided offline payment leaves it uncovered'
         USING ERRCODE = 'check_violation';
     END IF;
-    -- Money is never left on a canceled invoice: the firm voids it first, with a reason.
+    -- Money is never left on a canceled invoice: the firm voids its offline payments and refunds
+    -- its Stripe payments first (a SUCCEEDED payment, even partly refunded, still holds money; a
+    -- REFUNDED one doesn't).
     IF NEW.status = 'CANCELED'
-       AND EXISTS (SELECT 1 FROM offline_payments o
-                   WHERE o.business_id = NEW.business_id AND o.invoice_id = NEW.id
-                     AND o.voided_at IS NULL) THEN
-      RAISE EXCEPTION 'invoices: void its offline payments before canceling it'
+       AND (EXISTS (SELECT 1 FROM offline_payments o
+                    WHERE o.business_id = NEW.business_id AND o.invoice_id = NEW.id
+                      AND o.voided_at IS NULL)
+            OR EXISTS (SELECT 1 FROM payments p
+                       WHERE p.business_id = NEW.business_id AND p.invoice_id = NEW.id
+                         AND p.status = 'SUCCEEDED')) THEN
+      RAISE EXCEPTION 'invoices: it holds money; void its offline payments and refund its Stripe payments before canceling it'
         USING ERRCODE = 'check_violation';
     END IF;
     -- Nothing to pay means nothing to issue: an empty or fully discounted invoice is canceled.
@@ -301,7 +462,7 @@ BEGIN
     IF NEW.status = 'PAID' THEN
       paid_cents := app_invoice_paid_cents(NEW.id);
       IF paid_cents < NEW.subtotal_cents - NEW.discount_cents THEN
-        RAISE EXCEPTION 'invoices: PAID needs succeeded or offline payments covering the total'
+        RAISE EXCEPTION 'invoices: PAID needs Stripe and offline payments covering the total'
           USING ERRCODE = 'check_violation';
       END IF;
     END IF;

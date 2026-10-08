@@ -10,8 +10,17 @@ export const DB_ERRORS = {
    * not an active Owner or Admin (app_require_firm_manager). The API answers 403.
    */
   NOT_FIRM_MANAGER: 'FV002',
-  /** An offline payment above the invoice's balance due (offline_payments_rules). */
+  /**
+   * An offline payment, or a new Stripe checkout, above the invoice's balance due
+   * (offline_payments_rules, payments_rules).
+   */
   OVER_BALANCE: 'FV003',
+  /**
+   * An offline payment while a Stripe checkout on the invoice is still open (a PENDING payment).
+   * Expire the checkout at Stripe and mark its payment FAILED first; if Stripe already took the
+   * money, the API answers that a payment is in progress.
+   */
+  PAYMENT_IN_PROGRESS: 'FV004',
 } as const;
 
 export type DbErrorName = keyof typeof DB_ERRORS;

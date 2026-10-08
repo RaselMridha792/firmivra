@@ -1,7 +1,9 @@
 // Offline payments (Rasel, Oct 8, q28 h): an active Owner or Admin, acting as themselves, records a
-// check or cash payment on an OPEN invoice, never above the balance due. A recorded payment never
-// changes and is never deleted; a mistake is voided once, with a reason, and a void that leaves a
-// PAID invoice uncovered reopens it. Stripe's rules are unchanged. Runs as the app role under RLS.
+// check or cash payment on an OPEN invoice, never above the balance due and never while a Stripe
+// checkout is open. A recorded payment never changes and is never deleted; a mistake is voided
+// once, with a reason, through app_void_offline_payment, and a void that leaves a PAID invoice
+// uncovered reopens it. A new checkout is never for more than the balance. Runs as the app role
+// under RLS.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope, type TxClient } from '../src/client.js';
@@ -36,6 +38,10 @@ let invoiceNumber = 0;
 let checkNumber = 1000;
 
 /** Firm A's business scope, acting as `actor` (none when undefined). */
+const scopeA = (actor?: string) =>
+  actor === undefined
+    ? { kind: 'business' as const, businessId: ids.firmA }
+    : { kind: 'business' as const, businessId: ids.firmA, actorUserId: actor };
 const as = (actor?: string) =>
   db.forBusiness(ids.firmA, actor === undefined ? {} : { actorUserId: actor });
 const A = () => ({ businessId: ids.firmA });
@@ -80,23 +86,45 @@ const record = (
   as(actor).offlinePayment.create({
     data: recordData(invoiceId, amountCents, actor ?? u.owner, data),
   });
+const VOID_REASON = 'Recorded on the wrong invoice';
+/** Voids through app_void_offline_payment in `tx`; the session's actor is the voider. */
+const voidSql = (tx: TxClient, id: string, reason: string | null = VOID_REASON) =>
+  tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM app_void_offline_payment(${id}::uuid, ${reason}::text)`;
+/** Voids as `actor`: the payment afterwards, or null when none was voided. */
+const voidIt = async (id: string, actor = u.owner, reason: string | null = VOID_REASON) => {
+  const rows = await runInScope(app, scopeA(actor), (tx) => voidSql(tx, id, reason));
+  return rows.length === 0 ? null : as().offlinePayment.findUniqueOrThrow({ where: { id } });
+};
 const voidData = (actor: string, data: Prisma.OfflinePaymentUncheckedUpdateInput = {}) => ({
   voidedByUserId: actor,
-  voidReason: 'Recorded on the wrong invoice',
+  voidReason: VOID_REASON,
   ...data,
 });
-const voidIt = (
+/** A void by a plain UPDATE (refused: it would lock the payment before its invoice). */
+const plainVoid = (
   id: string,
-  actor: string | undefined = u.owner,
-  data: Prisma.OfflinePaymentUncheckedUpdateInput = {},
-) => as(actor).offlinePayment.update({ where: { id }, data: voidData(actor ?? u.owner, data) });
+  actor: string,
+  data: Prisma.OfflinePaymentUncheckedUpdateInput = voidData(actor),
+) => as(actor).offlinePayment.update({ where: { id }, data });
 const markPaidData = { status: 'PAID' as const, paidAt: new Date() };
 const markPaid = (id: string) => as().invoice.update({ where: { id }, data: markPaidData });
-const invoice = (id: string) => as().invoice.findUniqueOrThrow({ where: { id } });
-const stripePending = (invoiceId: string, amountCents: number) =>
-  as().payment.create({
-    data: { ...A(), invoiceId, amountCents, processorRef: `cs_${stripeId()}`, accountId: account },
+const cancel = (id: string) =>
+  as().invoice.update({
+    where: { id },
+    data: { status: 'CANCELED', canceledAt: new Date(), cancelReason: 'Billed twice' },
   });
+const invoice = (id: string) => as().invoice.findUniqueOrThrow({ where: { id } });
+const pendingData = (invoiceId: string, amountCents: number) => ({
+  ...A(),
+  invoiceId,
+  amountCents,
+  processorRef: `cs_${stripeId()}`,
+  accountId: account,
+});
+/** A Stripe checkout: its PENDING payment. */
+const stripePending = (invoiceId: string, amountCents: number) =>
+  as().payment.create({ data: pendingData(invoiceId, amountCents) });
 const stripeEvent = (paymentId: string, type = 'checkout.session.completed') =>
   as().paymentEvent.create({
     data: { ...A(), processorEventId: `evt_${stripeId()}`, type, paymentId, accountId: account },
@@ -108,8 +136,8 @@ const stripeSucceed = async (paymentId: string) => {
     data: { status: 'SUCCEEDED', paidAt: new Date() },
   });
 };
-/** A Stripe payment refunded in full: its refund confirmed by Stripe's event. */
-const refundInFull = async (paymentId: string, amountCents: number) => {
+/** A refund of `amountCents` from a Stripe payment, confirmed by Stripe's event. */
+const refund = async (paymentId: string, amountCents: number) => {
   const e = await stripeEvent(paymentId, 'charge.refunded');
   await as().paymentRefund.create({
     data: {
@@ -124,7 +152,9 @@ const refundInFull = async (paymentId: string, amountCents: number) => {
     },
   });
 };
-/** app_invoice_paid_cents: SUCCEEDED Stripe payments plus live offline payments. */
+const paymentStatus = async (id: string) =>
+  (await as().payment.findUniqueOrThrow({ where: { id } })).status;
+/** app_invoice_paid_cents: what Stripe took (refunded or not) plus live offline payments. */
 const paidCents = (invoiceId: string) =>
   runInScope(app, { kind: 'business', businessId: ids.firmA }, async (tx) => {
     const [row] = await tx.$queryRaw<{ n: bigint }[]>`
@@ -148,6 +178,7 @@ const outcome = (promise: Promise<unknown>) =>
     },
   );
 const SERIALIZATION = /^(40001|P2034) /;
+const IDEMPOTENCY_INDEX = 'offline_payments_business_id_idempotency_key_key';
 const fails = (promise: Promise<unknown>) =>
   promise.then(
     () => {
@@ -157,6 +188,12 @@ const fails = (promise: Promise<unknown>) =>
   );
 const notManager = async (promise: Promise<unknown>) =>
   expect(isDbError(await fails(promise), 'NOT_FIRM_MANAGER')).toBe(true);
+/** A replay: Prisma's P2002 on the idempotency key's unique index, as for any duplicate key. */
+const expectReplay = (error: unknown) => {
+  expect((error as { code?: unknown }).code).toBe('P2002');
+  expect(databaseErrorCode(error)).toBe('23505');
+  expect(JSON.stringify((error as { meta?: unknown }).meta)).toContain(IDEMPOTENCY_INDEX);
+};
 
 beforeAll(async () => {
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
@@ -305,20 +342,17 @@ describe('recording', () => {
     }
   });
 
-  it("a PENDING checkout and a REFUNDED payment don't count; a voided payment frees its cents", async () => {
-    const pending = await openInvoice(10000);
-    await stripePending(pending.id, 10000);
-    await expect(record(pending.id, 10000)).resolves.toBeDefined();
-
-    const refunded = await openInvoice(10000);
-    const p = await stripeSucceed((await stripePending(refunded.id, 10000)).id);
-    await refundInFull(p.id, 10000);
-    expect((await as().payment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('REFUNDED');
-    expect(await paidCents(refunded.id)).toBe(0);
-    const first = await record(refunded.id, 10000);
-    await expect(record(refunded.id, 1)).rejects.toThrow(/OVER_BALANCE/);
+  it('a refunded Stripe payment still counts; a voided payment frees its cents', async () => {
+    const inv = await openInvoice(10000);
+    const p = await stripeSucceed((await stripePending(inv.id, 4000)).id);
+    await refund(p.id, 4000);
+    expect(await paymentStatus(p.id)).toBe('REFUNDED');
+    // A refund never makes money owed again (a refunded invoice stays PAID).
+    expect(await paidCents(inv.id)).toBe(4000);
+    await expect(record(inv.id, 6001)).rejects.toThrow(/OVER_BALANCE/);
+    const first = await record(inv.id, 6000);
     await voidIt(first.id);
-    await expect(record(refunded.id, 10000)).resolves.toBeDefined();
+    await expect(record(inv.id, 6000)).resolves.toBeDefined();
   });
 
   it('checks the reference, note and received date', async () => {
@@ -373,9 +407,9 @@ describe('recording', () => {
 
     const key = randomUUID();
     await record(inv.id, 100, u.owner, { idempotencyKey: key });
-    await expect(record(inv.id, 100, u.owner, { idempotencyKey: key })).rejects.toThrow(
-      /unique constraint/i,
-    );
+    expectReplay(await fails(record(inv.id, 100, u.owner, { idempotencyKey: key })));
+    // The same key on another invoice of the firm is the same request: a replay too.
+    expectReplay(await fails(record(other.id, 100, u.owner, { idempotencyKey: key })));
     // The same key in another firm is that firm's own.
     const invB = await db.forBusiness(ids.firmB).invoice.create({
       data: { businessId: ids.firmB, clientId: ids.clientB, number: `INV-B-${run}` },
@@ -395,6 +429,16 @@ describe('recording', () => {
         },
       }),
     ).resolves.toBeDefined();
+  });
+
+  it('a retry of a recording that paid the balance is a replay, even once the invoice is PAID', async () => {
+    const inv = await openInvoice(10000);
+    const key = randomUUID();
+    await record(inv.id, 10000, u.owner, { idempotencyKey: key });
+    const retry = () => record(inv.id, 10000, u.owner, { idempotencyKey: key });
+    expectReplay(await fails(retry()));
+    await markPaid(inv.id);
+    expectReplay(await fails(retry()));
   });
 
   it('a recorded payment never changes and is never deleted', async () => {
@@ -427,8 +471,35 @@ describe('recording', () => {
   });
 });
 
-describe('PAID', () => {
-  it('needs SUCCEEDED Stripe plus live offline payments covering the total', async () => {
+describe('Stripe and offline money on one invoice', () => {
+  it('a new checkout is never for more than the balance due (OVER_BALANCE)', async () => {
+    const inv = await openInvoice(10000);
+    await record(inv.id, 6000);
+    const over = await fails(stripePending(inv.id, 10000));
+    expect(isDbError(over, 'OVER_BALANCE')).toBe(true);
+    // Two open checkouts for the balance (an abandoned one and a new one) are allowed.
+    const checkout = await stripePending(inv.id, 4000);
+    await expect(stripePending(inv.id, 4000)).resolves.toBeDefined();
+    await stripeSucceed(checkout.id);
+    await expect(stripePending(inv.id, 1)).rejects.toThrow(/OVER_BALANCE/);
+    expect(await paidCents(inv.id)).toBe(10000);
+  });
+
+  it('an open checkout blocks a recording (PAYMENT_IN_PROGRESS) until it fails', async () => {
+    expect(DB_ERRORS.PAYMENT_IN_PROGRESS).toBe('FV004');
+    const inv = await openInvoice(10000);
+    const checkout = await stripePending(inv.id, 10000);
+    const blocked = await fails(record(inv.id, 1000));
+    expect(isDbError(blocked, 'PAYMENT_IN_PROGRESS')).toBe(true);
+    // The API expires the session at Stripe, then marks its payment FAILED.
+    await as().payment.update({
+      where: { id: checkout.id },
+      data: { status: 'FAILED', failureCode: 'expired' },
+    });
+    await expect(record(inv.id, 10000)).resolves.toBeDefined();
+  });
+
+  it('PAID needs Stripe plus live offline payments covering the total', async () => {
     const inv = await openInvoice(10000);
     await stripeSucceed((await stripePending(inv.id, 6000)).id);
     await record(inv.id, 3000);
@@ -448,9 +519,9 @@ describe('voiding', () => {
     const a = await record(inv.id, 1000);
     const b = await record(inv.id, 1000);
     const before = Date.now();
-    const voided = await voidIt(a.id, u.owner, { voidedAt: new Date('2020-01-01') });
-    expect(voided.voidedAt!.getTime()).toBeGreaterThan(before - 60_000);
-    expect(voided).toMatchObject({ voidedByUserId: u.owner });
+    const voided = await voidIt(a.id, u.owner);
+    expect(voided!.voidedAt!.getTime()).toBeGreaterThan(before - 60_000);
+    expect(voided).toMatchObject({ voidedByUserId: u.owner, voidReason: VOID_REASON });
     await expect(voidIt(b.id, u.admin)).resolves.toMatchObject({ voidedByUserId: u.admin });
     expect(await paidCents(inv.id)).toBe(0);
   });
@@ -458,14 +529,8 @@ describe('voiding', () => {
   it('needs a reason of 1 to 500 characters (a missing reason is refused too)', async () => {
     const inv = await openInvoice();
     const p = await record(inv.id, 1000);
-    for (const data of [
-      { voidedByUserId: u.owner },
-      { voidedByUserId: u.owner, voidReason: '  ' },
-      { voidedByUserId: u.owner, voidReason: 'x'.repeat(501) },
-    ]) {
-      await expect(
-        as(u.owner).offlinePayment.update({ where: { id: p.id }, data }),
-      ).rejects.toThrow(/check constraint/i);
+    for (const reason of [null, '  ', 'x'.repeat(501)]) {
+      await expect(voidIt(p.id, u.owner, reason)).rejects.toThrow(/check constraint/i);
     }
     expect((await as().offlinePayment.findUniqueOrThrow({ where: { id: p.id } })).voidedAt).toBe(
       null,
@@ -478,13 +543,25 @@ describe('voiding', () => {
     for (const who of [u.staff, u.invited, u.deactivated, u.client]) {
       await notManager(voidIt(p.id, who));
     }
-    await notManager(as().offlinePayment.update({ where: { id: p.id }, data: voidData(u.owner) }));
-    await notManager(
-      as(u.owner).offlinePayment.update({ where: { id: p.id }, data: voidData(u.admin) }),
-    );
-    // A void without a voider is still a void, by nobody.
-    await notManager(
-      as(u.owner).offlinePayment.update({ where: { id: p.id }, data: { voidReason: 'Oops' } }),
+    // No actor at all (the default TenantPrisma.db).
+    await notManager(runInScope(app, scopeA(), (tx) => voidSql(tx, p.id)));
+    expect(await voidIt(randomUUID())).toBeNull();
+  });
+
+  it('only through app_void_offline_payment, which locks the invoice first', async () => {
+    const inv = await openInvoice();
+    const p = await record(inv.id, 1000);
+    const voids: Prisma.OfflinePaymentUncheckedUpdateInput[] = [
+      voidData(u.owner),
+      voidData(u.admin),
+      { voidReason: 'Oops' },
+      { voidedByUserId: u.owner },
+    ];
+    for (const data of voids) {
+      await expect(plainVoid(p.id, u.owner, data)).rejects.toThrow(/app_void_offline_payment/);
+    }
+    expect((await as().offlinePayment.findUniqueOrThrow({ where: { id: p.id } })).voidedAt).toBe(
+      null,
     );
   });
 
@@ -492,14 +569,13 @@ describe('voiding', () => {
     const inv = await openInvoice();
     const p = await record(inv.id, 1000);
     await voidIt(p.id);
-    for (const data of [
-      voidData(u.admin),
+    await expect(voidIt(p.id, u.admin)).rejects.toThrow(/voided payment is final/);
+    const changes: Prisma.OfflinePaymentUncheckedUpdateInput[] = [
       { voidedAt: null, voidedByUserId: null, voidReason: null },
       { voidReason: 'Another reason' },
-    ]) {
-      await expect(
-        as(u.owner).offlinePayment.update({ where: { id: p.id }, data }),
-      ).rejects.toThrow(/voided payment is final/);
+    ];
+    for (const data of changes) {
+      await expect(plainVoid(p.id, u.owner, data)).rejects.toThrow(/voided payment is final/);
     }
   });
 });
@@ -509,7 +585,7 @@ describe('reopen and cancel', () => {
     const inv = await openInvoice(10000);
     const p = await record(inv.id, 10000);
     const paid = await markPaid(inv.id);
-    await voidIt(p.id, u.owner, { voidReason: 'Check returned unpaid' });
+    await voidIt(p.id, u.owner, 'Check returned unpaid');
     const reopened = await invoice(inv.id);
     expect(reopened).toMatchObject({ status: 'OPEN', paidAt: null, number: paid.number });
     expect(reopened.issuedAt).toEqual(paid.issuedAt);
@@ -526,25 +602,27 @@ describe('reopen and cancel', () => {
     ).rejects.toThrow(/final/);
   });
 
-  it('a void on a PAID invoice still covered (here by a late Stripe success) leaves it PAID', async () => {
+  it('a void on a PAID invoice still covered (by two checkouts that both succeeded) leaves it PAID', async () => {
     const inv = await openInvoice(10000);
-    const pending = await stripePending(inv.id, 10000);
-    const cash = await record(inv.id, 10000, u.owner, { method: 'CASH', reference: null });
+    const cash = await record(inv.id, 4000, u.owner, { method: 'CASH', reference: null });
+    const first = await stripePending(inv.id, 6000);
+    const second = await stripePending(inv.id, 6000);
+    await stripeSucceed(first.id);
     await markPaid(inv.id);
-    // Stripe's success after offline money paid it is still recorded, and can be refunded.
-    await expect(stripeSucceed(pending.id)).resolves.toMatchObject({ status: 'SUCCEEDED' });
+    // Stripe's success after the invoice is PAID is still recorded, and can be refunded.
+    await expect(stripeSucceed(second.id)).resolves.toMatchObject({ status: 'SUCCEEDED' });
     await expect(
       as().paymentRefund.create({
         data: {
           ...A(),
-          paymentId: pending.id,
+          paymentId: second.id,
           processorRefundId: `re_${stripeId()}`,
           accountId: account,
           amountCents: 2500,
         },
       }),
     ).resolves.toMatchObject({ status: 'PENDING' });
-    await voidIt(cash.id, u.owner, { voidReason: 'Paid by card as well' });
+    await voidIt(cash.id, u.owner, 'Paid by card as well');
     expect((await invoice(inv.id)).status).toBe('PAID');
   });
 
@@ -552,21 +630,60 @@ describe('reopen and cancel', () => {
     const inv = await openInvoice(10000);
     const p = await stripeSucceed((await stripePending(inv.id, 10000)).id);
     await markPaid(inv.id);
-    await refundInFull(p.id, 10000);
+    await refund(p.id, 10000);
     expect((await invoice(inv.id)).status).toBe('PAID');
+  });
+
+  it('after a partial or a full card refund, a void reopens only the amount it removed', async () => {
+    for (const refundCents of [4999, 5000]) {
+      const inv = await openInvoice(10000);
+      const check = await record(inv.id, 5000);
+      const card = await stripeSucceed((await stripePending(inv.id, 5000)).id);
+      await markPaid(inv.id);
+      await refund(card.id, refundCents);
+      expect(await paymentStatus(card.id)).toBe(refundCents === 5000 ? 'REFUNDED' : 'SUCCEEDED');
+      expect((await invoice(inv.id)).status).toBe('PAID');
+      await voidIt(check.id, u.owner, 'Check returned unpaid');
+      expect(await invoice(inv.id)).toMatchObject({ status: 'OPEN', paidAt: null });
+      // $50 due again: the returned check, never the card money the firm gave back.
+      expect(await paidCents(inv.id)).toBe(5000);
+    }
+  });
+
+  it('voiding cash after an overpaying card payment was refunded in full leaves the invoice PAID', async () => {
+    const inv = await openInvoice(10000);
+    const cash = await record(inv.id, 100, u.owner, { method: 'CASH', reference: null });
+    const tabs = [await stripePending(inv.id, 9900), await stripePending(inv.id, 9900)];
+    for (const p of tabs) await stripeSucceed(p.id);
+    await markPaid(inv.id);
+    await refund(tabs[1]!.id, 9900);
+    expect(await paymentStatus(tabs[1]!.id)).toBe('REFUNDED');
+    await voidIt(cash.id, u.owner, 'Recorded twice');
+    // The client paid by card twice; the refund gave the second payment back. Nothing is owed.
+    expect((await invoice(inv.id)).status).toBe('PAID');
+    expect(await paidCents(inv.id)).toBe(19800);
   });
 
   it('an invoice with live offline payments is not canceled; after the void it is', async () => {
     const inv = await openInvoice();
     const p = await record(inv.id, 5000);
-    const cancel = () =>
-      as().invoice.update({
-        where: { id: inv.id },
-        data: { status: 'CANCELED', canceledAt: new Date(), cancelReason: 'Billed twice' },
-      });
-    await expect(cancel()).rejects.toThrow(/void its offline payments before canceling it/);
-    await voidIt(p.id, u.owner, { voidReason: 'Returned to client' });
-    await expect(cancel()).resolves.toMatchObject({ status: 'CANCELED' });
+    await expect(cancel(inv.id)).rejects.toThrow(/holds money/);
+    await voidIt(p.id, u.owner, 'Returned to client');
+    await expect(cancel(inv.id)).resolves.toMatchObject({ status: 'CANCELED' });
+  });
+
+  it('a reopened invoice holding card money is not canceled until the card payment is refunded', async () => {
+    const inv = await openInvoice(10000);
+    const check = await record(inv.id, 5000);
+    const card = await stripeSucceed((await stripePending(inv.id, 5000)).id);
+    await markPaid(inv.id);
+    await voidIt(check.id, u.owner, 'Check returned unpaid');
+    expect((await invoice(inv.id)).status).toBe('OPEN');
+    await expect(cancel(inv.id)).rejects.toThrow(/holds money/);
+    await refund(card.id, 2500);
+    await expect(cancel(inv.id)).rejects.toThrow(/holds money/);
+    await refund(card.id, 2500);
+    await expect(cancel(inv.id)).resolves.toMatchObject({ status: 'CANCELED' });
   });
 });
 
@@ -588,6 +705,15 @@ describe('who sees offline payments', () => {
         })
       ).count,
     ).toBe(0);
+    const voidedByB = await runInScope(
+      app,
+      { kind: 'business', businessId: ids.firmB, actorUserId: u.ownerB },
+      (tx) => voidSql(tx, p.id, 'Planted'),
+    );
+    expect(voidedByB).toEqual([]);
+    expect((await as().offlinePayment.findUniqueOrThrow({ where: { id: p.id } })).voidedAt).toBe(
+      null,
+    );
   });
 
   it('support scope is read-only: a Super Admin with a grant cannot record', async () => {
@@ -628,11 +754,14 @@ describe('two at once (two app-role sessions)', () => {
       },
       { isolationLevel, maxWait: 15_000, timeout: 60_000 },
     );
-  type Step = [actor: string, fn: (tx: TxClient) => Promise<unknown>];
+  type Work = (tx: TxClient) => Promise<unknown>;
+  /** As `actor`: the work, and for the first transaction, work to do after the second waits. */
+  type Step = [actor: string, fn: Work, then?: Work];
 
   /**
    * Runs `first` and holds its transaction open; starts `second`, waits until it is blocked by a
-   * lock (pg_blocking_pids), then lets `first` commit. Returns both outcomes.
+   * lock (pg_blocking_pids), then lets `first` finish (its `then` step) and commit. Returns both
+   * outcomes.
    */
   async function race(first: Step, second: Step, isolationLevel: Iso = 'ReadCommitted') {
     let release!: () => void;
@@ -646,6 +775,7 @@ describe('two at once (two app-role sessions)', () => {
           await first[1](tx);
           held();
           await released;
+          if (first[2]) await first[2](tx);
         },
         isolationLevel,
       ),
@@ -691,10 +821,18 @@ describe('two at once (two app-role sessions)', () => {
     expect(waited, `the second transaction did not wait: ${outcomes[1]}`).toBe(true);
     return outcomes;
   }
-  const recordIn = (invoiceId: string, cents: number, actor: string) => (tx: TxClient) =>
-    tx.offlinePayment.create({ data: recordData(invoiceId, cents, actor) });
-  const voidIn = (id: string, actor: string) => (tx: TxClient) =>
-    tx.offlinePayment.update({ where: { id }, data: voidData(actor) });
+  const recordIn =
+    (
+      invoiceId: string,
+      cents: number,
+      actor: string,
+      data: Partial<Prisma.OfflinePaymentUncheckedCreateInput> = {},
+    ) =>
+    (tx: TxClient) =>
+      tx.offlinePayment.create({ data: recordData(invoiceId, cents, actor, data) });
+  const voidIn = (id: string) => (tx: TxClient) => voidSql(tx, id);
+  const checkoutIn = (invoiceId: string, cents: number) => (tx: TxClient) =>
+    tx.payment.create({ data: pendingData(invoiceId, cents) });
   const recordAndPayIn =
     (invoiceId: string, cents: number, actor: string) => async (tx: TxClient) => {
       await tx.offlinePayment.create({ data: recordData(invoiceId, cents, actor) });
@@ -724,12 +862,46 @@ describe('two at once (two app-role sessions)', () => {
     expect(await paidCents(inv.id)).toBe(6000);
   });
 
+  it('a retry racing its original is a replay, even when the original paid the balance', async () => {
+    const inv = await openInvoice(10000);
+    const idempotencyKey = randomUUID();
+    const [one, two] = await race(
+      [u.owner, recordIn(inv.id, 10000, u.owner, { idempotencyKey })],
+      [u.owner, recordIn(inv.id, 10000, u.owner, { idempotencyKey })],
+    );
+    expect(one).toBe('ok');
+    expect(two).toMatch(/^23505 /);
+    expect(two).toContain(IDEMPOTENCY_INDEX);
+    expect(await paidCents(inv.id)).toBe(10000);
+  });
+
+  it('a checkout waiting behind a recording is held to the balance (OVER_BALANCE)', async () => {
+    const inv = await openInvoice(10000);
+    const [one, two] = await race(
+      [u.owner, recordIn(inv.id, 6000, u.owner)],
+      [u.admin, checkoutIn(inv.id, 10000)],
+    );
+    expect(one).toBe('ok');
+    expect(two).toMatch(/^FV003 /);
+  });
+
+  it('a recording waiting behind a new checkout is refused (PAYMENT_IN_PROGRESS)', async () => {
+    const inv = await openInvoice(10000);
+    const [one, two] = await race(
+      [u.admin, checkoutIn(inv.id, 10000)],
+      [u.owner, recordIn(inv.id, 6000, u.owner)],
+    );
+    expect(one).toBe('ok');
+    expect(two).toMatch(/^FV004 /);
+    expect(await paidCents(inv.id)).toBe(0);
+  });
+
   it('a void waiting behind "record the rest and mark PAID" reopens the invoice', async () => {
     const inv = await openInvoice(10000);
     const cash = await record(inv.id, 2000, u.owner, { method: 'CASH', reference: null });
     const [one, two] = await race(
       [u.owner, recordAndPayIn(inv.id, 8000, u.owner)],
-      [u.admin, voidIn(cash.id, u.admin)],
+      [u.admin, voidIn(cash.id)],
     );
     expect([one, two]).toEqual(['ok', 'ok']);
     expect(await invoice(inv.id)).toMatchObject({ status: 'OPEN', paidAt: null });
@@ -741,7 +913,7 @@ describe('two at once (two app-role sessions)', () => {
     const cash = await record(inv.id, 2000, u.owner, { method: 'CASH', reference: null });
     const [one, two] = await race(
       [u.owner, recordAndPayIn(inv.id, 8000, u.owner)],
-      [u.admin, voidIn(cash.id, u.admin)],
+      [u.admin, voidIn(cash.id)],
       'RepeatableRead',
     );
     expect(one).toBe('ok');
@@ -754,13 +926,24 @@ describe('two at once (two app-role sessions)', () => {
     const inv = await openInvoice(10000);
     const cash = await record(inv.id, 2000, u.owner, { method: 'CASH', reference: null });
     const [one, two] = await race(
-      [u.owner, voidIn(cash.id, u.owner)],
+      [u.owner, voidIn(cash.id)],
       [u.admin, recordAndPayIn(inv.id, 8000, u.admin)],
     );
     expect(one).toBe('ok');
     expect(two).toMatch(/covering the total/);
     expect((await invoice(inv.id)).status).toBe('OPEN');
     expect(await paidCents(inv.id)).toBe(0);
+  });
+
+  it('voiding two payments of an invoice and a void of the second at once take turns (no deadlock)', async () => {
+    const inv = await openInvoice(10000);
+    const a = await record(inv.id, 1000);
+    const b = await record(inv.id, 1000);
+    const [one, two] = await race([u.owner, voidIn(a.id), voidIn(b.id)], [u.admin, voidIn(b.id)]);
+    expect(one).toBe('ok');
+    expect(two).toMatch(/voided payment is final/);
+    const rows = await as().offlinePayment.findMany({ where: { invoiceId: inv.id } });
+    expect(rows.map((r) => r.voidedByUserId)).toEqual([u.owner, u.owner]);
   });
 
   it('a cancel waiting behind a recording is refused', async () => {
@@ -777,7 +960,7 @@ describe('two at once (two app-role sessions)', () => {
       ],
     );
     expect(one).toBe('ok');
-    expect(two).toMatch(/void its offline payments before canceling it/);
+    expect(two).toMatch(/holds money/);
     expect((await invoice(inv.id)).status).toBe('OPEN');
   });
 

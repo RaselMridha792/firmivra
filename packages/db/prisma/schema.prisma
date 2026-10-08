@@ -1490,10 +1490,12 @@ model ClientNoteReminder {
 
 /// A firm's invoice to one client, optionally for one of that client's engagements. Money is in
 /// integer cents. The database keeps the totals: subtotal is the sum of the lines and total is
-/// subtotal minus discount. Lines change only while DRAFT or SCHEDULED. PAID needs SUCCEEDED
-/// payments plus live (not voided) offline payments covering the total. PAID and CANCELED are
-/// final, except that the database reopens a PAID invoice when voiding an offline payment leaves
-/// it uncovered. An invoice with live offline payments cannot be canceled. Never deleted.
+/// subtotal minus discount. Lines change only while DRAFT or SCHEDULED. PAID needs the money Stripe
+/// took (SUCCEEDED or REFUNDED payments: a refund never makes an invoice owed again) plus live (not
+/// voided) offline payments covering the total, the database's app_invoice_paid_cents. PAID and
+/// CANCELED are final, except that the database reopens a PAID invoice when voiding an offline
+/// payment leaves it uncovered. An invoice holding money (live offline payments, or a SUCCEEDED
+/// Stripe payment) cannot be canceled. Never deleted.
 model Invoice {
   id              String        @id @default(uuid(7)) @db.Uuid
   businessId      String        @map("business_id") @db.Uuid
@@ -1554,8 +1556,9 @@ model InvoiceLine {
 }
 
 /// A payment toward an invoice through the processor (Stripe hosted checkout). It starts
-/// PENDING; it becomes SUCCEEDED or REFUNDED only after a recorded processor event names it, so
-/// money is confirmed only by a verified webhook. Never deleted.
+/// PENDING, inserted when the checkout is created, for no more than the balance due; it becomes
+/// SUCCEEDED or REFUNDED only after a recorded processor event names it, so money is confirmed
+/// only by a verified webhook. Never deleted.
 model Payment {
   id                  String           @id @default(uuid(7)) @db.Uuid
   businessId          String           @map("business_id") @db.Uuid
@@ -1589,9 +1592,10 @@ model Payment {
 }
 
 /// A check or cash payment toward an invoice, recorded by an active Owner or Admin acting as
-/// themselves, on an OPEN invoice, never above the balance due. Separate from Payment (Stripe
-/// only), so no Stripe rule changes. Fixed once recorded and never deleted: a mistake is voided
-/// once, with a reason, and a void that leaves a PAID invoice uncovered reopens it.
+/// themselves, on an OPEN invoice with no open Stripe checkout, never above the balance due.
+/// Separate from Payment (Stripe only). Fixed once recorded and never deleted: a mistake is voided
+/// once, with a reason, through the database function app_void_offline_payment (never a plain
+/// update), and a void that leaves a PAID invoice uncovered reopens it.
 model OfflinePayment {
   id               String               @id @default(uuid(7)) @db.Uuid
   businessId       String               @map("business_id") @db.Uuid
@@ -1613,8 +1617,8 @@ model OfflinePayment {
   recordedByUserId String               @map("recorded_by_user_id") @db.Uuid
   /// Set by the database (now()).
   recordedAt       DateTime             @default(now()) @map("recorded_at") @db.Timestamptz(3)
-  /// The void: all three set together, once, by an active Owner or Admin acting as themselves.
-  /// voidedAt is set by the database.
+  /// The void: all three set together, once, by app_void_offline_payment(id, reason), acting as an
+  /// active Owner or Admin. voidedAt is set by the database.
   voidedAt         DateTime?            @map("voided_at") @db.Timestamptz(3)
   voidedByUserId   String?              @map("voided_by_user_id") @db.Uuid
   voidReason       String?              @map("void_reason")
