@@ -8,7 +8,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { MfaSetupResponse, SignInResult } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import {
@@ -65,7 +65,7 @@ async function asOwner<T>(
   scope: Parameters<typeof runInScope>[1],
   work: Parameters<typeof runInScope<T>>[2],
 ) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     return await runInScope(owner, scope, work);
   } finally {
@@ -224,7 +224,14 @@ describe('parallel attempts (reserved before Cognito is asked)', () => {
 
 describe('audit', () => {
   it('records each sign-in and failure, with a keyed hash of the email, never the email', async () => {
-    await fail(1, () => staffSignIn(staff.audited.email, WRONG));
+    // Its own User-Agent finds its rows, whatever other test files write at the same time.
+    const userAgent = `r2-lim-audited-${tag}`;
+    const wrong = await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-in')
+      .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+      .set('user-agent', userAgent)
+      .send({ email: staff.audited.email, password: WRONG });
+    expect([wrong.status, codeOf(wrong)]).toEqual([401, 'INVALID_CREDENTIALS']);
     const first = await staffSignIn(staff.audited.email, LOCAL_PASSWORD);
     const setup = await post('/api/v1/auth/mfa/setup', {
       session: (first.body as { session: string }).session,
@@ -238,10 +245,7 @@ describe('audit', () => {
       tx.auditLog.findMany({
         where: {
           businessId: null,
-          OR: [
-            { action: 'auth.signed_in', entityId: staff.audited.id },
-            { action: 'auth.sign_in_failed', createdAt: { gt: new Date(Date.now() - 60_000) } },
-          ],
+          OR: [{ action: 'auth.signed_in', entityId: staff.audited.id }, { userAgent }],
         },
         select: { action: true, actorUserId: true, metadata: true },
         orderBy: { createdAt: 'asc' },
@@ -251,13 +255,20 @@ describe('audit', () => {
     expect(signedIn).toEqual([
       { action: 'auth.signed_in', actorUserId: staff.audited.id, metadata: { pool: 'STAFF' } },
     ]);
-    const failed = rows.filter((r) => r.action === 'auth.sign_in_failed').at(-1);
-    expect(failed?.actorUserId).toBeNull();
-    expect(failed?.metadata).toEqual({
+    const failed = rows.filter((r) => r.action === 'auth.sign_in_failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.actorUserId).toBeNull();
+    expect(failed[0]?.metadata).toEqual({
       emailKey: expect.stringMatching(/^[0-9a-f]{64}$/) as unknown,
       step: 'password',
       pool: 'STAFF',
       reservationId: expect.any(String) as unknown,
+    });
+    // Its attempt row carries the same reservation and email key.
+    const attempt = rows.find((r) => r.action === 'auth.sign_in_attempt');
+    expect(attempt?.metadata).toMatchObject({
+      emailKey: (failed[0]?.metadata as { emailKey?: string }).emailKey,
+      reservationId: (failed[0]?.metadata as { reservationId?: string }).reservationId,
     });
     expect(JSON.stringify(rows)).not.toContain(staff.audited.email);
   });
@@ -397,14 +408,18 @@ describe('the reservation key (#84 follow-up)', () => {
     const perEmail = SIGN_IN_LIMIT.perEmail;
     SIGN_IN_LIMIT.perEmail = 2;
     try {
-      // One failure now gives the email key its value as the API writes it.
-      const first = await staffSignIn(email, WRONG);
+      // One failure now gives the email key its value as the API writes it. Its own User-Agent
+      // finds its row, whatever other test files write at the same time.
+      const userAgent = `r2-lim-oldkey-${tag}`;
+      const first = await request(app.getHttpServer())
+        .post('/api/v1/auth/sign-in')
+        .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+        .set('user-agent', userAgent)
+        .send({ email, password: WRONG });
       expect([first.status, codeOf(first)]).toEqual([401, 'INVALID_CREDENTIALS']);
       const [row] = await asOwner({ kind: 'platform' }, (tx) =>
         tx.auditLog.findMany({
-          where: { businessId: null, action: 'auth.sign_in_attempt' },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
+          where: { businessId: null, action: 'auth.sign_in_attempt', userAgent },
           select: { metadata: true },
         }),
       );
