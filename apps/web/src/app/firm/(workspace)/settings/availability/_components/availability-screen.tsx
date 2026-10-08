@@ -6,10 +6,11 @@ import { useMe } from '../../../../../../components/signed-in';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { AVAILABILITY } from '../../../calendar/_components/shared';
+import { BlockedTimes } from './blocked-times';
 import { WorkingHours } from './working-hours';
 
 /**
- * Settings > Availability: everyone's regular hours, in the firm's time zone.
+ * Settings > Availability: everyone's regular hours and time away, in the firm's time zone.
  * Everyone reads; Owner and Admin change anyone's, Staff their own (the API checks again).
  */
 export function AvailabilityScreen() {
@@ -39,6 +40,7 @@ export function AvailabilityScreen() {
                 editable={manager || member.member.userId === me.user.id}
               />
             ))}
+            <BlockedTimes members={members} timeZone={timezone} me={me.user.id} manager={manager} />
           </>
         )}
       </PageState>
