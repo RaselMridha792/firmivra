@@ -1,11 +1,12 @@
 'use client';
 
-import { Button, Card } from '@firmivra/ui';
+import { Card } from '@firmivra/ui';
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { isActive } from '../../../../../components/app-shell/types';
+import { ButtonLink } from '../../(public)/_components/button-link';
 
 const tabs: [label: string, path: string][] = [
   ['Intake Form', 'intake'],
@@ -23,7 +24,6 @@ const tabs: [label: string, path: string][] = [
 export default function TabsLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
   const pathname = usePathname();
-  const router = useRouter();
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
@@ -60,9 +60,7 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
       <aside className="flex w-full flex-col gap-4 lg:w-72">
         <Card title="Need Help?" className="bg-firm-primary! text-on-action [&_h2]:text-on-action">
           <p className="my-3 text-sm">Our team is here for you.</p>
-          <Button className="w-full" onClick={() => router.push(`/${firmSlug}/messages`)}>
-            Send a Message <ArrowRight aria-hidden className="size-5" />
-          </Button>
+          <ButtonLink href={`/${firmSlug}/messages`}>Send a Message</ButtonLink>
         </Card>
         <Card title="Upcoming Appointment">
           <p className="my-3 text-sm text-muted">

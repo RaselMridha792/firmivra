@@ -19,7 +19,7 @@ import Link from 'next/link';
 import { Header } from '../../../../components/app-shell/header';
 import { isActive } from '../../../../components/app-shell/types';
 import { usePortal } from '../layout';
-import { PortalFooter } from '../(public)/layout';
+import { PortalFooter } from '../(public)/_components/portal-footer';
 import type { NavSections } from '../../../../components/app-shell/types';
 import { SignedIn, useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
@@ -136,7 +136,7 @@ function PortalShell({ children, sections }: { children: ReactNode; sections: Na
           greeting={`Welcome back, ${me.user.name.split(' ')[0]}!`}
         />
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
-        <PortalFooter />
+        <PortalFooter contact />
       </div>
       <div className="[&_dialog]:m-0 [&_dialog]:h-screen! [&_dialog]:max-h-screen! [&_dialog]:w-sidebar! [&_dialog]:rounded-none [&_dialog]:p-0 [&_dialog>div]:p-4">
         <Modal open={drawer} title="Portal menu" onClose={() => setDrawer(false)}>
