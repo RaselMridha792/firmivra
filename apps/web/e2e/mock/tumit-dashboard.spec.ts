@@ -1,27 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const admin = `http://admin.localhost:${port}`;
-const mockMe = {
-  user: {
-    id: '00000000-0000-4000-8000-000000000010',
-    email: 'morgan.admin@example.test',
-    name: 'Morgan Admin',
-    pool: 'ADMIN',
-  },
-  memberships: [],
-  clientAccounts: [],
-  platformAdmin: true,
-};
 
 test.use({ timezoneId: 'America/Los_Angeles' });
 
-async function mockAdminMe(page: Page) {
-  await page.route('**/api/v1/admin/me', (route) => route.fulfill({ status: 200, json: mockMe }));
-}
-
 test('dashboard uses the firm applications mock and fits a 375 px screen', async ({ page }) => {
-  await mockAdminMe(page);
   await page.goto(`${admin}/`);
 
   await expect(page.getByRole('heading', { name: 'Welcome back, Morgan!' })).toBeVisible();
