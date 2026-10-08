@@ -52,19 +52,7 @@ export function StepFrame({
     <form onSubmit={submit(true)} noValidate>
       <Card title={title} className="flex flex-col gap-4">
         {children}
-        <div className="flex flex-wrap justify-between gap-3 border-t border-border pt-4">
-          <Button variant="secondary" onClick={onBack} disabled={save.isPending || !onBack}>
-            Back
-          </Button>
-          <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" onClick={submit(false)} disabled={save.isPending}>
-              Save draft
-            </Button>
-            <Button type="submit" disabled={save.isPending}>
-              {save.isPending ? 'Saving…' : 'Continue'}
-            </Button>
-          </div>
-        </div>
+        <StepActions onBack={onBack} onSaveDraft={submit(false)} pending={save.isPending} />
         {draftSaved ? (
           <p role="status" className="text-sm text-success">
             Draft saved.
@@ -77,6 +65,32 @@ export function StepFrame({
         ) : null}
       </Card>
     </form>
+  );
+}
+
+export function StepActions({
+  onBack,
+  onSaveDraft,
+  pending,
+}: {
+  onBack?: () => void;
+  onSaveDraft: () => void;
+  pending: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap justify-between gap-3 border-t border-border pt-4">
+      <Button variant="secondary" onClick={onBack} disabled={pending || !onBack}>
+        Back
+      </Button>
+      <div className="flex flex-wrap gap-3">
+        <Button variant="secondary" onClick={onSaveDraft} disabled={pending}>
+          Save draft
+        </Button>
+        <Button type="submit" disabled={pending}>
+          {pending ? 'Saving…' : 'Continue'}
+        </Button>
+      </div>
+    </div>
   );
 }
 
