@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { type Branding, FIRMIVRA_BRANDING } from '../../src/notify/branding.js';
-import { type NotifyTemplate, TEMPLATE_CHANNEL } from '../../src/notify/notify.types.js';
+import {
+  ALWAYS_SENT,
+  type NotifyTemplate,
+  TEMPLATE_CHANNEL,
+} from '../../src/notify/notify.types.js';
 import {
   NotifyTemplateError,
   type RenderOptions,
@@ -57,11 +61,12 @@ describe('templates', () => {
     const app = email('firm-application.received');
     expect(app.html).toContain(`background:${FIRMIVRA_BRANDING.primaryColor}`);
     expect(app.text).toContain('Sent by Firmivra.');
-    // No "turn off emails like this" until preferences are read (step 5).
-    for (const t of templates)
-      expect(JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t)))).not.toContain(
-        'notification settings',
-      );
+    // "Turn off emails like this" only where a preference can switch it off (step 5).
+    for (const t of templates) {
+      const out = JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t)));
+      if (ALWAYS_SENT.has(t)) expect(out).not.toContain('notification settings');
+      else expect(out).toContain('turn off emails like this in your notification settings');
+    }
   });
 
   it('names the firm the branding was loaded for, never a firm name from the data', () => {

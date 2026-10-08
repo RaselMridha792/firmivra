@@ -1,5 +1,10 @@
 import { type Branding, FIRMIVRA_BRANDING, hexColor } from './branding.js';
-import { type NotifyTemplate, type NotifyTemplates, TEMPLATE_SENDER } from './notify.types.js';
+import {
+  ALWAYS_SENT,
+  type NotifyTemplate,
+  type NotifyTemplates,
+  TEMPLATE_SENDER,
+} from './notify.types.js';
 
 /**
  * Subject, plain text and simple HTML for every template (R6 step 3). A message holds the
@@ -479,11 +484,16 @@ function logo(url: string | null): string | null {
 }
 
 /**
- * Who sent it. No "turn off emails like this" line until preferences are read (R6 step 5): the
- * email must not promise a setting that does nothing yet.
+ * Who sent it, and on a message the person can switch off (not ALWAYS_SENT) where to do that:
+ * NotifyService reads the preferences since R6 step 5.
  */
-function footer(branding: Branding): string[] {
-  return [branding.isFirm ? `Sent by ${branding.name} through Firmivra.` : 'Sent by Firmivra.'];
+function footer(branding: Branding, template: NotifyTemplate): string[] {
+  return [
+    branding.isFirm ? `Sent by ${branding.name} through Firmivra.` : 'Sent by Firmivra.',
+    ...(ALWAYS_SENT.has(template)
+      ? []
+      : ['You can turn off emails like this in your notification settings.']),
+  ];
 }
 
 function plainText(blocks: Block[], brand: string, foot: string[]): string {
@@ -612,7 +622,7 @@ export function render<T extends NotifyTemplate>(
   const content = (TEMPLATES[template] as Build<T>)(data, b, options);
   if (content.channel === 'sms') return { channel: 'sms', text: oneLine(content.text) };
   const subject = oneLine(content.subject);
-  const foot = footer(b);
+  const foot = footer(b, template);
   return {
     channel: 'email',
     fromName: b.name,

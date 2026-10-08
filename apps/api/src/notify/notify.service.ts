@@ -7,13 +7,16 @@ import { z } from 'zod';
 import { type Branding, BrandingSource, UnknownFirmError } from './branding.js';
 import type { NotifyConfig, Sender } from './config.js';
 import {
+  ALWAYS_SENT,
   type NotifyChannel,
   type NotifyMessage,
   type NotifyService,
   type NotifyTemplate,
+  TEMPLATE_CATEGORY,
   TEMPLATE_CHANNEL,
   TEMPLATE_SENDER,
 } from './notify.types.js';
+import { PreferenceSource } from './preferences.js';
 import { NotifyTemplateError, render } from './templates.js';
 import {
   type EmailTransport,
@@ -41,6 +44,7 @@ export class NotifyDeliveryError extends Error {
 
 const EMAIL = z.email();
 const PHONE = /^\+[1-9]\d{6,14}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * An error's class name when it looks like one (e.g. MessageRejected), never its message, with
@@ -57,6 +61,8 @@ function errorName(error: unknown): string {
 
 export interface NotifyDeps {
   branding: Pick<BrandingSource, 'load'>;
+  /** The recipient's notification preferences (R6 step 5). */
+  preferences: Pick<PreferenceSource, 'allows'>;
   /** Null with EMAIL_MODE=log. */
   email: { transport: EmailTransport; from: Sender } | null;
   /** Null while texts go to the log. */
@@ -103,6 +109,10 @@ export class SendingNotifyService implements NotifyService {
     if (replyTo !== null && !EMAIL.safeParse(replyTo).success) {
       throw new NotifyTemplateError('replyTo must be an email address');
     }
+    if (await this.skipped(message, channel, fail)) {
+      this.logger.log(`${what} not sent: the recipient turned this off`);
+      return;
+    }
 
     let branding: Branding;
     try {
@@ -146,6 +156,34 @@ export class SendingNotifyService implements NotifyService {
       throw fail(errorName(error));
     }
     this.logger.log(`${what} sent`);
+  }
+
+  /**
+   * R6 step 5: a message for someone with an account (`recipient`) is skipped when they switched
+   * its category off on its channel. ALWAYS_SENT templates and the locked ACCOUNT category always
+   * go out, and a message with no recipient (an address not yet anyone's) is never skipped.
+   */
+  private async skipped(
+    message: NotifyMessage,
+    channel: NotifyChannel,
+    fail: (reason: string) => NotifyDeliveryError,
+  ): Promise<boolean> {
+    const { template, businessId, recipient } = message;
+    if (!recipient || businessId === null || ALWAYS_SENT.has(template)) return false;
+    const id = 'userId' in recipient ? recipient.userId : recipient.clientAccountId;
+    if (typeof id !== 'string' || !UUID.test(id)) {
+      throw new NotifyTemplateError('recipient must name a user or client account by its id');
+    }
+    try {
+      return !(await this.deps.preferences.allows(
+        businessId,
+        recipient,
+        TEMPLATE_CATEGORY[template],
+        channel,
+      ));
+    } catch (error) {
+      throw fail(`PreferencesUnavailable:${errorName(error)}`);
+    }
   }
 }
 
@@ -192,6 +230,7 @@ export function createNotifyService(
   }
   return new SendingNotifyService({
     branding: new BrandingSource(db),
+    preferences: new PreferenceSource(db),
     email: emailSide,
     sms:
       sms.mode === 'sns'
