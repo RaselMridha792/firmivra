@@ -100,12 +100,15 @@ function checkPackage(buf: Buffer, mainType: string): FileRefusal | null {
   if (!entries || xml === null || /<!doctype/i.test(xml)) return MISMATCH;
   if (/&(?!(?:#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);)/i.test(xml)) return MISMATCH;
   const parts = declarations(xml);
+  if (!parts) return MISMATCH;
   const macroType = /macroenabled|vbaproject|vbadata|macrosheet/;
   const macroPart = (name: string) =>
     /^vba(project|data)/.test(name.slice(name.lastIndexOf('/') + 1));
   if ([...entries.keys()].some(macroPart) || parts.some((p) => macroType.test(p.contentType))) {
     return 'FILE_HAS_MACROS';
   }
+  // Office writes Default and Override with their own attributes only, never with a prefix.
+  if (parts.some((p) => p.unusual)) return MISMATCH;
   const main = parts.some(
     (p) => p.override && p.contentType === mainType && entries.has(partName(p.partName)),
   );
@@ -203,31 +206,115 @@ const decode = (value: string) =>
     return code <= 0x10ffff ? String.fromCodePoint(code) : '';
   });
 
-/** The Default and Override declarations of [Content_Types].xml, values decoded, lower case. */
-function declarations(xml: string) {
-  const found = xml
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .matchAll(/<(?:[\w.-]+:)?(Default|Override)\b([^>]*)>/g);
-  return [...found].map((tag) => {
-    const attrs = new Map<string, string>();
-    for (const a of (tag[2] ?? '').matchAll(/([\w.:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
-      attrs.set(
-        a[1]!,
-        decode(a[2] ?? a[3] ?? '')
+interface Declaration {
+  override: boolean;
+  /** Decoded, trimmed, lower case. */
+  contentType: string;
+  /** Decoded (entities, then %-escapes), trimmed, lower case. */
+  partName: string;
+  /** A prefix, or an attribute other than its own two: Office never writes either. */
+  unusual: boolean;
+}
+
+const OWN_ATTRIBUTES = {
+  Default: ['Extension', 'ContentType'],
+  Override: ['PartName', 'ContentType'],
+} as const;
+const NAME = /[^\s<>"'=/]+/y;
+const SPACE = /[ \t\r\n]*/y;
+
+/** Moves past XML white space from `at`; returns the new position. */
+function skipSpace(xml: string, at: number): number {
+  SPACE.lastIndex = at;
+  SPACE.exec(xml);
+  return SPACE.lastIndex;
+}
+
+/**
+ * A start tag at `lt`, read as an XML parser reads it: attribute values are quoted, so a `>`
+ * inside one does not end the tag. Null when it is not well-formed (a value with `<`, an
+ * attribute twice, no space between attributes).
+ */
+function startTag(xml: string, lt: number) {
+  NAME.lastIndex = lt + 1;
+  const name = NAME.exec(xml)?.[0];
+  if (!name) return null;
+  const attributes = new Map<string, string>();
+  let at = NAME.lastIndex;
+  for (;;) {
+    const spaced = skipSpace(xml, at);
+    if (xml.startsWith('/>', spaced)) return { name, attributes, end: spaced + 2 };
+    if (xml[spaced] === '>') return { name, attributes, end: spaced + 1 };
+    if (spaced === at) return null;
+    NAME.lastIndex = spaced;
+    const attribute = NAME.exec(xml)?.[0];
+    if (!attribute || attributes.has(attribute)) return null;
+    at = skipSpace(xml, NAME.lastIndex);
+    if (xml[at] !== '=') return null;
+    at = skipSpace(xml, at + 1);
+    const quote = xml[at];
+    if (quote !== '"' && quote !== "'") return null;
+    const close = xml.indexOf(quote, at + 1);
+    if (close < 0) return null;
+    const value = xml.slice(at + 1, close);
+    if (value.includes('<')) return null;
+    attributes.set(attribute, value);
+    at = close + 1;
+  }
+}
+
+/**
+ * The Default and Override declarations of [Content_Types].xml in document order, or null when
+ * the XML is not well-formed. Comments, processing instructions and CDATA are skipped as a
+ * parser skips them (each ends at its own terminator, nothing inside counts), so neither a
+ * quoted `>` nor a comment opened inside a processing instruction hides a declaration. DTDs are
+ * refused before this runs.
+ */
+function declarations(xml: string): Declaration[] | null {
+  const found: Declaration[] = [];
+  const skipTo = (from: number, end: string) => {
+    const at = xml.indexOf(end, from);
+    return at < 0 ? -1 : at + end.length;
+  };
+  // The XML declaration, only at the very start.
+  let at = /^<\?xml[ \t\r\n]/.test(xml) ? skipTo(5, '?>') : 0;
+  while (at >= 0 && at < xml.length) {
+    const lt = xml.indexOf('<', at);
+    if (lt < 0) break;
+    if (xml.startsWith('<!--', lt)) at = skipTo(lt + 4, '-->');
+    else if (xml.startsWith('<![CDATA[', lt)) at = skipTo(lt + 9, ']]>');
+    else if (xml[lt + 1] === '?') {
+      // A processing instruction; its target is never `xml` after the start.
+      if (/^<\?xml(?![^\s?])/i.test(xml.slice(lt, lt + 6))) return null;
+      at = skipTo(lt + 2, '?>');
+    } else if (xml[lt + 1] === '!') return null;
+    else if (xml[lt + 1] === '/') {
+      at = skipTo(lt, '>');
+      if (at >= 0 && !/^<\/[^\s<>"'=/]+[ \t\r\n]*>$/.test(xml.slice(lt, at))) return null;
+    } else {
+      const tag = startTag(xml, lt);
+      if (!tag) return null;
+      at = tag.end;
+      const local = tag.name.slice(tag.name.indexOf(':') + 1);
+      if (local !== 'Default' && local !== 'Override') continue;
+      const own: readonly string[] = OWN_ATTRIBUTES[local];
+      const value = (name: string) =>
+        decode(tag.attributes.get(name) ?? '')
           .trim()
-          .toLowerCase(),
-      );
+          .toLowerCase();
+      let name = value('PartName');
+      try {
+        name = decodeURIComponent(name);
+      } catch {
+        // A broken escape stays as written; it then names no part.
+      }
+      found.push({
+        override: local === 'Override',
+        contentType: value('ContentType'),
+        partName: name,
+        unusual: local !== tag.name || [...tag.attributes.keys()].some((a) => !own.includes(a)),
+      });
     }
-    let name = attrs.get('PartName') ?? '';
-    try {
-      name = decodeURIComponent(name);
-    } catch {
-      // A broken escape stays as written; it then names no part.
-    }
-    return {
-      override: tag[1] === 'Override',
-      contentType: attrs.get('ContentType') ?? '',
-      partName: name,
-    };
-  });
+  }
+  return at < 0 ? null : found;
 }

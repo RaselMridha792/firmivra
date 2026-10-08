@@ -1,5 +1,5 @@
 import { ConflictException, GoneException, NotFoundException } from '@nestjs/common';
-import type { DocumentRequestStatus, Prisma, TxClient } from '@firmivra/db';
+import type { Prisma, TxClient } from '@firmivra/db';
 import { DOCUMENT_ERRORS, type DocumentErrorCode, type FirmDocument } from '@firmivra/types';
 
 // Rules and shapes shared by the firm and portal sides of the documents module (R5).
@@ -11,9 +11,6 @@ export const refusal = (code: DocumentErrorCode, message: string = DOCUMENT_ERRO
     : new ConflictException({ code, message });
 export const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 
-/** Requests the client can still answer: an upload for one makes it SUBMITTED. */
-export const OPEN_REQUEST: DocumentRequestStatus[] = ['REQUESTED', 'REJECTED'];
-
 /** Who acts on the firm side: the signed-in member and their role here (from TenantGuard). */
 export interface FirmActor {
   userId: string;
@@ -24,7 +21,7 @@ export interface FirmActor {
 export const clientReach = (actor: FirmActor): Prisma.ClientWhereInput =>
   actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {};
 
-/** The client, if this member may reach it; else 404. */
+/** The client, if this member may reach it; else 404. For reads (uploads lock it instead). */
 export async function reachableClient(
   tx: TxClient,
   businessId: string,
@@ -38,53 +35,62 @@ export async function reachableClient(
   if (!row) throw notFound();
 }
 
+/**
+ * The client of an upload, locked FOR SHARE until the upload commits (the #108 review: tasks,
+ * reports and appointments lock the client first), so a reassignment or an archive at the same
+ * time waits for the upload, or has committed and is seen here. 404 when this member doesn't
+ * reach it (Staff: not assigned to them). Lock order: the client, then the engagement.
+ */
+export async function lockReachableClient(
+  tx: TxClient,
+  businessId: string,
+  actor: FirmActor,
+  clientId: string,
+): Promise<{ archived: boolean }> {
+  const [client] = await tx.$queryRaw<
+    { archived_at: Date | null; assigned_user_id: string | null }[]
+  >`
+    SELECT archived_at, assigned_user_id::text AS assigned_user_id FROM clients
+    WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid
+    FOR SHARE`;
+  const reached =
+    client && (actor.role !== 'STAFF' || client.assigned_user_id === actor.userId.toLowerCase());
+  if (!reached) throw notFound();
+  return { archived: client.archived_at !== null };
+}
+
 export interface Target {
   engagement: { id: string; taxYear: number | null };
-  request: { id: string; categoryId: string | null } | null;
   category: { id: string; retentionYears: number | null } | null;
 }
 
 /**
- * The service (engagement), request and category an upload names, all of this client and firm:
- * every 404 before any 409. Then NO_OPEN_SERVICE (the engagement is not ACTIVE), REQUEST_CLOSED
- * (the request is of another service, or not REQUESTED or REJECTED) and CATEGORY_ARCHIVED.
+ * The service (engagement) and category an upload names, both of this client and firm: every
+ * 404 before any 409. Then NO_OPEN_SERVICE (the engagement is not ACTIVE, or the client is
+ * archived) and CATEGORY_ARCHIVED. Uploads for a request (REQUEST_CLOSED) come with the portal
+ * routes in part 2.
  */
 export async function findTarget(
   tx: TxClient,
   businessId: string,
   clientId: string,
-  ids: { serviceId: string; requestId?: string | null; categoryId?: string | null },
+  ids: { serviceId: string; categoryId?: string | null; clientArchived: boolean },
 ): Promise<Target> {
   const engagement = await tx.engagement.findFirst({
     where: { businessId, clientId, id: ids.serviceId },
     select: { id: true, status: true, taxYear: true },
   });
-  const request = ids.requestId
-    ? await tx.documentRequest.findFirst({
-        where: { businessId, clientId, id: ids.requestId },
-        select: { id: true, engagementId: true, status: true, categoryId: true },
-      })
-    : null;
   const category = ids.categoryId
     ? await tx.documentCategory.findFirst({
         where: { businessId, id: ids.categoryId },
         select: { id: true, retentionYears: true, archivedAt: true },
       })
     : null;
-  if (!engagement || (ids.requestId && !request) || (ids.categoryId && !category)) {
-    throw notFound();
-  }
-  if (engagement.status !== 'ACTIVE') throw refusal('NO_OPEN_SERVICE');
-  if (
-    request &&
-    (request.engagementId !== engagement.id || !OPEN_REQUEST.includes(request.status))
-  ) {
-    throw refusal('REQUEST_CLOSED');
-  }
+  if (!engagement || (ids.categoryId && !category)) throw notFound();
+  if (engagement.status !== 'ACTIVE' || ids.clientArchived) throw refusal('NO_OPEN_SERVICE');
   if (category?.archivedAt) throw refusal('CATEGORY_ARCHIVED');
   return {
     engagement: { id: engagement.id, taxYear: engagement.taxYear },
-    request: request && { id: request.id, categoryId: request.categoryId },
     category: category && { id: category.id, retentionYears: category.retentionYears },
   };
 }
@@ -141,12 +147,6 @@ export function toFirmDocument(row: DocumentRow, people: People): FirmDocument {
     uploadedBy: by ? { name: by.name, byClient: by.byClient } : null,
     createdAt: row.createdAt.toISOString(),
   };
-}
-
-/** Locks the request until the transaction ends (Prisma has no FOR UPDATE). */
-export async function lockRequest(tx: TxClient, businessId: string, id: string): Promise<void> {
-  await tx.$queryRaw`SELECT 1 FROM document_requests
-    WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
 }
 
 /** Keeps the engagement's status as it is until the transaction ends. */

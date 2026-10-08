@@ -30,6 +30,8 @@ import { cfb, DOCX, office, pdf, png, sha256, XLSX } from '../office-files.js';
 /** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
+  /** What reads fail with while set (S3's 403 when kms:Decrypt is missing). */
+  readError: unknown = null;
   presignUpload(file: { key: string; contentType: string }) {
     const headers = { 'content-type': file.contentType };
     return Promise.resolve({ url: `memory:${file.key}`, headers });
@@ -39,6 +41,7 @@ class MemoryStorage implements DocumentStorage {
     return Promise.resolve(b ? { sizeBytes: b.length, sha256: sha256(b) } : null);
   }
   read(key: string) {
+    if (this.readError) return Promise.reject(this.readError);
     return Promise.resolve(this.objects.get(key) ?? null);
   }
   remove(key: string) {
@@ -165,6 +168,15 @@ async function upload(
 }
 const firmDoc = async (who: Person, body: Record<string, unknown>, bytes: Buffer = pdf()) =>
   exact(FirmDocument, (await upload(who, { serviceId: ids.e1, ...body }, bytes)).res);
+const refusalOf = (key: string) =>
+  asOwner(firms.a.id, (tx) =>
+    tx.auditLog.findFirst({
+      where: {
+        action: 'document.upload_refused',
+        metadata: { path: ['uploadId'], equals: key.slice(key.lastIndexOf('/') + 1) },
+      },
+    }),
+  );
 const auditOf = (entityId: string) =>
   asOwner(firms.a.id, (tx) =>
     tx.auditLog.findMany({ where: { entityId }, orderBy: { createdAt: 'asc' } }),
@@ -305,15 +317,6 @@ describe('firm uploads and confirm', () => {
   });
 
   it('refuses stored bytes that are not the file described, and deletes them', async () => {
-    const audit = (key: string) =>
-      asOwner(firms.a.id, (tx) =>
-        tx.auditLog.findFirst({
-          where: {
-            action: 'document.upload_refused',
-            metadata: { path: ['uploadId'], equals: key.slice(key.lastIndexOf('/') + 1) },
-          },
-        }),
-      );
     const cases: [string, Buffer, Buffer, string, string][] = [
       ['other size', pdf(), pdf('longer bytes'), 'application/pdf', 'UPLOAD_MISMATCH'],
       ['other checksum', pdf('aaaa'), pdf('bbbb'), 'application/pdf', 'UPLOAD_MISMATCH'],
@@ -348,7 +351,7 @@ describe('firm uploads and confirm', () => {
       );
       expectError(res, 409, code);
       expect(storage.objects.has(key), why).toBe(false);
-      const entry = await audit(key);
+      const entry = await refusalOf(key);
       expect(entry?.metadata, why).toMatchObject({ code });
       expect(JSON.stringify(entry?.metadata)).not.toMatch(/a\.(pdf|png|xlsx|docx)|tenant\//);
     }
@@ -404,6 +407,97 @@ describe('firm uploads and confirm', () => {
         Math.floor(Date.now() / 1000) - 1,
       );
     expectError(await confirm(people.ownerA, late), 410, 'UPLOAD_EXPIRED');
+  });
+});
+
+describe('confirm after the ticket: the client, the service or storage changed', () => {
+  /** Step 1 and the PUT; the test confirms. */
+  async function ticketed(who: Person, body: Record<string, unknown>, clientId = ids.c1) {
+    const bytes = pdf('ticketed');
+    const path = `/clients/${clientId}/documents/uploads`;
+    const ticket = exact(UploadTicket, await call('post', path, who, { ...facts(bytes), ...body }));
+    storage.put(ticket, bytes);
+    const { uploadToken } = ticket;
+    return {
+      key: ticket.url.slice('memory:'.length),
+      confirm: () => call('post', '/documents/uploads/confirm', who, { uploadToken }),
+    };
+  }
+  const expectRefused = async (key: string, code: string) => {
+    expect(storage.objects.has(key), code).toBe(false);
+    expect((await refusalOf(key))?.metadata, code).toMatchObject({ code });
+  };
+  const setClient = (id: string, data: { assignedUserId?: string; archivedAt?: Date | null }) =>
+    asOwner(firms.a.id, (tx) =>
+      tx.client.update({ where: { businessId_id: { businessId: firms.a.id, id } }, data }),
+    );
+
+  it('deletes and audits the upload when the service closed before confirm', async () => {
+    const businessId = firms.a.id;
+    const closing = await asOwner(businessId, async (tx) => {
+      const { serviceId } = await tx.engagement.findUniqueOrThrow({ where: { id: ids.e1 } });
+      const data = { businessId, clientId: ids.c1, serviceId, title: 'R5 closing (fake)' };
+      return (await tx.engagement.create({ data: { ...data, status: 'ACTIVE' } })).id;
+    });
+    const { key, confirm } = await ticketed(people.ownerA, { serviceId: closing });
+    await asOwner(businessId, (tx) =>
+      tx.engagement.update({
+        where: { id: closing },
+        data: { status: 'COMPLETED', completedAt: new Date() },
+      }),
+    );
+    expectError(await confirm(), 409, 'NO_OPEN_SERVICE');
+    await expectRefused(key, 'NO_OPEN_SERVICE');
+    // The file is gone: a missing file is UPLOAD_MISMATCH (the yaml), and nothing is saved.
+    expectError(await confirm(), 409, 'UPLOAD_MISMATCH');
+  });
+
+  it('deletes and audits the upload when the client went to someone else or was archived', async () => {
+    const moved = await ticketed(people.staffA, { serviceId: ids.e1 });
+    await setClient(ids.c1, { assignedUserId: people.staffA2.id });
+    try {
+      expectError(await moved.confirm(), 404, 'NOT_FOUND');
+    } finally {
+      await setClient(ids.c1, { assignedUserId: people.staffA.id });
+    }
+    await expectRefused(moved.key, 'NOT_FOUND');
+
+    const archived = await ticketed(people.ownerA, { serviceId: ids.e2 }, ids.c2);
+    await setClient(ids.c2, { archivedAt: new Date() });
+    try {
+      expectError(await archived.confirm(), 409, 'NO_OPEN_SERVICE');
+      const start = await call('post', `/clients/${ids.c2}/documents/uploads`, people.ownerA, {
+        ...facts(pdf()),
+        serviceId: ids.e2,
+      });
+      expectError(start, 409, 'NO_OPEN_SERVICE');
+    } finally {
+      await setClient(ids.c2, { archivedAt: null });
+    }
+    await expectRefused(archived.key, 'NO_OPEN_SERVICE');
+  });
+
+  it('lets one of two confirms at once through and keeps its file', async () => {
+    const { key, confirm } = await ticketed(people.ownerA, { serviceId: ids.e1 });
+    const results = await Promise.all([confirm(), confirm()]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 410]);
+    expect(storage.objects.has(key)).toBe(true);
+    expect(await refusalOf(key)).toBeNull();
+  });
+
+  it('fails without deleting anything when storage refuses the read (403)', async () => {
+    const { key, confirm } = await ticketed(people.ownerA, { serviceId: ids.e1 });
+    storage.readError = Object.assign(new Error('AccessDenied'), {
+      $metadata: { httpStatusCode: 403 },
+    });
+    try {
+      expect((await confirm()).status).toBe(500);
+    } finally {
+      storage.readError = null;
+    }
+    expect(storage.objects.has(key)).toBe(true);
+    expect(await refusalOf(key)).toBeNull();
+    exact(FirmDocument, await confirm());
   });
 });
 

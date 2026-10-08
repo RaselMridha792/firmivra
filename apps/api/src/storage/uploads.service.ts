@@ -1,17 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import type { DownloadLink, UploadTicket } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from './config.js';
-import {
-  type DocumentRow,
-  findTarget,
-  holdEngagement,
-  lockRequest,
-  refusal,
-} from './document-records.js';
+import { type DocumentRow, findTarget, holdEngagement, refusal } from './document-records.js';
 import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
@@ -72,7 +66,6 @@ export class UploadsService {
       {
         uploadId: uploadIdOf(key),
         serviceId: claim.engagementId,
-        requestId: claim.requestId,
         categoryId: claim.categoryId,
         direction: claim.direction,
       },
@@ -83,12 +76,15 @@ export class UploadsService {
 
   /**
    * Step 3: saves the document once the stored file is the one described. `recheck` runs first in
-   * the transaction: the caller must still reach the client. Returns the new document's id.
+   * the transaction: it locks the client (FOR SHARE) and the caller must still reach it. A refusal
+   * from the transaction (404, NO_OPEN_SERVICE, CATEGORY_ARCHIVED) deletes the object and is
+   * audited like the byte checks' refusals, so no file stays in storage without a document.
+   * Returns the new document's id.
    */
   async confirm(
     uploader: Uploader,
     uploadToken: string,
-    recheck: (tx: TxClient, claim: UploadClaim) => Promise<void>,
+    recheck: (tx: TxClient, claim: UploadClaim) => Promise<{ archived: boolean }>,
   ): Promise<string> {
     const claim = (await this.tokens.open(uploadToken, uploader.pool))?.value;
     const mine =
@@ -106,17 +102,40 @@ export class UploadsService {
 
     const { businessId } = claim;
     const { scanMode } = this.config;
-    const id = await this.database
-      .withScope({ kind: 'business', businessId }, async (tx) => {
-        await recheck(tx, claim);
-        // The service and the request stay as checked until the document is saved.
-        await holdEngagement(tx, businessId, claim.engagementId);
-        if (claim.requestId) await lockRequest(tx, businessId, claim.requestId);
-        const target = await findTarget(tx, businessId, claim.clientId, {
-          serviceId: claim.engagementId,
-          requestId: claim.requestId,
-          categoryId: claim.categoryId,
+    let refusedCode = null as string | null;
+    let id: string;
+    try {
+      id = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+        // One confirm of a key at a time. A second one waits here, then finds the document (410)
+        // or, after a refusal below deleted the object, no object (409 UPLOAD_MISMATCH, as for
+        // any missing file): it never saves a document without its file, and a refusal never
+        // deletes a saved document's file.
+        const lockKey = `document-upload:${claim.key}`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+        const saved = await tx.document.findFirst({
+          where: { s3Key: claim.key },
+          select: { id: true },
         });
+        if (saved) throw refusal('UPLOAD_EXPIRED');
+        if (!(await this.storage.head(claim.key))) throw refusal('UPLOAD_MISMATCH');
+        let target: Awaited<ReturnType<typeof findTarget>>;
+        try {
+          // Lock order: the client (in recheck), then the engagement.
+          const { archived } = await recheck(tx, claim);
+          // The service stays as checked until the document is saved.
+          await holdEngagement(tx, businessId, claim.engagementId);
+          target = await findTarget(tx, businessId, claim.clientId, {
+            serviceId: claim.engagementId,
+            categoryId: claim.categoryId,
+            clientArchived: archived,
+          });
+        } catch (error) {
+          if (error instanceof HttpException) {
+            refusedCode = codeOf(error);
+            await this.remove(claim.key);
+          }
+          throw error;
+        }
         const now = new Date();
         const years = target.category?.retentionYears ?? null;
         const doc = await tx.document.create({
@@ -125,7 +144,6 @@ export class UploadsService {
             clientId: claim.clientId,
             engagementId: claim.engagementId,
             categoryId: claim.categoryId,
-            requestId: claim.requestId,
             direction: claim.direction,
             fileName: claim.fileName,
             contentType: claim.contentType,
@@ -139,12 +157,6 @@ export class UploadsService {
           },
           select: { id: true },
         });
-        if (claim.requestId) {
-          await tx.documentRequest.update({
-            where: { id: claim.requestId },
-            data: { status: 'SUBMITTED', statusNote: null },
-          });
-        }
         // A new document starts PENDING (the database insists); local mode scans it at once.
         if (scanMode === 'local') {
           await tx.document.update({
@@ -153,12 +165,13 @@ export class UploadsService {
           });
         }
         return doc.id;
-      })
-      .catch((error: unknown) => {
-        // Two confirms at once: the unique s3_key lets one through.
-        if ((error as { code?: string }).code === 'P2002') throw refusal('UPLOAD_EXPIRED');
-        throw error;
       });
+    } catch (error) {
+      if (refusedCode) await this.auditRefusal(claim, refusedCode);
+      // A backstop: the unique s3_key lets one confirm through.
+      if ((error as { code?: string }).code === 'P2002') throw refusal('UPLOAD_EXPIRED');
+      throw error;
+    }
 
     await this.audit.log(
       'document.uploaded',
@@ -166,7 +179,6 @@ export class UploadsService {
       {
         clientId: claim.clientId,
         serviceId: claim.engagementId,
-        requestId: claim.requestId,
         categoryId: claim.categoryId,
         direction: claim.direction,
         uploadId: uploadIdOf(claim.key),
@@ -174,13 +186,6 @@ export class UploadsService {
         scanMode,
       },
     );
-    if (claim.requestId) {
-      await this.audit.log(
-        'document_request.submitted',
-        { type: 'document_request', id: claim.requestId },
-        { documentId: id },
-      );
-    }
     return id;
   }
 
@@ -224,16 +229,33 @@ export class UploadsService {
 
   /** Deletes the refused object, audits the refusal (ids and the code only) and throws it. */
   private async refuse(claim: UploadClaim, code: FileRefusal): Promise<never> {
-    const uploadId = uploadIdOf(claim.key);
-    await this.storage.remove(claim.key).catch(() => {
-      // The bucket's lifecycle rule expires objects that are never confirmed.
-      this.logger.warn(`Could not delete the refused upload ${uploadId}`);
-    });
-    await this.audit.log(
-      'document.upload_refused',
-      { type: 'client', id: claim.clientId },
-      { uploadId, code, serviceId: claim.engagementId, requestId: claim.requestId },
-    );
+    await this.remove(claim.key);
+    await this.auditRefusal(claim, code);
     throw refusal(code);
   }
+
+  /**
+   * Deletes a refused upload. Should the delete fail, the object stays until it is found by hand:
+   * no lifecycle rule tells unconfirmed uploads apart yet (R5 file, "Needs from others").
+   */
+  private async remove(key: string): Promise<void> {
+    await this.storage.remove(key).catch(() => {
+      this.logger.warn(`Could not delete the refused upload ${uploadIdOf(key)}`); // ids only
+    });
+  }
+
+  private auditRefusal(claim: UploadClaim, code: string): Promise<void> {
+    return this.audit.log(
+      'document.upload_refused',
+      { type: 'client', id: claim.clientId },
+      { uploadId: uploadIdOf(claim.key), code, serviceId: claim.engagementId },
+    );
+  }
+}
+
+/** The contract code of an HttpException this module throws (NOT_FOUND, NO_OPEN_SERVICE, ...). */
+function codeOf(error: HttpException): string {
+  const body = error.getResponse();
+  const code = typeof body === 'object' ? (body as { code?: unknown }).code : undefined;
+  return typeof code === 'string' ? code : `HTTP_${error.getStatus()}`;
 }

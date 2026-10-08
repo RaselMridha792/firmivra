@@ -2,6 +2,7 @@
 // signatures, so the URLs themselves are checked here), confirm's file checks with generated
 // files, and one round trip through s3mock when it runs (docker compose up -d).
 import { randomUUID } from 'node:crypto';
+import type { S3Client } from '@aws-sdk/client-s3';
 import { describe, expect, it } from 'vitest';
 import { loadDocumentsConfig } from '../../src/storage/config.js';
 import {
@@ -122,6 +123,25 @@ describe('presigned URLs', () => {
   });
 });
 
+describe('the S3 adapter on errors', () => {
+  const failing = (httpStatusCode: number) =>
+    new S3DocumentStorage(
+      {
+        send: () =>
+          Promise.reject(Object.assign(new Error('S3'), { $metadata: { httpStatusCode } })),
+      } as unknown as S3Client,
+      BUCKET,
+    );
+
+  it('reads 404 as no object, and throws on 403 (a KMS or access failure, never a missing file)', async () => {
+    await expect(failing(404).read(key())).resolves.toBeNull();
+    await expect(failing(403).read(key())).rejects.toThrow('S3');
+    await expect(failing(500).read(key())).rejects.toThrow('S3');
+    // HEAD has no s3:ListBucket behind it: 403 is how S3 says there is no such key.
+    await expect(failing(403).head(key())).resolves.toBeNull();
+  });
+});
+
 describe('confirm: the bytes are their type', () => {
   it('checks the first bytes of PDF, PNG and JPEG files', () => {
     expect(checkFile('application/pdf', pdf())).toBeNull();
@@ -234,6 +254,54 @@ describe('confirm: the bytes are their type', () => {
       ['a truncated file', office('xlsx').subarray(0, 60)],
     ];
     for (const [why, file] of refusals) expect(checkFile(XLSX, file), why).toBe('UPLOAD_MISMATCH');
+  });
+
+  it('reads [Content_Types].xml as a parser does: quoted ">", processing instructions, comments', () => {
+    const MACRO_MAIN = 'application/vnd.ms-excel.sheet.macroEnabled.main+xml';
+    const VBA = 'application/vnd.ms-office.vbaProject';
+    const parts = (xml: string, more: ZipEntry[] = []) =>
+      checkFile(
+        XLSX,
+        zip([
+          { name: '[Content_Types].xml', data: xml },
+          { name: 'xl/workbook.xml', data: '<root/>' },
+          { name: 'xl/sheet.xml', data: '<root/>' },
+          ...more,
+        ]),
+      );
+    const head = '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="urn:fake">';
+    const decoy = `<Override PartName="/xl/sheet.xml" ContentType="${MAIN}"/>`;
+    // A ">" inside a quoted value ends no tag: the VBA part renamed to code.bin is still found.
+    const quoted =
+      `${head}<Default xmlns:x="a>b" Extension="bin" ContentType="${VBA}"/>` +
+      `<Override xmlns:x="a>b" PartName="/xl/workbook.xml" ContentType="${MACRO_MAIN}"/>` +
+      `${decoy}</Types>`;
+    expect(parts(quoted, [{ name: 'xl/code.bin', data: 'x' }])).toBe('FILE_HAS_MACROS');
+    // A processing instruction ends at "?>", whatever it holds; a "<!--" inside opens nothing.
+    const pi =
+      `${head}<?x <!-- ?><Override PartName="/xl/workbook.xml" ContentType="${MACRO_MAIN}"/>` +
+      `<!-- -->${decoy}</Types>`;
+    expect(parts(pi)).toBe('FILE_HAS_MACROS');
+    // Without macros: what Office never writes on Default or Override is a mismatch.
+    const main = `PartName="/xl/workbook.xml" ContentType="${MAIN}"`;
+    for (const odd of [
+      `<Override xmlns:x="a>b" ${main}/>`,
+      `<x:Override xmlns:x="urn:fake" ${main}/>`,
+      `<Override Foo="1" ${main}/>`,
+    ]) {
+      expect(parts(`${head}${odd}</Types>`), odd).toBe('UPLOAD_MISMATCH');
+    }
+    expect(parts(`${head}<Override ${main}/></Types>`)).toBeNull();
+    // Not well-formed: refused, never read around.
+    for (const broken of [
+      `${head}<Override ${main}/><!-- open</Types>`,
+      `${head}<Override ${main}/><?xml version="1.0"?></Types>`,
+      `${head}<Override PartName='/a' PartName='/b' ContentType="${MAIN}"/></Types>`,
+      `${head}<Override ${main} Extra="x<y"/></Types>`,
+      `${head}<Override ${main}/></Types junk="1">`,
+    ]) {
+      expect(parts(broken), broken).toBe('UPLOAD_MISMATCH');
+    }
   });
 
   it('caps what [Content_Types].xml inflates to at 1 MB, counted on the output', () => {

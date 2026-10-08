@@ -141,7 +141,11 @@ info:
          differs from the directory's is `409 UPLOAD_MISMATCH`. Parse it with DTDs, entity
          expansion and outside resolution off: a `<!DOCTYPE` (packages never have one) is
          `409 UPLOAD_MISMATCH`. Compare the decoded `ContentType`, `Extension` and `PartName`
-         values without case, never the raw text.
+         values without case, never the raw text. Read it as a parser does: comments, processing
+         instructions and CDATA end at their own terminators, and a `>` inside a quoted value
+         ends no tag. XML that is not well-formed, and a `Default` or `Override` with a prefix
+         or an attribute other than its own (Office writes neither), is `409 UPLOAD_MISMATCH`,
+         after the macro check (step 4) has seen every declaration.
       4. Macros, before the main part: a `vbaProject` or `vbaData` part in any folder, or any
          `Default` or `Override` content type containing `macroEnabled`, `vbaProject`,
          `vbaData` or `macrosheet`, is `409 FILE_HAS_MACROS`. So an .xlsm or .docm renamed to
@@ -197,10 +201,18 @@ info:
     - **Scan mode.** `SCAN_MODE=guardduty` (the default) leaves a confirmed file `PENDING` for
       GuardDuty's result; `SCAN_MODE=local` marks it `CLEAN` at confirm and is refused by the
       settings check unless `NODE_ENV` is development or test (like `AUTH_MODE=local`).
-    - **Leftovers.** The API deletes every upload confirm refuses (mismatch, password, macros); a
-      bucket lifecycle rule expires objects never confirmed (infra, with Rasel's yes). The bucket
-      is versioned, so that delete leaves a noncurrent version: the lifecycle rule also expires
-      noncurrent versions under `tenant/`.
+    - **Leftovers.** The API deletes every upload confirm refuses and audits it
+      (`document.upload_refused`): the byte checks (mismatch, password, macros) and the refusals
+      after the ticket (the caller no longer reaches the client, the service is no longer open,
+      the category is archived). One confirm of a key runs at a time (a transaction lock on the
+      key), so a refusal never deletes a saved document's file. A storage failure on the read
+      (a 403 from KMS, for example) is a 500 and deletes nothing. An upload that is PUT but never
+      confirmed (a closed tab) stays in the bucket today: under one prefix and without a tag, no
+      lifecycle rule can tell it from a confirmed file. Planned (infra, with Rasel's yes): the
+      PUT signs `x-amz-tagging: state=unconfirmed` (needs `s3:PutObjectTagging`), confirm
+      removes the tag (`s3:DeleteObjectTagging`), and a lifecycle rule filtered on that tag
+      expires the rest after a day. The bucket is versioned; noncurrent versions (left by every
+      delete) already expire after 30 days (data stack).
     - **Infra (Rasel's AWS list, each with his yes first):**
       - GuardDuty Malware Protection for S3 on the documents bucket, its role as in AWS's
         template: `kms:Decrypt` and `kms:GenerateDataKey` through S3 (`kms:ViaService`) on the
@@ -209,7 +221,8 @@ info:
       - Its scan-result event: the EventBridge rule and the SQS queue the API reads (above).
       - The alarm for a scan that breaks on our side.
       - KMS access on the firms' own keys (tag conditioned), `s3:GetObjectVersion` if downloads
-        pin versions, the lifecycle rule, and a bucket policy that refuses a PutObject without
+        pin versions, the tagging actions and the tag-filtered lifecycle rule for unconfirmed
+        uploads ("Leftovers"), and a bucket policy that refuses a PutObject without
         `aws:kms`. That policy must let GuardDuty's validation object through, or the plan
         stays in WARNING (`INSUFFICIENT_TEST_OBJECT_PERMISSIONS`).
       - Until GuardDuty is deployed, new uploads on dev stay `PENDING`.

@@ -42,7 +42,12 @@ export interface DocumentStorage {
   presignUpload(file: FileFacts): Promise<{ url: string; headers: Record<string, string> }>;
   /** HEAD: the object's size and checksum, or null when there is none. */
   head(key: string): Promise<StoredObject | null>;
-  /** GET: the whole object, in memory (confirm reads at most UPLOAD_LIMITS.maxBytes). */
+  /**
+   * GET: the whole object, in memory (confirm reads at most UPLOAD_LIMITS.maxBytes); null only
+   * when S3 says there is no such key (404). Any other failure throws: confirm reads after a HEAD
+   * found the object, so a 403 here is access (kms:Decrypt on an SSE-KMS object), never a
+   * missing file, and must not end in deleting a good upload.
+   */
   read(key: string): Promise<Uint8Array | null>;
   remove(key: string): Promise<void>;
   /** A GET that saves the object as an attachment named `fileName`. */
@@ -70,17 +75,16 @@ export function downloadType(contentType: string): string {
   return Object.hasOwn(UPLOAD_LIMITS.types, contentType) ? contentType : 'application/octet-stream';
 }
 
-/**
- * A missing object. Without s3:ListBucket (the API's IAM policy has only object actions) S3
- * answers 403 for a key that does not exist, so 403 counts as missing too.
- */
-function isMissing(error: unknown): boolean {
-  const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-  return status === 404 || status === 403;
-}
+const statusOf = (error: unknown) =>
+  (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
 
+/**
+ * A HEAD that finds no object. Without s3:ListBucket (the API's IAM policy has only object
+ * actions) S3 answers 403 for a key that does not exist, so on HEAD 403 counts as missing too.
+ */
 const orMissing = <T>(error: unknown): T | null => {
-  if (isMissing(error)) return null;
+  const status = statusOf(error);
+  if (status === 404 || status === 403) return null;
   throw error;
 };
 
@@ -149,7 +153,8 @@ export class S3DocumentStorage implements DocumentStorage {
       const object = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
       return object.Body ? await object.Body.transformToByteArray() : new Uint8Array();
     } catch (error) {
-      return orMissing(error);
+      if (statusOf(error) === 404) return null;
+      throw error;
     }
   }
 

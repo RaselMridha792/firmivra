@@ -22,7 +22,7 @@ const UploadClaim = z.object({
   clientAccountId: z.uuid().nullable(),
   clientId: z.uuid(),
   engagementId: z.uuid(),
-  requestId: z.uuid().nullable(),
+  // A requestId (the portal's upload for a request) comes with part 2.
   categoryId: z.uuid().nullable(),
   direction: DocumentDirection,
   taxYear: z.number().int().nullable(),

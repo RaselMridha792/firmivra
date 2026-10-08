@@ -19,6 +19,7 @@ import {
   documentSelect,
   type FirmActor,
   findTarget,
+  lockReachableClient,
   notFound,
   peopleOf,
   reachableClient,
@@ -119,7 +120,7 @@ export class FirmDocumentsService {
 
   /**
    * Step 1 of an upload by the firm: 404 for a client, service or category it doesn't reach;
-   * then 409 NO_OPEN_SERVICE or CATEGORY_ARCHIVED.
+   * then 409 NO_OPEN_SERVICE (also for an archived client) or CATEGORY_ARCHIVED.
    */
   async createUpload(
     businessId: string,
@@ -128,8 +129,8 @@ export class FirmDocumentsService {
     body: UploadBody,
   ): Promise<UploadTicket> {
     await this.inFirm(businessId, async (tx) => {
-      await reachableClient(tx, businessId, actor, clientId);
-      await findTarget(tx, businessId, clientId, body);
+      const { archived } = await lockReachableClient(tx, businessId, actor, clientId);
+      await findTarget(tx, businessId, clientId, { ...body, clientArchived: archived });
     });
     return this.uploads.ticket({
       pool: 'STAFF',
@@ -138,7 +139,6 @@ export class FirmDocumentsService {
       clientAccountId: null,
       clientId,
       engagementId: body.serviceId,
-      requestId: null,
       categoryId: body.categoryId ?? null,
       direction: body.shareWithClient ? 'FIRM_TO_CLIENT' : 'INTERNAL',
       taxYear: body.taxYear ?? null,
@@ -151,7 +151,7 @@ export class FirmDocumentsService {
 
   /**
    * Step 3. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS;
-   * the member must still reach the client.
+   * the member must still reach the client (404) and the service must still be open (409).
    */
   async confirmUpload(
     businessId: string,
@@ -161,7 +161,7 @@ export class FirmDocumentsService {
     const id = await this.uploads.confirm(
       { pool: 'STAFF', businessId, userId: actor.userId, clientAccountId: null },
       uploadToken,
-      (tx, claim) => reachableClient(tx, businessId, actor, claim.clientId),
+      (tx, claim) => lockReachableClient(tx, businessId, actor, claim.clientId),
     );
     return this.inFirm(businessId, async (tx) => {
       const row = await this.find(tx, businessId, actor, id);
