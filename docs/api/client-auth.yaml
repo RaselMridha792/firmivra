@@ -671,7 +671,8 @@ components:
         non-geographic area codes (N11, N9X, 37X, 96X, 456, 500, 533, 600, 700, 710, toll-free 8XX,
         822, 880-889) are refused; US territories are allowed. The client strips spaces, dots,
         brackets and dashes, and reads 10 digits without +1 as US. Every other phone field (client
-        records, firm applications) takes any country in E.164 (`Phone`; Rasel, Oct 8).
+        records, firm applications) takes any country in E.164 (`Phone`; Rasel, Oct 8), and reads
+        10 digits, or 1 and 10 digits, without + as US too; any other country needs its code.
     SignUpRequest:
       type: object
       required: [name, email, phone, password, accountType, accepted]
