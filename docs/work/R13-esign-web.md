@@ -49,6 +49,8 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 
 ## Open design points
 
+- No questions go to Octavia (Rasel, Oct 8): build from her spec and mockups, pick defaults here and note them below; anything that looks missing is checked in `client-info/OCTAVIA-PROVIDED.md`, then with the Scrum thread. Her dashboard mockup stays in the project files, not in the public repo.
+
 - Kiosk: the staff session stays signed in while the signer holds the device, so hiding the menu is not enough. The kiosk step needs a signer-only session from R13-api's in-person API and a way back to the workspace that asks the staff member again (for example a PIN or the password). To settle with R13-api before step 8.
 
 ## Needs from others
@@ -58,7 +60,6 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - Nahid: "Signatures" in the portal menu.
 - R1: PAGE-MAP rows for the Firm Sign pages.
 - Fahad (optional): a handwriting font token for typed signatures; until then they use `--font-display` italic.
-- Rasel: OK from Octavia before `FirmSign_Dashboard_Mockup.png` goes into the public repo.
 
 ## Progress log
 
