@@ -1,5 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import type { FirmApplication, Prisma } from '@firmivra/db';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import type { FirmApplication, Prisma, TxClient } from '@firmivra/db';
 import {
   type AdminDashboard,
   type AdminRef,
@@ -21,7 +28,14 @@ import {
   websiteHost,
 } from '@firmivra/types';
 import { z } from 'zod';
-import { AuditService } from '../audit/audit.service.js';
+import { type AuditEntity, AuditService } from '../audit/audit.service.js';
+import { requestContext } from '../common/request-context.js';
+import {
+  NOTIFY_SERVICE,
+  type NotifyMessage,
+  type NotifyService,
+  type NotifyTemplate,
+} from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
 
 /**
@@ -49,6 +63,47 @@ const PLATFORM_TIME_ZONE = 'America/New_York';
 /** The decided statuses; INFO_REQUESTED is not used in Phase 1 and reads as pending. */
 const PENDING = ['PENDING_REVIEW', 'INFO_REQUESTED'] as const;
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+const alreadyDecided = () =>
+  new ConflictException({
+    code: 'APPLICATION_DECIDED',
+    message: 'This application is already approved or declined',
+  });
+
+/**
+ * Firmivra support: the applicant answers an information request by replying to its email. It
+ * must stay the same as `supportEmail` in apps/web/src/lib/company.ts (apps/api cannot import
+ * apps/web).
+ */
+const FIRMIVRA_SUPPORT_EMAIL = 'admin@firmivra.com';
+
+/**
+ * A Super Admin's audit row, written in the transaction of the change it records, so the two land
+ * or fail together. It sets the columns AuditService.log sets for an admin's event: no firm, the
+ * acting admin, the action and the entity, no metadata, and the IP, user agent and request id
+ * from the request context. In admin scope the database takes it only with the acting admin as
+ * the actor (#52's audit_logs_admin_insert). Switch to AuditService.logIn(tx, ...) when R3's #70
+ * merges.
+ */
+async function auditIn(
+  tx: TxClient,
+  adminUserId: string,
+  action: string,
+  entity: AuditEntity,
+): Promise<void> {
+  const store = requestContext.getStore();
+  await tx.auditLog.create({
+    data: {
+      businessId: null,
+      actorUserId: adminUserId,
+      action,
+      entityType: entity.type,
+      entityId: entity.id ?? null,
+      ip: store?.ip ?? null,
+      userAgent: store?.userAgent ?? null,
+      requestId: store?.requestId ?? null,
+    },
+  });
+}
 
 /** The first instant of the current calendar month in `timeZone`. */
 export function startOfMonthIn(timeZone: string, now = new Date()): Date {
@@ -148,6 +203,7 @@ export class FirmApplicationsService {
   constructor(
     private readonly admin: AdminPrisma,
     private readonly audit: AuditService,
+    @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
   ) {}
 
   async list(q: ListQuery): Promise<ListFirmApplicationsResponse> {
@@ -275,6 +331,125 @@ export class FirmApplicationsService {
       newUsersThisWeek: null,
       monthlyRevenueCents: null,
     };
+  }
+
+  // ---------- Review (step 2) ----------
+
+  /**
+   * Request Information: the message goes to the applicant by email, with replies to Firmivra
+   * support, and the application stays pending (it is the decision_reason, so the database
+   * records it in the history). The request and its audit row land together, and the email goes
+   * only after they have. The same message as the last request changes nothing and sends
+   * nothing; a request that failed changed nothing, so trying it again sends it.
+   */
+  async requestInfo(id: string, message: string): Promise<FirmApplicationRecord> {
+    const asked = await this.admin.transaction(async (tx) => {
+      const row = await this.pending(tx, id);
+      if (row.decisionReason === message) return null;
+      await this.review(tx, id, { decisionReason: message });
+      await auditIn(tx, this.admin.adminUserId, 'firm_application.info_requested', {
+        type: 'firm_application',
+        id,
+      });
+      return row;
+    });
+    if (asked) {
+      await this.emailApplicant(id, {
+        template: 'firm-application.info-requested',
+        to: asked.contactEmail,
+        businessId: null,
+        replyTo: FIRMIVRA_SUPPORT_EMAIL,
+        data: { name: asked.contactName, legalName: asked.legalName, message },
+      });
+    }
+    return this.record(id);
+  }
+
+  /**
+   * Decline, with the reason the applicant gets by email. It must differ from the last
+   * information request (the database refuses a reused message). The decision and its audit row
+   * land together, and the email goes only after they have.
+   */
+  async decline(id: string, reason: string): Promise<FirmApplicationRecord> {
+    const declined = await this.admin.transaction(async (tx) => {
+      const row = await this.pending(tx, id);
+      if (row.decisionReason === reason) {
+        throw new BadRequestException({
+          code: 'VALIDATION_FAILED',
+          message: 'Write a reason that differs from the last request',
+        });
+      }
+      await this.review(tx, id, { status: 'DECLINED', decisionReason: reason });
+      await auditIn(tx, this.admin.adminUserId, 'firm_application.declined', {
+        type: 'firm_application',
+        id,
+      });
+      return row;
+    });
+    await this.emailApplicant(id, {
+      template: 'firm-application.declined',
+      to: declined.contactEmail,
+      businessId: null,
+      data: { name: declined.contactName, legalName: declined.legalName, reason },
+    });
+    return this.record(id);
+  }
+
+  /** "Save Note": internal notes, also after a decision. `null` clears them. */
+  async saveNotes(id: string, notes: string | null): Promise<FirmApplicationRecord> {
+    const { count } = await this.admin.db.firmApplication.updateMany({
+      where: { id },
+      data: { internalNotes: notes },
+    });
+    if (count === 0) throw notFound();
+    await this.audit.log('firm_application.notes_saved', { type: 'firm_application', id });
+    return this.record(id);
+  }
+
+  /**
+   * The application, if it can still be reviewed: 404, then 409 APPLICATION_DECIDED. Its row is
+   * locked first (the lock the update takes), so a second review at the same time, such as a
+   * double click, waits for this one and then reads its result: the same message is then no
+   * change, and after a decision it is 409.
+   */
+  private async pending(tx: TxClient, id: string): Promise<FirmApplication> {
+    await tx.$queryRaw`SELECT 1 FROM firm_applications WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
+    const row = await tx.firmApplication.findUnique({ where: { id } });
+    if (!row) throw notFound();
+    if (decided(row) || row.businessId) throw alreadyDecided();
+    return row;
+  }
+
+  /**
+   * One review update, as the signed-in admin, only while the application is pending (`pending`
+   * locked its row; the database also refuses a change to a decided one).
+   */
+  private async review(
+    tx: TxClient,
+    id: string,
+    data: Prisma.FirmApplicationUpdateManyMutationInput,
+  ): Promise<void> {
+    const { count } = await tx.firmApplication.updateMany({
+      where: { id, status: { in: [...PENDING] }, businessId: null },
+      data: { ...data, reviewedByUserId: this.admin.adminUserId, reviewedAt: new Date() },
+    });
+    if (count === 0) throw alreadyDecided();
+  }
+
+  /**
+   * Emails the applicant about a review that has committed. A failed send changes nothing: the
+   * review stands and the request still succeeds. The warning holds the application's id only,
+   * never the address or the message (hard rule 4).
+   */
+  private async emailApplicant<T extends NotifyTemplate>(
+    id: string,
+    message: NotifyMessage<T>,
+  ): Promise<void> {
+    try {
+      await this.notify.send(message);
+    } catch {
+      this.logger.warn(`Firm application ${id}: the ${message.template} email could not be sent`);
+    }
   }
 
   // ---------- Mapping ----------
