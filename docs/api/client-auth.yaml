@@ -381,12 +381,17 @@ paths:
       tags: [sign-in]
       operationId: portalSignOut
       summary: Sign out of this firm's portal; always succeeds
+      description: |
+        Clears this portal's cookies whatever happens on the server, also at a firm whose portal is
+        closed (the refresh token is revoked there too). If the firm can't be looked up, only the
+        cookies are cleared. A slug that can't be a firm's address is 404.
       requestBody:
         required: false
         content: { application/json: { schema: { $ref: './auth.yaml#/components/schemas/SignOutRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '403': { $ref: '#/components/responses/OriginNotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
   /portal/{firmSlug}/auth/forgot-password:
@@ -671,7 +676,8 @@ components:
         non-geographic area codes (N11, N9X, 37X, 96X, 456, 500, 533, 600, 700, 710, toll-free 8XX,
         822, 880-889) are refused; US territories are allowed. The client strips spaces, dots,
         brackets and dashes, and reads 10 digits without +1 as US. Every other phone field (client
-        records, firm applications) takes any country in E.164 (`Phone`; Rasel, Oct 8).
+        records, firm applications) takes any country in E.164 (`Phone`; Rasel, Oct 8), and reads
+        10 digits, or 1 and 10 digits, without + as US too; any other country needs its code.
     SignUpRequest:
       type: object
       required: [name, email, phone, password, accountType, accepted]

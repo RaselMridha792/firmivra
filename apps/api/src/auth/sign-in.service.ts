@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { type Database, Prisma } from '@firmivra/db';
 import type { IdentityPool, MfaSetupResponse, SignInResult } from '@firmivra/types';
 import { type AuditEntity, AuditService } from '../audit/audit.service.js';
@@ -21,7 +21,11 @@ import type { SessionTokens, SignInPlace } from './site.js';
 
 /** Failed resets are audited; the per-email limit counts those rows (shared by every API task). */
 const RESET_FAILED = 'auth.password_reset_failed';
-const RESET = { attempt: 'auth.password_reset_attempt', passed: 'auth.password_reset_passed' };
+const RESET = {
+  attempt: 'auth.password_reset_attempt',
+  passed: 'auth.password_reset_passed',
+  released: 'auth.password_reset_released',
+};
 export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
 /**
  * Every failed sign-in, a wrong password or a wrong MFA code, is audited, and these limits count
@@ -29,11 +33,17 @@ export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
  */
 const SIGN_IN_FAILED = 'auth.sign_in_failed';
 /**
- * Each attempt is recorded before Cognito is asked, and a "passed" row (same token) when it
- * succeeds; an attempt without one is a failure or still in flight, and the limits count those.
+ * Each attempt is recorded before Cognito is asked, then closed by a "passed" row (same token)
+ * when it succeeds, or a "released" row when it ends without a verdict on the credential (its own
+ * action, so the audit log never reads "passed" for it); an attempt with neither is a failure or
+ * still in flight, and the limits count those.
  */
-const SIGN_IN = { attempt: 'auth.sign_in_attempt', passed: 'auth.sign_in_passed' };
-type Actions = { attempt: string; passed: string };
+const SIGN_IN = {
+  attempt: 'auth.sign_in_attempt',
+  passed: 'auth.sign_in_passed',
+  released: 'auth.sign_in_released',
+};
+type Actions = { attempt: string; passed: string; released: string };
 /** One limit an attempt must stay under: the open attempts (failed or in flight) with this value. */
 type LimitCheck = {
   field: 'emailKey' | 'attemptId';
@@ -51,7 +61,7 @@ export const SIGN_IN_LIMIT = {
 };
 /**
  * One check's open attempts in its window, as SQL: the tokens with an attempt row and no "passed"
- * row (both carry the check's value). One pass over the window per check, and the reserve counts
+ * or "released" row (all carry the check's value). One pass over the window per check, and the reserve counts
  * every check in one statement that returns numbers, never rows, so its transaction stays short
  * under bursts (#84 review).
  */
@@ -59,16 +69,33 @@ function openAttempts(businessId: string | null, actions: Actions, check: LimitC
   const inScope = businessId
     ? Prisma.sql`business_id = ${businessId}::uuid`
     : Prisma.sql`business_id IS NULL`;
+  const [attempt, passed, released] = [actions.attempt, actions.passed, actions.released].map(
+    literal,
+  );
   return Prisma.sql`(
     SELECT count(*) FROM (
       SELECT 1 FROM audit_logs
       WHERE ${inScope}
         AND created_at > now() - ${check.windowMs}::int * interval '1 millisecond'
-        AND action IN (${actions.attempt}, ${actions.passed})
-        AND metadata ->> ${check.field} = ${check.value}
+        AND action IN (${attempt}, ${passed}, ${released})
+        AND ${KEY_SQL[check.field]} = ${check.value}
       GROUP BY metadata ->> 'token'
-      HAVING bool_and(action = ${actions.attempt})
+      HAVING bool_and(action = ${attempt})
     ) open)`;
+}
+/**
+ * The key and the actions are SQL literals, never parameters: R0's partial indexes on
+ * audit_logs (one per key, WHERE action IN the six attempt, passed and released actions) only match a
+ * query whose expression and action list the planner can read (#84 follow-up). The value, the
+ * window and the firm stay parameters.
+ */
+const KEY_SQL: Record<LimitCheck['field'], Prisma.Sql> = {
+  emailKey: Prisma.sql`metadata ->> 'emailKey'`,
+  attemptId: Prisma.sql`metadata ->> 'attemptId'`,
+};
+function literal(action: string): Prisma.Sql {
+  if (!/^[a-z_.]+$/.test(action)) throw new Error(`Not an action name: ${action}`);
+  return Prisma.raw(`'${action}'`);
 }
 /** HKDF label for the key that turns an email into the pseudonymous key the limit counts by. */
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
@@ -93,6 +120,7 @@ const wrongStep = () =>
  */
 @Injectable()
 export class SignInService {
+  private readonly logger = new Logger(SignInService.name);
   private readonly emailKeys: Partial<Record<IdentityPool, Uint8Array>> = {};
 
   constructor(
@@ -137,7 +165,10 @@ export class SignInService {
       if (!user) throw new AuthFlowError('INVALID_CREDENTIALS');
       await this.passed(place, SIGN_IN, { emailKey, token });
     } catch (e) {
-      if (!(e instanceof AuthFlowError)) throw e;
+      if (!(e instanceof AuthFlowError)) {
+        await this.release(place, SIGN_IN, { emailKey, token }, e);
+        throw e;
+      }
       if (e.code === 'INVALID_CREDENTIALS') {
         await this.failed(place, { emailKey, step: 'password', token });
       }
@@ -196,10 +227,14 @@ export class SignInService {
         : this.identity.finishMfaSetup(pool, c.username, c.session, code));
       if (token) await this.passed(place, SIGN_IN, { ...ids, token });
     } catch (e) {
-      if (!(e instanceof AuthFlowError)) throw e;
-      if (e.code === 'MFA_CODE_INVALID') {
+      // Only a wrong code counts. This step follows a right password, so releasing every other
+      // outcome (an expired MFA session, Cognito busy, an error of ours) reveals nothing.
+      if (e instanceof AuthFlowError && e.code === 'MFA_CODE_INVALID') {
         await this.failed(place, { ...ids, step: 'mfa', ...(token ? { token } : {}) });
+      } else if (token) {
+        await this.release(place, SIGN_IN, { ...ids, token }, e);
       }
+      if (!(e instanceof AuthFlowError)) throw e;
       throw httpError(e.code);
     }
     await this.succeeded(place, c.userId);
@@ -264,7 +299,10 @@ export class SignInService {
       await this.identity.resetPassword(pool, user?.cognitoSub, code, password);
       await this.passed(place, RESET, { emailKey, token });
     } catch (e) {
-      if (!(e instanceof AuthFlowError)) throw e;
+      if (!(e instanceof AuthFlowError)) {
+        await this.release(place, RESET, { emailKey, token }, e);
+        throw e;
+      }
       await this.log(place, RESET_FAILED, { type: 'login' }, { emailKey, pool, token });
       throw httpError('RESET_CODE_INVALID');
     }
@@ -350,6 +388,32 @@ export class SignInService {
     ids: { emailKey?: string; attemptId?: string; token: string },
   ): Promise<void> {
     return this.log(place, actions.passed, { type: 'login' }, { ...ids, pool: place.pool });
+  }
+
+  /**
+   * An outcome that says nothing about the credential: the attempt gets its "released" row, with
+   * what happened, so it never counts against the limits (#84 follow-up). On the
+   * password and reset steps only an error of ours or an outage does this; every answer from
+   * Cognito still counts there, the same for real and unknown emails, so it reveals nothing. A
+   * failure here is logged by the attempt's token and never hides the original error.
+   */
+  private async release(
+    place: Pick<SignInPlace, 'pool' | 'businessId'>,
+    actions: Actions,
+    ids: { emailKey?: string; attemptId?: string; token: string },
+    outcome: unknown,
+  ): Promise<void> {
+    const ended = outcome instanceof AuthFlowError ? outcome.code : 'ERROR';
+    try {
+      await this.log(
+        place,
+        actions.released,
+        { type: 'login' },
+        { ...ids, pool: place.pool, outcome: ended },
+      );
+    } catch {
+      this.logger.warn(`Could not release sign-in attempt ${ids.token}`);
+    }
   }
 
   private failed(

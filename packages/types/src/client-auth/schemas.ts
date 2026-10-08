@@ -170,14 +170,21 @@ const nonGeographic = (code: string) =>
   ['456', '500', '533', '600', '700', '710'].includes(code) ||
   /^8(00|22|33|44|55|66|77|8\d)$/.test(code);
 
+/** 10 digits, or 1 and 10 digits, without + are a US number: +1 and the 10 digits. */
+const usShorthand = (p: string) =>
+  /^\d{10}$/.test(p) ? `+1${p}` : /^1\d{10}$/.test(p) ? `+${p}` : p;
+
 /**
- * Any phone number, stored as E.164: + and the country code, then up to 14 digits. Spaces,
- * brackets and dashes are ignored. Client records, firm applications and every other phone field
- * take it (Rasel, Oct 8: only SMS phone fields are US-only).
+ * Any phone number, stored as E.164: + and the country code, then up to 14 digits. Spaces, dots,
+ * brackets and dashes are ignored, and a US number may come without +1 (10 digits, or 1 and 10
+ * digits), as staff and firm applicants type them (#70 follow-up); any other country needs its
+ * code. Client records, firm applications and every other phone field take it (Rasel, Oct 8:
+ * only SMS phone fields are US-only).
  */
 export const Phone = z
   .string()
-  .transform((p) => p.replace(/[\s()-]/g, ''))
+  .transform((p) => p.replace(/[\s().-]/g, ''))
+  .transform(usShorthand)
   .pipe(z.string().regex(/^\+[1-9]\d{7,14}$/, 'Enter the phone number with its country code'));
 
 /**
@@ -190,7 +197,7 @@ export const Phone = z
 export const SmsPhone = z
   .string()
   .transform((p) => p.replace(/[\s().-]/g, ''))
-  .transform((p) => (/^\d{10}$/.test(p) ? `+1${p}` : /^1\d{10}$/.test(p) ? `+${p}` : p))
+  .transform(usShorthand)
   .pipe(
     z
       .string()

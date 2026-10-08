@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import {
   AdminCreateUserCommand,
   AdminDisableUserCommand,
@@ -76,11 +77,12 @@ const CONTEXT_HEADERS = { 'user-agent': 'userAgent', 'accept-language': 'acceptL
 /**
  * What Cognito threat protection (full function on our pools) learns about the viewer, so it
  * scores the person, not the API task: the viewer's IP (req.ip, from the request context), the
- * site's host and path, and the allowlisted headers. Undefined outside a request.
+ * site's host and path, and the allowlisted headers. Undefined outside a request, and when the
+ * viewer's address is not an IP address (#84 follow-up).
  */
 export function contextData(p: CognitoPool): ContextDataType | undefined {
   const store = requestContext.getStore();
-  if (!store?.ip || !p.serverName) return undefined;
+  if (!store?.ip || isIP(store.ip) === 0 || !p.serverName) return undefined;
   const headers = Object.entries(CONTEXT_HEADERS).flatMap(([headerName, field]) => {
     const headerValue = store[field];
     return headerValue ? [{ headerName, headerValue: headerValue.slice(0, 512) }] : [];
