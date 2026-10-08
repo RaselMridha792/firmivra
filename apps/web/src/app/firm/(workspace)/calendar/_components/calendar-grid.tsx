@@ -8,12 +8,11 @@ interface GridProps {
   items: CalendarAppointment[];
   timeZone: string;
   showStaff: boolean;
+  onOpen: (id: string) => void;
 }
 
-const chips = ({ items, timeZone, showStaff }: GridProps) =>
-  items.map((item) => (
-    <AppointmentChip key={item.id} item={item} timeZone={timeZone} showStaff={showStaff} />
-  ));
+const chips = ({ items, ...chip }: GridProps) =>
+  items.map((item) => <AppointmentChip key={item.id} item={item} {...chip} />);
 
 /** Seven columns from Monday; a day's header opens it in the Day view. Stacked on a phone. */
 export function WeekGrid({
