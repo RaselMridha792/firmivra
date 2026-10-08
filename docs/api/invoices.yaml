@@ -117,8 +117,11 @@ info:
       and Stripe's result is pending). Canceling a `DRAFT` clears `scheduled_for` (the portal never
       shows it); canceling a `SCHEDULED` invoice keeps it (the client saw it as Upcoming, so it
       stays as Canceled; see `myInvoiceStatus()`).
-    - **Pay Now (checkout).** In one transaction, lock the invoice row, check it is `OPEN` with a
-      balance and no processing payment, and that the firm's `stripe_accounts` row has
+    - **Pay Now (checkout).** A $0 total never reaches it: send refuses a draft with nothing to
+      pay (`409 ZERO_TOTAL`), and Pay Now answers `409 NOT_PAYABLE` when nothing is left to pay.
+      The answer's `url` is Stripe's hosted checkout only (https, host exactly
+      `checkout.stripe.com`; the contract refuses anything else). In one transaction, lock the
+      invoice row, check it is `OPEN` with a balance and no processing payment, and that the firm's `stripe_accounts` row has
       `charges_enabled` (else `PAYMENTS_NOT_SET_UP`). If an open Checkout Session for this
       invoice and the same amount exists with at least 10 minutes left, answer its URL again (one
       open checkout per invoice); one closer to its end is expired (`sessions.expire`) and a new
@@ -392,7 +395,7 @@ paths:
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200':
-          description: Where to send the browser, until expiresAt
+          description: Stripe's hosted checkout (https, host exactly checkout.stripe.com), or a mock link in mock mode, until expiresAt
           content: { application/json: { schema: { $ref: '#/components/schemas/CheckoutLink' } } }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '401': { $ref: '#/components/responses/Unauthenticated' }

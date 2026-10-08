@@ -390,12 +390,23 @@ describe('api.myInvoices(slug) (portal)', () => {
     );
   });
 
-  it('accepts only an https checkout link (or a mock one)', () => {
+  it("accepts only Stripe's hosted checkout (or a mock link)", () => {
     const link = (url: string) => CheckoutLink.safeParse({ url, expiresAt: at }).success;
     expect(link('https://checkout.stripe.com/c/pay/cs_test_a1')).toBe(true);
     expect(link('mock:checkout/1')).toBe(true);
-    expect(link('javascript:alert(1)')).toBe(false);
-    expect(link('http://checkout.example.test')).toBe(false);
+    for (const url of [
+      'https://checkout.stripe.com.evil.example/c/pay/cs_test_a1',
+      'http://checkout.stripe.com/c/pay/cs_test_a1',
+      'https://evil.example/checkout.stripe.com/c/pay/cs_test_a1',
+      'https://pay.checkout.stripe.com/c/pay/cs_test_a1',
+      'https://checkout.stripe.com:8443/c/pay/cs_test_a1',
+      'https://user@checkout.stripe.com/c/pay/cs_test_a1',
+      'https://checkout.example.test/c/pay/cs_test_a1',
+      'javascript:alert(1)',
+      'mock:anything-else',
+    ]) {
+      expect(link(url), url).toBe(false);
+    }
   });
 
   it("reads Stripe's return and ignores anything else", () => {

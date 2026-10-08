@@ -495,13 +495,23 @@ export const PayInvoiceRequest = z.strictObject({});
 export type PayInvoiceRequest = z.input<typeof PayInvoiceRequest>;
 
 /**
- * Where to send the browser: Stripe's hosted checkout for this invoice, until `expiresAt`. Only
- * https (in mock mode a `mock:` link, which opens nothing: stay on the page).
+ * Stripe's hosted checkout only: https, the host exactly checkout.stripe.com, no port and no user
+ * part. So a bug or a tampered answer can never send a client to a lookalike payment page. A
+ * custom checkout domain, if Rasel ever wants one, is added here.
  */
+const StripeCheckoutUrl = z
+  .url({ protocol: /^https$/, hostname: /^checkout\.stripe\.com$/ })
+  .refine((url) => {
+    const u = new URL(url);
+    return u.port === '' && u.username === '' && u.password === '';
+  }, 'Not a Stripe checkout link');
+
+/** Mock mode's link: it opens nothing, so the page stays where it is. */
+const MockCheckoutUrl = z.string().regex(/^mock:checkout\//, 'Not a checkout link');
+
+/** Where to send the browser: Stripe's hosted checkout for this invoice, until `expiresAt`. */
 export const CheckoutLink = z.object({
-  url: z
-    .string()
-    .refine((url) => url.startsWith('https://') || url.startsWith('mock:'), 'Not a checkout link'),
+  url: z.union([StripeCheckoutUrl, MockCheckoutUrl]),
   expiresAt: DateTime,
 });
 export type CheckoutLink = z.infer<typeof CheckoutLink>;
