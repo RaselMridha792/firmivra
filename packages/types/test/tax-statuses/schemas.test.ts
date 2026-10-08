@@ -27,5 +27,7 @@ describe('tax status input contracts', () => {
   it('trims names and limits them to 120 characters', () => {
     expect(RenameTaxStatusRequest.parse({ name: '  Filed  ' }).name).toBe('Filed');
     expect(RenameTaxStatusRequest.safeParse({ name: 'x'.repeat(121) }).success).toBe(false);
+    expect(RenameTaxStatusRequest.safeParse({ name: 'Filed\u0000' }).success).toBe(false);
+    expect(CreateTaxStatusRequest.safeParse({ name: 'Two\nlines' }).success).toBe(false);
   });
 });

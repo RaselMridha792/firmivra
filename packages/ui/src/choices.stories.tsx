@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Badge, Button, Checkbox, Radio, Select } from './index';
+import mockFirmSettings from './mocks/firm-branding.json';
 
 const meta = { title: 'Design System/Choices', parameters: { layout: 'padded' } } satisfies Meta;
 export default meta;
@@ -38,8 +39,20 @@ export const StatusBadge: Story = {
 export const BrandThemes: Story = {
   render: () => (
     <div className="grid gap-6">
-      {['firmivra', 'lvpPortal', 'lvpBeginOnline'].map((theme) => (
-        <section key={theme} data-theme={theme} className="space-y-3">
+      {['firmivra', 'portal', 'begin-online'].map((theme) => (
+        <section
+          key={theme}
+          data-theme={theme}
+          className="space-y-3"
+          ref={(element) => {
+            if (!element || theme === 'firmivra') return;
+            // Simulate the portal layout applying settings returned by the API.
+            element.style.setProperty('--color-firm-primary', mockFirmSettings.primary);
+            element.style.setProperty('--color-firm-accent', mockFirmSettings.accent);
+            if (theme === 'begin-online')
+              element.style.setProperty('--color-firm-intake', mockFirmSettings.intake);
+          }}
+        >
           <h2 className="font-display text-2xl text-heading">{theme}</h2>
           <Button>Continue</Button> <Badge tone="success">Paid</Badge>
         </section>

@@ -1,6 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { type APIRequestContext, expect, test } from '@playwright/test';
 
 // Every LVP portal page from docs/junior/PAGE-MAP.md opens in its layout with its title.
+// The title is the tab title from the page.tsx metadata (in the server HTML), not a heading.
 // These tests open many pages; in `next dev` each compiles on its first visit.
 test.describe.configure({ timeout: 240_000 });
 
@@ -48,7 +49,8 @@ const clientPages: [path: string, title: string][] = [
 test('the public portal pages open without signing in', async ({ page }) => {
   for (const [path, title] of publicPages) {
     await page.goto(portal(path));
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    await expect(page).toHaveURL(portal(path));
+    await expect(page).toHaveTitle(title);
   }
 });
 
@@ -64,8 +66,13 @@ test('every signed-in portal page opens in the client shell', async ({ page }) =
 
   for (const [path, title] of clientPages) {
     await page.goto(portal(path));
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+    await expect(page).toHaveURL(portal(path));
+    await expect(page).toHaveTitle(title);
   }
+  // Home opens the Intake Form tab when opened from its URL too.
+  await page.goto(portal('/home'));
+  await expect(page).toHaveURL(portal('/intake'));
 });
 
 test('an encoded slash or backslash as the firm slug is a 404, never a redirect', async ({
@@ -79,5 +86,54 @@ test('an encoded slash or backslash as the firm slug is a 404, never a redirect'
     });
     expect(res.status(), path).toBe(404);
     expect(res.headers()['location'], path).toBeUndefined();
+  }
+});
+
+/** GET on the portal host, without following redirects. */
+const portalGet = (request: APIRequestContext, path: string) =>
+  // Node can't resolve *.localhost (the browser can), so send the portal host as a header.
+  request.get(`http://localhost:${port}${path}`, {
+    headers: { host: `portal.localhost:${port}` },
+    maxRedirects: 0,
+  });
+
+test('/{slug}/home opens the Intake Form tab: a relative 307 on this site, query dropped', async ({
+  request,
+}) => {
+  const cases: [path: string, location: string][] = [
+    ['/lvp/home', '/lvp/intake'],
+    ['/lvp/home?next=//evil.example.test', '/lvp/intake'],
+    // The redirect can't know which firms exist: an unknown slug stays on this site, and
+    // /no-such-firm/intake then shows not-found (the portal layout).
+    ['/no-such-firm/home', '/no-such-firm/intake'],
+  ];
+  for (const [path, location] of cases) {
+    const res = await portalGet(request, path);
+    expect(res.status(), path).toBe(307);
+    expect(res.headers()['location'], path).toBe(location);
+  }
+});
+
+test('a malformed slug before /home is a 404, never a redirect to another site', async ({
+  request,
+}) => {
+  for (const path of ['/%2F%2Fevil.example.test/home', '/%2Fevil.example.test/home']) {
+    const res = await portalGet(request, path);
+    expect(res.status(), path).toBe(404);
+    expect(res.headers()['location'], path).toBeUndefined();
+  }
+  // A raw "//" may never reach the app: Next.js (16.3) first answers 308 to the same path with
+  // single slashes. Check what matters, not Next's exact answer: a 404, or a redirect that stays
+  // on this site (one leading "/", not "//" or a backslash), and the place it points to is a 404.
+  const doubled = await portalGet(request, '//evil.example.test/home');
+  expect([308, 404]).toContain(doubled.status());
+  const location = doubled.headers()['location'];
+  if (doubled.status() === 404) {
+    expect(location).toBeUndefined();
+  } else {
+    expect(location).toMatch(/^\/[^/\\]/);
+    const res = await portalGet(request, location ?? '');
+    expect(res.status()).toBe(404);
+    expect(res.headers()['location']).toBeUndefined();
   }
 });

@@ -7,7 +7,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { MeResponse } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -34,7 +34,7 @@ async function me(path: string, email: string) {
 }
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [u, pool] of [
       [multiFirmStaff, 'STAFF'],
@@ -134,7 +134,7 @@ describe('GET /me', () => {
     const before = (await call().expect(200)).body as MeResponse;
     expect(before.memberships[0]?.role).toBe('STAFF');
 
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const setRole = (role: 'STAFF' | 'ADMIN') =>
       runInScope(owner, { kind: 'business', businessId: fx.firmA.id }, (tx) =>
         tx.membership.updateMany({ where: { userId: multiFirmStaff.id }, data: { role } }),

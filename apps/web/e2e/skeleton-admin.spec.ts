@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 // Every Super Admin page from docs/junior/PAGE-MAP.md opens, inside the shell, with its title.
+// The title is the tab title from the page.tsx metadata (in the server HTML), not a heading, so
+// the checks hold when a placeholder becomes the real screen.
 // These tests open many pages; in `next dev` each compiles on its first visit.
 test.describe.configure({ timeout: 240_000 });
 
@@ -26,7 +28,8 @@ test('the public Super Admin pages open without signing in', async ({ page }) =>
   ];
   for (const [path, title] of publicPages) {
     await page.goto(admin(path));
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    await expect(page).toHaveURL(admin(path));
+    await expect(page).toHaveTitle(title);
   }
 });
 
@@ -37,7 +40,9 @@ test('every console page opens in the shell for the Super Admin', async ({ page 
 
   for (const [path, title] of consolePages) {
     await page.goto(admin(path));
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+    await expect(page).toHaveURL(admin(path));
+    await expect(page).toHaveTitle(title);
   }
   // The active menu item follows the page.
   await expect(page.getByRole('link', { name: 'Firms', exact: true })).toHaveAttribute(

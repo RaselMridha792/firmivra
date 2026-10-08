@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { text } from '../clients/text.js';
 import { BusinessSummary, MeResponse, MembershipRole } from '../schemas.js';
 
 // Staff and Super Admin sign-in contract (docs/api/auth.yaml, docs/AUTH-DESIGN.md).
@@ -126,14 +127,21 @@ export const ResetPasswordRequest = z.object({
 export type ResetPasswordRequest = z.input<typeof ResetPasswordRequest>;
 
 // ---------- Invites and activation (firm site) ----------
-/** Roles an invite can give. Owners are created when Super Admin approves the firm. */
+/** Roles an invite can give. Owners are invited by the platform when Super Admin approves the firm. */
 export const InviteRole = MembershipRole.exclude(['OWNER']);
 export type InviteRole = z.infer<typeof InviteRole>;
 
-/** POST /auth/invites (owner or admin of the current firm). */
+/**
+ * POST /auth/invites (owner or admin of the current firm): the owner invites admins and staff,
+ * an admin invites staff. Inviting someone with an open invite sends a new link (the old one
+ * stops working); a deactivated member is invited again; an active member is 409 ALREADY_MEMBER.
+ * The answer is the same whether or not the person already works at another firm. The invite
+ * keeps the name and email typed here: the firm sees them until the person joins.
+ */
 export const CreateInviteRequest = z.object({
   email: Email,
-  name: z.string().trim().min(1).max(200),
+  /** The database's rule for invites.name: one line, at most 120 characters. */
+  name: text(120, 'one', 'Enter the name'),
   role: InviteRole,
 });
 export type CreateInviteRequest = z.input<typeof CreateInviteRequest>;
@@ -148,7 +156,10 @@ export const InviteResponse = z.object({
 });
 export type InviteResponse = z.infer<typeof InviteResponse>;
 
-/** The token from the activation link (/activate?token=...). */
+/**
+ * The token from the activation link `/activate#token=...`. It sits in the URL fragment, so it
+ * never reaches a server log or a Referer header: the page reads it and sends it in the body.
+ */
 export const ActivationToken = z.string().min(20).max(512);
 
 /** POST /auth/activation/check: what the activation screen shows before the password form. */
@@ -161,16 +172,28 @@ export const ActivationCheckResponse = z.object({
   role: MembershipRole,
   business: BusinessSummary,
   expiresAt: z.iso.datetime({ offset: true }),
+  /**
+   * The person already has a Firmivra login (staff at another firm). The screen asks them to
+   * sign in, then calls POST /auth/activation/accept. Otherwise it shows the password form.
+   */
+  hasAccount: z.boolean(),
 });
 export type ActivationCheckResponse = z.infer<typeof ActivationCheckResponse>;
 
-/** POST /auth/activate: sets the password, then returns MFA_SETUP_REQUIRED. */
+/**
+ * POST /auth/activate: a new person sets their password, then gets MFA_SETUP_REQUIRED.
+ * Refused (409 ACCOUNT_EXISTS) when the person already has a login: they accept instead.
+ */
 export const ActivateRequest = z.object({
   token: ActivationToken,
   password: Password,
   name: z.string().trim().min(1).max(200).optional(),
 });
 export type ActivateRequest = z.input<typeof ActivateRequest>;
+
+/** POST /auth/activation/accept, signed in: an existing login joins the firm. Answers GET /me. */
+export const AcceptInviteRequest = z.object({ token: ActivationToken });
+export type AcceptInviteRequest = z.input<typeof AcceptInviteRequest>;
 
 // ---------- Errors ----------
 /** Stable `error.code` values of the auth endpoints, besides the generic ones in ApiError. */
@@ -190,8 +213,10 @@ export const AuthErrorCode = z.enum([
   'CHALLENGE_EXPIRED',
   /** 404: unknown or already used activation link. */
   'INVITE_INVALID',
-  /** 409: the email already has an active or invited membership in this firm. */
+  /** 409: the email already has an active membership in this firm. */
   'ALREADY_MEMBER',
+  /** 409: activate refused: the person already has a login; sign in and accept instead. */
+  'ACCOUNT_EXISTS',
   /** 410: the activation link is older than 7 days. Ask for a new invite. */
   'INVITE_EXPIRED',
 ]);

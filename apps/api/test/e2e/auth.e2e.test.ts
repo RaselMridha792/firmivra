@@ -7,7 +7,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { MfaSetupResponse, SignInResult } from '@firmivra/types';
 import {
   LOCAL_MFA_CODE,
@@ -249,11 +249,13 @@ describe('Super Admin sign-in (admin site)', () => {
 });
 
 describe('rate limits use the viewer IP behind CloudFront and the ALB', () => {
+  let attempts = 0;
   const attempt = (xff: string) =>
     request(app.getHttpServer())
       .post('/api/v1/auth/sign-in')
       .set('x-forwarded-for', xff)
-      .send({ email: 'nobody@a.test', password: 'Wrong-password-1' });
+      // A new email each time: this is the per-IP limit, not the per-email one (step 7).
+      .send({ email: `nobody-${++attempts}@a.test`, password: 'Wrong-password-1' });
 
   it('limits one viewer without locking out the others', async () => {
     const viewer = newViewer();
@@ -402,7 +404,7 @@ describe('#23 review: refresh checks our database', () => {
   async function makePerson(pool: 'STAFF' | 'ADMIN') {
     const id = randomUUID();
     const email = `r2-refresh-${randomUUID()}@${pool === 'ADMIN' ? 'firmivra' : 'a'}.test`;
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     await runInScope(owner, { kind: 'platform' }, async (tx) => {
       await tx.user.create({ data: { id, cognitoSub: id, pool, email, name: 'Fake R2 person' } });
       if (pool === 'ADMIN') await tx.platformAdmin.create({ data: { userId: id } });
@@ -412,7 +414,7 @@ describe('#23 review: refresh checks our database', () => {
   }
 
   async function asOwner(work: Parameters<typeof runInScope>[2]) {
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     await runInScope(owner, { kind: 'platform' }, work);
     await owner.$disconnect();
   }
@@ -453,7 +455,7 @@ describe('#23 review: reset-password never tells real emails apart', () => {
   };
 
   it('answers a real and an unknown email the same, then limits both after 5 failures', async () => {
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const real = { id: randomUUID(), email: `r2-reset-${randomUUID()}@a.test` };
     await runInScope(owner, { kind: 'platform' }, (tx) =>
       tx.user.create({

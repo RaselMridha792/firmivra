@@ -12,17 +12,29 @@ import { useApiMutation } from '../../lib/query';
 import { errorMessage } from '../../lib/errors';
 import { Mfa } from './mfa';
 
-export function SignIn({ site }: { site: 'firm' | 'admin' }) {
+export function SignIn({
+  site,
+  email,
+  onSignedIn,
+}: {
+  site: 'firm' | 'admin';
+  email?: string;
+  onSignedIn?: () => Promise<void>;
+}) {
   const client = site === 'admin' ? adminAuth : staffAuth;
   const ready = useAuthReady();
   const router = useRouter();
   const [challenge, setChallenge] = useState<{ session: string; setup?: MfaSetupResponse }>();
   const [show, setShow] = useState(false);
-  const form = useForm<SignInRequest>({ resolver: zodResolver(SignInRequest) });
+  const form = useForm<SignInRequest>({
+    resolver: zodResolver(SignInRequest),
+    defaultValues: { email },
+  });
   const mutation = useApiMutation(async (action: () => Promise<SignInResult | void>) => {
     const result = await action();
     form.resetField('password');
     if (!result || result.status === 'SIGNED_IN') {
+      if (onSignedIn) await onSignedIn();
       router.replace('/');
     } else {
       const setup =
@@ -37,6 +49,7 @@ export function SignIn({ site }: { site: 'firm' | 'admin' }) {
       <Mfa
         site={site}
         {...challenge}
+        onSignedIn={onSignedIn}
         onBack={() => {
           setChallenge(undefined);
           mutation.reset();

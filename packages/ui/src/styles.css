@@ -1,5 +1,5 @@
-/* F01 CSS token source: colours and sizing from docs/mockups; tenant palettes stay separate. */
 @import './auth.css';
+/* F01 CSS token source: colours and sizing from docs/mockups; tenant palettes stay separate. */
 @theme {
   --color-*: initial;
   --color-platform-navy: #001b36;
@@ -9,20 +9,6 @@
   --color-platform-blue-pressed: #003d85;
   --color-platform-teal: #007f82;
   --color-platform-teal-soft: #e1f5f2;
-  --color-lvp-navy: #001b44;
-  --color-lvp-navy-raised: #073968;
-  --color-lvp-gold: #c58a16;
-  --color-lvp-gold-hover: #be8313;
-  --color-lvp-gold-pressed: #b57e12;
-  --color-lvp-gold-soft: #fff3dc;
-  --color-lvp-orange: #ff6b00;
-  --color-lvp-orange-action: #b94700;
-  --color-lvp-orange-hover: #9f3d00;
-  --color-lvp-orange-pressed: #843200;
-  --color-lvp-orange-soft: #fff0e5;
-  --color-lvp-portal-blue: #005fcc;
-  --color-lvp-portal-blue-hover: #004fa8;
-  --color-lvp-portal-blue-pressed: #003d85;
   --color-white: #ffffff;
   --color-canvas: #f3f8fc;
   --color-subtle: #f8fafc;
@@ -70,8 +56,8 @@
   --color-brand-900: var(--color-heading);
   --color-accent-500: var(--color-accent);
   --color-accent-600: #007f82;
-  --color-firm-primary: var(--color-action);
-  --color-firm-accent: var(--color-accent);
+  --color-firm-primary: var(--color-platform-navy);
+  --color-firm-accent: var(--color-platform-blue);
   --color-overlay: rgba(0, 27, 54, 0.55);
   --color-transparent: transparent;
   --font-sans: Arial, Helvetica, sans-serif;
@@ -147,39 +133,29 @@
   --spacing-sidebar: 240px;
   --spacing-public: 1120px;
 }
-[data-theme='lvpPortal'] {
-  --color-navigation: #001b44;
-  --color-navigation-hover: #073968;
-  --color-heading: #001b44;
-  --color-action: #005fcc;
-  --color-action-hover: #004fa8;
-  --color-action-pressed: #003d85;
-  --color-on-action: #ffffff;
-  --color-link: #005fcc;
-  --color-focus: #005fcc;
-  --color-accent: #c58a16;
-  --color-accent-soft: #fff3dc;
-  --color-public-action: #c58a16;
-  --color-public-action-hover: #be8313;
-  --color-public-action-pressed: #b57e12;
-  --color-on-public-action: #001b44;
+[data-theme='portal'],
+[data-theme='begin-online'] {
+  --color-navigation: var(--color-firm-primary);
+  --color-navigation-hover: color-mix(in srgb, var(--color-firm-primary), var(--color-white) 10%);
+  --color-heading: var(--color-firm-primary);
+  --color-action: var(--color-firm-accent);
+  --color-action-hover: color-mix(in srgb, var(--color-action), var(--color-text) 12%);
+  --color-action-pressed: color-mix(in srgb, var(--color-action), var(--color-text) 24%);
+  --color-on-action: var(--color-white);
+  --color-link: var(--color-firm-accent);
+  --color-focus: var(--color-firm-accent);
+  --color-accent: var(--color-firm-accent);
+  --color-accent-soft: color-mix(in srgb, var(--color-firm-accent) 12%, var(--color-white));
+  --color-public-action: var(--color-action);
+  --color-public-action-hover: var(--color-action-hover);
+  --color-public-action-pressed: var(--color-action-pressed);
+  --color-on-public-action: var(--color-on-action);
 }
-[data-theme='lvpBeginOnline'] {
-  --color-navigation: #001b44;
-  --color-navigation-hover: #073968;
-  --color-heading: #001b44;
-  --color-action: #b94700;
-  --color-action-hover: #9f3d00;
-  --color-action-pressed: #843200;
-  --color-on-action: #ffffff;
-  --color-link: #005fcc;
-  --color-focus: #005fcc;
-  --color-accent: #ff6b00;
-  --color-accent-soft: #fff0e5;
-  --color-public-action: #b94700;
-  --color-public-action-hover: #9f3d00;
-  --color-public-action-pressed: #843200;
-  --color-on-public-action: #ffffff;
+[data-theme='begin-online'] {
+  /* An unset intake token falls back here, preserving settings inherited from the layout. */
+  --color-action: var(--color-firm-intake, var(--color-firm-accent));
+  --color-accent: var(--color-firm-intake, var(--color-firm-accent));
+  --color-accent-soft: color-mix(in srgb, var(--color-accent) 12%, var(--color-white));
 }
 
 @layer base {
@@ -200,4 +176,12 @@
     min-height: auto;
     accent-color: var(--color-action);
   }
+}
+
+.ui-dialog {
+  width: min(calc(100% - var(--space-8)), var(--container-modal));
+  max-height: calc(100% - var(--space-8));
+}
+dialog::backdrop {
+  background: var(--color-overlay);
 }

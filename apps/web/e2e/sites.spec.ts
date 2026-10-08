@@ -40,17 +40,29 @@ test.describe('local sign-in works end to end (/api/v1/me)', () => {
     await expect(page.getByTestId('me-email')).toHaveText('owner@lvp.test');
   });
 
-  test('LVP client in the LVP portal, and no access to another firm', async ({ page }) => {
+  test("LVP client in the LVP portal, signed out on another firm's, then signs out", async ({
+    page,
+  }) => {
     await signInAs(page, site('portal', '/lvp/sign-in'), 'client@lvp.test');
     // Signed-in portal pages (skeleton): the footer names the firm, the user menu the email.
     await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
     await page.getByRole('button', { name: /Client/ }).click();
     await expect(page.getByTestId('me-email')).toHaveText('client@lvp.test');
 
-    // Same browser, another firm's signed-in portal: the session is per host and the firm is not theirs.
+    // Same browser, another firm's portal: each firm has its own session (its cookies reach only
+    // its own API routes), so here the client is simply signed out.
     await page.goto(site('portal', '/test-firm-b/home'));
-    await expect(page.getByTestId('firm-error')).toContainText('NOT_FOUND');
-    await expect(page.getByTestId('page-title')).toHaveCount(0);
+    await expect(page).toHaveURL(site('portal', '/test-firm-b/sign-in'));
+    await expect(page.getByTestId('firm-name')).toHaveCount(0);
+
+    // Their own firm's portal still has their session, until they sign out of it.
+    await page.goto(site('portal', '/lvp/home'));
+    await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
+    await page.getByRole('button', { name: /Client/ }).click();
+    await page.getByRole('menuitem', { name: 'Sign out' }).click();
+    await expect(page).toHaveURL(site('portal', '/lvp/sign-in'));
+    await page.goto(site('portal', '/lvp/home'));
+    await expect(page).toHaveURL(site('portal', '/lvp/sign-in'));
   });
 
   test('Super Admin in the admin console', async ({ page }) => {

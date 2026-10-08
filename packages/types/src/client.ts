@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import {
   ApiError,
   BusinessSummary,
+  DevSignOutRequest,
   DevTokenRequest,
   DevTokenResponse,
   HealthResponse,
@@ -34,6 +35,16 @@ export function parseInput<S extends z.ZodType>(schema: S, value: unknown): z.ou
     throw new ApiRequestError(400, 'VALIDATION_FAILED', message);
   }
   return result.data;
+}
+
+/** A query string from the defined values only (`?a=1&b=x`, or '' when none). */
+export function toQuery(values: Record<string, string | number | boolean | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
 }
 
 export interface ApiClientOptions {
@@ -103,7 +114,12 @@ export function createApiClient(options: ApiClientOptions) {
         method: 'POST',
         body: DevTokenRequest.parse(body),
       }),
-    devSignOut: () => request(OkResponse, '/dev/sign-out', { method: 'POST' }),
+    /** With `firmSlug`, that firm's portal cookie is cleared too. */
+    devSignOut: (firmSlug?: string) =>
+      request(OkResponse, '/dev/sign-out', {
+        method: 'POST',
+        ...(firmSlug ? { body: parseInput(DevSignOutRequest, { firmSlug }) } : {}),
+      }),
   };
 }
 

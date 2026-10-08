@@ -17,22 +17,33 @@ export const LOCAL_TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
 
 /**
  * Local stand-in for Cognito: same steps and errors, so the screens run end to end without AWS.
- * Each user's first sign-in after the API starts asks for authenticator setup; later ones for a code.
- * A reset password lasts until the API restarts. Refresh tokens are not revoked locally.
+ * Staff and Super Admins: the first sign-in after the API starts asks for authenticator setup;
+ * later ones for a code. Clients (MFA optional) are signed in at once, or asked for a code once
+ * they have set up an authenticator.
+ * Passwords set by reset or activation last until the API restarts (then the dev password works
+ * again). Refresh tokens are not revoked locally.
  */
 export class LocalIdentityProvider implements IdentityProvider {
   private readonly mfaReady = new Set<string>();
-  /** Passwords changed with reset-password, by sub. */
+  /** Passwords changed with reset-password or set at activation, by sub. */
   private readonly passwords = new Map<string, string>();
+  /** Logins created by an invite: no password until activation (seeded users have the dev one). */
+  private readonly invited = new Set<string>();
+  private readonly disabled = new Set<string>();
 
   constructor(private readonly tokens: TokenService) {}
 
-  signIn(_pool: IdentityPool, sub: string | undefined, password: string): Promise<AuthStep> {
-    if (!sub || password !== (this.passwords.get(sub) ?? LOCAL_PASSWORD)) {
-      return Promise.reject(new AuthFlowError('INVALID_CREDENTIALS'));
+  async signIn(pool: IdentityPool, sub: string | undefined, password: string): Promise<AuthStep> {
+    const expected =
+      this.passwords.get(sub ?? '') ?? (this.invited.has(sub ?? '') ? undefined : LOCAL_PASSWORD);
+    if (!sub || password !== expected || this.disabled.has(sub)) {
+      throw new AuthFlowError('INVALID_CREDENTIALS');
+    }
+    if (pool === 'CLIENT' && !this.mfaReady.has(sub)) {
+      return { kind: 'tokens', tokens: await this.issue(sub, pool), username: sub };
     }
     const step = this.mfaReady.has(sub) ? 'MFA' : 'MFA_SETUP';
-    return Promise.resolve({ kind: 'challenge', step, username: sub, session: randomUUID() });
+    return { kind: 'challenge', step, username: sub, session: randomUUID() };
   }
 
   async answerMfa(
@@ -87,6 +98,32 @@ export class LocalIdentityProvider implements IdentityProvider {
       return Promise.reject(new AuthFlowError('RESET_CODE_INVALID'));
     }
     this.passwords.set(sub, password);
+    return Promise.resolve();
+  }
+
+  createUser(): Promise<string> {
+    const sub = randomUUID();
+    this.invited.add(sub);
+    return Promise.resolve(sub);
+  }
+
+  setPassword(_pool: IdentityPool, sub: string, password: string): Promise<void> {
+    this.passwords.set(sub, password);
+    this.invited.delete(sub);
+    return Promise.resolve();
+  }
+
+  /** Locally the contact details live only in our database. */
+  updateContact(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  hasPassword(_pool: IdentityPool, sub: string): Promise<boolean> {
+    return Promise.resolve(!this.invited.has(sub));
+  }
+
+  disableUser(_pool: IdentityPool, sub: string): Promise<void> {
+    this.disabled.add(sub);
     return Promise.resolve();
   }
 

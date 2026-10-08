@@ -15,11 +15,13 @@ export function Mfa({
   session,
   setup,
   onBack,
+  onSignedIn,
 }: {
   site: 'firm' | 'admin';
   session: string;
   setup?: MfaSetupResponse;
   onBack: () => void;
+  onSignedIn?: () => Promise<void>;
 }) {
   const ready = useAuthReady();
   const router = useRouter();
@@ -32,6 +34,7 @@ export function Mfa({
     const result = await client.submitMfaCode(body);
     form.resetField('code');
     if (result.status === 'SIGNED_IN') {
+      if (onSignedIn) await onSignedIn();
       router.replace('/');
     } else form.setValue('session', result.session);
   });

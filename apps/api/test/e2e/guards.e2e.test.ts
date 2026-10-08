@@ -7,7 +7,8 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
+import { portalCookies } from '@firmivra/types';
 import {
   AllowBusinessStatuses,
   CurrentTenant,
@@ -130,7 +131,7 @@ async function createApp(controllers: unknown[]) {
 }
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   pendingFirm = await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [p, pool] of [
       [people.pendingOwner, 'STAFF'],
@@ -223,7 +224,7 @@ describe('firm routes', () => {
 
 describe('firm from the portal slug only; client id from the session (#25 review)', () => {
   it("gives a client their own ClientAccount id, whatever the slug's letter case", async () => {
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const account = await runInScope(owner, { kind: 'business', businessId: fx.firmA.id }, (tx) =>
       tx.clientAccount.findFirstOrThrow({
         where: { userId: fx.users.clientA.id },
@@ -240,9 +241,21 @@ describe('firm from the portal slug only; client id from the session (#25 review
         clientAccountId: account.id,
       });
     }
+    // Bearer (tests, server code) reaches the firm check: no account at firm B, 404.
     expect(
       (await call(`/api/v1/portal/${fx.firmB.slug}/probe`, fx.users.clientA.email)).status,
     ).toBe(404);
+  });
+
+  it("signs a browser out on another firm's portal: each firm has its own cookie (R3 step 5)", async () => {
+    const token = await tokenFor(fx.users.clientA.email);
+    const probe = (slug: string, cookie: string) =>
+      request(app.getHttpServer()).get(`/api/v1/portal/${slug}/probe`).set('cookie', cookie);
+    const own = `${portalCookies(fx.firmA.slug).access}=${token}`;
+    expect((await probe(fx.firmA.slug, own)).status).toBe(200);
+    expect((await probe(fx.firmB.slug, own)).status).toBe(401);
+    // Nor does the firm site's cookie work on a portal route.
+    expect((await probe(fx.firmA.slug, `fv_access=${token}`)).status).toBe(401);
   });
 
   it("never lets a staff route's own :slug switch the firm", async () => {

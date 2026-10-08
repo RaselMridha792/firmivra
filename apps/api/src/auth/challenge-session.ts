@@ -17,6 +17,12 @@ const Challenge = z.object({
   /** MFA: code expected. MFA_SETUP: call mfa/setup next. MFA_SETUP_VERIFY: first code expected. */
   step: z.enum(['MFA', 'MFA_SETUP', 'MFA_SETUP_VERIFY']),
   pool: IdentityPool,
+  /** Client portal sign-ins: the firm. The challenge opens only on that firm's portal. */
+  businessId: z.string().optional(),
+  /** The keyed hash of the email signed in with: wrong MFA codes count against it too. */
+  emailKey: z.string().optional(),
+  /** One sign-in attempt, from the password to the last MFA code: its wrong codes are capped. */
+  attemptId: z.string().optional(),
 });
 export type Challenge = z.infer<typeof Challenge>;
 
@@ -36,8 +42,14 @@ export class ChallengeSessions {
     return this.sealer.seal(challenge, TTL_SECONDS);
   }
 
-  async open(token: string, pool: IdentityPool): Promise<Challenge | undefined> {
-    return (await this.sealer.open(token, pool))?.value;
+  /** The challenge, if it was sealed for this pool and (on a portal) this firm. */
+  async open(
+    token: string,
+    pool: IdentityPool,
+    businessId?: string,
+  ): Promise<Challenge | undefined> {
+    const challenge = (await this.sealer.open(token, pool))?.value;
+    return challenge?.businessId === businessId ? challenge : undefined;
   }
 }
 

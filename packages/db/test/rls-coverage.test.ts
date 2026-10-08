@@ -43,7 +43,18 @@ describe('row-level security coverage', () => {
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = 'public' AND c.relkind = 'r'`);
     const app = rows.filter((r) => r.table !== '_prisma_migrations');
-    expect(app.filter((r) => !r.select || !r.insert).map((r) => r.table)).toEqual([]);
+    // platform_admins is read-only for the app: Super Admins are added by ops or the seed. The
+    // others are written only by their triggers, running as the table owner.
+    const readOnly = [
+      'platform_admins',
+      'client_tax_status_history',
+      'platform_user_signups',
+      'platform_owner_invites',
+    ];
+    expect(app.filter((r) => !r.select).map((r) => r.table)).toEqual([]);
+    expect(app.filter((r) => !r.insert && !readOnly.includes(r.table)).map((r) => r.table)).toEqual(
+      [],
+    );
     expect(rows.find((r) => r.table === '_prisma_migrations')).toMatchObject({
       select: false,
       insert: false,
@@ -59,6 +70,7 @@ describe('row-level security coverage', () => {
                    ('invites', 'DELETE'),
                    ('clients', 'DELETE'), ('client_profiles', 'DELETE'),
                    ('client_tax_statuses', 'DELETE'),
+                   ('client_tax_status_history', 'INSERT'),
                    ('client_tax_status_history', 'UPDATE'),
                    ('client_tax_status_history', 'DELETE'),
                    ('engagements', 'DELETE'),
@@ -71,7 +83,16 @@ describe('row-level security coverage', () => {
                    ('appointments', 'DELETE'),
                    ('message_threads', 'DELETE'), ('messages', 'DELETE'),
                    ('message_attachments', 'UPDATE'), ('message_attachments', 'DELETE'),
-                   ('client_private_notes', 'UPDATE'), ('client_private_notes', 'DELETE')) AS p(tbl, privilege)`);
+                   ('client_private_notes', 'UPDATE'), ('client_private_notes', 'DELETE'),
+                   ('invoices', 'DELETE'), ('payments', 'DELETE'), ('payment_events', 'DELETE'),
+                   ('payment_refunds', 'DELETE'),
+                   ('businesses', 'DELETE'),
+                   ('platform_user_signups', 'INSERT'), ('platform_user_signups', 'UPDATE'),
+                   ('platform_user_signups', 'DELETE'),
+                   ('platform_owner_invites', 'INSERT'), ('platform_owner_invites', 'UPDATE'),
+                   ('platform_owner_invites', 'DELETE'),
+                   ('platform_admins', 'INSERT'), ('platform_admins', 'UPDATE'),
+                   ('platform_admins', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
   });
 

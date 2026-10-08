@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, use, useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { adminAuth, AUTH_MODE, portalAuth, signOut as devSignOut, staffAuth } from '../lib/auth';
+import { mocked } from '../lib/mock';
 import { claimCache, refreshSession, releaseCache, setSession } from '../lib/session';
 
 export type Site = 'admin' | 'firm' | 'portal';
@@ -38,7 +39,8 @@ function refreshFor(site: Site, firmSlug: string | undefined): () => Promise<unk
 
 /**
  * The sign-in check of every signed-in layout. Reads the user once in the browser
- * (GET /admin/me on the Super Admin site, GET /me elsewhere), shows a loading state, and gives the
+ * (GET /admin/me on the Super Admin site, GET /portal/{slug}/me on a firm's portal, GET /me on the
+ * firm site), shows a loading state, and gives the
  * pages the user through useMe(). On a 401 it refreshes the session once, then sends the visitor
  * to the site's sign-in page. A different person than last time on this tab starts with an empty
  * data cache, and sign-out empties it (lib/session.ts).
@@ -63,7 +65,13 @@ export function SignedIn({
   useEffect(() => {
     let active = true;
     const refresh = refreshFor(site, firmSlug);
-    const loadMe = () => (site === 'admin' ? adminAuth.me() : api.me());
+    // Each site's own route: the portal's cookies reach only /api/v1/portal/{slug}/.
+    const loadMe = () =>
+      site === 'admin'
+        ? adminAuth.me()
+        : site === 'portal' && firmSlug
+          ? portalAuth(firmSlug).me()
+          : api.me();
     const is401 = (e: unknown) => e instanceof ApiRequestError && e.status === 401;
     // One refresh on a 401, then one more try; a second 401 means the session is over.
     loadMe()
@@ -90,10 +98,14 @@ export function SignedIn({
   }, [site, signInPath, firmSlug, router, queryClient, attempt]);
 
   const signOut = useCallback(async () => {
-    if (AUTH_MODE === 'local') await devSignOut();
+    // A portal session is that firm's own, locally too (its cookies reach only its routes).
+    if (site === 'portal' && firmSlug) await portalAuth(firmSlug).signOut();
+    // The Super Admin mock (lib/auth.ts) ends its own session, also when AUTH_MODE is local.
+    else if (site === 'admin' && process.env.NODE_ENV !== 'production' && mocked('adminAuth'))
+      await adminAuth.signOut();
+    else if (AUTH_MODE === 'local') await devSignOut();
     else if (site === 'admin') await adminAuth.signOut();
-    else if (site === 'firm') await staffAuth.signOut();
-    else if (firmSlug) await portalAuth(firmSlug).signOut();
+    else await staffAuth.signOut();
     // Nothing of this person's stays in memory for whoever uses the tab next.
     setSession(null);
     releaseCache(queryClient);

@@ -19,6 +19,7 @@ A module's **first PR is its contract**, before any API code, so the screens can
    Screens then call `api.taxStatuses.list()` through `useApiQuery` / `useApiMutation`.
 4. **Mock:** `apps/web/src/mocks/<module-kebab>.ts`, for example `mocks/tax-statuses.ts`.
    - It exports synthetic fixtures (`taxStatusFixtures`) and `create<Module>Mock()`: an in-memory client with the **same type** as the real one.
+   - Importing it runs nothing: fixtures are built on first use inside a function (`taxStatusFixtures()`), so a production build drops the whole file. ESLint refuses a call at a mock file's top level.
    - It follows the API's rules and error codes and waits about 250 ms, using `mockDelay()` from `lib/mock.ts`.
    - Developers turn it on with `NEXT_PUBLIC_API_MOCK=taxStatuses` (or `all`) in `apps/web/.env.local`. A "Mock data" badge shows while it's on, and it's always off in production builds.
 5. **Then the API:** controller, service and tests in `apps/api`. They validate with the same schemas, so the screen built on the mock works unchanged.
