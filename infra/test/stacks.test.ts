@@ -362,7 +362,19 @@ describe('app: firm KMS keys on the API task role (R1 step 14)', () => {
     },
   };
 
-  it('has exactly the six FirmKeys statements', () => {
+  /** A firm key of dev: env and purpose tags, KMS key material, one Region. */
+  const firmKey = {
+    'aws:ResourceTag/firmivra:env': 'dev',
+    'aws:ResourceTag/firmivra:purpose': 'firm-data',
+    'kms:KeyOrigin': 'AWS_KMS',
+  };
+  const tagNeverRewrites = {
+    'aws:ResourceTag/firmivra:env': 'dev',
+    'aws:ResourceTag/firmivra:businessId': '${aws:RequestTag/firmivra:businessId}',
+    'aws:ResourceTag/firmivra:purpose': 'firm-data',
+  };
+
+  it('has exactly the seven FirmKeys statements', () => {
     const firm = Object.fromEntries(
       statements.filter((s) => s.Sid?.startsWith('FirmKeys')).map((s) => [s.Sid, s]),
     );
@@ -378,7 +390,9 @@ describe('app: firm KMS keys on the API task role (R1 step 14)', () => {
             ...requestTags.StringEquals,
             'kms:KeySpec': 'SYMMETRIC_DEFAULT',
             'kms:KeyUsage': 'ENCRYPT_DECRYPT',
+            'kms:KeyOrigin': 'AWS_KMS',
           },
+          Bool: { 'kms:MultiRegion': 'false' },
         },
       },
       FirmKeysTagOnCreate: {
@@ -388,11 +402,8 @@ describe('app: firm KMS keys on the API task role (R1 step 14)', () => {
         Resource: keys,
         Condition: {
           ...requestTags,
-          Null: {
-            'aws:ResourceTag/firmivra:env': 'true',
-            'aws:ResourceTag/firmivra:businessId': 'true',
-            'kms:ResourceAliases': 'true',
-          },
+          StringEqualsIfExists: tagNeverRewrites,
+          Null: { 'kms:ResourceAliases': 'true', 'aws:ResourceTag/project': 'true' },
         },
       },
       FirmKeysAliasName: {
@@ -401,10 +412,17 @@ describe('app: firm KMS keys on the API task role (R1 step 14)', () => {
         Action: 'kms:CreateAlias',
         Resource: 'arn:aws:kms:us-east-1:778127141557:alias/firmivra/dev/business/*',
       },
-      FirmKeysOnEnvKeys: {
-        Sid: 'FirmKeysOnEnvKeys',
+      FirmKeysAliasKey: {
+        Sid: 'FirmKeysAliasKey',
         Effect: 'Allow',
-        Action: ['kms:CreateAlias', 'kms:DescribeKey'],
+        Action: 'kms:CreateAlias',
+        Resource: keys,
+        Condition: { StringEquals: firmKey, Bool: { 'kms:MultiRegion': 'false' } },
+      },
+      FirmKeysRead: {
+        Sid: 'FirmKeysRead',
+        Effect: 'Allow',
+        Action: ['kms:DescribeKey', 'kms:GetKeyPolicy', 'kms:ListGrants', 'kms:ListResourceTags'],
         Resource: keys,
         Condition: { StringEquals: { 'aws:ResourceTag/firmivra:env': 'dev' } },
       },
@@ -415,9 +433,10 @@ describe('app: firm KMS keys on the API task role (R1 step 14)', () => {
         Resource: keys,
         Condition: {
           StringEquals: {
-            'aws:ResourceTag/firmivra:env': 'dev',
+            ...firmKey,
             'kms:EncryptionContext:businessId': '${aws:ResourceTag/firmivra:businessId}',
           },
+          Bool: { 'kms:MultiRegion': 'false' },
         },
       },
       FirmKeysNoLockoutBypass: {
@@ -451,13 +470,14 @@ describe('app: firm KMS keys on the API task role (R1 step 14)', () => {
       expect(allowed).not.toContain(action);
     }
     expect(allowed.filter((a) => a.includes('*'))).toEqual([]);
-    // The only TagResource tags a key with no firm tags and no alias yet: the one CreateKey makes.
+    // The only TagResource sets the three firm tags, never changes a firm tag a key already has
+    // to another value, and never touches a key with an alias or a CDK key.
     const tagging = statements.filter((s) => actionsOf(s).includes('kms:TagResource'));
     expect(tagging.map((s) => s.Sid)).toEqual(['FirmKeysTagOnCreate']);
+    expect(tagging[0]?.Condition?.['StringEqualsIfExists']).toEqual(tagNeverRewrites);
     expect(tagging[0]?.Condition?.['Null']).toEqual({
-      'aws:ResourceTag/firmivra:env': 'true',
-      'aws:ResourceTag/firmivra:businessId': 'true',
       'kms:ResourceAliases': 'true',
+      'aws:ResourceTag/project': 'true',
     });
     expect(tagging[0]?.Condition).toMatchObject(requestTags);
     const creating = statements.filter(
@@ -485,7 +505,7 @@ describe('app: firm KMS keys on the API task role (R1 step 14)', () => {
         expect(JSON.stringify(s.Resource)).not.toContain('*');
       } else {
         expect(s.Condition?.['StringEquals']).toEqual({
-          'aws:ResourceTag/firmivra:env': 'dev',
+          ...firmKey,
           'kms:EncryptionContext:businessId': '${aws:ResourceTag/firmivra:businessId}',
         });
       }

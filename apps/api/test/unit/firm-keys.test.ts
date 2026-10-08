@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CreateKeyCommand, DescribeKeyCommand } from '@aws-sdk/client-kms';
+import { CreateKeyCommand } from '@aws-sdk/client-kms';
 import { describe, expect, it } from 'vitest';
 import {
   AwsFirmKeys,
@@ -12,10 +12,14 @@ import {
   FIRM_KEY_TAGS,
   FirmKeyError,
   firmKeyAlias,
+  isDefaultKeyPolicy,
   loadFirmKeysConfig,
   LocalFirmKeys,
 } from '../../src/firm-applications/firm-keys.js';
-import { fakeKms, named } from '../fake-kms.js';
+import { defaultKeyPolicy, FAKE_ACCOUNT, type FakeKey, fakeKms, named } from '../fake-kms.js';
+
+/** The calls that find and check a key named by its alias. */
+const ADOPT = ['DescribeKey', 'ListResourceTags', 'GetKeyPolicy', 'ListGrants'];
 
 const FIRM = '0199b6a3-0000-7000-8000-00000000000f';
 const ALIAS = `alias/firmivra/dev/business/${FIRM}`;
@@ -75,6 +79,8 @@ describe('AwsFirmKeys', () => {
       Description: `Firmivra dev: field encryption for business ${FIRM}`,
       KeySpec: 'SYMMETRIC_DEFAULT',
       KeyUsage: 'ENCRYPT_DECRYPT',
+      Origin: 'AWS_KMS',
+      MultiRegion: false,
       Tags: [
         { TagKey: 'firmivra:env', TagValue: 'dev' },
         { TagKey: 'firmivra:businessId', TagValue: FIRM },
@@ -122,9 +128,142 @@ describe('AwsFirmKeys', () => {
     fake.calls.length = 0;
     lines.length = 0;
     await expect(keys.ensureKey(FIRM)).resolves.toBe(first);
-    expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0]).toBeInstanceOf(DescribeKeyCommand);
+    expect(fake.names()).toEqual(ADOPT);
     expect(lines).toEqual([`Business ${FIRM}: key ${first} already named ${ALIAS}`]);
+  });
+
+  describe('adopts a key by its alias only when it is exactly one the adapter makes', () => {
+    const OTHER = '0199b6a3-0000-7000-8000-0000000000ee';
+    const cases: [string, (key: FakeKey) => void, RegExp][] = [
+      [
+        "another firm's key (the alias points at the wrong firm)",
+        (key) => {
+          key.tags[1] = { TagKey: 'firmivra:businessId', TagValue: OTHER };
+        },
+        new RegExp(`does not carry exactly the firm tags of business ${FIRM}`),
+      ],
+      [
+        'an extra tag',
+        (key) => key.tags.push({ TagKey: 'owner', TagValue: 'someone' }),
+        /does not carry exactly the firm tags/,
+      ],
+      ['a missing purpose tag', (key) => key.tags.pop(), /does not carry exactly the firm tags/],
+      [
+        'a key policy that also allows another account',
+        (key) => {
+          const doc = JSON.parse(key.policy) as { Statement: object[] };
+          doc.Statement.push({
+            Effect: 'Allow',
+            Principal: { AWS: 'arn:aws:iam::999999999999:root' },
+            Action: 'kms:*',
+            Resource: '*',
+          });
+          key.policy = JSON.stringify(doc);
+        },
+        /has a key policy other than KMS's default/,
+      ],
+      [
+        'a key policy for another account root',
+        (key) => {
+          key.policy = defaultKeyPolicy('999999999999');
+        },
+        /has a key policy other than KMS's default/,
+      ],
+      [
+        'imported key material (Origin EXTERNAL)',
+        (key) => {
+          key.origin = 'EXTERNAL';
+        },
+        /is not a single-Region symmetric encryption key with KMS key material/,
+      ],
+      [
+        'a multi-Region key',
+        (key) => {
+          key.multiRegion = true;
+        },
+        /is not a single-Region symmetric encryption key with KMS key material/,
+      ],
+      [
+        'an AWS managed key',
+        (key) => {
+          key.keyManager = 'AWS';
+        },
+        /is not a customer key of this account/,
+      ],
+      [
+        'a grant',
+        (key) => {
+          key.grants = [{ GrantId: 'g-1', GranteePrincipal: 'arn:aws:iam::999999999999:root' }];
+        },
+        /has grants/,
+      ],
+    ];
+
+    it.each(cases)('refuses %s, and makes and stores nothing', async (_, change, message) => {
+      const fake = fakeKms();
+      const { keys } = harness(fake.kms);
+      const arn = await keys.ensureKey(FIRM);
+      change(fake.keys.get(arn)!);
+      fake.calls.length = 0;
+      const error = await keys.ensureKey(FIRM).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(FirmKeyError);
+      expect((error as Error).message).toMatch(message);
+      expect((error as Error).message).toMatch(/; a person decides$/);
+      expect(fake.names().filter((n) => n === 'CreateKey' || n === 'CreateAlias')).toEqual([]);
+    });
+
+    it('applies the same checks to the key another call named first', async () => {
+      const winner = 'arn:aws:kms:us-east-1:000000000000:key/0199b6a3-0000-7000-8000-0000000000ab';
+      const fake = fakeKms({ aliasTakenBy: winner });
+      // The winner's key carries a foreign key policy.
+      const kms = {
+        send: async (command: unknown) => {
+          const key = fake.keys.get(winner);
+          if (key) key.policy = defaultKeyPolicy('999999999999');
+          return fake.kms.send(command as never);
+        },
+      } as unknown as typeof fake.kms;
+      const error = await harness(kms)
+        .keys.ensureKey(FIRM)
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(FirmKeyError);
+      const made = [...fake.keys.keys()].find((k) => k !== winner)!;
+      expect((error as Error).message).toBe(
+        `The key ${winner} named ${ALIAS} has a key policy other than KMS's default; a person decides. Key ${made} was made but not named; it holds no data`,
+      );
+    });
+
+    it("recognises only KMS's default key policy", () => {
+      expect(isDefaultKeyPolicy(defaultKeyPolicy(), FAKE_ACCOUNT)).toBe(true);
+      const statement = {
+        Effect: 'Allow',
+        Principal: { AWS: `arn:aws:iam::${FAKE_ACCOUNT}:root` },
+        Action: 'kms:*',
+        Resource: '*',
+      };
+      const doc = (s: object, extra: object = {}) =>
+        JSON.stringify({ Version: '2012-10-17', Statement: [s], ...extra });
+      expect(isDefaultKeyPolicy(doc(statement), FAKE_ACCOUNT)).toBe(true);
+      for (const bad of [
+        undefined,
+        '',
+        'not json',
+        '[]',
+        doc(statement, { Version: '2008-10-17' }),
+        doc(statement, { Extra: 1 }),
+        doc({ ...statement, Effect: 'Deny' }),
+        doc({ ...statement, Principal: { AWS: '*' } }),
+        doc({ ...statement, Principal: { AWS: [`arn:aws:iam::${FAKE_ACCOUNT}:root`] } }),
+        doc({ ...statement, Principal: { AWS: statement.Principal.AWS, Service: 'x' } }),
+        doc({ ...statement, Action: ['kms:*'] }),
+        doc({ ...statement, Resource: 'arn:aws:kms:*' }),
+        doc({ ...statement, Condition: { Bool: { 'aws:SecureTransport': 'true' } } }),
+        JSON.stringify({ Version: '2012-10-17', Statement: [statement, statement] }),
+      ]) {
+        expect(isDefaultKeyPolicy(bad, FAKE_ACCOUNT)).toBe(false);
+      }
+      expect(isDefaultKeyPolicy(defaultKeyPolicy(), '999999999999')).toBe(false);
+    });
   });
 
   it('uses the key another call named first, and logs the unused one', async () => {

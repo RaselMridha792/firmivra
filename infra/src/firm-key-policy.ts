@@ -16,6 +16,9 @@ export const FIRM_KEY_PURPOSE = 'firm-data';
 /** A business id is a lower-case UUID: 36 characters, hyphens at fixed places. */
 const UUID_SHAPE = '????????-????-????-????-????????????';
 
+/** The tag `Tags.of(app)` puts on every CDK resource (bin/firmivra.ts), CDK keys included. */
+const CDK_TAG = 'project';
+
 export function firmKeyArns(envName: string, region: string, account: string) {
   return {
     /** Every key in the account and region; each statement on it narrows by tag. */
@@ -29,15 +32,21 @@ export function firmKeyArns(envName: string, region: string, account: string) {
  * The API task role's rights on firm keys. Never granted: ScheduleKeyDeletion, DisableKey,
  * PutKeyPolicy, UntagResource, UpdateAlias, DeleteAlias, CreateGrant, or kms:*. A person removes a
  * key, never the API.
- * - CreateKey only with the three firm tags (env pinned, a UUID-shaped business id) and a
- *   symmetric encryption key. CreateKey sends no key policy, so KMS attaches its default (the
- *   account root, which hands control to IAM): these statements are all the API can do.
- * - TagResource is needed because CreateKey sends Tags. It only tags a key that has no firm tags
- *   and no alias yet, which is the key CreateKey is making, so an existing firm key's env and
- *   business id (and the CDK documents keys) can never be rewritten.
- * - CreateAlias only under alias/firmivra/<env>/business/, and only on keys tagged with the env.
- * - Use: GenerateDataKey and Decrypt (all field encryption calls), only on keys tagged with the
- *   env, and only when the encryption context's businessId equals the key's businessId tag.
+ * - CreateKey only with the three firm tags (env pinned, a UUID-shaped business id), and only a
+ *   single-Region symmetric encryption key with key material from KMS. KMS has no condition key
+ *   for CreateKey's Policy parameter, so IAM cannot stop a key policy being sent: the adapter
+ *   sends none (KMS's default, the account root, which hands control to IAM), and it checks the
+ *   policy, tags, origin and grants of every key it adopts by its alias (firm-keys.ts).
+ * - TagResource is needed because CreateKey sends Tags. It never changes a firm tag a key already
+ *   has to another value, never tags a key that has an alias or a CDK key, and only sets the
+ *   three firm tags. Known limit: it can add firm tags to an untagged key without an alias made
+ *   outside CDK (the adapter refuses such a key unless its policy is the default and it has no
+ *   grants), and tags take up to five minutes to reach authorization.
+ * - CreateAlias only under alias/firmivra/<env>/business/, and only on firm keys of the env.
+ * - Read-only on keys of the env: DescribeKey, GetKeyPolicy, ListResourceTags, ListGrants (the
+ *   adapter's checks).
+ * - Use: GenerateDataKey and Decrypt (all field encryption calls), only on firm keys of the env,
+ *   and only when the encryption context's businessId equals the key's businessId tag.
  */
 export function firmKeyStatements(
   envName: string,
@@ -55,6 +64,15 @@ export function firmKeyStatements(
       'aws:TagKeys': [FIRM_KEY_TAG.env, FIRM_KEY_TAG.businessId, FIRM_KEY_TAG.purpose],
     },
   };
+  /** A firm key of this env: its env and purpose tags, KMS key material, one Region. */
+  const firmKey = {
+    StringEquals: {
+      [`aws:ResourceTag/${FIRM_KEY_TAG.env}`]: envName,
+      [`aws:ResourceTag/${FIRM_KEY_TAG.purpose}`]: FIRM_KEY_PURPOSE,
+      'kms:KeyOrigin': 'AWS_KMS',
+    },
+    Bool: { 'kms:MultiRegion': 'false' },
+  };
   return [
     new iam.PolicyStatement({
       sid: 'FirmKeysCreate',
@@ -66,7 +84,9 @@ export function firmKeyStatements(
           ...requestTags.StringEquals,
           'kms:KeySpec': 'SYMMETRIC_DEFAULT',
           'kms:KeyUsage': 'ENCRYPT_DECRYPT',
+          'kms:KeyOrigin': 'AWS_KMS',
         },
+        Bool: { 'kms:MultiRegion': 'false' },
       },
     }),
     new iam.PolicyStatement({
@@ -75,10 +95,16 @@ export function firmKeyStatements(
       resources: [keys],
       conditions: {
         ...requestTags,
+        // Holds whether or not KMS fills the new key's tags from the request: a tag the key
+        // already has must equal the requested value, so it can never be rewritten.
+        StringEqualsIfExists: {
+          [`aws:ResourceTag/${FIRM_KEY_TAG.env}`]: envName,
+          [`aws:ResourceTag/${FIRM_KEY_TAG.businessId}`]: `\${aws:RequestTag/${FIRM_KEY_TAG.businessId}}`,
+          [`aws:ResourceTag/${FIRM_KEY_TAG.purpose}`]: FIRM_KEY_PURPOSE,
+        },
         Null: {
-          [`aws:ResourceTag/${FIRM_KEY_TAG.env}`]: 'true',
-          [`aws:ResourceTag/${FIRM_KEY_TAG.businessId}`]: 'true',
           'kms:ResourceAliases': 'true',
+          [`aws:ResourceTag/${CDK_TAG}`]: 'true',
         },
       },
     }),
@@ -88,8 +114,14 @@ export function firmKeyStatements(
       resources: [aliases], // KMS takes no conditions on the alias side
     }),
     new iam.PolicyStatement({
-      sid: 'FirmKeysOnEnvKeys',
-      actions: ['kms:CreateAlias', 'kms:DescribeKey'],
+      sid: 'FirmKeysAliasKey',
+      actions: ['kms:CreateAlias'],
+      resources: [keys],
+      conditions: firmKey,
+    }),
+    new iam.PolicyStatement({
+      sid: 'FirmKeysRead',
+      actions: ['kms:DescribeKey', 'kms:GetKeyPolicy', 'kms:ListGrants', 'kms:ListResourceTags'],
       resources: [keys],
       conditions: { StringEquals: { [`aws:ResourceTag/${FIRM_KEY_TAG.env}`]: envName } },
     }),
@@ -98,8 +130,9 @@ export function firmKeyStatements(
       actions: ['kms:Decrypt', 'kms:GenerateDataKey'],
       resources: [keys],
       conditions: {
+        ...firmKey,
         StringEquals: {
-          [`aws:ResourceTag/${FIRM_KEY_TAG.env}`]: envName,
+          ...firmKey.StringEquals,
           // An IAM policy variable (a plain string, not a CDK token): the key's own tag.
           'kms:EncryptionContext:businessId': `\${aws:ResourceTag/${FIRM_KEY_TAG.businessId}}`,
         },

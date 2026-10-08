@@ -108,7 +108,12 @@ describe('create-firm-key', () => {
     crashed.calls.length = 0;
     const keys = new AwsFirmKeys(crashed.kms, 'dev');
     await expect(createFirmKey({ database: db, keys, say }, `ck-c-${run}`)).resolves.toBe(arn);
-    expect(crashed.names()).toEqual(['DescribeKey']);
+    expect(crashed.names()).toEqual([
+      'DescribeKey',
+      'ListResourceTags',
+      'GetKeyPolicy',
+      'ListGrants',
+    ]);
     expect(await keyOf(id)).toBe(arn);
   });
 

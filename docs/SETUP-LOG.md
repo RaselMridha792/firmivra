@@ -237,24 +237,108 @@ If LVP is missing, it creates LVP with only the `businesses` row (ACTIVE) and em
 Nothing here is in AWS before Rasel's yes. Merging the PR deploys `firmivra-dev-app` at once (Deploy dev); the bootstrap policies and `firmivra-dev-auth` are manual.
 
 **API task role, firm keys** (`infra/src/firm-key-policy.ts`). Each firm gets its own KMS key, tagged `firmivra:env=<env>`, `firmivra:businessId=<id>` and `firmivra:purpose=firm-data`, and named `alias/firmivra/<env>/business/<id>`. The role may:
-- create a key only with exactly those three tags (env pinned, a UUID-shaped id) and only a symmetric encryption key; CreateKey with the key policy lockout check bypassed is denied;
-- tag only a key that has no firm tags and no alias yet (CreateKey with tags needs `kms:TagResource`; this is the key being made), so no existing key can be re-tagged;
-- create aliases only under `alias/firmivra/<env>/business/`, on keys tagged with the env; describe those keys;
-- use a key (`GenerateDataKey`, `Decrypt`, the only calls field encryption makes) only when it is tagged with the env and the encryption context's `businessId` equals its `firmivra:businessId` tag.
+- create a key only with exactly those three tags (env pinned, a UUID-shaped id), and only a single-Region symmetric encryption key with key material from KMS (`kms:KeyOrigin=AWS_KMS`, `kms:MultiRegion=false`; the adapter sends both). CreateKey with the key policy lockout check bypassed is denied;
+- tag a key (CreateKey with tags needs `kms:TagResource`) only with the three firm tags, never changing a firm tag a key already has to another value (`StringEqualsIfExists` against the requested values), never on a key that has an alias, and never on a CDK key (they carry the `project` tag). This holds whether or not KMS fills the new key's tags from the request, so the first real run needs no fallback;
+- create aliases only under `alias/firmivra/<env>/business/`, and only on firm keys of the env (env and purpose tags, KMS key material, one Region);
+- read keys of the env: `DescribeKey`, `GetKeyPolicy`, `ListResourceTags`, `ListGrants` (the adapter's checks);
+- use a key (`GenerateDataKey`, `Decrypt`, the only calls field encryption makes) only when it is a firm key of the env and the encryption context's `businessId` equals its `firmivra:businessId` tag.
 
 Never: `ScheduleKeyDeletion`, `DisableKey`, `PutKeyPolicy`, `UntagResource`, `UpdateAlias`, `DeleteAlias`, `CreateGrant`. A person removes a key.
 
-**Key policy:** the adapter sends none, so KMS attaches its default for keys made through the API: one statement, `kms:*` for the account root (`arn:aws:iam::778127141557:root`), which hands control to IAM. Check it once: `aws kms get-key-policy --key-id <key arn> --policy-name default --profile firmivra-dev --output text`.
+**Key policy:** the adapter sends none, so KMS attaches its default for keys made through the API: one statement, `kms:*` for the account root (`arn:aws:iam::778127141557:root`), which hands control to IAM. For a key the adapter made, the statements above are all the API can do with it.
 
-**The LVP key** (one-off, after the app deploy is green). The `create-firm-key` command (`apps/api/src/firm-applications/create-firm-key.ts`) runs as a one-off task on the API task definition, with the same subnets and security group as the link task (`TaskSubnets`, `MigrateSecurityGroup`): command override `["node","dist/firm-applications/create-firm-key.cli.js","lvp"]`. It runs only where `APP_ENV=dev`, uses the app role in platform scope, stores the key ARN in `businesses.kms_key_id` with a `business.kms_key_set` platform audit row, and is safe to run again. Five minutes later the same task with `"lvp","--check"` proves the encryption-context rule on the real key. Log group `/firmivra/dev/api`, stream `api/api/<task id>`. Read-only checks: `aws kms describe-key --key-id alias/firmivra/dev/business/<LVP id>`, `aws kms list-resource-tags --key-id <key arn>`.
+**Known limits, and what covers them:**
+- KMS has no condition key for CreateKey's `Policy`. A compromised API task could make a key with a firm's tags and its own key policy (or grants), and name it with that firm's alias before the firm has a key. So the adapter checks every key it adopts by its alias (a repeat, or a key another call named first): enabled, a customer key of this account, `AWS_KMS`, one Region, symmetric encryption, exactly the three tags of that firm, KMS's default key policy, and no grants. Anything else stops with `FirmKeyError`, and nothing is stored; a person decides.
+- `TagResource` can add firm tags to a key outside CDK that has no tags and no alias. The adapter refuses such a key unless its policy is the default and it has no grants, so it can do no more than a key the adapter made.
+- Tags take up to five minutes to reach authorization. In that window IAM sees a new firm key as untagged, so a compromised task could give it another firm's id. Use still needs the encryption context to equal the tag: this can make a key unusable for its firm, but never lets one firm's id open another firm's data. `--check` after five minutes proves the tags on the real key, and R8 gets an alarm on `TagResource` calls by the API role.
 
-**EIN-hash key** (R4 submit): Secrets Manager `firmivra/dev/firm-applications/ein-hash-key`, in the app stack, 64 lower-case hex characters (32 random bytes), injected into the API task as `EIN_HASH_KEY`. Never rotate it and never change its name or generation settings: a new value breaks the duplicate-EIN check. Kept if the stack is deleted (RetainExceptOnCreate). Never `get-secret-value` in a shared terminal.
+**EIN-hash key** (R4 submit): Secrets Manager `firmivra/dev/firm-applications/ein-hash-key`, in the app stack, 64 lower-case hex characters (32 random bytes), injected into the API task as `EIN_HASH_KEY`. Never rotate it and never change its name or generation settings: a new value breaks the duplicate-EIN check. Kept if the stack is deleted or the resource is removed (`DeletionPolicy: RetainExceptOnCreate`, `UpdateReplacePolicy: Retain`). Never `get-secret-value` in a shared terminal.
 
 **Cognito through SES:** the pools send reset codes from `no-reply@dev.firmivra.com` through the `dev.firmivra.com` identity and `firmivra-dev-email`. Cognito creates the service-linked role `AWSServiceRoleForAmazonCognitoIdpEmailService` on the first pool update, with the CloudFormation execution role, so `email.cognito-idp.amazonaws.com` was added to the service-linked roles both bootstrap policies allow. SES is still in the sandbox: only verified addresses get the email.
 
-**Bootstrap policies:** new versions of `firmivra-cdk-cfn-exec` and `firmivra-permissions-boundary` (print each with `pnpm exec tsx scripts/bootstrap-policies.ts exec|boundary` from `infra/`, then `aws iam create-policy-version ... --set-as-default`; IAM keeps 5 versions, so delete the oldest non-default one first if needed).
+### Step 14 commands (Rasel, after his yes; Git Bash, from the repo root)
 
-**Rollback:** the KMS rights and `APP_ENV`: revert through a PR (only before any value is encrypted with a firm key). The LVP key, only while nothing is encrypted with it: `aws kms delete-alias`, then `aws kms schedule-key-deletion --pending-window-in-days 30` (undo: `cancel-key-deletion`). The EIN-hash key, only before any hash is stored: revert (the secret stays, retained), then `aws secretsmanager delete-secret --recovery-window-in-days 30`. Cognito: revert and deploy `firmivra-dev-auth`; the policies: `aws iam set-default-policy-version` to the previous version.
+Every command is for the dev account and takes `--profile firmivra-dev`. `aws sso login --profile firmivra-dev` first if the session has expired.
+
+**0. The diffs, before review** (read-only; not run yet: the SSO session had expired when the PR was built):
+
+```bash
+cd infra
+pnpm exec cdk diff firmivra-dev-app -c env=dev --exclusively --profile firmivra-dev
+pnpm exec cdk diff firmivra-dev-auth -c env=dev --exclusively --profile firmivra-dev
+```
+
+Expected: app, the API task role's policy (the seven `FirmKeys*` statements), a new API task definition revision (`APP_ENV`, `EIN_HASH_KEY`), the new secret `EinHashKey` and its read right on the API execution role. Auth, `EmailConfiguration` (SES, `From`, `SourceArn`, `ConfigurationSet`) and `VerificationMessageTemplate` on the three pools, nothing replaced. Anything else: stop.
+
+**1. Bootstrap policy versions** (before the auth deploy):
+
+```bash
+cd infra
+pnpm exec tsx scripts/bootstrap-policies.ts exec > cfn-exec.json
+pnpm exec tsx scripts/bootstrap-policies.ts boundary > boundary.json
+for name in firmivra-cdk-cfn-exec firmivra-permissions-boundary; do
+  aws iam list-policy-versions --policy-arn arn:aws:iam::778127141557:policy/$name \
+    --query 'Versions[].[VersionId,IsDefaultVersion,CreateDate]' --output table --profile firmivra-dev
+done
+# Only for a policy that already has 5 versions: delete its oldest version that is not the default.
+aws iam delete-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --version-id <oldest non-default, e.g. v1> --profile firmivra-dev
+aws iam create-policy-version --policy-arn arn:aws:iam::778127141557:policy/firmivra-cdk-cfn-exec \
+  --policy-document file://cfn-exec.json --set-as-default --profile firmivra-dev
+aws iam create-policy-version --policy-arn arn:aws:iam::778127141557:policy/firmivra-permissions-boundary \
+  --policy-document file://boundary.json --set-as-default --profile firmivra-dev
+rm cfn-exec.json boundary.json
+```
+
+**2. Merge the PR.** Deploy dev deploys `firmivra-dev-app` at once (firm key rights, `APP_ENV`, the EIN-hash secret). Wait for it to be green.
+
+**3. Auth stack, then one real reset:**
+
+```bash
+cd infra
+pnpm exec cdk deploy firmivra-dev-auth -c env=dev --exclusively --profile firmivra-dev
+```
+
+Then one password reset on dev with an SES-verified address (sandbox), and check the wording and the From address.
+
+**4. The LVP key** (the one-off task on the API task definition, in the API's subnets and security group, with a public IP: there is no NAT):
+
+```bash
+q() { aws cloudformation describe-stacks --stack-name firmivra-dev-app --profile firmivra-dev \
+  --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+run() {
+  task=$(aws ecs run-task --cluster firmivra-dev-cluster --task-definition firmivra-dev-api \
+    --capacity-provider-strategy capacityProvider=FARGATE,weight=1 \
+    --network-configuration "awsvpcConfiguration={subnets=[$(q TaskSubnets)],securityGroups=[$(q MigrateSecurityGroup)],assignPublicIp=ENABLED}" \
+    --overrides "{\"containerOverrides\":[{\"name\":\"api\",\"command\":[\"node\",\"dist/firm-applications/create-firm-key.cli.js\",$1]}]}" \
+    --started-by create-firm-key-lvp --query 'tasks[0].taskArn' --output text --profile firmivra-dev)
+  echo "Task: $task"
+  aws ecs wait tasks-stopped --cluster firmivra-dev-cluster --tasks "$task" --profile firmivra-dev
+  aws ecs describe-tasks --cluster firmivra-dev-cluster --tasks "$task" --profile firmivra-dev \
+    --query 'tasks[0].[containers[0].exitCode,stoppedReason]' --output text
+  aws logs get-log-events --log-group-name /firmivra/dev/api --log-stream-name "api/api/${task##*/}" \
+    --start-from-head --query 'events[].message' --output text --profile firmivra-dev
+}
+run '"lvp"'            # makes, names and stores the key; exit code 0; safe to run again
+sleep 300; run '"lvp","--check"'   # five minutes later: own id wraps, another id is refused
+```
+
+The log prints `Firm lvp (<LVP id>): stored key <key arn>`. Read-only checks with those values:
+
+```bash
+aws kms describe-key --key-id alias/firmivra/dev/business/<LVP id> --profile firmivra-dev
+aws kms list-resource-tags --key-id <key arn> --profile firmivra-dev
+aws kms get-key-policy --key-id <key arn> --policy-name default --output text --profile firmivra-dev
+aws kms list-grants --key-id <key arn> --profile firmivra-dev
+```
+
+A `Failed: The key ... ; a person decides` line means the alias names a key the adapter would not make: nothing was stored; look at that key before anything else.
+
+### Step 14 rollback, per item (no full revert needed)
+
+- **(a) KMS rights and `APP_ENV`:** a PR that drops the `firmKeyStatements` loop (and `APP_ENV`) from `app-stack.ts`; its merge deploys the app stack. Only before any value is encrypted with a firm key: after that, the API could no longer read it. Until R4 approve lands, only the one-off command can make a key (no `FIRM_KEYS` provider is registered), so not running step 4 is enough to stop key creation.
+- **(b) The LVP key**, only while nothing is encrypted with it: clear `businesses.kms_key_id` for LVP in platform scope (a one-off migrate-task SQL with R0; the app cannot), then `aws kms delete-alias --alias-name alias/firmivra/dev/business/<LVP id> --profile firmivra-dev` and `aws kms schedule-key-deletion --key-id <key arn> --pending-window-in-days 30 --profile firmivra-dev`. Undo within 30 days: `aws kms cancel-key-deletion --key-id <key arn>`, then `aws kms enable-key --key-id <key arn>` (a cancelled key comes back disabled), then `aws kms create-alias` again.
+- **(c) The EIN-hash secret:** leave it; nothing reads it until R4 submit. If it must go: a PR that removes `EinHashKey` and `EIN_HASH_KEY` (the secret stays, retained). The name stays taken while the secret exists or waits for deletion, so a later PR that adds it again fails the app deploy (and Deploy dev rolls the stack back). Before adding it again, while no hash is stored: `aws secretsmanager delete-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --force-delete-without-recovery --profile firmivra-dev`. After a `delete-secret --recovery-window-in-days 30`, run `aws secretsmanager restore-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --profile firmivra-dev` and then force-delete it, or keep the restored one and bring it back into the stack with `cdk import`.
+- **(d) Cognito email:** a PR that removes `cognitoEmail` from the dev config (the pools go back to `COGNITO_DEFAULT`), then `pnpm exec cdk deploy firmivra-dev-auth -c env=dev --exclusively --profile firmivra-dev`. The policies: `aws iam set-default-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --version-id <previous vN> --profile firmivra-dev` for each. The service-linked role stays (harmless).
 
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 

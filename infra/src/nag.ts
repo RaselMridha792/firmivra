@@ -75,14 +75,14 @@ export function addNagSuppressions(
     ack(
       task,
       'IAM5[Resource::*]',
-      'ecr:GetAuthorizationToken has no resource-level permissions; on the API role also sns:Publish to a phone number (SMS), which has no resource ARN, and kms:CreateKey (no key exists yet; limited by request tags and key spec).',
+      'ecr:GetAuthorizationToken has no resource-level permissions; on the API role also sns:Publish to a phone number (SMS), which has no resource ARN, and kms:CreateKey (no key exists yet; limited by request tags, key spec, origin and single Region).',
     );
   }
   const firmKeys = firmKeyArns(config.envName, config.region, config.account);
   ack(
     apiTask,
     `IAM5[Resource::${firmKeys.keys}]`,
-    `Firm keys are found by tag: every statement on key/* requires firmivra:env=${config.envName}, and use also requires the encryption context's businessId to equal the key's firmivra:businessId tag.`,
+    `Firm keys are found by tag: reads need firmivra:env=${config.envName}; alias and use also need firmivra:purpose=firm-data, KMS key material and a single-Region key, and use needs the encryption context's businessId to equal the key's firmivra:businessId tag; tagging never rewrites a firm tag and never touches a key with an alias or a CDK key.`,
   );
   ack(
     apiTask,
