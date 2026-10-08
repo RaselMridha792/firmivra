@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { assertManageable, byRoleThenName } from '../../src/team/team.service.js';
+import {
+  assertManageable,
+  byRoleThenName,
+  needsUserRow,
+  shownPerson,
+} from '../../src/team/team.service.js';
 
 const status = (fn: () => void) => {
   try {
@@ -12,6 +17,42 @@ const status = (fn: () => void) => {
 };
 
 describe('team rules', () => {
+  it("reads a person's user row only once they joined, or when the invite lacks what was typed", () => {
+    const at = new Date();
+    const invite = (fields: { name: string | null; email: string | null; acceptedAt?: Date }) => [
+      {
+        createdAt: at,
+        expiresAt: at,
+        acceptedAt: null,
+        revokedAt: null,
+        ...fields,
+      },
+    ];
+    const typed = invite({ name: 'Typed', email: 'typed@t03.test' });
+    const invited = { userId: 'u', joinedAt: null, status: 'INVITED' as const, invites: typed };
+    const user = { id: 'u', name: 'Own', email: 'own@t03.test' };
+    expect(needsUserRow(invited)).toBe(false);
+    expect(shownPerson(invited, undefined)).toEqual({
+      id: 'u',
+      name: 'Typed',
+      email: 'typed@t03.test',
+    });
+    // Before #52 an invite has no typed name or email: the user row fills in, if it can be read.
+    const old = { ...invited, invites: invite({ name: null, email: null }) };
+    expect(needsUserRow(old)).toBe(true);
+    expect(shownPerson(old, user)).toEqual(user);
+    expect(shownPerson(old, undefined)).toEqual({ id: 'u', name: '', email: '' });
+    // Joined (stamped, active, or the invite used): the user row.
+    for (const joined of [
+      { ...invited, joinedAt: at },
+      { ...invited, status: 'ACTIVE' as const },
+      { ...invited, invites: invite({ name: 'Typed', email: 'typed@t03.test', acceptedAt: at }) },
+    ]) {
+      expect(needsUserRow(joined)).toBe(true);
+      expect(shownPerson(joined, user)).toEqual(user);
+    }
+  });
+
   it('orders Owners, then Admins, then Staff, each by name', () => {
     const people = [
       { role: 'STAFF', user: { name: 'Abe' } },

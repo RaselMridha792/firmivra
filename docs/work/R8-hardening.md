@@ -39,7 +39,7 @@ Isolation suite green in CI; prod stacks deployed and empty.
 
 ## Needs from others
 
-- R0 (lead sent it, high priority): a database-checked support scope, the fourth wall for a grant. For example a SECURITY DEFINER `app_enter_support_scope(business_id)` that sets the firm's context only while `app_current_admin_id()` holds an ACTIVE grant for it (approved, not revoked, `expires_at > now()`), so every business policy applies unchanged. Until it lands the API checks the grant and opens a business scope in the same transaction, with the grant row FOR SHARE.
+- R0 (lead sent it, high priority): a database-checked support scope, the fourth wall for a grant. Answered by R0's #123: `app_enter_support_scope(business_id, view, ip, user_agent, request_id)`, called first in a read-write transaction from admin scope. It needs the admin's own approved, unrevoked grant, unexpired by `clock_timestamp()`, and locks it FOR NO KEY UPDATE (a revoke waits, and later support transactions queue behind the revoke). It writes the platform's and the firm's `support.viewed` rows, sets the firm's scope and makes the transaction read-only. Behind a lock it gives up after 2 s (55P03: map it to a retryable 409, and revoke with `SET LOCAL lock_timeout` or NOWAIT). The API must never open a plain business scope for the admin site (add a `forSupport` entry point and a test or lint for it).
 - R0 (low priority): a policy letting the requesting Super Admin withdraw their own PENDING request (set `revoked_at`). Today only the firm ends a request.
 - R6: a notice to the firm's Owners when Firmivra Support asks for access (and, optionally, when a grant is about to expire). Until then the API logs it by id.
 
