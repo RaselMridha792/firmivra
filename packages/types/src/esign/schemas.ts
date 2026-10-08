@@ -4,10 +4,16 @@ import { Phone } from '../client-auth/schemas.js';
 import { MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import { ScanStatus } from '../db-enums.js';
-import { DownloadLink, fileNameFitsType, UploadTicket } from '../documents/schemas.js';
+import {
+  DownloadLink,
+  fileNameFitsType,
+  UPLOAD_LIMITS,
+  UploadTicket,
+} from '../documents/schemas.js';
 import {
   EsignAccessRole,
   EsignActorKind,
+  EsignAuthMethod,
   EsignChosenAuthMethod,
   EsignDelivery,
   EsignEventType,
@@ -76,7 +82,7 @@ export type EsignContentType = z.infer<typeof EsignContentType>;
 // ---------- Status ----------
 /**
  * GET /esign/status (Owner, Admin, Staff): whether Firm Sign is on for the firm, and the caller's
- * access in it (null when off). The firm menu shows 'Firm Sign' and the client record its Send for
+ * access in it (null when off). Off is 200 `{ enabled: false, myEsignRole: null }`, never 403. The firm menu shows 'Firm Sign' and the client record its Send for
  * Signature button only when `enabled`.
  */
 export const EsignStatus = z.object({
@@ -85,7 +91,10 @@ export const EsignStatus = z.object({
 });
 export type EsignStatus = z.infer<typeof EsignStatus>;
 
-/** GET /portal/{slug}/signatures/status (a signed-in client): whether to show 'Signatures'. */
+/**
+ * GET /portal/{slug}/me/signatures/status (a signed-in client): whether to show 'Signatures'.
+ * Firm Sign off is 200 `{ enabled: false }`; 404 means only an unknown or inactive firm.
+ */
 export const MySignaturesStatus = z.object({ enabled: z.boolean() });
 export type MySignaturesStatus = z.infer<typeof MySignaturesStatus>;
 
@@ -100,6 +109,20 @@ export const EsignNextAction = z.object({
   waitingOn: z.array(z.string()),
 });
 export type EsignNextAction = z.infer<typeof EsignNextAction>;
+
+/** What the caller may do with the request now (their access and its status). */
+export const EsignAction = z.enum([
+  'EDIT',
+  'DISCARD',
+  'SEND',
+  'REMIND',
+  'VOID',
+  'CORRECT',
+  'REPLACE',
+  'RESEND_COPY',
+  'DOWNLOAD',
+]);
+export type EsignAction = z.infer<typeof EsignAction>;
 
 /** One row of the dashboard's Recent Documents and of All requests. */
 export const EsignRequestRow = z.object({
@@ -122,6 +145,8 @@ export const EsignRequestRow = z.object({
   /** Set once sent. */
   expiresAt: DateTime.nullable(),
   completedAt: DateTime.nullable(),
+  /** For the row's Actions menu, without a `get()` per row. */
+  allowedActions: z.array(EsignAction),
 });
 export type EsignRequestRow = z.infer<typeof EsignRequestRow>;
 
@@ -130,17 +155,22 @@ export type EsignRequestRow = z.infer<typeof EsignRequestRow>;
  * (calendar days, inclusive, UTC) apply to the last activity, for "Last 30 Days". `q` matches the
  * document name, the client, a signer or the sender. Filters combine with AND.
  */
-export const ListEsignRequestsQuery = z.strictObject({
-  status: EsignRequestStatus.optional(),
-  quickFilter: EsignQuickFilter.optional(),
-  clientId: z.uuid().optional(),
-  senderId: z.uuid().optional(),
-  from: z.iso.date().optional(),
-  to: z.iso.date().optional(),
-  q: SearchText.optional(),
-  cursor: z.string().max(200).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(25),
-});
+export const ListEsignRequestsQuery = z
+  .strictObject({
+    status: EsignRequestStatus.optional(),
+    quickFilter: EsignQuickFilter.optional(),
+    clientId: z.uuid().optional(),
+    senderId: z.uuid().optional(),
+    from: z.iso.date().optional(),
+    to: z.iso.date().optional(),
+    q: SearchText.optional(),
+    cursor: z.string().max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+  })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, {
+    path: ['to'],
+    message: 'The end date is before the start date',
+  });
 export type ListEsignRequestsQuery = z.input<typeof ListEsignRequestsQuery>;
 
 export const EsignRequestList = z.object({
@@ -283,20 +313,6 @@ export const EsignReminders = z.strictObject({
 });
 export type EsignReminders = z.infer<typeof EsignReminders>;
 
-/** What the caller may do with the request now (their access and its status). */
-export const EsignAction = z.enum([
-  'EDIT',
-  'DISCARD',
-  'SEND',
-  'REMIND',
-  'VOID',
-  'CORRECT',
-  'REPLACE',
-  'RESEND_COPY',
-  'DOWNLOAD',
-]);
-export type EsignAction = z.infer<typeof EsignAction>;
-
 /** GET /esign/requests/{id}: everything about a request, for the wizard and the detail page. */
 export const EsignRequestDetail = EsignRequestRow.extend({
   /** For staff only: never shown to a signer or in an email. */
@@ -308,12 +324,12 @@ export const EsignRequestDetail = EsignRequestRow.extend({
   engagement: ServiceRef.nullable(),
   /** Days from sending until it expires (the expiry date is set when it is sent). */
   expiryDays: z.number().int().min(1).max(365),
-  reminders: EsignReminders,
+  reminders: z.object(EsignReminders.shape),
   /** Days before expiry that open signers get a warning; 0 for none. */
   expiryWarningDays: z.number().int().min(0).max(30),
   documents: z.array(EsignDocument),
   /** The packet's pages in order. Pages left out of it are not sent. */
-  pagePlan: z.array(EsignPage),
+  pagePlan: z.array(z.object(EsignPage.shape)),
   recipients: z.array(EsignRecipient),
   fields: z.array(EsignField),
   /** The request this one replaces, and the one that replaced it. */
@@ -331,7 +347,6 @@ export const EsignRequestDetail = EsignRequestRow.extend({
   /** The filed documents (client record > Documents) once completed. */
   finalDocumentId: z.uuid().nullable(),
   certificateDocumentId: z.uuid().nullable(),
-  allowedActions: z.array(EsignAction),
 });
 export type EsignRequestDetail = z.infer<typeof EsignRequestDetail>;
 
@@ -342,12 +357,17 @@ export type EsignRequestDetail = z.infer<typeof EsignRequestDetail>;
  * be one the caller may see (404 otherwise) and not archived; the service must be one of its
  * PENDING or ACTIVE ones (409 ENGAGEMENT_MISMATCH).
  */
-export const CreateEsignRequestBody = z.strictObject({
-  title: text(200, 'one', 'Name the document'),
-  source: z.enum(['TAB', 'CLIENT_RECORD']).default('TAB'),
-  clientId: z.uuid().optional(),
-  engagementId: z.uuid().optional(),
-});
+export const CreateEsignRequestBody = z
+  .strictObject({
+    title: text(200, 'one', 'Name the document'),
+    source: z.enum(['TAB', 'CLIENT_RECORD']).default('TAB'),
+    clientId: z.uuid().optional(),
+    engagementId: z.uuid().optional(),
+  })
+  .refine((b) => b.source !== 'CLIENT_RECORD' || b.clientId !== undefined, {
+    path: ['clientId'],
+    message: 'Choose the client',
+  });
 export type CreateEsignRequestBody = z.input<typeof CreateEsignRequestBody>;
 
 /**
@@ -383,8 +403,9 @@ export const CreateEsignUploadBody = z
       .trim()
       .min(1, 'The file needs a name')
       .max(255, 'Use a file name of at most 255 characters')
+      // The same rule as Documents' uploads (documents/schemas.ts): no lone surrogates either.
       .regex(
-        /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}/\\]+$/u,
+        /^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]+$/u,
         'Rename the file: its name has characters that are not allowed',
       ),
     contentType: EsignContentType,
@@ -392,7 +413,7 @@ export const CreateEsignUploadBody = z
       .number()
       .int()
       .min(1, 'The file is empty')
-      .max(10 * 1024 * 1024, 'The file is larger than 10 MB'),
+      .max(UPLOAD_LIMITS.maxBytes, 'The file is larger than 10 MB'),
     sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Not a SHA-256'),
   })
   .superRefine((b, ctx) => {
@@ -416,7 +437,8 @@ export const ConfirmEsignUploadBody = z.strictObject({ uploadToken: z.string().m
 export type ConfirmEsignUploadBody = z.input<typeof ConfirmEsignUploadBody>;
 
 /**
- * POST /esign/requests/{id}/documents/from-vault: copy one of the request's client's documents
+ * POST /esign/requests/{id}/documents/from-vault: copy one of the request's client's documents,
+ * any direction the caller can see (INTERNAL ones too: the firm chose to send it)
  * (a PDF, JPG or PNG with a CLEAN scan; 409 SCAN_PENDING, FILE_BLOCKED or FILE_TYPE_NOT_ALLOWED).
  * Another client's document answers 404.
  */
@@ -428,13 +450,13 @@ export type EsignFromVaultBody = z.input<typeof EsignFromVaultBody>;
  * deleted from the packet. Each page at most once. Fields follow their page when it moves, and
  * are removed with it; rotating a page that has fields answers 409 PAGE_HAS_FIELDS.
  */
-export const PutPagePlanBody = z
+export const EsignPutPagePlanBody = z
   .strictObject({ pages: z.array(EsignPage).min(1, 'Keep at least one page').max(ESIGN_MAX_PAGES) })
   .refine(
     (b) => new Set(b.pages.map((p) => `${p.documentId}:${p.page}`)).size === b.pages.length,
     'A page can be in the packet only once',
   );
-export type PutPagePlanBody = z.input<typeof PutPagePlanBody>;
+export type EsignPutPagePlanBody = z.input<typeof EsignPutPagePlanBody>;
 
 // ---------- Recipients ----------
 /** Each existing `id` at most once in a PUT list (new entries have none). */
@@ -451,7 +473,7 @@ const uniqueIds = (items: readonly { id?: string | undefined }[]) => {
  * - STAFF: an active member of the firm (an approver, or a preparer who signs); 409 NOT_A_MEMBER.
  * - EXTERNAL: anyone else, by name and email.
  */
-export const PutRecipient = z
+export const EsignPutRecipient = z
   .strictObject({
     id: z.uuid().optional(),
     kind: EsignRecipientKind.default('SIGNER'),
@@ -491,27 +513,40 @@ export const PutRecipient = z
     if (r.authMethod === 'ACCESS_CODE' && !r.id && !r.accessCode) {
       ctx.addIssue({ code: 'custom', path: ['accessCode'], message: 'Set an access code' });
     }
+    if (r.kind === 'APPROVER' && r.who.type !== 'STAFF') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['who'],
+        message: 'An approver is a member of the firm',
+      });
+    }
   });
-export type PutRecipient = z.input<typeof PutRecipient>;
+export type EsignPutRecipient = z.input<typeof EsignPutRecipient>;
 
 /**
  * PUT /esign/requests/{id}/recipients (DRAFT only): the whole list, which replaces the old one. A
  * recipient left out, or no longer a SIGNER, loses their fields. PARALLEL requests ignore
  * `routingOrder`.
  */
-export const PutRecipientsBody = z.strictObject({
+export const EsignPutRecipientsBody = z.strictObject({
   recipients: z
-    .array(PutRecipient)
+    .array(EsignPutRecipient)
     .max(ESIGN_MAX_RECIPIENTS, 'At most 20 recipients')
-    .refine(uniqueIds, 'A recipient can be in the list only once'),
+    .refine(uniqueIds, 'A recipient can be in the list only once')
+    .refine((list) => {
+      const logins = list.flatMap((r) =>
+        r.who.type === 'CLIENT_LOGIN' ? [r.who.clientAccountId] : [],
+      );
+      return new Set(logins).size === logins.length;
+    }, 'A portal login can be a recipient only once'),
 });
-export type PutRecipientsBody = z.input<typeof PutRecipientsBody>;
+export type EsignPutRecipientsBody = z.input<typeof EsignPutRecipientsBody>;
 
 // ---------- Fields ----------
 const Fraction = z.number().min(0).max(1);
 
 /** One field in PUT /esign/requests/{id}/fields. `id` keeps an existing field. */
-export const PutField = z
+export const EsignPutField = z
   .strictObject({
     id: z.uuid().optional(),
     recipientId: z.uuid().nullable(),
@@ -552,29 +587,40 @@ export const PutField = z
     if (f.recipientId === null && f.mergeKey === undefined && f.value === undefined) {
       issue('value', 'Give the field a value or a merge field');
     }
+    if (f.mergeKey !== undefined && f.value !== undefined) {
+      issue('value', 'Use a value or a merge field, not both');
+    }
+    if (f.value !== undefined && f.type === 'EMAIL' && !Email.safeParse(f.value).success) {
+      issue('value', 'Enter a valid email');
+    }
+    if (f.value !== undefined && f.type === 'PHONE' && !Phone.safeParse(f.value).success) {
+      issue('value', 'Enter the phone number with its country code');
+    }
     if (f.type === 'DROPDOWN' && f.options.length === 0) issue('options', 'Add the choices');
     if (f.type === 'RADIO' && (f.options.length !== 1 || !f.groupKey)) {
       issue('options', 'A radio button needs its value and a group');
     }
   });
-export type PutField = z.input<typeof PutField>;
+export type EsignPutField = z.input<typeof EsignPutField>;
 
 /**
  * PUT /esign/requests/{id}/fields (DRAFT only): the whole list. Each `recipientId` must be one of
  * the request's SIGNER recipients and each `pageIndex` a page of the packet (400 otherwise).
  */
-export const PutFieldsBody = z.strictObject({
+export const EsignPutFieldsBody = z.strictObject({
   fields: z
-    .array(PutField)
+    .array(EsignPutField)
     .max(ESIGN_MAX_FIELDS, 'At most 500 fields')
     .refine(uniqueIds, 'A field can be in the list only once'),
 });
-export type PutFieldsBody = z.input<typeof PutFieldsBody>;
+export type EsignPutFieldsBody = z.input<typeof EsignPutFieldsBody>;
 
 /**
  * GET /esign/requests/{id}/merge-values: each merge field's value from the request's client, its
  * sender and the firm; null when the record has none. `missing` lists the keys this request's
- * fields use whose value is null: flag them, and readiness fails on them (MERGE_MISSING).
+ * fields use whose value is null: flag them, and readiness fails on them (MERGE_MISSING). The
+ * client's values come only while the caller may still see that client (a Staff member whose
+ * client was reassigned gets them as null, so they show as missing).
  */
 export const EsignMergeValues = z.object({
   values: z.record(EsignMergeKey, z.string().nullable()),
@@ -642,40 +688,40 @@ export type SendEsignRequestBody = z.input<typeof SendEsignRequestBody>;
  * POST /esign/requests/{id}/remind: an email now to every signer whose turn it is, or to one.
  * 409 REMIND_TOO_SOON within an hour of the last reminder to them, REQUEST_CLOSED once closed.
  */
-export const RemindBody = z.strictObject({ recipientId: z.uuid().optional() });
-export type RemindBody = z.input<typeof RemindBody>;
+export const EsignRemindBody = z.strictObject({ recipientId: z.uuid().optional() });
+export type EsignRemindBody = z.input<typeof EsignRemindBody>;
 
 /** POST /esign/requests/{id}/void: an open or NEEDS_APPROVAL request; signers are told. */
-export const VoidBody = z.strictObject({ reason: text(500, 'many', 'Give a reason') });
-export type VoidBody = z.input<typeof VoidBody>;
+export const EsignVoidBody = z.strictObject({ reason: text(500, 'many', 'Give a reason') });
+export type EsignVoidBody = z.input<typeof EsignVoidBody>;
 
 /**
  * POST /esign/requests/{id}/recipients/{recipientId}/correct: fix an EXTERNAL recipient who has not
  * finished (409 RECIPIENT_DONE). Their old link stops working and a new one goes out if it is
  * their turn. A client login's name and email are corrected on the client's record instead.
  */
-export const CorrectRecipientBody = z
+export const EsignCorrectRecipientBody = z
   .strictObject({
     name: text(120, 'one', 'Enter the name').optional(),
     email: Email.optional(),
     phone: Phone.nullable().optional(),
   })
   .refine((b) => Object.keys(b).length > 0, 'Change at least one thing');
-export type CorrectRecipientBody = z.input<typeof CorrectRecipientBody>;
+export type EsignCorrectRecipientBody = z.input<typeof EsignCorrectRecipientBody>;
 
 /**
  * POST /esign/requests/{id}/replace: voids an open request with the reason and answers a new DRAFT
  * copied from it (files, pages, recipients, fields and settings), with `replacesRequestId` set.
  */
-export const ReplaceBody = z.strictObject({ reason: text(500, 'many', 'Give a reason') });
-export type ReplaceBody = z.input<typeof ReplaceBody>;
+export const EsignReplaceBody = z.strictObject({ reason: text(500, 'many', 'Give a reason') });
+export type EsignReplaceBody = z.input<typeof EsignReplaceBody>;
 
 /**
  * POST /esign/requests/{id}/resend-copy: emails a fresh link to the completed copy (valid 30
  * days, behind an email code) to every external signer, or to one. COMPLETED only.
  */
-export const ResendCopyBody = z.strictObject({ recipientId: z.uuid().optional() });
-export type ResendCopyBody = z.input<typeof ResendCopyBody>;
+export const EsignResendCopyBody = z.strictObject({ recipientId: z.uuid().optional() });
+export type EsignResendCopyBody = z.input<typeof EsignResendCopyBody>;
 
 /**
  * GET /esign/requests/{id}/download?file=: a 5-minute download link. `final` and `certificate`
@@ -697,6 +743,8 @@ export const EsignEvent = z.object({
   recipient: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   /** VOIDED, DECLINED and APPROVAL_REJECTED: the reason given. */
   reason: z.string().nullable(),
+  /** AUTH_PASSED, AUTH_FAILED, CONSENTED and SIGNED: how the signer proved who they are. */
+  authMethod: EsignAuthMethod.nullable(),
 });
 export type EsignEvent = z.infer<typeof EsignEvent>;
 

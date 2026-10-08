@@ -12,11 +12,13 @@ import {
   EsignErrorCode,
   EsignMergeKey,
   EsignRequestStatus,
-  PutField,
-  PutFieldsBody,
-  PutPagePlanBody,
-  PutRecipient,
-  PutRecipientsBody,
+  CreateEsignRequestBody,
+  EsignPutField,
+  ListEsignRequestsQuery,
+  EsignPutFieldsBody,
+  EsignPutPagePlanBody,
+  EsignPutRecipient,
+  EsignPutRecipientsBody,
   UpdateEsignRequestBody,
 } from '../../src/index.js';
 
@@ -174,7 +176,7 @@ describe('api.mySignatures', () => {
   it('reads the portal status on the firm path', async () => {
     const { fn, calls } = fakeFetch(200, { enabled: true });
     expect(await createMySignaturesClient(request(fn), 'lvp').status()).toEqual({ enabled: true });
-    expect(calls[0]!.url).toBe('/api/v1/portal/lvp/signatures/status');
+    expect(calls[0]!.url).toBe('/api/v1/portal/lvp/me/signatures/status');
   });
 });
 
@@ -195,7 +197,7 @@ describe('esign schemas', () => {
   });
 
   it('checks fields: on the page, signer-only types, sender values, choices', () => {
-    const ok = (f: object) => PutField.safeParse(f).success;
+    const ok = (f: object) => EsignPutField.safeParse(f).success;
     expect(ok({ ...box, recipientId: id, type: 'SIGNATURE' })).toBe(true);
     expect(ok({ ...box, recipientId: null, type: 'SIGNATURE' })).toBe(false);
     expect(ok({ ...box, recipientId: null, type: 'TEXT', mergeKey: 'CLIENT_FULL_NAME' })).toBe(
@@ -211,15 +213,30 @@ describe('esign schemas', () => {
       true,
     );
     expect(ok({ ...box, recipientId: id, type: 'TEXT', mergeKey: 'SSN' })).toBe(false);
+    const sender = { ...box, recipientId: null };
+    expect(ok({ ...sender, type: 'TEXT', value: 'x', mergeKey: 'FIRM_NAME' })).toBe(false);
+    expect(ok({ ...sender, type: 'EMAIL', value: 'not-an-email' })).toBe(false);
+    expect(ok({ ...sender, type: 'EMAIL', value: 'office@example.test' })).toBe(true);
+    expect(ok({ ...sender, type: 'PHONE', value: '12' })).toBe(false);
+    expect(ok({ ...sender, type: 'PHONE', value: '(404) 555-0100' })).toBe(true);
   });
 
   it('checks recipients: who they are, portal delivery, access codes, custom roles', () => {
-    const ok = (r: object) => PutRecipient.safeParse(r).success;
+    const ok = (r: object) => EsignPutRecipient.safeParse(r).success;
     const ext = { type: 'EXTERNAL', name: 'Pat Partner', email: 'pat@example.test' };
     const login = { type: 'CLIENT_LOGIN', clientAccountId: id };
     expect(ok({ role: 'CLIENT', routingOrder: 1, who: login, delivery: 'PORTAL' })).toBe(true);
     expect(ok({ role: 'SPOUSE', routingOrder: 1, who: ext, delivery: 'PORTAL' })).toBe(false);
     expect(ok({ role: 'CUSTOM', routingOrder: 1, who: ext })).toBe(false);
+    expect(ok({ kind: 'APPROVER', role: 'MANAGER', routingOrder: 1, who: ext })).toBe(false);
+    expect(
+      ok({
+        kind: 'APPROVER',
+        role: 'MANAGER',
+        routingOrder: 1,
+        who: { type: 'STAFF', userId: id },
+      }),
+    ).toBe(true);
     expect(ok({ role: 'CUSTOM', roleLabel: 'Trustee', routingOrder: 1, who: ext })).toBe(true);
     expect(ok({ role: 'CLIENT', routingOrder: 1, who: ext, authMethod: 'ACCESS_CODE' })).toBe(
       false,
@@ -228,7 +245,7 @@ describe('esign schemas', () => {
       true,
     );
     expect(ok({ role: 'CLIENT', routingOrder: 1, who: { ...ext, email: 'nope' } })).toBe(false);
-    const tidy = PutRecipient.parse({
+    const tidy = EsignPutRecipient.parse({
       role: 'CLIENT',
       routingOrder: 1,
       who: { ...ext, email: ' Pat@Example.TEST ', phone: '(404) 555-0100' },
@@ -244,15 +261,33 @@ describe('esign schemas', () => {
 
   it('refuses a page twice in the plan, and an empty update', () => {
     const page = { documentId: id, page: 0, rotation: 90 };
-    expect(PutPagePlanBody.safeParse({ pages: [page] }).success).toBe(true);
-    expect(PutPagePlanBody.safeParse({ pages: [page, page] }).success).toBe(false);
-    expect(PutPagePlanBody.safeParse({ pages: [{ ...page, rotation: 45 }] }).success).toBe(false);
+    expect(EsignPutPagePlanBody.safeParse({ pages: [page] }).success).toBe(true);
+    expect(EsignPutPagePlanBody.safeParse({ pages: [page, page] }).success).toBe(false);
+    expect(EsignPutPagePlanBody.safeParse({ pages: [{ ...page, rotation: 45 }] }).success).toBe(
+      false,
+    );
     expect(UpdateEsignRequestBody.safeParse({}).success).toBe(false);
     const signer = { id, role: 'CLIENT', routingOrder: 1, who: { type: 'STAFF', userId: id } };
-    expect(PutRecipientsBody.safeParse({ recipients: [signer, signer] }).success).toBe(false);
+    expect(EsignPutRecipientsBody.safeParse({ recipients: [signer, signer] }).success).toBe(false);
     const f = { ...box, id, recipientId: id, type: 'SIGNATURE' };
-    expect(PutFieldsBody.safeParse({ fields: [f, f] }).success).toBe(false);
-    expect(PutFieldsBody.safeParse({ fields: [f, { ...f, id: undefined }] }).success).toBe(true);
+    expect(EsignPutFieldsBody.safeParse({ fields: [f, f] }).success).toBe(false);
+    expect(EsignPutFieldsBody.safeParse({ fields: [f, { ...f, id: undefined }] }).success).toBe(
+      true,
+    );
+    const login = (n: number) => ({
+      role: 'CLIENT',
+      routingOrder: n,
+      who: { type: 'CLIENT_LOGIN', clientAccountId: id },
+    });
+    expect(EsignPutRecipientsBody.safeParse({ recipients: [login(1), login(2)] }).success).toBe(
+      false,
+    );
+    expect(ListEsignRequestsQuery.safeParse({ from: '2026-10-09', to: '2026-10-01' }).success).toBe(
+      false,
+    );
+    expect(CreateEsignRequestBody.safeParse({ title: 'x', source: 'CLIENT_RECORD' }).success).toBe(
+      false,
+    );
     expect(UpdateEsignRequestBody.safeParse({ businessId: id }).success).toBe(false);
   });
 

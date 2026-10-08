@@ -1,11 +1,12 @@
 import type { z } from 'zod';
 import { ApiRequestError, type ApiRequest, parseInput, toQuery } from '../client.js';
-import { FirmSlug, OkResponse } from '../schemas.js';
+import { portalMe } from '../clients/client.js';
+import { OkResponse } from '../schemas.js';
 import { DownloadLink, type UploadFileFacts, UploadTicket } from '../documents/schemas.js';
 import { ESIGN_ERRORS } from './errors.js';
 import {
   ConfirmEsignUploadBody,
-  CorrectRecipientBody,
+  EsignCorrectRecipientBody,
   CreateEsignRequestBody,
   CreateEsignUploadBody,
   EsignDocument,
@@ -24,15 +25,15 @@ import {
   EsignSummary,
   ListEsignRequestsQuery,
   MySignaturesStatus,
-  PutFieldsBody,
-  PutPagePlanBody,
-  PutRecipientsBody,
-  RemindBody,
-  ReplaceBody,
-  ResendCopyBody,
+  EsignPutFieldsBody,
+  EsignPutPagePlanBody,
+  EsignPutRecipientsBody,
+  EsignRemindBody,
+  EsignReplaceBody,
+  EsignResendCopyBody,
   SendEsignRequestBody,
   UpdateEsignRequestBody,
-  VoidBody,
+  EsignVoidBody,
 } from './schemas.js';
 
 const BASE = '/esign';
@@ -122,12 +123,12 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
      */
     documentContentUrl: (id: string, documentId: string): string =>
       `${baseUrl}${one(id)}/documents/${parseInput(EsignDocumentId, documentId)}/content`,
-    putPagePlan: async (id: string, body: PutPagePlanBody): Promise<EsignRequestDetail> =>
-      put(EsignRequestDetail, `${one(id)}/page-plan`, parseInput(PutPagePlanBody, body)),
-    putRecipients: async (id: string, body: PutRecipientsBody): Promise<EsignRequestDetail> =>
-      put(EsignRequestDetail, `${one(id)}/recipients`, parseInput(PutRecipientsBody, body)),
-    putFields: async (id: string, body: PutFieldsBody): Promise<EsignRequestDetail> =>
-      put(EsignRequestDetail, `${one(id)}/fields`, parseInput(PutFieldsBody, body)),
+    putPagePlan: async (id: string, body: EsignPutPagePlanBody): Promise<EsignRequestDetail> =>
+      put(EsignRequestDetail, `${one(id)}/page-plan`, parseInput(EsignPutPagePlanBody, body)),
+    putRecipients: async (id: string, body: EsignPutRecipientsBody): Promise<EsignRequestDetail> =>
+      put(EsignRequestDetail, `${one(id)}/recipients`, parseInput(EsignPutRecipientsBody, body)),
+    putFields: async (id: string, body: EsignPutFieldsBody): Promise<EsignRequestDetail> =>
+      put(EsignRequestDetail, `${one(id)}/fields`, parseInput(EsignPutFieldsBody, body)),
     mergeValues: async (id: string): Promise<EsignMergeValues> =>
       request(EsignMergeValues, `${one(id)}/merge-values`),
     readiness: async (id: string): Promise<EsignReadiness> =>
@@ -137,28 +138,28 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
       post(EsignRequestDetail, `${one(id)}/send`, parseInput(SendEsignRequestBody, body)),
 
     /** 409 REMIND_TOO_SOON or REQUEST_CLOSED. */
-    remind: async (id: string, body: RemindBody = {}): Promise<EsignRequestDetail> =>
-      post(EsignRequestDetail, `${one(id)}/remind`, parseInput(RemindBody, body)),
+    remind: async (id: string, body: EsignRemindBody = {}): Promise<EsignRequestDetail> =>
+      post(EsignRequestDetail, `${one(id)}/remind`, parseInput(EsignRemindBody, body)),
     /** 409 REQUEST_CLOSED. */
-    void: async (id: string, body: VoidBody): Promise<EsignRequestDetail> =>
-      post(EsignRequestDetail, `${one(id)}/void`, parseInput(VoidBody, body)),
+    void: async (id: string, body: EsignVoidBody): Promise<EsignRequestDetail> =>
+      post(EsignRequestDetail, `${one(id)}/void`, parseInput(EsignVoidBody, body)),
     /** 409 RECIPIENT_DONE or REQUEST_CLOSED. */
     correctRecipient: async (
       id: string,
       recipientId: string,
-      body: CorrectRecipientBody,
+      body: EsignCorrectRecipientBody,
     ): Promise<EsignRequestDetail> =>
       post(
         EsignRequestDetail,
         `${one(id)}/recipients/${parseInput(EsignRecipientId, recipientId)}/correct`,
-        parseInput(CorrectRecipientBody, body),
+        parseInput(EsignCorrectRecipientBody, body),
       ),
     /** Voids it and answers the new DRAFT. 409 REQUEST_CLOSED. */
-    replace: async (id: string, body: ReplaceBody): Promise<EsignRequestDetail> =>
-      post(EsignRequestDetail, `${one(id)}/replace`, parseInput(ReplaceBody, body)),
+    replace: async (id: string, body: EsignReplaceBody): Promise<EsignRequestDetail> =>
+      post(EsignRequestDetail, `${one(id)}/replace`, parseInput(EsignReplaceBody, body)),
     /** COMPLETED only (409 INVALID_STATE). */
-    resendCopy: async (id: string, body: ResendCopyBody = {}): Promise<OkResponse> =>
-      post(OkResponse, `${one(id)}/resend-copy`, parseInput(ResendCopyBody, body)),
+    resendCopy: async (id: string, body: EsignResendCopyBody = {}): Promise<OkResponse> =>
+      post(OkResponse, `${one(id)}/resend-copy`, parseInput(EsignResendCopyBody, body)),
     /** A 5-minute download link. 409 INVALID_STATE before the file exists. */
     download: async (id: string, file: EsignDownloadFile): Promise<DownloadLink> =>
       request(
@@ -179,7 +180,7 @@ export type EsignClient = ReturnType<typeof createEsignClient>;
  * downloads come in contract 2.
  */
 export function createMySignaturesClient(request: ApiRequest, firmSlug: string) {
-  const base = () => `/portal/${parseInput(FirmSlug, firmSlug)}/signatures`;
+  const base = () => `${portalMe(firmSlug)}/signatures`;
   return {
     status: async (): Promise<MySignaturesStatus> =>
       request(MySignaturesStatus, `${base()}/status`),

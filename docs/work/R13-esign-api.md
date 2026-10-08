@@ -47,6 +47,11 @@ Target merge windows in brackets (Dhaka).
 - The page viewer reads a file's bytes from `GET .../documents/{documentId}/content` on the same site, so no bucket CORS is needed. CLEAN files only.
 - Delivered folds into Sent: the counters' SENT includes DELIVERED, and `ESIGN_STATUS_LABELS` shows "Sent".
 - Quick filters: Expiring Soon is 3 days, Recently Completed 30 days.
+- Files: PDF, JPG and PNG only; Word files are saved as PDF first (the mockup's tile says "PDF, Word, and more"; Rasel and Octavia to note).
+- Off is never an error on the status routes: `GET /esign/status` and `GET /portal/{slug}/me/signatures/status` answer `enabled: false`; the mock shows it with `NEXT_PUBLIC_API_MOCK_ESIGN=off`.
+- From-vault may pick any of the client's documents the caller can see, INTERNAL ones too.
+- Merge values give the client's values only while the caller may still see the client; otherwise they are null and flagged missing.
+- Rows carry `allowedActions` for the Actions menu; events carry `authMethod`.
 
 ## Needs from others
 
@@ -55,4 +60,4 @@ Target merge windows in brackets (Dhaka).
 
 ## Progress log
 
-- Oct 8: started in the cloud. Contract 1 written on `rasel/R13-api-contract-firm`.
+- Oct 8: started in the cloud. Contract 1 on `rasel/R13-api-contract-firm` (#135); Scrum pre-review fixes applied the same evening.

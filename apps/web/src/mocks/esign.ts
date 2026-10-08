@@ -1,7 +1,7 @@
 import {
   ApiRequestError,
   ConfirmEsignUploadBody,
-  CorrectRecipientBody,
+  EsignCorrectRecipientBody,
   CreateEsignRequestBody,
   CreateEsignUploadBody,
   type EsignAction,
@@ -34,15 +34,15 @@ import {
   type MemberRef,
   type MySignaturesClient,
   parseInput,
-  PutFieldsBody,
-  PutPagePlanBody,
-  PutRecipientsBody,
-  RemindBody,
-  ReplaceBody,
-  ResendCopyBody,
+  EsignPutFieldsBody,
+  EsignPutPagePlanBody,
+  EsignPutRecipientsBody,
+  EsignRemindBody,
+  EsignReplaceBody,
+  EsignResendCopyBody,
   SendEsignRequestBody,
   UpdateEsignRequestBody,
-  VoidBody,
+  EsignVoidBody,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -65,7 +65,10 @@ import { mockBusiness } from './me';
  *   "password" answers 409 PDF_ENCRYPTED, "broken" PDF_UNREADABLE; a PDF has 2 pages, an image 1.
  * - Every file shows the generated 2-page sample PDF (`documentContentUrl` is a data: URL).
  * - Merge values: Jamie Sample has no business name, so BUSINESS_NAME and SPOUSE_NAME are missing.
+ * - NEXT_PUBLIC_API_MOCK_ESIGN=off: Firm Sign turned off (`status()` says so, other calls 403).
  */
+/** NEXT_PUBLIC_API_MOCK_ESIGN=off shows Firm Sign turned off (menus hide it; calls answer 403). */
+const ESIGN_OFF = process.env.NEXT_PUBLIC_API_MOCK_ESIGN === 'off';
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
 const SCAN_MS = 4000;
@@ -335,7 +338,17 @@ function event(
   recipient: EsignEvent['recipient'] = null,
   reason: string | null = null,
 ): EsignEvent {
-  return { id: id('7', n), type, createdAt: iso(at), actorKind, actorName, recipient, reason };
+  const authMethod = ['VIEWED', 'SIGNED', 'DECLINED'].includes(type) ? 'EMAIL_CODE' : null;
+  return {
+    id: id('7', n),
+    type,
+    createdAt: iso(at),
+    actorKind,
+    actorName,
+    recipient,
+    reason,
+    authMethod,
+  };
 }
 
 const OPEN: readonly EsignRequestStatus[] = ESIGN_OPEN_STATUSES;
@@ -515,7 +528,7 @@ export function createEsignMock(
   options: { role?: MockFirmRole; enabled?: boolean } = {},
 ): EsignClient {
   const role: EsignAccessRole = options.role ?? 'OWNER';
-  const enabled = options.enabled ?? true;
+  const enabled = options.enabled ?? !ESIGN_OFF;
   const me: MemberRef = role === 'STAFF' ? mockStaff : mockMe;
   const uploads = new Map<
     string,
@@ -570,6 +583,7 @@ export function createEsignMock(
       actorName: me.name,
       recipient: null,
       reason: null,
+      authMethod: null,
       ...extra,
     });
     esignStore().events.set(r.id, list);
@@ -621,6 +635,7 @@ export function createEsignMock(
       lastActivityAt,
       expiresAt,
       completedAt,
+      allowedActions: actions(r),
     });
   };
   const quick: Record<string, (r: EsignRequestDetail) => boolean> = {
@@ -947,7 +962,7 @@ export function createEsignMock(
     },
     putPagePlan: async (requestId, body) => {
       await on();
-      const { pages } = parseInput(PutPagePlanBody, body);
+      const { pages } = parseInput(EsignPutPagePlanBody, body);
       const r = draft(requestId);
       for (const p of pages) {
         const d = r.documents.find((x) => x.id === p.documentId);
@@ -966,7 +981,7 @@ export function createEsignMock(
     },
     putRecipients: async (requestId, body) => {
       await on();
-      const input = parseInput(PutRecipientsBody, body);
+      const input = parseInput(EsignPutRecipientsBody, body);
       const r = draft(requestId);
       const used = new Set<number>();
       const list: EsignRecipient[] = input.recipients.map((x) => {
@@ -1042,7 +1057,7 @@ export function createEsignMock(
     },
     putFields: async (requestId, body) => {
       await on();
-      const input = parseInput(PutFieldsBody, body);
+      const input = parseInput(EsignPutFieldsBody, body);
       const r = draft(requestId);
       r.fields = input.fields.map((f) => {
         if (f.id && !r.fields.some((o) => o.id === f.id)) {
@@ -1108,7 +1123,7 @@ export function createEsignMock(
 
     remind: async (requestId, body = {}) => {
       await on();
-      const { recipientId } = parseInput(RemindBody, body);
+      const { recipientId } = parseInput(EsignRemindBody, body);
       const r = open(requestId);
       const targets = r.recipients.filter(
         (x) => TURN.includes(x.status) && (!recipientId || x.id === recipientId),
@@ -1134,7 +1149,7 @@ export function createEsignMock(
     },
     void: async (requestId, body) => {
       await on();
-      const { reason } = parseInput(VoidBody, body);
+      const { reason } = parseInput(EsignVoidBody, body);
       const r = open(requestId, true);
       r.status = 'VOIDED';
       r.voidedAt = iso(Date.now());
@@ -1147,7 +1162,7 @@ export function createEsignMock(
     correctRecipient: async (requestId, recipientId, body) => {
       await on();
       const rid = parseInput(EsignRecipientId, recipientId);
-      const input = parseInput(CorrectRecipientBody, body);
+      const input = parseInput(EsignCorrectRecipientBody, body);
       const r = open(requestId);
       const x = r.recipients.find((k) => k.id === rid);
       if (!x) throw notFound();
@@ -1162,7 +1177,7 @@ export function createEsignMock(
     },
     replace: async (requestId, body) => {
       await on();
-      const { reason } = parseInput(ReplaceBody, body);
+      const { reason } = parseInput(EsignReplaceBody, body);
       const old = open(requestId, true);
       const docIds = new Map(old.documents.map((d) => [d.id, newId('2')]));
       const recipientIds = new Map(old.recipients.map((x) => [x.id, newId('3')]));
@@ -1216,7 +1231,7 @@ export function createEsignMock(
     },
     resendCopy: async (requestId, body = {}) => {
       await on();
-      const { recipientId } = parseInput(ResendCopyBody, body);
+      const { recipientId } = parseInput(EsignResendCopyBody, body);
       const r = find(requestId);
       if (r.status !== 'COMPLETED') throw invalidState();
       const targets = r.recipients.filter(
@@ -1257,13 +1272,15 @@ function remapFields(r: EsignRequestDetail, pages: EsignRequestDetail['pagePlan'
   r.pagePlan = pages.map((p) => ({ ...p }));
 }
 
-/** An in-memory `api.mySignatures(slug)`: Firm Sign is on for `lvp` only. */
+/**
+ * An in-memory `api.mySignatures(slug)`: Firm Sign is on for `lvp` only, and off everywhere with
+ * NEXT_PUBLIC_API_MOCK_ESIGN=off. Off is `{ enabled: false }`, not an error.
+ */
 export function mySignaturesMock(firmSlug: string): MySignaturesClient {
   return {
     status: async () => {
       await mockDelay();
-      if (firmSlug.toLowerCase() !== mockBusiness.slug) throw notFound();
-      return { enabled: true };
+      return { enabled: !ESIGN_OFF && firmSlug.toLowerCase() === mockBusiness.slug };
     },
   };
 }

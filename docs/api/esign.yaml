@@ -100,7 +100,7 @@ paths:
     get:
       tags: [esign]
       operationId: esignStatus
-      summary: Whether Firm Sign is on for the firm, and the caller's access in it (never MODULE_OFF)
+      summary: Whether Firm Sign is on for the firm, and the caller's access in it. Off is 200 `{ enabled: false, myEsignRole: null }`, never MODULE_OFF
       responses:
         '200':
           description: '`EsignStatus`'
@@ -191,7 +191,7 @@ paths:
     post:
       tags: [esign]
       operationId: createEsignUpload
-      summary: Upload step 1 (`CreateEsignUploadBody`, PDF, JPG or PNG); answers an `UploadTicket` (docs/api/documents.yaml)
+      summary: Upload step 1 (`CreateEsignUploadBody`, PDF, JPG or PNG; another type is 400 `FILE_TYPE_NOT_ALLOWED` from the client, before anything is sent); answers an `UploadTicket` (docs/api/documents.yaml)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '201':
@@ -449,13 +449,13 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /portal/{firmSlug}/signatures/status:
+  /portal/{firmSlug}/me/signatures/status:
     parameters:
       - { name: firmSlug, in: path, required: true, schema: { type: string } }
     get:
       tags: [esign-portal]
       operationId: mySignaturesStatus
-      summary: Whether the portal shows 'Signatures' (`MySignaturesStatus`); a signed-in client of the firm
+      summary: Whether the portal shows 'Signatures' (`MySignaturesStatus`); a signed-in client of the firm. Off is 200 `{ enabled: false }`; 404 only for an unknown or inactive firm
       security: [{ portalCookie: [] }]
       responses:
         '200':
@@ -506,7 +506,7 @@ components:
       description: '`UNAUTHENTICATED`: not signed in'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Forbidden:
-      description: '`MODULE_OFF` (Firm Sign is off), `FORBIDDEN` (a Viewer changing something) or `ORIGIN_NOT_ALLOWED`'
+      description: '`MODULE_OFF` (Firm Sign is off; mock: `NEXT_PUBLIC_API_MOCK_ESIGN=off`), `FORBIDDEN` (a Viewer changing something) or `ORIGIN_NOT_ALLOWED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no such request, file, recipient or client, or one the caller may not see'

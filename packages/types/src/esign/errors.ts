@@ -18,14 +18,12 @@ export const EsignErrorCode = z.enum([
   'SCAN_PENDING',
   /** 409: a file failed the malware check or could not be checked. */
   'FILE_BLOCKED',
-  /** 409 (from-vault): only PDF, JPG and PNG files can be signed. */
+  /** Only PDF, JPG and PNG files: 400 from createUpload (before anything is sent), 409 from-vault. */
   'FILE_TYPE_NOT_ALLOWED',
   /** 410: the upload ticket is too old or was used; start the upload again. */
   'UPLOAD_EXPIRED',
   /** 409 (confirm): the stored file is not what `createUpload` described. */
   'UPLOAD_MISMATCH',
-  /** 409: the client has no PENDING or ACTIVE service to file the signed document under. */
-  'NO_ENGAGEMENT',
   /** 409: the service is not this client's, or not PENDING or ACTIVE. */
   'ENGAGEMENT_MISMATCH',
   /** 409 (update): change the client only after removing the old client's logins as recipients. */
@@ -73,7 +71,6 @@ export const ESIGN_ERRORS = {
   FILE_TYPE_NOT_ALLOWED: 'Only PDF, JPG and PNG files can be sent for signature.',
   UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
   UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
-  NO_ENGAGEMENT: 'This client has no open service to file the signed document under.',
   ENGAGEMENT_MISMATCH: 'Choose one of this client’s open services.',
   RECIPIENTS_LINKED: 'Remove this client’s recipients before choosing another client.',
   LOGIN_NOT_ACTIVE: 'This portal login is not active. Choose another recipient.',
