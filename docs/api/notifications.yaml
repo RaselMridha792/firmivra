@@ -1,0 +1,432 @@
+openapi: 3.1.0
+info:
+  title: Firmivra notifications API
+  version: 0.1.0
+  description: |
+    The bell and the Notification Center, and each person's email and SMS preferences: the firm
+    site's bell (Fahad, F07), the portal's bell and Notification Center (Nahid, N10, with Fahad's
+    bell) and My Profile > Notification Preferences (Nahid, N05).
+
+    **Source of truth:** the zod schemas in `packages/types/src/notifications/schemas.ts`, with
+    typed calls in `createNotificationsClient` (web: `api.notifications`) and
+    `createMyNotificationsClient` (web: `api.myNotifications(slug)`), and the link helper
+    `notificationLink()` in `links.ts`. Both clients have the same calls, so
+    `apps/web/src/components/notification-bell.tsx` takes either one. Mock mode:
+    `apps/web/src/mocks/notifications.ts` (`NEXT_PUBLIC_API_MOCK=notifications,myNotifications`).
+    If this file and the zod schemas differ, the zod schemas win.
+
+    ## Rules
+
+    - **Only the person's own.** Firm routes (`/business/me/...`) answer the signed-in member's
+      notifications in the firm the request acts in (Owner, Admin and Staff alike; `x-business-id`
+      picks the firm for someone in several). Portal routes (`/portal/{firmSlug}/me/...`) answer
+      the signed-in client's at that firm. Another person's notification is `404`, also within the
+      same firm, and so is anything at a firm where the caller has no place.
+    - **Safe text.** The API writes the title and body from safe values only: names, titles, dates
+      and invoice numbers. Never a password, code or token, an SSN or EIN, a bank number, an
+      amount, a file name, a file's content or a message's text. Screens show them as plain text.
+    - **A typed target, never a URL.** Each item names its record: `target.kind` (one of
+      `NotificationTargetKind`), `target.id`, and on the firm site `target.clientId` (null in the
+      portal). The site builds the link with `notificationLink(target, site)`: firm pages under
+      `/clients/{clientId}/...`, `/calendar` or `/sign-ups`; portal pages under `/{firmSlug}/...`.
+      It answers null where the site has no page (show the item without a link). The page it
+      opens still checks access; a record the person can no longer see shows not-found.
+    - **Read state.** Opening an item marks it read (`POST .../{id}/read`, then go to its link);
+      repeating is harmless and keeps the first `readAt`. "Mark all as read" marks every unread
+      item. Nothing is ever deleted, and there is no "mark unread".
+    - **Badge.** `GET .../unread-count` is cheap: poll it at most once a minute and when the tab
+      gets focus. The list answers the same count with every page.
+    - **Preferences.** The bell is always on; preferences choose the email and SMS copies per
+      category. Nothing saved means email on, SMS off. `ACCOUNT` (sign-in and security) is
+      `locked`: always sent, shown with its switches disabled, and a request that changes it is
+      refused (`400`). `channels` lists what to show switches for: `EMAIL` always, `SMS` once texts
+      can be sent (R6 step 2) and the person has a phone number.
+    - **Errors in order:** `401 UNAUTHENTICATED` (refresh once and retry); `403
+      BUSINESS_INACTIVE` (the firm is suspended or closed), `BUSINESS_SETUP_REQUIRED` (firm site,
+      setup not finished) or `ORIGIN_NOT_ALLOWED` (a change not sent from the site's own pages);
+      `400 VALIDATION_FAILED` (bad id, query or body; a locked category) or `BUSINESS_REQUIRED`
+      (firm site: someone in several firms sent no `x-business-id`); `404 NOT_FOUND`. No `409`:
+      every call can be repeated. `415 UNSUPPORTED_MEDIA_TYPE` for a body that is not JSON.
+    - Every change comes from the browser (see "Calling the API from the web app" in auth.yaml).
+
+    ## Events
+
+    `NOTIFICATION_EVENTS` lists every bell item the API writes, its category, the kind of record it
+    opens and who gets it. Events that also send an email keep the NotifyService template's name
+    (`apps/api/src/notify/notify.types.ts`): `document.requested`, `appointment.booked`,
+    `appointment.changed`, `appointment.reminder`, `invoice.sent`, `payment.received`.
+
+    | Event | Category | Opens | To |
+    | --- | --- | --- | --- |
+    | `document.requested` | DOCUMENTS | `document_request` | client |
+    | `document-request.rejected` (upload again) | DOCUMENTS | `document_request` | client |
+    | `document-request.submitted` | DOCUMENTS | `document_request` | staff |
+    | `document-request.not-available` | DOCUMENTS | `document_request` | staff |
+    | `document.shared` | DOCUMENTS | `document` | client |
+    | `document.uploaded` (answers no request) | DOCUMENTS | `document` | staff |
+    | `intake.sent` | INTAKE | `intake` | client |
+    | `intake.submitted` | INTAKE | `intake` | staff |
+    | `engagement.status-changed` | SERVICES | `engagement` | both |
+    | `tax-return.status-changed` | SERVICES | `tax_return` | client |
+    | `client.signup-submitted` | SERVICES | `client_account` | staff |
+    | `message.received` | MESSAGES | `message_thread` | both |
+    | `client-note.reminder` | MESSAGES | `client_note_reminder` | client |
+    | `appointment.booked`, `.changed`, `.reminder` | APPOINTMENTS | `appointment` | both |
+    | `invoice.sent` | BILLING | `invoice` | client |
+    | `payment.received` | BILLING | `invoice` | both |
+    | `account.password-changed` | ACCOUNT | `user` | both |
+
+    ## Rules for the API (R6 step 7)
+
+    - Every query filters by the firm (`TenantPrisma.db`) **and** `recipient_user_id` = the
+      caller's user. Tenant-isolation e2e: firm B's member gets `404` for firm A's notification,
+      and so does a second member of the same firm; a client of firm A gets `404` at firm B's
+      portal.
+    - `type` holds the event name; `entity_type` and `entity_id` hold `target.kind` and
+      `target.id`. `target.clientId` (firm site only) comes from the record when read, never from
+      `payload`. Title and body are made per event from `payload` when read; an unknown event gets
+      a plain line for its category, never the raw payload.
+    - `read-all` sets `read_at = now()` where it is null and the notification is not newer than
+      the request. `read` keeps the first `read_at`.
+    - Preferences: one row per changed category (upsert on `business_id, user_id, category`);
+      `ACCOUNT` is never stored as off. NotifyService (step 5) reads them; `ALWAYS_SENT` messages
+      ignore them. A preference change writes an audit entry (`notification_preferences.updated`
+      with the categories and channels, no other data): it is the person's consent to texts.
+      Reading and marking read are not audited (the person's own items, no client data changes).
+    - Cursors are opaque (`created_at`, `id` of the last item), so items marked read between
+      pages never shift a page. A cursor the API did not make is `400 VALIDATION_FAILED`.
+
+    ## Pages and calls
+
+    | Page | Calls |
+    | --- | --- |
+    | Firm and portal header: the bell | `GET .../notifications/unread-count` (poll), `GET .../notifications?limit=10`, `POST .../{id}/read`, `POST .../read-all` |
+    | Portal: Notification Center (`/{firm}/notifications`) | `GET me/notifications` (All, or `unreadOnly=true`; paged), read, read all |
+    | Portal: My Profile > Notification Preferences | `GET me/notification-preferences`, `PATCH me/notification-preferences` |
+servers:
+  - url: /api/v1
+    description: Same host as the site.
+
+tags:
+  - name: firm
+    description: Firm site, the signed-in member (Owner, Admin, Staff).
+  - name: portal
+    description: The signed-in client, on their firm's portal.
+
+paths:
+  /business/me/notifications:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [firm]
+      operationId: listNotifications
+      summary: The member's notifications, newest first, with the unread count
+      parameters:
+        - { $ref: '#/components/parameters/UnreadOnly' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { $ref: '#/components/responses/NotificationList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/me/notifications/unread-count:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [firm]
+      operationId: unreadNotificationCount
+      responses:
+        '200': { $ref: '#/components/responses/UnreadNotificationCount' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/me/notifications/{id}/read:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [firm]
+      operationId: markNotificationRead
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { $ref: '#/components/responses/NotificationItem' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/me/notifications/read-all:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [firm]
+      operationId: markAllNotificationsRead
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { $ref: '#/components/responses/MarkAllNotificationsReadResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /business/me/notification-preferences:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [firm]
+      operationId: notificationPreferences
+      responses:
+        '200': { $ref: '#/components/responses/NotificationPreferences' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [firm]
+      operationId: updateNotificationPreferences
+      summary: Changes only the categories and channels given; ACCOUNT is refused (400)
+      requestBody: { $ref: '#/components/requestBodies/UpdateNotificationPreferencesRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/NotificationPreferences' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+  /portal/{firmSlug}/me/notifications:
+    get:
+      tags: [portal]
+      operationId: listMyNotifications
+      summary: The client's notifications at this firm, newest first, with the unread count
+      parameters:
+        - { $ref: '#/components/parameters/FirmSlug' }
+        - { $ref: '#/components/parameters/UnreadOnly' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { $ref: '#/components/responses/NotificationList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /portal/{firmSlug}/me/notifications/unread-count:
+    get:
+      tags: [portal]
+      operationId: myUnreadNotificationCount
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      responses:
+        '200': { $ref: '#/components/responses/UnreadNotificationCount' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /portal/{firmSlug}/me/notifications/{id}/read:
+    post:
+      tags: [portal]
+      operationId: markMyNotificationRead
+      parameters:
+        - { $ref: '#/components/parameters/FirmSlug' }
+        - { $ref: '#/components/parameters/Id' }
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { $ref: '#/components/responses/NotificationItem' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /portal/{firmSlug}/me/notifications/read-all:
+    post:
+      tags: [portal]
+      operationId: markAllMyNotificationsRead
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { $ref: '#/components/responses/MarkAllNotificationsReadResponse' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /portal/{firmSlug}/me/notification-preferences:
+    get:
+      tags: [portal]
+      operationId: myNotificationPreferences
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      responses:
+        '200': { $ref: '#/components/responses/NotificationPreferences' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [portal]
+      operationId: updateMyNotificationPreferences
+      summary: Changes only the categories and channels given; ACCOUNT is refused (400)
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+      requestBody: { $ref: '#/components/requestBodies/UpdateNotificationPreferencesRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/NotificationPreferences' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+components:
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    FirmSlug:
+      name: firmSlug
+      in: path
+      required: true
+      description: The firm's portal slug, for example `lvp`.
+      schema: { type: string }
+    UnreadOnly:
+      name: unreadOnly
+      in: query
+      description: The "Unread" filter.
+      schema: { type: boolean, default: false }
+    Cursor:
+      name: cursor
+      in: query
+      description: The `nextCursor` of the page before.
+      schema: { type: string, maxLength: 200 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+  requestBodies:
+    Empty:
+      required: true
+      content: { application/json: { schema: { type: object, additionalProperties: false } } }
+    UpdateNotificationPreferencesRequest:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/UpdateNotificationPreferencesRequest' }
+  responses:
+    NotificationItem:
+      description: The notification, with readAt set
+      content: { application/json: { schema: { $ref: '#/components/schemas/NotificationItem' } } }
+    NotificationList:
+      description: One page, newest first
+      content: { application/json: { schema: { $ref: '#/components/schemas/NotificationList' } } }
+    UnreadNotificationCount:
+      description: The bell's badge
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [count]
+            properties: { count: { type: integer, minimum: 0 } }
+    MarkAllNotificationsReadResponse:
+      description: How many were marked read
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [marked]
+            properties: { marked: { type: integer, minimum: 0 } }
+    NotificationPreferences:
+      description: Every category's choice, and the channels to show
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/NotificationPreferences' } }
+    Unauthenticated:
+      description: '`UNAUTHENTICATED`: not signed in'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Forbidden:
+      description: '`BUSINESS_INACTIVE`, `BUSINESS_SETUP_REQUIRED` (firm site) or `ORIGIN_NOT_ALLOWED` (changes)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    ValidationFailed:
+      description: '`VALIDATION_FAILED` (bad id, query or body, or a locked category) or `BUSINESS_REQUIRED` (firm site)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    NotFound:
+      description: '`NOT_FOUND`: no place in that firm, or not the caller''s own notification'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    UnsupportedMediaType:
+      description: '`UNSUPPORTED_MEDIA_TYPE`: the body is not JSON'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+  schemas:
+    ApiError: { $ref: './auth.yaml#/components/schemas/ApiError' }
+    Timestamp: { type: string, format: date-time }
+    Category:
+      type: string
+      enum: [ACCOUNT, DOCUMENTS, INTAKE, SERVICES, MESSAGES, APPOINTMENTS, BILLING]
+    NotificationTarget:
+      type: object
+      required: [kind, id, clientId]
+      properties:
+        kind:
+          type: string
+          enum:
+            - document
+            - document_request
+            - intake
+            - engagement
+            - tax_return
+            - message_thread
+            - client_note_reminder
+            - appointment
+            - invoice
+            - client_account
+            - user
+        id: { type: string, format: uuid }
+        clientId:
+          type: [string, 'null']
+          format: uuid
+          description: The firm's client the record belongs to (firm site); null in the portal
+    NotificationItem:
+      type: object
+      required: [id, category, title, body, target, readAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        category: { $ref: '#/components/schemas/Category' }
+        title: { type: string, description: 'One short line, plain text' }
+        body: { type: string, description: 'One or two short lines, plain text; never sensitive' }
+        target: { $ref: '#/components/schemas/NotificationTarget' }
+        readAt: { type: [string, 'null'], format: date-time, description: Null while unread }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    NotificationList:
+      type: object
+      required: [items, nextCursor, unreadCount]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items: { $ref: '#/components/schemas/NotificationItem' }
+        nextCursor: { type: [string, 'null'], description: Null on the last page }
+        unreadCount: { type: integer, minimum: 0 }
+    NotificationPreferences:
+      type: object
+      required: [channels, items]
+      properties:
+        channels:
+          type: array
+          description: Show a switch only for these, in this order
+          items: { type: string, enum: [EMAIL, SMS] }
+        items:
+          type: array
+          description: Every category, in the order of the enum
+          items:
+            type: object
+            required: [category, email, sms, locked]
+            properties:
+              category: { $ref: '#/components/schemas/Category' }
+              email: { type: boolean }
+              sms: { type: boolean }
+              locked: { type: boolean, description: 'Always sent (ACCOUNT): switches disabled' }
+    UpdateNotificationPreferencesRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 7
+          description: Each category at most once; ACCOUNT is refused
+          items:
+            type: object
+            additionalProperties: false
+            required: [category]
+            minProperties: 2
+            properties:
+              category:
+                type: string
+                enum: [DOCUMENTS, INTAKE, SERVICES, MESSAGES, APPOINTMENTS, BILLING]
+              email: { type: boolean }
+              sms: { type: boolean }
