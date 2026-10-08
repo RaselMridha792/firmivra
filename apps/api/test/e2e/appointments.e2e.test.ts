@@ -1,9 +1,10 @@
-// End-to-end: R12 step 2, part A of the firm's side of appointments (contract in
-// packages/types/src/appointments): appointment types, working hours and blocked time. The
-// calendar with the Staff rule, free slots and booking come in part B, the client's own in part
-// C; until then the tests write an appointment straight to the database where they need one.
-// Another firm gets 404 and changes nothing; changes are audited without names, emails or
-// reasons.
+// End-to-end: R12 step 2, the firm's side of appointments (contract in
+// packages/types/src/appointments): appointment types, working hours, blocked time (part A), and
+// the calendar with the Staff rule (in full only their own and their assigned clients'
+// appointments, Busy otherwise), free slots, booking and changes with their history (part B). The
+// database refuses double booking and blocked time (409 SLOT_TAKEN). Another firm gets 404 and
+// changes nothing; reads and changes are audited without names, emails or reasons. Part A's tests
+// write an appointment straight to the database where they need one. The portal is part C.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -14,6 +15,9 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
 import {
+  Appointment,
+  AppointmentDetail,
+  AppointmentList,
   AppointmentType,
   AppointmentTypeList,
   Availability,
@@ -21,12 +25,14 @@ import {
   BlockedTimeList,
   MemberAvailability,
   OkResponse,
+  SlotList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
 import { calendarLockKey } from '../../src/appointments/calendar-locks.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -66,6 +72,7 @@ const ids = {
 };
 
 let app: INestApplication;
+const outbox: NotifyMessage[] = [];
 const tokens = new Map<string, string>();
 let viewers = 0;
 /** A new viewer IP per call, so no test meets the per-IP rate limit. */
@@ -138,6 +145,10 @@ async function asOwner<T>(
 
 const createType = async (body: object, who: Who = people.ownerA) =>
   exact(AppointmentType, await call('post', '/appointment-types', who, body), 201);
+const book = async (body: object, who: Who = people.ownerA) =>
+  exact(Appointment, await call('post', '/appointments', who, body), 201);
+const detail = async (id: string, who: Who = people.ownerA) =>
+  exact(AppointmentDetail, await call('get', `/appointments/${id}`, who));
 /**
  * A scheduled appointment written straight to the database: booking through the API comes in
  * part B. The database's own rules (no double booking, no blocked time) still apply.
@@ -267,9 +278,15 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot(env)],
-  }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (message: NotifyMessage) => {
+        outbox.push(message);
+        return Promise.resolve();
+      },
+    })
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -729,6 +746,560 @@ describe('blocked time', () => {
   });
 });
 
+describe('booking and the database rules', () => {
+  it("books with the type's length and location, for an engagement of that client", async () => {
+    const a = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: review.id,
+      startsAt: at(7, '09:00'),
+      engagementId: ids.engagement1,
+      locationDetails: 'Main office, room 2',
+    });
+    expect(a).toMatchObject({
+      client: { id: ids.c1, displayName: 'Jamie Sample (fake)' },
+      staff: { userId: people.staffA.id, name: names.staffA },
+      type: { id: review.id, name: review.name },
+      engagementId: ids.engagement1,
+      startsAt: at(7, '09:00'),
+      endsAt: at(7, '10:00'),
+      status: 'SCHEDULED',
+      locationKind: 'IN_PERSON',
+      locationDetails: 'Main office, room 2',
+      bookedByClient: false,
+      rescheduleCount: 0,
+      cancelledAt: null,
+      cancelReason: null,
+    });
+    // Without a type, the duration is given; working hours are a guide for the firm.
+    const evening = await book({
+      clientId: ids.c3,
+      staffUserId: people.ownerA.id,
+      startsAt: at(7, '19:00'),
+      durationMinutes: 45,
+      locationKind: 'PHONE',
+    });
+    expect(evening).toMatchObject({ type: null, endsAt: at(7, '19:45'), locationKind: 'PHONE' });
+  });
+
+  it("an overlap with the staff member's or the client's appointments, or blocked time, is 409 SLOT_TAKEN", async () => {
+    await book({
+      clientId: ids.c2,
+      staffUserId: people.staffA2.id,
+      typeId: consult.id,
+      startsAt: at(8, '10:00'),
+    });
+    const tries = [
+      // The same staff member, overlapping.
+      { clientId: ids.c3, staffUserId: people.staffA2.id, startsAt: at(8, '10:15') },
+      // The same client with someone else.
+      { clientId: ids.c2, staffUserId: people.staffA.id, startsAt: at(8, '09:45') },
+    ];
+    for (const body of tries) {
+      expectError(
+        await call('post', '/appointments', people.ownerA, { ...body, typeId: consult.id }),
+        409,
+        'SLOT_TAKEN',
+      );
+    }
+    exact(
+      BlockedTime,
+      await call('post', '/blocked-times', people.ownerA, {
+        userId: people.staffA.id,
+        startsAt: at(8, '11:00'),
+        endsAt: at(8, '12:00'),
+      }),
+      201,
+    );
+    exact(
+      BlockedTime,
+      await call('post', '/blocked-times', people.ownerA, {
+        userId: null,
+        startsAt: at(8, '15:00'),
+        endsAt: at(8, '16:00'),
+      }),
+      201,
+    );
+    for (const startsAt of [at(8, '11:15'), at(8, '15:30')]) {
+      expectError(
+        await call('post', '/appointments', people.ownerA, {
+          clientId: ids.c3,
+          staffUserId: people.staffA.id,
+          typeId: consult.id,
+          startsAt,
+        }),
+        409,
+        'SLOT_TAKEN',
+      );
+    }
+    // Back to back is fine.
+    await book({
+      clientId: ids.c3,
+      staffUserId: people.staffA2.id,
+      typeId: consult.id,
+      startsAt: at(8, '10:30'),
+    });
+    const day8 = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(8, 9)}`, people.ownerA),
+    ).items;
+    expect(day8).toHaveLength(2);
+  });
+
+  it('refuses archived types and clients (409), unknown or other firms records (404), bad input (400)', async () => {
+    const old = await createType({ name: `Retired ${run}`, durationMinutes: 30 });
+    await call('post', `/appointment-types/${old.id}/archive`, people.ownerA, {});
+    const base = { clientId: ids.c3, staffUserId: people.staffA.id, startsAt: at(9, '09:00') };
+    expectError(
+      await call('post', '/appointments', people.ownerA, { ...base, typeId: old.id }),
+      409,
+      'TYPE_ARCHIVED',
+    );
+    expectError(
+      await call('post', '/appointments', people.ownerA, {
+        ...base,
+        clientId: ids.archived,
+        typeId: consult.id,
+      }),
+      409,
+      'CLIENT_ARCHIVED',
+    );
+    for (const body of [
+      { ...base, clientId: ids.clientB, typeId: consult.id },
+      { ...base, clientId: randomUUID(), typeId: consult.id },
+      { ...base, staffUserId: people.formerA.id, typeId: consult.id },
+      { ...base, staffUserId: people.ownerB.id, typeId: consult.id },
+      { ...base, typeId: ids.typeB },
+      { ...base, typeId: consult.id, engagementId: ids.engagementC2 },
+    ]) {
+      expectError(await call('post', '/appointments', people.ownerA, body), 404, 'NOT_FOUND');
+    }
+    for (const body of [
+      { ...base },
+      { ...base, typeId: consult.id, durationMinutes: 20 },
+      { ...base, typeId: consult.id, startsAt: '2026-10-12T10:00:00' },
+      { ...base, typeId: consult.id, businessId: ids.firmB },
+      { ...base, typeId: consult.id, bookedByClient: true },
+      // Outside the calendar's years (2000 to 2100): the date math would leave four digits.
+      { ...base, typeId: consult.id, startsAt: '9999-12-31T23:00:00Z' },
+      { ...base, typeId: consult.id, startsAt: '0000-01-01T00:00:00+14:00' },
+    ]) {
+      expectError(
+        await call('post', '/appointments', people.ownerA, body),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
+  });
+
+  it('Staff book only for their assigned clients (404 otherwise), with any staff member', async () => {
+    const a = await book(
+      {
+        clientId: ids.c1,
+        staffUserId: people.staffA2.id,
+        typeId: consult.id,
+        startsAt: at(9, '11:00'),
+      },
+      people.staffA,
+    );
+    expect(a.staff.userId).toBe(people.staffA2.id);
+    for (const clientId of [ids.c2, ids.c3]) {
+      expectError(
+        await call('post', '/appointments', people.staffA, {
+          clientId,
+          staffUserId: people.staffA.id,
+          typeId: consult.id,
+          startsAt: at(9, '09:30'),
+        }),
+        404,
+        'NOT_FOUND',
+      );
+    }
+  });
+});
+
+describe('the calendar and the Staff rule', () => {
+  let mineAsStaff: Appointment;
+  let assignedToMe: Appointment;
+  let notMine: Appointment;
+
+  beforeAll(async () => {
+    // staffA is the staff member; c3 is nobody's.
+    mineAsStaff = await book({
+      clientId: ids.c3,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(10, '09:00'),
+    });
+    // c1 is assigned to staffA; the staff member is someone else.
+    assignedToMe = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA2.id,
+      typeId: consult.id,
+      startsAt: at(10, '10:00'),
+    });
+    // Neither: Busy for staffA.
+    notMine = await book({
+      clientId: ids.c2,
+      staffUserId: people.staffA2.id,
+      typeId: consult.id,
+      startsAt: at(10, '11:00'),
+      locationDetails: 'https://meet.example.test/secret-room',
+    });
+  });
+
+  it('Owner and Admin see every appointment in full, oldest first', async () => {
+    for (const who of [people.ownerA, people.adminA]) {
+      const items = exact(
+        AppointmentList,
+        await call('get', `/appointments?${range(10, 11)}`, who),
+      ).items;
+      expect(items.map((i) => [i.id, i.restricted])).toEqual([
+        [mineAsStaff.id, false],
+        [assignedToMe.id, false],
+        [notMine.id, false],
+      ]);
+    }
+  });
+
+  it('Staff see their own and their clients in full, the rest only as Busy', async () => {
+    const res = await call('get', `/appointments?${range(10, 11)}`, people.staffA);
+    const items = exact(AppointmentList, res).items;
+    expect(items.map((i) => [i.id, i.restricted])).toEqual([
+      [mineAsStaff.id, false],
+      [assignedToMe.id, false],
+      [notMine.id, true],
+    ]);
+    // Only the time, staff member and status: no client, type, location or reason.
+    const raw = (res.body as { items: Record<string, unknown>[] }).items[2];
+    expect(Object.keys(raw ?? {}).sort()).toEqual(
+      ['endsAt', 'id', 'restricted', 'staff', 'startsAt', 'status'].sort(),
+    );
+    expect(JSON.stringify(res.body)).not.toContain('Riley');
+    expect(JSON.stringify(res.body)).not.toContain('secret-room');
+  });
+
+  it("Staff get 404 for a Busy appointment's detail and every change, and a client not theirs", async () => {
+    expect((await detail(assignedToMe.id, people.staffA)).id).toBe(assignedToMe.id);
+    expect((await detail(mineAsStaff.id, people.staffA)).id).toBe(mineAsStaff.id);
+    for (const [path, body] of [
+      [`/appointments/${notMine.id}/reschedule`, { startsAt: at(10, '11:30') }],
+      [`/appointments/${notMine.id}/cancel`, {}],
+      [`/appointments/${notMine.id}/complete`, {}],
+      [`/appointments/${notMine.id}/no-show`, {}],
+    ] as const) {
+      expectError(await call('post', path, people.staffA, body), 404, 'NOT_FOUND');
+    }
+    expectError(await call('get', `/appointments/${notMine.id}`, people.staffA), 404, 'NOT_FOUND');
+    // Nor can a Busy one be the appointment being moved in the free slots.
+    const moving = `typeId=${consult.id}&from=${day(10)}&to=${day(10)}&excludeAppointmentId=`;
+    expectError(
+      await call('get', `/appointments/slots?${moving}${notMine.id}`, people.staffA),
+      404,
+      'NOT_FOUND',
+    );
+    exact(
+      SlotList,
+      await call('get', `/appointments/slots?${moving}${assignedToMe.id}`, people.staffA),
+    );
+    for (const clientId of [ids.c2, ids.c3, randomUUID()]) {
+      expectError(
+        await call('get', `/appointments?${range(10, 11)}&clientId=${clientId}`, people.staffA),
+        404,
+        'NOT_FOUND',
+      );
+    }
+    const theirs = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(10, 11)}&clientId=${ids.c1}`, people.staffA),
+    ).items;
+    expect(theirs.map((i) => i.id)).toEqual([assignedToMe.id]);
+    // The Busy one is still unchanged.
+    expect((await detail(notMine.id)).status).toBe('SCHEDULED');
+  });
+
+  it('filters by staff member, client and status; the range is at most 62 days', async () => {
+    const byStaff = exact(
+      AppointmentList,
+      await call(
+        'get',
+        `/appointments?${range(10, 11)}&staffUserId=${people.staffA2.id}`,
+        people.ownerA,
+      ),
+    ).items;
+    expect(byStaff.map((i) => i.id)).toEqual([assignedToMe.id, notMine.id]);
+    const byClient = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(10, 11)}&clientId=${ids.c2}`, people.ownerA),
+    ).items;
+    expect(byClient.map((i) => i.id)).toEqual([notMine.id]);
+    const cancelled = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(10, 11)}&status=CANCELLED`, people.ownerA),
+    ).items;
+    expect(cancelled).toEqual([]);
+    for (const q of [
+      range(10, 80),
+      `from=${encodeURIComponent(at(11, '00:00'))}&to=${encodeURIComponent(at(10, '00:00'))}`,
+      `${range(10, 11)}&status=LATE`,
+      `${range(10, 11)}&extra=1`,
+      'from=yesterday&to=today',
+      'from=1999-12-01T00%3A00%3A00Z&to=1999-12-02T00%3A00%3A00Z',
+      `${range(10, 11)}&from=${encodeURIComponent(at(10, '00:00'))}`,
+    ]) {
+      expectError(await call('get', `/appointments?${q}`, people.ownerA), 400, 'VALIDATION_FAILED');
+    }
+    expectError(
+      await call('get', '/appointments/not-a-uuid', people.ownerA),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+});
+
+describe('changes and their history', () => {
+  it('reschedule moves the time and the staff member; the detail lists who did what', async () => {
+    const a = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(11, '09:00'),
+    });
+    const moved = exact(
+      Appointment,
+      await call('post', `/appointments/${a.id}/reschedule`, people.staffA, {
+        startsAt: at(11, '10:00'),
+        staffUserId: people.staffA2.id,
+      }),
+    );
+    expect(moved).toMatchObject({
+      startsAt: at(11, '10:00'),
+      endsAt: at(11, '10:30'),
+      staff: { userId: people.staffA2.id, name: names.staffA2 },
+      rescheduleCount: 1,
+    });
+    // The same time and staff member again changes nothing.
+    const same = exact(
+      Appointment,
+      await call('post', `/appointments/${a.id}/reschedule`, people.ownerA, {
+        startsAt: at(11, '10:00'),
+      }),
+    );
+    expect(same.rescheduleCount).toBe(1);
+    const cancelled = exact(
+      Appointment,
+      await call('post', `/appointments/${a.id}/cancel`, people.adminA, {
+        reason: 'Client asked to call instead',
+      }),
+    );
+    expect(cancelled).toMatchObject({
+      status: 'CANCELLED',
+      cancelReason: 'Client asked to call instead',
+    });
+    expect(cancelled.cancelledAt).not.toBeNull();
+
+    const d = await detail(a.id);
+    expect(d.history.map((e) => [e.action, e.by.kind, e.by.name, e.reason])).toEqual([
+      ['BOOKED', 'STAFF', names.ownerA, null],
+      ['RESCHEDULED', 'STAFF', names.staffA, null],
+      ['CANCELLED', 'STAFF', names.adminA, 'Client asked to call instead'],
+    ]);
+    expect(d.history[0]).toMatchObject({
+      from: null,
+      to: {
+        startsAt: at(11, '09:00'),
+        endsAt: at(11, '09:30'),
+        staff: { userId: people.staffA.id },
+      },
+    });
+    expect(d.history[1]).toMatchObject({
+      from: { startsAt: at(11, '09:00'), staff: { userId: people.staffA.id, name: names.staffA } },
+      to: { startsAt: at(11, '10:00'), staff: { userId: people.staffA2.id, name: names.staffA2 } },
+    });
+    expect(d.history[2]).toMatchObject({ from: { startsAt: at(11, '10:00') }, to: null });
+  });
+
+  it('a reschedule onto a taken time is 409 SLOT_TAKEN and changes nothing', async () => {
+    const first = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(12, '09:00'),
+    });
+    const second = await book({
+      clientId: ids.c3,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(12, '10:00'),
+    });
+    expectError(
+      await call('post', `/appointments/${second.id}/reschedule`, people.ownerA, {
+        startsAt: at(12, '09:15'),
+      }),
+      409,
+      'SLOT_TAKEN',
+    );
+    expectError(
+      await call('post', `/appointments/${second.id}/reschedule`, people.ownerA, {
+        startsAt: at(12, '09:00'),
+        staffUserId: people.formerA.id,
+      }),
+      404,
+      'NOT_FOUND',
+    );
+    for (const body of [
+      { startsAt: '1999-12-31T09:00:00Z' },
+      { startsAt: at(12, '11:00'), typeId: consult.id },
+      { staffUserId: people.staffA2.id },
+    ]) {
+      expectError(
+        await call('post', `/appointments/${second.id}/reschedule`, people.ownerA, body),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
+    expect((await detail(second.id)).startsAt).toBe(at(12, '10:00'));
+    expect((await detail(first.id)).history).toHaveLength(1);
+  });
+
+  it('cancelled, completed and no-show are final (409 APPOINTMENT_CLOSED)', async () => {
+    const make = (time: string) =>
+      book({
+        clientId: ids.c3,
+        staffUserId: people.adminA.id,
+        typeId: consult.id,
+        startsAt: at(13, time),
+      });
+    const done = await make('09:00');
+    const missed = await make('10:00');
+    const dropped = await make('11:00');
+    expect(
+      exact(Appointment, await call('post', `/appointments/${done.id}/complete`, people.ownerA, {}))
+        .status,
+    ).toBe('COMPLETED');
+    expect(
+      exact(
+        Appointment,
+        await call('post', `/appointments/${missed.id}/no-show`, people.adminA, {}),
+      ).status,
+    ).toBe('NO_SHOW');
+    // No body at all reads as no reason.
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/business/appointments/${dropped.id}/cancel`)
+      .set('x-business-id', ids.firmA)
+      .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`)
+      .set('x-forwarded-for', viewer());
+    expect(exact(Appointment, res).cancelReason).toBeNull();
+    for (const a of [done, missed, dropped]) {
+      for (const [path, body] of [
+        ['reschedule', { startsAt: at(13, '12:00') }],
+        ['cancel', {}],
+        ['complete', {}],
+        ['no-show', {}],
+      ] as const) {
+        expectError(
+          await call('post', `/appointments/${a.id}/${path}`, people.ownerA, body),
+          409,
+          'APPOINTMENT_CLOSED',
+        );
+      }
+    }
+    const history = (await detail(missed.id)).history;
+    expect(history.map((e) => e.action)).toEqual(['BOOKED', 'NO_SHOW']);
+    expect(history[1]).toMatchObject({ from: { startsAt: at(13, '10:00') }, to: null });
+    expectError(
+      await call('post', `/appointments/${done.id}/cancel`, people.ownerA, {
+        reason: 'x'.repeat(501),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+});
+
+describe('free slots', () => {
+  const slots = async (query: string, who: Who = people.ownerA) =>
+    exact(SlotList, await call('get', `/appointments/slots?${query}`, who));
+  const starts = (list: z.output<typeof SlotList>, userId: string) =>
+    list.slots.filter((s) => s.staff.userId === userId).map((s) => s.startsAt);
+
+  it("15-minute starts inside one member's hours, outside appointments and blocks", async () => {
+    const q = `typeId=${review.id}&from=${day(14)}&to=${day(14)}&staffUserId=${people.staffA.id}`;
+    const before = await slots(q);
+    expect(before.timezone).toBe(TZ);
+    // 60 minutes in 09:00-12:00: 09:00, 09:15, ... 11:00.
+    expect(starts(before, people.staffA.id)).toEqual(
+      ['09:00', '09:15', '09:30', '09:45', '10:00', '10:15', '10:30', '10:45', '11:00'].map((t) =>
+        at(14, t),
+      ),
+    );
+    expect(before.slots[0]).toEqual({
+      startsAt: at(14, '09:00'),
+      endsAt: at(14, '10:00'),
+      staff: { userId: people.staffA.id, name: names.staffA },
+    });
+    const a = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(14, '10:00'),
+    });
+    exact(
+      BlockedTime,
+      await call('post', '/blocked-times', people.ownerA, {
+        userId: null,
+        startsAt: at(14, '11:45'),
+        endsAt: at(14, '12:00'),
+      }),
+      201,
+    );
+    const after = await slots(q);
+    // 10:00-10:30 is booked and 11:45-12:00 blocked; back to back with either is fine.
+    expect(starts(after, people.staffA.id)).toEqual(
+      ['09:00', '10:30', '10:45'].map((t) => at(14, t)),
+    );
+    // Rescheduling: the moved appointment's own time counts as free.
+    const moving = await slots(`${q}&excludeAppointmentId=${a.id}`);
+    expect(starts(moving, people.staffA.id)).toEqual(
+      ['09:00', '09:15', '09:30', '09:45', '10:00', '10:15', '10:30', '10:45'].map((t) =>
+        at(14, t),
+      ),
+    );
+  });
+
+  it("Staff get every member's slots; past days have none; unknown types and members are 404", async () => {
+    const all = await slots(`typeId=${consult.id}&from=${day(15)}&to=${day(15)}`, people.staffA2);
+    expect(starts(all, people.staffA.id)).toHaveLength(11);
+    // staffA2 also works 13:00-14:00: three more.
+    expect(starts(all, people.staffA2.id)).toHaveLength(14);
+    expect(all.slots.map((s) => s.startsAt)).toEqual([...all.slots.map((s) => s.startsAt)].sort());
+    const past = await slots(`typeId=${consult.id}&from=${day(-3)}&to=${day(-1)}`);
+    expect(past.slots).toEqual([]);
+    for (const q of [
+      `typeId=${ids.typeB}&from=${day(15)}&to=${day(15)}`,
+      `typeId=${randomUUID()}&from=${day(15)}&to=${day(15)}`,
+      `typeId=${consult.id}&from=${day(15)}&to=${day(15)}&staffUserId=${people.formerA.id}`,
+      `typeId=${consult.id}&from=${day(15)}&to=${day(15)}&excludeAppointmentId=${randomUUID()}`,
+    ]) {
+      expectError(await call('get', `/appointments/slots?${q}`, people.ownerA), 404, 'NOT_FOUND');
+    }
+    for (const q of [
+      `typeId=${consult.id}&from=${day(1)}&to=${day(40)}`,
+      `typeId=${consult.id}&from=${day(2)}&to=${day(1)}`,
+      `typeId=${consult.id}&from=${at(1, '09:00')}&to=${day(2)}`,
+      `from=${day(1)}&to=${day(2)}`,
+      `typeId=${consult.id}&from=9999-12-01&to=9999-12-31`,
+      `typeId=${consult.id}&from=0000-01-01&to=0000-01-02`,
+    ]) {
+      expectError(
+        await call('get', `/appointments/slots?${encodeURI(q)}`, people.ownerA),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
+  });
+});
+
 describe('another firm', () => {
   it("gets 404 on every route for firm A's records and changes nothing", async () => {
     const block = exact(
@@ -789,6 +1360,48 @@ describe('another firm', () => {
     ).members.find((m) => m.member.userId === people.staffA.id)?.hours;
     expect(week).toHaveLength(7);
   });
+
+  it("gets 404 on every appointment route for firm A's records and changes nothing", async () => {
+    const a = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(26, '09:00'),
+    });
+    const B = ids.firmB;
+    for (const [method, path, body] of [
+      ['get', `/appointments/${a.id}`, undefined],
+      ['post', `/appointments/${a.id}/reschedule`, { startsAt: at(26, '10:00') }],
+      ['post', `/appointments/${a.id}/cancel`, {}],
+      ['post', `/appointments/${a.id}/complete`, {}],
+      ['post', `/appointments/${a.id}/no-show`, {}],
+      ['get', `/appointments/slots?typeId=${consult.id}&from=${day(26)}&to=${day(26)}`, undefined],
+      [
+        'post',
+        '/appointments',
+        {
+          clientId: ids.c1,
+          staffUserId: people.ownerB.id,
+          typeId: ids.typeB,
+          startsAt: at(26, '13:00'),
+        },
+      ],
+    ] as const) {
+      expectError(await call(method, path, people.ownerB, body, B), 404, 'NOT_FOUND');
+    }
+    const theirs = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(26, 27)}`, people.ownerB, undefined, B),
+    );
+    expect(theirs.items).toEqual([]);
+    // Nothing changed in firm A.
+    const after = await detail(a.id);
+    expect([after.status, after.startsAt, after.history.length]).toEqual([
+      'SCHEDULED',
+      at(26, '09:00'),
+      1,
+    ]);
+  });
 });
 
 describe('text Postgres cannot hold', () => {
@@ -848,11 +1461,68 @@ describe('text Postgres cannot hold', () => {
     );
     expect(block.reason).toBe('Away 🏖️ (fake)');
   });
+
+  it('a NUL or half a surrogate pair in appointment text is 400 and stores nothing; emoji are kept', async () => {
+    const appt = await book({
+      clientId: ids.c3,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(27, '09:00'),
+    });
+    for (const bad of ['a\u0000b', '\u0000', 'Half \ud800 pair', 'x\udfff', '\ud83d']) {
+      for (const [method, path, body] of [
+        [
+          'post',
+          '/appointments',
+          {
+            clientId: ids.c3,
+            staffUserId: people.staffA2.id,
+            typeId: consult.id,
+            startsAt: at(27, '10:00'),
+            locationDetails: bad,
+          },
+        ],
+        ['post', `/appointments/${appt.id}/cancel`, { reason: bad }],
+      ] as const) {
+        const res = await call(method, path, people.ownerA, body);
+        expect([res.status, codeOf(res)], `${path} ${JSON.stringify(bad)}`).toEqual([
+          400,
+          'VALIDATION_FAILED',
+        ]);
+      }
+    }
+    // Nothing was stored or changed.
+    const day27 = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(27, 28)}`, people.ownerA),
+    ).items;
+    expect(day27.map((i) => [i.id, i.status])).toEqual([[appt.id, 'SCHEDULED']]);
+    // Whole surrogate pairs are ordinary text.
+    const booked = await book({
+      clientId: ids.c3,
+      staffUserId: people.staffA2.id,
+      typeId: consult.id,
+      startsAt: at(27, '10:00'),
+      locationDetails: 'Room 📍 2',
+    });
+    expect(booked.locationDetails).toBe('Room 📍 2');
+    const cancelled = exact(
+      Appointment,
+      await call('post', `/appointments/${appt.id}/cancel`, people.ownerA, { reason: 'Moved 📅' }),
+    );
+    expect(cancelled.cancelReason).toBe('Moved 📅');
+    expect((await detail(appt.id)).history.at(-1)?.reason).toBe('Moved 📅');
+  });
 });
 
 describe('the firm must be active', () => {
   it('a suspended firm is 403 BUSINESS_INACTIVE; one still in setup 403 BUSINESS_SETUP_REQUIRED', async () => {
-    const reads = ['/appointment-types', '/availability', `/blocked-times?${range(1, 2)}`];
+    const reads = [
+      '/appointment-types',
+      '/availability',
+      `/appointments?${range(1, 2)}`,
+      `/blocked-times?${range(1, 2)}`,
+    ];
     for (const path of reads) {
       expectError(
         await call('get', path, fx.users.ownerSuspended, undefined, fx.suspended.id),
@@ -992,6 +1662,140 @@ describe('at the same time', () => {
       await owner.$disconnect();
     }
   });
+
+  it('six bookings of one staff member at one time: one 201, the rest 409 SLOT_TAKEN', async () => {
+    const clients = [ids.c1, ids.c2, ids.c3];
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        call('post', '/appointments', people.ownerA, {
+          clientId: clients[i % 3],
+          staffUserId: people.adminA.id,
+          typeId: consult.id,
+          startsAt: at(19, '09:00'),
+        }),
+      ),
+    );
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409, 409, 409, 409]);
+    for (const r of results.filter((x) => x.status === 409)) expectError(r, 409, 'SLOT_TAKEN');
+    const items = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(19, 20)}`, people.ownerA),
+    ).items;
+    expect(items).toHaveLength(1);
+  });
+
+  it('a block and a booking of the same time never both pass', async () => {
+    for (const [i, userId] of [
+      [0, people.staffA2.id],
+      [1, people.staffA2.id],
+      [2, null],
+      [3, people.staffA2.id],
+      [4, null],
+    ] as const) {
+      const startsAt = at(20, `${String(9 + i).padStart(2, '0')}:00`);
+      const [blocked, booked] = await Promise.all([
+        call('post', '/blocked-times', people.ownerA, {
+          userId,
+          startsAt,
+          endsAt: plus(startsAt, 30),
+        }),
+        call('post', '/appointments', people.adminA, {
+          clientId: ids.c3,
+          staffUserId: people.staffA2.id,
+          typeId: consult.id,
+          startsAt,
+        }),
+      ]);
+      expect(
+        [
+          [201, 409],
+          [409, 201],
+        ],
+        JSON.stringify([blocked.body, booked.body]),
+      ).toContainEqual([blocked.status, booked.status]);
+      if (blocked.status === 409) expectError(blocked, 409, 'BLOCKS_APPOINTMENT');
+      if (booked.status === 409) expectError(booked, 409, 'SLOT_TAKEN');
+    }
+    // No scheduled appointment of the firm overlaps blocked time for its member or the firm.
+    const overlapping = await asOwner(
+      ids.firmA,
+      (tx) =>
+        tx.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM appointments a
+        JOIN blocked_times b ON b.business_id = a.business_id
+          AND (b.user_id = a.staff_user_id OR b.user_id IS NULL)
+          AND tstzrange(b.starts_at, b.ends_at, '[)') && tstzrange(a.starts_at, a.ends_at, '[)')
+        WHERE a.business_id = ${ids.firmA}::uuid AND a.status = 'SCHEDULED'`,
+    );
+    expect(overlapping[0]?.n).toBe(0);
+  });
+
+  it('a cancel and a completion of one appointment: one wins, the other is 409 APPOINTMENT_CLOSED', async () => {
+    for (const time of ['09:00', '10:00', '11:00']) {
+      const a = await book({
+        clientId: ids.c3,
+        staffUserId: people.adminA.id,
+        typeId: consult.id,
+        startsAt: at(21, time),
+      });
+      const results = await Promise.all([
+        call('post', `/appointments/${a.id}/cancel`, people.ownerA, { reason: 'Clash test' }),
+        call('post', `/appointments/${a.id}/complete`, people.adminA, {}),
+        call('post', `/appointments/${a.id}/no-show`, people.ownerA, {}),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual([200, 409, 409]);
+      for (const r of results.filter((x) => x.status === 409)) {
+        expectError(r, 409, 'APPOINTMENT_CLOSED');
+      }
+      // One final status, and the history has that one change after the booking.
+      const d = await detail(a.id);
+      expect(['CANCELLED', 'COMPLETED', 'NO_SHOW']).toContain(d.status);
+      expect(d.history.map((e) => e.action)).toEqual(['BOOKED', d.status]);
+    }
+  });
+
+  it('a booking also waits out a held calendar briefly, then answers 429 RATE_LIMITED', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    // The firm-wide key, which a booking takes shared.
+    const key = calendarLockKey(ids.firmA);
+    // Holds the key for `ms` in another connection while `during` runs; the request is handed
+    // back wrapped, so the holding transaction never waits for it.
+    const hold = (ms: number, during: () => Promise<Response>) =>
+      runInScope(owner, { kind: 'platform' }, async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+        const pending = during();
+        await new Promise((resolve) => setTimeout(resolve, ms));
+        return { pending };
+      });
+    try {
+      const body = (time: string) => ({
+        clientId: ids.c3,
+        staffUserId: people.adminA.id,
+        typeId: consult.id,
+        startsAt: at(25, time),
+      });
+      const started = Date.now();
+      const short = await hold(400, () =>
+        call('post', '/appointments', people.ownerA, body('09:00')),
+      );
+      const waited = await short.pending;
+      expect(waited.status, JSON.stringify(waited.body)).toBe(201);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+      // Held longer than the API keeps trying (2 s): busy, answered like the rate limit, and
+      // nothing is booked.
+      const long = await hold(5_000, () =>
+        call('post', '/appointments', people.ownerA, body('10:00')),
+      );
+      expectError(await long.pending, 429, 'RATE_LIMITED');
+      const day25 = exact(
+        AppointmentList,
+        await call('get', `/appointments?${range(25, 26)}`, people.ownerA),
+      ).items;
+      expect(day25.map((i) => i.startsAt)).toEqual([at(25, '09:00')]);
+    } finally {
+      await owner.$disconnect();
+    }
+  });
 });
 
 describe('audit', () => {
@@ -1015,5 +1819,116 @@ describe('audit', () => {
     ]) {
       expect(actions.has(action), action).toBe(true);
     }
+  });
+});
+
+describe('appointment audit and notices', () => {
+  it('logs reads and changes with ids and times, never names, emails, locations or reasons', async () => {
+    const a = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(17, '09:00'),
+      locationDetails: 'Private address 42',
+    });
+    await call('post', `/appointments/${a.id}/reschedule`, people.ownerA, {
+      startsAt: at(17, '10:00'),
+    });
+    await call('post', `/appointments/${a.id}/cancel`, people.ownerA, {
+      reason: 'Sensitive reason',
+    });
+    await detail(a.id);
+    await call('get', `/appointments?${range(17, 18)}`, people.staffA);
+    const rows = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: ids.firmA,
+          OR: [{ entityId: a.id }, { action: 'appointments.listed' }],
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    const mine = rows.filter((r) => r.entityId === a.id);
+    expect(mine.map((r) => r.action)).toEqual([
+      'appointment.booked',
+      'appointment.rescheduled',
+      'appointment.cancelled',
+      'appointment.viewed',
+    ]);
+    expect(mine[1]?.metadata).toEqual({
+      by: 'STAFF',
+      clientId: ids.c1,
+      from: { startsAt: at(17, '09:00'), endsAt: at(17, '09:30'), staffUserId: people.staffA.id },
+      to: { startsAt: at(17, '10:00'), endsAt: at(17, '10:30'), staffUserId: people.staffA.id },
+    });
+    expect(mine[2]?.metadata).toMatchObject({ to: null, reasonGiven: true });
+    expect(mine.every((r) => r.actorUserId === people.ownerA.id)).toBe(true);
+    expect(
+      rows.some((r) => r.action === 'appointments.listed' && r.actorUserId === people.staffA.id),
+    ).toBe(true);
+    const all = await asOwner(ids.firmA, (tx) =>
+      tx.auditLog.findMany({ where: { businessId: ids.firmA } }),
+    );
+    const text = JSON.stringify(all.map((r) => r.metadata));
+    for (const secret of [
+      'Sensitive reason',
+      'Private address',
+      'Jamie',
+      'Fake R12a',
+      'Dentist',
+      '@r12.test',
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+    const actions = new Set(all.map((r) => r.action));
+    for (const action of [
+      'appointment_type.created',
+      'appointment_type.updated',
+      'appointment_type.archived',
+      'appointment_type.restored',
+      'working_hours.set',
+      'blocked_time.created',
+      'blocked_time.deleted',
+      'appointment.completed',
+      'appointment.no_show',
+    ]) {
+      expect(actions.has(action), action).toBe(true);
+    }
+  });
+
+  it("tells the client's primary login about a booking and a new time; nothing for a cancel", async () => {
+    outbox.length = 0;
+    const a = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: review.id,
+      startsAt: at(18, '09:00'),
+    });
+    await call('post', `/appointments/${a.id}/reschedule`, people.ownerA, {
+      startsAt: at(18, '10:00'),
+    });
+    await call('post', `/appointments/${a.id}/cancel`, people.ownerA, {});
+    // c3 has no login and no email: nothing to send.
+    await book({
+      clientId: ids.c3,
+      staffUserId: people.staffA2.id,
+      typeId: consult.id,
+      startsAt: at(18, '11:00'),
+    });
+    expect(outbox.map((m) => [m.template, m.to])).toEqual([
+      ['appointment.booked', people.clientA.email],
+      ['appointment.changed', people.clientA.email],
+    ]);
+    expect(outbox[1]).toMatchObject({
+      businessId: ids.firmA,
+      recipient: { clientAccountId: expect.any(String) },
+      data: {
+        name: names.clientA,
+        title: review.name,
+        startsAt: new Date(at(18, '10:00')),
+        timeZone: TZ,
+        link: expect.stringMatching(/\/r12a-firma-[0-9a-f]+\/appointments$/),
+      },
+    });
   });
 });
