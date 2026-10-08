@@ -83,45 +83,63 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
   const busy =
     approve.isPending || requestInfo.isPending || decline.isPending || saveNotes.isPending;
   const business = application.business;
-  const address = [
-    business.address.line1,
-    business.address.line2,
-    business.address.city,
-    business.address.state,
-    business.address.postalCode,
-  ]
-    .filter(Boolean)
-    .join(', ');
-  const businessFields: Field[] = [
-    ['Business Name', business.legalName],
-    ['DBA', business.dbaName],
-    [
-      'Business Type',
-      `${PRACTICE_TYPES[business.practiceType]} · ${ENTITY_TYPES[business.entityType]}`,
-    ],
-    ['Services Offered', business.services.map((item) => FIRM_SERVICES[item]).join(', ')],
-    ['EIN', business.einLast4 ? `••••${business.einLast4}` : 'Not provided'],
-    ['Business Email', business.email],
-    ['Business Phone', business.phone],
-    ['Website', business.website],
-    ['Business Address', address],
-  ];
-  const adminFields: Field[] = [
-    ['Full Name', application.primaryAdmin.fullName],
-    ['Email', application.primaryAdmin.email],
-    ['Phone', application.primaryAdmin.phone],
-    ['Title / Role', application.primaryAdmin.title],
-    ['Preferred Contact', humanize(application.primaryAdmin.preferredContact)],
-    ['Alternate Phone', application.primaryAdmin.alternatePhone],
-  ];
-  const accountFields: Field[] = [
-    ['Requested Plan', FIRM_PLANS[application.account.requestedPlan]],
-    ['Estimated Team Size', String(application.account.teamSize)],
-    ['Estimated Client Volume', CLIENT_VOLUMES[application.account.clientVolume]],
-    ['How They Heard About Us', application.account.heardFrom],
-    ['Requested Start Date', application.account.requestedStartDate ?? 'As soon as possible'],
-    ['Additional Information', application.account.additionalInfo],
-  ];
+  const address = business
+    ? [
+        business.address.line1,
+        business.address.line2,
+        business.address.city,
+        business.address.state,
+        business.address.postalCode,
+      ]
+        .filter(Boolean)
+        .join(', ')
+    : '';
+  const unreadable = 'The application form could not be read';
+  const businessFields: Field[] = business
+    ? [
+        ['Business Name', application.legalName],
+        ['DBA', application.dbaName],
+        [
+          'Business Type',
+          `${PRACTICE_TYPES[business.practiceType]} · ${ENTITY_TYPES[business.entityType]}`,
+        ],
+        ['Services Offered', business.services.map((item) => FIRM_SERVICES[item]).join(', ')],
+        ['EIN', business.einLast4 ? `••••${business.einLast4}` : 'Not provided'],
+        ['Business Email', business.email],
+        ['Business Phone', business.phone],
+        ['Website', business.website],
+        ['Business Address', address],
+      ]
+    : [
+        ['Business Name', application.legalName],
+        ['DBA', application.dbaName],
+        ['Other details', unreadable],
+      ];
+  const adminFields: Field[] = application.primaryAdmin
+    ? [
+        ['Full Name', application.primaryAdmin.fullName],
+        ['Email', application.primaryAdmin.email],
+        ['Phone', application.primaryAdmin.phone],
+        ['Title / Role', application.primaryAdmin.title],
+        ['Preferred Contact', humanize(application.primaryAdmin.preferredContact)],
+        ['Alternate Phone', application.primaryAdmin.alternatePhone],
+      ]
+    : [
+        ['Full Name', application.contactName],
+        ['Email', application.contactEmail],
+        ['Phone', application.contactPhone],
+        ['Other details', unreadable],
+      ];
+  const accountFields: Field[] = application.account
+    ? [
+        ['Requested Plan', FIRM_PLANS[application.account.requestedPlan]],
+        ['Estimated Team Size', String(application.account.teamSize)],
+        ['Estimated Client Volume', CLIENT_VOLUMES[application.account.clientVolume]],
+        ['How They Heard About Us', application.account.heardFrom],
+        ['Requested Start Date', application.account.requestedStartDate ?? 'As soon as possible'],
+        ['Additional Information', application.account.additionalInfo],
+      ]
+    : [['Details', unreadable]];
   const canDecide = application.status === 'PENDING_REVIEW';
 
   const openAction = (next: Action) => {
@@ -167,7 +185,7 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 data-testid="page-title" className="font-serif text-3xl font-semibold tracking-tight">
-            {application.business.legalName}
+            {application.legalName}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <StatusPill status={application.status} />
@@ -221,7 +239,9 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <h2 className="text-lg font-semibold">Credentials</h2>
-          {application.credentials.length ? (
+          {!application.formReadable ? (
+            <p className="mt-4 text-sm text-muted">{unreadable}</p>
+          ) : application.credentials.length ? (
             <ul className="mt-4 space-y-2 text-sm">
               {application.credentials.map((credential) => (
                 <li key={`${credential.type}-${credential.number}-${credential.issuedBy ?? ''}`}>

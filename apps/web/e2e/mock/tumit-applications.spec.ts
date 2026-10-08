@@ -27,23 +27,47 @@ test('loads applications from the API mock, filters rows and pages results', asy
   await mockAdminSession(page);
   await page.goto(admin('/applications'));
   await expect(page.getByTestId('page-title')).toHaveText('Firm Applications');
-  await expect(page.getByRole('tab', { name: 'All Applications (6)' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Approved (2)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'All Applications (8)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Pending (4)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Approved (3)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Declined (1)' })).toBeVisible();
 
-  await page.getByRole('searchbox', { name: 'Search applications' }).fill('Sample');
-  await expect(page.getByText('Showing 1–4 of 4 applications')).toBeVisible();
+  await page.getByRole('searchbox', { name: 'Search applications' }).fill('Harbor');
+  await expect(page.getByTestId('application-row')).toHaveCount(1);
   await page.getByRole('searchbox', { name: 'Search applications' }).clear();
   await page.getByRole('combobox', { name: 'Filter by status' }).selectOption('APPROVED');
-  await expect(page.getByTestId('application-row')).toHaveCount(2);
+  await expect(page.getByTestId('application-row')).toHaveCount(3);
   await page.getByRole('combobox', { name: 'Filter by status' }).selectOption('');
   await page.getByRole('combobox', { name: 'Filter by date range' }).selectOption('7');
   await expect(page.getByText(/of [1-6] applications/)).toBeVisible();
   await page.getByRole('combobox', { name: 'Filter by date range' }).selectOption('all');
   await page.getByRole('button', { name: 'Next applications page' }).click();
-  await expect(page.getByTestId('application-row')).toHaveCount(1);
-  await expect(page.getByText('Showing 6–6 of 6 applications')).toBeVisible();
+  await expect(page.getByTestId('application-row')).toHaveCount(3);
+  await expect(page.getByText('Showing 6–8 of 8 applications')).toBeVisible();
+});
+
+test('reviews an unreadable application from its stored columns without losing actions', async ({
+  page,
+}) => {
+  await mockAdminSession(page);
+  await page.goto(admin('/applications'));
+  await page
+    .getByRole('searchbox', { name: 'Search applications' })
+    .fill('Sample Harbor Tax Services');
+  const row = page.getByTestId('application-row');
+  await expect(row).toContainText('Sample Harbor Tax Services');
+  await expect(row).toContainText('Drew Sample');
+  await expect(row).toContainText('—');
+  await row.getByRole('link', { name: 'Open Application' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Sample Harbor Tax Services' })).toBeVisible();
+  await expect(page.getByText('Drew Sample')).toBeVisible();
+  await expect(
+    page.getByText('The application form could not be read', { exact: true }),
+  ).toHaveCount(4);
+  await expect(page.getByRole('button', { name: 'Approve Application' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Request Information' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Decline Application' })).toBeEnabled();
 });
 
 test('approves an application and refreshes its status, list and counts', async ({ page }) => {
@@ -60,8 +84,8 @@ test('approves an application and refreshes its status, list and counts', async 
   await expect(page.getByTestId('application-status')).toHaveText('Approved');
   await expect(page.getByTestId('approved-firm-summary')).toBeVisible();
   await page.getByRole('link', { name: /Back to Applications/i }).click();
-  await expect(page.getByRole('tab', { name: 'Pending (2)' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Approved (3)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Approved (4)' })).toBeVisible();
 });
 
 test('requests information and leaves the application pending', async ({ page }) => {
@@ -79,7 +103,7 @@ test('requests information and leaves the application pending', async ({ page })
   await expect(page.getByText('Please send your business license.')).toBeVisible();
   await expect(page.getByTestId('application-status')).toHaveText('Pending Review');
   await page.getByRole('link', { name: /Back to Applications/i }).click();
-  await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Pending (4)' })).toBeVisible();
 });
 
 test('declines an application with a recorded reason and refreshed counts', async ({ page }) => {
@@ -98,7 +122,7 @@ test('declines an application with a recorded reason and refreshed counts', asyn
   await expect(page.getByText('The practice is outside our service scope.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve Application' })).toHaveCount(0);
   await page.getByRole('link', { name: /Back to Applications/i }).click();
-  await expect(page.getByRole('tab', { name: 'Pending (2)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Declined (2)' })).toBeVisible();
 });
 

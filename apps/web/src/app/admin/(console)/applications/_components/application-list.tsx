@@ -228,8 +228,9 @@ export function ApplicationList() {
                             {application.legalName}
                           </th>
                           <td className="px-2 py-4">
-                            {PRACTICE_TYPES[application.practiceType]} ·{' '}
-                            {ENTITY_TYPES[application.entityType]}
+                            {application.practiceType && application.entityType
+                              ? `${PRACTICE_TYPES[application.practiceType]} · ${ENTITY_TYPES[application.entityType]}`
+                              : '—'}
                           </td>
                           <td className="min-w-32 break-words px-2 py-4">
                             {application.contactName}
@@ -239,9 +240,13 @@ export function ApplicationList() {
                           <td className="break-words px-2 py-4">
                             {application.services
                               .map((service) => FIRM_SERVICES[service])
-                              .join(', ')}
+                              .join(', ') || '—'}
                           </td>
-                          <td className="px-2 py-4">{FIRM_PLANS[application.requestedPlan]}</td>
+                          <td className="px-2 py-4">
+                            {application.requestedPlan
+                              ? FIRM_PLANS[application.requestedPlan]
+                              : '—'}
+                          </td>
                           <td className="whitespace-nowrap px-2 py-4 text-muted">
                             {day}
                             <span className="block">{time}</span>
