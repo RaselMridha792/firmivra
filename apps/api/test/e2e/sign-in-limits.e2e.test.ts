@@ -8,7 +8,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { MfaSetupResponse, SignInResult } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import {
@@ -65,7 +65,7 @@ async function asOwner<T>(
   scope: Parameters<typeof runInScope>[1],
   work: Parameters<typeof runInScope<T>>[2],
 ) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     return await runInScope(owner, scope, work);
   } finally {
@@ -397,14 +397,18 @@ describe('the reservation key (#84 follow-up)', () => {
     const perEmail = SIGN_IN_LIMIT.perEmail;
     SIGN_IN_LIMIT.perEmail = 2;
     try {
-      // One failure now gives the email key its value as the API writes it.
-      const first = await staffSignIn(email, WRONG);
+      // One failure now gives the email key its value as the API writes it. Its own User-Agent
+      // finds its row, whatever other test files write at the same time.
+      const userAgent = `r2-lim-oldkey-${tag}`;
+      const first = await request(app.getHttpServer())
+        .post('/api/v1/auth/sign-in')
+        .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+        .set('user-agent', userAgent)
+        .send({ email, password: WRONG });
       expect([first.status, codeOf(first)]).toEqual([401, 'INVALID_CREDENTIALS']);
       const [row] = await asOwner({ kind: 'platform' }, (tx) =>
         tx.auditLog.findMany({
-          where: { businessId: null, action: 'auth.sign_in_attempt' },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
+          where: { businessId: null, action: 'auth.sign_in_attempt', userAgent },
           select: { metadata: true },
         }),
       );

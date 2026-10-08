@@ -137,7 +137,7 @@ async function asOwner<T>(
   businessId: string,
   work: Parameters<typeof runInScope<T>>[2],
 ): Promise<T> {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     return await runInScope(owner, { kind: 'business', businessId }, work);
   } finally {
@@ -211,7 +211,7 @@ let consult: AppointmentType;
 let review: AppointmentType;
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
       await tx.user.create({
