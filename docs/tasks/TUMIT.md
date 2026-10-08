@@ -74,10 +74,14 @@ Checklist:
 
 Checklist:
 
-- [ ] Clear validation messages
-- [ ] Submitting twice is impossible
-- [ ] The thank-you page says what happens next
-- [ ] EIN masked on the review step
+- [x] Clear validation messages
+- [x] Submitting twice is prevented while the request is running
+- [x] The thank-you page says what happens next
+- [x] EIN masked on the review step
+
+**Status (Oct 8, 2026):** Implemented on `tumit/FIR-N04-application`, based on `main` at `b205833`. The public form uses the R4 schema and `api.firmApplications.submit`; review masks the EIN to its last four digits, and submit controls disable during the request. Welcome and received screens explain the next steps. The Super Admin firms page uses `listFirms` and `firmCounts` for status filters, search and paging, with `PageState` loading, error and permission handling.
+
+**Verification:** Typecheck, lint, formatting, diff check and production build with Next webpack pass. Both N04 mock Playwright cases report `ok`; the Windows runner hangs during server teardown and was interrupted, so its process exits 1. The full mock suite also has an existing portal-session sign-out test failure unrelated to N04. Turbopack cannot use the linked dependency directory in this local clone. PR screenshots and reviewer access are pending.
 
 ### F05 · Oct 10-11 · Setup wizard, settings and team
 
