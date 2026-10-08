@@ -1,0 +1,541 @@
+openapi: 3.1.0
+info:
+  title: Firmivra Firm Sign API (firm side)
+  version: 0.1.0
+  description: |
+    Firm Sign, Firmivra's built-in e-signature module (R13): signature requests prepared, sent
+    and tracked by the firm (the Firm Sign dashboard, All requests, the prepare wizard, request
+    detail, and the client record's Signatures tab). This file covers contract 1, the firm side.
+    Contract 2 adds the signer routes (`/portal/{slug}/sign/...`), the portal Signature center,
+    signing settings and consent versions, and templates.
+
+    **Source of truth:** the zod schemas in `packages/types/src/esign/` (`enums.ts`,
+    `schemas.ts`, `errors.ts`), with typed calls in `createEsignClient` (web: `api.esign`) and
+    `createMySignaturesClient` (web: `api.mySignatures(slug)`). Mock mode:
+    `apps/web/src/mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures`), with the mockup's
+    counters and rows. Schemas below name their zod schema; if this file and the zod schemas
+    differ, the zod schemas win.
+
+    ## The module switch
+
+    Firm Sign is a per-firm module, `esign`, switched on or off by Firmivra
+    (`app_set_business_module`, never from the app). `GET /esign/status` always answers; every
+    other firm route answers `403 MODULE_OFF` while the module is off. The firm menu shows
+    'Firm Sign', and the client record its Send for Signature button, only when `enabled`.
+    Signer and other public routes answer `404` instead, so they never show that a firm has
+    Firm Sign.
+
+    ## Who sees what
+
+    - **Owner and Admin** (and a Firm Sign **Manager**): every request of the firm.
+    - **Staff**: requests they send, and requests for the clients assigned to them. Any other
+      request answers `404`, as if it did not exist, on every route.
+    - A Firm Sign **Viewer** reads what Staff could, and changes nothing (`403 FORBIDDEN`).
+    - `myEsignRole` in `GET /esign/status` says which of these the caller is. Manager and Viewer
+      come with the roles contract; until then Staff are `STAFF`.
+
+    ## A request's life
+
+    1. **Draft.** `POST /esign/requests` makes a DRAFT sent by the caller, with the firm's
+       default expiry and reminders. From a client record, pass `source: CLIENT_RECORD` and the
+       client.
+    2. **Documents.** Upload PDF, JPG or PNG files (at most 10 MB each) in three calls, as in
+       Documents (`uploadFile()` runs them), or copy a CLEAN file from the client's documents
+       (`from-vault`). The files make one packet of at most 100 pages, in upload order; an image
+       is one page. `PUT page-plan` reorders, rotates and deletes pages. Encrypted or unreadable
+       PDFs are refused (`409 PDF_ENCRYPTED`, `PDF_UNREADABLE`). Uploads are checked for malware
+       first (`scanStatus`); the page viewer reads a file's bytes from
+       `GET .../documents/{documentId}/content` once it is CLEAN.
+    3. **Recipients.** `PUT recipients` sets the whole list: the client's own portal logins
+       (PRIMARY or SPOUSE, by `clientAccountId`, never by email), staff members, or anyone else
+       by name and email. Sequential requests sign by `routingOrder`; equal numbers sign at the
+       same time.
+    4. **Fields.** `PUT fields` sets the whole list. Positions are fractions of the page as
+       shown. Signature, initials, date signed and attachment fields always belong to a signer;
+       the sender's own fields take a value or a merge field (`GET merge-values` shows the 17
+       values and flags the missing ones). With no fields at all, each signer gets a signature
+       page added at the end.
+    5. **Readiness and send.** `GET readiness` lists what blocks sending (the spec's six checks,
+       plus a missing client, service, consent text or clean scan). `POST send` with
+       `confirm: true` sends it: the packet is composed, its SHA-256 stored, and each signer
+       whose turn it is gets their own link by email. `409 NOT_READY` if anything is left.
+    6. **Track.** The request moves through SENT, DELIVERED (shown as Sent), VIEWED and
+       PARTIALLY_SIGNED to COMPLETED, or ends DECLINED (by a signer), EXPIRED or VOIDED. The
+       timeline is `GET events`.
+    7. **Complete.** The signed PDF and its completion certificate are filed in the client's
+       documents ('Signed Documents', kept forever) under the request's service, and each
+       external signer gets a link to a copy.
+
+    ## Rules
+
+    - **Only a DRAFT changes** (`PATCH`, documents, page plan, recipients, fields;
+      `409 INVALID_STATE` otherwise). After sending, only remind, void, correct a recipient,
+      replace and (once completed) resend the copy. Completed, declined, expired and voided
+      requests never change (`409 REQUEST_CLOSED`), and nothing about them is ever deleted.
+    - **A request needs a client and one of its PENDING or ACTIVE services** before it can be
+      sent (readiness `NO_CLIENT`, `NO_ENGAGEMENT`): that is where the signed files are filed.
+    - **The internal note** is for staff only: it never reaches a signer, an email or a signer
+      route.
+    - **Remind** at most once an hour per recipient (`409 REMIND_TOO_SOON`). **Void** needs a
+      reason (1 to 500 characters) and tells the signers. **Replace** voids the request and
+      answers a new DRAFT copied from it, with `replacesRequestId` set. **Correct** fixes an
+      external recipient who has not finished: their old link stops working.
+    - **Downloads** (`GET download?file=final|certificate|original`) answer a link that works for
+      5 minutes, always as an attachment.
+    - **Writes:** from the app site only (`403 ORIGIN_NOT_ALLOWED`). Every change writes the
+      request's timeline and the firm's audit log, never with field values or document content.
+    - **Errors** show with `errorMessage(error, ESIGN_ERRORS)`.
+
+servers:
+  - url: /api/v1
+
+security: [{ firmCookie: [] }]
+
+tags:
+  - name: esign
+  - name: esign-portal
+
+paths:
+  /esign/status:
+    get:
+      tags: [esign]
+      operationId: esignStatus
+      summary: Whether Firm Sign is on for the firm, and the caller's access in it. Off is 200 `{ enabled: false, myEsignRole: null }`, never MODULE_OFF
+      responses:
+        '200':
+          description: '`EsignStatus`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/EsignStatus' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /esign/requests:
+    get:
+      tags: [esign]
+      operationId: listEsignRequests
+      summary: Requests the caller may see, newest activity first (`ListEsignRequestsQuery`)
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/EsignRequestStatus' }, description: SENT includes DELIVERED }
+        - { name: quickFilter, in: query, schema: { type: string, enum: [AWAITING_SIGNATURE, EXPIRING_SOON, RECENTLY_COMPLETED, MY_REQUESTS, NEEDS_MY_APPROVAL] } }
+        - { name: clientId, in: query, schema: { type: string, format: uuid } }
+        - { name: senderId, in: query, schema: { type: string, format: uuid } }
+        - { name: from, in: query, schema: { type: string, format: date }, description: Last activity on or after this day (UTC) }
+        - { name: to, in: query, schema: { type: string, format: date }, description: Last activity on or before this day (UTC) }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 }, description: Document name, client, signer or sender }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200':
+          description: '`EsignRequestList`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/EsignRequestList' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [esign]
+      operationId: createEsignRequest
+      summary: A new DRAFT (`CreateEsignRequestBody`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/summary:
+    get:
+      tags: [esign]
+      operationId: esignSummary
+      summary: The dashboard's 9 counters and the quick filters' counts (`EsignSummary`)
+      responses:
+        '200':
+          description: '`EsignSummary`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/requests/{id}:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [esign]
+      operationId: getEsignRequest
+      summary: Everything about one request (`EsignRequestDetail`)
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [esign]
+      operationId: updateEsignRequest
+      summary: Change a DRAFT (`UpdateEsignRequestBody`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [esign]
+      operationId: discardEsignRequest
+      summary: Delete a DRAFT that was never sent
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/documents/uploads:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [esign]
+      operationId: createEsignUpload
+      summary: Upload step 1 (`CreateEsignUploadBody`, PDF, JPG or PNG; another type is 400 `FILE_TYPE_NOT_ALLOWED` from the client, before anything is sent); answers an `UploadTicket` (docs/api/documents.yaml)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201':
+          description: '`UploadTicket`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/documents/uploads/confirm:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [esign]
+      operationId: confirmEsignUpload
+      summary: Upload step 3 (`ConfirmEsignUploadBody`); the file's pages join the end of the page plan
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201': { $ref: '#/components/responses/Document' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410':
+          description: '`UPLOAD_EXPIRED`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+  /esign/requests/{id}/documents/from-vault:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [esign]
+      operationId: addEsignDocumentFromVault
+      summary: Copy one of the client's CLEAN PDF, JPG or PNG documents (`EsignFromVaultBody`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201': { $ref: '#/components/responses/Document' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/documents/{documentId}:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+      - { $ref: '#/components/parameters/DocumentId' }
+    delete:
+      tags: [esign]
+      operationId: removeEsignDocument
+      summary: Remove a file, its pages and their fields (DRAFT only)
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/documents/{documentId}/content:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+      - { $ref: '#/components/parameters/DocumentId' }
+    get:
+      tags: [esign]
+      operationId: esignDocumentContent
+      summary: The file's bytes, for the page viewer on the same site (CLEAN files only)
+      responses:
+        '200':
+          description: The file, `Cache-Control: no-store`
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/page-plan:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    put:
+      tags: [esign]
+      operationId: putEsignPagePlan
+      summary: The packet's pages in order, with rotation (`PutPagePlanBody`); fields follow their page
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/recipients:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    put:
+      tags: [esign]
+      operationId: putEsignRecipients
+      summary: The whole recipient list (`PutRecipientsBody`); a recipient left out, or no longer a SIGNER, loses their fields
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/fields:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    put:
+      tags: [esign]
+      operationId: putEsignFields
+      summary: The whole field list (`PutFieldsBody`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/merge-values:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [esign]
+      operationId: esignMergeValues
+      summary: The 17 merge values from the client, the sender and the firm, and the missing ones the fields use (`EsignMergeValues`)
+      responses:
+        '200':
+          description: '`EsignMergeValues`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /esign/requests/{id}/readiness:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [esign]
+      operationId: esignReadiness
+      summary: What still blocks sending (`EsignReadiness`)
+      responses:
+        '200':
+          description: '`EsignReadiness`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /esign/requests/{id}/send:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [esign]
+      operationId: sendEsignRequest
+      summary: Send it (`SendEsignRequestBody`, `confirm` true)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/remind:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [esign]
+      operationId: remindEsignRequest
+      summary: Email every signer whose turn it is, or one (`RemindBody`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/void:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [esign]
+      operationId: voidEsignRequest
+      summary: Void an open request with a reason (`VoidBody`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/recipients/{recipientId}/correct:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+      - { name: recipientId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [esign]
+      operationId: correctEsignRecipient
+      summary: Fix an external recipient who has not finished (`CorrectRecipientBody`); their link changes
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/replace:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [esign]
+      operationId: replaceEsignRequest
+      summary: Void it and answer a new DRAFT copied from it (`ReplaceBody`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201': { $ref: '#/components/responses/Detail' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/resend-copy:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    post:
+      tags: [esign]
+      operationId: resendEsignCopy
+      summary: Email a fresh link to the completed copy (`ResendCopyBody`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/download:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+      - { name: file, in: query, required: true, schema: { type: string, enum: [final, certificate, original] } }
+    get:
+      tags: [esign]
+      operationId: downloadEsignFile
+      summary: A 5-minute download link (`DownloadLink`)
+      responses:
+        '200':
+          description: '`DownloadLink`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/events:
+    parameters: [{ $ref: '#/components/parameters/RequestId' }]
+    get:
+      tags: [esign]
+      operationId: esignEvents
+      summary: The timeline, oldest first (`EsignEventList`)
+      responses:
+        '200':
+          description: '`EsignEventList`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /portal/{firmSlug}/me/signatures/status:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [esign-portal]
+      operationId: mySignaturesStatus
+      summary: Whether the portal shows 'Signatures' (`MySignaturesStatus`); a signed-in client of the firm. Off is 200 `{ enabled: false }`; 404 only for an unknown or inactive firm
+      security: [{ portalCookie: [] }]
+      responses:
+        '200':
+          description: '`MySignaturesStatus`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  parameters:
+    RequestId:
+      name: id
+      in: path
+      required: true
+      description: The request id (`EsignRequestRow.id`)
+      schema: { type: string, format: uuid }
+    DocumentId:
+      name: documentId
+      in: path
+      required: true
+      description: The request's file (`EsignDocument.id`)
+      schema: { type: string, format: uuid }
+
+  securitySchemes:
+    firmCookie: { type: apiKey, in: cookie, name: fv_access }
+    portalCookie: { type: apiKey, in: cookie, name: 'fv_portal_{slug}_access' }
+
+  requestBodies:
+    Zod:
+      required: true
+      description: The zod schema named in the summary (packages/types/src/esign/schemas.ts)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+
+  responses:
+    Detail:
+      description: '`EsignRequestDetail` after the call'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+    Document:
+      description: '`EsignDocument`'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+    Ok:
+      description: '`{ ok: true }`'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+    ValidationFailed:
+      description: '`VALIDATION_FAILED`: bad input, an unknown field, an unknown recipient, field or page'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Unauthenticated:
+      description: '`UNAUTHENTICATED`: not signed in'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Forbidden:
+      description: '`MODULE_OFF` (Firm Sign is off; mock: `NEXT_PUBLIC_API_MOCK_ESIGN=off`), `FORBIDDEN` (a Viewer changing something) or `ORIGIN_NOT_ALLOWED`'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    NotFound:
+      description: '`NOT_FOUND`: no such request, file, recipient or client, or one the caller may not see'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Conflict:
+      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+
+  schemas:
+    ApiError: { $ref: './client-auth.yaml#/components/schemas/ApiError' }
+    Zod:
+      description: Defined by the zod schema named where it is used (packages/types/src/esign/schemas.ts)
+      type: object
+    EsignRequestStatus:
+      type: string
+      enum: [DRAFT, NEEDS_APPROVAL, SENT, DELIVERED, VIEWED, PARTIALLY_SIGNED, COMPLETED, DECLINED, EXPIRED, VOIDED]
+    EsignStatus:
+      type: object
+      required: [enabled, myEsignRole]
+      properties:
+        enabled: { type: boolean }
+        myEsignRole:
+          oneOf:
+            - { type: string, enum: [OWNER, ADMIN, MANAGER, STAFF, VIEWER] }
+            - { type: 'null' }
+    EsignRequestList:
+      type: object
+      required: [items, nextCursor]
+      description: '`EsignRequestList`: rows are `EsignRequestRow` (title, status, client, sender, signer names and counts, next action, created, sent, last activity, expiry, completed)'
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Zod' } }
+        nextCursor: { oneOf: [{ type: string }, { type: 'null' }] }
