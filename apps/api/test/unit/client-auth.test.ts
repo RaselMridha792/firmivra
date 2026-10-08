@@ -98,7 +98,7 @@ describe('atLeast: sign-up answers in AWS take a fixed minimum time (#51 review)
   });
 });
 
-describe('VerificationCodesService.check (#51 review)', () => {
+describe('VerificationCodesService.match (#51 review)', () => {
   const env = loadEnv({
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
@@ -123,7 +123,7 @@ describe('VerificationCodesService.check (#51 review)', () => {
       }),
     };
     const codes = new VerificationCodesService(db as never, env);
-    await expect(codes.check(owner, 'EMAIL', 'jane@example.com', '000000')).resolves.toBe(false);
+    await expect(codes.match(owner, 'EMAIL', 'jane@example.com', '000000')).resolves.toBeNull();
     expect(updateMany).toHaveBeenCalledTimes(1);
     expect(updateMany).toHaveBeenCalledWith({
       where: {
@@ -149,7 +149,7 @@ describe('VerificationCodesService.check (#51 review)', () => {
       }),
     };
     const codes = new VerificationCodesService(db as never, env);
-    await expect(codes.check(owner, 'EMAIL', 'new@example.com', '000000')).resolves.toBe(false);
+    await expect(codes.match(owner, 'EMAIL', 'new@example.com', '000000')).resolves.toBeNull();
     expect(updateMany).not.toHaveBeenCalled();
   });
 });

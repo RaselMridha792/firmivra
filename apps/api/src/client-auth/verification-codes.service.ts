@@ -1,10 +1,12 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Database, TxClient } from '@firmivra/db';
+import type { Database, Prisma, TxClient } from '@firmivra/db';
 import { poolSecrets, deriveKey } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
+import { networkOf } from './network.js';
 
 export type Channel = 'EMAIL' | 'PHONE';
 
@@ -18,7 +20,9 @@ const DAY_MS = 24 * 60 * 60_000;
  * - resendGapMs: after a code for an account and channel, the next one waits, whatever its
  *   address (a changed email or phone included), so alternating addresses sends nothing extra.
  * - perAccountPerDay / perTargetPerDay: codes a day for one account and channel, and to one
- *   address at the firm. Above them nothing is sent, and the answer stays the same.
+ *   address at the firm, from one network (#70 re-review: from anywhere, a stranger could use
+ *   them up and silence a person's own sign-up). Above them nothing is sent, and the answer
+ *   stays the same. targetAlertPerDay: codes to one address from anywhere before a warning.
  * - maxAttempts: wrong or right guesses per code, counted before comparing.
  * - smsPerFirmPerDay: SMS codes one firm sends in a day (#51 re-review); above it nothing is sent,
  *   the answer stays the same, and a warning is logged. R6 adds a platform-wide daily cap.
@@ -27,6 +31,7 @@ export const CODE_LIMITS = {
   resendGapMs: 45_000,
   perAccountPerDay: 10,
   perTargetPerDay: 10,
+  targetAlertPerDay: 30,
   maxAttempts: 5,
   smsPerFirmPerDay: 200,
 };
@@ -41,6 +46,12 @@ export interface CodeOwner {
 }
 
 export type Issued = { sent: true; code: string } | { sent: false; reason: 'gap' | 'cap' };
+
+/**
+ * A code that went out: a firm audit row with the account, the channel, a keyed hash of the
+ * address (never the address) and the request's network. The daily caps count these.
+ */
+const CODE_ISSUED = 'client_auth.code_issued';
 
 /** A transaction-scoped advisory lock on `key` if free now; never waits (#70 re-review). */
 async function tryLock(tx: TxClient, key: string): Promise<boolean> {
@@ -78,8 +89,10 @@ export class VerificationCodesService {
    * A new code for `target`, unless the gap since the last code for this account and channel has
    * not passed (`gap`) or a daily cap is reached (`cap`). Issues for one account and channel run
    * one at a time under a transaction-scoped advisory try-lock, never waited for (a waiting lock
-   * holds a pooled connection): a parallel issue for the same account sends nothing (`gap`), and
-   * a busy firm SMS count sends nothing this time (`cap`); either way the answer stays the same.
+   * holds a pooled connection): a parallel issue for the same account sends nothing (`gap`). The
+   * account and address caps count per network, so the person's own network always gets codes;
+   * the firm's SMS cap is a plain count (at most a few over under concurrency, never a skip
+   * because another firm member is verifying at the same moment).
    */
   issue(owner: CodeOwner, channel: Channel, target: string): Promise<Issued> {
     const { businessId, clientAccountId } = owner;
@@ -95,20 +108,30 @@ export class VerificationCodesService {
         return { sent: false, reason: 'gap' };
       }
       const since = new Date(Date.now() - DAY_MS);
-      const [forAccount, forTarget] = await Promise.all([
-        tx.verificationCode.count({
-          where: { clientAccountId, channel, createdAt: { gt: since } },
-        }),
-        tx.verificationCode.count({ where: { channel, target, createdAt: { gt: since } } }),
-      ]);
+      const net = networkOf(requestContext.getStore()?.ip);
+      const tgt = this.targetKey(channel, target);
+      const issued = { businessId, action: CODE_ISSUED, createdAt: { gt: since } };
+      const meta = (key: string, value: string) => ({ metadata: { path: [key], equals: value } });
+      const forAccount = await tx.auditLog.count({
+        where: {
+          AND: [issued, meta('acct', clientAccountId), meta('ch', channel), meta('net', net)],
+        },
+      });
+      const forTarget = await tx.auditLog.count({
+        where: { AND: [issued, meta('tgt', tgt), meta('net', net)] },
+      });
       if (forAccount >= CODE_LIMITS.perAccountPerDay || forTarget >= CODE_LIMITS.perTargetPerDay) {
         return { sent: false, reason: 'cap' };
       }
+      const toTarget = await tx.auditLog.count({ where: { AND: [issued, meta('tgt', tgt)] } });
+      if (toTarget + 1 === CODE_LIMITS.targetAlertPerDay) {
+        // Ids only (hard rule 4). R8 turns this line into an alarm.
+        this.logger.warn(
+          `An address (key ${tgt.slice(0, 12)}) at firm ${businessId} reached ${CODE_LIMITS.targetAlertPerDay} codes in a day`,
+        );
+      }
       if (channel === 'PHONE') {
-        // Counted under the firm's try-lock (after the account's), so parallel sends to different
-        // accounts cannot pass the cap together. The firm's scope: its own SMS codes only.
-        if (!(await tryLock(tx, `fv-sms-firm:${businessId}`)))
-          return { sent: false, reason: 'cap' };
+        // The firm's scope: its own SMS codes only.
         const smsToday = await tx.verificationCode.count({
           where: { channel: 'PHONE', createdAt: { gt: since } },
         });
@@ -129,23 +152,45 @@ export class VerificationCodesService {
           expiresAt: new Date(Date.now() + CODE_TTL_MS),
         },
       });
+      const store = requestContext.getStore();
+      await tx.auditLog.create({
+        data: {
+          businessId,
+          actorUserId: owner.attemptUserId,
+          action: CODE_ISSUED,
+          // A counter row, not a change to the account: the account id is in the metadata.
+          entityType: 'sign_up',
+          entityId: null,
+          metadata: { acct: clientAccountId, ch: channel, tgt, net } as Prisma.InputJsonValue,
+          ip: store?.ip ?? null,
+          userAgent: store?.userAgent?.slice(0, 500) ?? null,
+          requestId: store?.requestId ?? null,
+        },
+      });
       return { sent: true, code };
     });
   }
 
   /**
-   * True when `code` is this attempt's newest open code for this exact target; it is then used
-   * up. Each guess, right or wrong, first takes one attempt with a conditional update, so even
-   * parallel guesses get at most CODE_LIMITS.maxAttempts comparisons.
+   * The id of this attempt's newest open code for this exact target when `code` matches it, else
+   * null. Each guess, right or wrong, first takes one attempt with a conditional update, so even
+   * parallel guesses get at most CODE_LIMITS.maxAttempts comparisons. The code is not used up
+   * here: the step that depends on it does that, in its own transaction (`consume`), so a step
+   * that fails afterwards leaves the code for the retry (#70 re-review).
    */
-  async check(owner: CodeOwner, channel: Channel, target: string, code: string): Promise<boolean> {
+  async match(
+    owner: CodeOwner,
+    channel: Channel,
+    target: string,
+    code: string,
+  ): Promise<string | null> {
     const scope = this.db.forBusiness(owner.businessId);
     const latest = await scope.verificationCode.findFirst({
       where: { clientAccountId: owner.clientAccountId, channel },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true, target: true, codeHash: true },
     });
-    if (!latest || latest.target !== target) return false;
+    if (!latest || latest.target !== target) return null;
     const attempt = await scope.verificationCode.updateMany({
       where: {
         id: latest.id,
@@ -155,11 +200,19 @@ export class VerificationCodesService {
       },
       data: { attempts: { increment: 1 } },
     });
-    if (attempt.count !== 1) return false;
-    if (!this.matches(this.hash(owner, channel, code), latest.codeHash)) return false;
+    if (attempt.count !== 1) return null;
+    return this.matches(this.hash(owner, channel, code), latest.codeHash) ? latest.id : null;
+  }
+
+  /**
+   * Uses up a matched code, inside the caller's transaction: false when it was used, expired or
+   * replaced meanwhile. The database's trigger refuses an expired or older code with an error,
+   * which aborts the transaction; callers answer CODE_INVALID either way.
+   */
+  async consume(tx: TxClient, codeId: string): Promise<boolean> {
     try {
-      const used = await scope.verificationCode.updateMany({
-        where: { id: latest.id, consumedAt: null },
+      const used = await tx.verificationCode.updateMany({
+        where: { id: codeId, consumedAt: null, expiresAt: { gt: new Date() } },
         data: { consumedAt: new Date() },
       });
       return used.count === 1;
@@ -168,6 +221,11 @@ export class VerificationCodesService {
       if (refusedByDatabase(e)) return false;
       throw e;
     }
+  }
+
+  /** A keyed hash of a code's address: the caps count it; the audit log never holds the address. */
+  private targetKey(channel: Channel, target: string): string {
+    return createHmac('sha256', this.key).update(`target:${channel}:${target}`).digest('hex');
   }
 
   /** Bound to the account, the attempt and the channel: a hash means nothing anywhere else. */
