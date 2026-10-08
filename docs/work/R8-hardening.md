@@ -37,7 +37,7 @@ Isolation suite green in CI; prod stacks deployed and empty.
 - R0 (low priority): let the admin scope read the name of a Super Admin who asked for support access (`users_admin_platform_admins` has those who reviewed applications, not these), so a former Super Admin's asks keep their name in `GET /admin/support-access`. Today the name is `''`.
 - R6: a notice to the firm's Owners when Firmivra Support asks for access (and, optionally, when a grant is about to expire). Until then the API logs it by id.
 
-## Decisions (Rasel's q31, defaults the lead gave on Oct 8; they may change)
+## Decisions (Rasel's q31: the lead's defaults of Oct 8, confirmed by Rasel the same day)
 
 - Beta support access is read-only support views on the admin site, the firm's audit log first; never the firm's workspace under a Super Admin session.
 - The firm's Owner and Admins see requests; only an Owner decides (the database also requires an active Owner to approve).
