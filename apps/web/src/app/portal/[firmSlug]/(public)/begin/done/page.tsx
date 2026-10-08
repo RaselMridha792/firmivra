@@ -8,7 +8,7 @@ export default function ThankYouPage() {
     <PagePlaceholder
       title="Thank you"
       ticket="N07c"
-      owner="Ibrahim"
+      owner="Arfan"
       mockup="begin-online/Success Tax Prep.png, Success Page for all services except taxes.png"
     />
   );

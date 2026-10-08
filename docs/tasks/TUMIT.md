@@ -5,7 +5,7 @@ Read `docs/junior/GUIDE.md`, `docs/junior/AI-RULES.md` and `docs/junior/PAGE-MAP
 
 ## Your role
 
-From Oct 7 you build screens and test, like Ibrahim. Rasel's Claude Code sessions build every API: the lead is finishing your T02-T04 from your branches, and T05-T09 moved to the sessions. Thank you for the T01-T04 work; your field list found real gaps that are being added now. Please don't push to your old `tumit/FIR-T0N` branches any more.
+From Oct 7 you build screens and test, like Arfan. Rasel's Claude Code sessions build every API: the lead is finishing your T02-T04 from your branches, and T05-T09 moved to the sessions. Thank you for the T01-T04 work; your field list found real gaps that are being added now. Please don't push to your old `tumit/FIR-T0N` branches any more.
 
 You now own the firm onboarding screens from start to end:
 
@@ -14,7 +14,7 @@ You now own the firm onboarding screens from start to end:
 - the setup wizard, settings and team;
 - the calendar and appointment screens.
 
-On Oct 15-16 you and Ibrahim test everything on dev.
+On Oct 15-16 you and Arfan test everything on dev.
 
 - Pre-review pair: Fahad (you review each other's PRs)
 - Final review and merge: Rasel
@@ -29,7 +29,7 @@ On Oct 15-16 you and Ibrahim test everything on dev.
 | F05 | Oct 10-11 | First-time setup wizard, settings and team | T02-T04 (lead), R2 invites |
 | F09 | Oct 12-13 | Firm calendar and availability | R12 |
 | N08 | Oct 14 | Portal appointments: book, reschedule, cancel | R12 |
-| Q03 | Oct 15-16 | Full test pass on dev (with Ibrahim) | |
+| Q03 | Oct 15-16 | Full test pass on dev (with Arfan) | |
 | - | Oct 17 | Fixes from Octavia's review | |
 | - | Oct 18 | Production smoke test | |
 
@@ -110,9 +110,9 @@ Checklist:
 - **API:** R12 (types, free slots, book, reschedule, cancel).
 - **Build:** pick a type, then a free slot, then confirm; upcoming appointments with reschedule and cancel where allowed; in the firm's branding.
 
-### Q03 · Oct 15-16 · Full test pass on dev (with Ibrahim)
+### Q03 · Oct 15-16 · Full test pass on dev (with Arfan)
 
-You take the Super Admin site and the firm workspace; Ibrahim takes the portal and Begin Online. For every screen:
+You take the Super Admin site and the firm workspace; Arfan takes the portal and Begin Online. For every screen:
 
 - [ ] Matches its mockup at desktop and 375 px
 - [ ] Each role (Owner, Admin, Staff, Client, Super Admin) sees only what it should
