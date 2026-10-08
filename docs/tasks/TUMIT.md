@@ -79,10 +79,18 @@ Checklist:
 
 Checklist:
 
-- [ ] Clear validation messages
-- [ ] Submitting twice is impossible
-- [ ] The thank-you page says what happens next
-- [ ] EIN masked on the review step
+- [x] Clear validation messages
+- [x] Submitting twice is prevented while the request is running
+- [x] The thank-you page says what happens next
+- [x] EIN masked on the review step
+
+**Status (Oct 8, 2026):** N04 is on `tumit/FIR-N04-apply-form`; [PR #120](https://github.com/RaselMridha792/firmivra/pull/120) is against `main`. It uses R4's submit/list/count functions, masks the EIN on review, prevents repeat submission while pending, and shows the application receipt and firm-status/search/paging states. After #99, #58 and #111 merged, the branch was merged with `origin/main` at `acf0b00`.
+
+**UI follow-up (Oct 8):** `/firms` follows the supplied Super Admin visual language: serif heading, status cards, count tabs, search, desktop table, mobile firm cards, and paging. `/welcome`, `/apply`, and `/apply/done` use the same UI tokens and card treatment. The progress indicator reflects the two-stage flow (details, then review/submit). N04 has no dedicated page mockup; its route content follows PAGE-MAP. In the merge, the three shared shell files keep the `main` version from #58. The N04 raster banner is removed and the SVG lockup uses only `@firmivra/ui` color and type tokens. The page titles are `Welcome`, `Apply`, and `Application sent`; the firms list shows only each slug.
+
+**Verification (Oct 8):** After the `acf0b00` merge, `pnpm format`, `pnpm lint` and `pnpm typecheck` pass. The inactive-firm assertion is scoped to its row. With the R1 mock Super Admin session from #99, the dashboard and applications mock specs no longer stub `/api/v1/admin/me`, and the non-admin no-permission case is removed because mock mode is always signed in as an admin.
+
+**Review prep:** Fahad/Rasel review remains pending. The N04 diff is above the junior guide's 400-line review target; the PR body calls out the scope for review.
 
 ### F05 · Oct 10-11 · Setup wizard, settings and team
 
