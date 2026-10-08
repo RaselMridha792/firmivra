@@ -11,6 +11,7 @@ import {
   createContentClient,
   createDocumentsClient,
   createEngagementsClient,
+  createEsignClient,
   createFirmApplicationsClient,
   createInvoicesClient,
   createMyAppointmentsClient,
@@ -22,6 +23,7 @@ import {
   createMyProfileClient,
   createMyReportsClient,
   createMyServicesClient,
+  createMySignaturesClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
   createRequest,
@@ -45,6 +47,7 @@ import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
+import { createEsignMock, mySignaturesMock } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
@@ -201,4 +204,14 @@ export const api = {
     dev && mocked('myInvoices')
       ? myInvoicesMock(firmSlug)
       : createMyInvoicesClient(request, firmSlug),
+  /** Firm Sign (R13): signature requests for the firm; `status()` for the menu (docs/api/esign.yaml). */
+  esign:
+    dev && mocked('esign')
+      ? createEsignMock({ role: MOCK_ROLE })
+      : createEsignClient(request, options.baseUrl),
+  /** Firm Sign (R13): the signed-in client's Signature center, per firm (portal). */
+  mySignatures: (firmSlug: string) =>
+    dev && mocked('mySignatures')
+      ? mySignaturesMock(firmSlug)
+      : createMySignaturesClient(request, firmSlug),
 };
