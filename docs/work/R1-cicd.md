@@ -39,7 +39,26 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
 
 ## Needs from others
 
-(none yet)
+Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
+
+- **Rasel: `aws sso login --profile firmivra-dev`, then tell R1.** R1 then:
+  - runs the real `cdk diff` for #101 (read-only), posts it on the PR, and checks that no user pool, client, database or bucket is replaced;
+  - runs R2's leaked-password dev test. It needs a dev account whose inbox Rasel reads: its password is reset to a known leaked one, the API must answer `RESET_CODE_INVALID` (docs/api/auth.yaml), and Cognito's auth events must show the compromised-credentials block.
+- **Rasel: #101's order after the diff.**
+  1. The two bootstrap policy versions (his commands in the PR).
+  2. The merge, which deploys `firmivra-dev-app`; R1 watches the run.
+  3. `cdk deploy firmivra-dev-auth` and one real password reset.
+  4. The LVP key one-off, then its `--check`.
+  5. One firm application on dev from a verified sandbox address: the received email must arrive, and `/firmivra/dev/api` must have no "could not be sent" line.
+- **Rasel, yes or no: workflow changes in R1's paths.**
+  - `path-guard.yml`: add `apps/web/src/app/firm/(workspace)/audit-log/` to Tumit's paths before he starts F12. PAGE-MAP already lists it (#99).
+  - `ci.yml`: an s3mock service, so the documents adapter's S3 round trip also runs in CI (today it is skipped there).
+- **Rasel, yes or no: infra, after #101.** `SCAN_MODE=local` on the dev API task. Without it, every dev upload stays "checking" until GuardDuty. The API allows local mode in production only when `APP_ENV=dev`.
+- **Rasel, later: R5's infra, each with a cdk diff first.**
+  - GuardDuty Malware Protection for S3, its EventBridge rule and SQS queue, and the alarm.
+  - Expiry for unconfirmed uploads: a tag on the PUT, `s3:PutObjectTagging` and `s3:DeleteObjectTagging` for the API, and a tag-filtered lifecycle rule.
+  - Per-firm KMS keys for S3 objects, each tied to its `tenant/{businessId}/` prefix.
+- **Rasel:** who gives a new firm its default document categories (R4's approve, or R0), plus a one-off for LVP on dev. Today only the seed makes them (from #118's review).
 
 ## Progress log
 
@@ -166,3 +185,4 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   - Checks on a local scratch merge with #58 (head 154b519, never pushed): lint and typecheck clean; test:e2e 30/30 (one earlier run lost sites' portal test to a cold compile; it passes alone and on the re-run). test:e2e:mock 4/5: #58's `tumit-dashboard` expects 3 pending applications, but R4's mock on main (#79) now has 4; it fails the same way on main + #58 without this branch, so #58 needs that update.
   - `next build` with `NEXT_PUBLIC_API_MOCK=all`, on this branch and on the scratch merge: no `morgan.admin@example.test` and no `0199b6a2-0000-7000-8000-0000000000a1` in `.next/static`.
 - 2026-10-08, finding (not fixed here): a production build of main already carries sample text from mocks in a client chunk (Jamie Sample, Sam Staff, john@example.com, Mock User). It comes through imports between mock files (`mockMe` from appointments.ts in tasks.ts, `clientFixtures`, `taxStatusFixtures`) and the hoisted `portalAuthMock` in lib/auth.ts. Mock behaviour stays off and the data is invented, but it breaks the "no mock strings in .next/static" rule from the lazy-mocks work (Oct 7).
+- 2026-10-08 evening: Rasel's new setup: only R0 and R1 run, the cloud threads review on GitHub, and Rasel merges. BOARD.md is closed, so R1's questions for Rasel are now under "Needs from others" here. Merged today: #91, #99, #106, #107, #110, #112, #113 (and #79 and #81). #101 and #118 are open. Every Deploy dev run since #99 was green.
