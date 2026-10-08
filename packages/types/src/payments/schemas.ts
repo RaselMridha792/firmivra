@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CalendarDate, MemberRef } from '../clients/schemas.js';
-import { text } from '../clients/text.js';
+import { SearchText, text } from '../clients/text.js';
 import { InvoiceStatus, PaymentRefundStatus, PaymentStatus } from '../db-enums.js';
 
 // Invoices and payments (R7): the firm bills a client with an invoice of lines (client record >
@@ -282,7 +282,7 @@ export type Invoice = z.infer<typeof Invoice>;
 export const ListInvoicesQuery = z.strictObject({
   clientId: z.uuid().optional(),
   status: InvoiceStatus.optional(),
-  search: z.string().trim().max(100).optional(),
+  search: SearchText.optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(25),
 });
@@ -469,7 +469,7 @@ export type MyInvoiceDetail = z.infer<typeof MyInvoiceDetail>;
 export const ListMyInvoicesQuery = z.strictObject({
   view: MyInvoiceView.optional().default('ALL'),
   status: MyInvoiceStatus.optional(),
-  search: z.string().trim().max(100).optional(),
+  search: SearchText.optional(),
   section: MyInvoiceSection.optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(25),

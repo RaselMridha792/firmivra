@@ -29,6 +29,17 @@ export const text = (max: number, lines: 'one' | 'many' = 'one', empty = 'Enter 
     .max(max, `Use at most ${max} characters`)
     .regex(lines === 'one' ? ONE_LINE : MULTI_LINE, 'Remove the special characters');
 
+/**
+ * A list's search box: trimmed, at most 100 characters, empty allowed. No control characters
+ * (Postgres text cannot hold NUL, which answered 500) and no lone surrogates (half of an emoji,
+ * not text), so a pasted or crafted search is 400 with this message instead.
+ */
+export const SearchText = z
+  .string()
+  .trim()
+  .max(100, 'Use at most 100 characters')
+  .regex(/^[^\p{Cc}\p{Cs}]*$/u, 'Remove the special characters');
+
 /** An optional field: leave it out to keep it; `null` or `''` clears it. */
 export const clearable = <T>(value: z.ZodType<T, string>) =>
   z
