@@ -120,3 +120,25 @@ You take the Super Admin site and the firm workspace; Ibrahim takes the portal a
 - https://admin.dev.firmivra.com (Super Admin)
 - https://app.dev.firmivra.com (firm workspace)
 - https://portal.dev.firmivra.com/lvp (LVP client portal)
+
+## Added Oct 8 (Rasel)
+
+### F12 · after N08 (Rasel sets the day) · Firm audit log
+
+- **Page:** `/audit-log` in the firm workspace, `firm/(workspace)/audit-log/page.tsx` (screen 27 in `docs/PROJECT-DRAFT-v2.md`). Owner and Admin only: the menu item shows only to them, like Team and Settings.
+- **Mockup:** none: use the style of the Super Admin screens.
+- **API:** R12's `api.auditLog.list(query)` (contract in `packages/types/src/audit-log/`, mock in `apps/web/src/mocks/audit-log.ts`, module name `auditLog`). Read-only, newest first. Staff get 403 FORBIDDEN: show the no-permission state.
+- **Build:**
+  1. A table: when (`at`), who (`actor.name`; "System" when `actor` is null), action, record (`entity.type` and `entity.id`), IP. A row by "Firmivra Support" (`actor.kind` `PLATFORM`) has no person and no IP: show it as is, never look for the person behind it.
+  2. Filters: a date range (both ends or neither; neither means the last 30 days; at most 366 days), the action or its start (for example `appointment.` for every appointment action), the person, the record type and id. The contract's schema gives the messages.
+  3. Paging: 50 rows a page; pass `nextCursor` back as `cursor` for the next page.
+  4. A row's details: its `metadata` (ids only, never passwords or document content) and `requestId`.
+  5. Data export (screen 27) is not in this ticket: it has no API yet.
+
+Checklist:
+
+- [ ] Owner and Admin see the log; Staff see the no-permission state
+- [ ] A "Firmivra Support" row shows no person and no IP
+- [ ] A range over 366 days, or only one end, shows the contract's message before any request
+- [ ] Loading, empty and error states
+- [ ] Playwright: filter and page through the log in mock mode
