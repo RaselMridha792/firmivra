@@ -68,6 +68,8 @@ Checklist:
 - [x] An unknown id shows not-found
 - [x] Playwright: approve an application in mock mode
 
+**Visual follow-up (Oct 8):** Widened the applications content to use the available console width, increased the heading and table readability, and made the detail decision actions match their approve/request/decline meaning. Verified the list and detail at the mockup's 1672 px desktop width, then checked 375 px without horizontal overflow. In the local API-shaped mock, an application opens, approval confirms and updates its status/firm summary, and an invalid ID shows not-found; the browser console had no app errors. Shared header/sidebar refinements remain only in F04a PR #58 and will be inherited after the required merge/rebase sequence.
+
 ### N04 · Oct 9 · Public firm application form, and the firms list
 
 - **Pages:** on the firm site, without sign-in: `/welcome` (three cards: Welcome back to sign in, Create a business account to apply, First sign-in to activate; PROJECT-DRAFT-v2.md screen 1), `/apply` (the form, with a review step at the end) and `/apply/done` (thank you). Super Admin `/firms`. Files in `firm/welcome/`, `firm/apply/` and `admin/(console)/firms/`.
