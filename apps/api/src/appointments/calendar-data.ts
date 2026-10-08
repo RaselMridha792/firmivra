@@ -215,15 +215,17 @@ export async function busyTimes(
 
 /** One member's busy times: their live appointments (but `exceptId`) and their or the firm's blocks. */
 export function memberBusy(busy: BusyTimes, userId: string, exceptId?: string): Interval[] {
+  const [user, except] = [userId.toLowerCase(), exceptId?.toLowerCase()];
   return [
-    ...busy.appointments.filter((a) => a.staffUserId === userId && a.id !== exceptId),
-    ...busy.blocks.filter((b) => b.userId === null || b.userId === userId),
+    ...busy.appointments.filter((a) => a.staffUserId === user && a.id !== except),
+    ...busy.blocks.filter((b) => b.userId === null || b.userId === user),
   ];
 }
 
 /** One client's live appointments (but `exceptId`): a client is in one meeting at a time. */
 export function clientBusy(busy: BusyTimes, clientId: string, exceptId?: string): Interval[] {
-  return busy.appointments.filter((a) => a.clientId === clientId && a.id !== exceptId);
+  const [client, except] = [clientId.toLowerCase(), exceptId?.toLowerCase()];
+  return busy.appointments.filter((a) => a.clientId === client && a.id !== except);
 }
 
 /** From the firm-local start of `from` to the end of `to` (both YYYY-MM-DD, included). */

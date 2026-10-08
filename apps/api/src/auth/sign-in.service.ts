@@ -33,10 +33,10 @@ export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
  */
 const SIGN_IN_FAILED = 'auth.sign_in_failed';
 /**
- * Each attempt is recorded before Cognito is asked, then closed by a "passed" row (same token)
- * when it succeeds, or a "released" row when it ends without a verdict on the credential (its own
- * action, so the audit log never reads "passed" for it); an attempt with neither is a failure or
- * still in flight, and the limits count those.
+ * Each attempt is recorded before Cognito is asked (its `reservationId` in the row), then closed
+ * by a "passed" row with the same id when it succeeds, or a "released" row when it ends without a
+ * verdict on the credential (its own action, so the audit log never reads "passed" for it); an
+ * attempt with neither is a failure or still in flight, and the limits count those.
  */
 const SIGN_IN = {
   attempt: 'auth.sign_in_attempt',
@@ -60,10 +60,12 @@ export const SIGN_IN_LIMIT = {
   windowMs: 15 * 60_000,
 };
 /**
- * One check's open attempts in its window, as SQL: the tokens with an attempt row and no "passed"
- * or "released" row (all carry the check's value). One pass over the window per check, and the reserve counts
- * every check in one statement that returns numbers, never rows, so its transaction stays short
- * under bursts (#84 review).
+ * One check's open attempts in its window, as SQL: the reservations with an attempt row and no
+ * "passed" or "released" row (all carry the check's value). One pass over the window per check,
+ * and the reserve counts every check in one statement that returns numbers, never rows, so its
+ * transaction stays short under bursts (#84 review). Rows written before the key's rename to
+ * `reservationId` say `token` (#84 follow-up); both are read, and the old ones age out with their
+ * window.
  */
 function openAttempts(businessId: string | null, actions: Actions, check: LimitCheck) {
   const inScope = businessId
@@ -79,7 +81,7 @@ function openAttempts(businessId: string | null, actions: Actions, check: LimitC
         AND created_at > now() - ${check.windowMs}::int * interval '1 millisecond'
         AND action IN (${attempt}, ${passed}, ${released})
         AND ${KEY_SQL[check.field]} = ${check.value}
-      GROUP BY metadata ->> 'token'
+      GROUP BY coalesce(metadata ->> 'reservationId', metadata ->> 'token')
       HAVING bool_and(action = ${attempt})
     ) open)`;
 }
@@ -148,7 +150,7 @@ export class SignInService {
    */
   async signIn(place: SignInPlace, email: string, password: string): Promise<SignInOutcome> {
     const emailKey = this.emailKey(place, email);
-    const token = await this.reserve(
+    const reservationId = await this.reserve(
       place,
       SIGN_IN,
       `fv-sign-in:${emailKey}`,
@@ -163,14 +165,14 @@ export class SignInService {
     try {
       step = await this.identity.signIn(place.pool, user?.cognitoSub, password);
       if (!user) throw new AuthFlowError('INVALID_CREDENTIALS');
-      await this.passed(place, SIGN_IN, { emailKey, token });
+      await this.passed(place, SIGN_IN, { emailKey, reservationId });
     } catch (e) {
       if (!(e instanceof AuthFlowError)) {
-        await this.release(place, SIGN_IN, { emailKey, token }, e);
+        await this.release(place, SIGN_IN, { emailKey, reservationId }, e);
         throw e;
       }
       if (e.code === 'INVALID_CREDENTIALS') {
-        await this.failed(place, { emailKey, step: 'password', token });
+        await this.failed(place, { emailKey, step: 'password', reservationId });
       }
       throw httpError(e.code);
     }
@@ -217,7 +219,7 @@ export class SignInService {
       ...(c.attemptId ? { attemptId: c.attemptId } : {}),
     };
     // A challenge sealed before step 7 carries neither; it expires within minutes.
-    const token = lockKey
+    const reservationId = lockKey
       ? await this.reserve(place, SIGN_IN, lockKey, checks, { ...ids, step: 'mfa' })
       : undefined;
     let tokens: SessionTokens;
@@ -225,14 +227,18 @@ export class SignInService {
       tokens = await (c.step === 'MFA'
         ? this.identity.answerMfa(pool, c.username, c.session, code)
         : this.identity.finishMfaSetup(pool, c.username, c.session, code));
-      if (token) await this.passed(place, SIGN_IN, { ...ids, token });
+      if (reservationId) await this.passed(place, SIGN_IN, { ...ids, reservationId });
     } catch (e) {
       // Only a wrong code counts. This step follows a right password, so releasing every other
       // outcome (an expired MFA session, Cognito busy, an error of ours) reveals nothing.
       if (e instanceof AuthFlowError && e.code === 'MFA_CODE_INVALID') {
-        await this.failed(place, { ...ids, step: 'mfa', ...(token ? { token } : {}) });
-      } else if (token) {
-        await this.release(place, SIGN_IN, { ...ids, token }, e);
+        await this.failed(place, {
+          ...ids,
+          step: 'mfa',
+          ...(reservationId ? { reservationId } : {}),
+        });
+      } else if (reservationId) {
+        await this.release(place, SIGN_IN, { ...ids, reservationId }, e);
       }
       if (!(e instanceof AuthFlowError)) throw e;
       throw httpError(e.code);
@@ -279,7 +285,7 @@ export class SignInService {
   ): Promise<void> {
     const { pool } = place;
     const emailKey = this.emailKey(place, email);
-    const token = await this.reserve(
+    const reservationId = await this.reserve(
       place,
       RESET,
       `fv-reset:${emailKey}`,
@@ -297,13 +303,13 @@ export class SignInService {
     const user = await this.findUser(place, email);
     try {
       await this.identity.resetPassword(pool, user?.cognitoSub, code, password);
-      await this.passed(place, RESET, { emailKey, token });
+      await this.passed(place, RESET, { emailKey, reservationId });
     } catch (e) {
       if (!(e instanceof AuthFlowError)) {
-        await this.release(place, RESET, { emailKey, token }, e);
+        await this.release(place, RESET, { emailKey, reservationId }, e);
         throw e;
       }
-      await this.log(place, RESET_FAILED, { type: 'login' }, { emailKey, pool, token });
+      await this.log(place, RESET_FAILED, { type: 'login' }, { emailKey, pool, reservationId });
       throw httpError('RESET_CODE_INVALID');
     }
   }
@@ -338,7 +344,8 @@ export class SignInService {
    * failed. A busy key is refused like the limit (never waited for: a waiting lock holds a pooled
    * connection). The transaction is three short statements: the try-lock, one count for every
    * check (`openAttempts`), the insert. Rows go where `log` writes them: the firm's log on a
-   * portal, the platform's otherwise. Returns the attempt's token; its "passed" row carries it.
+   * portal, the platform's otherwise. Returns the attempt's reservation id, which the row that
+   * closes it carries.
    */
   private async reserve(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
@@ -347,7 +354,7 @@ export class SignInService {
     checks: LimitCheck[],
     metadata: Record<string, unknown>,
   ): Promise<string> {
-    const token = randomUUID();
+    const reservationId = randomUUID();
     const businessId = place.businessId ?? null;
     const scope = place.businessId
       ? ({ kind: 'business', businessId: place.businessId } as const)
@@ -369,7 +376,7 @@ export class SignInService {
           action: actions.attempt,
           entityType: 'login',
           entityId: null,
-          metadata: { ...metadata, pool: place.pool, token } as Prisma.InputJsonValue,
+          metadata: { ...metadata, pool: place.pool, reservationId } as Prisma.InputJsonValue,
           ip: store?.ip ?? null,
           userAgent: store?.userAgent ?? null,
           requestId: store?.requestId ?? null,
@@ -378,14 +385,14 @@ export class SignInService {
       return null;
     });
     if (refusal) throw refusal;
-    return token;
+    return reservationId;
   }
 
   /** The attempt succeeded: its "passed" row takes it out of the limits' count. */
   private passed(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
     actions: Actions,
-    ids: { emailKey?: string; attemptId?: string; token: string },
+    ids: { emailKey?: string; attemptId?: string; reservationId: string },
   ): Promise<void> {
     return this.log(place, actions.passed, { type: 'login' }, { ...ids, pool: place.pool });
   }
@@ -395,12 +402,12 @@ export class SignInService {
    * what happened, so it never counts against the limits (#84 follow-up). On the
    * password and reset steps only an error of ours or an outage does this; every answer from
    * Cognito still counts there, the same for real and unknown emails, so it reveals nothing. A
-   * failure here is logged by the attempt's token and never hides the original error.
+   * failure here is logged by the attempt's reservation id and never hides the original error.
    */
   private async release(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
     actions: Actions,
-    ids: { emailKey?: string; attemptId?: string; token: string },
+    ids: { emailKey?: string; attemptId?: string; reservationId: string },
     outcome: unknown,
   ): Promise<void> {
     const ended = outcome instanceof AuthFlowError ? outcome.code : 'ERROR';
@@ -412,13 +419,18 @@ export class SignInService {
         { ...ids, pool: place.pool, outcome: ended },
       );
     } catch {
-      this.logger.warn(`Could not release sign-in attempt ${ids.token}`);
+      this.logger.warn(`Could not release sign-in attempt ${ids.reservationId}`);
     }
   }
 
   private failed(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
-    metadata: { emailKey?: string; attemptId?: string; step: 'password' | 'mfa'; token?: string },
+    metadata: {
+      emailKey?: string;
+      attemptId?: string;
+      step: 'password' | 'mfa';
+      reservationId?: string;
+    },
   ): Promise<void> {
     return this.log(place, SIGN_IN_FAILED, { type: 'login' }, { ...metadata, pool: place.pool });
   }

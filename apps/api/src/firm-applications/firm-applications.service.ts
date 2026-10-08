@@ -28,8 +28,7 @@ import {
   websiteHost,
 } from '@firmivra/types';
 import { z } from 'zod';
-import { type AuditEntity, AuditService } from '../audit/audit.service.js';
-import { requestContext } from '../common/request-context.js';
+import { AuditService } from '../audit/audit.service.js';
 import {
   NOTIFY_SERVICE,
   type NotifyMessage,
@@ -75,35 +74,6 @@ const alreadyDecided = () =>
  * apps/web).
  */
 const FIRMIVRA_SUPPORT_EMAIL = 'admin@firmivra.com';
-
-/**
- * A Super Admin's audit row, written in the transaction of the change it records, so the two land
- * or fail together. It sets the columns AuditService.log sets for an admin's event: no firm, the
- * acting admin, the action and the entity, no metadata, and the IP, user agent and request id
- * from the request context. In admin scope the database takes it only with the acting admin as
- * the actor (#52's audit_logs_admin_insert). Switch to AuditService.logIn(tx, ...) when R3's #70
- * merges.
- */
-async function auditIn(
-  tx: TxClient,
-  adminUserId: string,
-  action: string,
-  entity: AuditEntity,
-): Promise<void> {
-  const store = requestContext.getStore();
-  await tx.auditLog.create({
-    data: {
-      businessId: null,
-      actorUserId: adminUserId,
-      action,
-      entityType: entity.type,
-      entityId: entity.id ?? null,
-      ip: store?.ip ?? null,
-      userAgent: store?.userAgent ?? null,
-      requestId: store?.requestId ?? null,
-    },
-  });
-}
 
 /** The first instant of the current calendar month in `timeZone`. */
 export function startOfMonthIn(timeZone: string, now = new Date()): Date {
@@ -347,7 +317,8 @@ export class FirmApplicationsService {
       const row = await this.pending(tx, id);
       if (row.decisionReason === message) return null;
       await this.review(tx, id, { decisionReason: message });
-      await auditIn(tx, this.admin.adminUserId, 'firm_application.info_requested', {
+      // In admin scope the database takes it only with the acting admin as the actor (#52).
+      await this.audit.logIn(tx, 'firm_application.info_requested', {
         type: 'firm_application',
         id,
       });
@@ -380,10 +351,8 @@ export class FirmApplicationsService {
         });
       }
       await this.review(tx, id, { status: 'DECLINED', decisionReason: reason });
-      await auditIn(tx, this.admin.adminUserId, 'firm_application.declined', {
-        type: 'firm_application',
-        id,
-      });
+      // In admin scope the database takes it only with the acting admin as the actor (#52).
+      await this.audit.logIn(tx, 'firm_application.declined', { type: 'firm_application', id });
       return row;
     });
     await this.emailApplicant(id, {
@@ -395,14 +364,19 @@ export class FirmApplicationsService {
     return this.record(id);
   }
 
-  /** "Save Note": internal notes, also after a decision. `null` clears them. */
+  /**
+   * "Save Note": internal notes, also after a decision. `null` clears them. The notes and their
+   * audit row land together.
+   */
   async saveNotes(id: string, notes: string | null): Promise<FirmApplicationRecord> {
-    const { count } = await this.admin.db.firmApplication.updateMany({
-      where: { id },
-      data: { internalNotes: notes },
+    await this.admin.transaction(async (tx) => {
+      const { count } = await tx.firmApplication.updateMany({
+        where: { id },
+        data: { internalNotes: notes },
+      });
+      if (count === 0) throw notFound();
+      await this.audit.logIn(tx, 'firm_application.notes_saved', { type: 'firm_application', id });
     });
-    if (count === 0) throw notFound();
-    await this.audit.log('firm_application.notes_saved', { type: 'firm_application', id });
     return this.record(id);
   }
 
@@ -585,7 +559,16 @@ export class FirmApplicationsService {
     const same = (value: string) => ({ equals: likeEscape(value), mode: 'insensitive' as const });
     const label = (r: { legalName: string; status: FirmApplication['status'] }) =>
       `${r.legalName} (${reviewStatus(r.status).toLowerCase().replace('_', ' ')})`;
-    const [sameNameApp, sameNameFirm, sameEmail] = await Promise.all([
+    const [sameEin, sameNameApp, sameNameFirm, sameEmail] = await Promise.all([
+      // The keyed hash (submit writes it with the last 4): firms keep their EIN encrypted with
+      // their own key, so only applications compare.
+      row.einHash
+        ? db.firmApplication.findFirst({
+            where: { id: { not: row.id }, einHash: { equals: row.einHash } },
+            orderBy: { createdAt: 'asc' },
+            select: { legalName: true, status: true },
+          })
+        : Promise.resolve(null),
       db.firmApplication.findFirst({
         where: { id: { not: row.id }, legalName: same(row.legalName) },
         select: { legalName: true, status: true },
@@ -603,8 +586,11 @@ export class FirmApplicationsService {
       }),
     ]);
     return [
-      // The keyed EIN hash arrives with R0's ein columns (step 2).
-      { key: 'DUPLICATE_EIN', result: 'SKIPPED', note: 'The EIN check comes with the EIN fields' },
+      !row.einHash
+        ? { key: 'DUPLICATE_EIN', result: 'SKIPPED', note: 'No EIN given' }
+        : sameEin
+          ? { key: 'DUPLICATE_EIN', result: 'WARN', note: `Same EIN as ${label(sameEin)}` }
+          : { key: 'DUPLICATE_EIN', result: 'PASS', note: 'No other application has this EIN' },
       sameNameApp
         ? { key: 'DUPLICATE_NAME', result: 'WARN', note: `Same name as ${label(sameNameApp)}` }
         : sameNameFirm
