@@ -49,6 +49,16 @@ const clientSelect = {
  * birth are locked: a name change is a request (a NAME_CHANGE task for the firm's staff). Only
  * the primary login sees the date of birth or changes anything; SSN and EIN are never shown here.
  */
+/** An address with nothing on file (the country is the form's default). */
+const NO_ADDRESS = {
+  line1: null,
+  line2: null,
+  city: null,
+  state: null,
+  postalCode: null,
+  country: 'US',
+};
+
 @Injectable()
 export class MyProfileService {
   constructor(
@@ -89,16 +99,32 @@ export class MyProfileService {
   ): Promise<MyProfile> {
     const p = client.profile;
     const name = [p?.firstName, p?.middleName, p?.lastName].filter(Boolean).join(' ');
-    const primary = account.portalRole === 'PRIMARY';
-    return {
+    const named = {
       portalRole: account.portalRole,
       fullName: name || p?.businessName || client.displayName,
+      email: account.email,
+    };
+    // q21 (Rasel, Oct 8): an AUTHORIZED login sees the name only; the rest reads as empty, as for
+    // a client with nothing on file. A SPOUSE sees everything but the date of birth.
+    if (account.portalRole === 'AUTHORIZED') {
+      return {
+        ...named,
+        dateOfBirth: null,
+        phone: null,
+        address: NO_ADDRESS,
+        preferredContactMethod: null,
+        referralSource: null,
+        additionalInfo: null,
+      };
+    }
+    const primary = account.portalRole === 'PRIMARY';
+    return {
+      ...named,
       dateOfBirth: !primary
         ? null
         : afterWrite
           ? await readDateOfBirthAfterWrite(this.fe, businessId, client.id, p?.dobEnc)
           : await readDateOfBirth(this.fe, businessId, client.id, p?.dobEnc),
-      email: account.email,
       phone: client.phone,
       address: {
         line1: p?.addressLine1 ?? null,
@@ -106,7 +132,7 @@ export class MyProfileService {
         city: p?.city ?? null,
         state: p?.state ?? null,
         postalCode: p?.postalCode ?? null,
-        country: p?.country ?? 'US',
+        country: p?.country ?? NO_ADDRESS.country,
       },
       preferredContactMethod: p?.preferredContactMethod ?? null,
       referralSource: p?.referralSource ?? null,

@@ -126,6 +126,11 @@ describe('api.clients', () => {
     expect(calls).toEqual([]);
   });
 
+  it('a new client may send an empty profile; a profile update must change something', () => {
+    expect(CreateClientRequest.parse({ displayName: 'New', profile: {} }).profile).toEqual({});
+    expect(UpdateClientProfileRequest.safeParse({}).success).toBe(false);
+  });
+
   it('takes a tax year as a number or exactly four digits, 2000 to 2100', () => {
     expect(TaxYear.parse(2026)).toBe(2026);
     expect(TaxYear.parse('2026')).toBe(2026);

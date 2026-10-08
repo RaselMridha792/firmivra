@@ -46,6 +46,7 @@ const people = {
   staffA2: person('staff-a2'),
   primary: person('primary'),
   spouse: person('spouse'),
+  authorized: person('authorized'),
   other: person('other'),
   archivedLogin: person('archived'),
   third: person('third'),
@@ -140,7 +141,9 @@ beforeAll(async () => {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
-      const pool = ['primary', 'spouse', 'other', 'archivedLogin', 'third'].includes(key)
+      const pool = ['primary', 'spouse', 'authorized', 'other', 'archivedLogin', 'third'].includes(
+        key,
+      )
         ? 'CLIENT'
         : 'STAFF';
       await tx.user.create({
@@ -178,6 +181,7 @@ beforeAll(async () => {
     for (const [p, clientId, portalRole] of [
       [people.primary, ids.one, 'PRIMARY'],
       [people.spouse, ids.one, 'SPOUSE'],
+      [people.authorized, ids.one, 'AUTHORIZED'],
       [people.other, ids.two, 'PRIMARY'],
       [people.archivedLogin, ids.old, 'PRIMARY'],
       [people.third, ids.three, 'PRIMARY'],
@@ -379,6 +383,33 @@ describe('portal: My Profile', () => {
       const bad = await portal('patch', '', people.primary, body);
       expect([bad.status, codeOf(bad)]).toEqual([400, 'VALIDATION_FAILED']);
     }
+  });
+
+  it('an AUTHORIZED login sees the name only (q21) and changes nothing', async () => {
+    const seen = Mine.parse(ok(await portal('get', '', people.authorized)).body);
+    expect(seen).toEqual({
+      portalRole: 'AUTHORIZED',
+      fullName: 'Fake Person',
+      dateOfBirth: null,
+      email: people.authorized.email,
+      phone: null,
+      address: {
+        line1: null,
+        line2: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        country: 'US',
+      },
+      preferredContactMethod: null,
+      referralSource: null,
+      additionalInfo: null,
+    });
+    const change = await portal('patch', '', people.authorized, { referralSource: 'x' });
+    expect([change.status, codeOf(change)]).toEqual([403, 'FORBIDDEN']);
+    // A spouse still sees the contact details (only the date of birth is the primary's).
+    const spouse = Mine.parse(ok(await portal('get', '', people.spouse)).body);
+    expect(spouse).toMatchObject({ phone: '+15555550199', referralSource: 'A friend' });
   });
 
   it('the contract client saves through PATCH; PUT is not a route', async () => {
