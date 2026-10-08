@@ -1,8 +1,10 @@
+import type { NotificationCategory } from '@firmivra/types';
+
 /**
  * NotifyService (R6): the one way the API sends email and SMS. Every stream calls
  * `notify.send({ template, to, businessId, data })`; R6 renders the template with the firm's
- * branding, checks the recipient's preferences and hands it to SES (Mailpit locally) or SNS (the
- * API log until SNS is registered).
+ * branding and hands it to SES (Mailpit locally) or SNS (the API log until the number is
+ * registered). Notification preferences apply once step 5 lands.
  *
  * What may go into `data` (CLAUDE.md hard rule 4, SYSTEM-DESIGN "Messaging"): names, the firm's
  * name, dates, titles and links. Never a password, a full SSN or EIN, a bank number, an amount,
@@ -25,8 +27,8 @@ export interface NotifyTemplates {
   'client.already-registered': { firmName: string; signInLink: string };
   /** The firm approved the client's sign-up. */
   'client.signup-approved': { name: string; firmName: string; signInLink: string };
-  /** The firm declined it; the reason is what the firm wrote for the client, if anything. */
-  'client.signup-declined': { name: string; firmName: string; reason: string | null };
+  /** The firm declined it. No reason goes to the client (Rasel, q18). */
+  'client.signup-declined': { name: string; firmName: string };
 
   // ----- Firm applications (R4; Firmivra's own messages, businessId null) -----
   'firm-application.received': { name: string; legalName: string };
@@ -109,6 +111,29 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'firm-application.declined',
 ]);
 
+/**
+ * The preference category of each template (notification_preferences.category). ACCOUNT notices
+ * ignore preferences, like ALWAYS_SENT: the database keeps no preference for them.
+ */
+export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCategory>> = {
+  'staff.invite': 'ACCOUNT',
+  'client.signup-email-code': 'ACCOUNT',
+  'client.signup-sms-code': 'ACCOUNT',
+  'client.already-registered': 'ACCOUNT',
+  'client.signup-approved': 'ACCOUNT',
+  'client.signup-declined': 'ACCOUNT',
+  'firm-application.received': 'ACCOUNT',
+  'firm-application.info-requested': 'ACCOUNT',
+  'firm-application.approved': 'ACCOUNT',
+  'firm-application.declined': 'ACCOUNT',
+  'document.requested': 'DOCUMENTS',
+  'appointment.booked': 'APPOINTMENTS',
+  'appointment.changed': 'APPOINTMENTS',
+  'appointment.reminder': 'APPOINTMENTS',
+  'invoice.sent': 'BILLING',
+  'payment.received': 'BILLING',
+};
+
 export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
   template: T;
   /** An email address, or an E.164 phone number for an SMS template. */
@@ -120,7 +145,7 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
   businessId: string | null;
   /**
    * Who it is for, when they have an account: their notification preferences apply (except for
-   * ALWAYS_SENT templates).
+   * ALWAYS_SENT templates) once R6 step 5 lands; pass it already.
    */
   recipient?: { userId: string } | { clientAccountId: string };
   /** For example Firmivra support, for an information request. */
@@ -130,10 +155,12 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
 
 export interface NotifyService {
   /**
-   * Sends one message, or skips it when the recipient's preferences turn it off. Resolves once
-   * the provider (or the local log) has it. A delivery failure is logged (without the address or
-   * the data) and does not reject, so a caller's flow never depends on email; it rejects only for
-   * a programming error, such as a template that does not exist.
+   * Sends one message. Resolves once the provider (or, in a log mode, the API log) has it.
+   * Rejects with NotifyDeliveryError when the provider refuses it or cannot be reached, and with
+   * NotifyTemplateError or UnknownFirmError for a programming error (a template or data that does
+   * not fit, a firm that does not exist). No error holds the address, the text or the data.
+   * The caller decides what a failure means: usually its own flow stands, and it logs a warning
+   * with its record's id (as R4 does), never the address.
    */
   send<T extends NotifyTemplate>(message: NotifyMessage<T>): Promise<void>;
 }
