@@ -711,4 +711,39 @@ describe("a client's new assignee (R12's rule, for R10's reassign path)", () => 
     expect(await reassign(null, people.staffA.id)).toBe(0);
     expect(await reassign(people.staffA.id, people.staffA.id)).toBe(0);
   });
+
+  it('a task change and a reassignment of its client at the same time both settle, never 500 (#104 review)', async () => {
+    const businessId = firms.a.id;
+    const database = app.get<Database>(DATABASE);
+    await inA((tx) =>
+      tx.client.update({ where: { id: clients.c3 }, data: { assignedUserId: people.staffA.id } }),
+    );
+    let [from, to] = [people.staffA.id, people.staffA2.id];
+    for (let round = 0; round < 3; round += 1) {
+      const t = await insertTask({
+        clientId: clients.c3,
+        title: `Race ${round} (fake)`,
+        assignedUserId: from,
+      });
+      // As R10: the client's row first, held a moment, then the client's change and its tasks.
+      const reassign = database.withScope({ kind: 'business', businessId }, async (tx) => {
+        await tx.$queryRaw`
+          SELECT id FROM clients
+          WHERE business_id = ${businessId}::uuid AND id = ${clients.c3}::uuid
+          FOR NO KEY UPDATE`;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await tx.client.update({ where: { id: clients.c3 }, data: { assignedUserId: to } });
+        return reassignClientTasks(tx, businessId, clients.c3, from, to);
+      });
+      // The edit arrives while the reassignment holds the client.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const edit = call('patch', `/${t}`, people.ownerA, 'a', { title: `Race ${round} edited` });
+      const [moved, res] = await Promise.all([reassign, edit]);
+      // The earlier rounds' tasks went to the same member, so they move back with this one.
+      expect([moved, res.status], JSON.stringify(res.body)).toEqual([round + 1, 200]);
+      const after = await stored(t);
+      expect([after.assignedUserId, after.title]).toEqual([to, `Race ${round} edited`]);
+      [from, to] = [to, from];
+    }
+  });
 });
