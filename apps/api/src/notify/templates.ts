@@ -33,6 +33,11 @@ export interface RenderedSms {
 export interface RenderOptions {
   /** The email has a Reply-To (for example Firmivra support), so the text may ask for a reply. */
   canReply?: boolean;
+  /**
+   * The origins a link may go to: the app, portal and admin sites from config (NotifyConfig's
+   * `linkOrigins`). Without them every link is refused.
+   */
+  linkOrigins?: readonly string[];
 }
 
 /** One part of an email. Each becomes plain text and HTML. */
@@ -106,14 +111,24 @@ function code(data: { code: string }): string {
   return value;
 }
 
-/** An http(s) link, as the caller built it (the fragment of an activation link stays). */
-function link<D extends object>(data: D, key: keyof D & string): string {
+/**
+ * A link to one of Firmivra's own sites: its origin (scheme, host and port) must be exactly one of
+ * `options.linkOrigins`, with no user name or password and no space, control or format character
+ * anywhere. Returns the parsed, normalised form (the fragment of an activation link stays).
+ */
+function link<D extends object>(data: D, key: keyof D & string, options: RenderOptions): string {
   const value = field(data, key);
-  const url = typeof value === 'string' && !/\s/.test(value) ? URL.parse(value) : null;
-  if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) {
-    throw new NotifyTemplateError(`Template data needs ${key} as an http(s) link`);
+  const url =
+    typeof value === 'string' && !/[\s\p{Cc}\p{Cf}]/u.test(value) ? URL.parse(value) : null;
+  if (
+    !url ||
+    url.username !== '' ||
+    url.password !== '' ||
+    !(options.linkOrigins ?? []).includes(url.origin)
+  ) {
+    throw new NotifyTemplateError(`Template data needs ${key} as a link to a Firmivra site`);
   }
-  return value as string;
+  return url.href;
 }
 
 /** For example "Tuesday, October 20, 2026 at 9:30 AM CDT", in the given zone. */
@@ -167,6 +182,7 @@ function hello(data: { name: string }): Block {
 function appointment(
   data: NotifyTemplates['appointment.booked'],
   b: Branding,
+  o: RenderOptions,
   intro: (firm: string) => string,
   subject: (firm: string) => string,
 ): Content {
@@ -184,7 +200,7 @@ function appointment(
           ['When', dateTime(data, 'startsAt', required(data, 'timeZone'))],
         ],
       },
-      button('View appointment', link(data, 'link')),
+      button('View appointment', link(data, 'link', o)),
     ],
   };
 }
@@ -198,7 +214,7 @@ type Build<T extends NotifyTemplate> = (
 ) => Content;
 
 const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
-  'staff.invite': (d, b) => {
+  'staff.invite': (d, b, o) => {
     const firm = b.name;
     return {
       channel: 'email',
@@ -206,7 +222,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       blocks: [
         hello(d),
         text(`${firm} invited you to its workspace on Firmivra.`),
-        button('Accept the invitation', link(d, 'link')),
+        button('Accept the invitation', link(d, 'link', o)),
         small(
           `The link works once, until ${dateTime(d, 'expiresAt', b.timeZone)}. If you did not expect this invitation, you can ignore this email.`,
         ),
@@ -234,7 +250,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     text: `${code(d)} is your ${b.name} verification code. Never share it.`,
   }),
 
-  'client.already-registered': (d, b) => {
+  'client.already-registered': (d, b, o) => {
     const firm = b.name;
     return {
       channel: 'email',
@@ -243,7 +259,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
         text(
           `Someone started a sign-up for the ${firm} client portal with this email address. You already have an account, so no new one was made.`,
         ),
-        button('Sign in', link(d, 'signInLink')),
+        button('Sign in', link(d, 'signInLink', o)),
         small(
           'If you forgot your password, you can reset it from the sign-in page. If this was not you, you can ignore this email.',
         ),
@@ -251,7 +267,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'client.signup-approved': (d, b) => {
+  'client.signup-approved': (d, b, o) => {
     const firm = b.name;
     return {
       channel: 'email',
@@ -259,7 +275,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       blocks: [
         hello(d),
         text(`${firm} approved your account. You can now sign in to the client portal.`),
-        button('Sign in', link(d, 'signInLink')),
+        button('Sign in', link(d, 'signInLink', o)),
       ],
     };
   },
@@ -278,13 +294,16 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'firm-application.received': (d) => ({
+  // Fixed text only: the address is not verified yet, so nothing from the form may reach it
+  // (else anyone could send Firmivra-signed text to any inbox). Later emails name the firm, once a
+  // Super Admin has read the application.
+  'firm-application.received': () => ({
     channel: 'email',
     subject: 'We received your Firmivra application',
     blocks: [
-      hello(d),
+      text('Hello,'),
       text(
-        `Thank you for applying to Firmivra for ${required(d, 'legalName')}. We review every application and will email you when there is a decision.`,
+        "Thank you, we received your application. We review every application and we'll be in touch by email.",
       ),
     ],
   }),
@@ -302,7 +321,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
-  'firm-application.approved': (d, b) => ({
+  'firm-application.approved': (d, b, o) => ({
     channel: 'email',
     subject: 'Your Firmivra application is approved',
     blocks: [
@@ -310,7 +329,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       text(
         `${required(d, 'legalName')} is approved on Firmivra. Activate your account to set up the firm's workspace.`,
       ),
-      button('Activate your account', link(d, 'link')),
+      button('Activate your account', link(d, 'link', o)),
       small(`The link works once, until ${dateTime(d, 'expiresAt', b.timeZone)}.`),
     ],
   }),
@@ -327,7 +346,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     ],
   }),
 
-  'document.requested': (d, b) => {
+  'document.requested': (d, b, o) => {
     const firm = b.name;
     return {
       channel: 'email',
@@ -336,36 +355,39 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
         hello(d),
         text(`${firm} asked you to upload a document: ${required(d, 'title')}.`),
         ...(d.dueOn === null ? [] : [text(`Please upload it by ${calendarDate(d.dueOn)}.`)]),
-        button('Open the client portal', link(d, 'link')),
+        button('Open the client portal', link(d, 'link', o)),
       ],
     };
   },
 
-  'appointment.booked': (d, b) =>
+  'appointment.booked': (d, b, o) =>
     appointment(
       d,
       b,
+      o,
       (firm) => `Your appointment with ${firm} is booked.`,
       (firm) => `Your appointment with ${firm} is booked`,
     ),
 
-  'appointment.changed': (d, b) =>
+  'appointment.changed': (d, b, o) =>
     appointment(
       d,
       b,
+      o,
       (firm) => `Your appointment with ${firm} has changed. This is the new time:`,
       (firm) => `Your appointment with ${firm} has changed`,
     ),
 
-  'appointment.reminder': (d, b) =>
+  'appointment.reminder': (d, b, o) =>
     appointment(
       d,
       b,
+      o,
       (firm) => `This is a reminder of your appointment with ${firm}.`,
       (firm) => `Reminder: your appointment with ${firm}`,
     ),
 
-  'invoice.sent': (d, b) => {
+  'invoice.sent': (d, b, o) => {
     const firm = b.name;
     return {
       channel: 'email',
@@ -375,12 +397,12 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
         text(
           `${firm} sent you invoice ${required(d, 'invoiceNumber')}. Sign in to the client portal to see and pay it.`,
         ),
-        button('View invoice', link(d, 'link')),
+        button('View invoice', link(d, 'link', o)),
       ],
     };
   },
 
-  'payment.received': (d, b) => {
+  'payment.received': (d, b, o) => {
     const firm = b.name;
     return {
       channel: 'email',
@@ -390,7 +412,7 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
         text(
           `Thank you. ${firm} received your payment for invoice ${required(d, 'invoiceNumber')}.`,
         ),
-        button('View invoice', link(d, 'link')),
+        button('View invoice', link(d, 'link', o)),
       ],
     };
   },
@@ -562,7 +584,7 @@ ${htmlBody(blocks, b)}
 
 /**
  * Renders one message. Throws NotifyTemplateError for an unknown template or data the template
- * cannot use (a missing field, a link that is not http(s), a bad date or time zone).
+ * cannot use (a missing field, a link to anywhere but a Firmivra site, a bad date or time zone).
  */
 export function render<T extends NotifyTemplate>(
   template: T,

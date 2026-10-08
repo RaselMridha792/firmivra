@@ -43,7 +43,11 @@ export interface NotifyTemplates {
   'client.signup-declined': IgnoredFirmName & { name: string };
 
   // ----- Firm applications (R4; Firmivra's own messages, businessId null) -----
-  'firm-application.received': { name: string; legalName: string };
+  /**
+   * No data: the address is not verified yet, so nothing the applicant typed goes into this email
+   * (it would let anyone send Firmivra-signed text to any inbox).
+   */
+  'firm-application.received': Record<string, never>;
   /** Request Information: the applicant replies to Firmivra support (`replyTo`). */
   'firm-application.info-requested': { name: string; legalName: string; message: string };
   /** Approved: the owner's activation link (R2 invite), 7 days. */

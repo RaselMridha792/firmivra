@@ -14,14 +14,16 @@ import {
 } from '../../src/notify/notify.types.js';
 import { NotifyTemplateError } from '../../src/notify/templates.js';
 import {
+  MAX_SENDER_NAME,
   type MailTransporter,
   type OutgoingEmail,
   SesEmailTransport,
   SmtpEmailTransport,
   SnsSmsTransport,
   formatSender,
+  senderDisplayName,
 } from '../../src/notify/transports.js';
-import { FIRM_NAME, SAMPLE_DATA } from './notify-fixtures.js';
+import { FIRM_NAME, LINK_ORIGINS, SAMPLE_DATA } from './notify-fixtures.js';
 
 const FIRM_ID = '00000000-0000-4000-8000-000000000001';
 const TO = 'robin@example.test';
@@ -61,6 +63,7 @@ function setup(opts: { email?: boolean; sms?: boolean; fail?: Error } = {}) {
         ? null
         : { from: FROM, transport: { send: (m) => (mails.push(m), maybeFail()) } },
     sms: opts.sms ? { send: (s) => (texts.push(s), maybeFail()) } : null,
+    linkOrigins: LINK_ORIGINS,
     logger,
   });
   const logged = () => JSON.stringify([...logger.log.mock.calls, ...logger.warn.mock.calls]);
@@ -152,10 +155,64 @@ describe('SendingNotifyService', () => {
       branding: { load: () => Promise.resolve(spoof) },
       email: { from: FROM, transport: { send: (m) => (mails.push(m), Promise.resolve()) } },
       sms: null,
+      linkOrigins: LINK_ORIGINS,
       logger: { log: vi.fn(), warn: vi.fn() },
     });
     await notify.send(invoice);
     expect(mails[0]!.from).toEqual({ name: 'Sample Tax moc.elpmaxe', address: FROM.address });
+  });
+
+  it('turns a branding failure into the documented errors, never a raw database error', async () => {
+    const logger = { log: vi.fn(), warn: vi.fn() };
+    // A Prisma-like error whose message quotes the query's values.
+    const outage = Object.assign(new Error(`Can't reach database; where id = ${FIRM_ID} ${TO}`), {
+      name: 'PrismaClientInitializationError',
+    });
+    const forBusiness = vi.fn(() => {
+      const fail = () => Promise.reject(outage);
+      return { business: { findUnique: fail }, businessSettings: { findUnique: fail } };
+    });
+    const notify = new SendingNotifyService({
+      branding: new BrandingSource({ forBusiness } as never),
+      email: { from: FROM, transport: { send: () => Promise.resolve() } },
+      sms: null,
+      linkOrigins: LINK_ORIGINS,
+      logger,
+    });
+    const down = await notify.send(invoice).catch((e: unknown) => e);
+    expect(down).toBeInstanceOf(NotifyDeliveryError);
+    expect(down).toMatchObject({
+      reason: 'BrandingUnavailable:PrismaClientInitializationError',
+    });
+    expect((down as Error).cause).toBeUndefined();
+    const malformed = await notify
+      .send({ ...invoice, businessId: "x' OR 1=1 --" })
+      .catch((e: unknown) => e);
+    expect(malformed).toBeInstanceOf(UnknownFirmError);
+    expect(forBusiness).toHaveBeenCalledTimes(1);
+    const seen = JSON.stringify([
+      down,
+      malformed,
+      String(down),
+      String(malformed),
+      logger.warn.mock.calls,
+    ]);
+    for (const value of [...PRIVATE, "Can't reach", 'OR 1=1']) expect(seen).not.toContain(value);
+  });
+
+  it("adds nodemailer's error code to the reason, and only a code that looks like one", async () => {
+    const refused = Object.assign(new Error(`Connection refused for ${TO}`), {
+      code: 'ECONNECTION',
+    });
+    const error = await setup({ fail: refused })
+      .notify.send(invoice)
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ reason: 'Error:ECONNECTION' });
+    const odd = Object.assign(new Error('x'), { name: 'MessageRejected', code: `E ${TO}` });
+    const other = await setup({ fail: odd })
+      .notify.send(invoice)
+      .catch((e: unknown) => e);
+    expect(other).toMatchObject({ reason: 'MessageRejected' });
   });
 
   it('keeps the template tables in step', () => {
@@ -227,7 +284,7 @@ describe('email and SMS adapters', () => {
       },
     };
     await new SmtpEmailTransport(transporter).send({ ...mail, replyTo: 'support@example.test' });
-    expect(raw[0]).toContain('From: "Sample & Sons <Tax> \\"Co\\"" <no-reply@dev.example.test>');
+    expect(raw[0]).toContain('From: "Sample & Sons <Tax> Co" <no-reply@dev.example.test>');
     expect(raw[0]).toContain(`To: ${TO}`);
     expect(raw[0]).toContain('Reply-To: support@example.test');
     expect(raw[0]).toContain('Content-Type: text/html');
@@ -258,6 +315,59 @@ describe('email and SMS adapters', () => {
       .join('');
     expect(decoded).toBe(long);
   });
+
+  it(`caps the name at ${MAX_SENDER_NAME} characters, between code points`, () => {
+    const ascii = senderDisplayName(`${'A'.repeat(100)} Tax`);
+    expect(ascii).toBe('A'.repeat(MAX_SENDER_NAME));
+    // 63 letters and two emoji: the cut keeps the first emoji whole and drops the second.
+    const emoji = senderDisplayName(`${'a'.repeat(63)}\u{1F600}\u{1F600}`);
+    expect(emoji).toBe(`${'a'.repeat(63)}\u{1F600}`);
+    // No lone surrogate: one would come back from UTF-8 as U+FFFD.
+    expect(Buffer.from(emoji, 'utf8').toString('utf8')).toBe(emoji);
+    // Cleaned first, then cut: format characters never use up the 64.
+    expect(senderDisplayName(`${'​'.repeat(100)}Sample Tax`)).toBe('Sample Tax');
+  });
+
+  it('breaks up "=?" so no part of a name can decode as an encoded word', () => {
+    const word = '=?UTF-8?B?4oCuZXZpbA==?=';
+    const ascii = formatSender({ name: word, address: 'a@example.test' });
+    expect(ascii).not.toContain('=?');
+    expect(ascii).toBe('"= ?UTF-8?B?4oCuZXZpbA== ?=" <a@example.test>');
+    expect(senderDisplayName('A=?=?B')).toBe('A= ?= ?B');
+    expect(senderDisplayName('A=​?B')).toBe('A= ?B');
+    // Outside ASCII the name is encoded; what it decodes to has no "=?" either.
+    const shown = formatSender({ name: `Café ${word}`, address: 'a@example.test' });
+    const decoded = shown
+      .replace(/ <a@example\.test>$/, '')
+      .split(' ')
+      .map((w) => Buffer.from(w.slice(10, -2), 'base64').toString('utf8'))
+      .join('');
+    expect(decoded).toBe('Café = ?UTF-8?B?4oCuZXZpbA== ?=');
+  });
+
+  it('keeps a 200-character non-ASCII name within the 998-character line limit', async () => {
+    const legal = '\u{1D509}é'.repeat(100);
+    expect(Array.from(legal)).toHaveLength(200);
+    const from = { name: legal, address: 'no-reply@dev.example.test' };
+    const ses = `From: ${formatSender(from)}`;
+    expect(ses.length).toBeLessThan(998);
+    const decoded = formatSender(from)
+      .replace(/ <no-reply@dev\.example\.test>$/, '')
+      .split(' ')
+      .map((w) => Buffer.from(w.slice(10, -2), 'base64').toString('utf8'))
+      .join('');
+    expect(decoded).toBe(Array.from(legal).slice(0, MAX_SENDER_NAME).join(''));
+    const stream = createTransport({ streamTransport: true, buffer: true, newline: 'unix' });
+    const raw: string[] = [];
+    await new SmtpEmailTransport({
+      sendMail: async (m) => {
+        const info = await stream.sendMail(m);
+        raw.push(String(info.message));
+        return info;
+      },
+    }).send({ ...mail, from });
+    for (const line of raw[0]!.split('\n')) expect(line.length).toBeLessThanOrEqual(998);
+  });
 });
 
 describe('loadNotifyConfig', () => {
@@ -268,19 +378,39 @@ describe('loadNotifyConfig', () => {
     SMTP_PORT: '1025',
     EMAIL_FROM: 'Firmivra <no-reply@dev.example.test>',
     SMS_MODE: 'log',
+    APP_BASE_URL: 'http://app.localhost:3000',
+    PORTAL_BASE_URL: 'http://portal.localhost:3000',
+    ADMIN_BASE_URL: 'http://admin.localhost:3000',
   };
+  const localOrigins = [
+    'http://app.localhost:3000',
+    'http://portal.localhost:3000',
+    'http://admin.localhost:3000',
+  ];
+  const sites = {
+    APP_BASE_URL: 'https://app.dev.example.test',
+    PORTAL_BASE_URL: 'https://portal.dev.example.test/',
+    ADMIN_BASE_URL: 'https://admin.dev.example.test',
+  };
+  const devOrigins = [
+    'https://app.dev.example.test',
+    'https://portal.dev.example.test',
+    'https://admin.dev.example.test',
+  ];
   const appStack = {
     NODE_ENV: 'production',
     EMAIL_MODE: 'ses',
     EMAIL_FROM: 'no-reply@dev.example.test',
     SES_CONFIGURATION_SET: 'cs-dev',
     SMS_MODE: 'sns',
+    ...sites,
   };
 
   it('reads .env.example as Mailpit, with texts in the log', () => {
     expect(loadNotifyConfig(example)).toEqual({
       email: { mode: 'smtp', from: FROM, host: 'localhost', port: 1025 },
       sms: { mode: 'log', unregistered: false },
+      linkOrigins: localOrigins,
     });
   });
 
@@ -288,13 +418,16 @@ describe('loadNotifyConfig', () => {
     expect(loadNotifyConfig(appStack)).toEqual({
       email: { mode: 'ses', from: { name: null, address: 'no-reply@dev.example.test' } },
       sms: { mode: 'log', unregistered: true },
+      linkOrigins: devOrigins,
     });
     const registered = loadNotifyConfig({ ...appStack, SMS_ORIGINATION_NUMBER: '+18885550100' });
     expect(registered.sms).toEqual({ mode: 'sns', originationNumber: '+18885550100' });
   });
 
   it('defaults to SES, so a missing setting never uses a stand-in', () => {
-    expect(loadNotifyConfig({ EMAIL_FROM: 'no-reply@dev.example.test' }).email.mode).toBe('ses');
+    expect(loadNotifyConfig({ EMAIL_FROM: 'no-reply@dev.example.test', ...sites }).email.mode).toBe(
+      'ses',
+    );
     expect(() => loadNotifyConfig({ NODE_ENV: 'production' })).toThrow('EMAIL_FROM');
   });
 
@@ -315,6 +448,38 @@ describe('loadNotifyConfig', () => {
     expect(() => loadNotifyConfig({ ...appStack, SMS_ORIGINATION_NUMBER: '555' })).toThrow(
       'SMS_ORIGINATION_NUMBER',
     );
+  });
+
+  it("needs the sites' addresses with ses and smtp: links in messages may go only there", () => {
+    for (const key of Object.keys(sites)) {
+      expect(() => loadNotifyConfig({ ...appStack, [key]: undefined })).toThrow(key);
+      expect(() => loadNotifyConfig({ ...example, [key]: '' })).toThrow(key);
+    }
+    // Without sending, they may be left out; every link is then refused.
+    expect(loadNotifyConfig({ NODE_ENV: 'test', EMAIL_MODE: 'log' }).linkOrigins).toEqual([]);
+  });
+
+  it('refuses http sites in production, a user name or password, and non-web addresses', () => {
+    expect(() =>
+      loadNotifyConfig({ ...appStack, APP_BASE_URL: 'http://app.dev.example.test' }),
+    ).toThrow('APP_BASE_URL');
+    expect(() => loadNotifyConfig({ ...appStack, NODE_ENV: undefined })).not.toThrow();
+    expect(() =>
+      loadNotifyConfig({ ...appStack, NODE_ENV: undefined, ADMIN_BASE_URL: 'http://a.test' }),
+    ).toThrow('ADMIN_BASE_URL');
+    for (const bad of [
+      'https://user@portal.dev.example.test',
+      'https://user:secret@portal.dev.example.test',
+      'javascript:alert(1)',
+      'ftp://portal.dev.example.test',
+      'portal.dev.example.test',
+    ]) {
+      expect(() => loadNotifyConfig({ ...appStack, PORTAL_BASE_URL: bad })).toThrow(
+        'PORTAL_BASE_URL',
+      );
+    }
+    // http is for development and test only.
+    expect(loadNotifyConfig(example).linkOrigins).toEqual(localOrigins);
   });
 
   it('parses senders', () => {
@@ -361,5 +526,13 @@ describe('BrandingSource', () => {
     expect(await odd.source.load(null)).toBe(FIRMIVRA_BRANDING);
     expect(odd.forBusiness).toHaveBeenCalledTimes(1);
     await expect(db(null, null).source.load(FIRM_ID)).rejects.toThrow(UnknownFirmError);
+  });
+
+  it('refuses a businessId that is not a UUID before any query', async () => {
+    const { forBusiness, source } = db({ name: 'Sample' }, null);
+    for (const bad of ['', 'lvp', `${FIRM_ID}x`, "x' OR 1=1 --", 42 as unknown as string]) {
+      await expect(source.load(bad)).rejects.toThrow(UnknownFirmError);
+    }
+    expect(forBusiness).not.toHaveBeenCalled();
   });
 });

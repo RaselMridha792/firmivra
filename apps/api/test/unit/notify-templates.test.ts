@@ -3,11 +3,12 @@ import { type Branding, FIRMIVRA_BRANDING } from '../../src/notify/branding.js';
 import { type NotifyTemplate, TEMPLATE_CHANNEL } from '../../src/notify/notify.types.js';
 import {
   NotifyTemplateError,
+  type RenderOptions,
   type RenderedEmail,
   escapeHtml,
-  render,
+  render as renderWithout,
 } from '../../src/notify/templates.js';
-import { FIRM_NAME, SAMPLE_DATA } from './notify-fixtures.js';
+import { FIRM_NAME, LINK_ORIGINS, SAMPLE_DATA } from './notify-fixtures.js';
 
 const firm: Branding = {
   name: FIRM_NAME,
@@ -18,6 +19,9 @@ const firm: Branding = {
   isFirm: true,
 };
 const templates = Object.keys(TEMPLATE_CHANNEL) as NotifyTemplate[];
+/** render with the sites' origins, as SendingNotifyService passes them from config. */
+const render: typeof renderWithout = (t, data, branding, options: RenderOptions = {}) =>
+  renderWithout(t, data, branding, { linkOrigins: LINK_ORIGINS, ...options });
 const brandingOf = (t: NotifyTemplate) =>
   t.startsWith('firm-application.') ? FIRMIVRA_BRANDING : firm;
 const email = <T extends NotifyTemplate>(t: T, data = SAMPLE_DATA[t], options = {}) =>
@@ -137,5 +141,96 @@ describe('templates', () => {
       logoUrl: 'https://cdn.example.test/logo.png?a=1&b=2',
     }) as RenderedEmail;
     expect(logo.html).toContain('<img src="https://cdn.example.test/logo.png?a=1&amp;b=2"');
+  });
+});
+
+describe('firm-application.received', () => {
+  it('is fixed text: nothing the applicant submitted can reach the unverified address', () => {
+    const probe = {
+      name: 'Your account is locked. Restore it at https://evil.example.test/restore',
+      legalName: 'Probe <b>Corp</b> https://evil.example.test/',
+      fullName: 'Probe Person',
+      message: 'Probe message',
+    };
+    const plain = email('firm-application.received', {});
+    const probed = email('firm-application.received', probe as never);
+    // The same email whatever the data holds: no value of it is read.
+    expect(probed).toEqual(plain);
+    const all = JSON.stringify(probed);
+    for (const value of ['evil', 'locked', 'Probe', 'Restore']) expect(all).not.toContain(value);
+    expect(plain.text).toContain(
+      "Thank you, we received your application. We review every application and we'll be in touch by email.",
+    );
+  });
+
+  it('the later firm-application emails keep the names (a Super Admin has read the form)', () => {
+    expect(email('firm-application.declined').text).toContain('Hi Jordan Sample,');
+    expect(email('firm-application.approved').text).toContain('Sample Tax Partners LLC');
+  });
+});
+
+describe('links', () => {
+  const invite = (value: string, options: RenderOptions = {}) =>
+    render('staff.invite', { ...SAMPLE_DATA['staff.invite'], link: value }, firm, options);
+  const linkOf = (value: string) => {
+    const out = invite(value) as RenderedEmail;
+    return /Accept the invitation:\n(\S+)/.exec(out.text)?.[1];
+  };
+
+  it('accepts a link on each site, returned in its normalised form', () => {
+    expect(linkOf('https://app.example.test/activate#token=synthetic-token')).toBe(
+      'https://app.example.test/activate#token=synthetic-token',
+    );
+    expect(linkOf('https://portal.example.test/sample/sign-in')).toBe(
+      'https://portal.example.test/sample/sign-in',
+    );
+    expect(linkOf('https://admin.example.test/applications')).toBe(
+      'https://admin.example.test/applications',
+    );
+    expect(linkOf('https://APP.example.test:443/a/../activate')).toBe(
+      'https://app.example.test/activate',
+    );
+  });
+
+  it.each([
+    ['a lookalike host (suffix)', 'https://app.example.test.evil.test/activate'],
+    ['a lookalike host (dash)', 'https://app-example.test/activate'],
+    ['a lookalike host (trailing dot)', 'https://app.example.test./activate'],
+    ['the site in the path', 'https://evil.test/app.example.test/activate'],
+    ['another port', 'https://app.example.test:8443/activate'],
+    ['userinfo before another host', 'https://app.example.test@evil.test/activate'],
+    ['userinfo on the site', 'https://good@app.example.test/activate'],
+    ['a user and password on the site', 'https://user:secret@portal.example.test/sample'],
+    ['http for an https site', 'http://app.example.test/activate'],
+    ['javascript:', 'javascript:alert(1)'],
+    ['data:', 'data:text/html,<script>alert(1)</script>'],
+    ['protocol-relative', '//app.example.test/activate'],
+    ['a relative path', '/activate'],
+    ['a leading NUL', '\u0000https://app.example.test/activate'],
+    ['a leading control character', '\u001fhttps://app.example.test/activate'],
+    ['a leading space', ' https://app.example.test/activate'],
+    ['an embedded control character', 'https://app.example.test/act\u0007ivate'],
+    ['an embedded tab', 'https://app.example.test/act\tivate'],
+    ['an embedded line break', 'https://app.example.test/activate\r\nBcc: x'],
+    ['an embedded bidi override', 'https://app.example.test/‮etavitca'],
+    ['an embedded zero-width space', 'https://app.example.test/​activate'],
+  ])('refuses %s', (_label, value) => {
+    expect(() => invite(value)).toThrow(NotifyTemplateError);
+    expect(() => invite(value)).toThrow('Template data needs link as a link to a Firmivra site');
+  });
+
+  it('refuses every link when no site origins are given', () => {
+    const good = 'https://app.example.test/activate#token=synthetic-token';
+    expect(() => invite(good, { linkOrigins: [] })).toThrow(NotifyTemplateError);
+    expect(() => renderWithout('staff.invite', SAMPLE_DATA['staff.invite'], firm)).toThrow(
+      'a link to a Firmivra site',
+    );
+  });
+
+  it('takes http only when config gave an http site (development and test)', () => {
+    const local = { linkOrigins: ['http://app.localhost:3000'] };
+    const out = invite('http://app.localhost:3000/activate#token=t', local) as RenderedEmail;
+    expect(out.text).toContain('http://app.localhost:3000/activate#token=t');
+    expect(() => invite('https://app.localhost:3000/activate', local)).toThrow(NotifyTemplateError);
   });
 });

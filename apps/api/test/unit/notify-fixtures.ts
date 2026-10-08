@@ -3,6 +3,12 @@
 import type { NotifyTemplate, NotifyTemplates } from '../../src/notify/notify.types.js';
 
 export const FIRM_NAME = 'Sample & Sons <Tax> "Co"';
+/** The app, portal and admin sites' origins, as config reads them from the *_BASE_URL settings. */
+export const LINK_ORIGINS = [
+  'https://app.example.test',
+  'https://portal.example.test',
+  'https://admin.example.test',
+];
 const link = 'https://portal.example.test/sample/documents?a=1&b=2';
 const appointment = {
   name: 'Robin Example',
@@ -28,7 +34,7 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     signInLink: 'https://portal.example.test/sample/sign-in',
   },
   'client.signup-declined': { name: 'Robin Example' },
-  'firm-application.received': { name: 'Jordan Sample', legalName: 'Sample Tax Partners LLC' },
+  'firm-application.received': {},
   'firm-application.info-requested': {
     name: 'Jordan Sample',
     legalName: 'Sample Tax Partners LLC',

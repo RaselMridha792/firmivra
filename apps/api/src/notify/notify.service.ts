@@ -4,7 +4,7 @@ import { SNSClient } from '@aws-sdk/client-sns';
 import type { Database } from '@firmivra/db';
 import { createTransport } from 'nodemailer';
 import { z } from 'zod';
-import { BrandingSource } from './branding.js';
+import { type Branding, BrandingSource, UnknownFirmError } from './branding.js';
 import type { NotifyConfig, Sender } from './config.js';
 import {
   type NotifyChannel,
@@ -42,10 +42,17 @@ export class NotifyDeliveryError extends Error {
 const EMAIL = z.email();
 const PHONE = /^\+[1-9]\d{6,14}$/;
 
-/** An error's class name when it looks like one (e.g. MessageRejected), never its message. */
+/**
+ * An error's class name when it looks like one (e.g. MessageRejected), never its message, with
+ * its code when that is one of Node's or nodemailer's (ETIMEDOUT, ECONNECTION).
+ */
 function errorName(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
-  return /^[A-Za-z][\w.]{0,63}$/.test(name) ? name : 'Error';
+  const shown = /^[A-Za-z][\w.]{0,63}$/.test(name) ? name : 'Error';
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^E[A-Z]+$/.test(code) && code.length <= 32
+    ? `${shown}:${code}`
+    : shown;
 }
 
 export interface NotifyDeps {
@@ -54,6 +61,8 @@ export interface NotifyDeps {
   email: { transport: EmailTransport; from: Sender } | null;
   /** Null while texts go to the log. */
   sms: SmsTransport | null;
+  /** The sites' origins (config's `linkOrigins`): the only places a link in a message may go. */
+  linkOrigins: readonly string[];
   logger?: Pick<Logger, 'log' | 'warn'>;
 }
 
@@ -95,8 +104,19 @@ export class SendingNotifyService implements NotifyService {
       throw new NotifyTemplateError('replyTo must be an email address');
     }
 
-    const branding = await this.deps.branding.load(businessId);
-    const rendered = render(template, message.data, branding, { canReply: replyTo !== null });
+    let branding: Branding;
+    try {
+      branding = await this.deps.branding.load(businessId);
+    } catch (error) {
+      // A firm that does not exist is the caller's mistake; anything else (the database down) is
+      // a failed delivery. Never the raw database error: it can carry the query's values.
+      if (error instanceof UnknownFirmError) throw error;
+      throw fail(`BrandingUnavailable:${errorName(error)}`);
+    }
+    const rendered = render(template, message.data, branding, {
+      canReply: replyTo !== null,
+      linkOrigins: this.deps.linkOrigins,
+    });
     try {
       if (rendered.channel === 'email') {
         const email = this.deps.email;
@@ -131,11 +151,13 @@ export class SendingNotifyService implements NotifyService {
 
 /**
  * SES and SNS calls give up after a few seconds, like SMTP's: callers await `send` before they
- * answer (R4's decline), so a stalled provider must not hold the request open.
+ * answer (R4's decline), so a stalled provider must not hold the request open. Without
+ * throwOnRequestTimeout, @smithy/node-http-handler only logs a warning when requestTimeout passes
+ * and the request waits on; with it, the request is destroyed with a TimeoutError (retried once).
  */
-const AWS_CLIENT = {
+export const AWS_CLIENT = {
   maxAttempts: 2,
-  requestHandler: { connectionTimeout: 3_000, requestTimeout: 5_000 },
+  requestHandler: { connectionTimeout: 3_000, requestTimeout: 5_000, throwOnRequestTimeout: true },
 } as const;
 
 /** The service for the settings: SES or Mailpit, SNS or the log. */
@@ -175,6 +197,7 @@ export function createNotifyService(
       sms.mode === 'sns'
         ? new SnsSmsTransport(new SNSClient(AWS_CLIENT), sms.originationNumber)
         : null,
+    linkOrigins: config.linkOrigins,
     logger,
   });
 }

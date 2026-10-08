@@ -47,17 +47,31 @@ function encodedWords(name: string): string {
   return words.map((w) => `=?UTF-8?B?${Buffer.from(w, 'utf8').toString('base64')}?=`).join(' ');
 }
 
+/** The longest From name, in characters (code points), so the header stays one short line. */
+export const MAX_SENDER_NAME = 64;
+
 /**
- * `"Name" <address>` for a From header. The name loses quotes, backslashes, control and format
- * characters (bidi overrides, zero-width marks); a name outside ASCII becomes RFC 2047 encoded
- * words.
+ * The name for a From header: without quotes, backslashes, control and format characters (bidi
+ * overrides, zero-width marks); every "=?" broken up to "= ?", so a mail client can never decode
+ * part of a firm's name as an RFC 2047 encoded word; then at most MAX_SENDER_NAME characters,
+ * cut between code points (never inside a surrogate pair).
  */
-export function formatSender(from: Sender): string {
-  const name = (from.name ?? '')
+export function senderDisplayName(name: string | null): string {
+  const cleaned = (name ?? '')
     .replace(/\p{Cf}/gu, '')
     .replace(/[\p{Cc}"\\]/gu, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/=\?/g, '= ?')
     .trim();
+  return Array.from(cleaned).slice(0, MAX_SENDER_NAME).join('').trim();
+}
+
+/**
+ * `"Name" <address>` for a From header, the name as senderDisplayName leaves it; a name outside
+ * ASCII becomes RFC 2047 encoded words.
+ */
+export function formatSender(from: Sender): string {
+  const name = senderDisplayName(from.name);
   if (!name) return from.address;
   const shown = /^[\x20-\x7e]*$/.test(name) ? `"${name}"` : encodedWords(name);
   return `${shown} <${from.address}>`;
@@ -108,7 +122,7 @@ export class SmtpEmailTransport implements EmailTransport {
 
   async send(mail: OutgoingEmail): Promise<void> {
     await this.transporter.sendMail({
-      from: { name: mail.from.name ?? '', address: mail.from.address },
+      from: { name: senderDisplayName(mail.from.name), address: mail.from.address },
       to: mail.to,
       ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
       subject: mail.subject,

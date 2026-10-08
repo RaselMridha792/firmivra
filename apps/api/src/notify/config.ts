@@ -10,8 +10,20 @@ import { z } from 'zod';
  * SMS_MODE=log: texts go to the API log (template and firm only). SMS_MODE=sns: Amazon SNS from
  * SMS_ORIGINATION_NUMBER, the registered toll-free number; until that is set, texts go to the log,
  * so an environment without a registered number never fails a request over a text.
+ * APP_BASE_URL, PORTAL_BASE_URL and ADMIN_BASE_URL (required with ses and smtp): a link in a message
+ * may only go to one of these three origins; https, or http with NODE_ENV development or test.
  */
 const E164 = /^\+[1-9]\d{6,14}$/;
+
+const SITE_KEYS = ['APP_BASE_URL', 'PORTAL_BASE_URL', 'ADMIN_BASE_URL'] as const;
+
+/** A site's origin (`https://app.firmivra.com`), or null when the address cannot be a site's. */
+function siteOrigin(value: string, local: boolean): string | null {
+  const url = URL.parse(value);
+  if (!url || url.username || url.password) return null;
+  if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) return null;
+  return url.origin;
+}
 
 const Schema = z
   .object({
@@ -27,9 +39,32 @@ const Schema = z
       .string()
       .regex(E164, 'an E.164 phone number, such as +18885550100')
       .optional(),
+    APP_BASE_URL: z.string().optional(),
+    PORTAL_BASE_URL: z.string().optional(),
+    ADMIN_BASE_URL: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+    for (const key of SITE_KEYS) {
+      const value = env[key];
+      if (value === undefined) {
+        if (env.EMAIL_MODE !== 'log') {
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `required when EMAIL_MODE=${env.EMAIL_MODE}: links in messages go only there`,
+          });
+        }
+      } else if (siteOrigin(value, local) === null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: local
+            ? 'an http(s) address without a user name or password'
+            : 'an https address without a user name or password',
+        });
+      }
+    }
     if (env.EMAIL_MODE !== 'ses' && !local) {
       ctx.addIssue({
         code: 'custom',
@@ -79,6 +114,8 @@ export type SmsConfig =
 export interface NotifyConfig {
   email: EmailConfig;
   sms: SmsConfig;
+  /** The origins of the app, portal and admin sites (those set): where message links may go. */
+  linkOrigins: string[];
 }
 
 const ADDRESS = z.email();
@@ -113,5 +150,10 @@ export function loadNotifyConfig(
     env.SMS_MODE === 'sns' && env.SMS_ORIGINATION_NUMBER
       ? { mode: 'sns', originationNumber: env.SMS_ORIGINATION_NUMBER }
       : { mode: 'log', unregistered: env.SMS_MODE === 'sns' };
-  return { email, sms };
+  const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+  const linkOrigins = SITE_KEYS.flatMap((key) => {
+    const origin = env[key] === undefined ? null : siteOrigin(env[key], local);
+    return origin === null ? [] : [origin];
+  });
+  return { email, sms, linkOrigins: [...new Set(linkOrigins)] };
 }

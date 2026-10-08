@@ -59,15 +59,23 @@ export class UnknownFirmError extends Error {
   }
 }
 
+/** A business id: a UUID (the column is uuid, so anything else could only fail in the query). */
+const BUSINESS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Reads a firm's branding in that firm's own scope (row-level security shows nothing of another
  * firm). Colours the firm has not set come from the portal's defaults, so emails match the portal.
+ * An id that is not a UUID is UnknownFirmError before any query; a database error is left to
+ * NotifyService, which turns it into NotifyDeliveryError without the database's message.
  */
 export class BrandingSource {
   constructor(private readonly db: Pick<Database, 'forBusiness'>) {}
 
   async load(businessId: string | null): Promise<Branding> {
     if (businessId === null) return FIRMIVRA_BRANDING;
+    if (typeof businessId !== 'string' || !BUSINESS_ID.test(businessId)) {
+      throw new UnknownFirmError();
+    }
     const scope = this.db.forBusiness(businessId);
     const [firm, settings] = await Promise.all([
       scope.business.findUnique({ where: { id: businessId }, select: { name: true } }),
