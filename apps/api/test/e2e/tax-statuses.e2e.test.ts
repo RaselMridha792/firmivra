@@ -8,7 +8,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import { TaxStatus as RowShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -83,7 +83,7 @@ const create = async (name: string, firm: keyof typeof firms = 'a') =>
   call('post', '', ownerOf[firm], firms[firm].id, { name });
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
       const pool = key === 'clientA' ? 'CLIENT' : 'STAFF';
@@ -287,7 +287,7 @@ describe('create, rename, reorder, archive', () => {
   });
 
   it('audits each change without the names', async () => {
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const rows = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
       tx.auditLog.findMany({ where: { businessId: firms.a.id, entityType: 'tax_status' } }),
     );
