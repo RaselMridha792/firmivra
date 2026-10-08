@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Database, ScopedClient } from '@firmivra/db';
+import type { Database, ScopedClient, TxClient } from '@firmivra/db';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 
@@ -24,5 +24,10 @@ export class AdminPrisma {
 
   get db(): ScopedClient {
     return this.database.forAdmin(this.adminUserId);
+  }
+
+  /** One transaction in admin scope: for a change that lands with its audit row, or not at all. */
+  transaction<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
+    return this.database.withScope({ kind: 'admin', adminUserId: this.adminUserId }, fn);
   }
 }

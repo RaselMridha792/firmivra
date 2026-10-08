@@ -6,7 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { FirmApplication, Prisma } from '@firmivra/db';
+import type { FirmApplication, Prisma, TxClient } from '@firmivra/db';
 import {
   type AdminDashboard,
   type AdminRef,
@@ -28,8 +28,14 @@ import {
   websiteHost,
 } from '@firmivra/types';
 import { z } from 'zod';
-import { AuditService } from '../audit/audit.service.js';
-import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
+import { type AuditEntity, AuditService } from '../audit/audit.service.js';
+import { requestContext } from '../common/request-context.js';
+import {
+  NOTIFY_SERVICE,
+  type NotifyMessage,
+  type NotifyService,
+  type NotifyTemplate,
+} from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
 
 /**
@@ -62,6 +68,42 @@ const alreadyDecided = () =>
     code: 'APPLICATION_DECIDED',
     message: 'This application is already approved or declined',
   });
+
+/**
+ * Firmivra support: the applicant answers an information request by replying to its email. It
+ * must stay the same as `supportEmail` in apps/web/src/lib/company.ts (apps/api cannot import
+ * apps/web).
+ */
+const FIRMIVRA_SUPPORT_EMAIL = 'admin@firmivra.com';
+
+/**
+ * A Super Admin's audit row, written in the transaction of the change it records, so the two land
+ * or fail together. It sets the columns AuditService.log sets for an admin's event: no firm, the
+ * acting admin, the action and the entity, no metadata, and the IP, user agent and request id
+ * from the request context. In admin scope the database takes it only with the acting admin as
+ * the actor (#52's audit_logs_admin_insert). Switch to AuditService.logIn(tx, ...) when R3's #70
+ * merges.
+ */
+async function auditIn(
+  tx: TxClient,
+  adminUserId: string,
+  action: string,
+  entity: AuditEntity,
+): Promise<void> {
+  const store = requestContext.getStore();
+  await tx.auditLog.create({
+    data: {
+      businessId: null,
+      actorUserId: adminUserId,
+      action,
+      entityType: entity.type,
+      entityId: entity.id ?? null,
+      ip: store?.ip ?? null,
+      userAgent: store?.userAgent ?? null,
+      requestId: store?.requestId ?? null,
+    },
+  });
+}
 
 /** The first instant of the current calendar month in `timeZone`. */
 export function startOfMonthIn(timeZone: string, now = new Date()): Date {
@@ -294,43 +336,61 @@ export class FirmApplicationsService {
   // ---------- Review (step 2) ----------
 
   /**
-   * Request Information: the message goes to the applicant by email and the application stays
-   * pending (it is the decision_reason, so the database records it in the history). The same
-   * message as the last request changes nothing and is not sent again.
+   * Request Information: the message goes to the applicant by email, with replies to Firmivra
+   * support, and the application stays pending (it is the decision_reason, so the database
+   * records it in the history). The request and its audit row land together, and the email goes
+   * only after they have. The same message as the last request changes nothing and sends
+   * nothing; a request that failed changed nothing, so trying it again sends it.
    */
   async requestInfo(id: string, message: string): Promise<FirmApplicationRecord> {
-    const row = await this.pending(id);
-    if (row.decisionReason === message) return this.record(id);
-    await this.review(id, { decisionReason: message });
-    await this.audit.log('firm_application.info_requested', { type: 'firm_application', id });
-    await this.notify.send({
-      template: 'firm-application.info-requested',
-      to: row.contactEmail,
-      businessId: null,
-      data: { name: row.contactName, legalName: row.legalName, message },
+    const asked = await this.admin.transaction(async (tx) => {
+      const row = await this.pending(tx, id);
+      if (row.decisionReason === message) return null;
+      await this.review(tx, id, { decisionReason: message });
+      await auditIn(tx, this.admin.adminUserId, 'firm_application.info_requested', {
+        type: 'firm_application',
+        id,
+      });
+      return row;
     });
+    if (asked) {
+      await this.emailApplicant(id, {
+        template: 'firm-application.info-requested',
+        to: asked.contactEmail,
+        businessId: null,
+        replyTo: FIRMIVRA_SUPPORT_EMAIL,
+        data: { name: asked.contactName, legalName: asked.legalName, message },
+      });
+    }
     return this.record(id);
   }
 
   /**
    * Decline, with the reason the applicant gets by email. It must differ from the last
-   * information request (the database refuses a reused message).
+   * information request (the database refuses a reused message). The decision and its audit row
+   * land together, and the email goes only after they have.
    */
   async decline(id: string, reason: string): Promise<FirmApplicationRecord> {
-    const row = await this.pending(id);
-    if (row.decisionReason === reason) {
-      throw new BadRequestException({
-        code: 'VALIDATION_FAILED',
-        message: 'Write a reason that differs from the last request',
+    const declined = await this.admin.transaction(async (tx) => {
+      const row = await this.pending(tx, id);
+      if (row.decisionReason === reason) {
+        throw new BadRequestException({
+          code: 'VALIDATION_FAILED',
+          message: 'Write a reason that differs from the last request',
+        });
+      }
+      await this.review(tx, id, { status: 'DECLINED', decisionReason: reason });
+      await auditIn(tx, this.admin.adminUserId, 'firm_application.declined', {
+        type: 'firm_application',
+        id,
       });
-    }
-    await this.review(id, { status: 'DECLINED', decisionReason: reason });
-    await this.audit.log('firm_application.declined', { type: 'firm_application', id });
-    await this.notify.send({
+      return row;
+    });
+    await this.emailApplicant(id, {
       template: 'firm-application.declined',
-      to: row.contactEmail,
+      to: declined.contactEmail,
       businessId: null,
-      data: { name: row.contactName, legalName: row.legalName, reason },
+      data: { name: declined.contactName, legalName: declined.legalName, reason },
     });
     return this.record(id);
   }
@@ -346,24 +406,50 @@ export class FirmApplicationsService {
     return this.record(id);
   }
 
-  /** The application, if it can still be reviewed: 404, then 409 APPLICATION_DECIDED. */
-  private async pending(id: string): Promise<FirmApplication> {
-    const row = await this.admin.db.firmApplication.findUnique({ where: { id } });
+  /**
+   * The application, if it can still be reviewed: 404, then 409 APPLICATION_DECIDED. Its row is
+   * locked first (the lock the update takes), so a second review at the same time, such as a
+   * double click, waits for this one and then reads its result: the same message is then no
+   * change, and after a decision it is 409.
+   */
+  private async pending(tx: TxClient, id: string): Promise<FirmApplication> {
+    await tx.$queryRaw`SELECT 1 FROM firm_applications WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
+    const row = await tx.firmApplication.findUnique({ where: { id } });
     if (!row) throw notFound();
     if (decided(row) || row.businessId) throw alreadyDecided();
     return row;
   }
 
   /**
-   * One review update, as the signed-in admin, only while the application is pending; a decision
-   * someone else made in between is 409 (the database also refuses a change to a decided one).
+   * One review update, as the signed-in admin, only while the application is pending (`pending`
+   * locked its row; the database also refuses a change to a decided one).
    */
-  private async review(id: string, data: Prisma.FirmApplicationUpdateManyMutationInput) {
-    const { count } = await this.admin.db.firmApplication.updateMany({
+  private async review(
+    tx: TxClient,
+    id: string,
+    data: Prisma.FirmApplicationUpdateManyMutationInput,
+  ): Promise<void> {
+    const { count } = await tx.firmApplication.updateMany({
       where: { id, status: { in: [...PENDING] }, businessId: null },
       data: { ...data, reviewedByUserId: this.admin.adminUserId, reviewedAt: new Date() },
     });
     if (count === 0) throw alreadyDecided();
+  }
+
+  /**
+   * Emails the applicant about a review that has committed. A failed send changes nothing: the
+   * review stands and the request still succeeds. The warning holds the application's id only,
+   * never the address or the message (hard rule 4).
+   */
+  private async emailApplicant<T extends NotifyTemplate>(
+    id: string,
+    message: NotifyMessage<T>,
+  ): Promise<void> {
+    try {
+      await this.notify.send(message);
+    } catch {
+      this.logger.warn(`Firm application ${id}: the ${message.template} email could not be sent`);
+    }
   }
 
   // ---------- Mapping ----------

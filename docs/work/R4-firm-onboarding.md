@@ -44,6 +44,18 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 - The decline email includes the reason. The screen labels the field "Reason (sent to the applicant)"; internal remarks go in the notes.
 - Order: step 1 (the read side) as soon as #52 merges, then submit, request information / decline / notes, then approve.
 
+## Decisions (Rasel, Oct 8)
+
+- Submit (`POST /firm-applications`) comes now, stacked on #80 the way approve is stacked on #81: dev has no applications and no seed runs there.
+  - The EIN hash gets a secret of its own. The cdk diff goes to Rasel; nothing deploys before his yes.
+  - The stored form is written through `StoredApplication.parse`.
+  - The honeypot, the per-IP and per-email limits, the throttled "received" email, and an audit row without the body.
+- Phones (q1): only SMS phone fields are US-only. R3 splits `Phone` into a US-only `SmsPhone` and an international `Phone`. R4's application phones (business, primary admin, alternate) take the international one once R3's change lands.
+- From R0's #80:
+  - The owner invite on approval is inserted in platform scope and read only through the token-free `platform_owner_invites` copy.
+  - Approve copies the entity type, services, team size and description into the new firm's `business_settings` in a business-scope transaction, never the EIN.
+  - `data` may hold no key starting with "ein".
+
 ## For the API steps (lead's #61 review, Oct 7)
 
 - History is #52's `firm_application_status_history`, written by the trigger on `firm_applications`, not `audit_logs`.
@@ -120,3 +132,11 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - Search: `%`, `_` and `\` in a search term are plain characters (`likeEscape` in the service, the approach of R10's clients search: Prisma's `contains` doesn't escape them). The duplicate checks had the same fault, since Prisma's insensitive `equals` is ILIKE too: a `_` in a name or email matched any character (a false "Same email" for `j_smith@…` against `j.smith@…`). They escape the same way. The firms search filters in memory and was already literal; a test now says so.
   - EIN: R0's #80 (open) refuses any key starting with "ein" in `firm_applications.data` and adds the `ein_last4` column. `StoredApplication.business` has no `einLast4` any more (an older row's is dropped when read), nothing reads it, and the record's `business.einLast4` is null until #80 is on main. The contract and the mock say the last 4 come from a column of their own, never from the stored form.
   - Tests: e2e (the 403; `%` and `_` on the applications search and `%` on the firms search, each matching only rows that contain it; the duplicate checks against a lookalike name and email; `einLast4` null, and the stored forms no longer hold it), unit (`likeEscape`; an older form with `einLast4` reads without it, and its record shows null). Branch `rasel/R4-api-read`.
+- 2026-10-08, #81 on #79's fixes, and Rasel's Oct 8 answers (Decisions above):
+  - Merged `rasel/R4-api-read` (#79's fixes and main) into `rasel/R4-api-review`: the review actions return #79's record, so they work on a form that can't be read. The unit test's service takes the NotifyService too, and the review e2e's stored forms no longer hold `einLast4`.
+  - The information request's email has `replyTo` Firmivra support: `FIRMIVRA_SUPPORT_EMAIL` (`admin@firmivra.com`) in the service, which must stay the same as `supportEmail` in `apps/web/src/lib/company.ts` (apps/api cannot import apps/web).
+  - Request Information and Decline write the decision and its audit row in one admin-scope transaction (`AdminPrisma.transaction`, the Database's `withScope`), so they land or fail together. The email goes only after the commit. `auditIn` in the service writes the row with the columns `AuditService.log` sets (no firm, the acting admin, ids only, the request's IP, user agent and request id); in admin scope #52's `audit_logs_admin_insert` now pins its actor. Switch to `AuditService.logIn(tx, ...)` when R3's #70 merges. Saving notes is unchanged: its update and its audit row are still two writes.
+  - The application's row is locked first, so a second review at the same time waits and reads the first one's result: the same message twice at once (a double click) sends one email.
+  - A send that fails after the commit doesn't fail the request: a warning with the application's id only, and 200. A retry of the same message sends nothing (nothing changes); a request whose transaction failed changed nothing, so its retry sends the email.
+  - Tests (`apps/api/test/e2e/firm-application-review.e2e.test.ts`): `replyTo` on the info-requested email; with a NotifyService whose send rejects, request-info and decline answer 200, both decisions and their audit rows are stored (with the request's id, user agent and IP), and the warnings hold the id only; the same message twice at once sends one email and writes one audit row; an audit row that fails (a NUL character in the user agent, which PostgreSQL refuses) leaves the application as submitted and sends nothing, and the retry declines and sends.
+  - #80 merged to main (`62909ed`) after `rasel/R4-api-read`'s last merge of main, so neither branch has it yet. Branch `rasel/R4-api-review`.
