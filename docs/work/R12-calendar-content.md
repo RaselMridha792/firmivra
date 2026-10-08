@@ -39,6 +39,7 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
 - R11 (Rasel): workspaces read notes through R11's notes API with an engagement filter (`engagementId`), not their own copy.
 - R1 (Rasel): R5's documents list with an engagement filter, for the workspace page.
 - R6: appointment confirmations, change and cancellation notices, and reminders (`reminder_sent_at`), as configured (System Wiring section 2 and the notification table).
+- R8 (lead, #100 review): when support access lands, a support action's audit metadata must never carry the admin's user id. The firm's audit log viewer shows metadata as written, and that would undo "Firmivra Support, never the person".
 
 ## Decisions (Rasel, Oct 7)
 
@@ -123,3 +124,4 @@ Tumit's calendar and appointment screens, Nahid's External links, resources and 
   - Cursors are signed (HMAC-SHA256, key derived from the staff pool secret, label `fv-audit-cursor-v1`) for the firm, the reader and the filters (not the page size). A made-up, changed or borrowed cursor (another firm, another reader, other filters) is 400 `VALIDATION_FAILED`, so a later page can no longer be faked to read without an `audit_log.viewed` row.
   - `audit_log.viewed` keeps the record filter only when it is a UUID; other text is `entityIdText: true`, never the text (a reader may type an SSN or an email there).
   - Tests: platform rows (no firm) never shown to either firm by any filter; a deleted login is actor null without IP; nested `entity` and `actor` keys; firm B's, another reader's, other filters' and forged cursors 400; the record filter's text never in `audit_log.viewed`.
+- 2026-10-08, contract follow-ups (contract-only PR from fresh main, branch `rasel/R12-contract-followups`): the audit log's `to` is inclusive, as the API has it (lead's #100 decision: the contract says so, the mock compares with `<=`); `AppointmentErrorCode` names `CLIENT_ARCHIVED` (R10's code: nothing new is booked for an archived client) and, until R0's `cancel_cutoff_hours`, `CUTOFF_NOT_SUPPORTED`, and the mock answers both (booking an archived client; a cutoff other than 24 on create or edit, while its seeded types keep 48 and 0 hours); the appointments contract takes times and dates from 2000 to 2100 only, as the API checks them (400 before anything is sent); a busy calendar's 429 `RATE_LIMITED` is stated. Tests: the calendar years at both edges and the two codes.
