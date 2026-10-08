@@ -43,6 +43,13 @@ describe('ApiExceptionFilter', () => {
     expect(res.body).toEqual({
       error: { code: 'RATE_LIMITED', message: 'This calendar is busy', requestId: undefined },
     });
+    // At most an hour.
+    const long = host();
+    new ApiExceptionFilter().catch(
+      new HttpException({ code: 'RATE_LIMITED', message: 'x', retryAfter: 7_200 }, 429),
+      long.host,
+    );
+    expect(long.res.headers['Retry-After']).toBe('3600');
     // Without one, no header.
     const plain = host();
     new ApiExceptionFilter().catch(

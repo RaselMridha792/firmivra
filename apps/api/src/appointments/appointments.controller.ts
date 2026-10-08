@@ -15,12 +15,13 @@ import {
   CalendarQuery,
   CancelBody,
   FirmSlotsQuery,
+  idParam,
   RescheduleBody,
 } from './appointments.input.js';
 import { AppointmentsService } from './appointments.service.js';
 import { firmActor, optionalBody } from './request-actors.js';
 
-const idPipe = new ZodValidationPipe(AppointmentId);
+const idPipe = new ZodValidationPipe(idParam(AppointmentId));
 
 /**
  * The firm's calendar (R12 step 2): Owner, Admin and Staff, with the Staff calendar rule (in

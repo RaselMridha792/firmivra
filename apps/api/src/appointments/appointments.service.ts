@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import type {
   Appointment,
@@ -15,6 +15,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { AppointmentHistory } from './appointment-history.service.js';
 import { AppointmentNotices } from './appointment-notices.js';
+import { inCalendarYears } from './appointments.input.js';
 import { freeStarts, MINUTE } from './calendar.js';
 import {
   activeMember,
@@ -50,6 +51,19 @@ const iso = (ms: number) => new Date(ms).toISOString();
  * cutoff). The database refuses double booking and blocked time (409 SLOT_TAKEN). Reads and
  * changes are audited; the changes are the appointment's history.
  */
+/**
+ * A start inside the calendar's years can still end after them (late on 2100-12-31): the end is
+ * checked too, as 400 like the start (#108 review).
+ */
+function endsInCalendar(endsAt: number): void {
+  if (!inCalendarYears(new Date(endsAt).toISOString())) {
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: 'Use a date from 2000 to 2100',
+    });
+  }
+}
+
 @Injectable()
 export class AppointmentsService {
   constructor(
@@ -156,9 +170,11 @@ export class AppointmentsService {
     return this.inFirm(businessId, async (tx) => {
       const type = await tx.appointmentType.findFirst({
         where: { businessId, id: q.typeId },
-        select: { durationMinutes: true },
+        select: { durationMinutes: true, archivedAt: true },
       });
       if (!type) throw errors.notFound();
+      // As booking it: an archived type is 409, never an empty list (#108 review).
+      if (type.archivedAt) throw errors.typeArchived();
       // Rescheduling: Staff may exclude only an appointment they see in full (else 404).
       if (q.excludeAppointmentId) {
         await this.findInFull(tx, businessId, actor, q.excludeAppointmentId);
@@ -196,15 +212,18 @@ export class AppointmentsService {
 
   async book(businessId: string, actor: FirmActor, body: BookBody): Promise<Appointment> {
     const row = await this.write(businessId, async (tx) => {
-      const client = await tx.client.findFirst({
-        where: {
-          businessId,
-          id: body.clientId,
-          ...(actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {}),
-        },
-        select: { id: true, archivedAt: true },
-      });
+      // FOR SHARE: an archive or a reassignment of the client waits for this booking, or this
+      // reads theirs (#108 review), as tasks and reports lock the client first.
+      const [client] = await tx.$queryRaw<
+        { id: string; archived_at: Date | null; assigned_user_id: string | null }[]
+      >`
+        SELECT id::text AS id, archived_at, assigned_user_id::text AS assigned_user_id
+        FROM clients WHERE business_id = ${businessId}::uuid AND id = ${body.clientId}::uuid
+        FOR SHARE`;
       if (!client) throw errors.notFound();
+      if (actor.role === 'STAFF' && client.assigned_user_id !== actor.userId.toLowerCase()) {
+        throw errors.notFound();
+      }
       await activeMember(tx, businessId, body.staffUserId);
       const type = body.typeId
         ? await tx.appointmentType.findFirst({
@@ -220,13 +239,14 @@ export class AppointmentsService {
         });
         if (!engagement) throw errors.notFound();
       }
-      if (client.archivedAt) throw errors.clientArchived();
+      if (client.archived_at) throw errors.clientArchived();
       if (type?.archivedAt) throw errors.typeArchived();
       // The request needs a type or a duration (BookAppointmentRequest).
       const minutes = body.durationMinutes ?? type?.durationMinutes ?? 0;
       const startsAt = new Date(body.startsAt);
+      endsInCalendar(startsAt.getTime() + minutes * MINUTE);
       await lockForBooking(tx, businessId, body.staffUserId);
-      return tx.appointment.create({
+      const created = await tx.appointment.create({
         data: {
           businessId,
           clientId: client.id,
@@ -242,8 +262,9 @@ export class AppointmentsService {
         },
         select: appointmentSelect,
       });
+      await this.history.record(tx, 'BOOKED', created, { by: 'STAFF', from: null, to: created });
+      return created;
     });
-    await this.history.record('BOOKED', row, { by: 'STAFF', from: null, to: row });
     await this.notices.send('appointment.booked', businessId, row.id);
     return toAppointment(row);
   }
@@ -257,26 +278,29 @@ export class AppointmentsService {
   ): Promise<Appointment> {
     const { before, after } = await this.write(businessId, async (tx) => {
       const current = await this.openForChange(tx, businessId, actor, id);
-      const staffUserId = body.staffUserId ?? current.staffUserId;
-      if (staffUserId !== current.staffUserId) await activeMember(tx, businessId, staffUserId);
+      const staffUserId = (body.staffUserId ?? current.staffUserId).toLowerCase();
+      const sameStaff = staffUserId === current.staffUserId.toLowerCase();
+      if (!sameStaff) await activeMember(tx, businessId, staffUserId);
       const startsAt = new Date(body.startsAt);
-      if (
-        startsAt.getTime() === current.startsAt.getTime() &&
-        staffUserId === current.staffUserId
-      ) {
+      if (startsAt.getTime() === current.startsAt.getTime() && sameStaff) {
         return { before: current, after: null };
       }
       const length = current.endsAt.getTime() - current.startsAt.getTime();
+      endsInCalendar(startsAt.getTime() + length);
       await lockForBooking(tx, businessId, staffUserId);
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: { startsAt, endsAt: new Date(startsAt.getTime() + length), staffUserId },
         select: appointmentSelect,
       });
+      await this.history.record(tx, 'RESCHEDULED', updated, {
+        by: 'STAFF',
+        from: current,
+        to: updated,
+      });
       return { before: current, after: updated };
     });
     if (!after) return toAppointment(before);
-    await this.history.record('RESCHEDULED', after, { by: 'STAFF', from: before, to: after });
     await this.notices.send('appointment.changed', businessId, after.id);
     return toAppointment(after);
   }
@@ -287,16 +311,21 @@ export class AppointmentsService {
     id: string,
     reason: string | null | undefined,
   ): Promise<Appointment> {
-    const { before, after } = await this.write(businessId, async (tx) => {
+    const after = await this.write(businessId, async (tx) => {
       const current = await this.openForChange(tx, businessId, actor, id);
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason ?? null },
         select: appointmentSelect,
       });
-      return { before: current, after: updated };
+      await this.history.record(tx, 'CANCELLED', updated, {
+        by: 'STAFF',
+        from: current,
+        to: null,
+        reason,
+      });
+      return updated;
     });
-    await this.history.record('CANCELLED', after, { by: 'STAFF', from: before, to: null, reason });
     return toAppointment(after);
   }
 
@@ -307,16 +336,18 @@ export class AppointmentsService {
     id: string,
     status: 'COMPLETED' | 'NO_SHOW',
   ): Promise<Appointment> {
-    const { before, after } = await this.write(businessId, async (tx) => {
+    const after = await this.write(businessId, async (tx) => {
       const current = await this.openForChange(tx, businessId, actor, id);
+      // Only once it has started: before that, a mistaken tap would close the slot for good.
+      if (Date.now() < current.startsAt.getTime()) throw errors.notStarted();
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: { status },
         select: appointmentSelect,
       });
-      return { before: current, after: updated };
+      await this.history.record(tx, status, updated, { by: 'STAFF', from: current, to: null });
+      return updated;
     });
-    await this.history.record(status, after, { by: 'STAFF', from: before, to: null });
     return toAppointment(after);
   }
 }

@@ -456,6 +456,8 @@ export const AppointmentErrorCode = z.enum([
   'CHANGE_WINDOW_CLOSED',
   /** 409: the appointment is cancelled, completed or a no-show; that is final. */
   'APPOINTMENT_CLOSED',
+  /** 409: complete and no-show only once the appointment has started. */
+  'APPOINTMENT_NOT_STARTED',
   /** 409: the type is archived and cannot be booked. */
   'TYPE_ARCHIVED',
   /** 409: the blocked time would cover a scheduled appointment. */

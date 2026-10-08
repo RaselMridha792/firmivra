@@ -13,7 +13,7 @@ import {
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
-import { BlocksQuery, CreateBlockBody } from './appointments.input.js';
+import { BlocksQuery, CreateBlockBody, idParam } from './appointments.input.js';
 import { AvailabilityService } from './availability.service.js';
 import { firmActor } from './request-actors.js';
 
@@ -35,7 +35,7 @@ export class AvailabilityController {
   setWorkingHours(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
-    @Param('userId', new ZodValidationPipe(MemberId)) userId: string,
+    @Param('userId', new ZodValidationPipe(idParam(MemberId))) userId: string,
     @Body(new ZodValidationPipe(SetWorkingHoursRequest))
     body: z.output<typeof SetWorkingHoursRequest>,
   ): Promise<MemberAvailability> {
@@ -78,7 +78,7 @@ export class BlockedTimesController {
   remove(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
-    @Param('id', new ZodValidationPipe(BlockedTimeId)) id: string,
+    @Param('id', new ZodValidationPipe(idParam(BlockedTimeId))) id: string,
   ): Promise<OkResponse> {
     return this.availability.unblock(tenant.businessId, firmActor(auth, tenant), id);
   }

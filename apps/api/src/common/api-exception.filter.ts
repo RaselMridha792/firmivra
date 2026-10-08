@@ -56,7 +56,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       // A route that knows how long to wait says so: `retryAfter` seconds, sent as Retry-After.
       const retryAfter = fields['retryAfter'];
       if (typeof retryAfter === 'number' && Number.isInteger(retryAfter) && retryAfter > 0) {
-        res.setHeader('Retry-After', String(retryAfter));
+        res.setHeader('Retry-After', String(Math.min(retryAfter, 3_600)));
       }
       res.status(status).json({ error });
       return;
