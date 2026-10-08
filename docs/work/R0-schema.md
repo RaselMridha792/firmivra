@@ -83,6 +83,20 @@ All tables merged on main by Oct 8, RLS coverage test green, seed loads.
   - Refunds: on `charge.refunded`, record the event (linked to the payment), then insert one `payment_refunds` row per refund in it (Stripe's `re_` id, amount, the payment's account) as SUCCEEDED with that `event_id`. That also covers refunds made in the firm's Stripe dashboard. A refund started from Firmivra is inserted PENDING first and confirmed the same way, or set FAILED on `refund.failed`. The database refuses refunds over the payment and sets the payment REFUNDED when they cover it; never set REFUNDED yourself. The invoice stays PAID.
   - Platform billing (firms paying Firmivra) is not in R0: R7 adds its own platform tables.
 
+## Database lock and migration queue (Rasel's Oct 18 plan, approved Oct 8)
+
+- R0 (this session) is the schema owner and holds the database lock. The lead session is off; R1's process PR puts the rule in docs/work/README.md.
+- Migrations merge only in a merge window: 09:00, 13:00, 17:00 and 21:00 Dhaka, one migration PR open at a time. Cloud threads draft their own migrations; R0 reviews each as schema owner (migration.sql, RLS, grants, seed; CI runs the db tests on Postgres 16, so no laptop rerun). If R0 can't review within 3 hours of the PR opening, Rasel reviews the SQL himself.
+- Schema freeze: Oct 14, 13:00 window. After it, only bug-fix migrations, each with Rasel's yes.
+- Queue, in order:
+  1. `r0_intake_agreements` (R14 drafts; R0 reviews Oct 9 by 12:00; merges 13:00).
+  2. `r0_intake_engine` (R0, branch `rasel/R0-intake-engine`; opens after 1 merges, about 13:30 Oct 9; merges 21:00, latest Oct 10 09:00): documents.intake_id and intake_slot; intakes.correction_note and correction_requested_at; intake_submissions.saved_steps; leads.tax_year; one Begin Online service per kind; the 90-day draft cap and leads.draft_expires_at; client uploads only into ACTIVE engagements; a converted lead's engagement ACTIVE; memberships.meeting_url; appointment_types.cancel_cutoff_hours; synthetic seed links.
+  3. `r0_esign` (R13-api drafts; R0 reviews Oct 10 by 12:00; merges 13:00), with `app_set_business_module` and `packages/db/scripts/set-module.mjs` (runbook here).
+  4. The offline payments schema (Rasel's q28(h); R16 builds the API): in `r0_intake_engine` if it fits, otherwise its own small migration merged by Oct 11 21:00 (built on `rasel/R0-offline-payments`).
+  5. `r0_followups` (R0; opens Oct 13 09:00, merges 13:00, latest 17:00): the fix list collected from R13-api, R13-web, R14, R15 and R16 until Oct 12 20:00; the seed's LVP application in R4's StoredApplication shape; LVP's calculator seed row (new title and disclaimer, an upsert); engagement history ordered by a `seq` column (#126's review).
+- R0's other steps: R11 contract B by Oct 9 21:00, then R11 passes to R15; R10 steps 6 and 7 (Oct 10 and 11 21:00); q20 (Oct 11); the #57 fixes (Oct 12); R8 steps 2 and 3, the isolation suite and rate limits (merged by Oct 14 21:00); the Oct 13 18:00 checkpoint in this log; Q03 fixes Oct 15-16. Not R0's: Firm Sign, agreements, calculators, payments, firm applications, notify, the meeting-link code in appointments, the R11 API and contracts C and D, every screen.
+- Rules: PRs under 400 changed lines of code (tests may take one to about 600); contract PRs exempt, one at a time; at most 2 open non-contract PRs; merge main, never rebase or force-push; at most two agents and one heavy command at a time; the Scrum thread pre-reviews, Rasel merges in the windows.
+
 ## Progress log
 
 (newest last: date, step, what changed, commit)
