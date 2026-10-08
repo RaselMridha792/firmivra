@@ -109,8 +109,8 @@ From Oct 7, Fahad, Nahid, Tumit and Arfan build screens and tests; Rasel's Claud
 
 ## Parallel sessions
 
-- Rasel's workstreams (R0 to R12) are in `docs/work/`, one file each. The rules for them (worktrees, branches, PR size, the database lock) are in `docs/work/README.md`.
+- Rasel's workstreams (R0 to R16) are in `docs/work/`, one file each. The rules for them (worktrees, branches, PR size, the database lock) are in `docs/work/README.md`.
 - A workstream session reads only `CLAUDE.md`, `docs/work/README.md` and its own R file (plus the files that R file lists under "Read first").
 - It edits only its own R file and the paths that R file owns.
-- Only the lead session (the main checkout, `Business-full-stack-project/`) edits `docs/work/BOARD.md` and merges. `BOARD.md` is git-ignored and exists only in the main checkout.
+- Rasel merges every PR. The lead session and `docs/work/BOARD.md` are closed (Oct 8): open questions for Rasel go under "Needs from others" in the session's own R file and in its reply.
 - Where these rules differ from the rest of this file (branch names, PR size and titles, what to read), `docs/work/README.md` and the R file win.

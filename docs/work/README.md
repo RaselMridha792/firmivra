@@ -14,7 +14,7 @@ Firmivra Phase 1 ships in 15 days: Oct 4 to Oct 18, 2026. Rasel builds the compl
 | --- | --- | --- |
 | `README.md` | These rules | Rasel |
 | `BOARD.md` | Closed on Oct 8 (it held the status, the DB lock and handoffs while a lead session ran) | Nobody |
-| `R0-schema.md` ... `R12-calendar-content.md` | One workstream each: scope, owned paths, steps, progress log | Only that workstream's session |
+| `R0-schema.md` ... `R16-*.md` (R13 to R16 add theirs in their first PRs) | One workstream each: scope, owned paths, steps, progress log | Only that workstream's session or thread |
 
 ## How a workstream session runs
 
