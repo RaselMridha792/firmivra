@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { z } from 'zod';
 import {
   type AdminDashboard,
@@ -15,11 +16,37 @@ import {
   type ListFirmsResponse,
   RequestFirmInfoRequest,
   SaveFirmNotesRequest,
+  SubmitFirmApplicationRequest,
+  type SubmitFirmApplicationResponse,
 } from '@firmivra/types';
-import { Roles } from '../auth/decorators.js';
+import { Public, Roles } from '../auth/decorators.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AdminPrisma } from './admin-prisma.js';
+import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
+import { FirmApplicationSubmitService } from './submit.service.js';
+
+/**
+ * "Create a Business Account" on the firm site (R4 step 2): public, no session. The API's
+ * cross-site guard takes it only as JSON from the firm site's own origin, like every public POST.
+ * A burst from one IP is stopped in memory first (as R3's sign-up routes are); the limits shared
+ * by every API task are in the service.
+ */
+@Controller('firm-applications')
+export class FirmApplicationsController {
+  constructor(private readonly submits: FirmApplicationSubmitService) {}
+
+  @Post()
+  @Public()
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  submit(
+    @Body(new ZodValidationPipe(SubmitFirmApplicationRequest))
+    body: z.output<typeof SubmitFirmApplicationRequest>,
+  ): Promise<SubmitFirmApplicationResponse> {
+    return this.submits.submit(body);
+  }
+}
 
 /**
  * Firm applications for the Super Admin (R4; contract in packages/types/src/firm-applications):
@@ -128,7 +155,17 @@ export class AdminDashboardController {
 }
 
 @Module({
-  controllers: [AdminFirmApplicationsController, AdminFirmsController, AdminDashboardController],
-  providers: [AdminPrisma, FirmApplicationsService],
+  controllers: [
+    FirmApplicationsController,
+    AdminFirmApplicationsController,
+    AdminFirmsController,
+    AdminDashboardController,
+  ],
+  providers: [
+    AdminPrisma,
+    FirmApplicationsService,
+    FirmApplicationSubmitService,
+    { provide: EIN_HASH_KEY, useFactory: () => loadEinHashKey() },
+  ],
 })
 export class FirmApplicationsModule {}

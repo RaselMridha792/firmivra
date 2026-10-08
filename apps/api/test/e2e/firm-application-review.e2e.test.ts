@@ -438,4 +438,29 @@ describe('a review, its audit row and its email', () => {
     }).expect(200);
     expect(sent.map((m) => m.template)).toEqual(['firm-application.declined']);
   });
+
+  it('keeps no notes whose audit row failed (one transaction)', async () => {
+    const store = {
+      requestId: `r4-notes-rolled-back-${tag}`,
+      userAgent: 'R4 review test \u0000',
+      auth: { userId: fx.users.admin.id, cognitoSub: fx.users.admin.id, pool: 'ADMIN' as const },
+      platform: { role: 'SUPER_ADMIN' as const },
+    };
+    const service = app.get(FirmApplicationsService);
+    await expect(
+      requestContext.run(store, () => service.saveNotes(ids.fresh, 'Called the applicant.')),
+    ).rejects.toThrow();
+    const after = await asOwner(async (tx) => ({
+      notes: (
+        await tx.firmApplication.findUniqueOrThrow({
+          where: { id: ids.fresh },
+          select: { internalNotes: true },
+        })
+      ).internalNotes,
+      audited: await tx.auditLog.count({
+        where: { entityId: ids.fresh, action: 'firm_application.notes_saved' },
+      }),
+    }));
+    expect(after).toEqual({ notes: null, audited: 0 });
+  });
 });
