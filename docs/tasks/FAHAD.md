@@ -77,9 +77,13 @@ Checklist:
 
 Checklist:
 
-- [ ] Works at 375 px
-- [ ] Staff don't see Sign-ups, Team or Settings
-- [ ] Playwright: the owner sees Settings, staff don't
+- [x] Works at 375 px
+- [x] Staff don't see Sign-ups, Team or Settings
+- [x] Playwright: the owner sees Settings, staff don't
+
+Local validation (Oct 8): dashboard has eight empty work queues; existing R1 menu and
+firm-name wiring retained. Four desktop/mobile Owner/Staff tests, web lint, typecheck
+and production build pass. Review, merge and dev-site verification remain pending.
 
 ### F06 · Oct 9-10 · Clients, client record and pending sign-ups
 
