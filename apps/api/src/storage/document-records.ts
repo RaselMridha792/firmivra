@@ -1,4 +1,9 @@
-import { ConflictException, GoneException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  GoneException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { Prisma, TxClient } from '@firmivra/db';
 import { DOCUMENT_ERRORS, type DocumentErrorCode, type FirmDocument } from '@firmivra/types';
 
@@ -10,6 +15,16 @@ export const refusal = (code: DocumentErrorCode, message: string = DOCUMENT_ERRO
     ? new GoneException({ code, message })
     : new ConflictException({ code, message });
 export const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+/**
+ * 503 with Retry-After (the global filter sends `retryAfter`): storage failed, timed out or is
+ * busy. Never a deletion: the upload can be confirmed again.
+ */
+export const storageUnavailable = () =>
+  new ServiceUnavailableException({
+    code: 'SERVICE_UNAVAILABLE',
+    message: 'Files are not available right now. Please try again in a moment.',
+    retryAfter: 5,
+  });
 
 /** Who acts on the firm side: the signed-in member and their role here (from TenantGuard). */
 export interface FirmActor {
@@ -67,8 +82,9 @@ export interface Target {
 /**
  * The service (engagement) and category an upload names, both of this client and firm: every
  * 404 before any 409. Then NO_OPEN_SERVICE (the engagement is not ACTIVE, or the client is
- * archived) and CATEGORY_ARCHIVED. Uploads for a request (REQUEST_CLOSED) come with the portal
- * routes in part 2.
+ * archived) and CATEGORY_ARCHIVED. The category is read FOR SHARE, so an archive at the same time
+ * waits for the upload or is seen here (lock order: the client, the engagement, the category).
+ * Uploads for a request (REQUEST_CLOSED) come with the portal routes in part 2.
  */
 export async function findTarget(
   tx: TxClient,
@@ -80,18 +96,20 @@ export async function findTarget(
     where: { businessId, clientId, id: ids.serviceId },
     select: { id: true, status: true, taxYear: true },
   });
-  const category = ids.categoryId
-    ? await tx.documentCategory.findFirst({
-        where: { businessId, id: ids.categoryId },
-        select: { id: true, retentionYears: true, archivedAt: true },
-      })
-    : null;
+  const [category] = ids.categoryId
+    ? await tx.$queryRaw<
+        { id: string; retention_years: number | null; archived_at: Date | null }[]
+      >`
+        SELECT id::text AS id, retention_years, archived_at FROM document_categories
+        WHERE business_id = ${businessId}::uuid AND id = ${ids.categoryId}::uuid
+        FOR SHARE`
+    : [];
   if (!engagement || (ids.categoryId && !category)) throw notFound();
   if (engagement.status !== 'ACTIVE' || ids.clientArchived) throw refusal('NO_OPEN_SERVICE');
-  if (category?.archivedAt) throw refusal('CATEGORY_ARCHIVED');
+  if (category?.archived_at) throw refusal('CATEGORY_ARCHIVED');
   return {
     engagement: { id: engagement.id, taxYear: engagement.taxYear },
-    category: category && { id: category.id, retentionYears: category.retentionYears },
+    category: category ? { id: category.id, retentionYears: category.retention_years } : null,
   };
 }
 

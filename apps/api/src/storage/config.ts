@@ -6,7 +6,8 @@ import { z } from 'zod';
  * infra app stack and uses its task role; objects take the bucket's default encryption (SSE-KMS
  * with the documents key). Locally .env points at s3mock (S3_ENDPOINT, path-style, any key).
  * SCAN_MODE=guardduty (the default): a new file stays PENDING until GuardDuty's result arrives.
- * SCAN_MODE=local: confirm marks the file CLEAN at once; development and test only.
+ * SCAN_MODE=local: confirm marks the file CLEAN at once; development and test, and in production
+ * only the dev environment (APP_ENV exactly "dev"; #101 gives the API task APP_ENV).
  */
 const Schema = z
   .object({
@@ -20,13 +21,22 @@ const Schema = z
     S3_SECRET_ACCESS_KEY: z.string().optional(),
     // Default is GuardDuty, so a missing value can never skip the scan.
     SCAN_MODE: z.enum(['local', 'guardduty']).default('guardduty'),
+    /** Which AWS environment runs a production build: "dev" (the dev site) or another. */
+    APP_ENV: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const devOnly = 'is only allowed when NODE_ENV is development or test';
     const issue = (key: string, message: string) =>
       ctx.addIssue({ code: 'custom', path: [key], message });
     const dev = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
-    if (env.SCAN_MODE === 'local' && !dev) issue('SCAN_MODE', `SCAN_MODE=local ${devOnly}`);
+    // The dev environment runs a production build; it may skip the scan, no other one may.
+    const devSite = env.NODE_ENV === 'production' && env.APP_ENV === 'dev';
+    if (env.SCAN_MODE === 'local' && !dev && !devSite) {
+      issue(
+        'SCAN_MODE',
+        'SCAN_MODE=local is only allowed when NODE_ENV is development or test, or in production with APP_ENV=dev',
+      );
+    }
     if (env.NODE_ENV !== 'production') return;
     if (env.S3_ENDPOINT) issue('S3_ENDPOINT', `S3_ENDPOINT (s3mock) ${devOnly}`);
     if (env.S3_ACCESS_KEY_ID || env.S3_SECRET_ACCESS_KEY) {

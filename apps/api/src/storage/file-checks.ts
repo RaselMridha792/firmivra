@@ -94,19 +94,22 @@ const partName = (name: string) => name.replace(/\\/g, '/').replace(/^\//, '').t
 
 function checkPackage(buf: Buffer, mainType: string): FileRefusal | null {
   const entries = centralDirectory(buf);
-  const types = entries?.get('[content_types].xml');
-  const xml = entries && types ? readEntry(buf, types) : null;
-  // No DTDs (packages never have one), so only XML's own entities can appear.
-  if (!entries || xml === null || /<!doctype/i.test(xml)) return MISMATCH;
+  if (!entries) return MISMATCH;
+  // Macro parts by name first, so a macro file is FILE_HAS_MACROS whatever its XML holds.
+  const macroPart = (name: string) =>
+    /^vba(project|data)/.test(name.slice(name.lastIndexOf('/') + 1));
+  if ([...entries.keys()].some(macroPart)) return 'FILE_HAS_MACROS';
+  const types = entries.get('[content_types].xml');
+  const xml = types ? readEntry(buf, types) : null;
+  // No DTDs (packages never have one), so only XML's own entities can appear. No NUL, and only
+  // a UTF-8 or UTF-16 encoding (the bytes are read as one of those).
+  if (xml === null || /<!doctype/i.test(xml) || xml.includes('\0')) return MISMATCH;
+  if (!/^(?:utf-8|utf-16)$/i.test(declaredEncoding(xml) ?? 'utf-8')) return MISMATCH;
   if (/&(?!(?:#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);)/i.test(xml)) return MISMATCH;
   const parts = declarations(xml);
   if (!parts) return MISMATCH;
   const macroType = /macroenabled|vbaproject|vbadata|macrosheet/;
-  const macroPart = (name: string) =>
-    /^vba(project|data)/.test(name.slice(name.lastIndexOf('/') + 1));
-  if ([...entries.keys()].some(macroPart) || parts.some((p) => macroType.test(p.contentType))) {
-    return 'FILE_HAS_MACROS';
-  }
+  if (parts.some((p) => macroType.test(p.contentType))) return 'FILE_HAS_MACROS';
   // Office writes Default and Override with their own attributes only, never with a prefix.
   if (parts.some((p) => p.unusual)) return MISMATCH;
   const main = parts.some(
@@ -124,18 +127,32 @@ function centralDirectory(buf: Buffer): Map<string, Entry> | null {
       break;
     }
   }
-  if (eocd < 0) return null;
+  // The end record's comment ends the file: nothing after it (a signature found inside a
+  // comment, or bytes appended after the end record, is not this end record).
+  if (eocd + 22 + buf.readUInt16LE(eocd + 20) !== buf.length) return null;
   let count = buf.readUInt16LE(eocd + 10);
   let size = buf.readUInt32LE(eocd + 12);
   let offset = buf.readUInt32LE(eocd + 16);
-  if (count === 0xffff || size === ALL_ONES || offset === ALL_ONES) {
-    const locator = eocd - 20;
-    if (locator < 0 || buf.readUInt32LE(locator) !== 0x07064b50) return null;
+  const locator = eocd - 20;
+  if (locator >= 0 && buf.readUInt32LE(locator) === 0x07064b50) {
+    // ZIP64: the locator points at the ZIP64 end record, which ends where the locator starts,
+    // and every end record field that is not all ones must say what the ZIP64 record says.
     const at = Number(buf.readBigUInt64LE(locator + 8));
-    if (at + 56 > buf.length || buf.readUInt32LE(at) !== 0x06064b50) return null;
-    count = Number(buf.readBigUInt64LE(at + 32));
-    size = Number(buf.readBigUInt64LE(at + 40));
-    offset = Number(buf.readBigUInt64LE(at + 48));
+    if (at + 56 > locator || buf.readUInt32LE(at) !== 0x06064b50) return null;
+    if (at + 12 + Number(buf.readBigUInt64LE(at + 4)) !== locator) return null;
+    const big = [32, 40, 48].map((o) => Number(buf.readBigUInt64LE(at + o)));
+    const agrees = (small: number, ones: number, value: number) =>
+      small === ones || small === value;
+    if (
+      !agrees(count, 0xffff, big[0]!) ||
+      !agrees(size, ALL_ONES, big[1]!) ||
+      !agrees(offset, ALL_ONES, big[2]!)
+    ) {
+      return null;
+    }
+    [count, size, offset] = big as [number, number, number];
+  } else if (count === 0xffff || size === ALL_ONES || offset === ALL_ONES) {
+    return null;
   }
   if (count > MAX_ENTRIES || size > CAP || offset + size > buf.length) return null;
   const entries = new Map<string, Entry>();
@@ -157,9 +174,12 @@ function centralDirectory(buf: Buffer): Map<string, Entry> | null {
     if (entry.compressed === ALL_ONES) entry.compressed = big.shift() ?? -1;
     if (local === ALL_ONES) local = big.shift() ?? -1;
     if (entry.size < 0 || entry.compressed < 0 || local < 0) return null;
-    const name = partName(
-      buf.toString(flags & 0x800 ? 'utf8' : 'latin1', p + 46, p + 46 + nameLength!),
-    );
+    // No NUL or other control character in a name (in its bytes, and once decoded).
+    const rawName = buf.subarray(p + 46, p + 46 + nameLength!);
+    if (rawName.some((b) => b < 0x20 || b === 0x7f)) return null;
+    const decoded = rawName.toString(flags & 0x800 ? 'utf8' : 'latin1');
+    if (flags & 0x800 && /\p{Cc}/u.test(decoded)) return null;
+    const name = partName(decoded);
     if (entries.has(name)) return null;
     entries.set(name, { ...entry, local });
     p = next;
@@ -196,6 +216,16 @@ function readEntry(buf: Buffer, entry: Entry): string | null {
   if (out[0] === 0xff && out[1] === 0xfe) return out.toString('utf16le', 2);
   const text = out.toString('utf8');
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text; // a byte order mark
+}
+
+/** The encoding the XML declaration at the very start names, or null when it names none. */
+function declaredEncoding(xml: string): string | null {
+  const end = /^<\?xml[ \t\r\n]/.test(xml) ? xml.indexOf('?>') : -1;
+  if (end < 0) return null;
+  const found = /[ \t\r\n]encoding[ \t\r\n]*=[ \t\r\n]*(?:"([^"]*)"|'([^']*)')/.exec(
+    xml.slice(0, end),
+  );
+  return found ? (found[1] ?? found[2] ?? '') : null;
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };

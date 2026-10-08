@@ -14,10 +14,26 @@ export const PUT_URL_SECONDS = 240;
 /** A download link works for 5 minutes. */
 export const GET_URL_SECONDS = 300;
 
-/** What storage holds at a key: its size and the SHA-256 (hex) storage checked on the PUT. */
+/**
+ * Timeouts of every S3 call, in the style of notify's AWS_CLIENT (#113): 3 s to connect, 5 s for
+ * the answer's headers, 2 attempts. `requestTimeout` stops at the headers, so a GET's body has a
+ * deadline of its own (`readMs`, for up to 10 MB).
+ */
+export const S3_TIMEOUTS = {
+  connectionTimeout: 3_000,
+  requestTimeout: 5_000,
+  maxAttempts: 2,
+  readMs: 30_000,
+} as const;
+
+/**
+ * What storage holds at a key: its size, the SHA-256 (hex) storage checked on the PUT (only when
+ * asked for: null otherwise) and its Content-Encoding (null when none is set).
+ */
 export interface StoredObject {
   sizeBytes: number;
   sha256: string | null;
+  contentEncoding: string | null;
 }
 
 export interface FileFacts {
@@ -40,8 +56,13 @@ export interface DocumentStorage {
    * Content-Length: the browser sets it).
    */
   presignUpload(file: FileFacts): Promise<{ url: string; headers: Record<string, string> }>;
-  /** HEAD: the object's size and checksum, or null when there is none. */
-  head(key: string): Promise<StoredObject | null>;
+  /**
+   * HEAD: the object's size and Content-Encoding, or null when there is none. With `checksum`
+   * (downloads) also S3's SHA-256, which on an SSE-KMS object needs kms:Decrypt: a 403 then
+   * throws unless a plain HEAD finds no object. Confirm never asks for it (it hashes the bytes
+   * itself), so a missing kms:Decrypt can't make a good upload look missing.
+   */
+  head(key: string, options?: { checksum?: boolean }): Promise<StoredObject | null>;
   /**
    * GET: the whole object, in memory (confirm reads at most UPLOAD_LIMITS.maxBytes); null only
    * when S3 says there is no such key (404). Any other failure throws: confirm reads after a HEAD
@@ -75,20 +96,12 @@ export function downloadType(contentType: string): string {
   return Object.hasOwn(UPLOAD_LIMITS.types, contentType) ? contentType : 'application/octet-stream';
 }
 
-const statusOf = (error: unknown) =>
+/** The HTTP status of an S3 error, if it has one. */
+export const statusOf = (error: unknown) =>
   (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
 
-/**
- * A HEAD that finds no object. Without s3:ListBucket (the API's IAM policy has only object
- * actions) S3 answers 403 for a key that does not exist, so on HEAD 403 counts as missing too.
- */
-const orMissing = <T>(error: unknown): T | null => {
-  const status = statusOf(error);
-  if (status === 404 || status === 403) return null;
-  throw error;
-};
-
 export function createS3Client(config: DocumentsConfig): S3Client {
+  const { connectionTimeout, requestTimeout, maxAttempts } = S3_TIMEOUTS;
   return new S3Client({
     region: config.region,
     endpoint: config.endpoint,
@@ -98,6 +111,10 @@ export function createS3Client(config: DocumentsConfig): S3Client {
     // SDK computes for an empty body.
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
+    // A stalled S3 never holds a request (or the upload lock) for long: without
+    // throwOnRequestTimeout the handler only logs a warning when requestTimeout passes.
+    maxAttempts,
+    requestHandler: { connectionTimeout, requestTimeout, throwOnRequestTimeout: true },
   });
 }
 
@@ -106,6 +123,8 @@ export class S3DocumentStorage implements DocumentStorage {
   constructor(
     private readonly s3: S3Client,
     private readonly bucket: string,
+    /** The deadline of a whole GET, its body included (tests shorten it). */
+    private readonly readMs: number = S3_TIMEOUTS.readMs,
   ) {}
 
   async presignUpload(file: FileFacts) {
@@ -130,11 +149,11 @@ export class S3DocumentStorage implements DocumentStorage {
     };
   }
 
-  async head(key: string): Promise<StoredObject | null> {
+  async head(key: string, { checksum = false } = {}): Promise<StoredObject | null> {
     const command = new HeadObjectCommand({
       Bucket: this.bucket,
       Key: key,
-      ChecksumMode: 'ENABLED',
+      ...(checksum ? { ChecksumMode: 'ENABLED' as const } : {}),
     });
     try {
       const head = await this.s3.send(command);
@@ -142,19 +161,38 @@ export class S3DocumentStorage implements DocumentStorage {
       return {
         sizeBytes: head.ContentLength ?? -1,
         sha256: sha ? Buffer.from(sha, 'base64').toString('hex') : null,
+        contentEncoding: head.ContentEncoding || null,
       };
     } catch (error) {
-      return orMissing(error);
+      const status = statusOf(error);
+      if (status === 404) return null;
+      if (status !== 403) throw error;
+      // Without s3:ListBucket (the API's IAM policy has only object actions) S3 answers 403 for
+      // a key that does not exist. With the checksum a 403 can also be KMS (kms:Decrypt), so a
+      // plain HEAD decides: no object is null, an object we can't decrypt throws.
+      if (!checksum || (await this.head(key)) === null) return null;
+      throw error;
     }
   }
 
   async read(key: string): Promise<Uint8Array | null> {
+    const deadline = AbortSignal.timeout(this.readMs);
+    let body: { destroy?: (error: Error) => void } | undefined;
+    const stop = () =>
+      body?.destroy?.(Object.assign(new Error('The read took too long'), { name: 'TimeoutError' }));
+    deadline.addEventListener('abort', stop, { once: true });
     try {
-      const object = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
-      return object.Body ? await object.Body.transformToByteArray() : new Uint8Array();
+      const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
+      const object = await this.s3.send(command, { abortSignal: deadline });
+      if (!object.Body) return new Uint8Array();
+      body = object.Body as typeof body;
+      if (deadline.aborted) stop();
+      return await object.Body.transformToByteArray();
     } catch (error) {
       if (statusOf(error) === 404) return null;
       throw error;
+    } finally {
+      deadline.removeEventListener('abort', stop);
     }
   }
 

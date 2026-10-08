@@ -11,7 +11,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
 import {
   DocumentCategoryList,
@@ -25,24 +25,44 @@ import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
 import { UploadTokens } from '../../src/storage/upload-token.js';
+import { CHECKS_AT_ONCE } from '../../src/storage/uploads.service.js';
 import { cfb, DOCX, office, pdf, png, sha256, XLSX } from '../office-files.js';
 
 /** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
 class MemoryStorage implements DocumentStorage {
   readonly objects = new Map<string, Buffer>();
+  /** A Content-Encoding stored with an object (a repeated PUT could set one). */
+  readonly encodings = new Map<string, string>();
+  /** What every HEAD fails with while set (S3's 503 SlowDown). */
+  headError: unknown = null;
+  /** What a HEAD with the checksum fails with while set (S3's 403 without kms:Decrypt). */
+  checksumError: unknown = null;
   /** What reads fail with while set (S3's 403 when kms:Decrypt is missing). */
   readError: unknown = null;
+  /** Awaited after a HEAD and after a read, to hold a confirm there. */
+  afterHead: (() => Promise<void>) | null = null;
+  afterRead: (() => Promise<void>) | null = null;
   presignUpload(file: { key: string; contentType: string }) {
     const headers = { 'content-type': file.contentType };
     return Promise.resolve({ url: `memory:${file.key}`, headers });
   }
-  head(key: string) {
+  async head(key: string, { checksum = false } = {}) {
+    if (this.headError) throw this.headError;
+    if (checksum && this.checksumError) throw this.checksumError;
     const b = this.objects.get(key);
-    return Promise.resolve(b ? { sizeBytes: b.length, sha256: sha256(b) } : null);
+    const found = b && {
+      sizeBytes: b.length,
+      sha256: checksum ? sha256(b) : null,
+      contentEncoding: this.encodings.get(key) ?? null,
+    };
+    await this.afterHead?.();
+    return found ?? null;
   }
-  read(key: string) {
-    if (this.readError) return Promise.reject(this.readError);
-    return Promise.resolve(this.objects.get(key) ?? null);
+  async read(key: string) {
+    if (this.readError) throw this.readError;
+    const found = this.objects.get(key) ?? null;
+    await this.afterRead?.();
+    return found;
   }
   remove(key: string) {
     this.objects.delete(key);
@@ -56,6 +76,26 @@ class MemoryStorage implements DocumentStorage {
   }
 }
 const storage = new MemoryStorage();
+/** An error as the S3 client throws it. */
+const s3Error = (name: string, httpStatusCode: number) =>
+  Object.assign(new Error(name), { name, $metadata: { httpStatusCode } });
+/** A promise the test resolves when it wants. */
+function gate() {
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => (open = resolve));
+  return { opened, open };
+}
+/** Holds the next confirm at `hook` (once); `reached` resolves when it got there. */
+function holdNext(hook: 'afterHead' | 'afterRead') {
+  const reached = gate();
+  const release = gate();
+  storage[hook] = async () => {
+    storage[hook] = null;
+    reached.open();
+    await release.opened;
+  };
+  return { reached: reached.opened, release: release.open };
+}
 const config: DocumentsConfig = {
   bucket: 'unused',
   region: 'us-east-1',
@@ -92,7 +132,7 @@ let viewers = 0;
 const viewer = () => `198.51.${100 + Math.floor(++viewers / 250)}.${viewers % 250}, 10.0.0.5`;
 
 async function asOwner<T>(businessId: string | null, work: Parameters<typeof runInScope<T>>[2]) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     const scope = businessId
       ? ({ kind: 'business', businessId } as const)
@@ -168,6 +208,16 @@ async function upload(
 }
 const firmDoc = async (who: Person, body: Record<string, unknown>, bytes: Buffer = pdf()) =>
   exact(FirmDocument, (await upload(who, { serviceId: ids.e1, ...body }, bytes)).res);
+const refusalsOf = (key: string) =>
+  asOwner(firms.a.id, (tx) =>
+    tx.auditLog.findMany({
+      where: {
+        action: 'document.upload_refused',
+        metadata: { path: ['uploadId'], equals: key.slice(key.lastIndexOf('/') + 1) },
+      },
+      orderBy: { createdAt: 'asc' },
+    }),
+  );
 const refusalOf = (key: string) =>
   asOwner(firms.a.id, (tx) =>
     tx.auditLog.findFirst({
@@ -485,19 +535,168 @@ describe('confirm after the ticket: the client, the service or storage changed',
     expect(await refusalOf(key)).toBeNull();
   });
 
-  it('fails without deleting anything when storage refuses the read (403)', async () => {
+  const expectUnavailable = (res: Response) => {
+    expectError(res, 503, 'SERVICE_UNAVAILABLE');
+    expect(res.headers['retry-after']).toBe('5');
+  };
+  const download = (id: string) => call('get', `/documents/${id}/download`, people.ownerA);
+
+  it('answers 503 with Retry-After and deletes nothing when storage fails (S3 503, KMS 403)', async () => {
     const { key, confirm } = await ticketed(people.ownerA, { serviceId: ids.e1 });
-    storage.readError = Object.assign(new Error('AccessDenied'), {
-      $metadata: { httpStatusCode: 403 },
-    });
+    storage.headError = s3Error('SlowDown', 503);
     try {
-      expect((await confirm()).status).toBe(500);
+      expectUnavailable(await confirm());
+    } finally {
+      storage.headError = null;
+    }
+    storage.readError = s3Error('AccessDenied', 403);
+    try {
+      expectUnavailable(await confirm());
     } finally {
       storage.readError = null;
     }
     expect(storage.objects.has(key)).toBe(true);
     expect(await refusalOf(key)).toBeNull();
-    exact(FirmDocument, await confirm());
+    // Confirm never asks S3 for its checksum (on SSE-KMS that needs kms:Decrypt), so a KMS 403
+    // there can't make a good upload look missing; a download, which asks, is 503.
+    storage.checksumError = s3Error('AccessDenied', 403);
+    try {
+      const doc = exact(FirmDocument, await confirm());
+      expectUnavailable(await download(doc.id));
+      storage.headError = s3Error('SlowDown', 503);
+      expectUnavailable(await download(doc.id));
+    } finally {
+      storage.checksumError = null;
+      storage.headError = null;
+    }
+    expect(storage.objects.has(key)).toBe(true);
+  });
+
+  it('never deletes a saved file: a refusal takes the key lock and finds the document', async () => {
+    const bytes = pdf('late put');
+    const path = `/clients/${ids.c1}/documents/uploads`;
+    const body = { serviceId: ids.e1, ...facts(bytes) };
+    const ticket = exact(UploadTicket, await call('post', path, people.ownerA, body));
+    const key = ticket.url.slice('memory:'.length);
+    const { uploadToken } = ticket;
+    const confirm = () =>
+      call('post', '/documents/uploads/confirm', people.ownerA, { uploadToken });
+    // The first confirm finds no object yet and is held before it refuses.
+    const held = holdNext('afterHead');
+    const first = confirm();
+    await held.reached;
+    storage.put(ticket, bytes);
+    const doc = exact(FirmDocument, await confirm());
+    held.release();
+    expectError(await first, 410, 'UPLOAD_EXPIRED');
+    expect(storage.objects.has(key)).toBe(true);
+    expect(await refusalOf(key)).toBeNull();
+    expect((await download(doc.id)).status).toBe(200);
+  });
+
+  it('refuses, and audits, a confirm whose upload another confirm refused while it checked', async () => {
+    const { key, confirm } = await ticketed(people.ownerA, { serviceId: ids.e2 }, ids.c2);
+    // This confirm has checked the file and is held before its transaction.
+    const held = holdNext('afterRead');
+    const late = confirm();
+    await held.reached;
+    await setClient(ids.c2, { archivedAt: new Date() });
+    try {
+      expectError(await confirm(), 409, 'NO_OPEN_SERVICE');
+    } finally {
+      await setClient(ids.c2, { archivedAt: null });
+    }
+    held.release();
+    // The client is open again, but the file is gone: nothing is saved without it.
+    expectError(await late, 409, 'UPLOAD_MISMATCH');
+    expect(storage.objects.has(key)).toBe(false);
+    const saved = await asOwner(firms.a.id, (tx) =>
+      tx.document.findFirst({ where: { s3Key: key } }),
+    );
+    expect(saved).toBeNull();
+    expect((await refusalsOf(key)).map((r) => (r.metadata as { code: string }).code)).toEqual([
+      'NO_OPEN_SERVICE',
+      'UPLOAD_MISMATCH',
+    ]);
+  });
+
+  it(`checks at most ${CHECKS_AT_ONCE} files at once: one more is 503 and deletes nothing`, async () => {
+    const running: Awaited<ReturnType<typeof ticketed>>[] = [];
+    for (let i = 0; i < CHECKS_AT_ONCE; i++) {
+      running.push(await ticketed(people.ownerA, { serviceId: ids.e1 }));
+    }
+    const extra = await ticketed(people.ownerA, { serviceId: ids.e1 });
+    const release = gate();
+    const all = gate();
+    let reading = 0;
+    storage.afterRead = async () => {
+      if (++reading === CHECKS_AT_ONCE) all.open();
+      await release.opened;
+    };
+    const confirms = running.map((r) => r.confirm());
+    try {
+      await all.opened;
+      expectUnavailable(await extra.confirm());
+    } finally {
+      storage.afterRead = null;
+      release.open();
+    }
+    for (const res of await Promise.all(confirms)) exact(FirmDocument, res);
+    expect(storage.objects.has(extra.key)).toBe(true);
+    expect(await refusalOf(extra.key)).toBeNull();
+    exact(FirmDocument, await extra.confirm());
+  });
+
+  it('refuses a stored file with a Content-Encoding: at confirm (deleted) and at download', async () => {
+    const { key, confirm } = await ticketed(people.ownerA, { serviceId: ids.e1 });
+    storage.encodings.set(key, 'gzip');
+    expectError(await confirm(), 409, 'UPLOAD_MISMATCH');
+    await expectRefused(key, 'UPLOAD_MISMATCH');
+
+    const kept = await ticketed(people.ownerA, { serviceId: ids.e1 });
+    const doc = exact(FirmDocument, await kept.confirm());
+    storage.encodings.set(kept.key, 'gzip');
+    expectError(await download(doc.id), 409, 'FILE_BLOCKED');
+    storage.encodings.delete(kept.key);
+    expect((await download(doc.id)).status).toBe(200);
+  });
+
+  it('waits for a category archive that has not committed, then refuses the upload', async () => {
+    const businessId = firms.a.id;
+    const category = await asOwner(businessId, (tx) =>
+      tx.documentCategory.create({ data: { businessId, name: `Waits ${run}` } }),
+    );
+    const { key, confirm } = await ticketed(people.ownerA, {
+      serviceId: ids.e1,
+      categoryId: category.id,
+    });
+    const watcher = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const pending: { result?: Promise<Response> } = {};
+    try {
+      await asOwner(businessId, async (tx) => {
+        await tx.documentCategory.update({
+          where: { id: category.id },
+          data: { archivedAt: new Date() },
+        });
+        const [me] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+        pending.result = confirm();
+        // Commit only once the confirm waits for this transaction (at most 3 s).
+        for (let i = 0; i < 60; i++) {
+          const [waiting] = await watcher.$queryRaw<{ n: number }[]>`
+            SELECT count(*)::int AS n FROM pg_stat_activity
+            WHERE ${me!.pid}::int = ANY(pg_blocking_pids(pid))`;
+          if (waiting!.n > 0) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error('The confirm read the category without waiting for the archive');
+      });
+    } finally {
+      await watcher.$disconnect();
+    }
+    expectError(await pending.result!, 409, 'CATEGORY_ARCHIVED');
+    await expectRefused(key, 'CATEGORY_ARCHIVED');
+    // Only for this test: the categories list below is the fixture's two.
+    await asOwner(businessId, (tx) => tx.documentCategory.delete({ where: { id: category.id } }));
   });
 });
 
@@ -528,6 +727,14 @@ describe('firm lists, views and downloads', () => {
     expect(
       (await get(`?categoryId=${ids.cat}`)).items.every((d) => d.category?.id === ids.cat),
     ).toBe(true);
+    // The database refuses NUL: control characters are a 400, never a 500.
+    for (const q of ['?search=%00', '?search=a%00b', '?search=%1F']) {
+      expectError(
+        await call('get', `/clients/${ids.c1}/documents${q}`, people.ownerA),
+        400,
+        'VALIDATION_FAILED',
+      );
+    }
     const first = await get('?limit=1');
     const second = await get(`?limit=1&cursor=${first.nextCursor}`);
     expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
@@ -538,6 +745,16 @@ describe('firm lists, views and downloads', () => {
       url: expect.stringMatching(/^memory:tenant\//),
       expiresAt: expect.any(String),
     });
+    // document.uploaded commits with the document, in its transaction.
+    const xmins = await asOwner(firms.a.id, async (tx) => [
+      ...(await tx.$queryRaw<{ x: string }[]>`
+        SELECT xmin::text AS x FROM documents WHERE id = ${doc.id}::uuid`),
+      ...(await tx.$queryRaw<{ x: string }[]>`
+        SELECT xmin::text AS x FROM audit_logs
+        WHERE entity_id::text = ${doc.id} AND action = 'document.uploaded'`),
+    ]);
+    expect(xmins).toHaveLength(2);
+    expect(xmins[0]?.x).toBe(xmins[1]?.x);
     const actions = (await auditOf(doc.id)).map((a) => a.action);
     expect(actions).toEqual([
       'document.uploaded',

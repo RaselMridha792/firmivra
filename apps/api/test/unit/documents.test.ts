@@ -2,12 +2,14 @@
 // signatures, so the URLs themselves are checked here), confirm's file checks with generated
 // files, and one round trip through s3mock when it runs (docker compose up -d).
 import { randomUUID } from 'node:crypto';
-import type { S3Client } from '@aws-sdk/client-s3';
-import { describe, expect, it } from 'vitest';
+import { type AddressInfo, createServer, type Server, type Socket } from 'node:net';
+import { HeadObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadDocumentsConfig } from '../../src/storage/config.js';
 import {
   attachment,
   createS3Client,
+  S3_TIMEOUTS,
   S3DocumentStorage,
 } from '../../src/storage/document-storage.js';
 import { checkFile } from '../../src/storage/file-checks.js';
@@ -42,6 +44,24 @@ describe('documents settings', () => {
       );
     }
     expect(() => loadDocumentsConfig({ ...base, SCAN_MODE: 'skip' })).toThrow(/SCAN_MODE/);
+  });
+
+  it('allows SCAN_MODE=local in production only for the dev environment (APP_ENV exactly "dev")', () => {
+    const local = { ...base, SCAN_MODE: 'local' };
+    expect(loadDocumentsConfig({ ...local, NODE_ENV: 'production', APP_ENV: 'dev' }).scanMode).toBe(
+      'local',
+    );
+    expect(
+      loadDocumentsConfig({ ...local, NODE_ENV: 'development', APP_ENV: 'prod' }).scanMode,
+    ).toBe('local');
+    for (const APP_ENV of ['prod', 'staging', '', undefined, 'DEV', ' dev']) {
+      expect(
+        () => loadDocumentsConfig({ ...local, NODE_ENV: 'production', APP_ENV }),
+        String(APP_ENV),
+      ).toThrow(/SCAN_MODE=local is only allowed/);
+    }
+    // Without NODE_ENV, APP_ENV alone allows nothing.
+    expect(() => loadDocumentsConfig({ ...local, APP_ENV: 'dev' })).toThrow(/SCAN_MODE/);
   });
 
   it('needs the bucket, and refuses s3mock settings in production', () => {
@@ -124,14 +144,23 @@ describe('presigned URLs', () => {
 });
 
 describe('the S3 adapter on errors', () => {
+  const s3Error = (httpStatusCode: number) =>
+    Object.assign(new Error('S3'), { $metadata: { httpStatusCode } });
   const failing = (httpStatusCode: number) =>
     new S3DocumentStorage(
-      {
-        send: () =>
-          Promise.reject(Object.assign(new Error('S3'), { $metadata: { httpStatusCode } })),
-      } as unknown as S3Client,
+      { send: () => Promise.reject(s3Error(httpStatusCode)) } as unknown as S3Client,
       BUCKET,
     );
+  /** A fake S3 that answers each HEAD by its checksum mode, and records what was sent. */
+  const heads = (answer: (checksum: boolean) => Promise<unknown>) => {
+    const sent: (string | undefined)[] = [];
+    const send = (command: HeadObjectCommand) => {
+      expect(command).toBeInstanceOf(HeadObjectCommand);
+      sent.push(command.input.ChecksumMode);
+      return answer(command.input.ChecksumMode === 'ENABLED');
+    };
+    return { sent, s3: new S3DocumentStorage({ send } as unknown as S3Client, BUCKET) };
+  };
 
   it('reads 404 as no object, and throws on 403 (a KMS or access failure, never a missing file)', async () => {
     await expect(failing(404).read(key())).resolves.toBeNull();
@@ -139,7 +168,110 @@ describe('the S3 adapter on errors', () => {
     await expect(failing(500).read(key())).rejects.toThrow('S3');
     // HEAD has no s3:ListBucket behind it: 403 is how S3 says there is no such key.
     await expect(failing(403).head(key())).resolves.toBeNull();
+    await expect(failing(503).head(key())).rejects.toThrow('S3');
   });
+
+  it("asks for S3's checksum only when told to (downloads), never at confirm", async () => {
+    const object = {
+      ContentLength: 5,
+      ChecksumSHA256: Buffer.from('ab'.repeat(32), 'hex').toString('base64'),
+      ContentEncoding: 'gzip',
+    };
+    const { sent, s3 } = heads(() => Promise.resolve(object));
+    expect(await s3.head(key())).toEqual({
+      sizeBytes: 5,
+      sha256: 'ab'.repeat(32),
+      contentEncoding: 'gzip',
+    });
+    await s3.head(key(), { checksum: true });
+    expect(sent).toEqual([undefined, 'ENABLED']);
+    const plain = heads(() => Promise.resolve({ ContentLength: 5, ContentEncoding: '' }));
+    expect(await plain.s3.head(key())).toMatchObject({ contentEncoding: null });
+  });
+
+  it('throws on a 403 with the checksum when the object is there (KMS), else null', async () => {
+    // kms:Decrypt missing: the checksum HEAD is 403, a plain HEAD finds the object.
+    const kms = heads((checksum) =>
+      checksum ? Promise.reject(s3Error(403)) : Promise.resolve({ ContentLength: 5 }),
+    );
+    await expect(kms.s3.head(key(), { checksum: true })).rejects.toThrow('S3');
+    expect(kms.sent).toEqual(['ENABLED', undefined]);
+    // No such key: both are 403.
+    const gone = heads(() => Promise.reject(s3Error(403)));
+    await expect(gone.s3.head(key(), { checksum: true })).resolves.toBeNull();
+  });
+});
+
+describe('the S3 adapter against storage that never answers', () => {
+  let server: Server;
+  const sockets = new Set<Socket>();
+  let connections = 0;
+  let endpoint = '';
+  /** What the server does with a new connection (after reading it). */
+  let answer: (socket: Socket) => void = () => {};
+
+  beforeAll(async () => {
+    server = createServer((socket) => {
+      connections += 1;
+      sockets.add(socket);
+      socket.on('close', () => sockets.delete(socket));
+      socket.resume();
+      answer(socket);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const timed = async (call: Promise<unknown>) => {
+    const started = Date.now();
+    const error = await call.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    return { error, ms: Date.now() - started };
+  };
+
+  it('gives up a HEAD within about 10 to 12 s (2 attempts of 5 s)', async () => {
+    answer = () => {}; // never answers
+    connections = 0;
+    const { error, ms } = await timed(storage(endpoint).head(key()));
+    expect(error).toMatchObject({ name: 'TimeoutError' });
+    expect(S3_TIMEOUTS).toMatchObject({ requestTimeout: 5_000, maxAttempts: 2 });
+    expect(ms).toBeGreaterThanOrEqual(9_500);
+    expect(ms).toBeLessThan(12_500);
+    expect(connections).toBe(2);
+  }, 20_000);
+
+  it('gives up a GET whose body stops, at its own deadline', async () => {
+    // The headers and 10 of 100 bytes, then nothing.
+    answer = (socket) => {
+      const head =
+        'HTTP/1.1 200 OK\r\nContent-Length: 100\r\nContent-Type: application/pdf\r\n\r\n';
+      socket.write(`${head}%PDF-1.4\n%`);
+    };
+    const s3 = new S3DocumentStorage(
+      createS3Client({
+        bucket: BUCKET,
+        region: 'us-east-1',
+        endpoint,
+        forcePathStyle: true,
+        credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
+        scanMode: 'local',
+      }),
+      BUCKET,
+      1_000,
+    );
+    const { error, ms } = await timed(s3.read(key()));
+    expect(error).toMatchObject({ name: 'TimeoutError' });
+    expect(ms).toBeGreaterThanOrEqual(900);
+    expect(ms).toBeLessThan(3_000);
+    expect(S3_TIMEOUTS.readMs).toBe(30_000);
+  }, 10_000);
 });
 
 describe('confirm: the bytes are their type', () => {
@@ -256,6 +388,105 @@ describe('confirm: the bytes are their type', () => {
     for (const [why, file] of refusals) expect(checkFile(XLSX, file), why).toBe('UPLOAD_MISMATCH');
   });
 
+  it('finds macro parts by name before reading [Content_Types].xml (a DTD or broken XML too)', () => {
+    const vba = { name: 'xl/vbaProject.bin', data: 'x' };
+    const dtd = types({ '/xl/workbook.xml': MAIN }, '<!DOCTYPE x [<!ENTITY e "y">]>');
+    expect(xlsxWith((p) => [dtd, ...p.slice(1), vba])).toBe('FILE_HAS_MACROS');
+    expect(xlsxWith((p) => [{ ...p[0]!, data: '<Types' }, ...p.slice(1), vba])).toBe(
+      'FILE_HAS_MACROS',
+    );
+    expect(xlsxWith((p) => [...p.slice(1), vba])).toBe('FILE_HAS_MACROS');
+  });
+
+  it('refuses entry names with NUL or control characters', () => {
+    expect(xlsxWith((p) => [...p, { name: 'xl/ok.xml', data: 'x' }])).toBeNull();
+    for (const name of ['xl/a\0b.xml', 'xl/a\u0001.xml', 'xl/a\u007f.xml', 'xl/\u0085a.xml']) {
+      const flags = name.includes('\u0085') ? 0x800 : 0;
+      expect(
+        xlsxWith((p) => [...p, { name, data: 'x', flags }]),
+        JSON.stringify(name),
+      ).toBe('UPLOAD_MISMATCH');
+    }
+  });
+
+  it('refuses NUL or an encoding other than UTF-8 or UTF-16 in [Content_Types].xml', () => {
+    const declared = (encoding: string) =>
+      contentTypes({ '/xl/workbook.xml': MAIN }).replace('encoding="UTF-8"', encoding);
+    expect(
+      xlsxWith((p) => [{ ...p[0]!, data: declared('encoding="utf-8"') }, ...p.slice(1)]),
+    ).toBeNull();
+    for (const encoding of [
+      "encoding='ISO-8859-1'",
+      'encoding="UTF-7"',
+      'encoding="ebcdic-cp-us"',
+    ]) {
+      expect(
+        xlsxWith((p) => [{ ...p[0]!, data: declared(encoding) }, ...p.slice(1)]),
+        encoding,
+      ).toBe('UPLOAD_MISMATCH');
+    }
+    const nul = types({ '/xl/workbook.xml': MAIN }, '<!-- \0 -->');
+    expect(xlsxWith((p) => [nul, ...p.slice(1)])).toBe('UPLOAD_MISMATCH');
+  });
+
+  it('refuses an end record whose comment does not finish at the end of the file', () => {
+    const file = office('xlsx');
+    const commented = Buffer.concat([file, Buffer.from('note')]);
+    commented.writeUInt16LE(4, file.length - 2);
+    expect(checkFile(XLSX, commented)).toBeNull();
+    expect(checkFile(XLSX, Buffer.concat([file, Buffer.from('appended')]))).toBe('UPLOAD_MISMATCH');
+    const short = Buffer.from(file);
+    short.writeUInt16LE(10, file.length - 2); // a comment longer than what follows
+    expect(checkFile(XLSX, short)).toBe('UPLOAD_MISMATCH');
+  });
+
+  /** `file` (a ZIP without a comment) with a ZIP64 end record and locator; `edit` changes them. */
+  function withZip64(
+    file: Buffer,
+    edit: (record: Buffer, locator: Buffer, end: Buffer) => void = () => {},
+  ): Buffer {
+    const at = file.length - 22;
+    const end = Buffer.from(file.subarray(at));
+    const record = Buffer.alloc(56);
+    record.writeUInt32LE(0x06064b50, 0);
+    record.writeBigUInt64LE(44n, 4); // what follows this field
+    record.writeUInt16LE(45, 12);
+    record.writeUInt16LE(45, 14);
+    const count = BigInt(end.readUInt16LE(10));
+    record.writeBigUInt64LE(count, 24);
+    record.writeBigUInt64LE(count, 32);
+    record.writeBigUInt64LE(BigInt(end.readUInt32LE(12)), 40);
+    record.writeBigUInt64LE(BigInt(end.readUInt32LE(16)), 48);
+    const locator = Buffer.alloc(20);
+    locator.writeUInt32LE(0x07064b50, 0);
+    locator.writeBigUInt64LE(BigInt(at), 8);
+    locator.writeUInt32LE(1, 16);
+    end.writeUInt16LE(0xffff, 8);
+    end.writeUInt16LE(0xffff, 10);
+    end.writeUInt32LE(0xffffffff, 12);
+    end.writeUInt32LE(0xffffffff, 16);
+    edit(record, locator, end);
+    return Buffer.concat([file.subarray(0, at), record, locator, end]);
+  }
+
+  it('reads a ZIP64 end record only when the locator and the end record agree with it', () => {
+    const file = office('xlsx');
+    const cdSize = file.readUInt32LE(file.length - 22 + 12);
+    expect(checkFile(XLSX, withZip64(file))).toBeNull();
+    const disagreements: [string, (record: Buffer, locator: Buffer, end: Buffer) => void][] = [
+      ['a directory size of its own', (_r, _l, end) => end.writeUInt32LE(cdSize + 1, 12)],
+      ['an entry count of its own', (_r, _l, end) => end.writeUInt16LE(5, 10)],
+      ['a record that does not end at the locator', (record) => record.writeBigUInt64LE(100n, 4)],
+      [
+        'a locator pointing past the record',
+        (_r, locator) => locator.writeBigUInt64LE(1n << 40n, 8),
+      ],
+    ];
+    for (const [why, edit] of disagreements) {
+      expect(checkFile(XLSX, withZip64(file, edit)), why).toBe('UPLOAD_MISMATCH');
+    }
+  });
+
   it('reads [Content_Types].xml as a parser does: quoted ">", processing instructions, comments', () => {
     const MACRO_MAIN = 'application/vnd.ms-excel.sheet.macroEnabled.main+xml';
     const VBA = 'application/vnd.ms-office.vbaProject';
@@ -338,7 +569,13 @@ describe.skipIf(!s3mock)('the S3 adapter against s3mock', () => {
     const send = (body: Buffer) => fetch(put.url, { method: 'PUT', headers: put.headers, body });
     expect((await send(pdf('other bytes'))).status).toBe(400);
     expect((await send(file)).status).toBe(200);
-    expect(await s3.head(k)).toEqual({ sizeBytes: file.length, sha256: sha256(file) });
+    // s3mock sends its checksum unasked; S3 only in checksum mode.
+    expect(await s3.head(k)).toMatchObject({ sizeBytes: file.length, contentEncoding: null });
+    expect(await s3.head(k, { checksum: true })).toEqual({
+      sizeBytes: file.length,
+      sha256: sha256(file),
+      contentEncoding: null,
+    });
     expect(Buffer.from((await s3.read(k))!)).toEqual(file);
     const download = await fetch(
       await s3.presignDownload({
