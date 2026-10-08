@@ -79,7 +79,8 @@ export function createMyServicesClient(request: ApiRequest, firmSlug: string) {
     /**
      * The PRIMARY login only (403 FORBIDDEN for SPOUSE and AUTHORIZED logins). ACTIVE recurring
      * services, on or before `cancelBy`: 409 INVALID_STATUS, NOT_RECURRING or TOO_LATE_TO_CANCEL
-     * otherwise. The firm gets a task for it. Asking again returns the service unchanged.
+     * otherwise. The firm gets a task for it. Asking again returns the service unchanged. An
+     * archived client may still ask (the firm is winding its work down anyway).
      */
     requestCancellation: async (
       id: string,

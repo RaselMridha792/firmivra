@@ -553,6 +553,19 @@ describe('portal: My Services', () => {
     }
   });
 
+  it('a cancellation request for a client with no assignee makes an unassigned task', async () => {
+    const e = await create(ids.two, {
+      serviceId: ids.books,
+      title: `Nobody assigned ${run}`,
+      nextBillingOn: inDays(60),
+    });
+    expectOk(await portal('post', `/${e.id}/cancel-request`, people.other, {}));
+    const tasks = await inFirm((tx) => tx.task.findMany({ where: { engagementId: e.id } }));
+    expect(tasks.map((t) => [t.kind, t.clientId, t.assignedUserId])).toEqual([
+      ['GENERAL', ids.two, null],
+    ]);
+  });
+
   it('a next billing date already past sets no deadline: cancelBy is null and the request is taken', async () => {
     const e = await create(ids.one, {
       serviceId: ids.books,

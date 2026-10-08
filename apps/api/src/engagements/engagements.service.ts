@@ -20,6 +20,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { lockClient } from '../workspaces/common.js';
 
 type ListQuery = z.output<typeof ListEngagementsQuery>;
 type CreateBody = z.output<typeof CreateEngagementRequest>;
@@ -567,10 +568,10 @@ export class EngagementsService {
       });
       // The firm hears of it as a task, in the same transaction: for the client's assigned staff
       // member while they are an active member, otherwise for anyone (as a name change request).
-      const client = await tx.client.findFirstOrThrow({
-        where: { businessId, id: me.clientId },
-        select: { assignedUserId: true },
-      });
+      // Locked FOR SHARE (after the engagement, the order everywhere here), so a reassignment
+      // either committed first and is seen, or waits and then moves this task along with the rest.
+      const client = await lockClient(tx, businessId, me.clientId);
+      if (!client) throw notFound();
       const assignee = client.assignedUserId
         ? await tx.membership.findFirst({
             where: { businessId, userId: client.assignedUserId, status: 'ACTIVE' },
