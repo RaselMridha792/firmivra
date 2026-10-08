@@ -534,13 +534,6 @@ export const ANNUAL_TAX_FORM: IntakeFormDefinition = {
             R,
           ),
         ]),
-        section('agreement', 'Service Agreement', [
-          f.checkbox(
-            'agreeToTerms',
-            'I have read and understand the Service Agreement in its entirety. I agree to the terms and conditions.',
-            R,
-          ),
-        ]),
       ],
       {
         review: true,
@@ -549,9 +542,4 @@ export const ANNUAL_TAX_FORM: IntakeFormDefinition = {
       },
     ),
   ],
-  agreement: {
-    title: 'Tax Preparation Service Agreement',
-    mustScroll: true,
-    signatureLabel: 'Signature (type your full name)',
-  },
 };

@@ -13,7 +13,8 @@ import { ServiceKind } from '../db-enums.js';
 // earlier field has the given answer (a hidden field is not checked and its answer is dropped on
 // submit). The last step is the review step (`review: true`): the screen shows the answers of the
 // steps before it with an Edit link per step, then the review step's own fields (payment choice,
-// consent boxes), the agreement and the typed signature.
+// consent boxes). The agreement, its acknowledgments and the signature are not part of a form:
+// they come from the firm's versioned agreements (R14, `api.publicAgreements(slug)`).
 //
 // Texts may hold `{taxYear}` and `{firmName}`: the screen fills them with `fillIntakeText()` (the
 // tax year comes with the draft or intake; the firm's name from its portal branding).
@@ -301,19 +302,6 @@ export const IntakeStep = z.object({
 });
 export type IntakeStep = z.infer<typeof IntakeStep>;
 
-/**
- * The service agreement on the review step. Its text is the firm's (`agreementText`, markdown,
- * fixed with the published version); the client signs it by typing their full name.
- */
-export const IntakeAgreement = z.object({
-  title: z.string(),
-  /** "You must scroll through the entire agreement to continue." */
-  mustScroll: z.boolean(),
-  /** The signature box's label. */
-  signatureLabel: z.string(),
-});
-export type IntakeAgreement = z.infer<typeof IntakeAgreement>;
-
 type Ctx = z.RefinementCtx;
 const problem = (ctx: Ctx, path: (string | number)[], message: string) =>
   ctx.addIssue({ code: 'custom', path, message });
@@ -422,7 +410,6 @@ export const IntakeFormDefinition = z
     title: z.string(),
     subtitle: z.string().optional(),
     steps: z.array(IntakeStep).min(1).max(10),
-    agreement: IntakeAgreement.nullable(),
   })
   .superRefine((definition, ctx) => {
     const earlier = new Map<string, IntakeField>();
@@ -453,9 +440,6 @@ export const IntakeFormDefinition = z
         });
       });
     });
-    if (definition.agreement && !definition.steps.at(-1)?.review) {
-      problem(ctx, ['agreement'], 'An agreement needs a review step to sign it on');
-    }
   });
 export type IntakeFormDefinition = z.infer<typeof IntakeFormDefinition>;
 

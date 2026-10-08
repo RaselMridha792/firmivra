@@ -44,7 +44,6 @@ const complete = {
   socialSecurityCard: { notAvailable: true, reason: 'Ordered a replacement card.' },
   certifyDocuments: true,
   paymentPreference: 'PAY_AFTER',
-  agreeToTerms: true,
 };
 const submit = (answers: Record<string, unknown>, uploads: Record<string, number> = {}) =>
   checkIntakeAnswers(annual, answers, { mode: 'submit', uploads, today });
@@ -186,7 +185,6 @@ describe('checkIntakeAnswers: url and month answers', () => {
         ],
       },
     ],
-    agreement: null,
   };
   const check = (answers: Record<string, unknown>) =>
     checkIntakeAnswers(definition, answers, { mode: 'save', step: 'one' });
@@ -235,7 +233,6 @@ describe('checkIntakeAnswers: submit', () => {
         'documents:governmentId',
         'documents:certifyDocuments',
         'review:paymentPreference',
-        'review:agreeToTerms',
       ]),
     );
     // Hidden ones are not asked for: no spouse, no business step, no dependents' documents.

@@ -25,11 +25,13 @@ describe('the built-in form definitions present', () => {
     }
   });
 
-  it('each ends with its review step and has an agreement', () => {
+  it('each ends with its review step, and carries no agreement of its own', () => {
     for (const form of forms) {
       expect(form.steps.at(-1)?.review, form.key).toBe(true);
       expect(form.steps.filter((s) => s.review)).toHaveLength(1);
-      expect(form.agreement).not.toBeNull();
+      // The agreement and its acknowledgments are the firm's versioned agreements (R14).
+      expect(form).not.toHaveProperty('agreement');
+      expect(JSON.stringify(form)).not.toMatch(/agreeToTerms|Service Agreement/);
     }
   });
 
