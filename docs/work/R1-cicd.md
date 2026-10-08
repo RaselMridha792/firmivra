@@ -3,6 +3,7 @@
 **Goal:** A merge to main builds the images and runs api and web on dev automatically.
 
 **Owned paths (change only these):**
+
 - `infra/**`
 - `.github/workflows/**`
 - `apps/api/Dockerfile`
@@ -11,6 +12,7 @@
 - `docs/SETUP-LOG.md`
 
 **Read first (nothing else):** CLAUDE.md, docs/work/README.md, this file, and:
+
 - docs/SETUP-LOG.md
 - infra/src/config.ts
 - docs/AUTH-DESIGN.md is NOT needed
@@ -60,6 +62,35 @@ Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
   - Per-firm KMS keys for S3 objects, each tied to its `tenant/{businessId}/` prefix.
 - **Rasel:** who gives a new firm its default document categories (R4's approve, or R0), plus a one-off for LVP on dev. Today only the seed makes them (from #118's review).
 
+## Handoff (R1 session, Oct 8 evening)
+
+Where R1 (also acting as R4, R5, R6 and R7) stands, for a fresh session or after a context reset. Newest state first.
+
+- **Open PRs:**
+  - #101: infra (firm keys, the LVP key command, the EIN-hash secret, Cognito reset emails through SES). The real `cdk diff` is posted on it, and Rasel did step 1 himself: both bootstrap policies are at v2, with `email.cognito-idp` in them. It waits for the cloud review and Rasel's merge. Steps 3 to 5 and R2's leaked-password test (with a throwaway staff user) come as Rasel's "From me, follow it." block. Merging it deploys `firmivra-dev-app`; R1 watches that run.
+  - #118: R5 documents API part 1, the firm side. The lead's review and the cloud review are fixed (head `22d1ee2`); it waits for the cloud OK.
+  - #124: this file's "Needs from others", the R4 approve plan and this handoff.
+- **Being built:** R5 part 2, branch `rasel/R5-documents-api-part2`, stacked on #118: the portal routes with the household rule, the request routes, the request path of confirm, and the scan-result method with q22 and q24. Its first commit, `MyDocument.uploadedBy`, goes out as its own contract PR from main after #124 merges. The API PR opens when a slot is free (at most 2 open).
+- **Next, in order (Scrum, Oct 8):**
+  1. R5 part 2.
+  2. R6's remaining NotifyService work: email and SMS for invites, document requests and reminders. A staff event never reaches Staff who aren't assigned to the client (q27).
+  3. R4 approve, from the plan in R4's file. It also creates the default document categories; LVP on dev gets them through a one-off task, after telling Rasel.
+- **After #101 merges** (Rasel's yes, Oct 8): four small PRs, one at a time, each with its real `cdk diff` where it touches AWS:
+  - (a) `audit-log/` under Tumit in `path-guard.yml`;
+  - (b) an s3mock service in `ci.yml`;
+  - (c) `SCAN_MODE=local` on the dev API task only;
+  - (d) R5's infra: GuardDuty with its result queue and alarm, expiry for unconfirmed uploads, and per-firm document keys.
+
+  Any AWS step or deploy outside Deploy dev goes to Rasel first.
+
+- **Answered by Rasel (Oct 8):** yes to (a) to (d); R4's approve makes the default categories; q22 to q24 for documents; q12 household logins.
+- **Local:**
+  - The R1 checkout `F:/firmivra-R1` uses database `firmivra_r1b`. Prisma refuses an AI-run `migrate reset` without Rasel's own consent, so the old `firmivra_r1` is left for Rasel to drop.
+  - `.env` has the `.env.example` `EIN_HASH_KEY`; local uploads need `SCAN_MODE=local`.
+  - One worktree only, one heavy command at a time, at most 2 agents (Rasel, Oct 8).
+- **Saved work:** `C:/Users/RASEL/firmivra-wip-patches/rasel_R4-api-approve.patch` (approve; adapt it to the plan in R4's file).
+- **Deploy dev:** R1 watches every run, and only R1 starts, cancels or re-runs one. A pending run cancelled by a newer push is normal; the newer run ships both.
+
 ## Progress log
 
 (newest last: date, step, what changed, commit)
@@ -99,6 +130,7 @@ Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
   - how-to in SETUP-LOG.
 
   Tests: 6 new db tests (validation, first link, re-run, pool refusal with nothing written, firm isolation); infra test pins `APP_ENV`. Ran the script locally and inside the built image against local Postgres. Nothing ran in AWS: Rasel sees the Cognito and run-task commands first.
+
 - 2026-10-06, CSRF check live (after the #23 deploy, run 37448823378, green): sign-in POSTs with a made-up email and a wrong password. app.dev with `Origin: https://app.dev.firmivra.com` answered 401 INVALID_CREDENTIALS, and so did a request without `Origin` but with `Sec-Fetch-Site: same-origin`; admin.dev with its own Origin answered 401 INVALID_CREDENTIALS too. Controls answered 403 ORIGIN_NOT_ALLOWED: Origin https://evil.example, `Sec-Fetch-Site: cross-site`, and app's Origin on the admin sign-in. Both headers reach the API through CloudFront and the load balancer. The #20 deploy (run 37448607179) was green too.
 - 2026-10-06, step 13: switched to subs and roles only (Rasel), so no emails land in CloudTrail through the task overrides.
   - The task reads email and name from Cognito with `AdminGetUser`, the migrate task role's only Cognito permission, on the staff and admins pool ARNs.
@@ -173,6 +205,7 @@ Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
   5. Then R4 submit (needs R0's ein columns; otherwise approve first), request info, decline and notes, then approve (KMS and invite: to Rasel before pushing).
   6. Open for Rasel: R5 file types and replacements; R6 password-reset email; the lead's other R5 questions (FAILED rescans, deferred deletes, uploads to PENDING engagements).
   7. Keep watching every Deploy dev run.
+
 - 2026-10-08: #75 merged (4a9f707) with main merged in first (36c4d02); its Deploy dev run succeeded, as did #71's and #77's. A watcher that died on a network error had only been waiting. Next step 2 above: the R6 PR, opened now from fresh main.
 - 2026-10-08, Super Admin mock session and skeleton checks by tab title (Rasel's answers to the review session's two questions; branch `rasel/R1-mock-admin-titles` from main, must merge before #58):
   - Mock module `adminAuth`: `mocks/admin-auth.ts` (`createAdminAuthMock(real)`: `me`, `refresh`, `signOut`) starts signed in as the invented Morgan Admin, the same person as ADMIN in `mocks/firm-applications.ts` (not imported, so it stays out of the production bundle). After sign-out `me` and `refresh` answer 401; a reload signs back in. `lib/auth.ts` picks it behind the inline NODE_ENV guard; `SignedIn` signs out through it before the local dev sign-out. The portal mock's Map is now created on first use, so nothing of the mocks runs when lib/auth.ts loads. New `e2e/mock/admin-session.spec.ts`.
