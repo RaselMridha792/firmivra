@@ -59,15 +59,17 @@ Checklist:
 
 - **Pages:** `/applications` and `/applications/[id]`, in `admin/(console)/applications/`.
 - **Mockups:** `Firm application.png` (list), `When firm aplication is open.png` (detail), `Firm approved.png` (after approval), all in `docs/mockups/super-admin/`.
-- **API:** R4's `api.firmApplications.*` (contract by Oct 8; mock until it merges).
+- **API:** R4's typed `api.firmApplications.*` contract is on `main`. Use `NEXT_PUBLIC_API_MOCK=firmApplications` for the API-shaped mock until dev data is available.
 - **Build:** stat cards; tabs All, Pending, Approved, Declined with counts; search, status and date filters; table with paging. Detail page with all application fields, automated checks, internal notes and history. Actions Approve, Request Information (with a message) and Decline (with a reason), each with a confirm dialog.
+
+Implementation and review details: [PR #111](https://github.com/RaselMridha792/firmivra/pull/111).
 
 Checklist:
 
-- [ ] Buttons disabled while a request is running
-- [ ] After an action, the list and the counts refresh
-- [ ] An unknown id shows not-found
-- [ ] Playwright: approve an application in mock mode
+- [x] Buttons disabled while a request is running
+- [x] After an action, the list and the counts refresh
+- [x] An unknown id shows not-found
+- [x] Playwright: approve an application in mock mode
 
 ### N04 · Oct 9 · Public firm application form, and the firms list
 
