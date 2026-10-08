@@ -23,13 +23,18 @@ export class LockBusy extends Error {
   }
 }
 
-/** The calendar keys: the firm's, or one staff member's. Exported for tests. */
+/**
+ * The calendar keys: the firm's, or one staff member's. Exported for tests. Ids are lower-cased
+ * here too: one uuid in two spellings must be one key (#108 review).
+ */
 export const calendarLockKey = (businessId: string, userId?: string | null) =>
-  userId ? `appointments:${businessId}:${userId}` : `appointments:${businessId}`;
+  userId
+    ? `appointments:${businessId.toLowerCase()}:${userId.toLowerCase()}`
+    : `appointments:${businessId.toLowerCase()}`;
 
 /** One change of a member's working hours at a time (a replace must not merge two weeks). */
 export const workingHoursLockKey = (businessId: string, userId: string) =>
-  `working_hours:${businessId}:${userId}`;
+  `working_hours:${businessId.toLowerCase()}:${userId.toLowerCase()}`;
 
 /** One name check of a firm's appointment types at a time (names are unique ignoring case). */
 export const typeNamesLockKey = (businessId: string) => `appointment_type_names:${businessId}`;

@@ -60,7 +60,9 @@ export const BLOCK_LIMITS = { perCalendar: 200 };
 
 /** Owner and Admin change anyone's; Staff only their own (a whole-firm block is a manager's). */
 function mayChange(actor: FirmActor, userId: string | null): void {
-  if (actor.role === 'STAFF' && userId !== actor.userId) throw errors.forbidden();
+  if (actor.role === 'STAFF' && userId?.toLowerCase() !== actor.userId.toLowerCase()) {
+    throw errors.forbidden();
+  }
 }
 
 /**

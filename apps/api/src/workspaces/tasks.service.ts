@@ -284,6 +284,17 @@ export class TasksService {
     body: UpdateBody,
   ): Promise<Task> {
     const task = await this.inFirm(businessId, async (tx) => {
+      // Locks in one order everywhere, the client and then the task, as create() and R10's
+      // reassignment (reassignClientTasks) take them: the other order deadlocks with a
+      // reassignment of the same client (#104 review). A task never changes client, so its
+      // client is read first without a lock.
+      const owner = await tx.task.findFirst({
+        where: { businessId, id },
+        select: { clientId: true },
+      });
+      if (!owner) throw notFound();
+      const client = await lockClient(tx, businessId, owner.clientId);
+      if (!client || !reachesClient(actor, client)) throw notFound();
       // One change of a task at a time, so the status it replaces is the one read here.
       const [locked] = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM tasks WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
@@ -293,9 +304,7 @@ export class TasksService {
         where: { businessId, id },
         select: { clientId: true, kind: true, status: true, completedAt: true },
       });
-      if (!current) throw notFound();
-      const client = await lockClient(tx, businessId, current.clientId);
-      if (!client || !reachesClient(actor, client)) throw notFound();
+      if (!current || current.clientId !== owner.clientId) throw notFound();
       if (body.assignedUserId) {
         await checkAssignee(tx, businessId, body.assignedUserId, client);
       }

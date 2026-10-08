@@ -101,6 +101,8 @@ const errors = {
     ),
   closed: () => fail(409, 'APPOINTMENT_CLOSED', 'This appointment can no longer change'),
   typeArchived: () => fail(409, 'TYPE_ARCHIVED', 'This appointment type is archived'),
+  notStarted: () => fail(409, 'APPOINTMENT_NOT_STARTED', 'This appointment has not started yet'),
+  blockInPast: () => fail(400, 'VALIDATION_FAILED', 'A block must end in the future'),
   clientArchived: () => fail(409, 'CLIENT_ARCHIVED', 'Restore the client first'),
   blockLimit: () =>
     fail(409, 'BLOCK_LIMIT', 'This calendar has too many blocks. Delete some first.'),
@@ -441,6 +443,7 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
     block: async (body) => {
       await mockDelay();
       const input = parseInput(CreateBlockedTimeRequest, body);
+      if (Date.parse(input.endsAt) <= Date.now()) throw errors.blockInPast();
       mayChange(input.userId);
       const s = db();
       const m = input.userId === null ? null : member(input.userId);
@@ -520,6 +523,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
     await mockDelay();
     const a = find(appointmentId);
     open(a);
+    if (Date.now() < Date.parse(a.startsAt)) throw errors.notStarted();
     const before = copy(a);
     a.status = status;
     record(db(), a, status, staffBy, before, null);
@@ -555,6 +559,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       const s = db();
       const t = s.types.find((x) => x.id === q.typeId);
       if (!t) throw errors.notFound();
+      if (t.archivedAt) throw errors.typeArchived();
       const [from, to] = dayRange(q.from, q.to);
       const who = q.staffUserId
         ? [member(q.staffUserId)].filter((m) => m !== undefined)
@@ -612,9 +617,13 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       const minutes = (Date.parse(a.endsAt) - Date.parse(a.startsAt)) / MINUTE;
       const startsAt = new Date(input.startsAt).toISOString();
       const range = { startsAt, endsAt: plus(startsAt, minutes) };
+      const moved = startsAt !== new Date(a.startsAt).toISOString();
+      // The same time and member: nothing changes, nothing is recorded (as the API).
+      if (!moved && staff.userId === a.staff.userId) return copy(a);
       assertFree(s, range, staff.userId, a.client.id, a.id);
       const before = copy(a);
-      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + 1 });
+      // As the database: the count follows time changes, not a change of member only.
+      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + (moved ? 1 : 0) });
       record(s, a, 'RESCHEDULED', staffBy, before, null);
       return copy(a);
     },
@@ -788,7 +797,8 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       const staff = sameFree ? a.staff : pick(minutes, startsAt);
       assertFree(s, range, staff.userId, client.id, a.id);
       const before = copy(a);
-      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + 1 });
+      const moved = startsAt !== new Date(a.startsAt).toISOString();
+      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + (moved ? 1 : 0) });
       record(s, a, 'RESCHEDULED', clientBy, before, null);
       return copy(view(a));
     },

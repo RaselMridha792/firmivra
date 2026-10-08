@@ -10,7 +10,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
@@ -28,6 +28,7 @@ import {
   SlotList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { AuditService } from '../../src/audit/audit.service.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
 import { BLOCK_LIMITS } from '../../src/appointments/availability.service.js';
 import { calendarLockKey } from '../../src/appointments/calendar-locks.js';
@@ -176,6 +177,27 @@ async function seedAppointment(
       select: { id: true },
     }),
   );
+}
+let pastDay = 30;
+/**
+ * Moves an appointment into the past, where complete and no-show apply (#108 review); each call
+ * on a day of its own, far from the tests' blocks, so no two overlap. Returns the new start.
+ */
+async function intoThePast(id: string): Promise<string> {
+  pastDay += 1;
+  const startsAt = new Date(at(-pastDay, '20:00'));
+  await asOwner(ids.firmA, async (tx) => {
+    const a = await tx.appointment.findUniqueOrThrow({
+      where: { id },
+      select: { startsAt: true, endsAt: true },
+    });
+    const length = a.endsAt.getTime() - a.startsAt.getTime();
+    await tx.appointment.update({
+      where: { id },
+      data: { startsAt, endsAt: new Date(startsAt.getTime() + length) },
+    });
+  });
+  return startsAt.toISOString();
 }
 const cancelSeeded = (id: string) =>
   asOwner(ids.firmA, (tx) =>
@@ -1268,6 +1290,16 @@ describe('changes and their history', () => {
     const done = await make('09:00');
     const missed = await make('10:00');
     const dropped = await make('11:00');
+    // Not started yet: complete and no-show wait for the start (#108 review).
+    for (const path of ['complete', 'no-show']) {
+      expectError(
+        await call('post', `/appointments/${done.id}/${path}`, people.ownerA, {}),
+        409,
+        'APPOINTMENT_NOT_STARTED',
+      );
+    }
+    await intoThePast(done.id);
+    const missedAt = await intoThePast(missed.id);
     expect(
       exact(Appointment, await call('post', `/appointments/${done.id}/complete`, people.ownerA, {}))
         .status,
@@ -1301,7 +1333,7 @@ describe('changes and their history', () => {
     }
     const history = (await detail(missed.id)).history;
     expect(history.map((e) => e.action)).toEqual(['BOOKED', 'NO_SHOW']);
-    expect(history[1]).toMatchObject({ from: { startsAt: at(13, '10:00') }, to: null });
+    expect(history[1]).toMatchObject({ from: { startsAt: missedAt }, to: null });
     expectError(
       await call('post', `/appointments/${done.id}/cancel`, people.ownerA, {
         reason: 'x'.repeat(501),
@@ -1353,13 +1385,15 @@ describe('free slots', () => {
     expect(starts(after, people.staffA.id)).toEqual(
       ['09:00', '10:30', '10:45'].map((t) => at(14, t)),
     );
-    // Rescheduling: the moved appointment's own time counts as free.
+    // Rescheduling: the moved appointment's own time counts as free, in any spelling of its id.
     const moving = await slots(`${q}&excludeAppointmentId=${a.id}`);
     expect(starts(moving, people.staffA.id)).toEqual(
       ['09:00', '09:15', '09:30', '09:45', '10:00', '10:15', '10:30', '10:45'].map((t) =>
         at(14, t),
       ),
     );
+    const capitals = await slots(`${q}&excludeAppointmentId=${a.id.toUpperCase()}`);
+    expect(capitals.slots).toEqual(moving.slots);
   });
 
   it("Staff get every member's slots; past days have none; unknown types and members are 404", async () => {
@@ -1835,6 +1869,7 @@ describe('at the same time', () => {
         typeId: consult.id,
         startsAt: at(21, time),
       });
+      await intoThePast(a.id);
       const results = await Promise.all([
         call('post', `/appointments/${a.id}/cancel`, people.ownerA, { reason: 'Clash test' }),
         call('post', `/appointments/${a.id}/complete`, people.adminA, {}),
@@ -2029,5 +2064,173 @@ describe('appointment audit and notices', () => {
         link: expect.stringMatching(/\/r12a-firma-[0-9a-f]+\/appointments$/),
       },
     });
+  });
+});
+
+describe('#108 review', () => {
+  const plus = (iso: string, minutes: number) =>
+    new Date(Date.parse(iso) + minutes * 60_000).toISOString();
+  const upper = (id: string) => id.toUpperCase();
+
+  it('one uuid in two spellings is one calendar: a block and a booking never both pass', async () => {
+    for (let i = 0; i < 4; i += 1) {
+      const startsAt = at(32, `${String(9 + i).padStart(2, '0')}:00`);
+      const [blocked, booked] = await Promise.all([
+        call('post', '/blocked-times', people.ownerA, {
+          userId: people.staffA2.id,
+          startsAt,
+          endsAt: plus(startsAt, 30),
+        }),
+        call('post', '/appointments', people.adminA, {
+          clientId: upper(ids.c3),
+          staffUserId: upper(people.staffA2.id),
+          typeId: upper(consult.id),
+          startsAt,
+        }),
+      ]);
+      expect(
+        [
+          [201, 409],
+          [409, 201],
+        ],
+        JSON.stringify([blocked.body, booked.body]),
+      ).toContainEqual([blocked.status, booked.status]);
+    }
+    const overlapping = await asOwner(
+      ids.firmA,
+      (tx) =>
+        tx.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM appointments a
+        JOIN blocked_times b ON b.business_id = a.business_id
+          AND (b.user_id = a.staff_user_id OR b.user_id IS NULL)
+          AND tstzrange(b.starts_at, b.ends_at, '[)') && tstzrange(a.starts_at, a.ends_at, '[)')
+        WHERE a.business_id = ${ids.firmA}::uuid AND a.status = 'SCHEDULED'`,
+    );
+    expect(overlapping[0]?.n).toBe(0);
+  });
+
+  it('a reschedule to the same time and member, in capitals, changes nothing and tells no one', async () => {
+    const a = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(33, '09:00'),
+    });
+    outbox.length = 0;
+    const same = exact(
+      Appointment,
+      await call('post', `/appointments/${upper(a.id)}/reschedule`, people.ownerA, {
+        startsAt: at(33, '09:00'),
+        staffUserId: upper(people.staffA.id),
+      }),
+    );
+    expect(same.rescheduleCount).toBe(0);
+    expect((await detail(a.id)).history.map((e) => e.action)).toEqual(['BOOKED']);
+    expect(outbox).toEqual([]);
+  });
+
+  it('two working weeks at once, one in capitals, leave one of them, never both', async () => {
+    const weeks = [1, 2, 3, 4].map((weekday) => ({
+      hours: [{ weekday, startsAt: '08:00', endsAt: '08:30' }],
+    }));
+    const results = await Promise.all(
+      weeks.map((week, i) =>
+        call(
+          'put',
+          `/availability/${i % 2 ? upper(people.adminA.id) : people.adminA.id}/working-hours`,
+          people.ownerA,
+          week,
+        ),
+      ),
+    );
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    const week = exact(
+      Availability,
+      await call('get', '/availability', people.ownerA),
+    ).members.find((m) => m.member.userId === people.adminA.id)?.hours;
+    expect(weeks.map((w) => w.hours)).toContainEqual(week);
+    await call('put', `/availability/${people.adminA.id}/working-hours`, people.ownerA, {
+      hours: [],
+    });
+  });
+
+  it('Staff block their own calendar with their id in capitals too', async () => {
+    exact(
+      BlockedTime,
+      await call('post', '/blocked-times', people.staffA, {
+        userId: upper(people.staffA.id),
+        startsAt: at(34, '13:00'),
+        endsAt: at(34, '13:30'),
+      }),
+      201,
+    );
+  });
+
+  it('refuses a block that has already ended (400)', async () => {
+    expectError(
+      await call('post', '/blocked-times', people.staffA, {
+        userId: people.staffA.id,
+        startsAt: at(-2, '09:00'),
+        endsAt: at(-2, '10:00'),
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
+  });
+
+  it('writes the history row in the change: when it fails, nothing is booked, and the retry books', async () => {
+    const audit = app.get(AuditService);
+    const failing = vi
+      .spyOn(audit, 'logIn')
+      .mockRejectedValueOnce(new Error('The audit insert failed'));
+    const body = {
+      clientId: ids.c3,
+      staffUserId: people.staffA2.id,
+      typeId: consult.id,
+      startsAt: at(35, '09:00'),
+    };
+    try {
+      expect((await call('post', '/appointments', people.ownerA, body)).status).toBe(500);
+    } finally {
+      failing.mockRestore();
+    }
+    const day35 = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(35, 36)}`, people.ownerA),
+    ).items;
+    expect(day35).toEqual([]);
+    // The retry is not refused by a booking of its own that the failure left behind.
+    const retried = await book(body);
+    expect((await detail(retried.id)).history.map((e) => e.action)).toEqual(['BOOKED']);
+  });
+
+  it('answers 409 TYPE_ARCHIVED for the slots of an archived type, as booking it does', async () => {
+    const t = await createType({ name: `Slots archived ${run}`, durationMinutes: 30 });
+    exact(
+      AppointmentType,
+      await call('post', `/appointment-types/${t.id}/archive`, people.ownerA, {}),
+    );
+    expectError(
+      await call(
+        'get',
+        `/appointments/slots?typeId=${t.id}&from=${day(36)}&to=${day(36)}`,
+        people.ownerA,
+      ),
+      409,
+      'TYPE_ARCHIVED',
+    );
+  });
+
+  it('refuses a booking that would end after 2100 (400)', async () => {
+    expectError(
+      await call('post', '/appointments', people.ownerA, {
+        clientId: ids.c3,
+        staffUserId: people.adminA.id,
+        typeId: consult.id,
+        startsAt: '2100-12-31T23:45:00Z',
+      }),
+      400,
+      'VALIDATION_FAILED',
+    );
   });
 });

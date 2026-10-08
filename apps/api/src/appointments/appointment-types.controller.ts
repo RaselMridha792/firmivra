@@ -10,9 +10,9 @@ import { CurrentTenant, FIRM_MANAGERS, FIRM_STAFF, Roles } from '../auth/decorat
 import type { TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AppointmentTypesService } from './appointment-types.service.js';
-import { CreateTypeBody, UpdateTypeBody } from './appointments.input.js';
+import { CreateTypeBody, idParam, UpdateTypeBody } from './appointments.input.js';
 
-const idPipe = new ZodValidationPipe(AppointmentTypeId);
+const idPipe = new ZodValidationPipe(idParam(AppointmentTypeId));
 
 /**
  * The firm's appointment types (R12 step 2). Everyone at the firm reads; Owner and Admin create,

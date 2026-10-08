@@ -56,9 +56,33 @@ export class ApiExceptionFilter implements ExceptionFilter {
       // A route that knows how long to wait says so: `retryAfter` seconds, sent as Retry-After.
       const retryAfter = fields['retryAfter'];
       if (typeof retryAfter === 'number' && Number.isInteger(retryAfter) && retryAfter > 0) {
-        res.setHeader('Retry-After', String(retryAfter));
+        res.setHeader('Retry-After', String(Math.min(retryAfter, 3_600)));
       }
       res.status(status).json({ error });
+      return;
+    }
+
+    // Express's body parser refuses a body before any route runs: too large (413) or not valid
+    // JSON (400). Its errors are not HttpExceptions but say their status and that it is safe to
+    // show (`expose`); without this they were 500 (#109 review).
+    const parser = exception as {
+      status?: unknown;
+      statusCode?: unknown;
+      expose?: unknown;
+      type?: unknown;
+    } | null;
+    const parserStatus = Number(parser?.status ?? parser?.statusCode);
+    if (parser?.expose === true && parserStatus >= 400 && parserStatus < 500) {
+      const tooLarge = parser.type === 'entity.too.large' || parserStatus === 413;
+      res.status(tooLarge ? HttpStatus.PAYLOAD_TOO_LARGE : parserStatus).json({
+        error: tooLarge
+          ? { code: 'PAYLOAD_TOO_LARGE', message: 'The request is too large', requestId }
+          : {
+              code: CODES[parserStatus] ?? `HTTP_${parserStatus}`,
+              message: 'The request body could not be read',
+              requestId,
+            },
+      });
       return;
     }
 

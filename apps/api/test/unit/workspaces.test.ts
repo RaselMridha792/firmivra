@@ -1,5 +1,4 @@
-// Unit tests for R12 step 6: the tasks logic that needs no database, and the shared input and
-// cursors. The workspaces and reports tests come with their PR.
+// Unit tests for R12 step 6: the tasks, workspaces and reports logic that needs no database.
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { reachesClient, sentFields } from '../../src/workspaces/common.js';
@@ -19,7 +18,9 @@ import {
   encodeTaskCursor,
   encodeTimeCursor,
 } from '../../src/workspaces/paging.js';
+import { readReportData, writeReportData } from '../../src/workspaces/reports.service.js';
 import { completedAtAfter } from '../../src/workspaces/tasks.service.js';
+import { workspaceKindOf } from '../../src/workspaces/workspaces.service.js';
 
 const ID = '0199b6d1-0000-7000-8000-000000000001';
 const forged = (raw: string) => Buffer.from(raw).toString('base64url');
@@ -167,5 +168,39 @@ describe('tasks', () => {
         'status',
       ]),
     ).toEqual(['details', 'status', 'title']);
+  });
+});
+
+describe('workspaces and reports', () => {
+  it('only Bookkeeping and Tax Planning services have a workspace', () => {
+    expect(workspaceKindOf('BOOKKEEPING')).toBe('BOOKKEEPING');
+    expect(workspaceKindOf('TAX_PLANNING')).toBe('TAX_PLANNING');
+    for (const kind of ['ANNUAL_TAX', 'QUARTERLY_TAX', 'PAYROLL', 'OTHER'] as const) {
+      expect(workspaceKindOf(kind)).toBeNull();
+    }
+  });
+
+  it('report figures are stored as the contract has them and read back safely', () => {
+    expect(writeReportData(undefined)).toEqual({ summary: null, lines: [] });
+    expect(
+      writeReportData({
+        summary: 'Fine',
+        lines: [{ label: 'Revenue', amountCents: 1200, note: null }],
+      }),
+    ).toEqual({ summary: 'Fine', lines: [{ label: 'Revenue', amountCents: 1200, note: null }] });
+    expect(readReportData({})).toEqual({ summary: null, lines: [] });
+    expect(readReportData(null)).toEqual({ summary: null, lines: [] });
+    expect(
+      readReportData({
+        summary: 3,
+        lines: [{ label: 'A', amountCents: 1.5 }, 'junk', { amountCents: 7, note: 'n', extra: 1 }],
+      }),
+    ).toEqual({
+      summary: null,
+      lines: [
+        { label: 'A', amountCents: null, note: null },
+        { label: '', amountCents: 7, note: 'n' },
+      ],
+    });
   });
 });

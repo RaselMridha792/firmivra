@@ -27,7 +27,12 @@ const HISTORY_CLOCK_SLACK_MS = 60_000;
 export class AppointmentHistory {
   constructor(private readonly audit: AuditService) {}
 
+  /**
+   * In the change's own transaction: the change and its history row land together or not at all
+   * (#108 review); a retried booking never meets itself as a taken slot.
+   */
   async record(
+    tx: TxClient,
     action: AppointmentAction,
     appointment: { id: string; clientId: string },
     change: { by: 'STAFF' | 'CLIENT'; from: Placed | null; to: Placed | null; reason?: unknown },
@@ -39,7 +44,8 @@ export class AppointmentHistory {
       to: change.to && placement(change.to),
       ...(action === 'CANCELLED' ? { reasonGiven: typeof change.reason === 'string' } : {}),
     };
-    await this.audit.log(
+    await this.audit.logIn(
+      tx,
       AUDIT_ACTIONS[action],
       { type: 'appointment', id: appointment.id },
       metadata,

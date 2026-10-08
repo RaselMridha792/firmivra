@@ -26,6 +26,7 @@ export const errors = {
       'It is too late to change this online. Please contact the firm.',
     ),
   closed: () => conflict('APPOINTMENT_CLOSED', 'This appointment can no longer change'),
+  notStarted: () => conflict('APPOINTMENT_NOT_STARTED', 'This appointment has not started yet'),
   typeArchived: () => conflict('TYPE_ARCHIVED', 'This appointment type is archived'),
   blocksAppointment: () =>
     conflict('BLOCKS_APPOINTMENT', 'An appointment is scheduled in this time. Move it first.'),
