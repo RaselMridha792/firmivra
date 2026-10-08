@@ -96,6 +96,8 @@ pnpm --filter @firmivra/db gen:enums   # after changing an enum: regenerate pack
 
 Seeded users (fake): `superadmin@firmivra.test`, `owner@lvp.test`, `staff@lvp.test`, `client@lvp.test`, `owner@firm-b.test`, `client@firm-b.test`.
 
+The seed's fixed ids are RFC 9562 UUIDs (variant digit 8, 9, a or b), so the API contracts' `z.uuid()` accepts them; `test/seed-ids.test.ts` checks every `SEED_*` id. After a change to seeded ids (Oct 8: the ids that had variant 5, 6, 7, c, d, e or f were rewritten), reset your local database before seeding, because the old rows would collide on slugs and emails: `pnpm --filter @firmivra/db exec prisma migrate reset` (drops, migrates and seeds), or drop the database and run `pnpm db:migrate` and `pnpm db:seed`. Dev is not seeded by CI/CD.
+
 ## Adding a table (Rasel)
 
 1. Add the model to `prisma/schema.prisma`. Tenant data gets `businessId String @map("business_id") @db.Uuid` and an index on it.
