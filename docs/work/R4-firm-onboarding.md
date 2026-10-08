@@ -12,7 +12,7 @@
 
 ## Steps
 
-- [ ] 1. Public application submit (rate limited, no account needed)
+- [x] 1. Public application submit (rate limited, no account needed)
 - [ ] 2. Super Admin actions: approve, request info (message to applicant), decline with reason; status history
 - [ ] 3. Approve creates the business with a unique slug and invites the owner (R2 invite flow)
 - [ ] 4. Owner activation ends at first-time setup; business status active
@@ -84,7 +84,10 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 - R0 (seed): LVP's seeded firm application has `data: { businessType }`, not the stored form (`StoredApplication` in `apps/api/src/firm-applications/firm-applications.service.ts`: the review page's business, primaryAdmin, account and credentials groups). Since the #79 fixes the API answers it from the table's own columns (`formReadable` false) instead of 500, and the contract now takes its hand-written id (next note), so the pages list and open it. The seed should still write the stored shape (synthetic values), so local review pages show a full form. Dev has no applications, so it is not affected.
 - R0 (seed): the seed's fixed ids should be RFC 9562 UUIDs (the contracts check ids with `z.uuid()`). Done in #89 (Oct 8); `FirmApplicationId` is `z.uuid()` again since #79.
 - R0: admin scope reads only the signed-in admin's own user row, so another Super Admin's name in a decision or the history shows as "Firmivra admin". Let admin scope read platform admins' names (users of `platform_admins`). Done in #80 (Oct 8): `users_admin_platform_admins`; R4 uses it in a later PR.
-- R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API.
+- R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API. In R1's #101 (`firmivra/<env>/firm-applications/ein-hash-key` as `EIN_HASH_KEY`); submit answers 503 on dev until it deploys.
+- Lead: an `EIN_HASH_KEY` placeholder in `.env.example` (dev-only value, 64 hex characters, e.g. from `openssl rand -hex 32`). Until then a local submit answers 503 and logs "Firm application submit refused: EIN_HASH_KEY is not set"; nothing else needs it.
+- R8: alarm on the warnings "Firm application <id>: the <template> email could not be sent" (received, info-requested, declined; the id only) and "Firm application submit refused: EIN_HASH_KEY ..." (the key is missing or malformed: no application can be received).
+- Firmivra's own terms version: submit can't store "the version of Firmivra's terms in force" (For the API steps) until one exists; the application keeps only the two ticks the contract requires.
 - R5: uploads for an application before any account exists (the spec's "credentials and uploads"). Until then `documents` is always empty.
 - R6: four emails: application received (applicant), information requested (the message; reply-to support), approved (the owner's activation link, through R2's activation mailer), declined (with the reason, Rasel Oct 7).
 - R2: an owner invite created by a Super Admin (no inviting member) through `InvitesService`, checked at step 3.
@@ -145,3 +148,14 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - `FirmApplicationId` (also the list row's and the record's id) is `z.uuid()` again: the seed's ids are RFC 9562 since #89 (LVP's application is `00000000-0000-4005-8000-000000000001`). The mock's unreadable approved application and the e2e's LVP-like row use such ids.
   - Tests: e2e (`einLast4` from the column on one application, null on one without), unit (an older form's last 4 never shown, the column's are), contract (the seed's id accepted, its old variant-5 id refused).
   - Local database: a fresh one, migrated and seeded with #89's ids (the old rows would collide).
+- 2026-10-08, step 1 (submit, Rasel's Oct 8 answer 1), branch `rasel/R4-api-submit`:
+  - `POST /firm-applications` (public, `@Public()`, 200 `{ received: true }` for every outcome but the errors below). The API's cross-site guard takes it only as JSON from the firm site's origin, like every public POST. Written in platform scope (the Database's `withScope`), the form through `StoredApplication.parse`, with the primary administrator in the contact columns.
+  - EIN: never in `data`. `ein_last4` and `ein_hash` (HMAC-SHA256 of the 9 digits with `EIN_HASH_KEY`, 32 bytes) together. The key is read by R4's own loader (`ein-hash.ts`: 64 hex characters, not one repeated byte), not the API's config: missing or malformed, submit answers 503 `SERVICE_UNAVAILABLE` with a warning naming the setting (never a value), and nothing else in the API changes.
+  - Limits, R3's mechanism (audit rows counted in one platform transaction under advisory try-locks, so every API task shares them; a busy lock is refused, never waited for), and R3's 429 `RATE_LIMITED`: 5 submits per IP an hour, 3 per primary administrator email in 24 hours, plus R3's in-memory 10 a minute per IP. The rows (`firm_application.submit_attempt`) hold the canonical IP and a keyed hash of the email (a key derived from `EIN_HASH_KEY`), never the email. `SUBMIT_LIMITS` in `submit.service.ts`.
+  - Honeypot: a filled one is counted by the limits and answered exactly like a real submit, but stores no application and sends nothing; one warning without the form or the trap's value.
+  - "Received" email (`firm-application.received`) after the commit, at most one per address in 24 hours (an earlier application from the address in the window, checked under the email's lock); a failed send still answers success, with a warning holding the application's id only.
+  - Audit: `firm_application.submitted` (entity `firm_application` and its id), no firm, no actor, no metadata, in the insert's transaction (`AuditService.logIn`).
+  - DUPLICATE_EIN compares `ein_hash` with other applications (firms keep their EIN encrypted with their own key): WARN "Same EIN as …", PASS, or SKIPPED "No EIN given". The mock's PASS note matches.
+  - Contract: `primaryAdmin.fullName` at most 120 characters on one line (#52's `invites_name`), so approve never fails on the owner invite. The other names and texts already use the shared text rules. The application's phones already take the international `Phone` (R3's split is on main).
+  - #81 follow-ups: Request Information and Decline write their audit row with `AuditService.logIn(tx, ...)` (the module's `auditIn` is gone); Save Note writes the notes and its audit row in one admin transaction.
+  - Tests: `apps/api/test/e2e/firm-application-submit.e2e.test.ts` (the columns and a `data` without any ein key; the record's `einLast4`; DUPLICATE_EIN WARN, PASS and SKIPPED; the honeypot; both limits and a counted honeypot; the email throttle and the send after commit; a failing send; the audit row; 400s; other origins; 503 without the key), a notes rollback in the review e2e, unit `apps/api/test/unit/firm-application-ein-hash.test.ts`, contract cases for the name rule.
