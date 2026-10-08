@@ -52,9 +52,17 @@ function toBlockedTime(row: BlockRow, names: ReadonlyMap<string, string>): Block
   };
 }
 
+/**
+ * Blocks that have not ended, per calendar (one member's, or the whole firm's): above it a new
+ * block is 409 BLOCK_LIMIT, so free-slot work stays bounded (#102 review). Mutable for tests only.
+ */
+export const BLOCK_LIMITS = { perCalendar: 200 };
+
 /** Owner and Admin change anyone's; Staff only their own (a whole-firm block is a manager's). */
 function mayChange(actor: FirmActor, userId: string | null): void {
-  if (actor.role === 'STAFF' && userId !== actor.userId) throw errors.forbidden();
+  if (actor.role === 'STAFF' && userId?.toLowerCase() !== actor.userId.toLowerCase()) {
+    throw errors.forbidden();
+  }
 }
 
 /**
@@ -167,6 +175,10 @@ export class AvailabilityService {
         select: { id: true },
       });
       if (covered) throw errors.blocksAppointment();
+      const open = await tx.blockedTime.count({
+        where: { businessId, userId: body.userId, endsAt: { gt: new Date() } },
+      });
+      if (open >= BLOCK_LIMITS.perCalendar) throw errors.blockLimit();
       const created = await tx.blockedTime.create({
         data: {
           businessId,

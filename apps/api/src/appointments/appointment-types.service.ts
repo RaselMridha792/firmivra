@@ -68,7 +68,8 @@ export class AppointmentTypesService {
     return rows.map(toAppointmentType);
   }
 
-  async create(businessId: string, body: CreateBody): Promise<AppointmentType> {
+  /** `sent`: the fields the request named (not the contract's defaults), for the audit row. */
+  async create(businessId: string, body: CreateBody, sent: string[]): Promise<AppointmentType> {
     if (body.cancelCutoffHours !== DEFAULT_CUTOFF_HOURS) throw errors.cutoffNotSupported();
     const row = await this.write(businessId, async (tx) => {
       await this.uniqueName(tx, businessId, body.name);
@@ -92,7 +93,7 @@ export class AppointmentTypesService {
     await this.audit.log(
       'appointment_type.created',
       { type: 'appointment_type', id: row.id },
-      { fields: Object.keys(body).sort() },
+      { fields: sent.filter((f) => f in body).sort() },
     );
     return toAppointmentType(row);
   }
@@ -103,19 +104,31 @@ export class AppointmentTypesService {
     }
     const { cancelCutoffHours: _cutoff, ...changes } = body;
     const data = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined));
-    const row = await this.write(businessId, async (tx) => {
+    const { row, changed } = await this.write(businessId, async (tx) => {
       const current = await this.find(tx, businessId, id, true);
       if (body.name !== undefined && body.name.toLowerCase() !== current.name.toLowerCase()) {
         await this.uniqueName(tx, businessId, body.name, id);
       }
-      if (Object.keys(data).length === 0) return current;
-      return tx.appointmentType.update({ where: { id }, data, select: typeSelect });
+      // Only what really changes: a PATCH that changes nothing writes no row and no audit.
+      const changes = Object.fromEntries(
+        Object.entries(data).filter(([k, v]) => current[k as keyof TypeRow] !== v),
+      );
+      const fields = Object.keys(changes).sort();
+      if (fields.length === 0) return { row: current, changed: fields };
+      const updated = await tx.appointmentType.update({
+        where: { id },
+        data: changes,
+        select: typeSelect,
+      });
+      return { row: updated, changed: fields };
     });
-    await this.audit.log(
-      'appointment_type.updated',
-      { type: 'appointment_type', id },
-      { fields: Object.keys(body).sort() },
-    );
+    if (changed.length > 0) {
+      await this.audit.log(
+        'appointment_type.updated',
+        { type: 'appointment_type', id },
+        { fields: changed },
+      );
+    }
     return toAppointmentType(row);
   }
 
@@ -152,7 +165,7 @@ export class AppointmentTypesService {
       await tx.$executeRaw`
         SELECT 1 FROM appointment_types
         WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
-        FOR UPDATE`;
+        FOR NO KEY UPDATE`;
     }
     const row = await tx.appointmentType.findFirst({
       where: { businessId, id },
