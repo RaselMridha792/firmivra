@@ -55,7 +55,7 @@ const iso = (ms: number) => new Date(ms).toISOString();
  * A start inside the calendar's years can still end after them (late on 2100-12-31): the end is
  * checked too, as 400 like the start (#108 review).
  */
-function endsInCalendar(endsAt: number): void {
+export function endsInCalendar(endsAt: number): void {
   if (!inCalendarYears(new Date(endsAt).toISOString())) {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
