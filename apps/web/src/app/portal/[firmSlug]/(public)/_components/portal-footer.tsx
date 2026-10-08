@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Modal } from '@firmivra/ui';
+import { Button, Modal, PageContainer, type PageWidth } from '@firmivra/ui';
 import type { LegalKind } from '@firmivra/types';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -11,13 +11,18 @@ import { usePortal } from '../../layout';
 
 const YEAR = new Date().getFullYear();
 
-/** The portal footer: the firm's Terms and Privacy, and "Contact Us" for signed-in clients. */
-export function PortalFooter({ contact = false }: { contact?: boolean }) {
+/**
+ * The portal footer: the firm's Terms and Privacy, and "Contact Us" for signed-in clients. With a
+ * width (the public pages) its content lines up with PageContainer; without one it spans the column.
+ */
+export function PortalFooter({ contact = false, width }: { contact?: boolean; width?: PageWidth }) {
   const { business, legal } = usePortal();
   const [kind, setKind] = useState<LegalKind | null>(null);
   const title = kind === 'privacy' ? 'Privacy Policy' : 'Terms of Service';
-  return (
-    <footer className="flex flex-wrap items-center gap-4 border-t border-border bg-firm-primary px-6 py-4 text-sm text-on-action [&>button]:text-on-action [&>button:hover]:text-firm-primary">
+  const row =
+    'flex flex-wrap items-center gap-4 py-4 [&>button]:text-on-action [&>button:hover]:text-firm-primary';
+  const items = (
+    <>
       <span>
         © {YEAR} <span data-testid="firm-name">{business.name}</span>. All rights reserved.
       </span>
@@ -30,6 +35,17 @@ export function PortalFooter({ contact = false }: { contact?: boolean }) {
         ))}
       {contact && <Link href={`/${business.slug}/messages`}>Contact Us</Link>}
       <span className="ml-auto">Powered by Firmivra</span>
+    </>
+  );
+  return (
+    <footer className="border-t border-border bg-firm-primary text-sm text-on-action">
+      {width ? (
+        <PageContainer width={width} className={row}>
+          {items}
+        </PageContainer>
+      ) : (
+        <div className={`px-6 ${row}`}>{items}</div>
+      )}
       <Modal open={kind !== null} title={title} onClose={() => setKind(null)}>
         {kind && <LegalText slug={business.slug} kind={kind} />}
       </Modal>

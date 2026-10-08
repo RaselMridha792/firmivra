@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Card } from '@firmivra/ui';
+import { Button, Card, PageContainer, PageSection } from '@firmivra/ui';
 import * as Icons from 'lucide-react';
 import Link from 'next/link';
 import { usePortal } from '../../layout';
@@ -29,8 +29,8 @@ export function LandingScreen() {
     [Icons.Users, 'For Clients Only', `For current and prospective clients of ${business.name}.`],
   ];
   return (
-    <div data-testid="portal-landing" className="mx-auto max-w-public px-6 py-8 text-firm-primary">
-      <section className="relative overflow-hidden rounded-card bg-linear-to-br from-surface to-folder-surface px-6 py-12 md:py-16 md:after:absolute md:after:right-0 md:after:bottom-0 md:after:h-64 md:after:w-1/3 md:after:rounded-tl-full md:after:border-l md:after:border-firm-accent md:after:bg-folder-surface *:relative *:z-10">
+    <div data-testid="portal-landing" className="text-firm-primary">
+      <PageSection className="relative overflow-hidden bg-linear-to-br from-surface to-folder-surface py-12 md:py-16 md:after:absolute md:after:right-0 md:after:bottom-0 md:after:h-64 md:after:w-1/3 md:after:rounded-tl-full md:after:border-l md:after:border-firm-accent md:after:bg-folder-surface *:relative *:z-10">
         <p className="text-sm font-bold tracking-eyebrow text-firm-accent uppercase">
           {branding.portalName}
         </p>
@@ -48,36 +48,43 @@ export function LandingScreen() {
           Our client portal gives you a safe and easy way to access your tax documents, communicate
           with our team, complete forms, and stay organized — anytime, anywhere.
         </p>
-      </section>
-      <h2 className="mt-10 text-center font-display text-3xl font-bold">
-        What You Can Do in the Client Portal
-      </h2>
-      <p className="mt-2 text-center">Manage your information simply and securely.</p>
-      <Tiles items={features} />
-      <section className="grid gap-4 md:grid-cols-2">
-        <Card title="Sign In to Your Account" className={`bg-folder-surface! ${panel}`}>
-          <p className="mb-4">Already have an account? Sign in to access your documents.</p>
-          <ButtonLink href={`/${business.slug}/sign-in`} className="max-w-sm">
-            Sign In
-          </ButtonLink>
-          <Link href={`/${business.slug}/forgot-password`} className="mt-4 block text-sm underline">
-            Forgot your password?
-          </Link>
-        </Card>
-        <Card title="Create a New Account" className={panel}>
-          <p className="mb-4">New to our client portal? Create an account in just a few minutes.</p>
-          {signUpOpen ? (
-            <ButtonLink variant="outline" href={`/${business.slug}/sign-up`} className="max-w-sm">
-              Create an Account
+      </PageSection>
+      <PageContainer className="pb-8">
+        <h2 className="mt-10 text-center font-display text-3xl font-bold">
+          What You Can Do in the Client Portal
+        </h2>
+        <p className="mt-2 text-center">Manage your information simply and securely.</p>
+        <Tiles items={features} />
+        <section className="grid gap-4 md:grid-cols-2">
+          <Card title="Sign In to Your Account" className={`bg-folder-surface! ${panel}`}>
+            <p className="mb-4">Already have an account? Sign in to access your documents.</p>
+            <ButtonLink href={`/${business.slug}/sign-in`} className="max-w-sm">
+              Sign In
             </ButtonLink>
-          ) : (
-            <Button variant="outline" disabled className="w-full max-w-sm">
-              Registration is currently closed
-            </Button>
-          )}
-        </Card>
-      </section>
-      <Tiles items={trust} secure />
+            <Link
+              href={`/${business.slug}/forgot-password`}
+              className="mt-4 block text-sm underline"
+            >
+              Forgot your password?
+            </Link>
+          </Card>
+          <Card title="Create a New Account" className={panel}>
+            <p className="mb-4">
+              New to our client portal? Create an account in just a few minutes.
+            </p>
+            {signUpOpen ? (
+              <ButtonLink variant="outline" href={`/${business.slug}/sign-up`} className="max-w-sm">
+                Create an Account
+              </ButtonLink>
+            ) : (
+              <Button variant="outline" disabled className="w-full max-w-sm">
+                Registration is currently closed
+              </Button>
+            )}
+          </Card>
+        </section>
+        <Tiles items={trust} secure />
+      </PageContainer>
     </div>
   );
 }
