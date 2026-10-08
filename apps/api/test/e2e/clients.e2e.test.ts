@@ -232,6 +232,16 @@ describe('list: search, filters and paging', () => {
     expect((await list('?status=all&search=4045559999')).items).toHaveLength(1);
   });
 
+  it('a search with a NUL or another control character is 400, never 500', async () => {
+    for (const term of ['%00', `Fake%00${run}`, '%1B%5B31m', '%C2%85']) {
+      const res = await call('get', `?search=${term}`, people.ownerA);
+      expect([res.status, codeOf(res)], term).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    // A query string can't carry a lone surrogate: the URL decoder turns the bytes of one into
+    // U+FFFD, plain text. (A JSON body can; the shared rule refuses it, packages/types tests.)
+    expect((await list('?search=%ED%A0%80')).items).toEqual([]);
+  });
+
   it('pages newest first with an opaque cursor; a bad cursor is 400', async () => {
     const made = [];
     for (let i = 0; i < 5; i++) made.push(await create({ displayName: `Pager-${run} ${i}` }));
