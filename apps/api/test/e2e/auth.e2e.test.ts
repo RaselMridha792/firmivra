@@ -249,11 +249,13 @@ describe('Super Admin sign-in (admin site)', () => {
 });
 
 describe('rate limits use the viewer IP behind CloudFront and the ALB', () => {
+  let attempts = 0;
   const attempt = (xff: string) =>
     request(app.getHttpServer())
       .post('/api/v1/auth/sign-in')
       .set('x-forwarded-for', xff)
-      .send({ email: 'nobody@a.test', password: 'Wrong-password-1' });
+      // A new email each time: this is the per-IP limit, not the per-email one (step 7).
+      .send({ email: `nobody-${++attempts}@a.test`, password: 'Wrong-password-1' });
 
   it('limits one viewer without locking out the others', async () => {
     const viewer = newViewer();

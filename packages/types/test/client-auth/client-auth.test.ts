@@ -7,6 +7,7 @@ import {
   createPortalAuthClient,
   createRequest,
   Phone,
+  SmsPhone,
   portalCookies,
   SignUpRequest,
   SignUpState,
@@ -34,6 +35,19 @@ const state = {
   resendAvailableAt: '2026-10-07T12:00:45.000Z',
 };
 
+describe('SignUpState: CONTACT_FIRM (Rasel, Oct 8, q13)', () => {
+  it('takes the step with no resend time', async () => {
+    const { SignUpState, SIGN_UP_WRONG_EMAIL_CODES } = await import('../../src/index.js');
+    const state = {
+      step: 'CONTACT_FIRM',
+      email: 'jane@example.com',
+      phoneMasked: '(770) ***-0123',
+    };
+    expect(SignUpState.parse({ ...state, resendAvailableAt: null }).step).toBe('CONTACT_FIRM');
+    expect(SIGN_UP_WRONG_EMAIL_CODES).toBe(5);
+  });
+});
+
 describe('#72 review: one-line names, strict queue requests', () => {
   it('refuses control characters in the sign-up name and the decline reason, and extra fields', async () => {
     const { SignUpRequest, DeclineSignUpRequest, ClientSignUpsQuery } =
@@ -58,9 +72,9 @@ describe('#72 review: one-line names, strict queue requests', () => {
 });
 
 describe('client-auth schemas', () => {
-  it('turns a typed US number into E.164 and refuses one without a country code', () => {
-    expect(Phone.parse('+1 (770) 555-0123')).toBe('+17705550123');
-    expect(Phone.safeParse('(770) 555-0123').success).toBe(false);
+  it('turns a typed US sign-up number into E.164, with or without +1', () => {
+    expect(SmsPhone.parse('+1 (770) 555-0123')).toBe('+17705550123');
+    expect(SmsPhone.parse('(770) 555-0123')).toBe('+17705550123');
   });
 
   it('takes the mockup sign-up form, with the password policy and the accepted versions', () => {
@@ -148,6 +162,71 @@ describe('createPortalAuthClient', () => {
       password: 'x',
     });
     expect(calls[0]?.url).toBe('/portal/lvp/auth/sign-in');
+  });
+});
+
+describe('SmsPhone: US numbers only for SMS codes (SMS cost guard)', () => {
+  it('reads US numbers in any common format', () => {
+    for (const raw of ['+1 (770) 555-0199', '770.555.0199', '7705550199', '1-770-555-0199']) {
+      expect([raw, SmsPhone.parse(raw)]).toEqual([raw, '+17705550199']);
+    }
+    // US territories are US.
+    expect(SmsPhone.parse('+1 787 555 0100')).toBe('+17875550100');
+  });
+
+  it('refuses other countries, the Caribbean and Canada, and premium-rate numbers', () => {
+    for (const raw of [
+      '+442071234567',
+      '+8801712345678',
+      '+1 876 555 0100',
+      '+1 809 555 0100',
+      '+1 416 555 0100',
+      '+1 900 555 0100',
+      '+1 770 055 0100',
+    ]) {
+      expect([raw, SmsPhone.safeParse(raw).success]).toEqual([raw, false]);
+    }
+  });
+
+  it('refuses non-geographic US codes: N11, N9X, 37X/96X, 456, 5XX, 600, 700/710, toll-free (#70 review)', () => {
+    for (const code of ['211', '411', '911', '290', '999', '370', '960', '456', '500', '533']) {
+      expect([code, SmsPhone.safeParse(`+1 ${code} 555 0100`).success]).toEqual([code, false]);
+    }
+    for (const code of ['600', '700', '710', '800', '822', '833', '855', '877', '880', '888']) {
+      expect([code, SmsPhone.safeParse(`+1 ${code} 555 0100`).success]).toEqual([code, false]);
+    }
+    // Real US area codes next to them still pass.
+    for (const code of ['212', '415', '530', '531', '770', '808', '878', '989']) {
+      expect([code, SmsPhone.safeParse(`+1 ${code} 555 0100`).success]).toEqual([code, true]);
+    }
+  });
+});
+
+describe('Phone: international E.164 for every other phone field (Rasel, Oct 8)', () => {
+  it('takes any country with its code, and ignores spaces, dots, brackets and dashes', () => {
+    expect(Phone.parse('+44 20 7123 4567')).toBe('+442071234567');
+    expect(Phone.parse('+1 (876) 555-0100')).toBe('+18765550100');
+    expect(Phone.parse('+880 1712-345678')).toBe('+8801712345678');
+    expect(Phone.parse('+49.30.1234.5678')).toBe('+493012345678');
+  });
+
+  it('reads a US number typed without +1 as US (#70 follow-up)', () => {
+    // 10 digits, as staff and firm applicants type them.
+    expect(Phone.parse('(404) 555-0102')).toBe('+14045550102');
+    expect(Phone.parse('4045550102')).toBe('+14045550102');
+    expect(Phone.parse('404.555.0102')).toBe('+14045550102');
+    // 1 and 10 digits.
+    expect(Phone.parse('1 (404) 555-0102')).toBe('+14045550102');
+    expect(Phone.parse('14045550102')).toBe('+14045550102');
+  });
+
+  it('needs the country code for any other country', () => {
+    // A London number as typed there: 11 digits starting with 0 is no US shorthand.
+    const london = Phone.safeParse('020 7123 4567');
+    expect(london.success).toBe(false);
+    expect(london.error?.issues[0]?.message).toBe('Enter the phone number with its country code');
+    // Neither are 9 digits.
+    expect(Phone.safeParse('404555010').success).toBe(false);
   });
 });
 
