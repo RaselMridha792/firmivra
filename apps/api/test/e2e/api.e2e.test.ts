@@ -1,4 +1,5 @@
 // End-to-end: the real app (guards, filters, middleware) against the API's test database.
+import { randomUUID } from 'node:crypto';
 import { Controller, Get, type INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
@@ -131,6 +132,33 @@ describe('dev sign-in and /me', () => {
     await owner.$disconnect();
     expect(rows.length).toBeGreaterThan(0);
     expect(rows[0]?.requestId).toBeTruthy();
+  });
+
+  it("finds a client's login among more than 20 sign-up logins, newest first (#84 follow-up)", async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const email = `r2-dev-logins-${randomUUID().slice(0, 8)}@example.com`;
+    const ids = Array.from({ length: 21 }, () => randomUUID());
+    const newest = ids[ids.length - 1] ?? '';
+    try {
+      await runInScope(owner, { kind: 'platform' }, async (tx) => {
+        for (const [i, id] of ids.entries()) {
+          const createdAt = new Date(Date.now() - (ids.length - i) * 1000);
+          await tx.user.create({
+            data: { id, cognitoSub: id, pool: 'CLIENT', email, name: 'Fake client', createdAt },
+          });
+        }
+      });
+      // Only the newest login has the account, as after sign-ups that never finished.
+      await runInScope(owner, { kind: 'business', businessId: fx.firmA.id }, (tx) =>
+        tx.clientAccount.create({
+          data: { businessId: fx.firmA.id, userId: newest, email, status: 'ACTIVE' },
+        }),
+      );
+    } finally {
+      await owner.$disconnect();
+    }
+    const me = await get('/api/v1/me', await tokenFor(email)).expect(200);
+    expect((me.body as { user: { id: string } }).user.id).toBe(newest);
   });
 });
 

@@ -101,6 +101,23 @@ describe('clients', () => {
     expect(login).toMatchObject({ portalRole: 'PRIMARY', status: 'INVITED' });
   });
 
+  it('one email per firm, archived clients included; another firm may use it', async () => {
+    const email = `same-${randomUUID()}@c.test`;
+    const first = await firmA().client.create({
+      data: { businessId: ids.firmA, displayName: 'First', email },
+    });
+    const again = () =>
+      firmA().client.create({ data: { businessId: ids.firmA, displayName: 'Second', email } });
+    await expect(again()).rejects.toThrow(/unique constraint/i);
+    await firmA().client.update({ where: { id: first.id }, data: { archivedAt: new Date() } });
+    await expect(again()).rejects.toThrow(/unique constraint/i);
+    await expect(
+      db.forBusiness(ids.firmB).client.create({
+        data: { businessId: ids.firmB, displayName: 'Other firm', email },
+      }),
+    ).resolves.toMatchObject({ email });
+  });
+
   it('can be archived but never deleted', async () => {
     const c = await newClientA();
     await expect(
@@ -124,6 +141,11 @@ describe('clients', () => {
     await expect(
       firmA().clientProfile.create({
         data: { clientId: c.id, businessId: ids.firmA, ssnLast4: '12345' },
+      }),
+    ).rejects.toThrow(/check constraint/i);
+    await expect(
+      firmA().clientProfile.create({
+        data: { clientId: c.id, businessId: ids.firmA, einLast4: '12-34' },
       }),
     ).rejects.toThrow(/check constraint/i);
   });

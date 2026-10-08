@@ -1,10 +1,17 @@
 import { createHmac, randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import {
+  AdminCreateUserCommand,
+  AdminDisableUserCommand,
+  AdminSetUserPasswordCommand,
+  AdminUpdateUserAttributesCommand,
+  type AttributeType,
   AdminInitiateAuthCommand,
   AdminRespondToAuthChallengeCommand,
   AdminUserGlobalSignOutCommand,
   AssociateSoftwareTokenCommand,
   type AuthenticationResultType,
+  type ContextDataType,
   type CognitoIdentityProviderClient,
   ListUsersCommand,
   type UserType,
@@ -15,13 +22,16 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import { Logger } from '@nestjs/common';
 import type { IdentityPool } from '@firmivra/types';
+import { requestContext } from '../../common/request-context.js';
 import type { Env } from '../../config/env.js';
 import type { SessionTokens } from '../site.js';
 import {
   AuthFlowError,
   type AuthFlowErrorCode,
   type AuthStep,
+  type ContactUpdate,
   type IdentityProvider,
+  type NewUserContact,
 } from './identity-provider.js';
 
 export type CognitoClient = Pick<CognitoIdentityProviderClient, 'send'>;
@@ -30,27 +40,58 @@ export interface CognitoPool {
   userPoolId: string;
   clientId: string;
   clientSecret: string;
+  /** The host of the site that signs in with this pool (from config), for ContextData. */
+  serverName?: string;
 }
 
 export function cognitoPoolsFromEnv(env: Env): Partial<Record<IdentityPool, CognitoPool>> {
-  const pool = (userPoolId?: string, clientId?: string, clientSecret?: string) =>
-    userPoolId && clientId && clientSecret ? { userPoolId, clientId, clientSecret } : undefined;
+  const pool = (baseUrl: string, userPoolId?: string, clientId?: string, clientSecret?: string) =>
+    userPoolId && clientId && clientSecret
+      ? { userPoolId, clientId, clientSecret, serverName: new URL(baseUrl).host }
+      : undefined;
   return {
     STAFF: pool(
+      env.APP_BASE_URL,
       env.COGNITO_STAFF_USER_POOL_ID,
       env.COGNITO_STAFF_CLIENT_ID,
       env.COGNITO_STAFF_CLIENT_SECRET,
     ),
     CLIENT: pool(
+      env.PORTAL_BASE_URL,
       env.COGNITO_CLIENTS_USER_POOL_ID,
       env.COGNITO_CLIENTS_CLIENT_ID,
       env.COGNITO_CLIENTS_CLIENT_SECRET,
     ),
     ADMIN: pool(
+      env.ADMIN_BASE_URL,
       env.COGNITO_ADMINS_USER_POOL_ID,
       env.COGNITO_ADMINS_CLIENT_ID,
       env.COGNITO_ADMINS_CLIENT_SECRET,
     ),
+  };
+}
+
+/** The only request headers Cognito ever sees. Never Cookie, Authorization or CSRF headers. */
+const CONTEXT_HEADERS = { 'user-agent': 'userAgent', 'accept-language': 'acceptLanguage' } as const;
+
+/**
+ * What Cognito threat protection (full function on our pools) learns about the viewer, so it
+ * scores the person, not the API task: the viewer's IP (req.ip, from the request context), the
+ * site's host and path, and the allowlisted headers. Undefined outside a request, and when the
+ * viewer's address is not an IP address (#84 follow-up).
+ */
+export function contextData(p: CognitoPool): ContextDataType | undefined {
+  const store = requestContext.getStore();
+  if (!store?.ip || isIP(store.ip) === 0 || !p.serverName) return undefined;
+  const headers = Object.entries(CONTEXT_HEADERS).flatMap(([headerName, field]) => {
+    const headerValue = store[field];
+    return headerValue ? [{ headerName, headerValue: headerValue.slice(0, 512) }] : [];
+  });
+  return {
+    IpAddress: store.ip,
+    ServerName: p.serverName,
+    ServerPath: store.path ?? '/',
+    HttpHeaders: headers,
   };
 }
 
@@ -118,6 +159,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
             PASSWORD: password,
             SECRET_HASH: secretHash(p, username),
           },
+          ContextData: contextData(p),
         }),
       )
       .catch((e: unknown) => fail(e, SIGN_IN_ERRORS));
@@ -155,6 +197,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
             SOFTWARE_TOKEN_MFA_CODE: code,
             SECRET_HASH: secretHash(p, username),
           },
+          ContextData: contextData(p),
         }),
       )
       .catch((e: unknown) => fail(e, CODE_ERRORS));
@@ -201,6 +244,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
           ChallengeName: 'MFA_SETUP',
           Session: verified.Session,
           ChallengeResponses: { USERNAME: username, SECRET_HASH: secretHash(p, username) },
+          ContextData: contextData(p),
         }),
       )
       .catch((e: unknown) => fail(e, CODE_ERRORS));
@@ -221,6 +265,7 @@ export class CognitoIdentityProvider implements IdentityProvider {
           AuthFlow: 'REFRESH_TOKEN_AUTH',
           // The hash uses the Cognito username, which is why the refresh envelope keeps it.
           AuthParameters: { REFRESH_TOKEN: refreshToken, SECRET_HASH: secretHash(p, username) },
+          ContextData: contextData(p),
         }),
       )
       .catch((e: unknown) => fail(e, REFRESH_ERRORS));
@@ -292,6 +337,75 @@ export class CognitoIdentityProvider implements IdentityProvider {
     await this.signOutEverywhere(pool, username);
   }
 
+  async createUser(
+    pool: IdentityPool,
+    email: string,
+    contact: NewUserContact = {},
+  ): Promise<string> {
+    const p = this.pool(pool);
+    const out = await this.client.send(
+      new AdminCreateUserCommand({
+        UserPoolId: p.userPoolId,
+        Username: randomUUID(),
+        UserAttributes: contactAttributes({
+          email,
+          emailVerified: contact.emailVerified ?? true,
+          phone: contact.phone,
+        }),
+        // Our API sends the activation email (docs/AUTH-DESIGN.md); Cognito sends nothing.
+        MessageAction: 'SUPPRESS',
+      }),
+    );
+    const sub = out.User?.Attributes?.find((a) => a.Name === 'sub')?.Value;
+    if (!sub) throw new Error('Cognito created a user without a sub');
+    return sub;
+  }
+
+  async updateContact(pool: IdentityPool, sub: string, contact: ContactUpdate): Promise<void> {
+    const p = this.pool(pool);
+    const username = await this.usernameFor(p, sub);
+    if (!username) throw new Error('No Cognito user for this account');
+    await this.client.send(
+      new AdminUpdateUserAttributesCommand({
+        UserPoolId: p.userPoolId,
+        Username: username,
+        UserAttributes: contactAttributes(contact),
+      }),
+    );
+  }
+
+  async setPassword(pool: IdentityPool, sub: string, password: string): Promise<void> {
+    const p = this.pool(pool);
+    const username = await this.usernameFor(p, sub);
+    if (!username) throw new Error('No Cognito user for this invite');
+    await this.client
+      .send(
+        new AdminSetUserPasswordCommand({
+          UserPoolId: p.userPoolId,
+          Username: username,
+          Password: password,
+          Permanent: true,
+        }),
+      )
+      .catch((e: unknown) => fail(e, { InvalidPasswordException: 'PASSWORD_REJECTED' }));
+  }
+
+  async hasPassword(pool: IdentityPool, sub: string): Promise<boolean> {
+    const p = this.pool(pool);
+    const user = await this.userBySub(p, sub);
+    // Invited users wait in FORCE_CHANGE_PASSWORD (the generated password nobody knows).
+    return !!user && !['FORCE_CHANGE_PASSWORD', 'UNCONFIRMED'].includes(user.UserStatus ?? '');
+  }
+
+  async disableUser(pool: IdentityPool, sub: string): Promise<void> {
+    const p = this.pool(pool);
+    const user = await this.userBySub(p, sub);
+    if (!user?.Username || user.Enabled === false) return;
+    await this.client
+      .send(new AdminDisableUserCommand({ UserPoolId: p.userPoolId, Username: user.Username }))
+      .catch((e: unknown) => fail(e, {}));
+  }
+
   /** The Cognito username for a sub, or undefined for an unknown or disabled user. */
   private async usernameFor(p: CognitoPool, sub: string): Promise<string | undefined> {
     const user = await this.userBySub(p, sub);
@@ -324,6 +438,20 @@ export class CognitoIdentityProvider implements IdentityProvider {
     if (!p) throw new Error(`Cognito is not configured for the ${pool} pool`);
     return p;
   }
+}
+
+/** Cognito attributes for an email or phone change; a changed address starts unverified. */
+function contactAttributes(c: ContactUpdate): AttributeType[] {
+  const attrs: AttributeType[] = [];
+  if (c.email !== undefined) attrs.push({ Name: 'email', Value: c.email });
+  if (c.email !== undefined || c.emailVerified !== undefined) {
+    attrs.push({ Name: 'email_verified', Value: String(c.emailVerified ?? false) });
+  }
+  if (c.phone !== undefined) attrs.push({ Name: 'phone_number', Value: c.phone });
+  if (c.phone !== undefined || c.phoneVerified !== undefined) {
+    attrs.push({ Name: 'phone_number_verified', Value: String(c.phoneVerified ?? false) });
+  }
+  return attrs;
 }
 
 /** SECRET_HASH for app clients with a secret: Base64(HMAC-SHA256(secret, username + clientId)). */

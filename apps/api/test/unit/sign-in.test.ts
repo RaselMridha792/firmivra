@@ -5,6 +5,7 @@ import { type ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Database } from '@firmivra/db';
+import { LogActivationMailer } from '../../src/auth/activation-mailer.js';
 import { AuthGuard } from '../../src/auth/auth.guard.js';
 import {
   CHALLENGE_KEY_LABEL,
@@ -17,6 +18,7 @@ import {
   type CognitoClient,
   CognitoIdentityProvider,
   type CognitoPool,
+  cognitoPoolsFromEnv,
 } from '../../src/auth/identity/cognito-identity.provider.js';
 import { AuthFlowError } from '../../src/auth/identity/identity-provider.js';
 import { deriveKey } from '../../src/auth/sealed.js';
@@ -27,8 +29,9 @@ import {
 } from '../../src/auth/session.service.js';
 import { AdminSignInController, StaffSignInController } from '../../src/auth/sign-in.controller.js';
 import { otpauthUri, SignInService } from '../../src/auth/sign-in.service.js';
-import { siteOf } from '../../src/auth/site.js';
+import { siteOf, sitePlace } from '../../src/auth/site.js';
 import { TokenService } from '../../src/auth/token.service.js';
+import { requestContext, requestContextMiddleware } from '../../src/common/request-context.js';
 import { loadEnv } from '../../src/config/env.js';
 
 const STAFF_POOL: CognitoPool = {
@@ -40,7 +43,10 @@ const STAFF_POOL: CognitoPool = {
 const awsError = (name: string) => Object.assign(new Error(name), { name });
 
 /** A Cognito client that answers each command by name and records what was sent. */
-function fakeCognito(handlers: Record<string, (input: Record<string, unknown>) => unknown>) {
+function fakeCognito(
+  handlers: Record<string, (input: Record<string, unknown>) => unknown>,
+  pool: CognitoPool = STAFF_POOL,
+) {
   const sent: { command: string; input: Record<string, unknown> }[] = [];
   const send = vi.fn((cmd: { constructor: { name: string }; input: Record<string, unknown> }) => {
     const command = cmd.constructor.name.replace(/Command$/, '');
@@ -54,7 +60,7 @@ function fakeCognito(handlers: Record<string, (input: Record<string, unknown>) =
     }
   });
   const provider = new CognitoIdentityProvider({ send } as unknown as CognitoClient, {
-    STAFF: STAFF_POOL,
+    STAFF: pool,
   });
   return { provider, sent };
 }
@@ -289,7 +295,9 @@ describe('ChallengeSessions', () => {
   it('refuses a tampered or expired session', async () => {
     const sealed = await sessions.seal(challenge);
     const parts = sealed.split('.');
-    parts[3] = `${parts[3]?.slice(0, -2) ?? ''}AA`;
+    // Change the first character: it always changes the decoded bytes (#72 review nit).
+    const body = parts[3] ?? '';
+    parts[3] = `${body.startsWith('A') ? 'B' : 'A'}${body.slice(1)}`;
     await expect(sessions.open(parts.join('.'), 'STAFF')).resolves.toBeUndefined();
 
     vi.useFakeTimers();
@@ -605,7 +613,8 @@ describe('SessionService.refresh (#23 review)', () => {
         cookies[name] = { value: '' };
       },
     } as unknown as ExpressResponse;
-    const service = new SessionService(identity as never, envelopes, db, env);
+    const audit = { log: vi.fn(() => Promise.resolve()) };
+    const service = new SessionService(identity as never, envelopes, db, audit as never, env);
     return { service, identity, cookies, res };
   }
 
@@ -613,7 +622,7 @@ describe('SessionService.refresh (#23 review)', () => {
     const end = Math.floor(Date.now() / 1000) + 3600;
     const { service, cookies, res } = setup({ pool: 'STAFF' }, 'ref-2');
     const req = { cookies: { fv_refresh: await envelopes.sealUntil(envelope, end) } };
-    await service.refresh(req as never, res, 'firm');
+    await service.refresh(req as never, res, sitePlace('firm'));
 
     const maxAge = cookies['fv_refresh']?.maxAge ?? 0;
     expect(maxAge).toBeLessThanOrEqual(3600 * 1000);
@@ -625,7 +634,7 @@ describe('SessionService.refresh (#23 review)', () => {
   it('revokes the token and clears the cookies when the user is gone', async () => {
     const { service, identity, cookies, res } = setup(null);
     const req = { cookies: { fv_refresh: await envelopes.seal(envelope, 3600) } };
-    await expect(service.refresh(req as never, res, 'firm')).rejects.toBeInstanceOf(
+    await expect(service.refresh(req as never, res, sitePlace('firm'))).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
     expect(identity.revoke).toHaveBeenCalledWith('STAFF', 'ref-1');
@@ -647,10 +656,20 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
 
   it.each(['firm', 'admin'] as const)('refuses tokens without MFA on the %s site', async (site) => {
     const user = { id: 'u1', cognitoSub: 'sub-1' };
+    // The reservation's transaction: the try-lock is free, then no open attempts counted.
+    const tx = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ ok: true }])
+        .mockResolvedValueOnce([{ open: [0] }]),
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
     const db = {
+      withScope: (_scope: unknown, fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
       forPlatform: () => ({
         user: { findMany: vi.fn().mockResolvedValue([user]) },
         platformAdmin: { findUnique: vi.fn().mockResolvedValue({ userId: 'u1' }) },
+        auditLog: { count: vi.fn().mockResolvedValue(0) },
       }),
     } as unknown as Database;
     const identity = {
@@ -668,7 +687,213 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
       { log: vi.fn() } as never,
       env,
     );
-    await expect(service.signIn(site, 'owner@lvp.test', 'pw')).rejects.toThrow(/skipped MFA/);
+    await expect(service.signIn(sitePlace(site), 'owner@lvp.test', 'pw')).rejects.toThrow(
+      /skipped MFA/,
+    );
     expect(identity.revoke).toHaveBeenCalledWith(site === 'admin' ? 'ADMIN' : 'STAFF', 'ref');
+  });
+});
+
+describe('Cognito ContextData for threat protection (step 7)', () => {
+  const pool = { ...STAFF_POOL, serverName: 'app.firmivra.test' };
+  const store = {
+    requestId: 'r1',
+    ip: '203.0.113.9',
+    userAgent: 'Mozilla/5.0 (test)',
+    acceptLanguage: 'en-US,en;q=0.9',
+    path: '/api/v1/auth/sign-in',
+  };
+  const expected = {
+    IpAddress: '203.0.113.9',
+    ServerName: 'app.firmivra.test',
+    ServerPath: '/api/v1/auth/sign-in',
+    HttpHeaders: [
+      { headerName: 'user-agent', headerValue: 'Mozilla/5.0 (test)' },
+      { headerName: 'accept-language', headerValue: 'en-US,en;q=0.9' },
+    ],
+  };
+
+  it('sends the viewer, the site and only User-Agent and Accept-Language on sign-in and MFA', async () => {
+    const { provider, sent } = fakeCognito(
+      {
+        ListUsers: knownUser,
+        AdminInitiateAuth: () => ({ ChallengeName: 'SOFTWARE_TOKEN_MFA', Session: 's1' }),
+        AdminRespondToAuthChallenge: () => ({ AuthenticationResult: tokens }),
+      },
+      pool,
+    );
+    await requestContext.run(store, async () => {
+      await provider.signIn('STAFF', 'sub-1', 'pw');
+      await provider.answerMfa('STAFF', 'cognito-user-1', 's1', '123456');
+    });
+    expect(sent.find((c) => c.command === 'AdminInitiateAuth')?.input['ContextData']).toEqual(
+      expected,
+    );
+    expect(
+      sent.find((c) => c.command === 'AdminRespondToAuthChallenge')?.input['ContextData'],
+    ).toEqual(expected);
+  });
+
+  it('sends none outside a request', async () => {
+    const { provider, sent } = fakeCognito(
+      { ListUsers: knownUser, AdminInitiateAuth: () => ({ AuthenticationResult: tokens }) },
+      pool,
+    );
+    await provider.signIn('STAFF', 'sub-1', 'pw');
+    expect(sent.find((c) => c.command === 'AdminInitiateAuth')?.input['ContextData']).toBe(
+      undefined,
+    );
+  });
+
+  it('keeps req.ip (trust proxy) and never a raw X-Forwarded-For, Cookie or Authorization', () => {
+    const headers: Record<string, string> = {
+      'x-forwarded-for': '198.51.100.66, 10.0.0.5',
+      cookie: 'fv_access=secret',
+      authorization: 'Bearer secret',
+      'user-agent': 'UA',
+    };
+    const req = {
+      ip: '203.0.113.9',
+      path: '/api/v1/auth/sign-in',
+      get: (name: string) => headers[name.toLowerCase()],
+    };
+    const res = { setHeader: vi.fn() };
+    let seen: unknown;
+    requestContextMiddleware(req as never, res as never, () => {
+      seen = requestContext.getStore();
+    });
+    expect(seen).toMatchObject({ ip: '203.0.113.9', userAgent: 'UA' });
+    expect(JSON.stringify(seen)).not.toMatch(/secret|198\.51\.100\.66/);
+  });
+
+  it("takes each pool's host from its site's base URL", () => {
+    const env = loadEnv({
+      NODE_ENV: 'test',
+      AUTH_MODE: 'cognito',
+      DATABASE_URL_APP: 'postgresql://unused',
+      APP_BASE_URL: 'https://app.dev.firmivra.test',
+      PORTAL_BASE_URL: 'https://portal.dev.firmivra.test',
+      ADMIN_BASE_URL: 'https://admin.dev.firmivra.test',
+      COGNITO_REGION: 'us-east-1',
+      COGNITO_STAFF_USER_POOL_ID: 'p1',
+      COGNITO_STAFF_CLIENT_ID: 'c1',
+      COGNITO_STAFF_CLIENT_SECRET: 'fake-secret-1',
+      COGNITO_CLIENTS_USER_POOL_ID: 'p2',
+      COGNITO_CLIENTS_CLIENT_ID: 'c2',
+      COGNITO_CLIENTS_CLIENT_SECRET: 'fake-secret-2',
+      COGNITO_ADMINS_USER_POOL_ID: 'p3',
+      COGNITO_ADMINS_CLIENT_ID: 'c3',
+      COGNITO_ADMINS_CLIENT_SECRET: 'fake-secret-3',
+    });
+    const pools = cognitoPoolsFromEnv(env);
+    expect([pools.STAFF?.serverName, pools.CLIENT?.serverName, pools.ADMIN?.serverName]).toEqual([
+      'app.dev.firmivra.test',
+      'portal.dev.firmivra.test',
+      'admin.dev.firmivra.test',
+    ]);
+  });
+});
+
+describe('CognitoIdentityProvider: invites and activation (step 6)', () => {
+  it('disables a login found by sub, and skips one that is unknown or already disabled', async () => {
+    const enabled = fakeCognito({ ListUsers: knownUser, AdminDisableUser: () => ({}) });
+    await enabled.provider.disableUser('STAFF', 'sub-1');
+    expect(enabled.sent[1]).toEqual({
+      command: 'AdminDisableUser',
+      input: { UserPoolId: STAFF_POOL.userPoolId, Username: 'cognito-user-1' },
+    });
+    for (const list of [
+      noUser,
+      () => ({ Users: [{ Username: 'cognito-user-1', Enabled: false }] }),
+    ]) {
+      const other = fakeCognito({ ListUsers: list });
+      await other.provider.disableUser('STAFF', 'sub-1');
+      expect(other.sent.map((c) => c.command)).toEqual(['ListUsers']);
+    }
+  });
+
+  it('creates a login with a verified email and no Cognito email, and returns its sub', async () => {
+    const { provider, sent } = fakeCognito({
+      AdminCreateUser: () => ({ User: { Attributes: [{ Name: 'sub', Value: 'new-sub' }] } }),
+    });
+    await expect(provider.createUser('STAFF', 'new@lvp.test')).resolves.toBe('new-sub');
+    expect(sent[0]?.input).toMatchObject({
+      UserPoolId: STAFF_POOL.userPoolId,
+      MessageAction: 'SUPPRESS',
+      UserAttributes: [
+        { Name: 'email', Value: 'new@lvp.test' },
+        { Name: 'email_verified', Value: 'true' },
+      ],
+    });
+    expect(sent[0]?.input['Username']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('sets a permanent first password; a refused one is PASSWORD_REJECTED', async () => {
+    const ok = fakeCognito({ ListUsers: knownUser, AdminSetUserPassword: () => ({}) });
+    await ok.provider.setPassword('STAFF', 'sub-1', 'New-password-12');
+    expect(ok.sent[1]).toEqual({
+      command: 'AdminSetUserPassword',
+      input: {
+        UserPoolId: STAFF_POOL.userPoolId,
+        Username: 'cognito-user-1',
+        Password: 'New-password-12',
+        Permanent: true,
+      },
+    });
+
+    const refused = fakeCognito({
+      ListUsers: knownUser,
+      AdminSetUserPassword: () => {
+        throw awsError('InvalidPasswordException');
+      },
+    });
+    expect(await flowError(refused.provider.setPassword('STAFF', 'sub-1', 'p'))).toBe(
+      'PASSWORD_REJECTED',
+    );
+  });
+
+  it.each([
+    ['CONFIRMED', true],
+    ['RESET_REQUIRED', true],
+    ['FORCE_CHANGE_PASSWORD', false],
+    ['UNCONFIRMED', false],
+  ])('a login in status %s has a password: %s', async (status, expected) => {
+    const { provider } = fakeCognito({
+      ListUsers: () => ({ Users: [{ Username: 'u', Enabled: true, UserStatus: status }] }),
+    });
+    await expect(provider.hasPassword('STAFF', 'sub-1')).resolves.toBe(expected);
+  });
+
+  it('an unknown login has no password', async () => {
+    const { provider } = fakeCognito({
+      ListUsers: noUser,
+    });
+    await expect(provider.hasPassword('STAFF', 'sub-1')).resolves.toBe(false);
+  });
+});
+
+describe('LogActivationMailer (until R6)', () => {
+  const email = {
+    inviteId: 'invite-1',
+    to: 'new@lvp.test',
+    name: 'New',
+    businessName: 'LVP',
+    link: 'https://app.dev.firmivra.com/activate#token=SECRET-TOKEN',
+    expiresAt: new Date(),
+  };
+
+  it('logs the link only in local mode', async () => {
+    const logger = { log: vi.fn(), warn: vi.fn() };
+    await new LogActivationMailer(true, logger).send(email);
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('#token=SECRET-TOKEN'));
+  });
+
+  it('never logs the token or the address anywhere else', async () => {
+    const logger = { log: vi.fn(), warn: vi.fn() };
+    await new LogActivationMailer(false, logger).send(email);
+    const logged = JSON.stringify([...logger.log.mock.calls, ...logger.warn.mock.calls]);
+    expect(logged).toContain('invite-1');
+    expect(logged).not.toContain('SECRET-TOKEN');
+    expect(logged).not.toContain('new@lvp.test');
   });
 });

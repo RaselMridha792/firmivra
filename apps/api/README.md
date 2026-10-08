@@ -23,15 +23,17 @@ The response also sets that site's HttpOnly access cookie (`fv_admin_access` for
 ## Every request
 
 1. `requestContextMiddleware`: request id (`x-request-id`), IP and user agent in an AsyncLocalStorage context.
-2. `crossSiteGuard`: POST, PUT, PATCH and DELETE need a JSON body (415 `UNSUPPORTED_MEDIA_TYPE`) and, from a browser, an `Origin` of the route's own site, from `ADMIN_BASE_URL` for `/api/v1/admin/*` and `APP_BASE_URL` or `PORTAL_BASE_URL` otherwise (403 `ORIGIN_NOT_ALLOWED`). No CORS: each site calls the API on its own host.
-3. `ThrottlerGuard`: rate limit (300 a minute per viewer IP; stricter on sensitive routes). Behind CloudFront and the ALB the viewer IP is the second address from the right in `X-Forwarded-For` (`trust proxy` 2).
-4. `AuthGuard`: token from the site's access cookie or `Authorization: Bearer`, verified (Cognito, or the local key), user loaded by Cognito `sub`. Skipped for `@Public()`.
+2. `crossSiteGuard`: POST, PUT, PATCH and DELETE need a JSON body (415 `UNSUPPORTED_MEDIA_TYPE`) and, from a browser, an `Origin` of the route's own site: `ADMIN_BASE_URL` for `/api/v1/admin/*`, `PORTAL_BASE_URL` for `/api/v1/portal/*`, `APP_BASE_URL` or `PORTAL_BASE_URL` otherwise (403 `ORIGIN_NOT_ALLOWED`). No CORS: each site calls the API on its own host.
+3. `ThrottlerGuard`: rate limit (300 a minute per viewer IP; stricter on sensitive routes). Behind CloudFront and the ALB the viewer IP is the second address from the right in `X-Forwarded-For` (`trust proxy` 2). This limit lives in each task's memory; the per-email sign-in limits (`SIGN_IN_LIMIT`, `RESET_LIMIT` in `auth/sign-in.service.ts`) count audit rows, so every task shares them.
+4. `AuthGuard`: token from the route's access cookie (the site's, or on `portal/{slug}/` routes that firm's `fv_portal_{slug}_access`) or `Authorization: Bearer`, verified (Cognito, or the local key), user loaded by Cognito `sub`. Portal routes take only the clients pool. Skipped for `@Public()`.
 5. `TenantGuard`: for routes with a firm role, finds the firm (on `portal/:firmSlug/...` routes the `:firmSlug` param and nothing else; elsewhere the `x-business-id` header, else the caller's only firm) and the caller's role from `Membership` or `ClientAccount`. For clients the context also holds their own `clientAccountId`: portal routes take the client from it, never from the URL. No link to the firm: **404**. Several firms and no header: 400 `BUSINESS_REQUIRED`. Firm not `ACTIVE`: 403 `BUSINESS_SETUP_REQUIRED` (still in setup) or `BUSINESS_INACTIVE` (suspended or closed), unless the route allows that status.
 6. `RolesGuard`: **default deny**. Every non-public route needs `@Roles(...)`. Wrong role: **403**.
 
-### Two sites, two kinds of session
+### Two sites, two kinds of session, and a session per portal
 
 - Routes under `/api/v1/admin/` belong to the Super Admin site: they read only the `fv_admin_*` cookies and accept only Super Admins. Every other route reads only the `fv_*` cookies and never accepts a Super Admin session, not even as a Bearer token.
+- Routes under `/api/v1/portal/{slug}/` read only that firm's `fv_portal_{slug}_*` cookies (paths `/api/v1/portal/{slug}/`) and accept only clients. A client has a login per firm; their sign-in challenge and refresh envelope are sealed with the firm and never open on another firm's portal. On another firm's portal a client is simply signed out (401).
+- Portal sign-in (`client-auth/portal-sign-in.controller.ts`) reuses the staff sign-in routes (`SignInRoutes`) with a `SignInPlace` (pool, cookies, firm). Who may sign in is one rule in `auth/portal-clients.ts`: an ACTIVE client of the firm, or a pending one who verified email and phone. `GET portal/{slug}/me` is `AUTHENTICATED` (a pending client reads it too) and checks that rule itself.
 - So `@Roles('SUPER_ADMIN')` goes only on routes under `admin/`, and firm roles and `'AUTHENTICATED'` never do (`AUTHENTICATED` would let a removed Super Admin in until their token expires). A route never has both `@Public()` and `@Roles()`: `@Public()` would win, also from the class. The API refuses to start otherwise and names the route.
 - Roles always come from the database on every request (no cache): removing someone from a firm takes effect at once.
 
@@ -54,6 +56,37 @@ Each site calls the API on its own host: `/api/v1/...` on `app.`, `admin.` or `p
 - It never refreshes: the refresh cookie (`SameSite=Strict`, path `/api/v1/auth` or `/api/v1/admin/auth`) never reaches page requests. A server-side GET that answers 401 renders the signed-out state.
 
 Locally, `APP_BASE_URL`, `PORTAL_BASE_URL` and `ADMIN_BASE_URL` in `.env` must be the addresses in the browser, port included (for example `http://app.localhost:3320`), or every change answers 403.
+
+## Invites (`InvitesService`)
+
+Staff invites and activation live in `apps/api/src/auth/invites.service.ts` (R2). Other modules import `SignInModule` and inject `InvitesService`; they never write `invites` or invited memberships themselves.
+
+- `createInvite({ businessId, email, name, role, invitedBy })`: creates the person if needed, an `INVITED` membership and a 7-day link, emails it (`ActivationMailer`), audits `membership.invited` in the firm. `invitedBy` is `{ userId, role }` of the firm owner or admin, or `null` for the platform (R4: a new firm's owner on approval, role `OWNER`). The owner may give `ADMIN` or `STAFF`, an admin only `STAFF` (403 `FORBIDDEN`); only the platform gives `OWNER`. Someone with an open invite gets a new link and the old one stops working; a deactivated member is invited again; an active member is 409 `ALREADY_MEMBER`. The result never shows whether the person has a login at another firm. Emails are lower-cased. The service itself refuses a suspended or closed firm (403 `BUSINESS_INACTIVE`; a firm in setup may invite), and caps links at `INVITE_LIMITS` (50 a day per firm, 5 a day per person, counted in the database; 429 `RATE_LIMITED`).
+- `resendInvite({ businessId, membershipId, invitedBy })` (Team API, T03): a new link for an open invite, same role rules. 409 `NOT_INVITED` when the membership is not `INVITED`, 404 when it is not in this firm.
+- The link is `{APP_BASE_URL}/activate#token=...`: the token sits in the fragment, so it never reaches CloudFront, the load balancer, Next.js logs or a Referer header. The page reads it and posts it to `/api/v1/auth/activation/check`, then `activate` (new person) or, after sign-in, `activation/accept` (existing login).
+- Using a link is one transaction: claim the invite (its row stays locked), make the membership `ACTIVE`, and for a new person set the Cognito password last. A second activation or a resend waits and then finds the link used; a failure rolls everything back. Transactions may run 15 s for this (`database.module.ts`).
+- Until R6's email sender, `ActivationMailer` logs the link only with `AUTH_MODE=local`; anywhere else it sends nothing and logs neither the token nor the address.
+
+## Email and SMS (`NotifyService`)
+
+Never send email or SMS any other way. Inject the service and send a typed template:
+
+```ts
+constructor(@Inject(NOTIFY_SERVICE) private readonly notify: NotifyService) {}
+
+await this.notify.send({
+  template: 'document.requested',
+  to: client.email,
+  businessId, // the firm it comes from (branding, sender name); null for Firmivra's own
+  recipient: { clientAccountId }, // their notification preferences apply
+  data: { name, firmName, title, dueOn, link },
+});
+```
+
+- The templates and the data each needs are in `src/notify/notify.types.ts` (`NotifyTemplates`). Add a template there before using it; `TEMPLATE_CHANNEL` says email or SMS.
+- `data` holds names, dates, titles and links only: never a password, a full SSN or EIN, a bank number, an amount or document content. A code or token goes only in the field made for it.
+- A delivery failure is logged without the address or the data, and never fails the caller's flow.
+- Until R6 step 2 it only logs: the whole message with `AUTH_MODE=local`, otherwise just the template and the firm.
 
 ## Adding a module
 

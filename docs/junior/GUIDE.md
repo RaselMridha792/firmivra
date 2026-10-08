@@ -20,6 +20,7 @@ CI fails a PR from your branch if it changes anything outside your files.
 
 1. Update: `git fetch origin`, then on your ticket branch `git merge origin/main`. Never rebase or force-push a branch you already pushed.
 2. Run: `docker compose up -d`, `pnpm install`, `pnpm db:migrate`, `pnpm db:seed`, `pnpm dev`.
+   - Once, after the seed-ids fix (R0, Oct 8) is on main, reset your local database: `pnpm --filter @firmivra/db exec prisma migrate reset` (or drop it, then `pnpm db:migrate` and `pnpm db:seed`). The seeded ids changed, so the old rows would collide. Only synthetic data is lost.
 3. Sign in locally with a quick sign-in button:
    - Firm workspace: http://app.localhost:3000/sign-in (`owner@lvp.test`, `staff@lvp.test`, `owner@firm-b.test`)
    - Super Admin: http://admin.localhost:3000/sign-in (`superadmin@firmivra.test`)
@@ -47,7 +48,7 @@ CI fails a PR from your branch if it changes anything outside your files.
 5. **Forms:** `useForm` with `zodResolver(<schema from @firmivra/types>)`. Show API errors with `errorMessage(error)`.
 6. **Look:** only `@firmivra/ui` components and token classes such as `bg-surface`, `bg-canvas`, `text-muted`, `border-border`, `text-danger`. No hex colours, no values like `p-[13px]`, no inline styles. Colours come from the tokens: never fix a colour inside your page; a colour that looks wrong everywhere is Fahad's to fix. Need a component that isn't there? Ask Fahad. Until he adds it, keep a small local one in your `_components/` folder.
 7. **API not merged yet?** Put `NEXT_PUBLIC_API_MOCK=<module>` (or `all`) in `apps/web/.env.local` and build against the mock data. Remove it when the API is on main.
-8. **Test:** put `data-testid` on the key elements and add one Playwright test in `apps/web/e2e/<your-name>-<page>.spec.ts` (copy the reference screen's test).
+8. **Test:** put `data-testid` on the key elements and add one Playwright test. On mock data (while the API isn't on main): `apps/web/e2e/mock/<your-name>-<page>.spec.ts`, copied from the reference screen's `e2e/mock/tax-statuses.spec.ts`; run it with `pnpm --filter @firmivra/web test:e2e:mock`. Against the real API: `apps/web/e2e/<your-name>-<page>.spec.ts`.
 
 Placeholders not on main yet when you start? Build your parts in your `_components/` folder and don't create the page file yourself.
 
