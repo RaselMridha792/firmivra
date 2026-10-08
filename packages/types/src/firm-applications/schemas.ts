@@ -101,8 +101,11 @@ export const REQUIRED_CREDENTIALS: Readonly<Record<PracticeType, readonly Creden
 };
 
 // ---------- Fields ----------
-/** 9 digits; dashes and spaces are dropped. Write-only: only `einLast4` ever comes back. */
-const Ein = z
+/**
+ * 9 digits; dashes and spaces are dropped. Write-only: only `einLast4` ever comes back. Setup
+ * Step 2 (settings) takes the EIN with the same rule.
+ */
+export const Ein = z
   .string()
   .transform((s) => s.replace(/[\s-]/g, ''))
   .pipe(z.string().regex(/^\d{9}$/, 'Enter the 9-digit EIN'));
