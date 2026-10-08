@@ -59,11 +59,11 @@ Checklist:
 - **API:** R4's typed `api.firmApplications.*` contract is on `main`. Use `NEXT_PUBLIC_API_MOCK=firmApplications` for the API-shaped mock until dev data is available.
 - **Build:** stat cards; tabs All, Pending, Approved, Declined with counts; search, status and date filters; table with paging. Detail page with all application fields, automated checks, internal notes and history. Actions Approve, Request Information (with a message) and Decline (with a reason), each with a confirm dialog.
 
-**Status (Oct 8, 2026):** F04b is on `tumit/FIR-F04b-applications`, synced through the latest fetched `main` (`3bd9025`). The list, counts, detail, notes and approve/request-info/decline actions use the typed R4 API and shared React Query invalidation. After syncing main, I fixed the `formReadable: false` case where `business`, `primaryAdmin` and `account` are null: top-level applicant fields and review actions remain available, missing values render safely, and the detail explains that the form could not be read. Mock expectations now match the current eight-application fixture.
+**Status (Oct 8, 2026):** Implemented on `tumit/FIR-F04b-applications`, synced through `main` (`3bd9025`), and opened as [PR #111](https://github.com/RaselMridha792/firmivra/pull/111). The typed R4 API drives the application list, detail, notes and review actions. Unreadable forms use stored applicant columns and safe placeholders.
 
-**Verification:** Shared types build, web typecheck, web ESLint, Turbopack production build and `git diff --check` pass on latest `main` (`3bd9025`). All 8 mock Playwright cases report `ok`, including the unreadable-form regression; Windows leaves the dev server running after the cases, so the runner was interrupted and exits 1 during teardown. The temporary pnpm shim was removed. The complete F04b diff is 1,053 additions and 24 deletions, above the approximate 400-line review target. Screenshots, Fahad's pre-review and Rasel's review remain outstanding.
+**Verification:** Shared types build, web typecheck, ESLint, production build and `git diff --check` pass. All 8 mock Playwright cases reported `ok`; Windows left the dev server running, so the runner was interrupted during teardown. The temporary pnpm shim was removed. Result screenshots still need attaching to the PR.
 
-**GitHub status:** Normal push succeeded; the branch head `bb865d0` is published. No PR has been opened yet. Follow the project review order: Fahad pre-reviews, then Rasel performs final review and merge. Do not merge before those reviews and green CI.
+**GitHub status:** PR #111 is open at head `b01774a`; Path guard passes and CI is running. Fahad and Rasel are requested reviewers. The branch diff is above the repository's approximate 400-line review target. Merge follows green CI and the required reviews.
 
 Checklist:
 
