@@ -4,12 +4,15 @@ import type {
   AppointmentAction,
   AppointmentDetail as Detail,
   AppointmentStatus,
+  MemberAvailability,
 } from '@firmivra/types';
-import { Badge } from '@firmivra/ui';
-import type { ReactNode } from 'react';
+import { Badge, Button } from '@firmivra/ui';
+import { type ReactNode, useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { CancelForm } from './cancel-form';
+import { RescheduleForm } from './reschedule-form';
 import { APPOINTMENTS, LOCATION_LABELS } from './shared';
 import { dayLabel, localParts, timeLabel } from './time';
 
@@ -29,9 +32,10 @@ const ACTIONS: Record<AppointmentAction, string> = {
 
 interface DetailProps {
   timeZone: string;
+  members: MemberAvailability[];
 }
 
-/** An appointment's details and history. */
+/** An appointment's details and history, with Reschedule and Cancel while it is scheduled. */
 export function AppointmentDetail({ id, ...props }: DetailProps & { id: string }) {
   const detail = useApiQuery([...APPOINTMENTS, 'detail', id], () => api.appointments.get(id));
   return (
@@ -41,11 +45,17 @@ export function AppointmentDetail({ id, ...props }: DetailProps & { id: string }
   );
 }
 
-function Body({ appointment, timeZone }: DetailProps & { appointment: Detail }) {
+function Body({ appointment, timeZone, members }: DetailProps & { appointment: Detail }) {
+  const [action, setAction] = useState<'reschedule' | 'cancel' | null>(null);
+  const [notice, setNotice] = useState('');
   const at = (iso: string) =>
     `${dayLabel(localParts(iso, timeZone).date)}, ${timeLabel(iso, timeZone)}`;
   const [status, tone] = STATUS[appointment.status];
   const details = appointment.locationDetails;
+  const done = (text: string) => () => {
+    setAction(null);
+    setNotice(text);
+  };
 
   return (
     <div data-testid="appointment-detail" className="flex flex-col gap-4">
@@ -74,6 +84,33 @@ function Body({ appointment, timeZone }: DetailProps & { appointment: Detail }) 
         </Row>
         {appointment.cancelReason ? <Row label="Reason">{appointment.cancelReason}</Row> : null}
       </dl>
+
+      {notice ? (
+        <p role="status" className="text-sm text-success">
+          {notice}
+        </p>
+      ) : null}
+      {appointment.status === 'SCHEDULED' ? (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => setAction('reschedule')}>
+            Reschedule
+          </Button>
+          <Button variant="secondary" onClick={() => setAction('cancel')}>
+            Cancel…
+          </Button>
+        </div>
+      ) : null}
+      {action === 'reschedule' ? (
+        <RescheduleForm
+          appointment={appointment}
+          timeZone={timeZone}
+          members={members}
+          onDone={done('Appointment moved.')}
+        />
+      ) : null}
+      {action === 'cancel' ? (
+        <CancelForm id={appointment.id} onDone={done('Appointment cancelled.')} />
+      ) : null}
 
       <section aria-label="History">
         <h3 className="mb-2 text-sm font-semibold text-text">History</h3>
