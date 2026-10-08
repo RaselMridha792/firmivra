@@ -1,11 +1,13 @@
 'use client';
 
 import type { Availability } from '@firmivra/types';
+import { Modal } from '@firmivra/ui';
 import Link from 'next/link';
 import { useState } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { AppointmentDetail } from './appointment-detail';
 import { DayGrid, WeekGrid } from './calendar-grid';
 import { CalendarToolbar, type CalendarView } from './calendar-toolbar';
 import { APPOINTMENTS, AVAILABILITY } from './shared';
@@ -42,6 +44,7 @@ function Calendar({ availability }: { availability: Availability }) {
   const [today] = useState(() => todayIn(timeZone));
   const [anchor, setAnchor] = useState(today);
   const [staff, setStaff] = useState('');
+  const [openId, setOpenId] = useState<string | null>(null);
   const from = view === 'week' ? weekStart(anchor) : anchor;
   const days = view === 'week' ? 7 : 1;
   const appointments = useApiQuery([...APPOINTMENTS, from, days, staff], () =>
@@ -53,7 +56,7 @@ function Calendar({ availability }: { availability: Availability }) {
   );
   const label =
     view === 'week' ? `${dayLabel(from)} – ${dayLabel(addDays(from, 6))}` : dayLabel(anchor);
-  const grid = { timeZone, showStaff: staff === '' };
+  const grid = { timeZone, showStaff: staff === '', onOpen: setOpenId };
 
   return (
     <>
@@ -85,6 +88,9 @@ function Calendar({ availability }: { availability: Availability }) {
           )
         }
       </PageState>
+      <Modal open={openId !== null} title="Appointment" onClose={() => setOpenId(null)}>
+        {openId ? <AppointmentDetail id={openId} timeZone={timeZone} /> : null}
+      </Modal>
     </>
   );
 }
