@@ -15,6 +15,7 @@ const FIRM: Record<NotificationTargetKind, ((clientId: string) => string) | stri
   invoice: (c) => `/clients/${c}/invoices`,
   appointment: '/calendar',
   client_account: '/sign-ups',
+  membership: '/team',
   // The client's private notes never reach the firm; the member's own account has no page yet.
   client_note_reminder: null,
   user: null,
@@ -32,8 +33,9 @@ const PORTAL: Record<NotificationTargetKind, string | null> = {
   appointment: '/appointments',
   invoice: '/invoices',
   user: '/profile',
-  // A sign-up waiting is the firm's business.
+  // A sign-up waiting and the firm's team are the firm's business.
   client_account: null,
+  membership: null,
 };
 
 /**

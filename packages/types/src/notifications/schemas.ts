@@ -55,6 +55,7 @@ export const NotificationTargetKind = z.enum([
   'appointment',
   'invoice',
   'client_account',
+  'membership',
   'user',
 ]);
 export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
@@ -63,12 +64,18 @@ export type NotificationTargetKind = z.infer<typeof NotificationTargetKind>;
  * Who gets each event's bell item, its category and the kind of record it opens. Names match the
  * NotifyService templates (apps/api/src/notify/notify.types.ts) where an email goes out for the
  * same event, so one event writes the bell item and its email. `to`: `client` (the portal),
- * `staff` (the firm site) or `both`. The API's helper takes only these names.
+ * `staff` (the firm site) or `both`. The API's helper takes only these names. Recipients: a
+ * client event goes to the client's ACTIVE PRIMARY portal login only, until member permissions
+ * exist (a spouse's or an authorized login gets none); `client-note.reminder` only to the note's
+ * owner (ClientNoteReminder.userId). Email-only notices (codes, decisions, welcome, new-device
+ * alert, suspension) are NotifyService templates, not bell items.
  */
 export const NOTIFICATION_EVENTS = {
   // ----- Documents (R5) -----
   /** The firm asks for a document (with the email of the same name). */
   'document.requested': { category: 'DOCUMENTS', kind: 'document_request', to: 'client' },
+  /** The firm accepted the client's upload for a request. */
+  'document-request.accepted': { category: 'DOCUMENTS', kind: 'document_request', to: 'client' },
   /** The firm marked an upload missing: the client is asked again. */
   'document-request.rejected': { category: 'DOCUMENTS', kind: 'document_request', to: 'client' },
   /** The client uploaded for a request. */
@@ -102,8 +109,10 @@ export const NOTIFICATION_EVENTS = {
   // ----- Invoices (R7; never an amount) -----
   'invoice.sent': { category: 'BILLING', kind: 'invoice', to: 'client' },
   'payment.received': { category: 'BILLING', kind: 'invoice', to: 'both' },
-  // ----- Account (locked) -----
+  // ----- Account and team (locked) -----
   'account.password-changed': { category: 'ACCOUNT', kind: 'user', to: 'both' },
+  /** A member accepted their invite (Owner and Admin; R2's invites): who can see client data. */
+  'staff.joined': { category: 'ACCOUNT', kind: 'membership', to: 'staff' },
 } as const satisfies Record<
   string,
   {
@@ -119,7 +128,7 @@ export const NotificationId = z.uuid();
 /**
  * The record a notification opens. `clientId` is the firm's client the record belongs to, on the
  * firm site (its pages sit under /clients/{id}); null in the portal (the client is the signed-in
- * one) and for records of no client (a sign-up waiting, the person's own account).
+ * one) and for records of no client (a sign-up waiting, a team member, the person's own account).
  */
 export const NotificationTarget = z.object({
   kind: NotificationTargetKind,
@@ -192,8 +201,10 @@ export type NotificationPreference = z.infer<typeof NotificationPreference>;
 export const NotificationPreferences = z.object({
   /**
    * The channels that can reach this person now, in display order: show a switch only for these.
-   * EMAIL always; SMS once texts can be sent (R6) and the person has a phone number. A choice for
-   * a channel that is not listed is kept and counts once it is.
+   * EMAIL always; SMS once texts can be sent (R6) and the person has a verified phone number.
+   * While SMS is not listed, every item answers `sms: false` and an update with `sms: true` is
+   * refused (400). Turning SMS off is always allowed. A change of phone number clears every SMS
+   * choice: the person opts in again for the new number.
    */
   channels: z.array(DeliveryChannel),
   /** Every category, in the order of NotificationCategory. */
@@ -203,7 +214,8 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
 
 /**
  * PATCH .../notification-preferences: only the categories and channels given change (one switch,
- * or the whole form). A locked category is refused like any bad input (400).
+ * or the whole form). A locked category is refused like any bad input (400), and so is
+ * `sms: true` while SMS is not in the person's `channels` (the API checks that one).
  */
 export const UpdateNotificationPreferencesRequest = z.strictObject({
   items: z

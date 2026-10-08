@@ -49,13 +49,14 @@ interface Fixture {
 /**
  * Numbered in order and parsed, so a fixture that breaks the contract (or sends an event to the
  * wrong side) fails on first use. On the firm site a record names its client (client 1), except
- * a sign-up or the member's own account; in the portal never.
+ * a sign-up, a team member or the member's own account; in the portal never.
  */
 const numbered = (side: 'staff' | 'client', fixtures: Fixture[]): NotificationItem[] =>
   fixtures.map((f, i) => {
     const { category, kind, to } = NOTIFICATION_EVENTS[f.event];
     if (to !== side && to !== 'both') throw new Error(`${f.event} is not for ${side}`);
-    const ofClient = side === 'staff' && kind !== 'client_account' && kind !== 'user';
+    const ofClient =
+      side === 'staff' && kind !== 'client_account' && kind !== 'membership' && kind !== 'user';
     return NotificationItem.parse({
       id: (side === 'staff' ? firmId : myId)(i + 1),
       category,
@@ -339,6 +340,10 @@ function createMock(
     updatePreferences: async (body) => {
       const s = await open();
       const { items } = parseInput(UpdateNotificationPreferencesRequest, body);
+      // As the API: no SMS opt-in while texts cannot reach the person (turning it off is fine).
+      if (!s.preferences.channels.includes('SMS') && items.some((i) => i.sms === true)) {
+        throw fail(400, 'VALIDATION_FAILED', 'Text messages are not available for you');
+      }
       for (const change of items) {
         const row = s.preferences.items.find((p) => p.category === change.category)!;
         if (change.email !== undefined) row.email = change.email;

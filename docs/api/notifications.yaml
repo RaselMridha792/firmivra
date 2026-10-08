@@ -40,13 +40,19 @@ info:
       category. Nothing saved means email on, SMS off. `ACCOUNT` (sign-in and security) is
       `locked`: always sent, shown with its switches disabled, and a request that changes it is
       refused (`400`). `channels` lists what to show switches for: `EMAIL` always, `SMS` once texts
-      can be sent (R6 step 2) and the person has a phone number.
-    - **Errors in order:** `401 UNAUTHENTICATED` (refresh once and retry); `403
-      BUSINESS_INACTIVE` (the firm is suspended or closed), `BUSINESS_SETUP_REQUIRED` (firm site,
-      setup not finished) or `ORIGIN_NOT_ALLOWED` (a change not sent from the site's own pages);
-      `400 VALIDATION_FAILED` (bad id, query or body; a locked category) or `BUSINESS_REQUIRED`
-      (firm site: someone in several firms sent no `x-business-id`); `404 NOT_FOUND`. No `409`:
-      every call can be repeated. `415 UNSUPPORTED_MEDIA_TYPE` for a body that is not JSON.
+      can be sent (R6 step 2) and the person has a verified phone number. While `SMS` is not
+      listed, every item answers `sms: false` and a change with `sms: true` is refused (`400`);
+      turning SMS off is always allowed. A new or removed phone number clears every SMS choice, so
+      texts start only after the person opts in for that number.
+    - **Errors in order** (the order the API checks them): `415 UNSUPPORTED_MEDIA_TYPE` (a change
+      whose body is not JSON), then `403 ORIGIN_NOT_ALLOWED` (a change not sent from the site's
+      own pages), both before sign-in is checked; `401 UNAUTHENTICATED` (refresh once and retry);
+      `400 BUSINESS_REQUIRED` (firm site: someone in several firms sent no `x-business-id`); `404
+      NOT_FOUND` (no such firm, or no place in it); `403 BUSINESS_INACTIVE` (the firm is suspended
+      or closed) or `BUSINESS_SETUP_REQUIRED` (firm site, setup not finished), only after the place
+      in the firm is checked, so another firm's status never shows; `400 VALIDATION_FAILED` (bad
+      id, query or body; a locked category; `sms: true` while SMS is not offered); `404 NOT_FOUND`
+      (not the caller's own notification). No `409`: every call can be repeated.
     - Every change comes from the browser (see "Calling the API from the web app" in auth.yaml).
 
     ## Events
@@ -59,6 +65,7 @@ info:
     | Event | Category | Opens | To |
     | --- | --- | --- | --- |
     | `document.requested` | DOCUMENTS | `document_request` | client |
+    | `document-request.accepted` | DOCUMENTS | `document_request` | client |
     | `document-request.rejected` (upload again) | DOCUMENTS | `document_request` | client |
     | `document-request.submitted` | DOCUMENTS | `document_request` | staff |
     | `document-request.not-available` | DOCUMENTS | `document_request` | staff |
@@ -75,9 +82,17 @@ info:
     | `invoice.sent` | BILLING | `invoice` | client |
     | `payment.received` | BILLING | `invoice` | both |
     | `account.password-changed` | ACCOUNT | `user` | both |
+    | `staff.joined` (an invite accepted; Owner and Admin) | ACCOUNT | `membership` | staff |
+
+    Email-only notices (sign-up and sign-in codes, decisions, the client's welcome, a new-device
+    alert, a suspension notice) are NotifyService templates, not bell items.
 
     ## Rules for the API (R6 step 7)
 
+    - Recipients: a `client` event goes to the client's ACTIVE `PRIMARY` portal login only, until
+      member permissions exist (a `SPOUSE` or `AUTHORIZED` login gets no bell items in beta);
+      `client-note.reminder` goes only to the note's owner (`ClientNoteReminder.userId`). Staff
+      recipients per event are still open (R6-notify.md, Open).
     - Every query filters by the firm (`TenantPrisma.db`) **and** `recipient_user_id` = the
       caller's user. Tenant-isolation e2e: firm B's member gets `404` for firm A's notification,
       and so does a second member of the same firm; a client of firm A gets `404` at firm B's
@@ -89,7 +104,8 @@ info:
     - `read-all` sets `read_at = now()` where it is null and the notification is not newer than
       the request. `read` keeps the first `read_at`.
     - Preferences: one row per changed category (upsert on `business_id, user_id, category`);
-      `ACCOUNT` is never stored as off. NotifyService (step 5) reads them; `ALWAYS_SENT` messages
+      `ACCOUNT` is never stored as off. `sms: true` is refused while SMS is not in the person's
+      `channels`; changing or removing the phone number sets every stored `sms` to off. NotifyService (step 5) reads them; `ALWAYS_SENT` messages
       ignore them. A preference change writes an audit entry (`notification_preferences.updated`
       with the categories and channels, no other data): it is the person's consent to texts.
       Reading and marking read are not audited (the person's own items, no client data changes).
@@ -154,6 +170,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
   /business/me/notifications/read-all:
     parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
     post:
@@ -166,6 +183,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
   /business/me/notification-preferences:
     parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
     get:
@@ -230,6 +248,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
   /portal/{firmSlug}/me/notifications/read-all:
     post:
       tags: [portal]
@@ -242,6 +261,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
   /portal/{firmSlug}/me/notification-preferences:
     get:
       tags: [portal]
@@ -332,7 +352,7 @@ components:
       description: '`BUSINESS_INACTIVE`, `BUSINESS_SETUP_REQUIRED` (firm site) or `ORIGIN_NOT_ALLOWED` (changes)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     ValidationFailed:
-      description: '`VALIDATION_FAILED` (bad id, query or body, or a locked category) or `BUSINESS_REQUIRED` (firm site)'
+      description: '`VALIDATION_FAILED` (bad id, query or body, a locked category, or `sms: true` while SMS is not offered) or `BUSINESS_REQUIRED` (firm site)'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no place in that firm, or not the caller''s own notification'
@@ -363,12 +383,13 @@ components:
             - appointment
             - invoice
             - client_account
+            - membership
             - user
         id: { type: string, format: uuid }
         clientId:
           type: [string, 'null']
           format: uuid
-          description: The firm's client the record belongs to (firm site); null in the portal
+          description: The firm's client the record belongs to (firm site); null in the portal and for records of no client
     NotificationItem:
       type: object
       required: [id, category, title, body, target, readAt, createdAt]

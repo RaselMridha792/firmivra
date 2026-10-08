@@ -185,8 +185,10 @@ describe.each(sides)('%s', (_, me, create) => {
   });
 
   it.each([
-    [403, 'BUSINESS_INACTIVE'],
+    [415, 'UNSUPPORTED_MEDIA_TYPE'],
     [403, 'ORIGIN_NOT_ALLOWED'],
+    [400, 'BUSINESS_REQUIRED'],
+    [403, 'BUSINESS_INACTIVE'],
     [400, 'VALIDATION_FAILED'],
     [404, 'NOT_FOUND'],
   ])('passes the API error %i %s through', async (status, code) => {
@@ -229,6 +231,7 @@ describe('notification links', () => {
     expect(notificationLink(target('engagement', clientId), firm)).toBe(`/clients/${clientId}`);
     expect(notificationLink(target('appointment'), firm)).toBe('/calendar');
     expect(notificationLink(target('client_account'), firm)).toBe('/sign-ups');
+    expect(notificationLink(target('membership'), firm)).toBe('/team');
     expect(notificationLink(target('document'), portal)).toBe('/lvp/documents');
     expect(notificationLink(target('tax_return'), portal)).toBe('/lvp/taxes');
     expect(notificationLink(target('client_note_reminder'), portal)).toBe('/lvp/messages');
@@ -239,6 +242,7 @@ describe('notification links', () => {
     expect(notificationLink(target('user'), firm)).toBeNull();
     expect(notificationLink(target('client_note_reminder', clientId), firm)).toBeNull();
     expect(notificationLink(target('client_account'), portal)).toBeNull();
+    expect(notificationLink(target('membership'), portal)).toBeNull();
     // A firm page under a client needs the client.
     expect(notificationLink(target('document'), firm)).toBeNull();
     for (const bad of [
@@ -311,6 +315,19 @@ describe('notification schemas', () => {
     for (const [event, { kind }] of Object.entries(NOTIFICATION_EVENTS)) {
       expect(event).toMatch(/^[a-z]+(?:-[a-z]+)*\.[a-z]+(?:-[a-z]+)*$/);
       expect(NotificationTargetKind.options).toContain(kind);
+    }
+    // Every answer to a document request reaches the side waiting for it (the Staff journey).
+    for (const [event, to] of [
+      ['document-request.accepted', 'client'],
+      ['document-request.rejected', 'client'],
+      ['document-request.submitted', 'staff'],
+      ['document-request.not-available', 'staff'],
+    ] as const) {
+      expect(NOTIFICATION_EVENTS[event]).toEqual({
+        category: 'DOCUMENTS',
+        kind: 'document_request',
+        to,
+      });
     }
     // The ones that also go out as email keep the template's name.
     for (const template of [
