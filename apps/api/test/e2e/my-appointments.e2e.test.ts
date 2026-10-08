@@ -9,7 +9,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import type { z } from 'zod';
@@ -23,6 +23,7 @@ import {
   MySlotList,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { AuditService } from '../../src/audit/audit.service.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -885,5 +886,43 @@ describe('audit', () => {
     for (const secret of ['Private matter', 'travel', 'Fake R12p', 'Jamie', '@r12.test']) {
       expect(text).not.toContain(secret);
     }
+  });
+});
+
+describe('#108 review, on the portal', () => {
+  it('takes ids in any letter case: a same-time reschedule in capitals changes nothing', async () => {
+    const mine = await book(people.clientB, consult.id.toUpperCase(), at(20, '09:00'));
+    outbox.length = 0;
+    const same = exact(
+      MyAppointment,
+      await portal('post', `/${mine.id.toUpperCase()}/reschedule`, people.clientB, {
+        startsAt: at(20, '09:00'),
+      }),
+    );
+    expect(same.startsAt).toBe(at(20, '09:00'));
+    expect((await firmDetail(mine.id)).history.map((e) => e.action)).toEqual(['BOOKED']);
+    expect(outbox).toEqual([]);
+    exact(
+      MyAppointment,
+      await portal('post', `/${mine.id.toUpperCase()}/cancel`, people.clientB, {}),
+    );
+  });
+
+  it('writes the history row in the change: when it fails, nothing is booked, and the retry books', async () => {
+    const audit = app.get(AuditService);
+    const failing = vi
+      .spyOn(audit, 'logIn')
+      .mockRejectedValueOnce(new Error('The audit insert failed'));
+    try {
+      const res = await portal('post', '', people.clientB, {
+        typeId: consult.id,
+        startsAt: at(21, '09:00'),
+      });
+      expect(res.status).toBe(500);
+    } finally {
+      failing.mockRestore();
+    }
+    const retried = await book(people.clientB, consult.id, at(21, '09:00'));
+    expect((await firmDetail(retried.id)).history.map((e) => e.action)).toEqual(['BOOKED']);
   });
 });
