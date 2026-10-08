@@ -88,9 +88,10 @@ export const ANNUAL_TAX_FORM: IntakeFormDefinition = {
         'spouse',
         'Spouse Information (if applicable)',
         [
-          ...fullName('spouse'),
-          f.ssn('spouseSsn', 'Spouse SSN'),
-          f.date('spouseDateOfBirth', 'Date of Birth', { past: true }),
+          // Required while the section shows (married filers only).
+          ...fullName('spouse', R),
+          f.ssn('spouseSsn', 'Spouse SSN', R),
+          f.date('spouseDateOfBirth', 'Date of Birth', { past: true, ...R }),
           f.text('spouseOccupation', 'Spouse Occupation', {
             placeholder: 'Occupation or job title',
           }),
