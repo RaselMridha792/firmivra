@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { Email } from '../auth/schemas.js';
 import { Phone } from '../client-auth/schemas.js';
 import { CalendarDate, ContactMethod } from '../clients/schemas.js';
-import { clearable, text } from '../clients/text.js';
+import { clearable, SearchText, text } from '../clients/text.js';
 import { BusinessSummary } from '../schemas.js';
 
 // Firm applications (R4): a business applies on the firm site without an account; a Firmivra
@@ -309,7 +309,7 @@ export type FirmApplicationListItem = z.infer<typeof FirmApplicationListItem>;
 export const ListFirmApplicationsQuery = z
   .strictObject({
     status: FirmApplicationReviewStatus.optional(),
-    search: z.string().trim().max(100).optional(),
+    search: SearchText.optional(),
     from: DateTime.optional(),
     to: DateTime.optional(),
     order: z.enum(['newest', 'oldest']).optional().default('newest'),
@@ -592,7 +592,7 @@ export type FirmListItem = z.infer<typeof FirmListItem>;
 /** GET /admin/firms. Search matches the firm name, owner name and owner email. Newest first. */
 export const ListFirmsQuery = z.strictObject({
   status: FirmStatusFilter.optional(),
-  search: z.string().trim().max(100).optional(),
+  search: SearchText.optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });

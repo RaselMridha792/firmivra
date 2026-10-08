@@ -623,6 +623,20 @@ describe('the EMAIL_DOMAIN check', () => {
   });
 });
 
+describe('a search with a character Postgres text cannot hold', () => {
+  it('a NUL or another control character is 400 on both lists, never 500', async () => {
+    for (const path of ['/admin/firm-applications', '/admin/firms']) {
+      for (const term of ['%00', `${tag}%00`, '%1B%5B31m', '%C2%85']) {
+        const res = await get(`${path}?search=${term}`);
+        expect([res.status, codeOf(res)], `${path} ${term}`).toEqual([400, 'VALIDATION_FAILED']);
+      }
+      // A query string can't carry a lone surrogate: the URL decoder turns the bytes of one into
+      // U+FFFD, plain text. (A JSON body can; the shared rule refuses it, packages/types tests.)
+      await get(`${path}?search=%ED%A0%80`).expect(200);
+    }
+  });
+});
+
 describe('% and _ in a search or a compared name are plain characters', () => {
   const applications = async (term: string) =>
     (
