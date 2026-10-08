@@ -32,8 +32,24 @@ Arfan's Begin Online and leads screens and Nahid's intake and messages tabs work
 
 ## Needs from others
 
-(none yet)
+- R0 (this session holds the lock; next R0 migration): `documents.intake_id` and `documents.intake_slot` (both set or both null; detaching clears both); `intakes.correction_note` and `correction_requested_at` (set together, required while NEEDS_CORRECTION); `intake_submissions.saved_steps` (text[], default empty); `leads.tax_year` (2000-2100, fixed at the draft's start); one Begin Online service per kind per firm (for example `services.begin_online` with a partial unique index on business and kind); a draft's 90-day cap (`resume_expires_at <= created_at + 90 days`), and an expiry for a draft before any resume link is sent (`leads.draft_expires_at`, or relax the expiry and token-hash pairing).
+- `packages/types/src/client.ts` (shared): `createRequest` drops `error.details`, so screens rerun `checkIntakeAnswers` to place submit issues. Keep `details` on `ApiRequestError`.
+- Rasel: `apps/web` has no unit-test runner, so the mocks check their own fixtures when first used instead of in a test. Adding vitest to `apps/web` changes its package.json and the lockfile: your call.
+- Rasel and Octavia, half A's open questions:
+  1. A typed full name as the signature, or the mockups' drawn one too?
+  2. Do the bookkeeping required documents block submit, or is "provide later" allowed? Today: required, with "I don't have this" plus a reason.
+  3. Which duplicate questions go: the Quarterly quarters asked twice, prior-year filing asked twice, "How did you hear" on Business Development steps 1 and 3, Payroll start date and current provider?
+  4. Which tax year does Annual Tax ask about (today the current year, as in the mockups), and may late filers pick one?
+  5. The intake tab's seven cards: Business Tax opens Annual or Quarterly; "Other Tax Services" has no form. Right?
+  6. Should uploads carry a quarter and a document type, as the Quarterly review page shows?
+  7. Please confirm or replace the proposed dropdown lists: payroll frequency, system, funding and role; Tax Planning industry, headcount and years; Business Development timeframe; "How did you hear"; the dependent relationships.
+  8. Should Business Development and Tax Planning ask for a confirmation email apart from the contact email, as drawn?
+  9. Should starting a draft need a CAPTCHA besides the rate limits?
+- Octavia's firm agreements (three acknowledgments, signature, version pinned by id and SHA-256): a small follow-up after half A; nothing in half A blocks it.
 
 ## Progress log
 
 (newest last: date, step, what changed, commit)
+- Oct 8, step 1, half A, first of three contract PRs (Rasel: three; branch `rasel/R11-intake-engine`): the intake form engine in `packages/types/src/intake`. Versioned definitions with steps, sections and fields (text, numbers, currency in cents, dates and months 1900-2100, SSN and EIN, choices, grids up to 50 by 10, groups up to 31 keys a row, upload slots, `showIf` on earlier fields only, the review step last). `checkIntakeAnswers(definition, answers, { mode })`: on save, types, limits and the shared text rule only; on submit, also every shown required field, dropping the answers of hidden fields. Answers are counted before parsing (500 keys at most), `__proto__`, `constructor` and `prototype` are refused, URLs are normalized and refuse a user name or password. SSN and EIN answers come back only as `{last4}`, which must match the stored number at the same key (or group row id). `INTAKE_FORMS` holds Annual Tax for now (`Partial`, so the third PR adds the others without changing callers). Built by an agent, reviewed by a second one; its must-fix and should-fix findings are in. Next: B (the Begin Online and intake clients and the mocks), then C (the other five forms).
+- Oct 8, #127 review (cloud Scrum thread; Rasel's decision 3 of Oct 8: intake agreements are per firm and versioned): `IntakeFormDefinition` no longer has `agreement`, and `IntakeAgreement` is gone; Annual Tax drops its own Service Agreement section and `agreeToTerms` box. The agreement, its acknowledgments and the signature come from the firm's agreements (R14's `api.publicAgreements(slug)`); contract B's submit bodies take R14's `IntakeSignatureInput`. A definitions test checks that no form carries an agreement of its own.
+- Oct 8, #127 full review (cloud Scrum thread), two more: married filers must give the spouse's first and last name, SSN and date of birth (required inside the married-only section; the spouse's ID and card uploads wait for Octavia). `intakeUploadCounts` takes the database's scan status and counts an allow-list only (`COUNTED_UPLOAD_STATUSES`: CLEAN and PENDING), so an INFECTED or FAILED file never answers a required slot. For contract B: responses that carry answers refuse a full SSN or EIN (`intakeNumbersMasked`), and the review's nits (a required checkbox and `minItems` inside group rows, `hiddenSlotUploads` for shown upload fields only, a total field cap and bounded labels).
