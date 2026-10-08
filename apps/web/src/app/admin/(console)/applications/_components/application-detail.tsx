@@ -199,7 +199,7 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={busy}
-              className="!bg-success !text-white hover:!bg-success"
+              className="enabled:!bg-success"
               onClick={() => openAction('approve')}
             >
               Approve Application
@@ -209,7 +209,7 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
             </Button>
             <Button
               variant="outline"
-              className="!border-danger !text-danger hover:!bg-danger-soft"
+              className="enabled:!border-danger enabled:!text-danger enabled:hover:!bg-danger-soft"
               disabled={busy}
               onClick={() => openAction('decline')}
             >

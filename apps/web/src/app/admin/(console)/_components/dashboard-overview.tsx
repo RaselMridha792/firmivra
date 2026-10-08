@@ -200,7 +200,7 @@ export function DashboardOverview() {
     api.firmApplications.dashboard(),
   );
   const recent = useApiQuery(['firm-applications', 'recent'], () =>
-    api.firmApplications.list({ pageSize: 1 }),
+    api.firmApplications.list({ pageSize: 5 }),
   );
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
   const isMockMode = mocked('firmApplications');
@@ -225,11 +225,9 @@ export function DashboardOverview() {
       <PageState<AdminDashboard> query={dashboard}>
         {(data) => (
           <div className="grid min-h-30 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {dashboardStats.map((stat) => {
-              const value = data[stat.key];
-              const previewValue = isMockMode && value === null ? 0 : value;
-              return <StatCard key={stat.key} stat={stat} value={previewValue} />;
-            })}
+            {dashboardStats.map((stat) => (
+              <StatCard key={stat.key} stat={stat} value={data[stat.key]} />
+            ))}
           </div>
         )}
       </PageState>
@@ -285,13 +283,7 @@ export function DashboardOverview() {
               <SectionTitle icon={CircleCheck}>Tasks Requiring Attention</SectionTitle>
               <ul className="divide-y divide-border">
                 {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
-                  const value = key && dashboard.data ? dashboard.data[key] : null;
-                  const count =
-                    key && dashboard.data
-                      ? (value ?? (isMockMode ? 0 : '—'))
-                      : isMockMode
-                        ? 0
-                        : '—';
+                  const count = key && dashboard.data ? (dashboard.data[key] ?? '—') : '—';
                   const canOpen = href && typeof count === 'number' && count > 0;
                   return (
                     <li

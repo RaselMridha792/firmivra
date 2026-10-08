@@ -55,7 +55,7 @@ Checklist:
 - [x] Signed-in loading, error and retry states (mock-mode Playwright)
 - [x] Playwright: the dashboard loads in mock mode
 
-**Visual follow-up (Oct 8):** Compared a fresh 1536 px preview with `Dashboard Active .png` and adjusted the shared header height, logo-side navigation scale, dashboard spacing and card heights to the reference. The recent-applications panel shows one row as in the mockup; the profile label now reads “Owner / Super Admin.” A 375 px preview has no horizontal overflow and opens the compact menu. The Platform Growth panel remains empty with “Coming soon” as the ticket specifies, even though the reference image shows a chart. Browser console had no app errors. The shared shell changes stay in this F04a branch so later ticket branches do not carry another copy.
+**Visual follow-up (Oct 8):** Compared a 1536 px preview with `Dashboard Active .png` and adjusted the dashboard spacing, card heights, stat icon colours, the Platform Growth "(Beta)" label and the Platform Settings quick action. Platform Growth stays "Coming soon" as the ticket specifies. Ported to main on Oct 8 (F04 polish PR); the shared header and sidebar stay as on main.
 
 ### F04b · Oct 8 · Firm applications
 
@@ -73,7 +73,7 @@ Checklist:
 - [x] An unknown id shows not-found
 - [x] Playwright: approve an application in mock mode
 
-**Visual follow-up (Oct 8):** Widened the applications content to use the available console width, increased the heading and table readability, and made the detail decision actions match their approve/request/decline meaning. Verified the list and detail at the mockup's 1672 px desktop width, then checked 375 px without horizontal overflow. In the local API-shaped mock, an application opens, approval confirms and updates its status/firm summary, and an invalid ID shows not-found; the browser console had no app errors. Shared header/sidebar refinements remain only in F04a PR #58 and will be inherited after the required merge/rebase sequence.
+**Visual follow-up (Oct 8):** Widened the applications content to the console width, enlarged the headings and table text, and gave the detail actions their approve, request and decline colours (they still show as disabled while a request runs). Checked at 1672 px and 375 px. Ported to main on Oct 8 (F04 polish PR).
 
 ### N04 · Oct 9 · Public firm application form, and the firms list
 
