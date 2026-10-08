@@ -10,7 +10,7 @@ import type { Database, TxClient } from '@firmivra/db';
 import type { SubmitFirmApplicationRequest, SubmitFirmApplicationResponse } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
-import { canonicalIp } from '../client-auth/network.js';
+import { canonicalIp, networkOf } from '../client-auth/network.js';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
@@ -21,23 +21,32 @@ type Body = z.output<typeof SubmitFirmApplicationRequest>;
 
 /**
  * Submit limits, counted in the database from this module's attempt rows (platform audit rows
- * with the canonical IP and the email's keyed hash, never the email), the way R3's sign-up limits
- * are: one platform transaction under advisory try-locks, so every API task shares them and
- * parallel submits can't pass one together. A filled honeypot counts too, so it is answered
- * exactly like a real submit. Mutable for tests.
- * - perIpPerHour: submits from one IP in an hour.
- * - perEmailPerDay: submits naming one primary administrator email in 24 hours.
+ * with the canonical IP, its network and the email's keyed hash, never the email), the way R3's
+ * sign-up limits are: one platform transaction under advisory try-locks, so every API task shares
+ * them and parallel submits can't pass one together. A filled honeypot counts too, so it is
+ * answered exactly like a real submit. Mutable for tests.
+ * - perIpPerHour, perNetworkPerHour: submits from one IP, and from one /24 (IPv4) or /48 (IPv6)
+ *   network (one IPv6 user holds countless addresses), in an hour.
+ * - perEmailNetworkPerDay: submits naming one primary administrator email from one network in 24
+ *   hours. Only the network's own: a stranger elsewhere can't block a real applicant, and the 429
+ *   says nothing about anyone else's submits (R3's perEmailNetworkPerDay).
+ * - emailAlertPerDay: submits naming one email in 24 hours, from any network, before a warning is
+ *   logged (once a day). Never a block.
  * - receivedEmailGapMs: at most one "received" email to an address in this window (24 hours): a
  *   second application from the address within it is stored and answered as usual, unmailed.
  */
 export const SUBMIT_LIMITS = {
   perIpPerHour: 5,
-  perEmailPerDay: 3,
+  perNetworkPerHour: 20,
+  perEmailNetworkPerDay: 3,
+  emailAlertPerDay: 20,
   receivedEmailGapMs: 24 * 60 * 60_000,
 };
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 const ATTEMPT = 'firm_application.submit_attempt';
+/** A warning already logged today for an email: a platform row `{ emailKey }`. */
+const ALERT = 'firm_application.submit_alert';
 
 /** The same 429 as R3's sign-up limits: one answer for every limit. */
 const rateLimited = () =>
@@ -46,7 +55,10 @@ const rateLimited = () =>
     HttpStatus.TOO_MANY_REQUESTS,
   );
 
-/** An advisory try-lock for this transaction (never waited for: busy is a burst, refused). */
+/**
+ * An advisory try-lock for this transaction (never waited for: busy is a burst, refused). The same
+ * as R3's in client-auth/sign-up.service.ts, which doesn't export it (R4 file, Needs from others).
+ */
 async function tryLock(tx: TxClient, key: string): Promise<boolean> {
   const [row] = await tx.$queryRaw<{ ok: boolean }[]>`
     SELECT pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) AS ok`;
@@ -120,29 +132,41 @@ export class FirmApplicationSubmitService {
     }
     const key = this.keys.ein;
     const email = body.primaryAdmin.email;
-    const ip = canonicalIp(requestContext.getStore()?.ip);
+    const rawIp = requestContext.getStore()?.ip;
+    const ip = canonicalIp(rawIp);
+    const net = networkOf(rawIp);
     const emailKey = this.keys.email(email);
     const trap = body.honeypot !== undefined && body.honeypot !== '';
 
     const outcome = await this.database.withScope({ kind: 'platform' }, async (tx) => {
-      if (!(await tryLock(tx, `fv-firm-apply-ip:${ip}`))) return null;
+      // The network's lock covers its IPs; the email's, after it, the received-email check below.
+      if (!(await tryLock(tx, `fv-firm-apply-net:${net}`))) return null;
       if (!(await tryLock(tx, `fv-firm-apply-email:${emailKey}`))) return null;
-      const attempts = (field: 'ip' | 'emailKey', value: string, windowMs: number) =>
+      const attempts = (windowMs: number, ...match: [field: string, value: string][]) =>
         tx.auditLog.count({
           where: {
-            businessId: null,
-            action: ATTEMPT,
-            createdAt: { gt: new Date(Date.now() - windowMs) },
-            metadata: { path: [field], equals: value },
+            AND: [
+              {
+                businessId: null,
+                action: ATTEMPT,
+                createdAt: { gt: new Date(Date.now() - windowMs) },
+              },
+              ...match.map(([field, value]) => ({ metadata: { path: [field], equals: value } })),
+            ],
           },
         });
       if (
-        (await attempts('ip', ip, HOUR_MS)) >= SUBMIT_LIMITS.perIpPerHour ||
-        (await attempts('emailKey', emailKey, DAY_MS)) >= SUBMIT_LIMITS.perEmailPerDay
+        (await attempts(HOUR_MS, ['ip', ip])) >= SUBMIT_LIMITS.perIpPerHour ||
+        (await attempts(HOUR_MS, ['net', net])) >= SUBMIT_LIMITS.perNetworkPerHour ||
+        (await attempts(DAY_MS, ['emailKey', emailKey], ['net', net])) >=
+          SUBMIT_LIMITS.perEmailNetworkPerDay
       ) {
         return null;
       }
-      await this.audit.logIn(tx, ATTEMPT, { type: 'firm_application' }, { ip, emailKey });
+      await this.audit.logIn(tx, ATTEMPT, { type: 'firm_application' }, { ip, net, emailKey });
+      if ((await attempts(DAY_MS, ['emailKey', emailKey])) >= SUBMIT_LIMITS.emailAlertPerDay) {
+        await this.alertOnce(tx, emailKey);
+      }
       if (trap) return { id: null, mail: false };
 
       // Under the email's lock, so two submits at once can't both mail.
@@ -177,20 +201,51 @@ export class FirmApplicationSubmitService {
       // Never the form's content or the honeypot's value.
       this.logger.warn('Firm application submit dropped: the honeypot was filled');
     } else if (outcome.id && outcome.mail) {
-      try {
-        await this.notify.send({
-          template: 'firm-application.received',
-          to: email,
-          businessId: null,
-          data: { name: body.primaryAdmin.fullName, legalName: body.business.legalName },
-        });
-      } catch {
-        // The application stands. The id only (R8 alarms on this warning).
-        this.logger.warn(
-          `Firm application ${outcome.id}: the firm-application.received email could not be sent`,
-        );
-      }
+      this.sendReceived(outcome.id, email, body);
     }
     return { received: true };
+  }
+
+  /**
+   * The "received" email, started after the commit and never awaited: every answer takes the same
+   * time whether or not an email goes out (a dropped honeypot, an address that applied in the
+   * window), as R3's atLeast does for sign-up. A failed send leaves the application standing, with
+   * a warning holding its id only (R8 alarms on it).
+   */
+  private sendReceived(id: string, to: string, body: Body): void {
+    void Promise.resolve()
+      .then(() =>
+        this.notify.send({
+          template: 'firm-application.received',
+          to,
+          businessId: null,
+          data: { name: body.primaryAdmin.fullName, legalName: body.business.legalName },
+        }),
+      )
+      .catch(() => {
+        this.logger.warn(
+          `Firm application ${id}: the firm-application.received email could not be sent`,
+        );
+      });
+  }
+
+  /**
+   * Logs, once a day per email, that it reached `emailAlertPerDay` submits from any network (the
+   * key's start only, never the email); R8 can alarm on it. Under the email's lock.
+   */
+  private async alertOnce(tx: TxClient, emailKey: string): Promise<void> {
+    const logged = await tx.auditLog.count({
+      where: {
+        businessId: null,
+        action: ALERT,
+        createdAt: { gt: new Date(Date.now() - DAY_MS) },
+        metadata: { path: ['emailKey'], equals: emailKey },
+      },
+    });
+    if (logged > 0) return;
+    this.logger.warn(
+      `Firm application submits for one email (key ${emailKey.slice(0, 12)}) reached ${SUBMIT_LIMITS.emailAlertPerDay} in a day`,
+    );
+    await this.audit.logIn(tx, ALERT, { type: 'firm_application' }, { emailKey });
   }
 }

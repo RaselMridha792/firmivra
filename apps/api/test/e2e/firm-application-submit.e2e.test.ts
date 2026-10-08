@@ -1,8 +1,9 @@
 // End-to-end: the public application form, POST /firm-applications (R4 step 2). The EIN is kept
 // as its last 4 and a keyed hash in their columns, never in `data`; limits per IP and per email;
-// the honeypot; the throttled "received" email, sent after the commit; the audit row without the
-// body; and a missing EIN_HASH_KEY failing closed. The NotifyService is replaced by a recorder
-// that checks, from another connection, that the application was committed before each send.
+// the honeypot; the throttled "received" email, sent after the commit and never awaited; the audit
+// row without the body; and a missing EIN_HASH_KEY failing closed. The NotifyService is replaced by
+// a recorder that checks, from another connection, that the application was committed before each
+// send.
 import { createHmac, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { type INestApplication, Logger } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -18,6 +19,7 @@ import { type Env, loadEnv } from '../../src/config/env.js';
 import {
   EIN_HASH_KEY,
   type EinHashKey,
+  emailHasher,
   loadEinHashKey,
 } from '../../src/firm-applications/ein-hash.js';
 import { StoredApplication } from '../../src/firm-applications/firm-applications.service.js';
@@ -38,10 +40,20 @@ const asOwner = <T>(fn: (tx: TxClient) => Promise<T>) =>
 /** Each message, with how many applications from its address were committed when it went. */
 const sent: { message: NotifyMessage; committed: number }[] = [];
 let sendFails = false;
+/** While set, each send waits for it (the answer must not). */
+let sendGate: Promise<void> | null = null;
+/** Every send started (the service never awaits them). */
+const pending: Promise<void>[] = [];
+/** Waits for every send started so far, and for the service's warning on a failed one. */
+const settled = async () => {
+  await Promise.allSettled(pending);
+  await new Promise((resolve) => setImmediate(resolve));
+};
 
-/** A viewer of its own (requests from one test never count against another's). */
-const newIp = () =>
-  `2001:db8:${randomBytes(2).toString('hex')}:${randomBytes(2).toString('hex')}::1`;
+const hex = (bytes: number) => randomBytes(bytes).toString('hex');
+/** A viewer on a network of its own (a random ULA /48), so tests never share a limit. */
+const newNet = () => `fd${hex(1)}:${hex(2)}:${hex(2)}`;
+const newIp = (net = newNet()) => `${net}:${hex(2)}::1`;
 /** A synthetic EIN, unique to this run (test EINs start with 00). */
 const newEin = () => `00-${String(randomInt(10_000_000)).padStart(7, '0')}`;
 const emailOf = (n: number | string) => `casey${n}@${tag}.example.test`;
@@ -80,13 +92,18 @@ async function makeApp(einKey: EinHashKey): Promise<INestApplication> {
     .useValue(einKey)
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({
-      send: async (message: NotifyMessage) => {
-        const committed = await asOwner((tx) =>
-          tx.firmApplication.count({ where: { contactEmail: message.to } }),
-        );
-        sent.push({ message, committed });
-        // A provider's error may name the address, which must never reach the log.
-        if (sendFails) throw new Error(`No mailbox ${message.to}`);
+      send: (message: NotifyMessage) => {
+        const sending = (async () => {
+          const committed = await asOwner((tx) =>
+            tx.firmApplication.count({ where: { contactEmail: message.to } }),
+          );
+          if (sendGate) await sendGate;
+          sent.push({ message, committed });
+          // A provider's error may name the address, which must never reach the log.
+          if (sendFails) throw new Error(`No mailbox ${message.to}`);
+        })();
+        pending.push(sending);
+        return sending;
       },
     })
     .compile();
@@ -146,9 +163,12 @@ afterAll(async () => {
   await owner.$disconnect();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  await settled();
   sent.length = 0;
+  pending.length = 0;
   sendFails = false;
+  sendGate = null;
 });
 
 describe('POST /firm-applications', () => {
@@ -189,6 +209,7 @@ describe('POST /firm-applications', () => {
     expect(a.history.map((h) => h.type)).toEqual(['SUBMITTED']);
 
     // One "received" email, after the application was committed (seen from another connection).
+    await settled();
     expect(sent).toEqual([
       {
         message: {
@@ -245,6 +266,7 @@ describe('POST /firm-applications', () => {
       );
       expect([trap.status, trap.body]).toEqual([real.status, real.body]);
       expect(await stored(emailOf('trap'))).toEqual([]);
+      await settled();
       expect(sent.map((s) => s.message.to)).toEqual([emailOf('real')]);
       // One warning, without the form or the trap's value.
       expect(ours(warn)).toEqual(['Firm application submit dropped: the honeypot was filled']);
@@ -253,10 +275,10 @@ describe('POST /firm-applications', () => {
     }
   });
 
-  it('limits submits per IP and per email with the same 429', async () => {
+  it('limits submits per IP and per network with the same 429', async () => {
     const limits = { ...SUBMIT_LIMITS };
     SUBMIT_LIMITS.perIpPerHour = 2;
-    SUBMIT_LIMITS.perEmailPerDay = 2;
+    SUBMIT_LIMITS.perNetworkPerHour = 3;
     try {
       const ip = newIp();
       const fromIp = [];
@@ -268,14 +290,52 @@ describe('POST /firm-applications', () => {
       await submit(form('trap2', { honeypot: 'x' }), trapIp).expect(200);
       await submit(form('trap3', { honeypot: 'x' }), trapIp).expect(429);
 
-      const email = emailOf('limited');
-      const forEmail = [];
-      for (let i = 0; i < 3; i++) forEmail.push(await submit(form(`e${i}`, { email })));
-      expect(forEmail.map((r) => r.status)).toEqual([200, 200, 429]);
-      expect(forEmail[2]!.body).toMatchObject({ error: { code: 'RATE_LIMITED' } });
-      expect(await stored(email)).toHaveLength(2);
+      // A new address on every request (an IPv6 /48 holds countless) shares its network's limit.
+      const net = newNet();
+      const fromNet = [];
+      for (const n of ['net1', 'net2', 'net3', 'net4']) {
+        fromNet.push((await submit(form(n), newIp(net))).status);
+      }
+      expect(fromNet).toEqual([200, 200, 200, 429]);
+      // Another network isn't affected.
+      await submit(form('net5'), newIp()).expect(200);
       expect(await stored(emailOf('ip3'))).toEqual([]);
+      expect(await stored(emailOf('net4'))).toEqual([]);
     } finally {
+      Object.assign(SUBMIT_LIMITS, limits);
+    }
+  });
+
+  it("limits one email per network only: a stranger elsewhere can't block it; a day's total only warns", async () => {
+    const limits = { ...SUBMIT_LIMITS };
+    SUBMIT_LIMITS.perEmailNetworkPerDay = 2;
+    SUBMIT_LIMITS.emailAlertPerDay = 3;
+    const warn = spyOnWarn();
+    try {
+      const email = emailOf('limited');
+      // A stranger's network: two submits naming the email (one a filled honeypot), then 429.
+      const stranger = newNet();
+      const fromStranger = [
+        await submit(form('e1', { email }), newIp(stranger)),
+        await submit(form('e2', { email, honeypot: 'x' }), newIp(stranger)),
+        await submit(form('e3', { email }), newIp(stranger)),
+      ];
+      expect(fromStranger.map((r) => r.status)).toEqual([200, 200, 429]);
+      expect(fromStranger[2]!.body).toMatchObject({ error: { code: 'RATE_LIMITED' } });
+
+      // The applicant, from their own network, is not blocked; the day's third submit naming
+      // the email (any network) logs one warning with the key's start, never the email.
+      await submit(form('e4', { email }), newIp()).expect(200, { received: true });
+      await submit(form('e5', { email }), newIp()).expect(200, { received: true });
+      expect(await stored(email)).toHaveLength(3);
+      const key = emailHasher(Buffer.from(KEY, 'hex'))(email).slice(0, 12);
+      expect(ours(warn)).toEqual([
+        'Firm application submit dropped: the honeypot was filled',
+        `Firm application submits for one email (key ${key}) reached 3 in a day`,
+      ]);
+      expect(warn.mock.calls.flat().join(' ')).not.toContain(email);
+    } finally {
+      warn.mockRestore();
       Object.assign(SUBMIT_LIMITS, limits);
     }
   });
@@ -285,7 +345,22 @@ describe('POST /firm-applications', () => {
     await submit(form('twice-a', { email })).expect(200);
     await submit(form('twice-b', { email })).expect(200);
     expect(await stored(email)).toHaveLength(2);
+    await settled();
     expect(sent.map((s) => s.message.to)).toEqual([email]);
+  });
+
+  it('answers without waiting for the "received" email', async () => {
+    let release = () => {};
+    sendGate = new Promise((resolve) => (release = resolve));
+    try {
+      await submit(form('gated')).expect(200, { received: true });
+      expect(pending).toHaveLength(1);
+      expect(sent).toEqual([]);
+    } finally {
+      release();
+    }
+    await settled();
+    expect(sent.map((s) => s.message.to)).toEqual([emailOf('gated')]);
   });
 
   it('still answers success when the email cannot be sent; the warning holds the id only', async () => {
@@ -295,6 +370,7 @@ describe('POST /firm-applications', () => {
       await submit(form('unsent')).expect(200, { received: true });
       const [row] = await stored(emailOf('unsent'));
       expect(row).toBeDefined();
+      await settled();
       expect(ours(warn)).toEqual([
         `Firm application ${row!.id}: the firm-application.received email could not be sent`,
       ]);
@@ -357,6 +433,7 @@ describe('POST /firm-applications without EIN_HASH_KEY', () => {
       warn.mockRestore();
     }
     expect(await stored(emailOf('keyless'))).toEqual([]);
+    await settled();
     expect(sent).toEqual([]);
     await request(keyless.getHttpServer()).get('/api/v1/health').expect(200);
   });
