@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { text } from '../clients/text.js';
 import { BusinessSummary, MeResponse, MembershipRole } from '../schemas.js';
 
 // Staff and Super Admin sign-in contract (docs/api/auth.yaml, docs/AUTH-DESIGN.md).
@@ -134,11 +135,13 @@ export type InviteRole = z.infer<typeof InviteRole>;
  * POST /auth/invites (owner or admin of the current firm): the owner invites admins and staff,
  * an admin invites staff. Inviting someone with an open invite sends a new link (the old one
  * stops working); a deactivated member is invited again; an active member is 409 ALREADY_MEMBER.
- * The answer is the same whether or not the person already works at another firm.
+ * The answer is the same whether or not the person already works at another firm. The invite
+ * keeps the name and email typed here: the firm sees them until the person joins.
  */
 export const CreateInviteRequest = z.object({
   email: Email,
-  name: z.string().trim().min(1).max(200),
+  /** The database's rule for invites.name: one line, at most 120 characters. */
+  name: text(120, 'one', 'Enter the name'),
   role: InviteRole,
 });
 export type CreateInviteRequest = z.input<typeof CreateInviteRequest>;

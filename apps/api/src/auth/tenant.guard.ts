@@ -10,6 +10,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import type { Database } from '@firmivra/db';
+import { FirmSlug } from '@firmivra/types';
 import { type AuthContext, requestContext, type TenantContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
 import { businessStatusesFor, isPublic, rolesFor, TENANT_ROLES } from './decorators.js';
@@ -72,11 +73,12 @@ export class TenantGuard implements CanActivate {
 
   private async resolveBusinessId(req: Request, auth: AuthContext): Promise<string | undefined> {
     if (typeof req.path === 'string' && PORTAL_PATH.test(req.path)) {
-      const slug = req.params['firmSlug'];
-      if (typeof slug !== 'string' || slug.length === 0) return undefined;
+      // A slug that can't be a firm's address (a NUL byte, say) never reaches the database: 404.
+      const slug = FirmSlug.safeParse(req.params['firmSlug']);
+      if (!slug.success) return undefined;
       const b = await this.db
         .forPlatform()
-        .business.findUnique({ where: { slug: slug.toLowerCase() }, select: { id: true } });
+        .business.findUnique({ where: { slug: slug.data }, select: { id: true } });
       return b?.id;
     }
 

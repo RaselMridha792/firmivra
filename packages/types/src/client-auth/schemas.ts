@@ -68,10 +68,143 @@ export type LegalDocument = z.infer<typeof LegalDocument>;
 
 // ---------- Sign-up ----------
 /** E.164, for example +17705550123. Screens turn "(770) 555-0123" into this for US numbers. */
+/**
+ * +1 area codes outside the US: the Caribbean (a common target of SMS pumping), Canada, and
+ * premium-rate 900. US territories (Puerto Rico, Guam, the Virgin Islands...) stay allowed.
+ */
+const NON_US_AREA_CODES = new Set([
+  // Caribbean and Bermuda
+  '242',
+  '246',
+  '264',
+  '268',
+  '284',
+  '345',
+  '441',
+  '473',
+  '649',
+  '658',
+  '664',
+  '721',
+  '758',
+  '767',
+  '784',
+  '809',
+  '829',
+  '849',
+  '868',
+  '869',
+  '876',
+  // Canada
+  '204',
+  '226',
+  '236',
+  '249',
+  '250',
+  '257',
+  '263',
+  '289',
+  '306',
+  '343',
+  '354',
+  '365',
+  '367',
+  '368',
+  '382',
+  '387',
+  '403',
+  '416',
+  '418',
+  '428',
+  '431',
+  '437',
+  '438',
+  '450',
+  '460',
+  '468',
+  '474',
+  '506',
+  '514',
+  '519',
+  '548',
+  '579',
+  '581',
+  '584',
+  '587',
+  '604',
+  '613',
+  '622',
+  '639',
+  '647',
+  '672',
+  '683',
+  '705',
+  '709',
+  '742',
+  '753',
+  '778',
+  '780',
+  '782',
+  '807',
+  '819',
+  '825',
+  '867',
+  '873',
+  '879',
+  '902',
+  '905',
+  '942',
+  // Premium rate
+  '900',
+]);
+
+/**
+ * US area codes that are not a person's line (#70 review): N11 service codes, N9X (expansion)
+ * and 37X/96X (reserved), 456 (international inbound), 500 and 533 (personal communications),
+ * 600 and 700/710 (special services), toll-free 8XX and the reserved 822 and 880-889.
+ */
+const nonGeographic = (code: string) =>
+  /^[2-9]11$/.test(code) ||
+  /^[2-9]9\d$/.test(code) ||
+  /^(37|96)\d$/.test(code) ||
+  ['456', '500', '533', '600', '700', '710'].includes(code) ||
+  /^8(00|22|33|44|55|66|77|8\d)$/.test(code);
+
+/** 10 digits, or 1 and 10 digits, without + are a US number: +1 and the 10 digits. */
+const usShorthand = (p: string) =>
+  /^\d{10}$/.test(p) ? `+1${p}` : /^1\d{10}$/.test(p) ? `+${p}` : p;
+
+/**
+ * Any phone number, stored as E.164: + and the country code, then up to 14 digits. Spaces, dots,
+ * brackets and dashes are ignored, and a US number may come without +1 (10 digits, or 1 and 10
+ * digits), as staff and firm applicants type them (#70 follow-up); any other country needs its
+ * code. Client records, firm applications and every other phone field take it (Rasel, Oct 8:
+ * only SMS phone fields are US-only).
+ */
 export const Phone = z
   .string()
-  .transform((p) => p.replace(/[\s()-]/g, ''))
+  .transform((p) => p.replace(/[\s().-]/g, ''))
+  .transform(usShorthand)
   .pipe(z.string().regex(/^\+[1-9]\d{7,14}$/, 'Enter the phone number with its country code'));
+
+/**
+ * The phone a sign-up's SMS code goes to: a US number, stored as E.164 (+1 and 10 digits). US
+ * only (Rasel, Oct 7 and 8): codes go by SMS on the platform's bill, and premium, non-geographic
+ * or foreign numbers could run it up. Spaces, dots, dashes and brackets are ignored, and 10
+ * digits without +1 are read as US. Caribbean, Canadian and non-geographic area codes are refused
+ * (a deny-list: an allow-list would refuse new US area codes until someone updates it).
+ */
+export const SmsPhone = z
+  .string()
+  .transform((p) => p.replace(/[\s().-]/g, ''))
+  .transform(usShorthand)
+  .pipe(
+    z
+      .string()
+      .regex(/^\+1[2-9]\d{2}[2-9]\d{6}$/, 'Enter a US phone number')
+      .refine((p) => !NON_US_AREA_CODES.has(p.slice(2, 5)), 'Enter a US phone number')
+      .refine((p) => !nonGeographic(p.slice(2, 5)), 'Enter a US phone number'),
+  );
 
 export const AccountType = z.enum(['INDIVIDUAL', 'BUSINESS']);
 export type AccountType = z.infer<typeof AccountType>;
@@ -84,7 +217,8 @@ export const SignUpRequest = z.object({
   /** One line, as R10's client names: it becomes the client record's display name. */
   name: text(200),
   email: Email,
-  phone: Phone,
+  /** The SMS code goes here: US only. */
+  phone: SmsPhone,
   password: Password,
   accountType: AccountType,
   accepted: z.object({
@@ -132,7 +266,7 @@ export const ChangeEmailRequest = z.object({ email: Email });
 export type ChangeEmailRequest = z.input<typeof ChangeEmailRequest>;
 
 /** POST .../sign-up/change-phone ("Change Phone Number"), before the phone is verified. */
-export const ChangePhoneRequest = z.object({ phone: Phone });
+export const ChangePhoneRequest = z.object({ phone: SmsPhone });
 export type ChangePhoneRequest = z.input<typeof ChangePhoneRequest>;
 
 // ---------- Firm side: pending sign-ups (owner and admin) ----------
