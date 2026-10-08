@@ -98,8 +98,10 @@ info:
       AUTHORIZED login sees only what it uploaded itself as `MINE`, an empty `FIRM` list and only
       open requests; it uploads only for an open request (403 without a `requestId`), never sees
       `INTERNAL` files and never answers "I don't have this" (403). Every upload records the
-      login that made it, and portal items carry the uploader's name. (The portal routes come in
-      R5 API part 2.)
+      login that made it, and portal items carry the uploader's name (`MyDocument.uploadedBy`:
+      the household login's name on a `MINE` file; null on the firm's files, so no staff names
+      reach the portal, and on a file with no known uploader). (The portal routes come in R5 API
+      part 2.)
     - **Audit and privacy.** Uploads, views (`get`), every download link issued and request
       changes are audited with ids only. File contents, names of other clients and storage URLs
       never reach logs, emails or SMS.
