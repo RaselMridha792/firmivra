@@ -114,4 +114,46 @@ describe('settings input contracts', () => {
     );
     expect(PublishLegalDocumentRequest.parse({ body: '# Terms\n' }).body).toBe('# Terms\n');
   });
+
+  it("takes the business details with the application's rules; the EIN is write-only", () => {
+    expect(
+      UpdateFirmSettingsRequest.parse({
+        entityType: 'LLC',
+        ein: ' 12-3456789 ',
+        teamSize: 10_000,
+        services: ['BOOKKEEPING', 'PAYROLL', 'BOOKKEEPING'],
+        description: '  Tax and payroll.\nSince 2010.  ',
+      }),
+    ).toEqual({
+      entityType: 'LLC',
+      ein: '123456789',
+      teamSize: 10_000,
+      services: ['BOOKKEEPING', 'PAYROLL'],
+      description: 'Tax and payroll.\nSince 2010.',
+    });
+    expect(UpdateFirmSettingsRequest.parse({ ein: '', description: ' ' })).toEqual({
+      ein: null,
+      description: null,
+    });
+    for (const patch of [
+      { entityType: 'LLP' },
+      { entityType: null },
+      { ein: '12345678' },
+      { ein: '1234567890' },
+      { ein: '12-345678A' },
+      { teamSize: 0 },
+      { teamSize: 10_001 },
+      { teamSize: 1.5 },
+      { teamSize: '12' },
+      { services: [] },
+      { services: ['TAXES'] },
+      { services: Array<string>(21).fill('PAYROLL') },
+      { description: 'x'.repeat(2001) },
+      { description: 'Tax‮services' },
+      { description: 'Zero​width' },
+      { einLast4: '6789' },
+    ]) {
+      expect(ok(patch), JSON.stringify(patch)).toBe(false);
+    }
+  });
 });

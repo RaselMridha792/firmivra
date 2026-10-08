@@ -8,6 +8,7 @@ import {
   SEED_BUSINESSES,
   SEED_CLIENT_IDS,
   SEED_INVITE_ID,
+  SEED_OWNER_INVITE_ID,
   SEED_SERVICES,
   SEED_TAX_STATUSES,
   SEED_USERS,
@@ -1108,6 +1109,39 @@ async function main() {
       data: { businessId: businesses.lvp },
     }),
   );
+  // The activation link Firmivra sent LVP's owner on approval, sent in platform scope (so the
+  // database marks it and the Super Admin sees a copy) and already accepted.
+  const lvpOwnerMembership = await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp },
+    (tx) =>
+      tx.membership.findUniqueOrThrow({
+        where: {
+          businessId_userId: { businessId: businesses.lvp, userId: SEED_USERS.lvpOwner.id },
+        },
+        select: { id: true },
+      }),
+  );
+  const ownerInviteSent = await runInScope(prisma, { kind: 'platform' }, async (tx) => {
+    if (await tx.invite.findUnique({ where: { id: SEED_OWNER_INVITE_ID } })) return false;
+    await tx.invite.create({
+      data: {
+        id: SEED_OWNER_INVITE_ID,
+        businessId: businesses.lvp,
+        membershipId: lvpOwnerMembership.id,
+        // Random and never printed; the link was used long ago.
+        tokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+        expiresAt: new Date(Date.now() + 7 * 86_400_000),
+      },
+    });
+    return true;
+  });
+  if (ownerInviteSent) {
+    // The owner accepted it (activation, in the firm's scope).
+    await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
+      tx.invite.update({ where: { id: SEED_OWNER_INVITE_ID }, data: { acceptedAt: new Date() } }),
+    );
+  }
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
     if (!(await tx.auditLog.findUnique({ where: { id: SEED_PLATFORM_IDS.firmEvent } }))) {
       await tx.auditLog.create({

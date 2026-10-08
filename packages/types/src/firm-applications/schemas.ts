@@ -12,8 +12,8 @@ import { BusinessSummary } from '../schemas.js';
 // Public route: POST /api/v1/firm-applications. Super Admin routes: /api/v1/admin/... (the
 // Super Admin site's session only).
 // EIN: an application never stores it in full (the firm's encryption key doesn't exist yet). The
-// API keeps the last 4 digits and a keyed hash for the duplicate check; the owner enters the full
-// EIN again in setup step 2.
+// API keeps the last 4 digits and a keyed hash for the duplicate check, in columns of their own
+// (never in the stored form); the owner enters the full EIN again in setup step 2.
 // Responses are plain objects (a field the API adds later is dropped, so an open page keeps
 // working); requests are strict (unknown fields are refused).
 
@@ -101,22 +101,40 @@ export const REQUIRED_CREDENTIALS: Readonly<Record<PracticeType, readonly Creden
 };
 
 // ---------- Fields ----------
-/** 9 digits; dashes and spaces are dropped. Write-only: only `einLast4` ever comes back. */
-const Ein = z
+/**
+ * 9 digits; dashes and spaces are dropped. Write-only: only `einLast4` ever comes back. Setup
+ * Step 2 (settings) takes the EIN with the same rule.
+ */
+export const Ein = z
   .string()
   .transform((s) => s.replace(/[\s-]/g, ''))
   .pipe(z.string().regex(/^\d{9}$/, 'Enter the 9-digit EIN'));
+
+/** A website without `http://` or `https://` is read as `https://`. */
+const withScheme = (s: string) => (/^https?:\/\//i.test(s) ? s : `https://${s}`);
 
 /** An http(s) address; `example.com` becomes `https://example.com`. */
 const Website = z
   .string()
   .trim()
-  .transform((s) => (/^https?:\/\//i.test(s) ? s : `https://${s}`))
+  .transform(withScheme)
   .pipe(
     z
       .url({ protocol: /^https?$/, hostname: z.regexes.domain, error: 'Enter a valid website' })
       .max(200, 'Use at most 200 characters'),
   );
+
+/**
+ * The host of a website read the way the Website field reads it (`example.com` is
+ * `https://example.com`), or null when that isn't a URL whose host is a domain name, which the
+ * field refuses (`N/A`, `ftp://example.com`). For a stored website, which the database doesn't
+ * check: the EMAIL_DOMAIN check reads it with this.
+ */
+export function websiteHost(website: string): string | null {
+  const url = withScheme(website.trim());
+  const host = URL.canParse(url) ? new URL(url).hostname : '';
+  return z.regexes.domain.test(host) ? host : null;
+}
 
 /** A US address (the beta serves US firms only). */
 const AddressInput = z.strictObject({
@@ -169,7 +187,8 @@ export const SubmitFirmApplicationRequest = z
     }),
     /** The person who becomes the firm's owner (first Firm Admin) after approval. */
     primaryAdmin: z.strictObject({
-      fullName: text(200, 'one', 'Enter the full name'),
+      /** At most 120 characters on one line: the owner invite's name rule (#52's invites_name). */
+      fullName: text(120, 'one', 'Enter the full name'),
       email: Email,
       phone: Phone,
       title: clearable(text(100)),
@@ -213,7 +232,8 @@ export const SubmitFirmApplicationRequest = z
      * `autoComplete="off"`, `aria-hidden`, with an everyday name such as `fax`). Send its value as
      * it is. A filled one gets the same `{ received: true }` and the application is dropped.
      */
-    honeypot: z.string().max(500).optional(),
+    // No length limit of its own (the body limit applies): a 400 naming the field would tip off a bot.
+    honeypot: z.string().optional(),
   })
   .superRefine((body, ctx) => {
     for (const type of REQUIRED_CREDENTIALS[body.business.practiceType]) {
@@ -236,7 +256,11 @@ export const SubmitFirmApplicationResponse = z.object({ received: z.literal(true
 export type SubmitFirmApplicationResponse = z.infer<typeof SubmitFirmApplicationResponse>;
 
 // ---------- Review (Super Admin) ----------
-/** An application id in a path: anything else gets 400 VALIDATION_FAILED. */
+/**
+ * An application's id, in a response or a path (anything else in a path gets 400
+ * VALIDATION_FAILED). Seeded ids are RFC 9562 too since R0's #89 (LVP's application is
+ * `00000000-0000-4005-8000-000000000001`).
+ */
 export const FirmApplicationId = z.uuid();
 /** A firm (business) id in a path. */
 export const FirmId = z.uuid();
@@ -255,18 +279,25 @@ export type AdminRef = z.infer<typeof AdminRef>;
 
 /** One row of the applications list (mockup "Firm Applications"). */
 export const FirmApplicationListItem = z.object({
-  id: z.uuid(),
+  id: FirmApplicationId,
   status: FirmApplicationReviewStatus,
   legalName: z.string(),
   dbaName: z.string().nullable(),
-  practiceType: PracticeType,
-  entityType: EntityType,
+  /**
+   * False when the stored form could not be read: the row shows what the table's own columns hold
+   * (names, contact, dates, status). The practice type, entity type and plan are then null and
+   * `services` is empty; the screen shows "—" for them.
+   */
+  formReadable: z.boolean(),
+  practiceType: PracticeType.nullable(),
+  entityType: EntityType.nullable(),
   services: z.array(FirmService),
-  requestedPlan: FirmPlan,
+  requestedPlan: FirmPlan.nullable(),
   /** The primary administrator. */
   contactName: z.string(),
   contactEmail: z.string(),
-  contactPhone: z.string(),
+  /** Null only when the form could not be read and the application has no phone of its own. */
+  contactPhone: z.string().nullable(),
   submittedAt: DateTime,
   /** When it was approved or declined. */
   decidedAt: DateTime.nullable(),
@@ -326,13 +357,20 @@ export type FirmApplicationCounts = z.infer<typeof FirmApplicationCounts>;
  */
 export const FirmApplicationCheck = z.object({
   key: z.enum([
-    /** Another application or firm has the same EIN (keyed hash). SKIPPED without an EIN. */
+    /**
+     * Another application has the same EIN (keyed hash; a firm keeps its EIN encrypted with its
+     * own key, so firms aren't compared). SKIPPED without an EIN.
+     */
     'DUPLICATE_EIN',
     /** Another application or firm has the same legal name. */
     'DUPLICATE_NAME',
     /** Another application uses the primary administrator's email. */
     'DUPLICATE_EMAIL',
-    /** The administrator's email domain matches the website (free mail is a WARN). */
+    /**
+     * The administrator's email domain matches the website. A free email address (Gmail, Outlook
+     * and the like) is a WARN whatever the website; SKIPPED without a website, or when the stored
+     * one isn't an address with a domain name (`websiteHost`).
+     */
     'EMAIL_DOMAIN',
   ]),
   result: z.enum(['PASS', 'WARN', 'SKIPPED']),
@@ -362,44 +400,76 @@ export const FirmApplicationEvent = z.object({
 });
 export type FirmApplicationEvent = z.infer<typeof FirmApplicationEvent>;
 
-/** GET /admin/firm-applications/{id}: the review page, every field the applicant sent. */
+/**
+ * GET /admin/firm-applications/{id}: the review page, every field the applicant sent.
+ *
+ * `formReadable` false: the stored form could not be read (an older or hand-edited application).
+ * `business`, `primaryAdmin` and `account` are then null and `credentials` is empty. The page shows
+ * the top-level name and contact fields in the Business Information and Primary Administrator
+ * cards, "The application form could not be read" in place of the other details and the Account
+ * Details card, and the checks, notes, history and actions as usual.
+ */
 export const FirmApplicationRecord = z.object({
-  id: z.uuid(),
+  id: FirmApplicationId,
   status: FirmApplicationReviewStatus,
   submittedAt: DateTime,
-  business: z.object({
-    practiceType: PracticeType,
-    legalName: z.string(),
-    dbaName: z.string().nullable(),
-    entityType: EntityType,
-    /** The only part of the EIN the API keeps. */
-    einLast4: z
-      .string()
-      .regex(/^\d{4}$/)
-      .nullable(),
-    email: z.string().nullable(),
-    phone: z.string().nullable(),
-    website: z.string().nullable(),
-    address: FirmAddress,
-    services: z.array(FirmService),
-  }),
-  primaryAdmin: z.object({
-    fullName: z.string(),
-    email: z.string(),
-    phone: z.string(),
-    title: z.string().nullable(),
-    preferredContact: ContactMethod,
-    alternatePhone: z.string().nullable(),
-  }),
-  account: z.object({
-    requestedPlan: FirmPlan,
-    teamSize: z.number().int(),
-    clientVolume: ClientVolume,
-    heardFrom: z.string().nullable(),
-    /** Null: as soon as possible. */
-    requestedStartDate: CalendarDate.nullable(),
-    additionalInfo: z.string().nullable(),
-  }),
+  /**
+   * The table's own columns, there whatever the stored form holds: the legal name and DBA, and the
+   * primary administrator's name, email and phone.
+   */
+  legalName: z.string(),
+  dbaName: z.string().nullable(),
+  contactName: z.string(),
+  contactEmail: z.string(),
+  contactPhone: z.string().nullable(),
+  /** False when the stored form could not be read (see above). */
+  formReadable: z.boolean(),
+  /** Null when `formReadable` is false. */
+  business: z
+    .object({
+      practiceType: PracticeType,
+      legalName: z.string(),
+      dbaName: z.string().nullable(),
+      entityType: EntityType,
+      /**
+       * The only part of the EIN the API keeps, from a column of its own (`ein_last4`), never from
+       * the stored form. Null when the application has no EIN.
+       */
+      einLast4: z
+        .string()
+        .regex(/^\d{4}$/)
+        .nullable(),
+      email: z.string().nullable(),
+      phone: z.string().nullable(),
+      website: z.string().nullable(),
+      address: FirmAddress,
+      services: z.array(FirmService),
+    })
+    .nullable(),
+  /** Null when `formReadable` is false. */
+  primaryAdmin: z
+    .object({
+      fullName: z.string(),
+      email: z.string(),
+      phone: z.string(),
+      title: z.string().nullable(),
+      preferredContact: ContactMethod,
+      alternatePhone: z.string().nullable(),
+    })
+    .nullable(),
+  /** Null when `formReadable` is false. */
+  account: z
+    .object({
+      requestedPlan: FirmPlan,
+      teamSize: z.number().int(),
+      clientVolume: ClientVolume,
+      heardFrom: z.string().nullable(),
+      /** Null: as soon as possible. */
+      requestedStartDate: CalendarDate.nullable(),
+      additionalInfo: z.string().nullable(),
+    })
+    .nullable(),
+  /** Empty when `formReadable` is false. */
   credentials: z.array(
     z.object({ type: CredentialType, number: z.string(), issuedBy: z.string().nullable() }),
   ),
@@ -507,9 +577,15 @@ export type FirmStatusFilter = z.infer<typeof FirmStatusFilter>;
 
 /** One row of the firms list (mockup "Firms"). */
 export const FirmListItem = BusinessSummary.extend({
-  /** The firm's owner (or, before activation, the invited primary administrator). */
+  /**
+   * The firm's owner (or, before activation, the invited primary administrator). Null when neither
+   * is known, e.g. before activation when the application's form could not be read.
+   */
   owner: z.object({ name: z.string(), email: z.string(), phone: z.string().nullable() }).nullable(),
-  /** The plan the application asked for; null for a firm without an application. */
+  /**
+   * The plan the application asked for; null for a firm without an application, or when its form
+   * could not be read.
+   */
   plan: FirmPlan.nullable(),
   approvedAt: DateTime.nullable(),
   createdAt: DateTime,
@@ -540,6 +616,7 @@ export type FirmCounts = z.infer<typeof FirmCounts>;
 /**
  * GET /admin/firms/{id}: the firm page. Its details, notes and activity are its application's
  * (null for a firm created without one, such as the beta firm); notes are saved on the application.
+ * An application whose form could not be read has `formReadable` false, as on its review page.
  */
 export const FirmRecord = FirmListItem.extend({ application: FirmApplicationRecord.nullable() });
 export type FirmRecord = z.infer<typeof FirmRecord>;
@@ -549,10 +626,13 @@ export type FirmRecord = z.infer<typeof FirmRecord>;
 export const AdminDashboard = z.object({
   pendingApplications: z.number().int().min(0),
   activeFirms: z.number().int().min(0),
-  /** Staff and client logins across every firm (Super Admins not counted). */
-  totalUsers: z.number().int().min(0),
-  /** Of those, created in the last 7 days. */
-  newUsersThisWeek: z.number().int().min(0),
+  /**
+   * Staff and client logins across every firm (Super Admins not counted). Null until R0's
+   * platform count exists (admin scope cannot read members or clients).
+   */
+  totalUsers: z.number().int().min(0).nullable(),
+  /** Of those, created in the last 7 days; null like `totalUsers`. */
+  newUsersThisWeek: z.number().int().min(0).nullable(),
   /** In cents; null until billing exists (R7). */
   monthlyRevenueCents: z.number().int().nullable(),
 });

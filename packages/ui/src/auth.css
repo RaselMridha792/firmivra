@@ -1,0 +1,272 @@
+:root {
+  --auth-display-font: 'Times New Roman', serif;
+  --auth-body-line: 1.75rem;
+  --auth-checkbox-size: 1.5625rem;
+  --auth-submit-height: 3.875rem;
+  --auth-feature-gap: 0.9375rem;
+  --auth-ink: #001744;
+  --auth-cyan: #00d9d1;
+  --auth-muted: #536a91;
+  --auth-line: #cbdcf2;
+  --auth-soft: #ebf1f8;
+  --auth-blue-end: #007bff;
+  --auth-blue-start: #062572;
+  --auth-card-width: 44.20573%;
+  --auth-card-left: 37.109375%;
+  --auth-art-width: 43.359375%;
+  --auth-canvas-height: 64rem;
+  --auth-card-top: 6.0625rem;
+  --auth-card-padding: 3.25rem 4.125rem 2.375rem;
+  --auth-copy-top: 6.5625rem;
+  --auth-copy-left: 13.363%;
+  --auth-copy-width: 27.5rem;
+  --auth-logo-light-width: 24.25rem;
+  --auth-logo-light-height: 9.625rem;
+  --auth-logo-width: 22.9375rem;
+  --auth-logo-height: 8.25rem;
+  --auth-title-size: 2.125rem;
+  --auth-pitch-size: 2.375rem;
+  --auth-card-radius: 1.5rem;
+  --auth-control-height: 3.625rem;
+  --auth-control-radius: 0.6875rem;
+  --auth-icon-size: 4.625rem;
+  --auth-shadow: 0 1.125rem 2.375rem #00174426;
+}
+.auth-screen {
+  position: relative;
+  min-height: var(--auth-canvas-height);
+  color: var(--auth-ink);
+  background: var(--color-canvas);
+  padding-block: var(--auth-card-top) calc(var(--space-16) + var(--space-3));
+}
+.auth-art {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--auth-art-width);
+  background: url('./assets/admin-waves.svg') center / 100% 100% no-repeat;
+  color: var(--color-on-action);
+}
+.auth-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 var(--auth-art-width);
+  background: url('./assets/admin-office.png') right top / 100% 100% no-repeat;
+}
+.auth-copy {
+  margin: var(--auth-copy-top) 0 0 var(--auth-copy-left);
+  width: var(--auth-copy-width);
+}
+.auth-logo-light {
+  width: var(--auth-logo-light-width);
+  height: var(--auth-logo-light-height);
+  background: url('./assets/firmivra-login-wordmark.png') left / contain no-repeat;
+  mix-blend-mode: lighten;
+}
+.auth-portal {
+  margin-top: var(--space-4);
+  font-size: var(--text-lg);
+  letter-spacing: var(--space-1);
+}
+.auth-copy hr,
+.auth-card hr {
+  width: var(--auth-icon-size);
+  height: var(--container-focus);
+  background: var(--auth-cyan);
+  border: 0;
+  margin: var(--space-6) 0;
+}
+.auth-copy h1 {
+  font-family: var(--auth-display-font);
+  font-size: var(--auth-pitch-size);
+  line-height: var(--text-2xl--line-height);
+  white-space: nowrap;
+}
+.auth-copy h1 span {
+  color: var(--auth-cyan);
+}
+.auth-description {
+  margin-top: var(--space-4);
+  font-size: var(--text-xl);
+  line-height: var(--auth-body-line);
+}
+.auth-features {
+  display: grid;
+  gap: var(--auth-feature-gap);
+  margin-top: var(--space-10);
+}
+.auth-feature {
+  display: grid;
+  grid-template-columns: var(--auth-icon-size) 1fr;
+  gap: var(--space-6);
+}
+.auth-icon {
+  display: grid;
+  place-items: center;
+  height: var(--auth-icon-size);
+  border-radius: var(--auth-control-radius);
+  background: var(--color-platform-navy-raised);
+}
+.auth-icon.teal {
+  background: var(--color-platform-teal);
+}
+.auth-icon svg {
+  width: var(--space-10);
+  height: var(--space-10);
+}
+.auth-feature strong {
+  font-size: var(--text-xl);
+}
+.auth-feature p {
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  color: var(--color-navigation-text);
+}
+.auth-card {
+  position: relative;
+  width: var(--auth-card-width);
+  margin-left: var(--auth-card-left);
+  border-radius: var(--auth-card-radius);
+  padding: var(--auth-card-padding);
+  background: var(--color-surface);
+  box-shadow: var(--auth-shadow);
+}
+.auth-logo {
+  width: var(--auth-logo-width);
+  height: var(--auth-logo-height);
+  max-width: 100%;
+  margin: auto;
+  background: url('./assets/firmivra-wordmark.png') center / contain no-repeat;
+  mix-blend-mode: multiply;
+}
+.auth-card-portal {
+  text-align: center;
+  margin-top: calc(-1 * var(--space-5));
+  padding-left: var(--space-16);
+  color: var(--auth-muted);
+  font-size: var(--text-sm);
+  letter-spacing: var(--space-1);
+}
+.auth-card hr {
+  margin-inline: auto;
+}
+.auth-card h2 {
+  line-height: var(--text-3xl--line-height);
+  font-size: var(--auth-title-size);
+  font-weight: var(--font-weight-bold);
+  text-align: center;
+}
+.auth-subtitle {
+  text-align: center;
+  font-size: var(--text-lg);
+}
+.auth-form {
+  margin-top: var(--space-6);
+  display: grid;
+  gap: var(--space-5);
+}
+.auth-form label {
+  font-size: var(--text-lg);
+  color: var(--auth-ink);
+}
+.auth-form input:not([type='checkbox']) {
+  width: 100%;
+  min-width: 0;
+  height: var(--auth-control-height);
+  border-color: var(--auth-line);
+  border-radius: var(--auth-control-radius);
+  color: var(--auth-ink);
+  font-size: var(--text-lg);
+}
+.auth-field input {
+  padding-inline: var(--space-16) var(--space-12);
+}
+.auth-form input[type='checkbox'] {
+  width: var(--auth-checkbox-size);
+  height: var(--auth-checkbox-size);
+}
+.auth-form label:has(input[type='checkbox']) {
+  min-height: auto;
+}
+.auth-submit {
+  width: 100%;
+  min-height: var(--auth-submit-height);
+  font-size: var(--text-2xl);
+  border-radius: var(--auth-control-radius);
+  background: linear-gradient(20deg, var(--auth-blue-start), var(--auth-blue-end));
+}
+.auth-authorized {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-block: var(--space-6);
+  font-size: var(--text-xs);
+  letter-spacing: var(--space-0-5);
+  color: var(--auth-muted);
+  white-space: nowrap;
+}
+.auth-authorized::before,
+.auth-authorized::after {
+  content: '';
+  flex: 1;
+  height: var(--container-border);
+  background: var(--auth-line);
+}
+.auth-security {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-10);
+  background: var(--auth-soft);
+  border-radius: var(--auth-control-radius);
+  font-size: var(--text-base);
+}
+.auth-security svg {
+  width: var(--space-10);
+  height: var(--space-12);
+  flex-shrink: 0;
+}
+.auth-security small {
+  font-size: var(--text-sm);
+}
+@media (width < 64rem) {
+  .auth-screen {
+    min-height: 100vh;
+    padding: var(--space-6) var(--space-4);
+  }
+  .auth-art {
+    display: none;
+  }
+  .auth-screen::before {
+    display: none;
+  }
+  .auth-card {
+    width: 100%;
+    max-width: var(--container-auth);
+    margin: auto;
+    padding: var(--space-6);
+  }
+  .auth-logo {
+    width: 100%;
+    min-height: calc(var(--space-12) * 2);
+  }
+  .auth-card-portal {
+    padding-left: var(--space-8);
+    font-size: var(--text-xs);
+    letter-spacing: var(--space-0-5);
+    margin-top: calc(-1 * var(--space-3));
+  }
+  .auth-subtitle {
+    font-size: var(--text-base);
+  }
+  .auth-card h2 {
+    font-size: var(--text-2xl);
+  }
+  .auth-security {
+    padding: var(--space-4);
+    gap: var(--space-3);
+    font-size: var(--text-sm);
+  }
+  .auth-authorized {
+    font-size: var(--text-xs);
+  }
+}
