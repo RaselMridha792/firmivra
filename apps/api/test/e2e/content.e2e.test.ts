@@ -9,7 +9,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
@@ -19,6 +19,7 @@ import {
   OkResponse,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { AuditService } from '../../src/audit/audit.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -612,5 +613,33 @@ describe('audit', () => {
     const metadata = JSON.stringify(rows.map((r) => r.metadata));
     expect(metadata).not.toContain('Secret-ish');
     expect(metadata).not.toContain('irs.gov');
+  });
+});
+
+describe('a change and its audit row (#97 review)', () => {
+  it('land together: when the audit row fails, the change is not stored either', async () => {
+    const audit = app.get(AuditService);
+    const failing = vi
+      .spyOn(audit, 'logIn')
+      .mockRejectedValueOnce(new Error('The audit insert failed'));
+    try {
+      const title = `Unaudited ${run}`;
+      const res = await call('post', '', people.ownerA, 'a', link('Atomic', { title }));
+      expect(res.status).toBe(500);
+      expect((await list('?category=Atomic')).map((i) => i.title)).not.toContain(title);
+    } finally {
+      failing.mockRestore();
+    }
+    // The same for a publish: the item stays a draft.
+    const draft = await create(link('Atomic', { title: `Draft ${run}` }));
+    const again = vi
+      .spyOn(audit, 'logIn')
+      .mockRejectedValueOnce(new Error('The audit insert failed'));
+    try {
+      expect((await call('post', `/${draft.id}/publish`, people.ownerA)).status).toBe(500);
+      expect((await fetchItem(draft.id))?.publishedAt).toBeNull();
+    } finally {
+      again.mockRestore();
+    }
   });
 });
