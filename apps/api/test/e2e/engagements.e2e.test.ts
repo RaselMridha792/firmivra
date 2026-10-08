@@ -299,9 +299,24 @@ describe('firm: create and list', () => {
       ],
       [await firm('get', `/clients/${ids.one}/engagements`, people.primary), 403, 'FORBIDDEN'],
     ];
+    // The write routes too: another client's engagement for Staff, any of firm A's for firm B.
+    for (const [method, path, body] of [
+      ['patch', `/engagements/${theirs.id}`, { title: 'x' }],
+      ['post', `/engagements/${theirs.id}/complete`, undefined],
+      ['post', `/engagements/${theirs.id}/cancel`, { reason: 'x' }],
+      ['post', `/engagements/${theirs.id}/reactivate`, undefined],
+    ] as const) {
+      refused.push([await firm(method, path, people.staffA, body), 404, 'NOT_FOUND']);
+      refused.push([await firm(method, path, people.ownerB, body, ids.firmB), 404, 'NOT_FOUND']);
+    }
     for (const [res, status, code] of refused) {
       expect([res.status, codeOf(res)]).toEqual([status, code]);
     }
+    // The Owner reaches it.
+    const seen = Engagement.parse(
+      expectOk(await firm('get', `/engagements/${theirs.id}`, people.ownerA)).body,
+    );
+    expect([seen.id, seen.status]).toEqual([theirs.id, theirs.status]);
   });
 });
 
@@ -388,7 +403,7 @@ describe('firm: change and lifecycle', () => {
     expect([window.status, codeOf(window)]).toEqual([409, 'REACTIVATION_WINDOW_PASSED']);
   });
 
-  it("an archived client's engagements don't change: 409 CLIENT_ARCHIVED, nothing written", async () => {
+  it("an archived client's engagements: no edit or reactivation (409), complete and cancel allowed", async () => {
     const clientId = await inFirm(
       async (tx) =>
         (await tx.client.create({ data: { businessId: ids.firmA, displayName: `Arch ${run}` } }))
@@ -396,27 +411,45 @@ describe('firm: change and lifecycle', () => {
     );
     const open = await create(clientId, { serviceId: ids.books, title: `Open ${run}` });
     const ended = await create(clientId, { serviceId: ids.books, title: `Ended ${run}` });
+    const winding = await create(clientId, { serviceId: ids.books, title: `Winding ${run}` });
     expectOk(await firm('post', `/engagements/${ended.id}/cancel`, people.ownerA, { reason: 'x' }));
     await inFirm((tx) =>
       tx.client.update({ where: { id: clientId }, data: { archivedAt: new Date() } }),
     );
-    const cases: [string, string, object | undefined][] = [
-      ['patch', `/engagements/${open.id}`, { title: 'Changed' }],
-      ['post', `/engagements/${open.id}/complete`, undefined],
-      ['post', `/engagements/${open.id}/cancel`, { reason: 'x' }],
-      ['post', `/engagements/${ended.id}/reactivate`, undefined],
-    ];
-    for (const [method, path, body] of cases) {
-      const res = await firm(method as 'post' | 'patch', path, people.ownerA, body);
-      expect([path, res.status, codeOf(res)]).toEqual([path, 409, 'CLIENT_ARCHIVED']);
-    }
+    const refused = await firm('patch', `/engagements/${open.id}`, people.ownerA, {
+      title: 'Changed',
+    });
+    expect([refused.status, codeOf(refused)]).toEqual([409, 'CLIENT_ARCHIVED']);
+    const again = await firm('post', `/engagements/${ended.id}/reactivate`, people.ownerA);
+    expect([again.status, codeOf(again)]).toEqual([409, 'CLIENT_ARCHIVED']);
+    const fresh = await firm('post', `/clients/${clientId}/engagements`, people.ownerA, {
+      serviceId: ids.books,
+      title: 'New',
+    });
+    expect([fresh.status, codeOf(fresh)]).toEqual([409, 'CLIENT_ARCHIVED']);
+    // Winding the work down stays possible.
+    expectOk(await firm('post', `/engagements/${open.id}/complete`, people.ownerA));
+    expectOk(
+      await firm('post', `/engagements/${winding.id}/cancel`, people.ownerA, { reason: 'x' }),
+    );
     const rows = await inFirm((tx) =>
       tx.engagement.findMany({ where: { clientId }, orderBy: { createdAt: 'asc' } }),
     );
     expect(rows.map((r) => [r.title, r.status])).toEqual([
-      [`Open ${run}`, 'ACTIVE'],
+      [`Open ${run}`, 'COMPLETED'],
       [`Ended ${run}`, 'CANCELLED'],
+      [`Winding ${run}`, 'CANCELLED'],
     ]);
+  });
+
+  it('a completed engagement cancelled and then reactivated keeps no completion date', async () => {
+    const e = await create(ids.one, { serviceId: ids.books, title: `Done then back ${run}` });
+    expectOk(await firm('post', `/engagements/${e.id}/complete`, people.ownerA));
+    expectOk(await firm('post', `/engagements/${e.id}/cancel`, people.ownerA, { reason: 'x' }));
+    const back = Engagement.parse(
+      expectOk(await firm('post', `/engagements/${e.id}/reactivate`, people.ownerA)).body,
+    );
+    expect([back.status, back.completedAt, back.cancelledAt]).toEqual(['ACTIVE', null, null]);
   });
 
   it('history: every status or stage change, newest first, by whom', async () => {
@@ -472,10 +505,29 @@ describe('portal: My Services', () => {
       expectOk(await portal('post', `/${books.id}/cancel-request`, people.primary, {})).body,
     );
     expect(again.cancelRequestedAt).toBe(asked.cancelRequestedAt);
-    const stored = await inFirm((tx) =>
-      tx.engagement.findUniqueOrThrow({ where: { id: books.id } }),
-    );
-    expect(stored.cancelRequestReason).toBe('Doing it myself.');
+    const stored = await inFirm(async (tx) => ({
+      engagement: await tx.engagement.findUniqueOrThrow({ where: { id: books.id } }),
+      tasks: await tx.task.findMany({ where: { engagementId: books.id } }),
+      audit: await tx.auditLog.findMany({
+        where: { action: 'portal.cancellation_requested', entityId: books.id },
+        orderBy: { createdAt: 'asc' },
+      }),
+    }));
+    expect(stored.engagement.cancelRequestReason).toBe('Doing it myself.');
+    // The firm hears of it: one GENERAL task for the client's assigned staff member.
+    expect(stored.tasks).toHaveLength(1);
+    expect(stored.tasks[0]).toMatchObject({
+      kind: 'GENERAL',
+      status: 'OPEN',
+      clientId: ids.one,
+      assignedUserId: people.staffA.id,
+    });
+    expect(stored.tasks[0]!.details).toContain('Doing it myself.');
+    // Both asks are audited (the repeat as one), with ids only.
+    expect(stored.audit.map((r) => r.metadata)).toEqual([
+      { clientId: ids.one, taskId: stored.tasks[0]!.id },
+      { clientId: ids.one, repeated: true },
+    ]);
 
     const soon = await create(ids.one, {
       serviceId: ids.books,
@@ -499,6 +551,28 @@ describe('portal: My Services', () => {
       const res = await portal('post', `/${id}/cancel-request`, who, {});
       expect([res.status, codeOf(res)]).toEqual([status, code]);
     }
+  });
+
+  it('a next billing date already past sets no deadline: cancelBy is null and the request is taken', async () => {
+    const e = await create(ids.one, {
+      serviceId: ids.books,
+      title: `Stale billing ${run}`,
+      nextBillingOn: inDays(30),
+    });
+    await inFirm((tx) =>
+      tx.engagement.update({
+        where: { id: e.id },
+        data: { nextBillingOn: new Date(`${inDays(-3)}T00:00:00Z`) },
+      }),
+    );
+    const listed = (
+      expectOk(await portal('get', '', people.primary)).body as { items: Mine[] }
+    ).items.find((m) => m.id === e.id)!;
+    expect(listed.cancelBy).toBeNull();
+    const asked = Mine.parse(
+      expectOk(await portal('post', `/${e.id}/cancel-request`, people.primary, {})).body,
+    );
+    expect(asked.cancelRequestedAt).not.toBeNull();
   });
 
   it('after a request, the firm cancel and a reactivation, the client can ask again (stored, audited)', async () => {
@@ -562,6 +636,7 @@ describe('audit', () => {
       'engagement.completed',
       'engagement.cancelled',
       'engagement.reactivated',
+      'engagement.viewed',
       'engagement.history_viewed',
       'portal.services_viewed',
       'portal.cancellation_requested',

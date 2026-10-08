@@ -32,28 +32,34 @@ export function createEngagementsClient(request: ApiRequest) {
       return (await request(EngagementList, `${clientPath(clientId)}/engagements${q}`)).items;
     },
     get: async (id: string): Promise<Engagement> => request(Engagement, one(id)),
-    /** 409 INVALID_STAGE; 404 for another firm's client or service. */
+    /** 409 INVALID_STAGE, or CLIENT_ARCHIVED for an archived client; 404 for another firm's client or service. */
     create: async (clientId: string, body: CreateEngagementRequest): Promise<Engagement> =>
       request(Engagement, `${clientPath(clientId)}/engagements`, {
         method: 'POST',
         body: parseInput(CreateEngagementRequest, body),
       }),
-    /** 409 INVALID_STAGE. */
+    /**
+     * 409 INVALID_STAGE; 409 CLIENT_ARCHIVED for an archived client's engagement (its work is
+     * only wound down: complete and cancel stay allowed, an edit or a reactivation is not).
+     */
     update: async (id: string, body: UpdateEngagementRequest): Promise<Engagement> =>
       request(Engagement, one(id), {
         method: 'PATCH',
         body: parseInput(UpdateEngagementRequest, body),
       }),
-    /** 409 INVALID_STATUS. */
+    /** 409 INVALID_STATUS. Allowed for an archived client too (winding work down). */
     complete: async (id: string): Promise<Engagement> =>
       request(Engagement, `${one(id)}/complete`, { method: 'POST', body: {} }),
-    /** 409 INVALID_STATUS. */
+    /** 409 INVALID_STATUS. Allowed for an archived client too (winding work down). */
     cancel: async (id: string, body: CancelEngagementRequest): Promise<Engagement> =>
       request(Engagement, `${one(id)}/cancel`, {
         method: 'POST',
         body: parseInput(CancelEngagementRequest, body),
       }),
-    /** Within 90 days of cancelling: 409 REACTIVATION_WINDOW_PASSED after that. */
+    /**
+     * Within 90 days of cancelling: 409 REACTIVATION_WINDOW_PASSED after that, and 409
+     * CLIENT_ARCHIVED for an archived client. Clears the client's cancellation request.
+     */
     reactivate: async (id: string): Promise<Engagement> =>
       request(Engagement, `${one(id)}/reactivate`, { method: 'POST', body: {} }),
     /** Status and stage changes, newest first. */
@@ -71,8 +77,9 @@ export function createMyServicesClient(request: ApiRequest, firmSlug: string) {
     /** Newest first. The screen groups them: Active, Recurring, Completed, Cancelled. */
     list: async (): Promise<MyService[]> => (await request(MyServiceList, base())).items,
     /**
-     * ACTIVE recurring services, on or before `cancelBy`: 409 INVALID_STATUS, NOT_RECURRING or
-     * TOO_LATE_TO_CANCEL otherwise. Asking again returns the service unchanged.
+     * The PRIMARY login only (403 FORBIDDEN for SPOUSE and AUTHORIZED logins). ACTIVE recurring
+     * services, on or before `cancelBy`: 409 INVALID_STATUS, NOT_RECURRING or TOO_LATE_TO_CANCEL
+     * otherwise. The firm gets a task for it. Asking again returns the service unchanged.
      */
     requestCancellation: async (
       id: string,

@@ -6,7 +6,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Database, Prisma, TxClient } from '@firmivra/db';
+import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@firmivra/db';
 import type {
   CreateEngagementRequest,
   Engagement,
@@ -105,14 +105,19 @@ function toEngagement(row: Row): Engagement {
   };
 }
 
-/** The last day a cancellation can be asked for; null unless ACTIVE, recurring and billed next. */
-export function cancelByOf(e: {
-  status: string;
-  billingInterval: string;
-  nextBillingOn: Date | null;
-}): string | null {
+/**
+ * The last day a cancellation can be asked for (`today` in the firm's time zone): null unless
+ * ACTIVE, recurring and billed next. A next billing date already past is stale (nothing moves it
+ * on yet), so it sets no deadline and a request is taken.
+ */
+export function cancelByOf(
+  e: { status: string; billingInterval: string; nextBillingOn: Date | null },
+  today: string,
+): string | null {
   if (e.status !== 'ACTIVE' || e.billingInterval === 'ONE_TIME' || !e.nextBillingOn) return null;
-  return addDays(day(e.nextBillingOn)!, -CANCEL_NOTICE_DAYS);
+  const next = day(e.nextBillingOn)!;
+  if (next < today) return null;
+  return addDays(next, -CANCEL_NOTICE_DAYS);
 }
 
 function toMyService(row: Row, timeZone: string): MyService {
@@ -127,7 +132,7 @@ function toMyService(row: Row, timeZone: string): MyService {
     billingInterval: row.billingInterval,
     recurring: row.billingInterval !== 'ONE_TIME',
     nextBillingOn: day(row.nextBillingOn),
-    cancelBy: cancelByOf(row),
+    cancelBy: cancelByOf(row, dateIn(timeZone, new Date())),
     cancelRequestedAt: row.cancelRequestedAt?.toISOString() ?? null,
     cancelledAt: row.cancelledAt?.toISOString() ?? null,
     documentAccessUntil:
@@ -188,6 +193,7 @@ export class EngagementsService {
     actor: ClientsActor,
     id: string,
     forChange = false,
+    refuseArchived = false,
   ): Promise<Row> {
     if (forChange) {
       const [locked] = await tx.$queryRaw<{ client_id: string }[]>`
@@ -195,8 +201,11 @@ export class EngagementsService {
         FOR UPDATE`;
       if (!locked) throw notFound();
       const client = await this.client(tx, businessId, actor, locked.client_id, true);
-      // As for the client's own record: an archived client's engagements don't change.
-      if (client.archivedAt) throw conflict('CLIENT_ARCHIVED', 'Restore the client first');
+      // An archived client's engagements are wound down only: complete and cancel stay allowed,
+      // while an edit or a reactivation is 409 CLIENT_ARCHIVED, as for the client's own record.
+      if (refuseArchived && client.archivedAt) {
+        throw conflict('CLIENT_ARCHIVED', 'Restore the client first');
+      }
     }
     const row = await tx.engagement.findFirst({
       where: { businessId, id, client: this.reach(actor) },
@@ -305,7 +314,7 @@ export class EngagementsService {
   ): Promise<Engagement> {
     if (actor.role === 'STAFF' && body.assignedUserId !== undefined) throw forbidden();
     const row = await this.inFirm(businessId, async (tx) => {
-      const current = await this.engagement(tx, businessId, actor, id, true);
+      const current = await this.engagement(tx, businessId, actor, id, true, true);
       if (body.stage && !current.service.stages.includes(body.stage)) throw invalidStage();
       const periodStart =
         body.periodStart === undefined ? day(current.periodStart) : body.periodStart;
@@ -373,28 +382,47 @@ export class EngagementsService {
 
   /** Back to ACTIVE within 90 days of cancelling (409 REACTIVATION_WINDOW_PASSED after). */
   async reactivate(businessId: string, actor: ClientsActor, id: string): Promise<Engagement> {
-    return this.changeStatus(businessId, actor, id, 'engagement.reactivated', (current) => {
-      if (current.status !== 'CANCELLED') {
-        throw invalidStatus('Only a cancelled engagement can be reactivated');
-      }
-      if (
-        !current.cancelledAt ||
-        Date.now() - current.cancelledAt.getTime() >= REACTIVATION_DAYS * DAY
-      ) {
+    const reactivated = this.changeStatus(
+      businessId,
+      actor,
+      id,
+      'engagement.reactivated',
+      (current) => {
+        if (current.status !== 'CANCELLED') {
+          throw invalidStatus('Only a cancelled engagement can be reactivated');
+        }
+        if (
+          !current.cancelledAt ||
+          Date.now() - current.cancelledAt.getTime() >= REACTIVATION_DAYS * DAY
+        ) {
+          throw conflict(
+            'REACTIVATION_WINDOW_PASSED',
+            'A cancelled engagement can be reactivated only within 90 days',
+          );
+        }
+        // A new start: the client's earlier cancellation request was answered by the cancel, so
+        // it goes too, and the client can ask again.
+        return {
+          status: 'ACTIVE',
+          cancelledAt: null,
+          cancellationReason: null,
+          // A completed engagement cancelled later keeps no stale completion date either.
+          completedAt: null,
+          cancelRequestedAt: null,
+          cancelRequestReason: null,
+        };
+      },
+      true,
+    );
+    // The database checks the 90 days too, by its own clock: a race past the window is 409.
+    return reactivated.catch((error: unknown) => {
+      if (databaseErrorCode(error) === '23514') {
         throw conflict(
           'REACTIVATION_WINDOW_PASSED',
           'A cancelled engagement can be reactivated only within 90 days',
         );
       }
-      // A new start: the client's earlier cancellation request was answered by the cancel, so
-      // it goes too, and the client can ask again.
-      return {
-        status: 'ACTIVE',
-        cancelledAt: null,
-        cancellationReason: null,
-        cancelRequestedAt: null,
-        cancelRequestReason: null,
-      };
+      throw error;
     });
   }
 
@@ -404,9 +432,10 @@ export class EngagementsService {
     id: string,
     action: string,
     change: (current: Row) => Prisma.EngagementUncheckedUpdateInput,
+    refuseArchived = false,
   ): Promise<Engagement> {
     const row = await this.inFirm(businessId, async (tx) => {
-      const current = await this.engagement(tx, businessId, actor, id, true);
+      const current = await this.engagement(tx, businessId, actor, id, true, refuseArchived);
       await tx.engagement.update({
         where: { businessId_id: { businessId, id } },
         data: { ...change(current), updatedByUserId: actor.userId },
@@ -500,7 +529,7 @@ export class EngagementsService {
     id: string,
     body: CancelRequestBody,
   ): Promise<MyService> {
-    const { service, requested, clientId } = await this.inFirm(businessId, async (tx) => {
+    const { service, requested, taskId, clientId } = await this.inFirm(businessId, async (tx) => {
       const me = await this.mine(tx, businessId, clientAccountId);
       if (!me.primary) throw forbidden();
       const [locked] = await tx.$queryRaw<{ id: string }[]>`
@@ -519,11 +548,13 @@ export class EngagementsService {
         return {
           service: toMyService(current, me.timeZone),
           requested: false,
+          taskId: null,
           clientId: me.clientId,
         };
       }
-      const last = cancelByOf(current);
-      if (last && dateIn(me.timeZone, new Date()) > last) {
+      const today = dateIn(me.timeZone, new Date());
+      const last = cancelByOf(current, today);
+      if (last && today > last) {
         throw conflict(
           'TOO_LATE_TO_CANCEL',
           'Cancel at least 14 days before the next billing date',
@@ -534,15 +565,45 @@ export class EngagementsService {
         data: { cancelRequestedAt: new Date(), cancelRequestReason: body.reason ?? null },
         select,
       });
-      return { service: toMyService(updated, me.timeZone), requested: true, clientId: me.clientId };
+      // The firm hears of it as a task, in the same transaction: for the client's assigned staff
+      // member while they are an active member, otherwise for anyone (as a name change request).
+      const client = await tx.client.findFirstOrThrow({
+        where: { businessId, id: me.clientId },
+        select: { assignedUserId: true },
+      });
+      const assignee = client.assignedUserId
+        ? await tx.membership.findFirst({
+            where: { businessId, userId: client.assignedUserId, status: 'ACTIVE' },
+            select: { userId: true },
+          })
+        : null;
+      const task = await tx.task.create({
+        data: {
+          businessId,
+          clientId: me.clientId,
+          engagementId: id,
+          kind: 'GENERAL',
+          title: 'Cancellation request',
+          details: body.reason
+            ? `Service: ${current.title}\nReason: ${body.reason}`
+            : `Service: ${current.title}`,
+          assignedUserId: assignee?.userId ?? null,
+        },
+        select: { id: true },
+      });
+      return {
+        service: toMyService(updated, me.timeZone),
+        requested: true,
+        taskId: task.id,
+        clientId: me.clientId,
+      };
     });
-    if (requested) {
-      await this.audit.log(
-        'portal.cancellation_requested',
-        { type: 'engagement', id },
-        { clientId },
-      );
-    }
+    // A repeat changes nothing, but it is still a read of the client's service: audited too.
+    await this.audit.log(
+      'portal.cancellation_requested',
+      { type: 'engagement', id },
+      requested ? { clientId, taskId } : { clientId, repeated: true },
+    );
     return service;
   }
 }
