@@ -6,7 +6,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -135,7 +135,7 @@ describe('dev sign-in and /me', () => {
   });
 
   it("finds a client's login among more than 20 sign-up logins, newest first (#84 follow-up)", async () => {
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const email = `r2-dev-logins-${randomUUID().slice(0, 8)}@example.com`;
     const ids = Array.from({ length: 21 }, () => randomUUID());
     const newest = ids[ids.length - 1] ?? '';

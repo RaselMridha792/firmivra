@@ -6,6 +6,7 @@ import {
   BookAppointmentRequest,
   CancelAppointmentRequest,
   CreateAppointmentTypeRequest,
+  CreateBlockedTimeRequest,
   createAppointmentsClient,
   createAppointmentTypesClient,
   createAvailabilityClient,
@@ -209,9 +210,20 @@ describe('appointment schemas (R12 contract follow-ups)', () => {
     expect(slots('9999-12-01', '9999-12-02')).toBe(false);
   });
 
-  it('names CLIENT_ARCHIVED and, for now, CUTOFF_NOT_SUPPORTED', () => {
+  it('names CLIENT_ARCHIVED, BLOCK_LIMIT and, for now, CUTOFF_NOT_SUPPORTED', () => {
     expect(AppointmentErrorCode.options).toEqual(
-      expect.arrayContaining(['CLIENT_ARCHIVED', 'CUTOFF_NOT_SUPPORTED']),
+      expect.arrayContaining(['CLIENT_ARCHIVED', 'CUTOFF_NOT_SUPPORTED', 'BLOCK_LIMIT']),
     );
+  });
+
+  it('takes a block of at most 366 days', () => {
+    const block = (days: number) =>
+      CreateBlockedTimeRequest.safeParse({
+        userId: null,
+        startsAt: '2026-10-12T00:00:00Z',
+        endsAt: new Date(Date.parse('2026-10-12T00:00:00Z') + days * 86_400_000).toISOString(),
+      }).success;
+    expect(block(366)).toBe(true);
+    expect(block(367)).toBe(false);
   });
 });

@@ -216,7 +216,8 @@ describe('POST /firm-applications', () => {
           template: 'firm-application.received',
           to: emailOf(1),
           businessId: null,
-          data: { name: 'Casey Example 1', legalName: `Sample Applicant ${tag} 1` },
+          // Nothing from the form: the address is not verified yet.
+          data: {},
         },
         committed: 1,
       },

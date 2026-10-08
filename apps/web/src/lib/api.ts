@@ -1,4 +1,5 @@
 import {
+  createAdminSupportAccessClient,
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
@@ -11,10 +12,12 @@ import {
   createDocumentsClient,
   createEngagementsClient,
   createFirmApplicationsClient,
+  createInvoicesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyInvoicesClient,
   createMyNotificationsClient,
   createMyProfileClient,
   createMyReportsClient,
@@ -23,6 +26,7 @@ import {
   createNotificationsClient,
   createRequest,
   createSettingsClient,
+  createSupportAccessClient,
   createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
@@ -36,11 +40,13 @@ import {
   myAppointmentsMock,
 } from '../mocks/appointments';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
+import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createMeMock } from '../mocks/me';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createSettingsMock } from '../mocks/settings';
@@ -155,6 +161,16 @@ export const api = {
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })
       : createAuditLogClient(request),
+  /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
+  supportAccess:
+    dev && mocked('supportAccess')
+      ? createSupportAccessMock({ role: MOCK_ROLE })
+      : createSupportAccessClient(request),
+  /** Support access (R8): a Super Admin's requests to firms (admin site). */
+  adminSupportAccess:
+    dev && mocked('adminSupportAccess')
+      ? createAdminSupportAccessMock()
+      : createAdminSupportAccessClient(request),
   /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
   notifications:
     dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
@@ -168,4 +184,14 @@ export const api = {
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /** Invoices (R7): the firm's invoices with lines; create, send, cancel (docs/api/invoices.yaml). */
+  invoices:
+    dev && mocked('invoices')
+      ? createInvoicesMock({ role: MOCK_ROLE })
+      : createInvoicesClient(request),
+  /** Invoices (R7): the signed-in client's invoices and Pay Now (Stripe checkout), per firm (portal). */
+  myInvoices: (firmSlug: string) =>
+    dev && mocked('myInvoices')
+      ? myInvoicesMock(firmSlug)
+      : createMyInvoicesClient(request, firmSlug),
 };
