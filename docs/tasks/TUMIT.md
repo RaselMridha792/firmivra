@@ -5,7 +5,7 @@ Read `docs/junior/GUIDE.md`, `docs/junior/AI-RULES.md` and `docs/junior/PAGE-MAP
 
 ## Your role
 
-From Oct 7 you build screens and test, like Ibrahim. Rasel's Claude Code sessions build every API: the lead is finishing your T02-T04 from your branches, and T05-T09 moved to the sessions. Thank you for the T01-T04 work; your field list found real gaps that are being added now. Please don't push to your old `tumit/FIR-T0N` branches any more.
+From Oct 7 you build screens and test, like Arfan. Rasel's Claude Code sessions build every API: the lead is finishing your T02-T04 from your branches, and T05-T09 moved to the sessions. Thank you for the T01-T04 work; your field list found real gaps that are being added now. Please don't push to your old `tumit/FIR-T0N` branches any more.
 
 You now own the firm onboarding screens from start to end:
 
@@ -14,24 +14,24 @@ You now own the firm onboarding screens from start to end:
 - the setup wizard, settings and team;
 - the calendar and appointment screens.
 
-On Oct 15-16 you and Ibrahim test everything on dev.
+On Oct 15-16 you and Arfan test everything on dev.
 
 - Pre-review pair: Fahad (you review each other's PRs)
 - Final review and merge: Rasel
 
 ## Tickets
 
-| Ticket | Day       | Title                                                           | API (built by Rasel's sessions)         |
-| ------ | --------- | --------------------------------------------------------------- | --------------------------------------- |
-| F04a   | Oct 7     | Super Admin sidebar, header and dashboard                       | `adminAuth.me()` on main; the rest mock |
-| F04b   | Oct 8     | Firm applications: list, detail, approve, request info, decline | R4                                      |
-| N04    | Oct 9     | Public firm application form, and the Super Admin firms list    | R4                                      |
-| F05    | Oct 10-11 | First-time setup wizard, settings and team                      | T02-T04 (lead), R2 invites              |
-| F09    | Oct 12-13 | Firm calendar and availability                                  | R12                                     |
-| N08    | Oct 14    | Portal appointments: book, reschedule, cancel                   | R12                                     |
-| Q03    | Oct 15-16 | Full test pass on dev (with Ibrahim)                            |                                         |
-| -      | Oct 17    | Fixes from Octavia's review                                     |                                         |
-| -      | Oct 18    | Production smoke test                                           |                                         |
+| Ticket | Day | Title | API (built by Rasel's sessions) |
+| --- | --- | --- | --- |
+| F04a | Oct 7 | Super Admin sidebar, header and dashboard | `adminAuth.me()` on main; the rest mock |
+| F04b | Oct 8 | Firm applications: list, detail, approve, request info, decline | R4 |
+| N04 | Oct 9 | Public firm application form, and the Super Admin firms list | R4 |
+| F05 | Oct 10-11 | First-time setup wizard, settings and team | T02-T04 (lead), R2 invites |
+| F09 | Oct 12-13 | Firm calendar and availability | R12 |
+| N08 | Oct 14 | Portal appointments: book, reschedule, cancel | R12 |
+| Q03 | Oct 15-16 | Full test pass on dev (with Arfan) | |
+| - | Oct 17 | Fixes from Octavia's review | |
+| - | Oct 18 | Production smoke test | |
 
 ## Ticket cards
 
@@ -45,26 +45,31 @@ On Oct 15-16 you and Ibrahim test everything on dev.
   2. Header with the search box (no search yet), the bell and the user menu.
   3. Dashboard: the four stat cards, Recent Firm Applications with Review buttons, Quick Actions, Tasks Requiring Attention, System Status and the Platform Modules "Coming Soon" tiles. Show today's date. Leave Platform Growth as an empty card saying "Coming soon" (a chart needs a package; ask Rasel later).
 
+**Status (Oct 8, 2026):** PR #58 is open on `tumit/FIR-F04a-admin-dashboard`. This branch now includes a normal merge of `origin/main` through `a93950a`; the dashboard mock test expectations match the current R4 fixture (4 pending applications, 2 active firms, unavailable user and revenue totals). The focused Playwright assertion passes (1/1); Windows hangs during server teardown, so the runner needs interruption after the passing result. Fresh synthetic-data desktop and 375 px screenshots are embedded in the PR description. Full CI and the path guard passed on code head `c4c11c2`; this documentation refresh is a separate follow-up. Local quick-sign-in E2E remains unverified because the API and database are not running here. Fahad's pre-review and Rasel's final approval are still required; PR #99's R1 admin mock must reach `main` before #58 can merge.
+
 Checklist:
 
-- [ ] Close to the mockup at desktop; the sidebar collapses at 375 px
-- [ ] The firm site (app.localhost) still looks right with the same shell
-- [ ] Loading and error states
-- [ ] Playwright: the dashboard loads in mock mode
+- [x] Close to the mockup at desktop
+- [x] At 375 px, the sidebar opens as a drawer and the page has no horizontal overflow (mock-mode Playwright)
+- [x] The firm site (app.localhost) still looks right with the same shell at desktop and 375 px (mock mode)
+- [x] Signed-in loading, error and retry states (mock-mode Playwright)
+- [x] Playwright: the dashboard loads in mock mode
 
 ### F04b · Oct 8 · Firm applications
 
 - **Pages:** `/applications` and `/applications/[id]`, in `admin/(console)/applications/`.
 - **Mockups:** `Firm application.png` (list), `When firm aplication is open.png` (detail), `Firm approved.png` (after approval), all in `docs/mockups/super-admin/`.
-- **API:** R4's `api.firmApplications.*` (contract by Oct 8; mock until it merges).
+- **API:** R4's typed `api.firmApplications.*` contract is on `main`. Use `NEXT_PUBLIC_API_MOCK=firmApplications` for the API-shaped mock until dev data is available.
 - **Build:** stat cards; tabs All, Pending, Approved, Declined with counts; search, status and date filters; table with paging. Detail page with all application fields, automated checks, internal notes and history. Actions Approve, Request Information (with a message) and Decline (with a reason), each with a confirm dialog.
+
+Implementation and review details: [PR #111](https://github.com/RaselMridha792/firmivra/pull/111).
 
 Checklist:
 
-- [ ] Buttons disabled while a request is running
-- [ ] After an action, the list and the counts refresh
-- [ ] An unknown id shows not-found
-- [ ] Playwright: approve an application in mock mode
+- [x] Buttons disabled while a request is running
+- [x] After an action, the list and the counts refresh
+- [x] An unknown id shows not-found
+- [x] Playwright: approve an application in mock mode
 
 ### N04 · Oct 9 · Public firm application form, and the firms list
 
@@ -113,9 +118,9 @@ Checklist:
 - **API:** R12 (types, free slots, book, reschedule, cancel).
 - **Build:** pick a type, then a free slot, then confirm; upcoming appointments with reschedule and cancel where allowed; in the firm's branding.
 
-### Q03 · Oct 15-16 · Full test pass on dev (with Ibrahim)
+### Q03 · Oct 15-16 · Full test pass on dev (with Arfan)
 
-You take the Super Admin site and the firm workspace; Ibrahim takes the portal and Begin Online. For every screen:
+You take the Super Admin site and the firm workspace; Arfan takes the portal and Begin Online. For every screen:
 
 - [ ] Matches its mockup at desktop and 375 px
 - [ ] Each role (Owner, Admin, Staff, Client, Super Admin) sees only what it should
@@ -128,3 +133,25 @@ You take the Super Admin site and the firm workspace; Ibrahim takes the portal a
 - https://admin.dev.firmivra.com (Super Admin)
 - https://app.dev.firmivra.com (firm workspace)
 - https://portal.dev.firmivra.com/lvp (LVP client portal)
+
+## Added Oct 8 (Rasel)
+
+### F12 · after N08 (Rasel sets the day) · Firm audit log
+
+- **Page:** `/audit-log` in the firm workspace, `firm/(workspace)/audit-log/page.tsx` (screen 27 in `docs/PROJECT-DRAFT-v2.md`). Owner and Admin only: the menu item shows only to them, like Team and Settings.
+- **Mockup:** none: use the style of the Super Admin screens.
+- **API:** R12's `api.auditLog.list(query)` (contract in `packages/types/src/audit-log/`, mock in `apps/web/src/mocks/audit-log.ts`, module name `auditLog`). Read-only, newest first. Staff get 403 FORBIDDEN: show the no-permission state.
+- **Build:**
+  1. A table: when (`at`), who (`actor.name`; "System" when `actor` is null), action, record (`entity.type` and `entity.id`), IP. A row by "Firmivra Support" (`actor.kind` `PLATFORM`) has no person and no IP: show it as is, never look for the person behind it.
+  2. Filters: a date range (both ends or neither; neither means the last 30 days; at most 366 days), the action or its start (for example `appointment.` for every appointment action), the person, the record type and id. The contract's schema gives the messages.
+  3. Paging: 50 rows a page; pass `nextCursor` back as `cursor` for the next page.
+  4. A row's details: its `metadata` (ids only, never passwords or document content) and `requestId`.
+  5. Data export (screen 27) is not in this ticket: it has no API yet.
+
+Checklist:
+
+- [ ] Owner and Admin see the log; Staff see the no-permission state
+- [ ] A "Firmivra Support" row shows no person and no IP
+- [ ] A range over 366 days, or only one end, shows the contract's message before any request
+- [ ] Loading, empty and error states
+- [ ] Playwright: filter and page through the log in mock mode

@@ -10,7 +10,7 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, type Prisma, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { type AuditEntry, AuditLogPage } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -87,7 +87,7 @@ async function all(query: string, limit = 100, firm: 'a' | 'b' = 'a'): Promise<A
 
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 
-const owner = () => createPrismaClient(testDatabaseUrls('test_api').owner);
+const owner = () => createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
 
 /** Rows written straight into a firm's log (as other modules write them). */
 async function seed(businessId: string, rows: Prisma.AuditLogCreateManyInput[]): Promise<void> {

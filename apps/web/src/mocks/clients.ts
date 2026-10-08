@@ -324,25 +324,27 @@ export function createClientsMock(options: { role?: MockFirmRole } = {}): Client
 }
 
 /**
- * An in-memory `api.myProfile(slug)` for the first fixture client. `portalRole: 'SPOUSE'` (or
- * AUTHORIZED) tries a second login: no date of birth, and changes get 403 FORBIDDEN.
+ * An in-memory `api.myProfile(slug)` for the first fixture client. `portalRole: 'SPOUSE'` tries a
+ * second login: no date of birth, and changes get 403 FORBIDDEN. `'AUTHORIZED'` also sees the
+ * name only, the rest empty (q21).
  */
 export function createMyProfileMock(
   options: { portalRole?: ClientPortalRole } = {},
 ): MyProfileClient {
   const portalRole = options.portalRole ?? 'PRIMARY';
   const primary = portalRole === 'PRIMARY';
+  const nameOnly = portalRole === 'AUTHORIZED';
   const c = clientFixtures()[0]!;
   let me: MyProfile = MyProfile.parse({
     portalRole,
     fullName: c.displayName,
     dateOfBirth: primary ? c.profile.dateOfBirth : null,
     email: c.email,
-    phone: c.phone,
-    address: c.profile.address,
-    preferredContactMethod: c.profile.preferredContactMethod,
-    referralSource: c.profile.referralSource,
-    additionalInfo: c.profile.additionalInfo,
+    phone: nameOnly ? null : c.phone,
+    address: nameOnly ? emptyAddress : c.profile.address,
+    preferredContactMethod: nameOnly ? null : c.profile.preferredContactMethod,
+    referralSource: nameOnly ? null : c.profile.referralSource,
+    additionalInfo: nameOnly ? null : c.profile.additionalInfo,
   });
   let nameChangePending = false;
 

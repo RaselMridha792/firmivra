@@ -6,6 +6,7 @@ Firmivra · Oct 6, 2026 (evening) · who builds which page, and in which file.
 
 - Rasel's R1 session creates every page below as a placeholder inside the right layout: sidebar, header, footer, the sign-in check and the menu links are done for you.
 - You open your page file, replace the `<PagePlaceholder>` with the screen from its mockup, and put the screen's parts in a `_components/` folder next to the page (Next.js ignores folders that start with `_`).
+- `page.tsx` stays a small server file with its `metadata` title line (the tests check each page by its tab title): no `'use client'`, `redirect()` or `notFound()` in `page.tsx`, and no title or title template in any layout except the root layout's default. A page opened straight from its URL (verify-email, verify-phone, sign-up/done, apply/done, begin/done, begin/resume, reset-password, activate) never navigates away by itself. Keep what the tests read: the nav "Main" and `AppShell`; `data-testid="firm-name"`; the header's `me-email`, the user-menu button with the role and its "Sign out"; the portal greeting "Welcome back, <first name>!"; the "Intake Form" tab; the quick sign-in buttons with the email; the sign-in headings "Super Admin console", "Firm workspace" and "Client portal: <slug>".
 - Change only the files listed under your name in "Your files" at the end. CI fails a PR from your branch that changes anything else.
 - Never create, move or rename a route, a layout or a page folder. A page is missing or in the wrong place? Ask Rasel, and R1 adds it.
 - Colours, fonts and spacing come from the tokens in `packages/ui` (Fahad's F01). Never fix a colour inside your page. A colour that looks wrong everywhere is a token: tell Fahad.
@@ -59,11 +60,12 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/invoices` | `(workspace)/invoices/page.tsx` | Fahad | F10 | none |
 | `/workspaces` | `(workspace)/workspaces/page.tsx` | Fahad | F11 | none |
 | `/workspaces/[engagementId]` | `(workspace)/workspaces/[engagementId]/page.tsx` | Fahad | F11 | none |
-| `/leads` | `(workspace)/leads/page.tsx` | Ibrahim | F08 | none |
-| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Ibrahim | F08 | none |
+| `/leads` | `(workspace)/leads/page.tsx` | Arfan | F08 | none |
+| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Arfan | F08 | none |
 | `/calendar` | `(workspace)/calendar/page.tsx` | Tumit | F09 | none |
 | `/team` | `(workspace)/team/page.tsx` | Tumit | F05 | none |
-| `/settings` | `(workspace)/settings/layout.tsx` (settings menu; `/settings` opens Profile) | R1 | | |
+| `/audit-log` (Owner and Admin) | `(workspace)/audit-log/page.tsx` | Tumit | F12 | none |
+| `/settings` | `(workspace)/settings/layout.tsx` (settings menu) and `route.ts` (`/settings` opens Profile) | R1 | | |
 | `/settings/profile` | `(workspace)/settings/profile/page.tsx` | Tumit | F05 | none |
 | `/settings/branding` | `(workspace)/settings/branding/page.tsx` | Tumit | F05 | none |
 | `/settings/portal` | `(workspace)/settings/portal/page.tsx` | Tumit | F05 | none |
@@ -71,7 +73,7 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/settings/availability` | `(workspace)/settings/availability/page.tsx` | Tumit | F09 | none |
 | `/settings/tax-statuses` | `(workspace)/settings/tax-statuses/` (the reference screen) | R1 | kit | none |
 
-Sidebar: Dashboard, Clients, Sign-ups, Leads, Messages, Calendar, Invoices, Workspaces, Team, Settings. Sign-ups, Team and Settings show only for Owner and Admin.
+Sidebar: Dashboard, Clients, Sign-ups, Leads, Messages, Calendar, Invoices, Workspaces, Team, Audit log, Settings. Sign-ups, Team, Audit log and Settings show only for Owner and Admin.
 
 ## Client portal: portal.dev.firmivra.com/{firm}
 
@@ -90,16 +92,16 @@ Public pages (firm header and footer, no sidebar), in `portal/[firmSlug]/(public
 | `/{firm}/sign-up/verify-email` | `(public)/sign-up/verify-email/page.tsx` | Nahid | N02 | `Verify email .png` |
 | `/{firm}/sign-up/verify-phone` | `(public)/sign-up/verify-phone/page.tsx` | Nahid | N02 | `Verify phone.png` |
 | `/{firm}/sign-up/done` (also where a pending client lands after sign-in) | `(public)/sign-up/done/page.tsx` | Nahid | N02 | `LVP Client Portal Account Confirmation.png` |
-| `/{firm}/begin` | `(public)/begin/page.tsx` | Ibrahim | N07a | `Begin online.png` |
-| `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | Ibrahim | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
-| `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | Ibrahim | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
-| `/{firm}/begin/bookkeeping` | `(public)/begin/bookkeeping/page.tsx` | Ibrahim | N07b | the 4 `Bookkeeping ...` files |
-| `/{firm}/begin/payroll` | `(public)/begin/payroll/page.tsx` | Ibrahim | N07b | the 3 `Payroll ...` files |
-| `/{firm}/begin/tax-planning` | `(public)/begin/tax-planning/page.tsx` | Ibrahim | N07b | the 4 `Tax planning ...` files |
-| `/{firm}/begin/business-development` | `(public)/begin/business-development/page.tsx` | Ibrahim | N07b | the 4 `Development intake ...` files |
-| `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | Ibrahim | N07c | none |
-| `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | Ibrahim | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
-| form blocks for all six services | `(public)/begin/_blocks/` | Ibrahim | N07a | |
+| `/{firm}/begin` | `(public)/begin/page.tsx` | Arfan | N07a | `Begin online.png` |
+| `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | Arfan | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
+| `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | Arfan | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
+| `/{firm}/begin/bookkeeping` | `(public)/begin/bookkeeping/page.tsx` | Arfan | N07b | the 4 `Bookkeeping ...` files |
+| `/{firm}/begin/payroll` | `(public)/begin/payroll/page.tsx` | Arfan | N07b | the 3 `Payroll ...` files |
+| `/{firm}/begin/tax-planning` | `(public)/begin/tax-planning/page.tsx` | Arfan | N07b | the 4 `Tax planning ...` files |
+| `/{firm}/begin/business-development` | `(public)/begin/business-development/page.tsx` | Arfan | N07b | the 4 `Development intake ...` files |
+| `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | Arfan | N07c | none |
+| `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | Arfan | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
+| form blocks for all six services | `(public)/begin/_blocks/` | Arfan | N07a | |
 
 Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 
@@ -107,7 +109,7 @@ Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 | --- | --- | --- | --- | --- |
 | shell | `(client)/layout.tsx` | Nahid | N01 | `My docs tab.png` |
 | folder tabs and right column | `(client)/(tabs)/layout.tsx` | Nahid | N01 | `My docs tab.png` |
-| `/{firm}/home` | `(client)/home/page.tsx` (opens Intake Forms) | R1 | | |
+| `/{firm}/home` | `(client)/home/route.ts` (opens Intake Forms) | R1 | | |
 | `/{firm}/intake` | `(client)/(tabs)/intake/page.tsx` | Nahid | N06 | `Intake form tab.png` |
 | `/{firm}/business` | `(client)/(tabs)/business/page.tsx` | Nahid | N09 | `Business Tab.png` |
 | `/{firm}/documents` | `(client)/(tabs)/documents/page.tsx` | Nahid | N05 | `My docs tab.png`, `Upload docs popup.png` |
@@ -155,7 +157,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/components/app-shell/`
 - `apps/web/src/app/admin/(console)/`
 - `apps/web/src/app/firm/welcome/`, `firm/apply/`, `firm/setup/`
-- `apps/web/src/app/firm/(workspace)/team/`, `calendar/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
+- `apps/web/src/app/firm/(workspace)/team/`, `audit-log/`, `calendar/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
 - `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
@@ -165,7 +167,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/portal/[firmSlug]/(client)/`, except `appointments/` and `home/`
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
-**Ibrahim**
+**Arfan**
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
 - `apps/web/src/app/firm/(workspace)/leads/`
-- `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/IBRAHIM.md`
+- `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/ARFAN.md`

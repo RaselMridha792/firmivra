@@ -66,7 +66,7 @@ export function AppShell({
           roleLabel={roleLabel}
           onOpenMenu={() => setDrawer(true)}
         />
-        <main className="flex-1 p-4 md:px-6 md:py-4">{children}</main>
+        <main className="flex-1 p-4 md:pb-8 md:pl-6 md:pr-4 md:pt-4">{children}</main>
         {footer}
       </div>
     </div>
