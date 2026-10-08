@@ -2,6 +2,8 @@
 
 **Goal:** One NotifyService sends email and SMS everywhere, with templates, working locally and on dev.
 
+**From Oct 9:** steps 5 to 7 are built by R16 (a cloud thread, Rasel's Oct 8 decision), which logs its work below.
+
 **Owned paths (change only these):**
 - `apps/api/src/notify/**`
 - `packages/types/src/notifications/**`, `packages/types/test/notifications/**`

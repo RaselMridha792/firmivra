@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   likeEscape,
+  ownerNameOk,
   slugBase,
   startOfMonthIn,
 } from '../../src/firm-applications/firm-applications.service.js';
@@ -44,5 +45,22 @@ describe('slugBase: the portal address approve suggests', () => {
     const slug = slugBase(`Example ${'x'.repeat(47)} & Partners`);
     expect(slug.length).toBeLessThanOrEqual(56);
     expect(slug.endsWith('-')).toBe(false);
+  });
+});
+
+describe('ownerNameOk: what the owner invite takes (R0 invites_name)', () => {
+  it('takes up to 120 characters, counted as the database counts them', () => {
+    expect(ownerNameOk('Casey Example')).toBe(true);
+    expect(ownerNameOk('L'.repeat(120))).toBe(true);
+    expect(ownerNameOk('L'.repeat(121))).toBe(false);
+    // 120 code points, 240 UTF-16 units: char_length is 120.
+    expect(ownerNameOk('😀'.repeat(120))).toBe(true);
+  });
+
+  it('refuses a blank name and control characters', () => {
+    expect(ownerNameOk('   ')).toBe(false);
+    expect(ownerNameOk('Casey\tExample')).toBe(false);
+    expect(ownerNameOk('Casey\nExample')).toBe(false);
+    expect(ownerNameOk('Casey\u0085Example')).toBe(false);
   });
 });
