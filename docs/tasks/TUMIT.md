@@ -63,7 +63,7 @@ Checklist:
 
 **Verification:** Shared types build, web typecheck, ESLint, production build and `git diff --check` pass. All 8 mock Playwright cases reported `ok`; Windows left the dev server running, so the runner was interrupted during teardown. The temporary pnpm shim was removed. Result screenshots still need attaching to the PR.
 
-**GitHub status:** PR #111 is open at head `b01774a`; Path guard passes and CI is running. Fahad and Rasel are requested reviewers. The branch diff is above the repository's approximate 400-line review target. Merge follows green CI and the required reviews.
+**GitHub status:** PR #111 is open on `tumit/FIR-F04b-applications`; Path guard passed on the previous head and CI is running for the latest push. Fahad and Rasel are requested reviewers. The branch diff is above the repository's approximate 400-line review target. Merge follows green CI and the required reviews.
 
 Checklist:
 
