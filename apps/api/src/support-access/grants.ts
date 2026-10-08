@@ -4,7 +4,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, type TxClient } from '@firmivra/db';
+import { Prisma } from '@firmivra/db';
 import type { SupportAccessStatus } from '@firmivra/types';
 
 /** A request or grant as the database keeps it (R0's support_access_grants). */
@@ -68,37 +68,14 @@ export const supportErrors = {
       code: 'SUPPORT_GRANT_NOT_ACTIVE',
       message: 'This support access grant is not active',
     }),
-  grantRequired: () =>
+  ownerOnly: () =>
     new ForbiddenException({
-      code: 'SUPPORT_GRANT_REQUIRED',
-      message: 'This needs an approved support access grant for the firm',
+      code: 'FORBIDDEN',
+      message: 'Only an Owner answers support access requests',
     }),
   badCursor: () =>
     new BadRequestException({ code: 'VALIDATION_FAILED', message: 'This cursor is not valid' }),
 };
-
-/**
- * The calling Super Admin's ACTIVE grant for this firm, locked FOR SHARE until the caller's
- * transaction (in the firm's business scope) ends: a revoke that commits during a support read
- * waits for the read, so the read never runs on a grant that just ended. The database's clock
- * decides expiry. Without one: 403 SUPPORT_GRANT_REQUIRED. Until R0's support scope checks the
- * grant in the database too (R8 Needs), this check is the API's wall.
- */
-export async function lockActiveGrant(
-  tx: TxClient,
-  businessId: string,
-  adminUserId: string,
-): Promise<string> {
-  const [grant] = await tx.$queryRaw<{ id: string }[]>`
-    SELECT g.id::text AS id FROM support_access_grants g
-    WHERE g.business_id = ${businessId}::uuid AND g.admin_user_id = ${adminUserId}::uuid
-      AND ${STATUS_SQL.ACTIVE}
-    ORDER BY g.expires_at DESC
-    LIMIT 1
-    FOR SHARE`;
-  if (!grant) throw supportErrors.grantRequired();
-  return grant.id;
-}
 
 /** Support access lists are short: the cursor is an offset, opaque to the screens. */
 export const encodeOffset = (offset: number): string =>

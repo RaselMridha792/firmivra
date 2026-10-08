@@ -40,9 +40,8 @@ const DECIDED: Record<Decision, string> = {
  *   ("Firmivra Support", no person in its metadata) follows in the firm's scope, which the admin
  *   scope can't write.
  * - An Owner's answer runs in the firm's scope with the row locked, and the firm's row commits
- *   with it. The platform reads the outcome from the grant itself.
- * - A support read (the firm's audit log) locks the grant in the read's transaction and writes
- *   the firm's row there (audit-viewer); the platform's row follows (`logViewed`).
+ *   with it. The platform's copy (the Owner, ids only) follows, since the firm's scope can't
+ *   write it.
  */
 @Injectable()
 export class SupportAccessService {
@@ -181,11 +180,16 @@ export class SupportAccessService {
               ? { grantedByUserId: ownerUserId, expiresAt: new Date(now + hours * HOUR) }
               : { revokedAt: new Date(now) };
         }
-        const row = await tx.supportAccessGrant.update({
-          where: { id: current.id },
-          data,
-          select: grantSelect,
-        });
+        const row = await tx.supportAccessGrant
+          .update({ where: { id: current.id }, data, select: grantSelect })
+          .catch((e: unknown) => {
+            // R0's trigger has the last word on who approves: an Owner removed or demoted after
+            // this request's role check is refused there.
+            if (e instanceof Error && e.message.includes('only an active owner')) {
+              throw supportErrors.ownerOnly();
+            }
+            throw e;
+          });
         await this.audit.logIn(
           tx,
           DECIDED[decision],
@@ -196,27 +200,30 @@ export class SupportAccessService {
         return { row, names: await namesIn(tx, approver), now };
       },
     );
+    await this.platformCopy(
+      DECIDED[decision],
+      row.id,
+      decision === 'approve' ? { businessId, hours } : { businessId },
+    );
     return toFirm(row, names, now);
   }
 
   /**
-   * The platform's row for a support read, as the Super Admin. A firm's scope writes only the
-   * firm's rows, so this one can't share the read's transaction until R0's support scope (R8
-   * Needs): it follows the commit, and a failure is logged by id while the read stands. The
-   * firm's row, in the read's transaction, already names the grant.
+   * The platform's copy of an Owner's answer, after the answer commits (the firm's scope writes
+   * only the firm's rows): the Owner as the actor, the grant as the record, ids only. Best
+   * effort: a failure is a warning with the grant id, and the answer stands.
    */
-  async logViewed(
-    adminUserId: string,
-    businessId: string,
+  private async platformCopy(
+    action: string,
     grantId: string,
-    view: string,
+    metadata: Record<string, unknown>,
   ): Promise<void> {
     try {
-      await this.db.withScope({ kind: 'admin', adminUserId }, (tx) =>
-        this.audit.logIn(tx, 'support.viewed', { type: view }, { businessId, view, grantId }),
-      );
+      await this.audit.log(action, { type: 'support_access_grant', id: grantId }, metadata, {
+        businessId: null,
+      });
     } catch {
-      this.logger.warn(`Could not log support.viewed for firm ${businessId} (grant ${grantId})`);
+      this.logger.warn(`Could not copy ${action} to the platform's log (grant ${grantId})`);
     }
   }
 
@@ -240,7 +247,7 @@ export class SupportAccessService {
         { businessId, actorUserId: adminUserId },
       );
     } catch {
-      this.logger.warn(`Could not log ${action} for firm ${businessId} (request ${grantId})`);
+      this.logger.warn(`Could not copy ${action} to the firm's log (grant ${grantId})`);
     }
   }
 }
