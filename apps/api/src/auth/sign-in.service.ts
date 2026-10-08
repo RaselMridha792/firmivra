@@ -21,7 +21,11 @@ import type { SessionTokens, SignInPlace } from './site.js';
 
 /** Failed resets are audited; the per-email limit counts those rows (shared by every API task). */
 const RESET_FAILED = 'auth.password_reset_failed';
-const RESET = { attempt: 'auth.password_reset_attempt', passed: 'auth.password_reset_passed' };
+const RESET = {
+  attempt: 'auth.password_reset_attempt',
+  passed: 'auth.password_reset_passed',
+  released: 'auth.password_reset_released',
+};
 export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
 /**
  * Every failed sign-in, a wrong password or a wrong MFA code, is audited, and these limits count
@@ -29,11 +33,17 @@ export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
  */
 const SIGN_IN_FAILED = 'auth.sign_in_failed';
 /**
- * Each attempt is recorded before Cognito is asked, and a "passed" row (same token) when it
- * succeeds; an attempt without one is a failure or still in flight, and the limits count those.
+ * Each attempt is recorded before Cognito is asked, then closed by a "passed" row (same token)
+ * when it succeeds, or a "released" row when it ends without a verdict on the credential (its own
+ * action, so the audit log never reads "passed" for it); an attempt with neither is a failure or
+ * still in flight, and the limits count those.
  */
-const SIGN_IN = { attempt: 'auth.sign_in_attempt', passed: 'auth.sign_in_passed' };
-type Actions = { attempt: string; passed: string };
+const SIGN_IN = {
+  attempt: 'auth.sign_in_attempt',
+  passed: 'auth.sign_in_passed',
+  released: 'auth.sign_in_released',
+};
+type Actions = { attempt: string; passed: string; released: string };
 /** One limit an attempt must stay under: the open attempts (failed or in flight) with this value. */
 type LimitCheck = {
   field: 'emailKey' | 'attemptId';
@@ -51,7 +61,7 @@ export const SIGN_IN_LIMIT = {
 };
 /**
  * One check's open attempts in its window, as SQL: the tokens with an attempt row and no "passed"
- * row (both carry the check's value). One pass over the window per check, and the reserve counts
+ * or "released" row (all carry the check's value). One pass over the window per check, and the reserve counts
  * every check in one statement that returns numbers, never rows, so its transaction stays short
  * under bursts (#84 review).
  */
@@ -59,13 +69,15 @@ function openAttempts(businessId: string | null, actions: Actions, check: LimitC
   const inScope = businessId
     ? Prisma.sql`business_id = ${businessId}::uuid`
     : Prisma.sql`business_id IS NULL`;
-  const [attempt, passed] = [literal(actions.attempt), literal(actions.passed)];
+  const [attempt, passed, released] = [actions.attempt, actions.passed, actions.released].map(
+    literal,
+  );
   return Prisma.sql`(
     SELECT count(*) FROM (
       SELECT 1 FROM audit_logs
       WHERE ${inScope}
         AND created_at > now() - ${check.windowMs}::int * interval '1 millisecond'
-        AND action IN (${attempt}, ${passed})
+        AND action IN (${attempt}, ${passed}, ${released})
         AND ${KEY_SQL[check.field]} = ${check.value}
       GROUP BY metadata ->> 'token'
       HAVING bool_and(action = ${attempt})
@@ -73,7 +85,7 @@ function openAttempts(businessId: string | null, actions: Actions, check: LimitC
 }
 /**
  * The key and the actions are SQL literals, never parameters: R0's partial indexes on
- * audit_logs (one per key, WHERE action IN the four attempt and passed actions) only match a
+ * audit_logs (one per key, WHERE action IN the six attempt, passed and released actions) only match a
  * query whose expression and action list the planner can read (#84 follow-up). The value, the
  * window and the firm stay parameters.
  */
@@ -379,8 +391,8 @@ export class SignInService {
   }
 
   /**
-   * An outcome that says nothing about the credential: the attempt gets its "passed" row, marked
-   * `released` with what happened, so it never counts against the limits (#84 follow-up). On the
+   * An outcome that says nothing about the credential: the attempt gets its "released" row, with
+   * what happened, so it never counts against the limits (#84 follow-up). On the
    * password and reset steps only an error of ours or an outage does this; every answer from
    * Cognito still counts there, the same for real and unknown emails, so it reveals nothing. A
    * failure here is logged by the attempt's token and never hides the original error.
@@ -391,13 +403,13 @@ export class SignInService {
     ids: { emailKey?: string; attemptId?: string; token: string },
     outcome: unknown,
   ): Promise<void> {
-    const released = outcome instanceof AuthFlowError ? outcome.code : 'ERROR';
+    const ended = outcome instanceof AuthFlowError ? outcome.code : 'ERROR';
     try {
       await this.log(
         place,
-        actions.passed,
+        actions.released,
         { type: 'login' },
-        { ...ids, pool: place.pool, released },
+        { ...ids, pool: place.pool, outcome: ended },
       );
     } catch {
       this.logger.warn(`Could not release sign-in attempt ${ids.token}`);

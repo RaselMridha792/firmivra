@@ -105,8 +105,9 @@ info:
     error of ours or an outage; at the MFA step anything but a wrong code) is released and not
     counted. Show "Too many attempts. Wait a few minutes and try again."
     Every attempt let past the limits is audited with its end (`auth.sign_in_attempt`, then
-    `auth.sign_in_passed`, marked `released` for a release, or `auth.sign_in_failed`, and
-    `auth.signed_in`); a 429 writes no row. The email is stored only as a keyed hash. Cognito
+    `auth.sign_in_passed`, `auth.sign_in_released` or `auth.sign_in_failed`, and `auth.signed_in`;
+    password resets the same with `auth.password_reset_*`); a 429 writes no row. The email is
+    stored only as a keyed hash. Cognito
     threat protection gets the viewer's IP and browser (User-Agent, Accept-Language), never
     cookies or tokens.
 

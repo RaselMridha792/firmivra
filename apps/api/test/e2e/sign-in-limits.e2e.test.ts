@@ -316,8 +316,9 @@ describe('audit rows', () => {
 });
 
 describe('outcomes that say nothing about the credential (#84 follow-up)', () => {
-  it('never count an error of ours against the email', async () => {
+  it('never count an error of ours against the email, and close it as released', async () => {
     const email = `r2-lim-release-${tag}@a.test`;
+    const userAgent = `r2-lim-release-${tag}`;
     const perEmail = SIGN_IN_LIMIT.perEmail;
     SIGN_IN_LIMIT.perEmail = 1;
     const identity = app.get<IdentityProvider>(IDENTITY_PROVIDER);
@@ -325,23 +326,28 @@ describe('outcomes that say nothing about the credential (#84 follow-up)', () =>
       .spyOn(identity, 'signIn')
       .mockRejectedValueOnce(new Error('Cognito is unreachable for a moment'));
     try {
-      expect((await staffSignIn(email, WRONG)).status).toBe(500);
+      const failed = await request(app.getHttpServer())
+        .post('/api/v1/auth/sign-in')
+        .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+        .set('user-agent', userAgent)
+        .send({ email, password: WRONG });
+      expect(failed.status).toBe(500);
       // Released: the next wrong password is still answered, and only then the limit holds.
       const wrong = await staffSignIn(email, WRONG);
       expect([wrong.status, codeOf(wrong)]).toEqual([401, 'INVALID_CREDENTIALS']);
       const over = await staffSignIn(email, WRONG);
       expect([over.status, codeOf(over)]).toEqual([429, 'RATE_LIMITED']);
-      const released = await asOwner({ kind: 'platform' }, (tx) =>
+      // The failed request's rows: its attempt, closed by its own action, never "passed".
+      const rows = await asOwner({ kind: 'platform' }, (tx) =>
         tx.auditLog.findMany({
-          where: {
-            businessId: null,
-            action: 'auth.sign_in_passed',
-            metadata: { path: ['released'], equals: 'ERROR' },
-          },
-          select: { metadata: true },
+          where: { businessId: null, userAgent },
+          select: { action: true, metadata: true },
+          orderBy: { createdAt: 'asc' },
         }),
       );
-      expect(released.length).toBeGreaterThan(0);
+      expect(rows.map((r) => r.action)).toEqual(['auth.sign_in_attempt', 'auth.sign_in_released']);
+      const [attempt, released] = rows.map((r) => r.metadata as Record<string, unknown>);
+      expect(released).toMatchObject({ token: attempt?.['token'], outcome: 'ERROR' });
     } finally {
       signIn.mockRestore();
       SIGN_IN_LIMIT.perEmail = perEmail;
