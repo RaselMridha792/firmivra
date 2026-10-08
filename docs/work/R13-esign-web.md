@@ -25,7 +25,7 @@ Not mine: menu lines (Fahad, Nahid), PAGE-MAP rows (R1), `apps/api`, `packages/t
 
 - [x] 1. pdf.js spike (Oct 8)
 - [x] 2. Routes: placeholders with titles for every Firm Sign page (Oct 8, early)
-- [ ] 3. PdfPages viewer and SignaturePad; FieldOverlay
+- [ ] 3. PdfPages viewer and SignaturePad (done); FieldOverlay
 - [ ] 4. Signer flow 1 and 2; dashboard
 - [ ] 5. All requests; request detail; wizard steps 1-2
 - [ ] 6. Wizard steps 3-4; field editor 1
@@ -57,9 +57,11 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - Fahad: "Firm Sign" in the firm menu; the Send for Signature button and the "Signatures" entry in the client record's tabs (`clients/[id]/layout.tsx`, F06).
 - Nahid: "Signatures" in the portal menu.
 - R1: PAGE-MAP rows for the Firm Sign pages.
+- Fahad (optional): a handwriting font token for typed signatures; until then they use `--font-display` italic.
 - Rasel: OK from Octavia before `FirmSign_Dashboard_Mockup.png` goes into the public repo.
 
 ## Progress log
 
 - 2026-10-08: pdf.js spike done, verdict above (loader on branch `rasel/R13-web-pdf-spike`, goes in with the PdfPages viewer PR).
 - 2026-10-08: routes PR: 14 placeholder pages with tab titles, the kiosk layout (signed in, no menu), the signer layout (firm name, no account), noindex on the signer and kiosk layouts, the kiosk runs the same firm checks as the workspace, the signer frame shows the firm logo and the portal footer, `e2e/mock/esign-routes.spec.ts` (15 tests green locally).
+- 2026-10-08: viewer PR: `pdfjs-dist` 6.3.289 and the loader, `PdfPages` (pages draw as they scroll near, sized to the container, an overlay slot per page for FieldOverlay), `SignaturePad` (type, draw, upload; always a PNG; ink and font from tokens), a synthetic sample PDF, both shown on `/{firm}/sign` until the signing API lands, `e2e/mock/esign-signer-parts.spec.ts` (4 tests, draw at 375 px).
