@@ -7,7 +7,7 @@ type PdfDocument = Awaited<
   ReturnType<Awaited<ReturnType<typeof loadPdfjs>>['pdfjs']['getDocument']>['promise']
 >;
 
-/** One page's size in PDF points (1/72 inch) at rotation 0. */
+/** One page's size in PDF points (1/72 inch), as shown: with the page's own rotation applied. */
 export interface PageSize {
   width: number;
   height: number;
@@ -129,7 +129,9 @@ function PdfPage({
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [near, setNear] = useState(false);
-  const [drawn, setDrawn] = useState(false);
+  // The scale the canvas was last drawn at; the page counts as drawn only at the current one.
+  const [drawnAt, setDrawnAt] = useState<number | null>(null);
+  const drawn = drawnAt === scale;
 
   useEffect(() => {
     const el = frameRef.current;
@@ -145,9 +147,10 @@ function PdfPage({
     const el = canvasRef.current;
     if (!near || !el) return;
     let task: { cancel: () => void; promise: Promise<void> } | undefined;
+    let page: Awaited<ReturnType<PdfDocument['getPage']>> | undefined;
     let active = true;
     (async () => {
-      const page = await doc.getPage(index + 1);
+      page = await doc.getPage(index + 1);
       if (!active) return;
       const ratio = window.devicePixelRatio || 1;
       const viewport = page.getViewport({ scale: scale * ratio });
@@ -155,13 +158,19 @@ function PdfPage({
       el.height = Math.floor(viewport.height);
       task = page.render({ canvas: el, viewport });
       await task.promise;
-      if (active) setDrawn(true);
+      if (active) setDrawnAt(scale);
     })().catch(() => {
       // A cancelled render (scrolled away or resized) rejects; the next one draws the page.
     });
     return () => {
       active = false;
       task?.cancel();
+      // Free the bitmap and pdf.js's page data, so a long document doesn't keep every page in
+      // memory (phones drop canvases past their budget).
+      el.width = 0;
+      el.height = 0;
+      page?.cleanup();
+      setDrawnAt(null);
     };
   }, [doc, index, near, scale]);
 

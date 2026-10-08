@@ -31,6 +31,11 @@ test('type a signature', async ({ page }) => {
   await page.getByLabel('Your full name').fill('Jordan Sample');
   await expect(page.getByTestId('signature-preview')).toHaveText('Jordan Sample');
   await expect(state).toHaveText('Signature ready.');
+  // Another tab holds nothing yet; coming back adopts the typed name again.
+  await page.getByRole('tab', { name: 'Draw' }).click();
+  await expect(state).toHaveText('Add your signature to continue.');
+  await page.getByRole('tab', { name: 'Type' }).click();
+  await expect(state).toHaveText('Signature ready.');
   await page.getByLabel('Your full name').fill('');
   await expect(state).toHaveText('Add your signature to continue.');
 });
@@ -64,6 +69,7 @@ test('upload a picture of a signature', async ({ page }) => {
     mimeType: 'text/plain',
     buffer: Buffer.from('x'),
   });
-  await expect(page.getByText('Choose a PNG or JPEG image.')).toHaveAttribute('role', 'alert');
+  await expect(page.getByText('Choose a PNG or JPEG image.')).toBeVisible();
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByTestId('signature-state')).toHaveText('Add your signature to continue.');
 });

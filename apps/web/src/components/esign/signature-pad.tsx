@@ -1,7 +1,14 @@
 'use client';
 
 import { Button, Input, Tabs } from '@firmivra/ui';
-import { type PointerEvent, useEffect, useEffectEvent, useRef, useState } from 'react';
+import {
+  type PointerEvent,
+  type RefObject,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
 
 type Mode = 'type' | 'draw' | 'upload';
 
@@ -12,9 +19,12 @@ const RATIO = 2;
 /** Uploaded images above this size are refused before they are read. */
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 
-/** A design token's value, for drawing on a canvas (which cannot use CSS classes). */
-function token(name: string) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+/**
+ * A design token's value as `from` sees it (the portal theme overrides some), for drawing on a
+ * canvas, which cannot use CSS classes.
+ */
+function token(name: string, from: Element) {
+  return getComputedStyle(from).getPropertyValue(name).trim();
 }
 
 function blankCanvas() {
@@ -26,13 +36,13 @@ function blankCanvas() {
   return { canvas, ctx };
 }
 
-/** The name in the display font, as a PNG, or null for an empty name. */
-export function typedSignature(name: string, initials: boolean): string | null {
+/** The name in the display font and the ink colour `from` sees, as a PNG; null when empty. */
+export function typedSignature(name: string, initials: boolean, from: Element): string | null {
   const text = name.trim();
   if (!text) return null;
   const { canvas, ctx } = blankCanvas();
   if (!ctx) return null;
-  const family = token('--font-display') || 'serif';
+  const family = token('--font-display', from) || 'serif';
   let size = initials ? 96 : 72;
   ctx.font = `italic ${size}px ${family}`;
   // Shrink long names until they fit the line.
@@ -40,7 +50,7 @@ export function typedSignature(name: string, initials: boolean): string | null {
     size -= 4;
     ctx.font = `italic ${size}px ${family}`;
   }
-  ctx.fillStyle = token('--color-heading');
+  ctx.fillStyle = token('--color-heading', from);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, WIDTH / 2, HEIGHT / 2);
@@ -74,28 +84,51 @@ interface SignaturePadProps {
  * it. Every way ends as a PNG data URL. No extra package: a plain canvas.
  */
 export function SignaturePad({ kind, defaultText = '', onChange }: SignaturePadProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<Mode>('type');
+  // Each tab keeps what it holds; the adopted image is always the open tab's.
+  const [values, setValues] = useState<Record<Mode, string | null>>({
+    type: null,
+    draw: null,
+    upload: null,
+  });
   const label = kind === 'initials' ? 'initials' : 'signature';
+  const report = (from: Mode) => (png: string | null) => {
+    setValues((v) => ({ ...v, [from]: png }));
+    if (from === mode) onChange(png);
+  };
   return (
-    <div data-testid={`signature-pad-${kind}`} className="flex flex-col gap-3">
+    <div ref={rootRef} data-testid={`signature-pad-${kind}`} className="flex flex-col gap-3">
       <Tabs
         label={`How to add your ${label}`}
         value={mode}
         onChange={(id) => {
-          setMode(id as Mode);
-          onChange(null);
+          const next = id as Mode;
+          setMode(next);
+          onChange(values[next]);
         }}
         items={[
           {
             id: 'type',
             label: 'Type',
-            content: <TypePanel kind={kind} defaultText={defaultText} onChange={onChange} />,
+            content: (
+              <TypePanel
+                kind={kind}
+                defaultText={defaultText}
+                inkFrom={rootRef}
+                onChange={report('type')}
+              />
+            ),
           },
-          { id: 'draw', label: 'Draw', content: <DrawPanel label={label} onChange={onChange} /> },
+          {
+            id: 'draw',
+            label: 'Draw',
+            content: <DrawPanel label={label} inkFrom={rootRef} onChange={report('draw')} />,
+          },
           {
             id: 'upload',
             label: 'Upload',
-            content: <UploadPanel label={label} onChange={onChange} />,
+            content: <UploadPanel label={label} onChange={report('upload')} />,
           },
         ]}
       />
@@ -103,15 +136,21 @@ export function SignaturePad({ kind, defaultText = '', onChange }: SignaturePadP
   );
 }
 
+/** The element whose theme sets the ink colour (the pad itself, inside the portal theme). */
+type InkFrom = RefObject<HTMLElement | null>;
+
 function TypePanel({
   kind,
   defaultText,
+  inkFrom,
   onChange,
-}: Pick<SignaturePadProps, 'kind' | 'onChange'> & { defaultText: string }) {
+}: Pick<SignaturePadProps, 'kind' | 'onChange'> & { defaultText: string; inkFrom: InkFrom }) {
   const [text, setText] = useState(defaultText);
   const initials = kind === 'initials';
   // The pre-filled name counts as typed: hand its PNG up once, after the first render.
-  const adoptDefault = useEffectEvent(() => onChange(typedSignature(defaultText, initials)));
+  const png = (value: string) =>
+    inkFrom.current ? typedSignature(value, initials, inkFrom.current) : null;
+  const adoptDefault = useEffectEvent(() => onChange(png(defaultText)));
   useEffect(() => adoptDefault(), []);
 
   return (
@@ -122,7 +161,7 @@ function TypePanel({
         maxLength={initials ? 6 : 80}
         onChange={(e) => {
           setText(e.target.value);
-          onChange(typedSignature(e.target.value, initials));
+          onChange(png(e.target.value));
         }}
         autoComplete={initials ? 'off' : 'name'}
       />
@@ -142,7 +181,15 @@ function TypePanel({
   );
 }
 
-function DrawPanel({ label, onChange }: { label: string; onChange: (png: string | null) => void }) {
+function DrawPanel({
+  label,
+  inkFrom,
+  onChange,
+}: {
+  label: string;
+  inkFrom: InkFrom;
+  onChange: (png: string | null) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const [empty, setEmpty] = useState(true);
@@ -157,8 +204,8 @@ function DrawPanel({ label, onChange }: { label: string; onChange: (png: string 
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = token('--color-heading');
-  }, []);
+    ctx.strokeStyle = token('--color-heading', inkFrom.current ?? el);
+  }, [inkFrom]);
 
   /** The pointer's position in drawing units, whatever size the canvas is shown at. */
   function point(e: PointerEvent<HTMLCanvasElement>) {
@@ -238,10 +285,13 @@ function UploadPanel({
   onChange: (png: string | null) => void;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | undefined>();
+  // Only the latest pick may land: an earlier, slower image read is dropped.
+  const pickRef = useRef(0);
 
   async function pick(file: File | undefined) {
-    setError(null);
+    const id = ++pickRef.current;
+    setError(undefined);
     setPreview(null);
     onChange(null);
     if (!file) return;
@@ -255,32 +305,31 @@ function UploadPanel({
     }
     try {
       const png = await uploadedSignature(file);
+      if (id !== pickRef.current) return;
       setPreview(png);
       onChange(png);
     } catch {
-      setError("We couldn't read that image. Try another one.");
+      if (id === pickRef.current) setError("We couldn't read that image. Try another one.");
     }
   }
 
   return (
     <div className="flex flex-col gap-3 pt-3">
-      <label className="flex flex-col gap-1 text-sm font-medium text-text">
-        Picture of your {label} (PNG or JPEG, up to 2 MB)
-        <input
-          type="file"
-          accept="image/png,image/jpeg"
-          data-testid="signature-upload"
-          onChange={(e) => void pick(e.target.files?.[0])}
-          className="text-sm text-muted"
-        />
-      </label>
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
+      <Input
+        type="file"
+        label={`Picture of your ${label} (PNG or JPEG, up to 2 MB)`}
+        accept="image/png,image/jpeg"
+        data-testid="signature-upload"
+        error={error}
+        onChange={(e) => {
+          void pick(e.target.files?.[0]);
+          // Picking the same file again after an error or a clear still counts as a pick.
+          e.target.value = '';
+        }}
+      />
       {preview && (
         <div className="aspect-3/1 w-full rounded-card border border-border bg-surface">
+          {/* A data URL drawn in the browser: next/image adds nothing here. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={preview} alt="" className="h-full w-full object-contain" />
         </div>
