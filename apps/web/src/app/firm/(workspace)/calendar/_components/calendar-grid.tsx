@@ -8,12 +8,11 @@ interface GridProps {
   items: CalendarAppointment[];
   timeZone: string;
   showStaff: boolean;
+  onOpen: (id: string) => void;
 }
 
-const chips = ({ items, timeZone, showStaff }: GridProps) =>
-  items.map((item) => (
-    <AppointmentChip key={item.id} item={item} timeZone={timeZone} showStaff={showStaff} />
-  ));
+const chips = ({ items, ...chip }: GridProps) =>
+  items.map((item) => <AppointmentChip key={item.id} item={item} {...chip} />);
 
 /** Seven columns from Monday; a day's header opens it in the Day view. Stacked on a phone. */
 export function WeekGrid({
@@ -34,7 +33,7 @@ export function WeekGrid({
             key={date}
             data-testid="calendar-day"
             aria-label={dayLabel(date)}
-            className="flex min-h-32 flex-col gap-2 rounded-card border border-border bg-surface p-2"
+            className="flex flex-col gap-2 rounded-card border border-border bg-surface p-2 md:min-h-32"
           >
             <button
               type="button"
