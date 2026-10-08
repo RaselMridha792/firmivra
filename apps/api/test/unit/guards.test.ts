@@ -190,6 +190,54 @@ describe('TenantGuard', () => {
       new TenantGuard(reflector, outsider).canActivate(ctx('ownerOrAdmin', req)),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  const client = { userId: 'c1', cognitoSub: 's', pool: 'CLIENT' };
+  const portalReq = (firmSlug: string): Req => ({
+    auth: client,
+    path: `/api/v1/portal/${encodeURIComponent(firmSlug)}/me`,
+    params: { firmSlug },
+    get: headers({}),
+  });
+
+  it('finds a portal firm by its slug in any letter case', async () => {
+    const db = fakeDb({
+      businessBySlug: { id: FIRM },
+      businessById: { id: FIRM, status: 'ACTIVE' },
+      clientAccount: { id: 'acct-1' },
+    });
+    const req = portalReq('LVP');
+    await expect(
+      new TenantGuard(reflector, db).canActivate(ctx('ownerOrAdmin', req)),
+    ).resolves.toBe(true);
+    expect(db.forPlatform().business.findUnique).toHaveBeenCalledWith({
+      where: { slug: 'lvp' },
+      select: { id: true },
+    });
+    expect(req['tenant']).toEqual({
+      businessId: FIRM,
+      role: 'CLIENT',
+      kind: 'client',
+      clientAccountId: 'acct-1',
+    });
+  });
+
+  it('404s a portal slug that cannot be a firm address, before any query (#84 review)', async () => {
+    for (const firmSlug of [
+      'lvp' + String.fromCharCode(0),
+      String.fromCharCode(0),
+      'a;b',
+      'l v p',
+    ]) {
+      const db = fakeDb({
+        businessBySlug: { id: FIRM },
+        businessById: { id: FIRM, status: 'ACTIVE' },
+      });
+      await expect(
+        new TenantGuard(reflector, db).canActivate(ctx('ownerOrAdmin', portalReq(firmSlug))),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(db.forPlatform().business.findUnique).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe('RolesGuard (default deny)', () => {

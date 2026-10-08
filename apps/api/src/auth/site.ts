@@ -13,6 +13,12 @@ export function siteOf(req: Pick<Request, 'path'>): AuthSite {
   return typeof req.path === 'string' && ADMIN_PATH.test(req.path) ? 'admin' : 'firm';
 }
 
+/**
+ * Pools each site's routes accept (portal routes take only CLIENT, see portalSlugOf). The firm
+ * site keeps CLIENT on purpose (#62 follow-up, confirmed): a client token there reaches only what
+ * the roles guard allows (403 on every staff route; `GET /me` shows their own data), and a client's
+ * cookies are scoped to their portal's paths, so a browser never sends them to the firm site.
+ */
 export const SITE_POOLS: Record<AuthSite, readonly IdentityPool[]> = {
   admin: ['ADMIN'],
   firm: ['STAFF', 'CLIENT'],

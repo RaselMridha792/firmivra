@@ -203,12 +203,30 @@ describe('SmsPhone: US numbers only for SMS codes (SMS cost guard)', () => {
 });
 
 describe('Phone: international E.164 for every other phone field (Rasel, Oct 8)', () => {
-  it('takes any country with its code, and ignores spaces, brackets and dashes', () => {
+  it('takes any country with its code, and ignores spaces, dots, brackets and dashes', () => {
     expect(Phone.parse('+44 20 7123 4567')).toBe('+442071234567');
     expect(Phone.parse('+1 (876) 555-0100')).toBe('+18765550100');
     expect(Phone.parse('+880 1712-345678')).toBe('+8801712345678');
-    // Without a country code it can't tell the country.
-    expect(Phone.safeParse('(770) 555-0123').success).toBe(false);
+    expect(Phone.parse('+49.30.1234.5678')).toBe('+493012345678');
+  });
+
+  it('reads a US number typed without +1 as US (#70 follow-up)', () => {
+    // 10 digits, as staff and firm applicants type them.
+    expect(Phone.parse('(404) 555-0102')).toBe('+14045550102');
+    expect(Phone.parse('4045550102')).toBe('+14045550102');
+    expect(Phone.parse('404.555.0102')).toBe('+14045550102');
+    // 1 and 10 digits.
+    expect(Phone.parse('1 (404) 555-0102')).toBe('+14045550102');
+    expect(Phone.parse('14045550102')).toBe('+14045550102');
+  });
+
+  it('needs the country code for any other country', () => {
+    // A London number as typed there: 11 digits starting with 0 is no US shorthand.
+    const london = Phone.safeParse('020 7123 4567');
+    expect(london.success).toBe(false);
+    expect(london.error?.issues[0]?.message).toBe('Enter the phone number with its country code');
+    // Neither are 9 digits.
+    expect(Phone.safeParse('404555010').success).toBe(false);
   });
 });
 
