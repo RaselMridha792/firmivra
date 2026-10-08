@@ -24,12 +24,24 @@ import { clearable, text } from '../clients/text.js';
 // - The database stops double booking: an overlap with the staff member's or the client's other
 //   appointments, or with blocked time, is 409 SLOT_TAKEN.
 // - Every book, reschedule, cancel, complete and no-show is kept as the appointment's history.
-// Times: ISO 8601 instants with an offset. Times of day (working hours) are in the firm's
+// - A busy calendar (another change holds it for more than 2 s) answers 429 RATE_LIMITED: try
+//   again in a moment.
+// Times: ISO 8601 instants with an offset, and dates, from 2000 to 2100 (the API's calendar
+// years; anything else is 400 VALIDATION_FAILED). Times of day (working hours) are in the firm's
 // timezone, which availability and slot answers name (IANA, for example America/New_York).
 // Responses are plain objects (fields the API adds later are dropped); requests are strict.
 
-const DateTime = z.iso.datetime({ offset: true });
-const CalendarDate = z.iso.date();
+/** The calendar's years: [2000-01-01, 2101-01-01) UTC, as the API checks them. */
+const FIRST_INSTANT = Date.UTC(2000, 0, 1);
+const AFTER_LAST_INSTANT = Date.UTC(2101, 0, 1);
+const inCalendarYears = (value: string) => {
+  const instant = Date.parse(value);
+  return instant >= FIRST_INSTANT && instant < AFTER_LAST_INSTANT;
+};
+const DateTime = z.iso
+  .datetime({ offset: true })
+  .refine(inCalendarYears, 'Use a date from 2000 to 2100');
+const CalendarDate = z.iso.date().refine(inCalendarYears, 'Use a date from 2000 to 2100');
 const DAY_MS = 24 * 60 * 60_000;
 
 export const AppointmentId = z.uuid();
@@ -201,7 +213,11 @@ export const CreateBlockedTimeRequest = z
     endsAt: DateTime,
     reason: Reason,
   })
-  .refine((b) => Date.parse(b.startsAt) < Date.parse(b.endsAt), 'The end must be after the start');
+  .refine((b) => Date.parse(b.startsAt) < Date.parse(b.endsAt), 'The end must be after the start')
+  .refine(
+    (b) => Date.parse(b.endsAt) - Date.parse(b.startsAt) <= 366 * DAY_MS,
+    'A block lasts at most 366 days',
+  );
 export type CreateBlockedTimeRequest = z.input<typeof CreateBlockedTimeRequest>;
 
 // ---------- Appointments (firm) ----------
@@ -440,11 +456,29 @@ export const AppointmentErrorCode = z.enum([
   'CHANGE_WINDOW_CLOSED',
   /** 409: the appointment is cancelled, completed or a no-show; that is final. */
   'APPOINTMENT_CLOSED',
+  /** 409: complete and no-show only once the appointment has started. */
+  'APPOINTMENT_NOT_STARTED',
   /** 409: the type is archived and cannot be booked. */
   'TYPE_ARCHIVED',
   /** 409: the blocked time would cover a scheduled appointment. */
   'BLOCKS_APPOINTMENT',
+  /**
+   * 409: the calendar already has 200 blocks that have not ended (a member's, or the whole
+   * firm's): delete some first.
+   */
+  'BLOCK_LIMIT',
   /** 409: the firm already has an appointment type with this name. */
   'DUPLICATE_NAME',
+  /**
+   * 409: the client is archived (R10's code): nothing new is booked for them. The firm restores
+   * the client first; on the portal, the client contacts the firm.
+   */
+  'CLIENT_ARCHIVED',
+  /**
+   * 409, for now: a type's cancelCutoffHours can only be 24 until R0 adds
+   * appointment_types.cancel_cutoff_hours (every type answers 24 until then). Then any value in
+   * range works and this code goes away.
+   */
+  'CUTOFF_NOT_SUPPORTED',
 ]);
 export type AppointmentErrorCode = z.infer<typeof AppointmentErrorCode>;

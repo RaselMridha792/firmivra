@@ -1,3 +1,4 @@
+@import './auth.css';
 /* F01 CSS token source: colours and sizing from docs/mockups; tenant palettes stay separate. */
 @theme {
   --color-*: initial;

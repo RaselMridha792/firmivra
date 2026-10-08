@@ -8,7 +8,7 @@ const select = { id: true, slug: true, name: true, status: true } as const;
 
 /**
  * The firm the request acts in. The smallest tenant-scoped endpoints, used by the web app and the
- * isolation e2e tests. Firm settings (Ibrahim, Sprint 1) build on this module.
+ * isolation e2e tests. Firm settings (T02, Sprint 1) build on this module.
  */
 @Controller()
 export class BusinessController {

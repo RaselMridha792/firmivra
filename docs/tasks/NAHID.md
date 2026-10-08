@@ -7,9 +7,9 @@ Read `docs/junior/GUIDE.md`, `docs/junior/AI-RULES.md` and `docs/junior/PAGE-MAP
 
 Frontend. You own the client portal (portal.dev.firmivra.com/{firm}), shown in each firm's branding.
 
-From Oct 7, Tumit and Ibrahim build screens too, and Rasel's sessions build every API, so your list is shorter. Begin Online moved to Ibrahim; portal appointments and the public firm application form moved to Tumit.
+From Oct 7, Tumit and Arfan build screens too, and Rasel's sessions build every API, so your list is shorter. Begin Online moved to Arfan; portal appointments and the public firm application form moved to Tumit.
 
-- Pre-review pair: Ibrahim (you review each other's PRs)
+- Pre-review pair: Arfan (you review each other's PRs)
 - Final review and merge: Rasel
 
 ## Tickets
@@ -27,7 +27,7 @@ From Oct 7, Tumit and Ibrahim build screens too, and Rasel's sessions build ever
 | - | Oct 17 | Fixes from Octavia's review | |
 | - | Oct 18 | Production smoke test | |
 
-Moved to others: N04 and N08 went to Tumit; N07 went to Ibrahim.
+Moved to others: N04 and N08 went to Tumit; N07 went to Arfan.
 
 ## Ticket cards
 
@@ -83,7 +83,7 @@ Checklist:
 - **Pages:** `/{firm}/services` (`(client)/services/`), `/{firm}/taxes` and `/{firm}/intake` (in `(client)/(tabs)/`).
 - **Mockups:** `Taxes tab.png`, `Intake form tab.png`. Instructions: `Tax Returns tab Instructions.docx`, `Intake form instructions.docx` in `docs/specs/client-portal/`.
 - **API:** R10 (services, tax status, tax returns), R11 (intake forms).
-- **Build:** My Services (Active, Recurring, Completed, Cancelled). Taxes tab: year table with the firm's statuses and the Tax Return Payment card. Intake form tab: open forms, autosave, submit, and the Needs Correction state. Reuse Ibrahim's Begin Online form blocks; ask him where they are.
+- **Build:** My Services (Active, Recurring, Completed, Cancelled). Taxes tab: year table with the firm's statuses and the Tax Return Payment card. Intake form tab: open forms, autosave, submit, and the Needs Correction state. Reuse Arfan's Begin Online form blocks; ask him where they are.
 
 ### N09 · Oct 13-14 · Messages and notes, Invoices with Pay, Business tab, External links
 

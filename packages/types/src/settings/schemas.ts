@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { Email } from '../auth/schemas.js';
 import { LegalDocument, LegalVersion } from '../client-auth/schemas.js';
+import { text } from '../clients/text.js';
+import { Ein, EntityType, FirmService } from '../firm-applications/schemas.js';
 import { BusinessStatus } from '../schemas.js';
 
 // Firm settings (Settings > Profile, Branding, Client portal, Legal) and the first-time setup
@@ -87,6 +89,20 @@ export const FirmSettings = z.object({
   welcomeMessage: z.string().nullable(),
   /** Clients may sign up on the portal (the firm approves each one). */
   clientSignUpEnabled: z.boolean(),
+  /**
+   * Business details (setup Step 2 and Settings > Profile), as on the firm's application:
+   * approval copies them here, except the EIN, which the owner enters again. Null or empty until
+   * set.
+   */
+  entityType: EntityType.nullable(),
+  /** The only part of the EIN that ever comes back; the EIN is stored encrypted. */
+  einLast4: z.string().nullable(),
+  /** People at the firm, 1 to 10,000. */
+  teamSize: z.number().int().nullable(),
+  /** Codes from FIRM_SERVICES; screens show their labels. */
+  services: z.array(FirmService),
+  /** What the firm does, in a few lines. Plain text, never HTML or Markdown. */
+  description: z.string().nullable(),
   /** The latest change to any of these settings. */
   updatedAt: z.iso.datetime({ offset: true }),
 });
@@ -94,7 +110,8 @@ export type FirmSettings = z.infer<typeof FirmSettings>;
 
 /**
  * PATCH /business/settings: only the fields sent change. Identity fields (business id, slug,
- * legal name, status) and unknown fields are refused.
+ * legal name, status) and unknown fields are refused. The business details follow the
+ * application's rules (R4's lists and EIN rule).
  */
 export const UpdateFirmSettingsRequest = z
   .strictObject({
@@ -143,6 +160,24 @@ export const UpdateFirmSettingsRequest = z
     portalHeader: clearable(upTo(200)),
     welcomeMessage: clearable(upTo(2000, 'many')),
     clientSignUpEnabled: z.boolean(),
+    entityType: EntityType,
+    /**
+     * Write-only: 9 digits (dashes and spaces are dropped), stored encrypted under the firm's
+     * key; only `einLast4` comes back. Null or '' removes it.
+     */
+    ein: clearable(Ein),
+    teamSize: z
+      .number('Enter the team size')
+      .int('Enter a whole number')
+      .min(1, 'Enter at least 1')
+      .max(10_000, 'Enter at most 10,000'),
+    /** At least one; repeats are dropped. */
+    services: z
+      .array(FirmService)
+      .min(1, 'Choose at least one service')
+      .max(20)
+      .transform((list) => [...new Set(list)]),
+    description: clearable(text(2000, 'many')),
   })
   .partial()
   .refine(
@@ -189,5 +224,10 @@ export type PublishLegalDocumentRequest = z.input<typeof PublishLegalDocumentReq
 export const SettingsErrorCode = z.enum([
   /** 409: finishing needs every wizard step done first; the message names the missing ones. */
   'SETUP_INCOMPLETE',
+  /**
+   * 503: the EIN can't be saved right now (the firm's encryption key isn't ready, or the key
+   * service is down). Nothing in that change is saved; the rest of the wizard works without it.
+   */
+  'ENCRYPTION_UNAVAILABLE',
 ]);
 export type SettingsErrorCode = z.infer<typeof SettingsErrorCode>;

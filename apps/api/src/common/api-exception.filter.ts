@@ -20,6 +20,13 @@ const CODES: Partial<Record<number, string>> = {
   429: 'RATE_LIMITED',
 };
 
+/**
+ * Prisma's "timed out waiting for a pooled connection" (P2024) and "unable to start a transaction
+ * in time" (P2028): the database is busy, not broken. 503 with Retry-After (#70 re-review).
+ */
+const BUSY_CODES = new Set(['P2024', 'P2028']);
+const RETRY_AFTER_SECONDS = 5;
+
 /** Every error leaves the API as { error: { code, message, requestId, details? } }. */
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -46,7 +53,50 @@ export class ApiExceptionFilter implements ExceptionFilter {
         requestId,
       };
       if (fields['details'] !== undefined) error.details = fields['details'];
+      // A route that knows how long to wait says so: `retryAfter` seconds, sent as Retry-After.
+      const retryAfter = fields['retryAfter'];
+      if (typeof retryAfter === 'number' && Number.isInteger(retryAfter) && retryAfter > 0) {
+        res.setHeader('Retry-After', String(Math.min(retryAfter, 3_600)));
+      }
       res.status(status).json({ error });
+      return;
+    }
+
+    // Express's body parser refuses a body before any route runs: too large (413) or not valid
+    // JSON (400). Its errors are not HttpExceptions but say their status and that it is safe to
+    // show (`expose`); without this they were 500 (#109 review).
+    const parser = exception as {
+      status?: unknown;
+      statusCode?: unknown;
+      expose?: unknown;
+      type?: unknown;
+    } | null;
+    const parserStatus = Number(parser?.status ?? parser?.statusCode);
+    if (parser?.expose === true && parserStatus >= 400 && parserStatus < 500) {
+      const tooLarge = parser.type === 'entity.too.large' || parserStatus === 413;
+      res.status(tooLarge ? HttpStatus.PAYLOAD_TOO_LARGE : parserStatus).json({
+        error: tooLarge
+          ? { code: 'PAYLOAD_TOO_LARGE', message: 'The request is too large', requestId }
+          : {
+              code: CODES[parserStatus] ?? `HTTP_${parserStatus}`,
+              message: 'The request body could not be read',
+              requestId,
+            },
+      });
+      return;
+    }
+
+    const prismaCode = (exception as { code?: unknown } | null)?.code;
+    if (typeof prismaCode === 'string' && BUSY_CODES.has(prismaCode)) {
+      this.logger.warn(`Database busy (${prismaCode}); answered 503`);
+      res.setHeader('Retry-After', String(RETRY_AFTER_SECONDS));
+      res.status(HttpStatus.SERVICE_UNAVAILABLE).json({
+        error: {
+          code: 'SERVICE_BUSY',
+          message: 'The service is busy. Please try again in a moment.',
+          requestId,
+        },
+      });
       return;
     }
 

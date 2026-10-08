@@ -18,6 +18,15 @@ Rules:
 2. My page file already exists as a placeholder: replace the placeholder, keep the layout.
    Never create, move or rename a route, layout or page folder; if a page is missing, STOP and tell me.
    Copy the patterns of the reference screen apps/web/src/app/firm/(workspace)/settings/tax-statuses/.
+   page.tsx stays a small server file with its metadata title line (the tests check each page by
+   its tab title): no 'use client', redirect() or notFound() in page.tsx; no title or title template
+   in any layout except the root layout's default.
+   A page opened straight from its URL (verify-email, verify-phone, sign-up/done, apply/done,
+   begin/done, begin/resume, reset-password, activate) never navigates away by itself.
+   Keep what the tests read: nav "Main" and AppShell; data-testid firm-name; the header's me-email,
+   the user-menu button with the role and its "Sign out"; the portal greeting "Welcome back, <first name>!";
+   the "Intake Form" tab; quick sign-in buttons with the email; the sign-in headings
+   "Super Admin console", "Firm workspace", "Client portal: <slug>".
 3. Get data only through api.<module>.<function>() with useApiQuery / useApiMutation.
    No fetch, no axios, no server actions, no route handlers, no new API routes.
 4. If the data I need is not in the api functions listed in my ticket, STOP and tell me.

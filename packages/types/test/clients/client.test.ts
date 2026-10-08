@@ -110,6 +110,9 @@ describe('api.clients', () => {
       () => api.update(id, {}),
       () => api.updateProfile(id, { ssn: '900-00-001' }),
       () => api.updateProfile(id, { dateOfBirth: '2999-01-01' }),
+      () => api.updateProfile(id, { dateOfBirth: '1899-12-31' }),
+      () => api.updateProfile(id, {}),
+      () => api.updateProfile(id, { firstName: undefined }),
       () => api.updateProfile(id, { additionalInfo: 'bell \u0007' }),
       // Format characters and separators that disguise text (right-to-left override, zero width).
       () => api.create({ displayName: 'Evil\u202Egnp.exe' }),
@@ -121,6 +124,11 @@ describe('api.clients', () => {
       await expect(call()).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });
     }
     expect(calls).toEqual([]);
+  });
+
+  it('a new client may send an empty profile; a profile update must change something', () => {
+    expect(CreateClientRequest.parse({ displayName: 'New', profile: {} }).profile).toEqual({});
+    expect(UpdateClientProfileRequest.safeParse({}).success).toBe(false);
   });
 
   it('takes a tax year as a number or exactly four digits, 2000 to 2100', () => {
@@ -167,6 +175,8 @@ describe('api.clients', () => {
       'a\uD800b',
       'a\uDC00b',
     );
+    // Fillers that show as blank space (Hangul and Braille), so a name can't look empty.
+    hidden.push(...[...'\u115F\u1160\u2800\u3164\uFFA0'].map((c) => `a${c}b`));
     for (const bad of ['Evil\u202Egnp.exe', 'Zero\u200Bwidth', 'hidden\u2066text', ...hidden]) {
       expect([bad, oneLine(bad), lines(bad)]).toEqual([bad, false, false]);
     }
@@ -174,12 +184,14 @@ describe('api.clients', () => {
     expect(oneLine('Line\u2028separator')).toBe(false);
     expect(lines('Line\u2028separator')).toBe(true);
     // Kept: a family emoji (three people joined by ZWJ), a Persian surname with a ZWNJ, a soft
-    // hyphen, and a right-to-left mark after a Hebrew name.
+    // hyphen, a right-to-left mark after a Hebrew name, and a heart with the emoji variation
+    // selector.
     for (const good of [
       '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}',
       '\u0639\u0644\u06CC\u200C\u0632\u0627\u062F\u0647',
       'Hyphen\u00ADated',
       '\u05E9\u05E8\u05D4\u200F (Sarah)',
+      '\u2764\uFE0F',
     ]) {
       expect([good, oneLine(good), lines(good)]).toEqual([good, true, true]);
     }

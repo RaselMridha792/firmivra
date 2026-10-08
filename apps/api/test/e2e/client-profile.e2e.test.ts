@@ -10,9 +10,14 @@ import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import { ClientProfile as ProfileShape, MyProfile as MineShape } from '@firmivra/types';
+import {
+  ClientProfile as ProfileShape,
+  createMyProfileClient,
+  createRequest,
+  MyProfile as MineShape,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -41,11 +46,22 @@ const people = {
   staffA2: person('staff-a2'),
   primary: person('primary'),
   spouse: person('spouse'),
+  authorized: person('authorized'),
   other: person('other'),
   archivedLogin: person('archived'),
+  third: person('third'),
+  staffGone: person('staff-gone'),
   ownerB: person('owner-b'),
 };
-const ids = { firmA: '', firmB: '', slugA: `r10p-a-${run}`, one: '', two: '', old: '' };
+const ids = {
+  firmA: '',
+  firmB: '',
+  slugA: `r10p-a-${run}`,
+  one: '',
+  two: '',
+  three: '',
+  old: '',
+};
 
 let app: INestApplication;
 let kmsApp: INestApplication | undefined;
@@ -79,7 +95,7 @@ async function firm(
 }
 
 async function portal(
-  method: 'get' | 'put' | 'post',
+  method: 'get' | 'put' | 'patch' | 'post',
   path: string,
   who: { email: string },
   body?: object,
@@ -96,7 +112,7 @@ const ok = (res: Response, status = 200) => {
   return res;
 };
 const inFirm = async <T>(businessId: string, fn: Parameters<typeof runInScope<T>>[2]) => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     return await runInScope(owner, { kind: 'business', businessId }, fn);
   } finally {
@@ -122,10 +138,12 @@ async function buildApp(): Promise<INestApplication> {
 }
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
-      const pool = ['primary', 'spouse', 'other', 'archivedLogin'].includes(key)
+      const pool = ['primary', 'spouse', 'authorized', 'other', 'archivedLogin', 'third'].includes(
+        key,
+      )
         ? 'CLIENT'
         : 'STAFF';
       await tx.user.create({
@@ -148,6 +166,9 @@ beforeAll(async () => {
     ] as const) {
       await tx.membership.create({ data: { ...A, userId, role, status: 'ACTIVE' } });
     }
+    await tx.membership.create({
+      data: { ...A, userId: people.staffGone.id, role: 'STAFF', status: 'DEACTIVATED' },
+    });
     const client = async (displayName: string, extra: object = {}) => {
       const row = await tx.client.create({ data: { ...A, displayName, ...extra } });
       await tx.clientProfile.create({ data: { ...A, clientId: row.id } });
@@ -155,12 +176,15 @@ beforeAll(async () => {
     };
     ids.one = await client('One', { assignedUserId: people.staffA.id, phone: '+15555550101' });
     ids.two = await client('Two');
+    ids.three = await client('Three', { assignedUserId: people.staffGone.id });
     ids.old = await client('Old', { archivedAt: new Date() });
     for (const [p, clientId, portalRole] of [
       [people.primary, ids.one, 'PRIMARY'],
       [people.spouse, ids.one, 'SPOUSE'],
+      [people.authorized, ids.one, 'AUTHORIZED'],
       [people.other, ids.two, 'PRIMARY'],
       [people.archivedLogin, ids.old, 'PRIMARY'],
+      [people.third, ids.three, 'PRIMARY'],
     ] as const) {
       await tx.clientAccount.create({
         data: { ...A, userId: p.id, clientId, email: p.email, portalRole, status: 'ACTIVE' },
@@ -276,6 +300,12 @@ describe('firm: the profile with SSN, EIN and date of birth', () => {
         400,
         'VALIDATION_FAILED',
       ],
+      [
+        await firm('put', `/${ids.one}/profile`, people.ownerA, { dateOfBirth: '1899-12-31' }),
+        400,
+        'VALIDATION_FAILED',
+      ],
+      [await firm('put', `/${ids.one}/profile`, people.ownerA, {}), 400, 'VALIDATION_FAILED'],
       [await firm('put', `/${ids.one}/profile`, people.primary, { ssn: SSN }), 403, 'FORBIDDEN'],
     ];
     for (const [res, status, code] of cases)
@@ -326,7 +356,7 @@ describe('portal: My Profile', () => {
 
   it('the primary login edits phone, address and additional information; nobody else changes it', async () => {
     const res = ok(
-      await portal('put', '', people.primary, {
+      await portal('patch', '', people.primary, {
         phone: '+15555550199',
         address: {
           line1: '1 Sample St',
@@ -345,14 +375,58 @@ describe('portal: My Profile', () => {
       referralSource: 'A friend',
       dateOfBirth: DOB,
     });
-    const spouse = await portal('put', '', people.spouse, { referralSource: 'x' });
+    const spouse = await portal('patch', '', people.spouse, { referralSource: 'x' });
     expect([spouse.status, codeOf(spouse)]).toEqual([403, 'FORBIDDEN']);
-    const old = await portal('put', '', people.archivedLogin, { referralSource: 'x' });
+    const old = await portal('patch', '', people.archivedLogin, { referralSource: 'x' });
     expect([old.status, codeOf(old)]).toEqual([409, 'CLIENT_ARCHIVED']);
     for (const body of [{ firstName: 'New' }, { dateOfBirth: DOB }, { ssn: SSN }, {}]) {
-      const bad = await portal('put', '', people.primary, body);
+      const bad = await portal('patch', '', people.primary, body);
       expect([bad.status, codeOf(bad)]).toEqual([400, 'VALIDATION_FAILED']);
     }
+  });
+
+  it('an AUTHORIZED login sees the name only (q21) and changes nothing', async () => {
+    const seen = Mine.parse(ok(await portal('get', '', people.authorized)).body);
+    expect(seen).toEqual({
+      portalRole: 'AUTHORIZED',
+      fullName: 'Fake Person',
+      dateOfBirth: null,
+      email: people.authorized.email,
+      phone: null,
+      address: {
+        line1: null,
+        line2: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        country: 'US',
+      },
+      preferredContactMethod: null,
+      referralSource: null,
+      additionalInfo: null,
+    });
+    const change = await portal('patch', '', people.authorized, { referralSource: 'x' });
+    expect([change.status, codeOf(change)]).toEqual([403, 'FORBIDDEN']);
+    // A spouse still sees the contact details (only the date of birth is the primary's).
+    const spouse = Mine.parse(ok(await portal('get', '', people.spouse)).body);
+    expect(spouse).toMatchObject({ phone: '+15555550199', referralSource: 'A friend' });
+  });
+
+  it('the contract client saves through PATCH; PUT is not a route', async () => {
+    const api = createMyProfileClient(
+      createRequest({
+        baseUrl: `${await app.getUrl()}/api/v1`,
+        token: await tokenFor(people.primary.email),
+        fetch,
+      }),
+      ids.slugA,
+    );
+    expect(await api.update({ referralSource: 'Through the contract' })).toMatchObject({
+      referralSource: 'Through the contract',
+      dateOfBirth: DOB,
+    });
+    const put = await portal('put', '', people.primary, { referralSource: 'x' });
+    expect(put.status).toBe(404);
   });
 
   it('a name change request is a task for the assigned staff member, one open at a time', async () => {
@@ -372,6 +446,15 @@ describe('portal: My Profile', () => {
     expect([again.status, codeOf(again)]).toEqual([409, 'NAME_CHANGE_PENDING']);
     const spouse = await portal('post', '/name-change', people.spouse, { newName: 'X' });
     expect([spouse.status, codeOf(spouse)]).toEqual([403, 'FORBIDDEN']);
+  });
+
+  it('with the assignee no longer an active member, the name change task has no assignee', async () => {
+    ok(await portal('post', '/name-change', people.third, { newName: 'Fake Third' }));
+    const tasks = await inFirm(ids.firmA, (tx) =>
+      tx.task.findMany({ where: { clientId: ids.three, kind: 'NAME_CHANGE' } }),
+    );
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ status: 'OPEN', assignedUserId: null });
   });
 });
 

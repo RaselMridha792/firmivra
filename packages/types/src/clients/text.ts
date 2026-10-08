@@ -8,6 +8,8 @@ import { z } from 'zod';
  * tasks and emails (a right-to-left override, a zero-width space): U+061C, U+180E, U+200B,
  * U+202A to U+202E, U+2060 to U+2064, U+2066 to U+206F, U+FEFF, U+FFF9 to U+FFFB and the tag
  * block U+E0000 to U+E007F (it can carry hidden text; it also makes the rare subdivision flags).
+ * And the fillers that look blank (U+115F, U+1160, U+2800, U+3164, U+FFA0), so a name can't look
+ * empty. Variation selectors stay: emoji need U+FE0F.
  * They also refuse lone surrogate halves, which a text column would store as U+FFFD and a JSONB
  * column refuses. Other format characters stay allowed, since real
  * names and notes need them: the zero-width non-joiner and joiner (U+200C, U+200D: Persian and
@@ -17,13 +19,13 @@ import { z } from 'zod';
 
 /** One line: none of those, no control characters, no line or paragraph separators. */
 const ONE_LINE =
-  /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}\u061C\u180E\u200B\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB\u{E0000}-\u{E007F}]*$/u;
+  /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}\u061C\u180E\u200B\u202A-\u202E\u2060-\u2064\u2066-\u206F\u115F\u1160\u2800\u3164\uFFA0\uFEFF\uFFF9-\uFFFB\u{E0000}-\u{E007F}]*$/u;
 /**
  * Several lines: none of those, and no control characters but tab, line feed and carriage
  * return (Postgres text cannot hold NUL); line and paragraph separators are allowed.
  */
 const MULTI_LINE =
-  /^(?:[^\p{Cc}\p{Cs}\u061C\u180E\u200B\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB\u{E0000}-\u{E007F}]|[\t\n\r])*$/u;
+  /^(?:[^\p{Cc}\p{Cs}\u061C\u180E\u200B\u202A-\u202E\u2060-\u2064\u2066-\u206F\u115F\u1160\u2800\u3164\uFFA0\uFEFF\uFFF9-\uFFFB\u{E0000}-\u{E007F}]|[\t\n\r])*$/u;
 
 /** Trimmed text of 1 to `max` characters, on one line or several. */
 export const text = (max: number, lines: 'one' | 'many' = 'one', empty = 'Enter a value') =>
@@ -33,6 +35,17 @@ export const text = (max: number, lines: 'one' | 'many' = 'one', empty = 'Enter 
     .min(1, empty)
     .max(max, `Use at most ${max} characters`)
     .regex(lines === 'one' ? ONE_LINE : MULTI_LINE, 'Remove the special characters');
+
+/**
+ * A list's search box: trimmed, at most 100 characters, empty allowed. No control characters
+ * (Postgres text cannot hold NUL, which answered 500) and no lone surrogates (half of an emoji,
+ * not text), so a pasted or crafted search is 400 with this message instead.
+ */
+export const SearchText = z
+  .string()
+  .trim()
+  .max(100, 'Use at most 100 characters')
+  .regex(/^[^\p{Cc}\p{Cs}]*$/u, 'Remove the special characters');
 
 /** An optional field: leave it out to keep it; `null` or `''` clears it. */
 export const clearable = <T>(value: z.ZodType<T, string>) =>
