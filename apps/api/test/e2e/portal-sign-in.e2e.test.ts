@@ -11,6 +11,7 @@ import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { type MeResponse, portalCookies, type SignInResult } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { AuditService } from '../../src/audit/audit.service.js';
 import {
   IDENTITY_PROVIDER,
   type IdentityProvider,
@@ -19,6 +20,7 @@ import {
   LOCAL_PASSWORD,
   LOCAL_RESET_CODE,
 } from '../../src/auth/identity/local-identity.provider.js';
+import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -404,6 +406,52 @@ describe('portal session', () => {
     } finally {
       revoke.mockRestore();
       await setFirm('ACTIVE');
+    }
+  });
+
+  it('signs out, clearing the cookies, even when the firm lookup or the audit fails (#84 review)', async () => {
+    const names = portalCookies(firmX.slug);
+    const signOutClears = async (b: ReturnType<typeof browser>) => {
+      const out = await b.post(`${firmX.slug}/auth/sign-out`, {});
+      expect([out.status, out.body]).toEqual([200, { ok: true }]);
+      expect(setCookies(out).join('\n')).toMatch(
+        new RegExp(`^${names.refresh}=; Path=${names.refreshPath}; Expires=Thu, 01 Jan 1970`, 'm'),
+      );
+      expect(b.jar[names.access]).toBeUndefined();
+    };
+
+    const lookup = vi
+      .spyOn(app.get(PortalInfoService), 'firmBySlug')
+      .mockRejectedValueOnce(new Error('The database is down for a moment'));
+    try {
+      const b = browser();
+      signedIn(await b.signIn(firmX, people.active));
+      await signOutClears(b);
+      expect(lookup).toHaveBeenCalledTimes(1);
+    } finally {
+      lookup.mockRestore();
+    }
+
+    const audit = app.get(AuditService);
+    const log = audit.log.bind(audit);
+    const failing = vi
+      .spyOn(audit, 'log')
+      .mockImplementation((...args: Parameters<AuditService['log']>) =>
+        args[0] === 'auth.signed_out'
+          ? Promise.reject(new Error('The audit insert failed'))
+          : log(...args),
+      );
+    const revoke = vi.spyOn(app.get<IdentityProvider>(IDENTITY_PROVIDER), 'revoke');
+    try {
+      const b = browser();
+      signedIn(await b.signIn(firmX, people.active));
+      await signOutClears(b);
+      expect(failing.mock.calls.some(([action]) => action === 'auth.signed_out')).toBe(true);
+      // The refresh token is revoked before the audit, so a failed audit leaves no session.
+      expect(revoke).toHaveBeenCalledTimes(1);
+    } finally {
+      failing.mockRestore();
+      revoke.mockRestore();
     }
   });
 

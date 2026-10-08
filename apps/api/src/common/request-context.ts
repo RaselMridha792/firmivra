@@ -57,6 +57,8 @@ declare global {
 export const requestContext = new AsyncLocalStorage<RequestStore>();
 
 const REQUEST_ID = /^[A-Za-z0-9._-]{1,100}$/;
+/** Audit rows keep this much of the User-Agent, anonymous sign-in attempts included (#84 review). */
+const USER_AGENT_MAX = 512;
 
 /** First middleware: gives every request an id (x-request-id) and opens its context. */
 export function requestContextMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -68,7 +70,7 @@ export function requestContextMiddleware(req: Request, res: Response, next: Next
     {
       requestId,
       ip: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get('user-agent')?.slice(0, USER_AGENT_MAX),
       acceptLanguage: req.get('accept-language'),
       path: req.path,
     },

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { Database } from '@firmivra/db';
@@ -57,6 +57,7 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
  */
 @Injectable()
 export class SessionService {
+  private readonly logger = new Logger(SessionService.name);
   private readonly secure: boolean;
 
   constructor(
@@ -130,17 +131,26 @@ export class SessionService {
     const envelope = (await this.envelope(req, place))?.value;
     clearSessionCookies(res, place.cookies, this.secure);
     if (!envelope) return;
-    await this.identity.revoke(envelope.pool, envelope.refreshToken);
-    if (everywhere) await this.identity.signOutEverywhere(envelope.pool, envelope.username);
-    await this.audit.log(
-      'auth.signed_out',
-      { type: 'user', id: envelope.userId },
-      { pool: envelope.pool, everywhere },
-      {
-        actorUserId: envelope.userId,
-        ...(envelope.businessId ? { businessId: envelope.businessId } : {}),
-      },
-    );
+    // Sign-out always succeeds (#84 review): a failed revoke or audit is logged by id, never 500.
+    try {
+      await this.identity.revoke(envelope.pool, envelope.refreshToken);
+      if (everywhere) await this.identity.signOutEverywhere(envelope.pool, envelope.username);
+    } catch {
+      this.logger.warn(`Could not revoke the session of user ${envelope.userId} at sign-out`);
+    }
+    try {
+      await this.audit.log(
+        'auth.signed_out',
+        { type: 'user', id: envelope.userId },
+        { pool: envelope.pool, everywhere },
+        {
+          actorUserId: envelope.userId,
+          ...(envelope.businessId ? { businessId: envelope.businessId } : {}),
+        },
+      );
+    } catch {
+      this.logger.warn(`Could not audit the sign-out of user ${envelope.userId}`);
+    }
   }
 
   /**

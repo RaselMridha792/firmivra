@@ -288,3 +288,23 @@ describe('client portal', () => {
     ]);
   });
 });
+
+describe('audit rows', () => {
+  it('keep at most 512 characters of the User-Agent, anonymous attempts too (#84 review)', async () => {
+    const userAgent = `r2-lim-ua-${tag} ${'x'.repeat(2000)}`;
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-in')
+      .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+      .set('user-agent', userAgent)
+      .send({ email: `r2-lim-nobody-${tag}@a.test`, password: WRONG });
+    expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+    const rows = await asOwner({ kind: 'platform' }, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: null, userAgent: { startsWith: `r2-lim-ua-${tag}` } },
+        select: { action: true, userAgent: true },
+      }),
+    );
+    expect(rows.map((r) => r.action)).toContain('auth.sign_in_attempt');
+    for (const row of rows) expect(row.userAgent).toBe(userAgent.slice(0, 512));
+  });
+});

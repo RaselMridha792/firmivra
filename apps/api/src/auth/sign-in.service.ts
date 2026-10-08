@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import type { Database, Prisma } from '@firmivra/db';
+import { type Database, Prisma } from '@firmivra/db';
 import type { IdentityPool, MfaSetupResponse, SignInResult } from '@firmivra/types';
 import { type AuditEntity, AuditService } from '../audit/audit.service.js';
 import { type AuthContext, requestContext } from '../common/request-context.js';
@@ -49,6 +49,26 @@ export const SIGN_IN_LIMIT = {
   perAttempt: 5,
   windowMs: 15 * 60_000,
 };
+/**
+ * One check's open attempts in its window, as SQL: attempt rows with that value and no "passed"
+ * row of the same token. The reserve counts every check in one statement and gets numbers back,
+ * never rows, so its transaction stays short under bursts (#84 review).
+ */
+function openAttempts(businessId: string | null, actions: Actions, check: LimitCheck) {
+  const inScope = (alias: 'a' | 'p') =>
+    businessId
+      ? Prisma.sql`${Prisma.raw(alias)}.business_id = ${businessId}::uuid`
+      : Prisma.sql`${Prisma.raw(alias)}.business_id IS NULL`;
+  const since = Prisma.sql`now() - ${check.windowMs}::int * interval '1 millisecond'`;
+  return Prisma.sql`(
+    SELECT count(*) FROM audit_logs a
+    WHERE ${inScope('a')} AND a.action = ${actions.attempt} AND a.created_at > ${since}
+      AND a.metadata ->> ${check.field} = ${check.value}
+      AND NOT EXISTS (
+        SELECT 1 FROM audit_logs p
+        WHERE ${inScope('p')} AND p.action = ${actions.passed} AND p.created_at > ${since}
+          AND p.metadata ->> 'token' = a.metadata ->> 'token'))`;
+}
 /** HKDF label for the key that turns an email into the pseudonymous key the limit counts by. */
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
 /** Staff and Super Admins always pass MFA; the pools require it, and so does the API. */
@@ -277,8 +297,9 @@ export class SignInService {
    * (recorded, with no "passed" row: failed, or still in flight) must stay under its limit; then
    * this attempt is recorded. So parallel guesses can't all pass a count taken before any of them
    * failed. A busy key is refused like the limit (never waited for: a waiting lock holds a pooled
-   * connection). Rows go where `log` writes them: the firm's log on a portal, the platform's
-   * otherwise. Returns the attempt's token; its "passed" row carries it.
+   * connection). The transaction is three short statements: the try-lock, one count for every
+   * check (`openAttempts`), the insert. Rows go where `log` writes them: the firm's log on a
+   * portal, the platform's otherwise. Returns the attempt's token; its "passed" row carries it.
    */
   private async reserve(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
@@ -296,26 +317,11 @@ export class SignInService {
       const [locked] = await tx.$queryRaw<{ ok: boolean }[]>`
         SELECT pg_try_advisory_xact_lock(hashtextextended(${lockKey}, 0)) AS ok`;
       if (locked?.ok !== true) return httpError('RATE_LIMITED');
-      const since = (ms: number) => new Date(Date.now() - ms);
-      const tokenOf = (row: { metadata: Prisma.JsonValue }) =>
-        (row.metadata as { token?: unknown } | null)?.token;
-      for (const check of checks) {
-        const tokens = async (action: string) =>
-          (
-            await tx.auditLog.findMany({
-              where: {
-                businessId,
-                action,
-                createdAt: { gt: since(check.windowMs) },
-                metadata: { path: [check.field], equals: check.value },
-              },
-              select: { metadata: true },
-            })
-          ).map(tokenOf);
-        const passed = new Set(await tokens(actions.passed));
-        const open = (await tokens(actions.attempt)).filter((t) => !passed.has(t)).length;
-        if (open >= check.limit) return check.refuse();
-      }
+      const counts = checks.map((check) => openAttempts(businessId, actions, check));
+      const [counted] = await tx.$queryRaw<{ open: number[] }[]>`
+        SELECT ARRAY[${Prisma.join(counts)}]::int[] AS open`;
+      const over = checks.find((check, i) => (counted?.open[i] ?? 0) >= check.limit);
+      if (over) return over.refuse();
       const store = requestContext.getStore();
       await tx.auditLog.create({
         data: {

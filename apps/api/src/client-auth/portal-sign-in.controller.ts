@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Module, NotFoundException, Param } from '@nestjs/common';
+import { Controller, Get, Inject, Logger, Module, NotFoundException, Param } from '@nestjs/common';
 import type { Request } from 'express';
 import type { Database } from '@firmivra/db';
 import { FirmSlug, type MeResponse, portalCookies } from '@firmivra/types';
@@ -24,6 +24,8 @@ const slugOf = (req: Request): string => String(req.params['firmSlug'] ?? '');
  */
 @Controller('portal/:firmSlug/auth')
 export class PortalSignInController extends SignInRoutes {
+  private readonly logger = new Logger(PortalSignInController.name);
+
   constructor(
     signIns: SignInService,
     sessions: SessionService,
@@ -39,15 +41,26 @@ export class PortalSignInController extends SignInRoutes {
 
   /**
    * Sign-out works on a firm whose portal is closed too (#62 follow-up): the firm is found by its
-   * slug whatever its status, so the refresh token is revoked as well as the cookies cleared. A
-   * slug that can't be a firm's address is 404 before any cookie name is built from it.
+   * slug whatever its status, so the refresh token is revoked as well as the cookies cleared. If
+   * that lookup fails, the cookies are still cleared (#84 review). A slug that can't be a firm's
+   * address is 404 before any cookie name is built from it.
    */
   protected override async signOutPlace(req: Request): Promise<SignInPlace> {
     const slug = FirmSlug.safeParse(slugOf(req));
     if (!slug.success) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
-    const firm = await this.portal.firmBySlug(slug.data);
-    if (firm) return portalPlace(firm);
-    return { pool: 'CLIENT', cookies: portalCookies(slug.data), issuer: '' };
+    const cookiesOnly: SignInPlace = {
+      pool: 'CLIENT',
+      cookies: portalCookies(slug.data),
+      issuer: '',
+    };
+    try {
+      const firm = await this.portal.firmBySlug(slug.data);
+      return firm ? portalPlace(firm) : cookiesOnly;
+    } catch {
+      // Sign-out always succeeds (#84 review): the cookies are cleared even if the lookup fails.
+      this.logger.warn('Portal sign-out could not look up the firm; cookies cleared only');
+      return cookiesOnly;
+    }
   }
 }
 
