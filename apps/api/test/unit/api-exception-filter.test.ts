@@ -1,5 +1,5 @@
 // Unit test: the API's error filter answers a busy database with 503 and Retry-After (#70 re-review).
-import { Logger } from '@nestjs/common';
+import { HttpException, Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
 
@@ -30,6 +30,33 @@ describe('ApiExceptionFilter', () => {
       expect([code, res.statusCode, res.headers['Retry-After']]).toEqual([code, 503, '5']);
       expect(res.body).toMatchObject({ error: { code: 'SERVICE_BUSY' } });
     }
+  });
+
+  it("sends a route's retryAfter as Retry-After, never in the body (#102 review)", () => {
+    const { res, host: h } = host();
+    const busy = new HttpException(
+      { code: 'RATE_LIMITED', message: 'This calendar is busy', retryAfter: 2 },
+      429,
+    );
+    new ApiExceptionFilter().catch(busy, h);
+    expect([res.statusCode, res.headers['Retry-After']]).toEqual([429, '2']);
+    expect(res.body).toEqual({
+      error: { code: 'RATE_LIMITED', message: 'This calendar is busy', requestId: undefined },
+    });
+    // At most an hour.
+    const long = host();
+    new ApiExceptionFilter().catch(
+      new HttpException({ code: 'RATE_LIMITED', message: 'x', retryAfter: 7_200 }, 429),
+      long.host,
+    );
+    expect(long.res.headers['Retry-After']).toBe('3600');
+    // Without one, no header.
+    const plain = host();
+    new ApiExceptionFilter().catch(
+      new HttpException({ code: 'RATE_LIMITED', message: 'x' }, 429),
+      plain.host,
+    );
+    expect(plain.res.headers['Retry-After']).toBeUndefined();
   });
 
   it("keeps the body parser's refusals: 413 for a body too large, 400 for one not JSON (#109 review)", () => {

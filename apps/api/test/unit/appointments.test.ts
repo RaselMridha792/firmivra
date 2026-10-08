@@ -1,7 +1,6 @@
 // Unit tests for R12 step 2's pure pieces: the firm's time zone, free slots on the 15-minute
-// grid, the portal's choice of staff member, the client's change window, and the database errors
-// that mean "this time is taken". The history read back from audit rows comes with the booking
-// routes in the next PR.
+// grid, the portal's choice of staff member, the client's change window, the history read back
+// from audit rows, and the database errors that mean "this time is taken".
 import { HttpException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
@@ -12,6 +11,7 @@ import {
   freeStarts,
   gridStarts,
   HOUR,
+  MINUTE,
   offsetAt,
   pickStaff,
   timeOfDayFromDb,
@@ -46,6 +46,7 @@ import {
   isStaffConflict,
   isUniqueViolation,
 } from '../../src/appointments/errors.js';
+import { historyEvents, historyUserIds } from '../../src/appointments/history.js';
 
 const at = (iso: string) => Date.parse(iso);
 const NY = 'America/New_York';
@@ -73,6 +74,43 @@ describe('time zones', () => {
     expect(new Date(zonedInstant(NY, '2026-11-01', 90)).toISOString()).toBe(
       '2026-11-01T05:30:00.000Z',
     );
+  });
+
+  it('maps a skipped time past the gap, and a repeated one to its first occurrence (#102 review)', () => {
+    const iso = (tz: string, date: string, time: string) => {
+      const [h, m] = time.split(':').map(Number);
+      return new Date(zonedInstant(tz, date, (h ?? 0) * 60 + (m ?? 0))).toISOString();
+    };
+    // New York skips 02:00-03:00 on Mar 8: 02:30 is 03:30 EDT, never 01:30 EST.
+    expect(iso(NY, '2026-03-08', '02:30')).toBe('2026-03-08T07:30:00.000Z');
+    expect(iso(NY, '2026-03-08', '03:00')).toBe('2026-03-08T07:00:00.000Z');
+    // Berlin repeats 02:00-03:00 on Oct 25: 02:30 is its first occurrence, in summer time.
+    expect(iso('Europe/Berlin', '2026-10-25', '02:30')).toBe('2026-10-25T00:30:00.000Z');
+    // Santiago skips midnight on Sep 6: the day starts at 01:00 (-03), not the evening before.
+    expect(iso('America/Santiago', '2026-09-06', '00:00')).toBe('2026-09-06T04:00:00.000Z');
+    expect(iso('America/Santiago', '2026-09-05', '23:45')).toBe('2026-09-06T03:45:00.000Z');
+    // Around every change of 2026 in these zones (the day before, the day, the day after), each
+    // quarter-hour maps to a time that shows the asked wall clock, or, in a skipped hour, later by
+    // at most the gap.
+    const zones = [NY, 'Europe/Berlin', 'America/Santiago', 'Asia/Kolkata', 'Australia/Lord_Howe'];
+    for (const tz of zones) {
+      const noon = (d: number) => Date.UTC(2026, 0, 1, 12) + d * 24 * HOUR;
+      const changes = Array.from({ length: 365 }, (_, d) => d).filter(
+        (d) => d > 0 && offsetAt(tz, noon(d)) !== offsetAt(tz, noon(d - 1)),
+      );
+      for (const change of changes) {
+        for (const d of [change - 2, change - 1, change, change + 1]) {
+          const date = new Date(noon(d)).toISOString().slice(0, 10);
+          for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
+            const t = zonedInstant(tz, date, minutes);
+            const shown =
+              t + offsetAt(tz, t) - (Date.parse(`${date}T00:00:00Z`) + minutes * 60_000);
+            expect(shown, `${tz} ${date} ${minutes}`).toBeGreaterThanOrEqual(0);
+            expect(shown, `${tz} ${date} ${minutes}`).toBeLessThanOrEqual(HOUR);
+          }
+        }
+      }
+    }
   });
 
   it('finds the firm-local date of an instant, and walks dates and weekdays', () => {
@@ -172,6 +210,86 @@ describe("the client's change window", () => {
     for (const status of ['CANCELLED', 'COMPLETED', 'NO_SHOW']) {
       expect(changeableUntil({ status, startsAt }, 24, 0)).toBeNull();
     }
+  });
+});
+
+describe('history from audit rows', () => {
+  const placed = (start: string, staffUserId: string) => ({
+    startsAt: start,
+    endsAt: new Date(at(start) + 30 * MINUTE).toISOString(),
+    staffUserId,
+  });
+  const rows = [
+    {
+      action: 'appointment.rescheduled',
+      createdAt: new Date('2026-10-02T10:00:00Z'),
+      actorUserId: 'client-user',
+      metadata: {
+        by: 'CLIENT',
+        clientId: 'c1',
+        from: placed('2026-10-12T09:00:00.000Z', 's1'),
+        to: placed('2026-10-12T10:00:00.000Z', 's2'),
+      },
+    },
+    {
+      action: 'appointment.booked',
+      createdAt: new Date('2026-10-01T10:00:00Z'),
+      actorUserId: 'owner',
+      metadata: {
+        by: 'STAFF',
+        clientId: 'c1',
+        from: null,
+        to: placed('2026-10-12T09:00:00.000Z', 's1'),
+      },
+    },
+    {
+      action: 'appointment.cancelled',
+      createdAt: new Date('2026-10-03T10:00:00Z'),
+      actorUserId: 'gone',
+      metadata: {
+        by: 'STAFF',
+        clientId: 'c1',
+        from: placed('2026-10-12T10:00:00.000Z', 's2'),
+        to: null,
+        reasonGiven: true,
+      },
+    },
+    { action: 'appointment.viewed', createdAt: new Date(), actorUserId: 'owner', metadata: null },
+    {
+      action: 'appointment.completed',
+      createdAt: new Date(),
+      actorUserId: 'owner',
+      metadata: { not: 'a history entry' },
+    },
+  ];
+  const names = {
+    users: new Map([
+      ['owner', 'Olive Owner'],
+      ['client-user', 'Jamie Sample'],
+    ]),
+    members: new Map([['s1', 'Sam Staff']]),
+    clientName: 'Jamie Sample (record)',
+  };
+
+  it('lists the changes oldest first, with names and the reason only on the cancel', () => {
+    const events = historyEvents(rows, names, 'Client asked');
+    expect(events.map((e) => [e.action, e.by.kind, e.by.name, e.reason])).toEqual([
+      ['BOOKED', 'STAFF', 'Olive Owner', null],
+      ['RESCHEDULED', 'CLIENT', 'Jamie Sample', null],
+      ['CANCELLED', 'STAFF', 'Former member', 'Client asked'],
+    ]);
+    expect(events[0]).toMatchObject({
+      from: null,
+      to: { startsAt: '2026-10-12T09:00:00.000Z', staff: { userId: 's1', name: 'Sam Staff' } },
+    });
+    expect(events[1]?.to?.staff).toEqual({ userId: 's2', name: 'Former member' });
+    expect(events[2]?.to).toBeNull();
+  });
+
+  it('asks for the names of the actors and of the staff before and after', () => {
+    const ids = historyUserIds(rows);
+    expect(ids.actors.sort()).toEqual(['client-user', 'gone', 'owner']);
+    expect(ids.staff.sort()).toEqual(['s1', 's2']);
   });
 });
 
@@ -351,16 +469,32 @@ describe('a busy calendar lock', () => {
       (e: unknown) => (e instanceof HttpException ? e.getStatus() : 'other error'),
     );
 
-  it('answers 429 RATE_LIMITED when it stays busy, or at once when the pool is busy', async () => {
+  it('answers 429 RATE_LIMITED, with its own message and Retry-After 2, when it stays busy', async () => {
     const started = Date.now();
-    expect(await statusOf(retryWhenBusy(() => Promise.reject(new LockBusy()), 150))).toBe(429);
+    const busy = await retryWhenBusy(() => Promise.reject(new LockBusy()), 150).catch(
+      (e: unknown) => e,
+    );
     expect(Date.now() - started).toBeGreaterThanOrEqual(150);
-    let calls = 0;
-    const pool = retryWhenBusy(() => {
-      calls += 1;
-      return Promise.reject(Object.assign(new Error('pool'), { code: 'P2028' }));
+    expect(busy).toBeInstanceOf(HttpException);
+    expect((busy as HttpException).getStatus()).toBe(429);
+    expect((busy as HttpException).getResponse()).toMatchObject({
+      code: 'RATE_LIMITED',
+      message: expect.stringContaining('calendar is busy') as unknown,
+      retryAfter: 2,
     });
-    expect([await statusOf(pool), calls]).toEqual([429, 1]);
+  });
+
+  it("leaves a busy pool to the global filter's 503, at once (#102 review)", async () => {
+    let calls = 0;
+    const pool = Object.assign(new Error('pool'), { code: 'P2028' });
+    await expect(
+      retryWhenBusy(() => {
+        calls += 1;
+        return Promise.reject(pool);
+      }),
+    ).rejects.toBe(pool);
+    expect(calls).toBe(1);
+    expect(await statusOf(Promise.reject(pool))).toBe('other error');
   });
 
   it('runs a transaction the database aborted as a deadlock again', async () => {
