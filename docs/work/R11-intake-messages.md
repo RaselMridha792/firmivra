@@ -1,6 +1,6 @@
 # R11: Intake, Begin Online, leads and messages API (Oct 9-12)
 
-**Goal:** A visitor submits a Begin Online form, the firm reviews the lead and converts it to a client; clients fill intake forms in the portal; the firm and the client exchange messages, and each keeps private notes. Former developer tickets I06, I07 and I09 (Ibrahim), moved here on Oct 6.
+**Goal:** A visitor submits a Begin Online form, the firm reviews the lead and converts it to a client; clients fill intake forms in the portal; the firm and the client exchange messages, and each keeps private notes. Former developer tickets I06, I07 and I09 (Arfan), moved here on Oct 6.
 
 **Owned paths (change only these):**
 - `apps/api/src/intake/**`, `apps/api/src/begin-online/**`, `apps/api/src/leads/**`, `apps/api/src/messages/**` (map them to the real layout once)
@@ -14,7 +14,7 @@
 
 ## Steps
 
-- [ ] 1. Contract first, by Oct 9: schemas, client functions and mock fixtures for Begin Online, intake, leads and messages (Ibrahim N07c and F08, Nahid N06 and N09, Fahad F10)
+- [ ] 1. Contract first, by Oct 9: schemas, client functions and mock fixtures for Begin Online, intake, leads and messages (Arfan N07c and F08, Nahid N06 and N09, Fahad F10)
 - [ ] 2. Intake form definitions per firm and service (six Begin Online services plus the portal intake), versioned
 - [ ] 3. Begin Online public endpoints on the portal site: start a draft, save a step, email a resume link through R6's NotifyService, logged until R6 merges (token in the URL fragment, only its hash stored, expires), uploads for a draft (with R5's storage), submit; rate limited; no account is created; a submission creates a pending lead and engagement
 - [ ] 4. Leads: list, review with the intake answers, convert to client (creates the client and engagement and sends a portal invite through R3), decline with a reason
@@ -24,7 +24,7 @@
 
 ## Done when
 
-Ibrahim's Begin Online and leads screens and Nahid's intake and messages tabs work on dev.
+Arfan's Begin Online and leads screens and Nahid's intake and messages tabs work on dev.
 
 ## Rules
 

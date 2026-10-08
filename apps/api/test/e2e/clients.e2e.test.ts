@@ -2,14 +2,14 @@
 // Admin reach every client, Staff only their own; archive and restore are Owner and Admin. One
 // email per firm, archived clients included. SSN, EIN and date of birth answer 501 until step 4.
 // Every read and change is audited without values, and one firm never sees another's clients.
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import { ClientListItem as ListShape, ClientRecord as RecordShape } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
@@ -39,6 +39,10 @@ const people = {
 const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
 
 let app: INestApplication;
+const savedKms = {
+  KMS_MODE: process.env['KMS_MODE'],
+  LOCAL_KMS_KEY: process.env['LOCAL_KMS_KEY'],
+};
 const tokens = new Map<string, string>();
 
 async function tokenFor(email: string): Promise<string> {
@@ -79,9 +83,17 @@ const list = async (query: string, who = people.ownerA) => {
   return ListResponse.parse(res.body);
 };
 const email = (key: string) => `${key}-${run}@client.test`;
+const inFirmA = async <T>(fn: (tx: TxClient) => Promise<T>): Promise<T> => {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+  try {
+    return await runInScope(owner, { kind: 'business', businessId: firms.a.id }, fn);
+  } finally {
+    await owner.$disconnect();
+  }
+};
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
       const pool = key === 'clientA' ? 'CLIENT' : 'STAFF';
@@ -121,6 +133,9 @@ beforeAll(async () => {
   );
   await owner.$disconnect();
 
+  // The field-encryption helper in local mode with this file's own key (CI has no .env).
+  process.env['KMS_MODE'] = 'local';
+  process.env['LOCAL_KMS_KEY'] = randomBytes(32).toString('base64');
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',
@@ -139,6 +154,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  for (const [k, v] of Object.entries(savedKms)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
 });
 
 describe('who reaches which client', () => {
@@ -232,6 +251,16 @@ describe('list: search, filters and paging', () => {
     expect((await list('?status=all&search=4045559999')).items).toHaveLength(1);
   });
 
+  it('a search with a NUL or another control character is 400, never 500', async () => {
+    for (const term of ['%00', `Fake%00${run}`, '%1B%5B31m', '%C2%85']) {
+      const res = await call('get', `?search=${term}`, people.ownerA);
+      expect([res.status, codeOf(res)], term).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    // A query string can't carry a lone surrogate: the URL decoder turns the bytes of one into
+    // U+FFFD, plain text. (A JSON body can; the shared rule refuses it, packages/types tests.)
+    expect((await list('?search=%ED%A0%80')).items).toEqual([]);
+  });
+
   it('pages newest first with an opaque cursor; a bad cursor is 400', async () => {
     const made = [];
     for (let i = 0; i < 5; i++) made.push(await create({ displayName: `Pager-${run} ${i}` }));
@@ -265,7 +294,7 @@ describe('list: search, filters and paging', () => {
 });
 
 describe('create and update', () => {
-  it('creates the client and its profile, without SSN, EIN or date of birth (501)', async () => {
+  it('creates the client and its profile; SSN, EIN and date of birth come back as last 4 and in full', async () => {
     const c = await create({
       displayName: 'Profile Client (fake)',
       accountType: 'BUSINESS',
@@ -284,21 +313,17 @@ describe('create and update', () => {
       einLast4: null,
       dateOfBirth: null,
     });
-    for (const profile of [
-      { ssn: '900-00-0001' },
-      { ein: '90-0000001' },
-      { dateOfBirth: '1985-04-12' },
-    ]) {
-      const res = await call('post', '', people.ownerA, 'a', {
-        displayName: `Sensitive ${run}`,
-        email: email(`sensitive-${Object.keys(profile)[0]}`),
-        profile,
-      });
-      expect([res.status, codeOf(res)]).toEqual([501, 'NOT_IMPLEMENTED']);
-    }
-    expect(
-      (await list(`?status=all&search=${encodeURIComponent(`Sensitive ${run}`)}`)).items,
-    ).toEqual([]);
+    // Stored only through the field-encryption helper (R10 step 4; client-profile.e2e has more).
+    const sensitive = await create({
+      displayName: `Sensitive ${run}`,
+      email: email('sensitive'),
+      profile: { ssn: '900-00-0001', ein: '90-0000001', dateOfBirth: '1985-04-12' },
+    });
+    expect(sensitive.profile).toMatchObject({
+      ssnLast4: '0001',
+      einLast4: '0001',
+      dateOfBirth: '1985-04-12',
+    });
   });
 
   it('one email per firm, archived clients included; another firm may use it (409)', async () => {
@@ -350,6 +375,79 @@ describe('create and update', () => {
   });
 });
 
+describe('the answer after a change', () => {
+  it('a new assignee takes the open tasks the previous Staff assignee held, audited as a count', async () => {
+    const { id } = await create({
+      displayName: `Tasks move ${run}`,
+      assignedUserId: people.staffA.id,
+    });
+    const task = (status: 'OPEN' | 'DONE') => ({
+      businessId: firms.a.id,
+      clientId: id,
+      title: 'Fake task',
+      status,
+      completedAt: status === 'DONE' ? new Date() : null,
+      assignedUserId: people.staffA.id,
+    });
+    const made = await inFirmA(async (tx) => ({
+      open: await tx.task.create({ data: task('OPEN') }),
+      done: await tx.task.create({ data: task('DONE') }),
+    }));
+    const res = await call('patch', `/${id}`, people.ownerA, 'a', {
+      assignedUserId: people.staffA2.id,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const after = await inFirmA(async (tx) => ({
+      open: await tx.task.findUniqueOrThrow({ where: { id: made.open.id } }),
+      done: await tx.task.findUniqueOrThrow({ where: { id: made.done.id } }),
+      audit: await tx.auditLog.findFirstOrThrow({
+        where: { action: 'client.updated', entityId: id },
+      }),
+    }));
+    expect([after.open.assignedUserId, after.done.assignedUserId]).toEqual([
+      people.staffA2.id,
+      people.staffA.id,
+    ]);
+    expect(after.audit.metadata).toEqual({ fields: ['assignedUserId'], tasksMoved: 1 });
+  });
+
+  it('archiving an archived client changes nothing and is audited as the read it is', async () => {
+    const { id } = await create({ displayName: `Archive twice ${run}` });
+    for (let i = 0; i < 2; i++) {
+      const res = await call('post', `/${id}/archive`, people.ownerA, 'a', {});
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+    }
+    const rows = await inFirmA((tx) => tx.auditLog.findMany({ where: { entityId: id } }));
+    expect(rows.map((r) => r.action).sort()).toEqual([
+      'client.archived',
+      'client.created',
+      'client.viewed',
+    ]);
+  });
+
+  it('a saved change answers 200 when the stored date of birth cannot be read (null)', async () => {
+    const a = await create({
+      displayName: `Unreadable ${run}`,
+      profile: { dateOfBirth: '1980-01-02' },
+    });
+    const b = await create({ displayName: `Donor ${run}`, profile: { dateOfBirth: '1981-03-04' } });
+    // b's sealed date of birth copied onto a: it is bound to b's id, so it does not open for a.
+    await inFirmA(async (tx) => {
+      const { dobEnc } = await tx.clientProfile.findUniqueOrThrow({ where: { clientId: b.id } });
+      await tx.clientProfile.update({ where: { clientId: a.id }, data: { dobEnc } });
+    });
+    expect((await call('get', `/${a.id}`, people.ownerA)).status).toBe(500);
+    const res = await call('patch', `/${a.id}`, people.ownerA, 'a', {
+      displayName: `Still saved ${run}`,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(Record_.parse(res.body)).toMatchObject({
+      displayName: `Still saved ${run}`,
+      profile: { dateOfBirth: null },
+    });
+  });
+});
+
 describe('audit', () => {
   it('logs every read and change with ids and field names, never names or emails', async () => {
     const c = await create({ displayName: `Audited Person ${run}`, email: email('audited') });
@@ -358,7 +456,7 @@ describe('audit', () => {
     await call('post', `/${c.id}/archive`, people.ownerA, 'a', {});
     await list('?status=all');
 
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const rows = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
       tx.auditLog.findMany({
         where: { businessId: firms.a.id, OR: [{ entityId: c.id }, { action: 'clients.listed' }] },
@@ -393,7 +491,7 @@ async function whileChanging(
   change: (tx: TxClient) => Promise<unknown>,
   send: () => Promise<Response>,
 ): Promise<Response> {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   let letGo!: () => void;
   const released = new Promise<void>((resolve) => (letGo = resolve));
   let held!: (pid: number) => void;
@@ -457,17 +555,18 @@ describe('changes at the same time', () => {
       () => call('post', `/${id}/archive`, people.ownerA, 'a', {}),
     );
     expect(res.status).toBe(200);
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const rows = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
-      tx.auditLog.count({ where: { action: 'client.archived', entityId: id } }),
+      tx.auditLog.findMany({ where: { entityId: id, action: { not: 'client.created' } } }),
     );
     await owner.$disconnect();
-    expect(rows).toBe(0);
+    // It found the client archived: nothing changed, audited as the read it was.
+    expect(rows.map((r) => r.action)).toEqual(['client.viewed']);
   });
 
   it('an update does not wait for a row being added under the client (FOR KEY SHARE)', async () => {
     const { id } = await create({ displayName: `Race key share ${run}` });
-    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     let letGo!: () => void;
     const released = new Promise<void>((resolve) => (letGo = resolve));
     let held!: () => void;

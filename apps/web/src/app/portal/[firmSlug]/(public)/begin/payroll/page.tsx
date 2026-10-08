@@ -8,7 +8,7 @@ export default function PayrollPage() {
     <PagePlaceholder
       title="Payroll"
       ticket="N07b"
-      owner="Ibrahim"
+      owner="Arfan"
       mockup="begin-online/Payroll*.png (3 files)"
     />
   );

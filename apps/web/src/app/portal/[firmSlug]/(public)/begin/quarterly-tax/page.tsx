@@ -8,7 +8,7 @@ export default function QuarterlyTaxPage() {
     <PagePlaceholder
       title="Quarterly tax"
       ticket="N07b"
-      owner="Ibrahim"
+      owner="Arfan"
       mockup="begin-online/business Information.png, Taxes & Income.png, Business Expenses.png, Review & Submit.png"
     />
   );

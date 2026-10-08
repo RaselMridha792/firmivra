@@ -14,7 +14,7 @@ const menu: [label: string, href: string][] = [
   ['Tax statuses', '/settings/tax-statuses'],
 ];
 
-/** Settings: its own menu next to the page. `/settings` opens Profile (settings/page.tsx). */
+/** Settings: its own menu next to the page. `/settings` opens Profile (settings/route.ts). */
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   return (

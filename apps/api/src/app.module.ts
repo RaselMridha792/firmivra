@@ -30,6 +30,7 @@ import { AppointmentsModule } from './appointments/appointments.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
 import { ContentModule } from './content/content.controller.js';
+import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
@@ -77,6 +78,7 @@ export class AppModule {
         TaxStatusesModule,
         ClientsModule,
         SettingsModule,
+        TeamModule,
         CalculatorsModule,
         ContentModule,
         AppointmentsModule,

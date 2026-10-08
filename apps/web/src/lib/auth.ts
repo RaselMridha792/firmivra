@@ -6,6 +6,7 @@ import {
   type IdentityPool,
   type PortalAuthClient,
 } from '@firmivra/types';
+import { createAdminAuthMock } from '../mocks/admin-auth';
 import { createPortalAuthMock, type PortalAuthMockOptions } from '../mocks/client-auth';
 import { sharedTeamMock } from '../mocks/team';
 import { api } from './api';
@@ -28,8 +29,16 @@ export const staffAuth =
     ? { ...staffAuthApi, createInvite: sharedTeamMock(MOCK_ROLE).createInvite }
     : staffAuthApi;
 
-/** Super Admin site: sign-in, MFA, forgot and reset password (/api/v1/admin/auth). */
-export const adminAuth = createAdminAuthClient({ baseUrl: '/api/v1' });
+const adminAuthApi = createAdminAuthClient({ baseUrl: '/api/v1' });
+
+/**
+ * Super Admin site: sign-in, MFA, forgot and reset password (/api/v1/admin/auth). With the
+ * `adminAuth` mock on, the console starts signed in as a mock Super Admin (mocks/admin-auth.ts).
+ */
+export const adminAuth =
+  process.env.NODE_ENV !== 'production' && mocked('adminAuth')
+    ? createAdminAuthMock(adminAuthApi)
+    : adminAuthApi;
 
 /**
  * Client portal of one firm: info, legal, sign-up and verification, sign-in, session and /me
@@ -41,8 +50,11 @@ export const portalAuth = (firmSlug: string): PortalAuthClient =>
     ? portalAuthMock(firmSlug)
     : createPortalAuthClient(createRequest({ baseUrl: '/api/v1' }), firmSlug);
 
-/** Mock mode: one mock per firm, so a sign-up or a sign-in lasts while the visitor moves around. */
-const portalMocks = new Map<string, PortalAuthClient>();
+/**
+ * Mock mode: one mock per firm, so a sign-up or a sign-in lasts while the visitor moves around.
+ * Created on first use, so nothing of the mocks runs when this file loads.
+ */
+let portalMocks: Map<string, PortalAuthClient> | undefined;
 const CLIENT_SESSIONS = ['ACTIVE', 'PENDING_APPROVAL', 'SIGNED_OUT'] as const;
 const clientSession = process.env.NEXT_PUBLIC_API_MOCK_CLIENT;
 
@@ -52,12 +64,13 @@ const clientSession = process.env.NEXT_PUBLIC_API_MOCK_CLIENT;
  */
 function portalAuthMock(firmSlug: string): PortalAuthClient {
   const slug = firmSlug.toLowerCase();
-  let mock = portalMocks.get(slug);
+  const mocks = (portalMocks ??= new Map<string, PortalAuthClient>());
+  let mock = mocks.get(slug);
   if (!mock) {
     const start = CLIENT_SESSIONS.find((s) => s === clientSession) ?? 'ACTIVE';
     const signedIn: PortalAuthMockOptions['signedIn'] = start === 'SIGNED_OUT' ? undefined : start;
     mock = createPortalAuthMock(slug, { signedIn });
-    portalMocks.set(slug, mock);
+    mocks.set(slug, mock);
   }
   return mock;
 }

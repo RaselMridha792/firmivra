@@ -39,7 +39,9 @@ test('a 401 refreshes the session once, then the page carries on', async ({ page
   });
 
   await page.goto(app('/clients'));
-  await expect(page.getByTestId('page-title')).toHaveText('Clients');
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+  await expect(page).toHaveURL(app('/clients'));
+  await expect(page).toHaveTitle('Clients');
   expect(refreshes.count).toBe(1);
 });
 

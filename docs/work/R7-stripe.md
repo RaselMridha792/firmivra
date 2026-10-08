@@ -10,7 +10,7 @@
 
 **Read first (nothing else):** CLAUDE.md, docs/work/README.md, this file, and:
 - Invoice and payment tables from R0
-- Ibrahim's invoices API (I10) for invoice records
+- Arfan's invoices API (I10) for invoice records
 
 ## Steps
 
