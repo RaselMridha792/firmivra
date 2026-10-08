@@ -91,8 +91,20 @@ info:
 
     `sign-in`, `mfa`, `mfa/setup`, `forgot-password`, `reset-password`, `activation/check` and
     `activate` answer `429 RATE_LIMITED` when called too often. Limits count per viewer IP (the
-    address CloudFront saw, not the load balancer's), and from R2 step 7 also per email or
-    session. Show "Too many attempts. Wait a few minutes and try again."
+    address CloudFront saw, not the load balancer's) and per email, shared across API tasks:
+    - 10 failed sign-ins for one email in 15 minutes (wrong passwords and wrong MFA codes alike):
+      then every sign-in for it answers `429 RATE_LIMITED` until the window passes, the same for
+      an email with no account;
+    - 5 wrong MFA codes in one sign-in: then `401 CHALLENGE_EXPIRED`, sign in again (those codes
+      still count for the email, so starting again gives no fresh tries).
+
+    Each attempt is recorded before Cognito is asked and counted until it succeeds, so parallel
+    attempts never get past a limit together; one that arrives while another for the same email is
+    being counted gets the same 429. Show "Too many attempts. Wait a few minutes and try again."
+    Every sign-in, attempt and failure is audited (`auth.signed_in`, `auth.sign_in_attempt`,
+    `auth.sign_in_passed`, `auth.sign_in_failed`); the email is stored only as a keyed hash. Cognito
+    threat protection gets the viewer's IP and browser (User-Agent, Accept-Language), never
+    cookies or tokens.
 
     ## Local development
 
@@ -689,7 +701,8 @@ components:
                 Stable. Auth codes: PASSWORD_REJECTED, RESET_CODE_INVALID, INVALID_CREDENTIALS,
                 MFA_CODE_INVALID, CHALLENGE_EXPIRED, INVITE_INVALID, ALREADY_MEMBER,
                 INVITE_EXPIRED, ACCOUNT_EXISTS. Generic: VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN,
-                NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR, UNSUPPORTED_MEDIA_TYPE (415, the body
+                NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR, SERVICE_BUSY (503 with Retry-After: the
+                database is busy, try again shortly), UNSUPPORTED_MEDIA_TYPE (415, the body
                 is not JSON), ORIGIN_NOT_ALLOWED (403, sent from another site). Firm routes:
                 BUSINESS_REQUIRED (400, choose a firm with x-business-id), BUSINESS_SETUP_REQUIRED
                 (403, the firm has not finished setup), BUSINESS_INACTIVE (403, suspended or

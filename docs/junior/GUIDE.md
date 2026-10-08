@@ -20,6 +20,7 @@ CI fails a PR from your branch if it changes anything outside your files.
 
 1. Update: `git fetch origin`, then on your ticket branch `git merge origin/main`. Never rebase or force-push a branch you already pushed.
 2. Run: `docker compose up -d`, `pnpm install`, `pnpm db:migrate`, `pnpm db:seed`, `pnpm dev`.
+   - Once, after the seed-ids fix (R0, Oct 8) is on main, reset your local database: `pnpm --filter @firmivra/db exec prisma migrate reset` (or drop it, then `pnpm db:migrate` and `pnpm db:seed`). The seeded ids changed, so the old rows would collide. Only synthetic data is lost.
 3. Sign in locally with a quick sign-in button:
    - Firm workspace: http://app.localhost:3000/sign-in (`owner@lvp.test`, `staff@lvp.test`, `owner@firm-b.test`)
    - Super Admin: http://admin.localhost:3000/sign-in (`superadmin@firmivra.test`)
