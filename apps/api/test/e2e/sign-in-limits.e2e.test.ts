@@ -257,7 +257,7 @@ describe('audit', () => {
       emailKey: expect.stringMatching(/^[0-9a-f]{64}$/) as unknown,
       step: 'password',
       pool: 'STAFF',
-      token: expect.any(String) as unknown,
+      reservationId: expect.any(String) as unknown,
     });
     expect(JSON.stringify(rows)).not.toContain(staff.audited.email);
   });
@@ -347,7 +347,10 @@ describe('outcomes that say nothing about the credential (#84 follow-up)', () =>
       );
       expect(rows.map((r) => r.action)).toEqual(['auth.sign_in_attempt', 'auth.sign_in_released']);
       const [attempt, released] = rows.map((r) => r.metadata as Record<string, unknown>);
-      expect(released).toMatchObject({ token: attempt?.['token'], outcome: 'ERROR' });
+      expect(released).toMatchObject({
+        reservationId: attempt?.['reservationId'],
+        outcome: 'ERROR',
+      });
     } finally {
       signIn.mockRestore();
       SIGN_IN_LIMIT.perEmail = perEmail;
@@ -384,6 +387,43 @@ describe('outcomes that say nothing about the credential (#84 follow-up)', () =>
     } finally {
       answer.mockRestore();
       SIGN_IN_LIMIT.perAttempt = perAttempt;
+    }
+  });
+});
+
+describe('the reservation key (#84 follow-up)', () => {
+  it("still counts an open attempt written before the rename, under the old key 'token'", async () => {
+    const email = `r2-lim-oldkey-${tag}@a.test`;
+    const perEmail = SIGN_IN_LIMIT.perEmail;
+    SIGN_IN_LIMIT.perEmail = 2;
+    try {
+      // One failure now gives the email key its value as the API writes it.
+      const first = await staffSignIn(email, WRONG);
+      expect([first.status, codeOf(first)]).toEqual([401, 'INVALID_CREDENTIALS']);
+      const [row] = await asOwner({ kind: 'platform' }, (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: null, action: 'auth.sign_in_attempt' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { metadata: true },
+        }),
+      );
+      const emailKey = (row?.metadata as { emailKey?: string }).emailKey;
+      // An attempt still open from before the rename: its key is 'token'.
+      await asOwner({ kind: 'platform' }, (tx) =>
+        tx.auditLog.create({
+          data: {
+            businessId: null,
+            action: 'auth.sign_in_attempt',
+            entityType: 'login',
+            metadata: { emailKey, step: 'password', pool: 'STAFF', token: randomUUID() },
+          },
+        }),
+      );
+      const over = await staffSignIn(email, WRONG);
+      expect([over.status, codeOf(over)]).toEqual([429, 'RATE_LIMITED']);
+    } finally {
+      SIGN_IN_LIMIT.perEmail = perEmail;
     }
   });
 });
