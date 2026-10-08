@@ -16,6 +16,7 @@ export function CalendarToolbar({
   onMove,
   onToday,
   onStaff,
+  onNew,
 }: {
   view: CalendarView;
   label: string;
@@ -25,6 +26,7 @@ export function CalendarToolbar({
   onMove: (step: -1 | 1) => void;
   onToday: () => void;
   onStaff: (userId: string) => void;
+  onNew: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3 rounded-card border border-border bg-surface p-4">
@@ -64,6 +66,7 @@ export function CalendarToolbar({
             ...members.map(({ member }) => ({ value: member.userId, label: member.name })),
           ]}
         />
+        <Button onClick={onNew}>New appointment</Button>
       </div>
     </div>
   );
