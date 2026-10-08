@@ -18,7 +18,7 @@
 - [ ] 4. Owner activation ends at first-time setup; business status active
 - [ ] 5. Emails through NotifyService (log until R6 merges)
 - [ ] 6. Audit every action; e2e test of the whole path
-- [ ] 7. Plus T05 (Oct 6): applications list with filters and paging, detail and status history (Super Admin through `forAdmin()`), dashboard counts, firms list (Active, Pending Setup, Inactive). Contract by Oct 8 (Tumit F04b, N04)
+- [x] 7. Plus T05 (Oct 6): applications list with filters and paging, detail and status history (Super Admin through `forAdmin()`), dashboard counts, firms list (Active, Pending Setup, Inactive). Contract by Oct 8 (Tumit F04b, N04)
 
 ## Done when
 
@@ -58,12 +58,20 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - the `honeypot` field: a filled one is answered `{ received: true }` and dropped (no row, no email), audited without the body;
   - throttle the "received" email per address;
   - keep `ein` (and the whole body) out of logs and audit metadata.
+- From the lead's #79 review (Oct 8), not in that PR:
+  - When submit lands, never log the `honeypot` value.
+  - `AuditService` writes the admin's events through `forPlatform`. Writing them through `forAdmin` would let #52's `audit_logs_admin_insert` policy pin the actor in the database.
+- From the review of the #79 fixes (Oct 8), for step 3: approve works on an application whose form can't be read (`formReadable` false), since its review page shows the actions as usual. The firm's name comes from `legal_name`, the owner invite goes to `contact_name` and `contact_email`, and the pack is `TAX_ACCOUNTING` (the only pack) when the practice type is unknown.
+- From the second pass on #79 (Oct 8), for step 2: submit writes the EIN's last 4 and its keyed hash to their columns (`ein_last4`, `ein_hash`, R0's #80), never into `data`: #80 refuses any key starting with "ein" there (any case, any depth). Once #80 is on main, the record's `business.einLast4` reads the column and DUPLICATE_EIN compares `ein_hash`.
 
 ## Needs from others
 
-- R0 (schema): on `firm_applications`, an `ein_last4` column and an indexed `ein_hash` column (keyed hash, for the duplicate check), in R0's small PR right after #52 (Rasel, Oct 7).
-- R0: a platform-readable record when a firm becomes `ACTIVE` (setup Finish runs in firm scope, which admin scope can't read), for the history's `FIRM_ACTIVATED` and the firms list. The same goes for the owner's invite status (`ownerInvite`, `OWNER_INVITED`), unless admin scope may read that firm's owner invite.
-- R0: dashboard `totalUsers` and `newUsersThisWeek` count member and client rows that `forAdmin()` can't read: a platform count or an aggregate R0 provides.
+- R0 (schema): on `firm_applications`, an `ein_last4` column and an indexed `ein_hash` column (keyed hash, for the duplicate check), in R0's small PR right after #52 (Rasel, Oct 7). Done in #80 (Oct 8); the record reads `ein_last4` since #79.
+- R0: a platform-readable record when a firm becomes `ACTIVE` (setup Finish runs in firm scope, which admin scope can't read), for the history's `FIRM_ACTIVATED` and the firms list. The same goes for the owner's invite status (`ownerInvite`, `OWNER_INVITED`), unless admin scope may read that firm's owner invite. Done in #80 (Oct 8): `businesses.activated_at` and the token-free `platform_owner_invites`; R4 uses them in a later PR.
+- R0: dashboard `totalUsers` and `newUsersThisWeek` count member and client rows that `forAdmin()` can't read: a platform count or an aggregate R0 provides. Until then the API answers `null` for both (contract changed to nullable). Done in #80 (Oct 8): `platform_user_signups`; R4 uses it in a later PR.
+- R0 (seed): LVP's seeded firm application has `data: { businessType }`, not the stored form (`StoredApplication` in `apps/api/src/firm-applications/firm-applications.service.ts`: the review page's business, primaryAdmin, account and credentials groups). Since the #79 fixes the API answers it from the table's own columns (`formReadable` false) instead of 500, and the contract now takes its hand-written id (next note), so the pages list and open it. The seed should still write the stored shape (synthetic values), so local review pages show a full form. Dev has no applications, so it is not affected.
+- R0 (seed): the seed's fixed ids should be RFC 9562 UUIDs (the contracts check ids with `z.uuid()`). Done in #89 (Oct 8); `FirmApplicationId` is `z.uuid()` again since #79.
+- R0: admin scope reads only the signed-in admin's own user row, so another Super Admin's name in a decision or the history shows as "Firmivra admin". Let admin scope read platform admins' names (users of `platform_admins`). Done in #80 (Oct 8): `users_admin_platform_admins`; R4 uses it in a later PR.
 - R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API.
 - R5: uploads for an application before any account exists (the spec's "credentials and uploads"). Until then `documents` is always empty.
 - R6: four emails: application received (applicant), information requested (the message; reply-to support), approved (the owner's activation link, through R2's activation mailer), declined (with the reason, Rasel Oct 7).
@@ -84,3 +92,35 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - test EINs start with 00;
   - the mock follows #52's rules (same request message: no entry; a decline reason must differ from the last request), cuts slugs before trimming hyphens, and uses Example/Sample firm names.
 - 2026-10-07, contract tweak (Rasel's answers): `honeypot` on `SubmitFirmApplicationRequest` (sent as it is; a filled one is answered `received` and dropped, the mock too), the decline reason documented as sent to the applicant, and the evening decisions above. Branch `rasel/R4-contract-honeypot`.
+- 2026-10-08, step 7 (T05, the read side), on #52's admin scope:
+  - `GET /admin/firm-applications` (status, search, from/to, order, pages; an information request reads as pending), `/counts` ("this month" in US Eastern time), `/{id}` (the review page: the stored form, history from `firm_application_status_history` newest first, decision with the reason only when declined, checks for duplicate name and email and the email domain, the suggested portal address);
+  - `GET /admin/firms`, `/counts`, `/{id}` (owner: the active owner's contact, else the application's primary administrator);
+  - `GET /admin/dashboard` (pending applications, active firms; user counts null until R0).
+  - `AdminPrisma` (`forAdmin` as the signed-in admin) lives in the module. Opening an application or a firm is audited as a platform event (ids only).
+  - Not yet: the EIN check (needs R0's ein columns), `ownerInvite` (recorded by approve, step 3), `FIRM_ACTIVATED` (needs R0's platform record).
+  - Contract: the dashboard user counts are nullable, and the honeypot has no length limit of its own (the lead's nit).
+  - Tests: `apps/api/test/e2e/firm-applications.e2e.test.ts` (15, including that every answer parses with the contract's schemas), `apps/api/test/unit/firm-applications.test.ts`. Branch `rasel/R4-api-read`.
+- 2026-10-08, #79 review fixes (the lead's request for changes):
+  - A stored form that can't be read no longer fails a page. `data` is plain JSON the database doesn't check (LVP's seeded row is `{ businessType }`), and one such row made the list, the review page and its firm's page answer 500. Each row is now parsed on its own. One that fails is logged as a warning with its id only, and comes back from the table's own columns with `formReadable` false. Its checks still run from the columns (DUPLICATE_NAME, DUPLICATE_EMAIL; EMAIL_DOMAIN from the contact email). The firms list and firm page leave out the owner fallback and the plan for it. The review actions on `rasel/R4-api-review` return the same record, so they work on such a row too.
+  - Contract (Tumit's F04b builds on it): `FirmApplicationListItem` has `formReadable`; `practiceType`, `entityType`, `requestedPlan` and `contactPhone` are nullable, and `services` is empty when unknown. `contactPhone` was not in the agreed list, but a row without the form or a phone column (like LVP's) has none. `FirmApplicationRecord` has the columns at the top level (`legalName`, `dbaName`, `contactName`, `contactEmail`, `contactPhone`) and `formReadable`; when that is false, `business`, `primaryAdmin` and `account` are null and `credentials` is empty. The schema comments say what the screens show then.
+  - EMAIL_DOMAIN: a free email address (`FREE_MAIL_DOMAINS` in the service) is a WARN whatever the website. No website, or one that isn't a valid address after the same `https://` prefix as the contract's Website field (`URL.canParse`), is SKIPPED (a stored website that wasn't a URL used to throw: a 500).
+  - Mock: the new fields, one pending fixture whose form could not be read (no phone either), the API's EMAIL_DOMAIN rules, and the dashboard user counts null like the API's.
+  - Left as it is: the firms list is filtered and paged in memory, which is fine at beta scale.
+  - Tests: e2e with four more rows (data `{}`; LVP's `{ businessType }`, approved, with a firm; a website that isn't an address; a free email address); unit tests `apps/api/test/unit/firm-applications-checks.test.ts`; contract tests for the unreadable record, list row and firm. Branch `rasel/R4-api-read`.
+- 2026-10-08, review of the #79 fixes (two reviewers; six findings, two of them the same, all real):
+  - LVP's seeded application still broke the pages, through its id. `00000000-0000-4000-5000-000000000001` has a variant digit (5) that `z.uuid()` refuses: the API answered 200, then the web client threw on the whole list and on LVP's firm page, and refused to open it. `FirmApplicationId`, also the id of the list row and the record, is now `z.guid()`: any id the uuid column holds. The types don't change. The e2e's LVP-like row has such an id. R0 note: RFC 9562 ids in the seed, which break other modules the same way.
+  - EMAIL_DOMAIN: `URL.canParse` took `N/A`, `ftp://…` or `javascript:` (a host like `n` or `ftp`), so they came back WARN "doesn't match". `websiteHost` in the contract reads a stored website as the Website field does (the same `https://` prefix, and a domain name for the host); the API and the mock use it, so those are SKIPPED.
+  - A unit test that an unreadable form is logged with its id only, on the list, the review page, the firms list and the firm page.
+  - Mock: an approved application whose form can't be read, with a hand-written id like the seed's, and its firm in setup (no owner, no plan, an expired activation link).
+  - Step 3: approve works on an unreadable form (under "For the API steps").
+  - Tests: e2e (the seed-like id lists and opens, and so does its firm; the website note), unit `apps/api/test/unit/firm-applications-unreadable.test.ts` and more SKIPPED websites, contract (`websiteHost`, the seed-like id). Branch `rasel/R4-api-read`.
+- 2026-10-08, second pass on #79 (the lead's review):
+  - A test for the 403: an admins-pool login without a `platform_admins` row (made in the e2e's own setup) gets 403 FORBIDDEN on every admin application, firm and dashboard route, and nothing is audited as opened.
+  - Search: `%`, `_` and `\` in a search term are plain characters (`likeEscape` in the service, the approach of R10's clients search: Prisma's `contains` doesn't escape them). The duplicate checks had the same fault, since Prisma's insensitive `equals` is ILIKE too: a `_` in a name or email matched any character (a false "Same email" for `j_smith@…` against `j.smith@…`). They escape the same way. The firms search filters in memory and was already literal; a test now says so.
+  - EIN: R0's #80 (open) refuses any key starting with "ein" in `firm_applications.data` and adds the `ein_last4` column. `StoredApplication.business` has no `einLast4` any more (an older row's is dropped when read), nothing reads it, and the record's `business.einLast4` is null until #80 is on main. The contract and the mock say the last 4 come from a column of their own, never from the stored form.
+  - Tests: e2e (the 403; `%` and `_` on the applications search and `%` on the firms search, each matching only rows that contain it; the duplicate checks against a lookalike name and email; `einLast4` null, and the stored forms no longer hold it), unit (`likeEscape`; an older form with `einLast4` reads without it, and its record shows null). Branch `rasel/R4-api-read`.
+- 2026-10-08, #79 after #80 and #89 (the lead's Oct 8 messages): main merged (#80's EIN columns and platform reads, #89's RFC 9562 seed ids).
+  - The record's `business.einLast4` comes from the `ein_last4` column, never from the stored form; null when the application has no EIN.
+  - `FirmApplicationId` (also the list row's and the record's id) is `z.uuid()` again: the seed's ids are RFC 9562 since #89 (LVP's application is `00000000-0000-4005-8000-000000000001`). The mock's unreadable approved application and the e2e's LVP-like row use such ids.
+  - Tests: e2e (`einLast4` from the column on one application, null on one without), unit (an older form's last 4 never shown, the column's are), contract (the seed's id accepted, its old variant-5 id refused).
+  - Local database reset once after #89 (GUIDE, "Every morning").
