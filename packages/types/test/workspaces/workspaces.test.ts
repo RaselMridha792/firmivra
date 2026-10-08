@@ -156,3 +156,19 @@ describe('clients', () => {
     expect(audit.calls[0]?.url).toBe('/business/audit-log?action=appointment.&limit=50');
   });
 });
+
+describe('report size (#109 review)', () => {
+  it('takes at most 50 lines with notes of 400 characters, so a report fits 100 KB', () => {
+    const report = (lines: number, note: number) =>
+      CreateReportRequest.safeParse({
+        kind: 'REPORT',
+        title: 'March 2026',
+        data: {
+          lines: Array.from({ length: lines }, () => ({ label: 'Rent', note: 'n'.repeat(note) })),
+        },
+      }).success;
+    expect(report(50, 400)).toBe(true);
+    expect(report(51, 400)).toBe(false);
+    expect(report(50, 401)).toBe(false);
+  });
+});
