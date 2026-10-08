@@ -77,16 +77,19 @@ constructor(@Inject(NOTIFY_SERVICE) private readonly notify: NotifyService) {}
 await this.notify.send({
   template: 'document.requested',
   to: client.email,
-  businessId, // the firm it comes from (branding, sender name); null for Firmivra's own
-  recipient: { clientAccountId }, // their notification preferences apply
-  data: { name, firmName, title, dueOn, link },
+  businessId, // the firm it comes from: its name, colours and sender name; null for Firmivra's own
+  recipient: { clientAccountId }, // their notification preferences apply (R6 step 5)
+  data: { name, title, dueOn, link },
 });
 ```
 
-- The templates and the data each needs are in `src/notify/notify.types.ts` (`NotifyTemplates`). Add a template there before using it; `TEMPLATE_CHANNEL` says email or SMS.
+- The templates and the data each needs are in `src/notify/notify.types.ts` (`NotifyTemplates`). Add a template there before using it. `TEMPLATE_CHANNEL` says email or SMS; `TEMPLATE_SENDER` says whose it is: `firm-application.*` are Firmivra's (`businessId` null), every other template is a firm's (`businessId` required). A mismatch is refused.
+- The firm's name and colours come from the firm's own record, never from `data`.
 - `data` holds names, dates, titles and links only: never a password, a full SSN or EIN, a bank number, an amount or document content. A code or token goes only in the field made for it.
-- A delivery failure is logged without the address or the data, and never fails the caller's flow.
-- Until R6 step 2 it only logs: the whole message with `AUTH_MODE=local`, otherwise just the template and the firm.
+- `send()` rejects when a message does not go out, with `NotifyDeliveryError`: the template, the channel and the provider's error name only, never the address or the text. Catch it where a failed email must not fail the request, and log the record's id, as R4's review actions do.
+- No mode logs a recipient, a phone number, a code or a body.
+- `EMAIL_MODE`: `smtp` sends to Mailpit locally (inbox at http://localhost:8025), `ses` sends through Amazon SES in AWS, `log` sends nothing. Production refuses `smtp` and `log`.
+- `SMS_MODE=sns` sends through Amazon SNS once `SMS_ORIGINATION_NUMBER` (the registered toll-free number) is set. Until then, and with `SMS_MODE=log`, nothing is sent and the log notes only the template.
 
 ## Adding a module
 
