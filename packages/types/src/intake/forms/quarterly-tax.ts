@@ -6,7 +6,8 @@ import { address, f, is, opts, quarterColumns, R, rows, rowsWith, section, step 
 // section 4, mockups `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`
 // and `Review & Submit.png`. The quarters and last year's income are asked once (step 1 and step 2
 // asked both twice; R11 question 3). The agreement, name, title and signature come from the firm's
-// agreements (R14), not from this definition.
+// agreements (R14), not from this definition. The tax year is asked as its dates and calendar or
+// fiscal; the mockup's free-text "What is your business's tax year?" said the same again.
 
 const quarterRows = rows({ q1: QUARTERS.Q1, q2: QUARTERS.Q2, q3: QUARTERS.Q3, q4: QUARTERS.Q4 });
 const amountPaid = { key: 'amount', label: 'Amount Paid', type: 'currency' as const };
@@ -16,7 +17,7 @@ const statePayments = (['q1', 'q2', 'q3', 'q4'] as const).flatMap((q) => {
   const label = QUARTERS[q.toUpperCase() as keyof typeof QUARTERS];
   return [
     f.currency(`${q}Amount`, `${label} Amount Paid`),
-    f.date(`${q}Date`, `${label} Date Paid`, { past: true }),
+    f.date(`${q}Date`, `${label} Date Paid`),
   ];
 });
 
@@ -194,10 +195,6 @@ export const QUARTERLY_TAX_FORM: IntakeFormDefinition = {
       'Taxes & Income',
       [
         section('filingPeriod', 'Filing Period', [
-          f.text('businessTaxYear', "What is your business's tax year?", {
-            ...R,
-            placeholder: 'e.g., Calendar Year (Jan-Dec) or Fiscal Year (MM/DD-MM/DD)',
-          }),
           f.date('taxYearStart', 'Start date of your current tax year', R),
           f.date('taxYearEnd', 'End date of your current tax year', R),
           f.radio(

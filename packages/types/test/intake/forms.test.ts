@@ -5,6 +5,7 @@ import {
   checkIntakeAnswers,
   INTAKE_FORMS,
   intakeFields,
+  intakeStepFields,
   IntakeFormKey,
   type IntakeFormDefinition,
   PAYROLL_FORM,
@@ -50,7 +51,6 @@ const minimal: Record<Exclude<IntakeFormKey, 'ANNUAL_TAX'>, Record<string, unkno
     recordsOrganized: 'SOMEWHAT',
     multipleLocations: false,
     multipleStates: false,
-    businessTaxYear: 'Calendar year',
     taxYearStart: '2026-01-01',
     taxYearEnd: '2026-12-31',
     calendarYear: 'CALENDAR',
@@ -150,7 +150,7 @@ const minimal: Record<Exclude<IntakeFormKey, 'ANNUAL_TAX'>, Record<string, unkno
     email: 'riley@example.test',
     planningFor: 'INDIVIDUAL',
     accountingMethod: 'CASH',
-    taxYear: 2026,
+    planningTaxYear: 2026,
     hasBookkeeper: 'NO',
     services: ['INDIVIDUAL'],
     reasons: ['REDUCE_LIABILITY'],
@@ -203,11 +203,16 @@ describe('INTAKE_FORMS', () => {
       );
       expect(first.get('email'), form.key).toMatchObject({ type: 'email', required: true });
       expect(first.get('phone'), form.key).toMatchObject({ type: 'phone', required: true });
-      expect(first.get('email')?.showIf, form.key).toBeUndefined();
       const name = first.has('fullName')
         ? [first.get('fullName')]
         : [first.get('firstName'), first.get('lastName')];
       for (const f of name) expect(f, form.key).toMatchObject({ type: 'text', required: true });
+      // Always shown, in a section that is always shown.
+      for (const f of [first.get('email'), first.get('phone'), ...name]) {
+        expect(f?.showIf, form.key).toBeUndefined();
+        const holder = form.steps[0]!.sections.find((s) => s.fields.includes(f!));
+        expect(holder?.showIf, form.key).toBeUndefined();
+      }
     }
   });
 
@@ -233,10 +238,14 @@ describe.each(Object.entries(minimal))('%s', (key, answers) => {
     expect(result.issues.every((i) => form.steps.some((s) => s.key === i.step))).toBe(true);
   });
 
-  it('saves each step on its own, requiring nothing', () => {
+  it('saves each step on its own: its part of the answers, or nothing at all', () => {
     for (const step of form.steps) {
-      const result = checkIntakeAnswers(form, {}, { mode: 'save', step: step.key, today });
-      expect(result.issues, step.key).toEqual([]);
+      const keys = new Set(intakeStepFields(step).map((f) => f.key));
+      const part = Object.fromEntries(Object.entries(answers).filter(([k]) => keys.has(k)));
+      for (const values of [part, {}]) {
+        const result = checkIntakeAnswers(form, values, { mode: 'save', step: step.key, today });
+        expect(result.issues, step.key).toEqual([]);
+      }
     }
   });
 });
@@ -281,6 +290,15 @@ describe('the follow-up questions show only for the answer they follow', () => {
       'inventoryTracking',
       'skuCount',
       'hasInventoryList',
+    ]);
+  });
+
+  it('Bookkeeping: each owner-activity yes asks for its own explanation', () => {
+    const uploads = { einDocument: 1, lastYearReturn: 1 };
+    const b = { ...minimal.BOOKKEEPING, businessFundsPersonal: true, personalFundsBusiness: true };
+    expect(issuePaths(submit(BOOKKEEPING_FORM, b, uploads))).toEqual([
+      'businessFundsPersonalDetails',
+      'ownerActivityDetails',
     ]);
   });
 

@@ -128,7 +128,7 @@ export const TAX_PLANNING_FORM: IntakeFormDefinition = {
           'Accounting & Tax Information',
           [
             f.select('accountingMethod', 'Accounting Method', opts(ACCOUNTING_METHODS), R),
-            f.year('taxYear', 'Tax Year', R),
+            f.year('planningTaxYear', 'Tax Year', R),
             f.radio(
               'hasBookkeeper',
               'Do you currently have a bookkeeper or accountant?',

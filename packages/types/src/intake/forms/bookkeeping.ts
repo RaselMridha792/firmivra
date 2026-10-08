@@ -426,6 +426,11 @@ export const BOOKKEEPING_FORM: IntakeFormDefinition = {
         ]),
         section('owner', 'Owner Activity & Other Information', [
           yes('businessFundsPersonal', 'Do you use business funds for personal expenses?'),
+          f.textarea('businessFundsPersonalDetails', 'If yes, please explain.', {
+            ...R,
+            placeholder: 'Type your explanation here...',
+            showIf: is('businessFundsPersonal', true),
+          }),
           yes(
             'personalFundsBusiness',
             'Do you pay business expenses personally and need them recorded/reimbursed?',

@@ -57,9 +57,11 @@ export const BUSINESS_DEVELOPMENT_FORM: IntakeFormDefinition = {
                   help: 'Get your Federal Employer Identification Number (EIN).',
                 },
                 {
-                  value: 'REGISTERED_AGENT_GA',
-                  label: 'Georgia Registered Agent',
-                  help: 'Act as your official registered agent in Georgia.',
+                  // The mockup's "Georgia Registered Agent" is LVP's offer; a firm names its own
+                  // state in its own version.
+                  value: 'REGISTERED_AGENT_LOCAL',
+                  label: 'Registered Agent in Our State',
+                  help: 'We act as your official registered agent in our state.',
                 },
                 {
                   value: 'REGISTERED_AGENT_US',
