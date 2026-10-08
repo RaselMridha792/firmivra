@@ -90,7 +90,7 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 
 - Branch from the latest `main`: `<name>/FIR-<issue number>-short-name`, for example `fahad/FIR-42-login-screen`.
 - Open a PR into `main` under 400 changed lines and fill in the PR template. UI PRs include the mockup next to a screenshot of the result.
-- CI must pass. Your pair pre-reviews first (Fahad + Tumit, Nahid + Ibrahim; all four build screens). Only Rasel approves and merges (squash).
+- CI must pass. Your pair pre-reviews first (Fahad + Tumit, Nahid + Arfan; all four build screens). Only Rasel approves and merges (squash).
 - A merge to `main` deploys to dev. Production deploys only from a `v*` tag that Rasel creates, after approval.
 - Never push to `main`, never force-push a branch someone else uses, never commit `.env`.
 - Commit messages follow Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`.
@@ -105,7 +105,7 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 
 ## Junior developers
 
-From Oct 7, Fahad, Nahid, Tumit and Ibrahim build screens and tests; Rasel's Claude Code sessions build every API. R1 creates every page as a placeholder; the developers change only the files listed under their name in `docs/junior/PAGE-MAP.md` (Fahad also `packages/ui`) and their own `docs/tasks/<NAME>.md`, and follow `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md`.
+From Oct 7, Fahad, Nahid, Tumit and Arfan build screens and tests; Rasel's Claude Code sessions build every API. R1 creates every page as a placeholder; the developers change only the files listed under their name in `docs/junior/PAGE-MAP.md` (Fahad also `packages/ui`) and their own `docs/tasks/<NAME>.md`, and follow `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md`.
 
 ## Parallel sessions
 

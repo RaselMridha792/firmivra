@@ -8,7 +8,7 @@ export default function TaxPlanningPage() {
     <PagePlaceholder
       title="Tax planning"
       ticket="N07b"
-      owner="Ibrahim"
+      owner="Arfan"
       mockup="begin-online/Tax planning*.png (4 files)"
     />
   );
