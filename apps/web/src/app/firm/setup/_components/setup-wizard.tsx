@@ -1,7 +1,7 @@
 'use client';
 
 import type { FirmSettings, FirmSetup } from '@firmivra/types';
-import { Button, Card, Stepper } from '@firmivra/ui';
+import { Card, Stepper } from '@firmivra/ui';
 import Link from 'next/link';
 import { useState } from 'react';
 import { PageState } from '../../../../components/page-state';
@@ -9,7 +9,9 @@ import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
 import { BrandingStep } from './branding-step';
 import { BusinessStep } from './business-step';
-import { FIRM_SETTINGS, SETUP_PROGRESS, STEPS } from './shared';
+import { FinishStep } from './finish-step';
+import { PortalStep } from './portal-step';
+import { FIRM_SETTINGS, SETUP_PROGRESS, STEPS, type WizardStep } from './shared';
 import { TeamStep } from './team-step';
 
 /** /setup: the firm's first sign-in. Owner and Admin only; Staff get the no-permission state. */
@@ -20,7 +22,7 @@ export function SetupWizard() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 data-testid="page-title" className="font-serif text-3xl font-bold text-heading">
+        <h1 data-testid="page-title" className="font-display text-3xl font-bold text-heading">
           Set up your firm
         </h1>
         <p className="mt-1 text-sm text-muted">
@@ -50,6 +52,7 @@ function Steps({ progress, firm }: { progress: FirmSetup; firm: FirmSettings }) 
   const step = STEPS[index]?.id ?? 'finish';
   const go = (to: number) => () => setIndex(to);
   const props = { firm, onBack: index > 0 ? go(index - 1) : undefined, onNext: go(index + 1) };
+  const edit = (id: WizardStep) => setIndex(STEPS.findIndex((item) => item.id === id));
 
   return (
     <>
@@ -57,20 +60,11 @@ function Steps({ progress, firm }: { progress: FirmSetup; firm: FirmSettings }) 
       {step === 'branding' ? <BrandingStep {...props} /> : null}
       {step === 'businessDetails' ? <BusinessStep {...props} /> : null}
       {step === 'team' ? <TeamStep {...props} /> : null}
-      {step === 'clientPortal' || step === 'finish' ? <NextUpdate onBack={props.onBack} /> : null}
+      {step === 'clientPortal' ? <PortalStep {...props} /> : null}
+      {step === 'finish' ? (
+        <FinishStep progress={progress} onBack={go(index - 1)} onEdit={edit} />
+      ) : null}
     </>
-  );
-}
-
-/** Client portal and Finish arrive in the next F05 change. */
-function NextUpdate({ onBack }: { onBack?: () => void }) {
-  return (
-    <Card data-testid="step-next-update" className="flex flex-col items-start gap-3">
-      <p className="text-sm text-muted">This step arrives in the next update.</p>
-      <Button variant="secondary" onClick={onBack}>
-        Back
-      </Button>
-    </Card>
   );
 }
 
