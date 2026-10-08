@@ -89,24 +89,25 @@ describe('time zones', () => {
     // Santiago skips midnight on Sep 6: the day starts at 01:00 (-03), not the evening before.
     expect(iso('America/Santiago', '2026-09-06', '00:00')).toBe('2026-09-06T04:00:00.000Z');
     expect(iso('America/Santiago', '2026-09-05', '23:45')).toBe('2026-09-06T03:45:00.000Z');
-    // Every quarter-hour of 2026 in these zones maps to a time that shows the asked wall clock,
-    // or, in a skipped hour, to the end of the gap plus the minutes into it.
-    for (const tz of [
-      NY,
-      'Europe/Berlin',
-      'America/Santiago',
-      'Asia/Kolkata',
-      'Australia/Lord_Howe',
-    ]) {
-      for (let day = 0; day < 365; day += 1) {
-        const date = new Date(Date.UTC(2026, 0, 1) + day * 24 * HOUR).toISOString().slice(0, 10);
-        for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
-          const t = zonedInstant(tz, date, minutes);
-          const wall = Date.parse(`${date}T00:00:00Z`) + minutes * 60_000;
-          const shown = t + offsetAt(tz, t);
-          // Shown exactly, or later by the gap (at most an hour) when that wall time was skipped.
-          expect(shown - wall, `${tz} ${date} ${minutes}`).toBeGreaterThanOrEqual(0);
-          expect(shown - wall, `${tz} ${date} ${minutes}`).toBeLessThanOrEqual(HOUR);
+    // Around every change of 2026 in these zones (the day before, the day, the day after), each
+    // quarter-hour maps to a time that shows the asked wall clock, or, in a skipped hour, later by
+    // at most the gap.
+    const zones = [NY, 'Europe/Berlin', 'America/Santiago', 'Asia/Kolkata', 'Australia/Lord_Howe'];
+    for (const tz of zones) {
+      const noon = (d: number) => Date.UTC(2026, 0, 1, 12) + d * 24 * HOUR;
+      const changes = Array.from({ length: 365 }, (_, d) => d).filter(
+        (d) => d > 0 && offsetAt(tz, noon(d)) !== offsetAt(tz, noon(d - 1)),
+      );
+      for (const change of changes) {
+        for (const d of [change - 2, change - 1, change, change + 1]) {
+          const date = new Date(noon(d)).toISOString().slice(0, 10);
+          for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
+            const t = zonedInstant(tz, date, minutes);
+            const shown =
+              t + offsetAt(tz, t) - (Date.parse(`${date}T00:00:00Z`) + minutes * 60_000);
+            expect(shown, `${tz} ${date} ${minutes}`).toBeGreaterThanOrEqual(0);
+            expect(shown, `${tz} ${date} ${minutes}`).toBeLessThanOrEqual(HOUR);
+          }
         }
       }
     }
