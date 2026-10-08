@@ -127,6 +127,7 @@ function centralDirectory(buf: Buffer): Map<string, Entry> | null {
       break;
     }
   }
+  if (eocd < 0) return null;
   // The end record's comment ends the file: nothing after it (a signature found inside a
   // comment, or bytes appended after the end record, is not this end record).
   if (eocd + 22 + buf.readUInt16LE(eocd + 20) !== buf.length) return null;

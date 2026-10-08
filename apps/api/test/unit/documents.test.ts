@@ -137,6 +137,9 @@ describe('presigned URLs', () => {
     );
     // A type the API never accepts is served as one no browser renders.
     expect(url.searchParams.get('response-content-type')).toBe('application/octet-stream');
+    // A Content-Encoding stored by a repeated PUT after the check never reaches the browser.
+    expect(url.searchParams.get('response-content-encoding')).toBe('identity');
+    expect(url.searchParams.get('response-cache-control')).toBe('private, no-store');
     expect(attachment("it's (1).pdf")).toBe(
       `attachment; filename="it's (1).pdf"; filename*=UTF-8''it%27s%20%281%29.pdf`,
     );
@@ -438,6 +441,22 @@ describe('confirm: the bytes are their type', () => {
     const short = Buffer.from(file);
     short.writeUInt16LE(10, file.length - 2); // a comment longer than what follows
     expect(checkFile(XLSX, short)).toBe('UPLOAD_MISMATCH');
+  });
+
+  it('refuses a file with no end record, even when its first bytes read as one', () => {
+    const file = office('xlsx');
+    const end = file.subarray(file.length - 22);
+    const headless = Buffer.from(file.subarray(0, file.length - 22));
+    expect(headless.includes(Buffer.from([0x50, 0x4b, 0x05, 0x06]))).toBe(false);
+    // An "end record" at offset -1 would read its fields from the first local header's bytes
+    // 9 to 20, which the uploader writes: the entry count, the directory size and offset, and a
+    // comment length that reaches the end of the file.
+    headless.writeUInt16LE(end.readUInt16LE(10), 9);
+    headless.writeUInt32LE(end.readUInt32LE(12), 11);
+    headless.writeUInt32LE(end.readUInt32LE(16), 15);
+    headless.writeUInt16LE(headless.length - 21, 19);
+    expect(checkFile(XLSX, headless)).toBe('UPLOAD_MISMATCH');
+    expect(checkFile(XLSX, file.subarray(0, file.length - 22))).toBe('UPLOAD_MISMATCH');
   });
 
   /** `file` (a ZIP without a comment) with a ZIP64 end record and locator; `edit` changes them. */

@@ -140,8 +140,8 @@ info:
          compare the names as UTF-16LE. A malformed CFB, or any other file that doesn't start
          with a ZIP header (`50 4B 03 04`), for example an old .xls or .doc renamed, is
          `409 UPLOAD_MISMATCH`.
-      2. Read the ZIP's central directory (found from its end record, whose comment must finish
-         at the end of the file; a ZIP64 record is held to the same caps, and its locator and
+      2. Read the ZIP's central directory (found from its end record, which must be there and
+         whose comment must finish at the end of the file; a ZIP64 record is held to the same caps, and its locator and
          the end record must agree with it) without extracting anything, with a cap of 1 MB and
          10,000 entries. Entry names are compared without case, after turning `\` into `/` and
          dropping a leading `/`. A bigger or broken directory, an entry name with NUL or another
@@ -207,7 +207,9 @@ info:
       `Content-Encoding` is set (`409 FILE_BLOCKED` otherwise).
     - **Presigned GET.** `response-content-disposition=attachment` for every file whatever its
       type (never `inline`), with an RFC 5987 file name, `response-content-type` set to the
-      stored type, expiry 5 minutes, and an audit entry for every link.
+      stored type, `response-content-encoding=identity` and `response-cache-control=private,
+      no-store` (signed, so a `Content-Encoding` a repeated PUT stores after the check never
+      reaches the browser), expiry 5 minutes, and an audit entry for every link.
     - **KMS (pending).** Today infra has one bucket key (data stack) and the API's IAM policy
       covers only it; objects take the bucket's default encryption with it. Per-firm keys for S3
       need their own IAM statement first: S3's encryption context is `aws:s3:arn` (the bucket or

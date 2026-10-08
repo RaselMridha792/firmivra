@@ -594,6 +594,57 @@ describe('confirm after the ticket: the client, the service or storage changed',
     expect((await download(doc.id)).status).toBe(200);
   });
 
+  it('never deletes a file while a confirm that holds the key lock has not committed', async () => {
+    const businessId = firms.a.id;
+    const bytes = pdf('uncommitted');
+    const path = `/clients/${ids.c1}/documents/uploads`;
+    const body = { serviceId: ids.e1, ...facts(bytes) };
+    const ticket = exact(UploadTicket, await call('post', path, people.ownerA, body));
+    const key = ticket.url.slice('memory:'.length);
+    const { uploadToken } = ticket;
+    const confirm = () =>
+      call('post', '/documents/uploads/confirm', people.ownerA, { uploadToken });
+    // #1 finds no object yet and is held before it refuses; then the PUT lands.
+    const held = holdNext('afterHead');
+    const first = confirm();
+    await held.reached;
+    storage.put(ticket, bytes);
+    const watcher = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    /** The backend pids that wait for `pid`, polled until there is one (at most 3 s). */
+    const waitersOf = async (pid: number, what: string) => {
+      for (let i = 0; i < 60; i++) {
+        const rows = await watcher.$queryRaw<{ pid: number }[]>`
+          SELECT pid FROM pg_stat_activity WHERE ${pid}::int = ANY(pg_blocking_pids(pid))`;
+        if (rows.length > 0) return rows.map((r) => r.pid);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`Nothing waited: ${what}`);
+    };
+    const pending: { second?: Promise<Response> } = {};
+    try {
+      await asOwner(businessId, async (tx) => {
+        // The client is locked, so #2 stops inside its transaction, holding the key's lock.
+        await tx.$executeRaw`
+          SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${ids.c1}::uuid
+          FOR UPDATE`;
+        const [me] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+        pending.second = confirm();
+        const [second] = await waitersOf(me!.pid, 'confirm #2 did not reach the client lock');
+        // #1 refuses now, and must wait for #2's key lock instead of deleting the file.
+        held.release();
+        await waitersOf(second!, 'the refusal did not wait for the key lock');
+      });
+    } finally {
+      held.release();
+      await watcher.$disconnect();
+    }
+    const doc = exact(FirmDocument, await pending.second!);
+    expectError(await first, 410, 'UPLOAD_EXPIRED');
+    expect(storage.objects.has(key)).toBe(true);
+    expect(await refusalOf(key)).toBeNull();
+    expect((await download(doc.id)).status).toBe(200);
+  });
+
   it('refuses, and audits, a confirm whose upload another confirm refused while it checked', async () => {
     const { key, confirm } = await ticketed(people.ownerA, { serviceId: ids.e2 }, ids.c2);
     // This confirm has checked the file and is held before its transaction.

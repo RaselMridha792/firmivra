@@ -206,6 +206,10 @@ export class S3DocumentStorage implements DocumentStorage {
       Key: file.key,
       ResponseContentDisposition: attachment(file.fileName),
       ResponseContentType: downloadType(file.contentType),
+      // Pinned by the signature, whatever a repeated PUT stores after the HEAD check: the
+      // browser saves the bytes as they are, and nothing keeps a copy.
+      ResponseContentEncoding: 'identity',
+      ResponseCacheControl: 'private, no-store',
     });
     return getSignedUrl(this.s3, command, { expiresIn: GET_URL_SECONDS });
   }
