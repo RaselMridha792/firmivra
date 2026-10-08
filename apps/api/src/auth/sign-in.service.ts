@@ -33,10 +33,10 @@ export const RESET_LIMIT = { attempts: 5, windowMs: 15 * 60_000 };
  */
 const SIGN_IN_FAILED = 'auth.sign_in_failed';
 /**
- * Each attempt is recorded before Cognito is asked, then closed by a "passed" row (same reservationId)
- * when it succeeds, or a "released" row when it ends without a verdict on the credential (its own
- * action, so the audit log never reads "passed" for it); an attempt with neither is a failure or
- * still in flight, and the limits count those.
+ * Each attempt is recorded before Cognito is asked (its `reservationId` in the row), then closed
+ * by a "passed" row with the same id when it succeeds, or a "released" row when it ends without a
+ * verdict on the credential (its own action, so the audit log never reads "passed" for it); an
+ * attempt with neither is a failure or still in flight, and the limits count those.
  */
 const SIGN_IN = {
   attempt: 'auth.sign_in_attempt',
@@ -344,7 +344,8 @@ export class SignInService {
    * failed. A busy key is refused like the limit (never waited for: a waiting lock holds a pooled
    * connection). The transaction is three short statements: the try-lock, one count for every
    * check (`openAttempts`), the insert. Rows go where `log` writes them: the firm's log on a
-   * portal, the platform's otherwise. Returns the attempt's reservation id; the row that closes it carries it.
+   * portal, the platform's otherwise. Returns the attempt's reservation id, which the row that
+   * closes it carries.
    */
   private async reserve(
     place: Pick<SignInPlace, 'pool' | 'businessId'>,
