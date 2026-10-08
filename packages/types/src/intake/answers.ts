@@ -13,6 +13,7 @@ import {
   intakeFields,
   intakeStepFields,
 } from './definition.js';
+import { ScanStatus } from '../db-enums.js';
 import { UsState } from './options.js';
 
 // Answers: one flat map from field key to a typed value, checked against the definition by
@@ -43,7 +44,8 @@ import { UsState } from './options.js';
 // `{ last4 }` (`maskIntakeAnswers`), also inside group rows. A screen sends an unchanged number
 // back as that `{ last4 }`: it must match the number stored at the same key (in a group, in the
 // row with the same `id`), and the API keeps the stored number (`restoreMaskedNumbers`); any other
-// `{ last4 }` is 400 VALIDATION_FAILED. A response with a full SSN or EIN fails to parse.
+// `{ last4 }` is 400 VALIDATION_FAILED. The responses that carry answers (contract B) refuse a
+// full SSN or EIN with `intakeNumbersMasked`.
 //
 // Size: at most 500 answers, a group row at most 31 keys (its id and 30 fields), a grid at most
 // 50 rows by 10 columns, counted before any value is read. `constructor` and `prototype` are
@@ -151,7 +153,7 @@ export type IntakeCheckOptions =
   | { mode: 'save'; step: string; today?: string }
   /**
    * The whole form, as submit sees it. `uploads`: how many usable files each upload slot has
-   * (`intakeUploadCounts`: blocked files don't count).
+   * (`intakeUploadCounts`: only clean files and files still being scanned count).
    */
   | { mode: 'submit'; uploads?: Readonly<Record<string, number>>; today?: string };
 
@@ -223,15 +225,23 @@ export function shownIntakeKeys(
 }
 
 /**
- * How many files count for each slot on submit: every file but a BLOCKED one. (For the file
- * limits every file counts, blocked ones too.)
+ * The scan statuses a file counts with toward a required slot on submit: clean, or still being
+ * scanned (the firm sees the scan result before it uses the file). An infected file, or one the
+ * scan could not read, never answers a required slot. An allow-list, so a new status counts only
+ * once it is added here.
+ */
+export const COUNTED_UPLOAD_STATUSES: readonly ScanStatus[] = ['CLEAN', 'PENDING'];
+
+/**
+ * How many files count for each slot on submit (see COUNTED_UPLOAD_STATUSES). For the file
+ * limits every file counts, whatever its status.
  */
 export function intakeUploadCounts(
-  uploads: readonly { slot: string; status: string }[],
+  uploads: readonly { slot: string; status: ScanStatus }[],
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const u of uploads) {
-    if (u.status !== 'BLOCKED') counts[u.slot] = (counts[u.slot] ?? 0) + 1;
+    if (COUNTED_UPLOAD_STATUSES.includes(u.status)) counts[u.slot] = (counts[u.slot] ?? 0) + 1;
   }
   return counts;
 }

@@ -236,6 +236,7 @@ describe('checkIntakeAnswers: submit', () => {
       ]),
     );
     // Hidden ones are not asked for: no spouse, no business step, no dependents' documents.
+    expect(missing.some((m) => m.includes(':spouse'))).toBe(false);
     expect(missing.some((m) => m.startsWith('businessIncome:'))).toBe(false);
     expect(missing).not.toContain('documents:dependentDocuments');
   });
@@ -296,25 +297,54 @@ describe('checkIntakeAnswers: submit', () => {
   });
 });
 
-describe('uploads on submit', () => {
-  const upload = (slot: string, status: 'CHECKING' | 'READY' | 'BLOCKED') => ({ slot, status });
+describe('married filers', () => {
+  it("must give the spouse's first and last name, SSN and date of birth", () => {
+    const married = submit(
+      { ...complete, filingStatus: 'MARRIED_FILING_JOINTLY' },
+      { governmentId: 1 },
+    );
+    expect(married.issues.map((i) => String(i.path[0]))).toEqual(
+      expect.arrayContaining([
+        'spouseFirstName',
+        'spouseLastName',
+        'spouseSsn',
+        'spouseDateOfBirth',
+      ]),
+    );
+  });
+});
 
-  it('counts only files that are not blocked toward a required slot', () => {
+describe('uploads on submit', () => {
+  const upload = (slot: string, status: 'CLEAN' | 'PENDING' | 'INFECTED' | 'FAILED') => ({
+    slot,
+    status,
+  });
+
+  it('counts only clean files and files still being scanned toward a required slot', () => {
     expect(
       intakeUploadCounts([
-        upload('governmentId', 'READY'),
-        upload('governmentId', 'CHECKING'),
-        upload('socialSecurityCard', 'BLOCKED'),
+        upload('governmentId', 'CLEAN'),
+        upload('governmentId', 'PENDING'),
+        upload('socialSecurityCard', 'INFECTED'),
+        upload('socialSecurityCard', 'FAILED'),
       ]),
     ).toEqual({ governmentId: 2 });
+    // An infected or unreadable file never answers a required slot on submit.
+    const onlyBad = intakeUploadCounts([
+      upload('governmentId', 'INFECTED'),
+      upload('governmentId', 'FAILED'),
+    ]);
+    expect(onlyBad).toEqual({});
+    const result = submit(complete, onlyBad);
+    expect(result.issues.map((i) => i.path[0])).toContain('governmentId');
   });
 
   it('takes out the files of slots the answers hide', () => {
     const files = [
-      upload('governmentId', 'READY'),
-      upload('spouseGovernmentId', 'READY'),
-      upload('businessDocuments', 'CHECKING'),
-      upload('gone', 'READY'),
+      upload('governmentId', 'CLEAN'),
+      upload('spouseGovernmentId', 'CLEAN'),
+      upload('businessDocuments', 'PENDING'),
+      upload('gone', 'CLEAN'),
     ];
     expect(hiddenSlotUploads(annual, complete, files).map((f) => f.slot)).toEqual([
       'spouseGovernmentId',
