@@ -689,7 +689,8 @@ components:
                 Stable. Auth codes: PASSWORD_REJECTED, RESET_CODE_INVALID, INVALID_CREDENTIALS,
                 MFA_CODE_INVALID, CHALLENGE_EXPIRED, INVITE_INVALID, ALREADY_MEMBER,
                 INVITE_EXPIRED, ACCOUNT_EXISTS. Generic: VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN,
-                NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR, UNSUPPORTED_MEDIA_TYPE (415, the body
+                NOT_FOUND, RATE_LIMITED, INTERNAL_ERROR, SERVICE_BUSY (503 with Retry-After: the
+                database is busy, try again shortly), UNSUPPORTED_MEDIA_TYPE (415, the body
                 is not JSON), ORIGIN_NOT_ALLOWED (403, sent from another site). Firm routes:
                 BUSINESS_REQUIRED (400, choose a firm with x-business-id), BUSINESS_SETUP_REQUIRED
                 (403, the firm has not finished setup), BUSINESS_INACTIVE (403, suspended or
