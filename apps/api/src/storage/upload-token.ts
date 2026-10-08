@@ -4,11 +4,15 @@ import { type PoolSecrets, Sealer } from '../auth/sealed.js';
 
 /** HKDF label for upload-token keys. A new label (v2) ends every open upload. */
 export const UPLOAD_KEY_LABEL = 'fv-document-upload-v1';
-/** An upload is confirmed within 5 minutes of its ticket (the PUT URL itself lasts 4). */
-export const UPLOAD_TOKEN_SECONDS = 300;
+/**
+ * An upload is confirmed within 15 minutes of its ticket. The PUT URL itself lasts 4 minutes, but
+ * a 10 MB PUT that starts near its end can take up to the browser's 10-minute timeout
+ * (apps/web/src/lib/upload.ts), and the confirm comes after it.
+ */
+export const UPLOAD_TOKEN_SECONDS = 900;
 
 /**
- * Everything step 1 decided, sealed into the ticket's `uploadToken` (JWE, A256GCM, 5 minutes):
+ * Everything step 1 decided, sealed into the ticket's `uploadToken` (JWE, A256GCM, 15 minutes):
  * the browser can neither read nor change it, and it opens only on the side (pool) it was made
  * for. Confirm takes the file's owner, place and facts from here, never from the request.
  */

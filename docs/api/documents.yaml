@@ -109,9 +109,10 @@ info:
 
     - **Ticket.** The `uploadToken` is sealed (or stored) by the API and binds the business, the
       uploader (user and side), the client, service, request, category, direction, the S3 key,
-      size, SHA-256 and an expiry of 5 minutes or less.
+      size, SHA-256 and an expiry of 15 minutes or less (a PUT that starts near the end of its
+      URL can run until the browser's 10-minute timeout, and the confirm comes after it).
     - **Presigned PUT.** `Content-Type`, `Content-Length` and `x-amz-checksum-sha256` are in
-      `X-Amz-SignedHeaders`; expiry 4 minutes (the token's 5 cover the confirm). (`Content-Length`
+      `X-Amz-SignedHeaders`; expiry 4 minutes (the token's 15 cover a slow upload and the confirm). (`Content-Length`
       is signed but not in `ticket.headers`: the browser sends it.) No SSE headers: objects take
       the bucket's default SSE-KMS with the documents key (see "KMS"). s3mock does not check
       signatures, so a unit test checks the presigned URL itself (signed headers, expiry).
@@ -171,16 +172,17 @@ info:
          .docx `application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml`.
          Anything else (an .xltx, a .dotx or a renamed .pptx, for example) is
          `409 UPLOAD_MISMATCH`.
-    - **Active content without macros (pending, R5 "Open").** Confirm checks macros only. Links
-      to outside templates, objects or pictures (`TargetMode="External"` relationships),
-      embedded OLE objects, ActiveX controls, altChunk imports and DDE fields are not refused at
-      launch: the malware scan reads what is inside the file, and Office opens a file downloaded
-      from the web in Protected View by default. If Rasel says to refuse them, confirm also
-      inflates the `.rels` parts, under the same caps.
-    - **PDFs with a password (pending, R5 "Open").** Confirm checks a PDF's magic bytes only, so
-      a PDF that needs a password to open is stored; GuardDuty may then answer `UNSUPPORTED`
-      (`PASSWORD_PROTECTED`), which makes it `FAILED`. Whether confirm refuses such a PDF with
-      `409 FILE_PASSWORD_PROTECTED` is Rasel's call.
+    - **Active content without macros (Rasel q23, Oct 8: accepted).** Only macro files are
+      refused. Links to outside templates, objects or pictures (`TargetMode="External"`
+      relationships), embedded OLE objects, ActiveX controls, altChunk imports and DDE fields are
+      accepted: the malware scan reads what is inside the file, and Office opens a file
+      downloaded from the web in Protected View by default.
+    - **PDFs with a password (Rasel q24, Oct 8: accepted unscanned).** Confirm checks a PDF's
+      magic bytes only, so a PDF that needs a password to open is stored. When GuardDuty answers
+      `UNSUPPORTED` with the reason `PASSWORD_PROTECTED` for a PDF, the file is accepted
+      unscanned, not `FAILED`: the firm can download it and accept its request. The reason goes
+      into its audit entry, and the firm's document shows that it was not scanned (a contract
+      field that comes with the result handler).
     - **Scan results (GuardDuty Malware Protection for S3).** Results reach the API only
       through a private channel: an EventBridge rule (source `aws.guardduty`, detail-type
       `GuardDuty Malware Protection Object Scan Result`, the documents bucket) to an SQS queue
@@ -193,14 +195,15 @@ info:
       - `UNSUPPORTED` because of the file itself (`PASSWORD_PROTECTED`,
         `OBJECT_SIZE_LIMIT_EXCEEDED`, `EXTRACTED_*_LIMIT_EXCEEDED` or
         `EXTRACTION_RATIO_LIMIT_EXCEEDED`) is `FAILED`; the reason goes into its audit entry, so
-        the firm can learn why.
+        the firm can learn why. One exception (Rasel q24): `PASSWORD_PROTECTED` on a PDF is
+        accepted unscanned (see "PDFs with a password").
       - Everything else is our side and leaves the file `PENDING`: `UNSUPPORTED` with
         `UNSUPPORTED_STORAGE_CLASS` or no known reason, any `ACCESS_DENIED` (role, KMS key,
         bucket, a changed ETag) and `FAILED`. The alarm fires and we rescan it with GuardDuty's
         on-demand scan (`SendObjectMalwareScan` with the key and the confirmed version id); the
         object is never rewritten or copied to rescan it.
       - A request whose newest file becomes `INFECTED` or `FAILED` goes back to `REQUESTED` in
-        the same transaction (see "Requests").
+        the same transaction (see "Requests"; kept, Rasel q22).
     - **Replays.** A presigned PUT can be replayed until it expires and the bucket is versioned,
       so a download pins the confirmed version (R0: `documents.s3_version_id`) or the API checks
       the checksum before signing the GET. Today it checks the size, S3's checksum and that no

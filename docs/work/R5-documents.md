@@ -61,7 +61,7 @@ R5 defaults (answer 4, all accepted):
 - Encryption: objects take the bucket's default SSE-KMS (the documents key); the presigned PUT signs only Content-Type, Content-Length and the SHA-256 checksum. Per-firm keys for S3 need their own IAM statement first: S3's encryption context is `aws:s3:arn`, not the firm, so the statement has to tie each firm's key to its `tenant/{businessId}/` prefix (see "Infra needs").
 - Confirm reads the whole object (at most 10 MB, in memory), computes its SHA-256 itself and runs the yaml's checks in order; every refusal deletes the object and is audited (`document.upload_refused`, ids and the code only), the transaction's refusals after the ticket too (404, `NO_OPEN_SERVICE`, `CATEGORY_ARCHIVED`). One confirm of a key at a time (a transaction advisory lock on the key; a second one finds the document, 410, or the refusal, 409 `UPLOAD_MISMATCH`), so a refusal never deletes a saved document's file. A storage failure (a 403 from KMS on the read, an S3 503, a timeout) is a 503 `SERVICE_UNAVAILABLE` with Retry-After and deletes nothing (#118 review). Downloads re-check the stored size, S3's checksum and that no Content-Encoding is set before signing the GET (no version id yet).
 - Uploads lock the client row FOR SHARE first (the #108 review's order: client, then engagement; then the request in part 2), so a reassignment or an archive waits for the upload or is seen by it. An archived client has no open service: 409 `NO_OPEN_SERVICE` on the ticket and on confirm (a default; see "Open").
-- The upload token is a sealed JWE (5 minutes) bound to the firm, the uploader (user, side, client account), the client, service, category, direction, key, size and SHA-256 (the request comes with part 2); the unique `s3_key` makes confirm single use (410 `UPLOAD_EXPIRED`).
+- The upload token is a sealed JWE (15 minutes: a slow 10 MB PUT that starts near the end of its 4-minute URL can run until the browser's 10-minute timeout; confirm looks back 30 minutes for an earlier refusal) bound to the firm, the uploader (user, side, client account), the client, service, category, direction, key, size and SHA-256 (the request comes with part 2); the unique `s3_key` makes confirm single use (410 `UPLOAD_EXPIRED`).
 - Error messages are the contract's `DOCUMENT_ERRORS` words.
 - Contract fixes (small, for the API): `DocumentCategoryList` gets its type; `UploadTicket` says Content-Length is also signed and what `expiresAt` means.
 
@@ -85,21 +85,21 @@ R5 defaults (answer 4, all accepted):
 - The request path of confirm, moved out of part 1 in its review (it had no route and no test there): `requestId` in the sealed claim, the request locked FOR UPDATE after the client and the engagement, `REQUEST_CLOSED` in `findTarget` (open: REQUESTED or REJECTED), the request set SUBMITTED in confirm's transaction and the `document_request.submitted` audit, with e2e tests for SUBMITTED and REQUEST_CLOSED.
 - Work in progress for it: the local branch `rasel/R5-documents-part2-wip` in the R1 checkout (part 1 plus the portal service, controller and e2e, not pushed), and the requests service in the saved patch `rasel_R5-documents-api.patch`.
 
+## Decisions (Rasel, Oct 8 evening: q22 to q24)
+
+- q22: keep both #91 defaults. A request whose newest file comes back `INFECTED` or `FAILED` goes back to `REQUESTED`, so the client uploads again for it, and the firm accepts only a `CLEAN` newest file (409 `SCAN_PENDING` while it is being checked). A `BLOCKED` file the firm shared shows "This file couldn't be checked. Ask your firm to share it again." (`PORTAL_BLOCKED_TEXT.FIRM`).
+- q23: Word and Excel files with active content other than macros are accepted: links to outside templates, objects or pictures, embedded OLE objects, ActiveX controls, altChunk imports and DDE fields. Only macro files stay refused (409 `FILE_HAS_MACROS`). The code already does this.
+- q24: password-protected PDFs are accepted unscanned: the firm can still download them and accept their requests. Confirm already stores them (it checks a PDF's magic bytes only). When the GuardDuty result handler is built, `UNSUPPORTED` with `PASSWORD_PROTECTED` on a PDF is not `FAILED`: the file becomes downloadable, the reason is audited, and the firm's document shows it was not scanned (a contract field added with the handler).
+
 ## Open (Rasel)
 
-- From the #75 review (the lead asked Rasel): how SPOUSE and AUTHORIZED portal logins use the document routes (and what "MINE" means for a household). The other questions (file types, replacements, a rescan path for FAILED scans, deletes, uploads to PENDING engagements) were answered on Oct 8, above.
-- From the Oct 8 review of `rasel/R5-file-types-contract`, written into the contract as defaults until Rasel says otherwise:
-  - A request whose newest file comes back `INFECTED` or `FAILED` goes back to `REQUESTED`, so the client can "upload again" for that request (answer 4); the firm accepts only a `CLEAN` newest file (409 `SCAN_PENDING` while it is being checked). The other way would be to let clients upload to a `SUBMITTED` request. Note: until GuardDuty is on dev, every new file stays `PENDING`, so on dev the firm can neither download nor accept.
-  - A `BLOCKED` file the firm shared (source `FIRM`) shows "This file couldn't be checked. Ask your firm to share it again." (`PORTAL_BLOCKED_TEXT.FIRM`): the client can't upload it again.
 - From the part 1 review (Oct 8), a default until Rasel says otherwise: an archived client takes no uploads (409 `NO_OPEN_SERVICE`; the documents contract has no `CLIENT_ARCHIVED`); its documents still list and download.
-- Open questions from the same review (until answered, the yaml says what launch does):
-  - Active content without macros: should confirm also refuse links to outside templates or objects (`TargetMode="External"` relationships other than hyperlinks; a remote template can bring macros back), embedded OLE objects and ActiveX controls? It means reading the `.rels` parts too, and it refuses some normal files (a .docx made from a company template links that template; workbooks link other workbooks). Launch checks macros only.
-  - PDFs that need a password to open: neither confirm nor the malware scan sees inside them, and GuardDuty may answer `PASSWORD_PROTECTED` (then the file is `FAILED`, and the client would upload the same file again and again). Refuse them at confirm with `FILE_PASSWORD_PROTECTED` (a PDF with only an owner password opens without one and stays), or accept them as a known risk? Payroll W-2 PDFs often come with a password. Launch checks a PDF's magic bytes only.
+- Answered since: the household logins (q12, Oct 8), the #91 defaults (q22), active content without macros (q23) and password-protected PDFs (q24); see the Decisions above.
 
 ## For the API steps (#75 review, Oct 7)
 
 The rules are in docs/api/documents.yaml, "Rules for the API":
-- a sealed, bound `uploadToken` (5 minutes);
+- a sealed, bound `uploadToken` (15 minutes);
 - signed `Content-Type`, `Content-Length`, checksum and SSE headers, with a unit test of the presigned URL, since s3mock doesn't check signatures;
 - confirm re-reads the object and deletes a mismatch;
 - the unique `s3_key` makes confirm single use;
@@ -109,7 +109,7 @@ The rules are in docs/api/documents.yaml, "Rules for the API":
 - the per-firm KMS key is pending (one bucket key today);
 - a lifecycle rule for unconfirmed objects;
 - (Oct 8) confirm's Excel and Word checks, in order: an OLE2/CFB file with an `EncryptedPackage` stream is `FILE_PASSWORD_PROTECTED` (a bounded directory walk); the ZIP central directory read in memory with caps (names without case, no duplicates, methods 0 and 8 only); `[Content_Types].xml` inflated with the cap counted on the output and parsed without DTDs; macros first (`vbaProject` or `vbaData` parts, macro-enabled content types, so a renamed .xlsm is `FILE_HAS_MACROS`), then the declared type's main part; never unpack to disk; every refusal deletes the object;
-- (Oct 8) GuardDuty's results come only through EventBridge and an SQS queue the API reads (no public route), matched by S3 key: `NO_THREATS_FOUND` is CLEAN, `THREATS_FOUND` INFECTED, `UNSUPPORTED` for a reason in the file itself FAILED (the reason audited); `UNSUPPORTED_STORAGE_CLASS`, `ACCESS_DENIED` or `FAILED` (our side) leaves it PENDING for the alarm and an on-demand rescan (`SendObjectMalwareScan` on the confirmed version); a request whose newest file ends INFECTED or FAILED is REQUESTED again.
+- (Oct 8) GuardDuty's results come only through EventBridge and an SQS queue the API reads (no public route), matched by S3 key: `NO_THREATS_FOUND` is CLEAN, `THREATS_FOUND` INFECTED, `UNSUPPORTED` for a reason in the file itself FAILED (the reason audited), except `PASSWORD_PROTECTED` on a PDF, which is accepted unscanned (q24); `UNSUPPORTED_STORAGE_CLASS`, `ACCESS_DENIED` or `FAILED` (our side) leaves it PENDING for the alarm and an on-demand rescan (`SendObjectMalwareScan` on the confirmed version); a request whose newest file ends INFECTED or FAILED is REQUESTED again.
 
 Infra for these needs Rasel's yes first.
 
@@ -123,6 +123,9 @@ Infra for these needs Rasel's yes first.
 - Until GuardDuty is deployed, new uploads on dev stay "checking" (`PENDING`).
 
 ## Needs from others
+
+- R0 or R4 (approve): a new firm gets the default document categories (Tax Documents, Business Documents, Identification). Today only `packages/db/prisma/seed.ts` creates them, so a firm made by approve, and LVP on dev, have none and every upload goes without a category (Rasel to choose who; a one-off for LVP on dev). From the cloud review of #118.
+- Rasel: `SCAN_MODE=local` on the dev API task (an app-stack line, after #101 adds `APP_ENV`). Until then every dev upload stays "checking" and dev downloads are blocked. The API already allows it only when `APP_ENV=dev`.
 
 - Infra (Rasel's yes, after #101 adds `APP_ENV` to the API task): an app-stack line that gives the dev API task `SCAN_MODE=local` until GuardDuty is deployed there.
 - R0 (CI, `.github/workflows/ci.yml`): an s3mock service like docker-compose.yml's, so `test/unit/documents.test.ts`'s S3 round trip runs in CI too (it is skipped when s3mock is not running; the e2e tests use an in-memory storage).
@@ -187,3 +190,4 @@ Infra for these needs Rasel's yes first.
   - a file with no end record was read from offset -1 (the first local header's bytes 9 to 20, the uploader's): the `eocd < 0` guard is back; unit test with a generated file whose first bytes read as an end record;
   - the presigned GET signs `response-content-encoding=identity` and `response-cache-control=private, no-store` (unit test on the URL);
   - a race test where confirm #2 holds the key lock with its insert not committed (stopped on the client's row lock) while #1 refuses: #1 waits, then 410, the file stays; it fails with the lock removed from `refuse` or from confirm's transaction.
+- 2026-10-08, #118 after the lead's review and the cloud Scrum thread's review (`7777573`, `a16f237`, and this push): every item of the lead's review with a proving test (search terms refuse `\p{Cc}` and lone surrogates; storage failures are 503 with Retry-After; HEAD asks for the checksum only for downloads; refusals take the key lock; at most 4 file checks at once; S3 timeouts and no S3 call inside a transaction; Content-Encoding refused at confirm and pinned to identity on downloads; `\p{Cs}` in file names; the nits; zip hardening); `SCAN_MODE=local` in production only when `APP_ENV=dev`; `.env.example` has `SCAN_MODE=local`. The cloud review: the upload token now lives 15 minutes (a slow PUT that starts near the URL's end no longer ends in 410 and an orphaned object), confirm looks back 30 minutes for refusals, and no S3 call runs inside the confirm transaction (so its 15-second limit holds). Rasel's q22 to q24 are written into the Decisions and the yaml.

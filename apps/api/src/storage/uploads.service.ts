@@ -38,10 +38,11 @@ export const CHECKS_AT_ONCE = 4;
 let checking = 0;
 
 /**
- * How far back confirm looks for an earlier refusal of its key: a ticket lives 5 minutes, so any
- * refusal of it is younger than that plus a confirm's own time. Generous on purpose.
+ * How far back confirm looks for an earlier refusal of its key: a ticket lives 15 minutes
+ * (UPLOAD_TOKEN_SECONDS), so any refusal of it is younger than that plus a confirm's own time.
+ * Generous on purpose.
  */
-const REFUSALS_SINCE_MS = 15 * 60_000;
+export const REFUSALS_SINCE_MS = 30 * 60_000;
 
 /** The part of an upload's key after tenant/{businessId}/documents/: an id, safe for the audit. */
 const uploadIdOf = (key: string) => key.slice(key.lastIndexOf('/') + 1);

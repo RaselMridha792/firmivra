@@ -183,7 +183,7 @@ export const UploadTicket = z.object({
    * Content-Length: the browser sets it from the file (also signed).
    */
   headers: z.record(z.string(), z.string()),
-  /** Start the PUT before this (4 minutes); confirm within 5 minutes of the ticket. */
+  /** Start the PUT before this (4 minutes); confirm within 15 minutes of the ticket. */
   expiresAt: DateTime,
 });
 export type UploadTicket = z.infer<typeof UploadTicket>;

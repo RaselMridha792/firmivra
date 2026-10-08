@@ -9,10 +9,13 @@ import { loadDocumentsConfig } from '../../src/storage/config.js';
 import {
   attachment,
   createS3Client,
+  PUT_URL_SECONDS,
   S3_TIMEOUTS,
   S3DocumentStorage,
 } from '../../src/storage/document-storage.js';
 import { checkFile } from '../../src/storage/file-checks.js';
+import { UPLOAD_TOKEN_SECONDS } from '../../src/storage/upload-token.js';
+import { REFUSALS_SINCE_MS } from '../../src/storage/uploads.service.js';
 import {
   cfb,
   contentTypes,
@@ -98,6 +101,23 @@ const storage = (endpoint = 'http://localhost:9090') =>
     BUCKET,
   );
 const key = () => `tenant/${randomUUID()}/documents/${randomUUID()}`;
+
+describe('how long an upload lasts', () => {
+  /** The browser's PUT timeout in apps/web/src/lib/upload.ts (PUT_TIMEOUT_MS). */
+  const BROWSER_PUT_TIMEOUT_SECONDS = 10 * 60;
+
+  it('the token outlives a slow 10 MB PUT that starts just before its URL expires', () => {
+    // A PUT may start at the last second of its URL and run until the browser gives up; the
+    // confirm after it must still find a live token (else 410 and an orphaned object).
+    expect(UPLOAD_TOKEN_SECONDS).toBeGreaterThanOrEqual(
+      PUT_URL_SECONDS + BROWSER_PUT_TIMEOUT_SECONDS,
+    );
+  });
+
+  it('confirm looks back for refusals longer than a token lives', () => {
+    expect(REFUSALS_SINCE_MS).toBeGreaterThan(UPLOAD_TOKEN_SECONDS * 1000);
+  });
+});
 
 describe('presigned URLs', () => {
   it('signs a PUT for exactly the content type, length and checksum, for 4 minutes', async () => {
