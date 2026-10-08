@@ -79,7 +79,7 @@ Checklist:
 - [x] The thank-you page says what happens next
 - [x] EIN masked on the review step
 
-**Status (Oct 8, 2026):** N04 implementation is prepared on local branch `tumit/FIR-N04-apply-form`, synced with `main` through `c45fc7a`. It uses R4's submit/list/count functions, masks the EIN on review, prevents repeat submission while pending, and shows the application receipt and firm-status/search/paging states. The branch has not been pushed or opened as a PR; publication follows the F04b review/merge order.
+**Status (Oct 8, 2026):** N04 implementation is prepared on local branch `tumit/FIR-N04-apply-form`, synced with `main` through `c45fc7a`. It uses R4's submit/list/count functions, masks the EIN on review, prevents repeat submission while pending, and shows the application receipt and firm-status/search/paging states. The branch has not been pushed or opened as a PR; the normal SSH push was blocked because this environment cannot connect to GitHub on port 22. Publish after restoring network access and following the F04b review/merge order.
 
 **Verification (Oct 8):** Web typecheck, ESLint and a production webpack build pass. Both mock Playwright cases reported `ok`, including submit/EIN masking and the 375 px firms flow; Windows server teardown hangs, so the runner was interrupted and exits 1. Default Turbopack rejects this isolated worktree's `apps/web/node_modules` junction to the F04b sibling. A temporary local-only Turbopack root covering both worktrees allowed the mock run; it was reverted, and no config change remains. These checks were run on the current `c45fc7a` main base.
 
