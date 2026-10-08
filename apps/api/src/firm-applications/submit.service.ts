@@ -11,7 +11,10 @@ import type { SubmitFirmApplicationRequest, SubmitFirmApplicationResponse } from
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { canonicalIp, networkOf } from '../client-auth/network.js';
+import { atLeast } from '../client-auth/sign-up.service.js';
 import { requestContext } from '../common/request-context.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { EIN_HASH_KEY, type EinHashKey, einHash, emailHasher } from './ein-hash.js';
@@ -42,6 +45,11 @@ export const SUBMIT_LIMITS = {
   emailAlertPerDay: 20,
   receivedEmailGapMs: 24 * 60 * 60_000,
 };
+/**
+ * In AWS every answer takes at least this long, as R3's sign-up does: a dropped honeypot, a repeat
+ * and a real submit can't be told apart by time. Local and test runs don't wait.
+ */
+export const SUBMIT_MIN_RESPONSE_MS = 1_000;
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 const ATTEMPT = 'firm_application.submit_attempt';
@@ -110,17 +118,25 @@ function storedForm(body: Body): StoredApplication {
 export class FirmApplicationSubmitService {
   private readonly logger = new Logger(FirmApplicationSubmitService.name);
   private readonly keys: { ein: Buffer; email: (email: string) => string } | { problem: string };
+  private readonly minResponseMs: number;
 
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(EIN_HASH_KEY) einKey: EinHashKey,
+    @Inject(ENV) env: Env,
   ) {
     this.keys = einKey.ok ? { ein: einKey.key, email: emailHasher(einKey.key) } : einKey;
+    this.minResponseMs = env.AUTH_MODE === 'cognito' ? SUBMIT_MIN_RESPONSE_MS : 0;
   }
 
-  async submit(body: Body): Promise<SubmitFirmApplicationResponse> {
+  /** Every answer, a 429 or 503 included, takes at least SUBMIT_MIN_RESPONSE_MS in AWS. */
+  submit(body: Body): Promise<SubmitFirmApplicationResponse> {
+    return atLeast(this.minResponseMs, () => this.receive(body));
+  }
+
+  private async receive(body: Body): Promise<SubmitFirmApplicationResponse> {
     // Fails closed: without the key no EIN could be hashed, so nothing is taken. The warning
     // names the setting, never a value.
     if ('problem' in this.keys) {
