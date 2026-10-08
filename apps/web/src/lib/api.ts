@@ -11,10 +11,12 @@ import {
   createDocumentsClient,
   createEngagementsClient,
   createFirmApplicationsClient,
+  createInvoicesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyInvoicesClient,
   createMyProfileClient,
   createMyReportsClient,
   createMyServicesClient,
@@ -39,6 +41,7 @@ import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
+import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createMeMock } from '../mocks/me';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
@@ -157,4 +160,14 @@ export const api = {
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /** Invoices (R7): the firm's invoices with lines; create, send, cancel (docs/api/invoices.yaml). */
+  invoices:
+    dev && mocked('invoices')
+      ? createInvoicesMock({ role: MOCK_ROLE })
+      : createInvoicesClient(request),
+  /** Invoices (R7): the signed-in client's invoices and Pay Now (Stripe checkout), per firm (portal). */
+  myInvoices: (firmSlug: string) =>
+    dev && mocked('myInvoices')
+      ? myInvoicesMock(firmSlug)
+      : createMyInvoicesClient(request, firmSlug),
 };

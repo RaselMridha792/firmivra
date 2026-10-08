@@ -1,0 +1,483 @@
+openapi: 3.1.0
+info:
+  title: Firmivra invoices and payments API
+  version: 0.1.0
+  description: |
+    Invoices, card and bank payments through Stripe, and refunds: the firm's Invoices page and
+    client record > Invoices tab (Fahad, F10), and the portal's Receipts & Invoices tab with Pay
+    Now (Nahid, N09).
+
+    **Source of truth:** the zod schemas in `packages/types/src/payments/schemas.ts`, with typed
+    calls in `createInvoicesClient` (web: `api.invoices`) and `createMyInvoicesClient` (web:
+    `api.myInvoices(slug)`), and the helpers `myInvoiceStatus()`, `invoiceTotals()` and
+    `INVOICE_ERRORS` there. Mock mode: `apps/web/src/mocks/invoices.ts`
+    (`NEXT_PUBLIC_API_MOCK=invoices,myInvoices`). If this file and the zod schemas differ, the zod
+    schemas win.
+
+    ## Rules
+
+    - **Money** is whole cents (integers) with a lower-case ISO currency (`usd`); never a float.
+      The database keeps every amount: a line is quantity x unit amount rounded to cents, the
+      subtotal is the sum of the lines, the total is the subtotal less the discount. Requests never
+      carry those (a `totalCents` or `amountCents` on a line is `400`); `invoiceTotals()` previews
+      them on the form. One invoice: at most 50 lines and $999,999.99.
+    - **Lifecycle** (the database's): a new invoice is a `DRAFT`. `send` makes it `OPEN` (issued
+      now), or `SCHEDULED` when its `scheduledFor` is after today in the firm's time zone; a daily
+      job opens it on that day. `DRAFT`, `SCHEDULED` and `OPEN` can be canceled (with a reason the
+      client never sees). `PAID` and `CANCELED` are final. Nothing is ever deleted. Only a `DRAFT`
+      is edited (`PUT`, the whole draft again, lines included); its client never changes.
+    - **Paid only by Stripe.** An invoice is `PAID` only once a verified Stripe webhook confirmed
+      payments covering its total. Pay Now sends no amount and marks nothing paid: the API starts
+      a Stripe Checkout for what the database says is due and answers its link. The browser never
+      sends an amount, a status or a Stripe key, and no card or bank detail ever reaches our API.
+    - **What the client sees** (`myInvoiceStatus()`, the same in the API and the mock):
+      `SCHEDULED` is Upcoming; `OPEN` is Due Soon within 7 days of its due date or once past it,
+      otherwise Pending; Paid; Canceled. Drafts never reach the portal, nor does an invoice
+      canceled before it was issued (it was never a bill). "Today" is the firm's calendar date.
+      The view filter (All, Due, Paid, Upcoming, Canceled), the status filter and the search work
+      together on one list; `section` gives the Current or Past table.
+    - **Pay Now** shows when `canPay`: open, something left to pay, no payment processing and the
+      firm takes online payments (`paymentsEnabled`). After `pay`, send the browser to the link
+      (`window.location.assign(url)`); a `mock:` link (mock mode) opens nothing. Stripe sends the
+      client back to `/{firmSlug}/invoices?checkout=success|canceled&invoice={id}` (parse it with
+      `CheckoutReturn`). Success is not Paid yet: refetch; the invoice shows Processing
+      (`paymentProcessing`, a bank debit can take days) or Paid once the webhook arrives. A failed
+      payment leaves the invoice open with Pay Now again.
+    - **Refunds** (firm, Owner and Admin): part or all of a `SUCCEEDED` payment, up to its
+      `refundableCents`, through Stripe. The refund is `PENDING` until Stripe's webhook confirms
+      it; refunds the firm makes in its own Stripe dashboard show up the same way. The invoice
+      stays `PAID`; a payment refunded in full becomes `REFUNDED` (set by the database). The
+      portal has no refund controls; it shows `refundedCents` per payment.
+    - **Who may do what.** Owner and Admin: every invoice of the firm, every change and refunds.
+      Staff: read only the invoices of clients assigned to them (any other invoice or client is
+      `404`, as in R10's clients); every change is `403 FORBIDDEN`. Portal: the signed-in
+      client's own invoices at that firm, for every login of that client (primary or household,
+      who may all pay); anything else is `404`.
+    - **Errors in order** (the order the API checks them): `415 UNSUPPORTED_MEDIA_TYPE` and
+      `403 ORIGIN_NOT_ALLOWED` (changes not sent as JSON from the site's own pages), both before
+      sign-in; `401 UNAUTHENTICATED`; the tenant guard: `400 BUSINESS_REQUIRED` (firm site, no
+      `x-business-id` for someone in several firms) and `404 NOT_FOUND` (no such firm, or no
+      place in it); `403 BUSINESS_INACTIVE` or `BUSINESS_SETUP_REQUIRED` (firm site), only after
+      the place in the firm is checked; `403 FORBIDDEN` (Staff on a change; the role guard runs
+      before the body is read); `400 VALIDATION_FAILED` (bad id, query or body); `404 NOT_FOUND`
+      (not the firm's or not the client's own; a client, service or payment that isn't this
+      invoice's); `409` (`InvoiceErrorCode`, below); `503 PAYMENT_PROVIDER_UNAVAILABLE` (Stripe
+      did not answer; nothing was charged or refunded).
+    - **Error words.** `INVOICE_ERRORS` has what users see for every code of this module:
+      `errorMessage(error, INVOICE_ERRORS)`.
+    - Every change comes from the browser (see "Calling the API from the web app" in auth.yaml),
+      except Stripe's webhook.
+
+    | 409 code | When |
+    | --- | --- |
+    | `NOT_DRAFT` | update or send of an invoice that is not a draft |
+    | `ZERO_TOTAL` | send of a draft with nothing to pay (cancel it instead) |
+    | `DUE_DATE_PASSED` | send that would open it today with a due date before today |
+    | `INVOICE_CLOSED` | cancel of a paid or canceled invoice |
+    | `CLIENT_ARCHIVED` | create, update or send for an archived client |
+    | `PAYMENT_IN_PROGRESS` | cancel, or Pay Now, while a submitted payment waits for Stripe |
+    | `NOT_PAYABLE` | Pay Now on an invoice that is upcoming, paid, canceled or has nothing left to pay |
+    | `PAYMENTS_NOT_SET_UP` | Pay Now while the firm's Stripe account cannot take charges |
+    | `NOT_REFUNDABLE` | refund of a payment that is not `SUCCEEDED` (pending, failed, refunded in full) |
+    | `REFUND_TOO_LARGE` | refund of more than the payment's `refundableCents` |
+
+    ## Rules for the API (R7 steps 3 to 5, and 7)
+
+    - **Scope.** Firm routes use `TenantPrisma.db` (business scope from the host and the verified
+      membership) and filter Staff by `clients.assigned_user_id`. Portal routes take the client
+      from the session's `ClientAccount`, never from the URL, and filter every query by it.
+      `businessId` never comes from a body or query. Tenant-isolation e2e: firm B's Owner gets
+      `404` for firm A's invoice (get, update, send, cancel, refund); a client of firm A gets
+      `404` for another client's invoice and at firm B's portal; Staff get `404` for a client not
+      assigned to them.
+    - **Create and update.** Insert the invoice as an empty `DRAFT`, then its lines with
+      `sort_order` in the order sent; the database computes the amounts and refuses the rest.
+      Update replaces the lines in one transaction (delete and insert; lines can be deleted only
+      while the invoice is a draft). Numbers: `INV-{year}-{4 digits}`, the next in the firm,
+      unique per firm (retry once on the unique violation). `engagementId` must be one of this
+      client's engagements (`404` otherwise; the three-column foreign key also refuses another
+      client's). The discount is checked against the subtotal before writing (`400`; the
+      database's `invoices_amounts` check is the backstop).
+    - **Send.** `scheduledFor` after the firm's today: `SCHEDULED`; otherwise `OPEN` with
+      `issued_at = now()` and `scheduled_for` cleared. A job inside the API (Postgres advisory
+      lock, as R6's reminder jobs) opens `SCHEDULED` invoices whose day has come, each in its
+      firm's time zone. Opening sends `invoice.sent` to the client (bell and email through R6's
+      helper: the invoice number and due date, never an amount in an SMS).
+    - **Cancel.** Expire the invoice's open Checkout Sessions at Stripe first (`sessions.expire`);
+      refuse with `409 PAYMENT_IN_PROGRESS` while a payment is processing (its checkout completed
+      and Stripe's result is pending).
+    - **Pay Now (checkout).** In one transaction, lock the invoice row, check it is `OPEN` with a
+      balance and no processing payment, and that the firm's `stripe_accounts` row has
+      `charges_enabled` (else `PAYMENTS_NOT_SET_UP`). If an open Checkout Session for this
+      invoice and the same amount exists, answer its URL again (one open checkout per invoice).
+      Otherwise create a Checkout Session on the firm's connected account (Stripe Connect, the
+      `Stripe-Account` header): mode `payment`, one line with the invoice number and the balance
+      due from the database, the invoice's currency, `client_reference_id` and metadata with the
+      invoice id and payment id (never the firm id from a request), `payment_intent_data.metadata`
+      the same, `expires_at` 30 minutes, an idempotency key of the payment id, and success and
+      cancel URLs built from `PORTAL_BASE_URL` and the firm's slug. Insert the `PENDING`
+      `payments` row with the session id (`cs_...`) as `processor_ref` and the firm's `account_id`.
+      Answer `{ url, expiresAt }`. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
+      inserted. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) come from the environment
+      (Secrets Manager on AWS), never from code.
+    - **Payments in answers.** A `PENDING` payment is listed (and `paymentProcessing` is true)
+      only once its checkout completed and Stripe's result is pending (a bank debit). A checkout
+      that is open, or expired unpaid, is not listed. `failureCode` goes to the firm only.
+    - **Webhook** (`POST /api/v1/webhooks/stripe`, below): no session, no cross-site guard, the
+      raw body for the signature check (`stripe.webhooks.constructEvent` with the Connect
+      endpoint's secret; a bad or old signature is `400` and nothing is recorded). Find the firm
+      from `event.account` in platform scope (`stripe_accounts`), then open that firm's business
+      scope; an unknown account is acknowledged (`200`) and ignored. Insert `payment_events`
+      first (the unique event id makes a duplicate delivery a no-op answered `200`); only the
+      type is kept, never the payload. Then, in the same transaction:
+      - `checkout.session.completed` with `payment_status: paid`, or `payment_intent.succeeded`:
+        link the event, set the payment `SUCCEEDED` with `paid_at`, then the invoice `PAID` once
+        `SUCCEEDED` payments cover its total. The amount is Stripe's `amount_total`, checked
+        against the payment row; a mismatch is logged and alarmed, never trusted.
+      - `checkout.session.completed` with `payment_status: unpaid` (a bank debit): record it; the
+        payment stays `PENDING` and shows as processing.
+      - `checkout.session.async_payment_failed` or `payment_intent.payment_failed`: `FAILED` with
+        Stripe's short `failure_code`; the invoice stays open.
+      - `checkout.session.expired`: `FAILED` with `checkout_expired`, not listed to anyone.
+      - `charge.refunded`: one `payment_refunds` row per refund in it (Stripe's `re_` id, amount,
+        the payment's account), `SUCCEEDED` with this event; a row Firmivra inserted `PENDING`
+        is confirmed. The database sets the payment `REFUNDED` when they cover it.
+      - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED`.
+      - `account.updated`: update the firm's `stripe_accounts` row in platform scope.
+      Mark the event `processed_at` and answer `200` quickly; anything else is `200` and ignored.
+      A payment of an invoice canceled meanwhile is still recorded (the money was taken); the
+      firm refunds it.
+    - **Refund.** Lock the payment row; check `SUCCEEDED` and `refundableCents`; call Stripe's
+      `refunds.create` on the connected account with the payment intent, the amount and
+      `Idempotency-Key: {businessId}:{idempotencyKey}`; insert the `PENDING` `payment_refunds` row
+      with the `re_` id. The same key again answers the same refund (no second row). Stripe
+      errors: `503`, nothing inserted.
+    - **Notifications** (R6's helper): `invoice.sent` to the client when an invoice opens;
+      `payment.received` to the client and the firm when a payment succeeds. No amounts or card
+      details in SMS; emails name the invoice number.
+    - **Audit** (`AuditService.log`, ids and amounts only, never card or bank data):
+      `invoice.created`, `invoice.updated`, `invoice.sent` (or `invoice.scheduled`),
+      `invoice.opened` (by the job), `invoice.canceled`, `invoice.checkout_started` (the client's
+      user, invoice, payment and amount), `payment.succeeded`, `payment.failed`,
+      `invoice.paid`, `payment.refund_requested` (who, payment, amount), `payment.refunded`,
+      `payment.refund_failed`. Webhook entries name Stripe as the actor. Reads are not audited.
+    - **Cursors** are opaque (the sort keys of the last item); a cursor the API did not make is
+      `400 VALIDATION_FAILED`.
+
+    ## Pages and calls
+
+    | Page | Calls |
+    | --- | --- |
+    | Firm: Invoices (`/invoices`) | `GET business/invoices` (status, search, paged), then the actions below |
+    | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds` |
+    | Portal: Receipts & Invoices (`/{firm}/invoices`) | `GET me/invoices` (`section=CURRENT` and `PAST`, view, status, search), `GET me/invoices/{id}` (View), `POST me/invoices/{id}/checkout` (Pay Now) |
+    | Portal: Make a Payment, Home's Payments card | `GET me/invoices?view=DUE`, then Pay Now on the chosen invoice (`canPay`) |
+servers:
+  - url: /api/v1
+    description: Same host as the site.
+
+tags:
+  - name: firm
+    description: Firm site (Owner and Admin; Staff read their clients' invoices).
+  - name: portal
+    description: The signed-in client, on their firm's portal.
+  - name: webhook
+    description: Stripe only. Not called by the web app.
+
+paths:
+  /business/invoices:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [firm]
+      operationId: listInvoices
+      summary: The firm's invoices, newest first, and whether clients can pay online
+      parameters:
+        - { name: clientId, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/InvoiceStatus' } }
+        - name: search
+          in: query
+          description: The invoice number or the client's name
+          schema: { type: string, maxLength: 100 }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: 'InvoiceList (items, nextCursor, paymentsEnabled)' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [firm]
+      operationId: createInvoice
+      summary: A new DRAFT for one of the firm's clients, numbered by the API (Owner and Admin)
+      requestBody: { $ref: '#/components/requestBodies/CreateInvoiceRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /business/invoices/{id}:
+    parameters:
+      - { $ref: './auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/Id' }
+    get:
+      tags: [firm]
+      operationId: getInvoice
+      summary: Lines, totals, payments and refunds
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [firm]
+      operationId: updateInvoice
+      summary: Replaces the whole draft, lines included (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED
+      requestBody: { $ref: '#/components/requestBodies/UpdateInvoiceRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /business/invoices/{id}/send:
+    parameters:
+      - { $ref: './auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/Id' }
+    post:
+      tags: [firm]
+      operationId: sendInvoice
+      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, ZERO_TOTAL, DUE_DATE_PASSED, CLIENT_ARCHIVED
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /business/invoices/{id}/cancel:
+    parameters:
+      - { $ref: './auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/Id' }
+    post:
+      tags: [firm]
+      operationId: cancelInvoice
+      summary: Draft, scheduled or open, with the firm's reason (Owner and Admin). 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CancelInvoiceRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /business/invoices/{id}/payments/{paymentId}/refunds:
+    parameters:
+      - { $ref: './auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/Id' }
+      - { name: paymentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [firm]
+      operationId: refundPayment
+      summary: Refunds part or all of a SUCCEEDED payment through Stripe; PENDING until confirmed (Owner and Admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RefundPaymentRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`NOT_REFUNDABLE` or `REFUND_TOO_LARGE`' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+
+  /portal/{firmSlug}/me/invoices:
+    get:
+      tags: [portal]
+      operationId: listMyInvoices
+      summary: The client's invoices at this firm (never drafts), with whether the firm takes online payments
+      parameters:
+        - { $ref: '#/components/parameters/FirmSlug' }
+        - name: view
+          in: query
+          schema: { type: string, enum: [ALL, DUE, PAID, UPCOMING, CANCELED], default: ALL }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/MyInvoiceStatus' } }
+        - name: search
+          in: query
+          description: The invoice number or the Service column
+          schema: { type: string, maxLength: 100 }
+        - name: section
+          in: query
+          description: 'CURRENT (soonest due first) or PAST (newest first); left out: both, CURRENT first'
+          schema: { type: string, enum: [CURRENT, PAST] }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: 'MyInvoiceList (items, nextCursor, paymentsEnabled)' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /portal/{firmSlug}/me/invoices/{id}:
+    get:
+      tags: [portal]
+      operationId: getMyInvoice
+      summary: View, with lines, totals and the payment history
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }, { $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: MyInvoiceDetail }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /portal/{firmSlug}/me/invoices/{id}/checkout:
+    post:
+      tags: [portal]
+      operationId: payMyInvoice
+      summary: Pay Now. A Stripe Checkout link for what is due; marks nothing paid. The body is empty (an amount is 400)
+      parameters: [{ $ref: '#/components/parameters/FirmSlug' }, { $ref: '#/components/parameters/Id' }]
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200':
+          description: Where to send the browser, until expiresAt
+          content: { application/json: { schema: { $ref: '#/components/schemas/CheckoutLink' } } }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`NOT_PAYABLE`, `PAYMENT_IN_PROGRESS` or `PAYMENTS_NOT_SET_UP`, in that order' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+
+  /webhooks/stripe:
+    post:
+      tags: [webhook]
+      operationId: stripeWebhook
+      summary: Stripe's events (Connect endpoint). Signature checked on the raw body; each event id processed once
+      parameters:
+        - { name: stripe-signature, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, description: "Stripe's event; only its type is kept" } } }
+      responses:
+        '200': { description: 'Recorded and processed, a duplicate, or an event we ignore' }
+        '400': { description: 'A missing, bad or old signature; nothing recorded' }
+
+components:
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    FirmSlug:
+      name: firmSlug
+      in: path
+      required: true
+      description: The firm's portal slug, for example `lvp`.
+      schema: { type: string }
+    Cursor:
+      name: cursor
+      in: query
+      description: The `nextCursor` of the page before.
+      schema: { type: string, maxLength: 200 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+  requestBodies:
+    Empty:
+      required: true
+      content: { application/json: { schema: { type: object, additionalProperties: false } } }
+    CreateInvoiceRequest:
+      required: true
+      content: { application/json: { schema: { $ref: '#/components/schemas/CreateInvoiceRequest' } } }
+    UpdateInvoiceRequest:
+      required: true
+      content: { application/json: { schema: { $ref: '#/components/schemas/UpdateInvoiceRequest' } } }
+  responses:
+    Invoice:
+      description: The invoice, as GET answers it (lines, totals, payments with their refunds)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Invoice' } } }
+    Unauthenticated:
+      description: '`UNAUTHENTICATED`: not signed in'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Forbidden:
+      description: '`FORBIDDEN` (Staff on a change), `BUSINESS_INACTIVE`, `BUSINESS_SETUP_REQUIRED` (firm site) or `ORIGIN_NOT_ALLOWED` (changes)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    ValidationFailed:
+      description: '`VALIDATION_FAILED` (bad id, query or body) or `BUSINESS_REQUIRED` (firm site)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    NotFound:
+      description: '`NOT_FOUND`: no place in that firm, or not the firm''s or the client''s own record'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Conflict:
+      description: 'An `InvoiceErrorCode` (see the 409 table)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    ProviderUnavailable:
+      description: '`PAYMENT_PROVIDER_UNAVAILABLE`: Stripe did not answer; nothing was charged or refunded'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    UnsupportedMediaType:
+      description: '`UNSUPPORTED_MEDIA_TYPE`: the body is not JSON'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+  schemas:
+    # Shapes are the zod schemas of the same name in packages/types/src/payments/schemas.ts.
+    ApiError: { $ref: './auth.yaml#/components/schemas/ApiError' }
+    InvoiceStatus: { type: string, enum: [DRAFT, SCHEDULED, OPEN, PAID, CANCELED] }
+    MyInvoiceStatus: { type: string, enum: [PENDING, DUE_SOON, PAID, UPCOMING, CANCELED] }
+    Invoice: { type: object, description: 'zod Invoice (InvoiceListItem plus lines, amounts, payments with refunds, cancelReason, createdBy)' }
+    LineInput:
+      type: object
+      additionalProperties: false
+      required: [description, unitAmountCents]
+      properties:
+        description: { type: string, minLength: 1, maxLength: 200 }
+        quantity: { type: number, exclusiveMinimum: 0, maximum: 10000, multipleOf: 0.01, default: 1 }
+        unitAmountCents: { type: integer, minimum: 0, maximum: 99999999 }
+    DraftFields:
+      type: object
+      required: [lines, dueOn]
+      properties:
+        engagementId: { type: [string, 'null'], format: uuid, description: One of this client's services }
+        lines: { type: array, minItems: 1, maxItems: 50, items: { $ref: '#/components/schemas/LineInput' } }
+        discountCents: { type: integer, minimum: 0, default: 0, description: At most the subtotal }
+        dueOn: { type: string, format: date, description: On or after scheduledFor }
+        scheduledFor: { type: [string, 'null'], format: date, description: 'A later day: send schedules it (Upcoming)' }
+    CreateInvoiceRequest:
+      description: 'zod CreateInvoiceRequest: the draft fields and the client; no other field'
+      allOf:
+        - { $ref: '#/components/schemas/DraftFields' }
+        - type: object
+          required: [clientId]
+          properties: { clientId: { type: string, format: uuid } }
+    UpdateInvoiceRequest:
+      description: 'zod UpdateInvoiceRequest: the draft fields only (the client never changes)'
+      allOf: [{ $ref: '#/components/schemas/DraftFields' }]
+    CancelInvoiceRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500, description: The firm's only; never shown to the client }
+    RefundPaymentRequest:
+      type: object
+      additionalProperties: false
+      required: [amountCents, idempotencyKey]
+      properties:
+        amountCents: { type: integer, minimum: 1, maximum: 99999999, description: "At most the payment's refundableCents" }
+        idempotencyKey: { type: string, format: uuid, description: 'New per refund dialog, the same on a retry' }
+    CheckoutLink:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url: { type: string, description: "Stripe's hosted checkout (https), or a mock: link in mock mode" }
+        expiresAt: { type: string, format: date-time }
