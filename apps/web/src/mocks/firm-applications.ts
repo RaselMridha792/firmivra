@@ -228,13 +228,12 @@ export function firmApplicationFixtures(): readonly Row[] {
         contactPhone: null,
       }),
     ),
-    // Like LVP's seeded application: approved, its form can't be read, and its id was written by
-    // hand (not an RFC 9562 id; the API takes any id its uuid column holds). Its firm is still in
+    // Like LVP's seeded application: approved, and its form can't be read. Its firm is still in
     // setup, so the firms list has neither its owner nor its plan, and the activation link expired.
     unreadable(
       fixture({
         n: 8,
-        id: '00000000-0000-4000-5000-000000000008',
+        id: '00000000-0000-4005-8000-000000000008',
         name: 'Sample Older Tax Group',
         contact: 'Quinn Sample',
         email: 'quinn@sample-older.example.test',

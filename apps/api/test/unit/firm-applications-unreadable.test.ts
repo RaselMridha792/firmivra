@@ -38,6 +38,8 @@ const row: FirmApplication = {
   reviewedByUserId: null,
   reviewedAt: new Date('2026-10-02T12:00:00Z'),
   businessId: summary.id,
+  einLast4: null,
+  einHash: null,
   createdAt: new Date('2026-10-01T12:00:00Z'),
   updatedAt: new Date('2026-10-02T12:00:00Z'),
 };
@@ -168,11 +170,11 @@ describe("FirmApplicationsService: an older stored form with the EIN's last 4 in
     expect(parsed).toEqual(form);
   });
 
-  it("never shows them: the record's einLast4 waits for R0's ein_last4 column", async () => {
-    db.firmApplication.findUnique.mockResolvedValueOnce({ ...row, data: older });
+  it("never shows them: the record's einLast4 comes from the ein_last4 column only", async () => {
+    db.firmApplication.findUnique.mockResolvedValueOnce({ ...row, data: older, einLast4: '4567' });
     const record = await service.get(row.id);
     expect(record.formReadable).toBe(true);
-    expect(record.business).toEqual({ ...form.business, einLast4: null });
+    expect(record.business).toEqual({ ...form.business, einLast4: '4567' });
     expect(JSON.stringify(record)).not.toContain('7316');
     expect(warn).not.toHaveBeenCalled();
   });

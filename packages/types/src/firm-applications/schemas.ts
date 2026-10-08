@@ -254,11 +254,10 @@ export type SubmitFirmApplicationResponse = z.infer<typeof SubmitFirmApplication
 // ---------- Review (Super Admin) ----------
 /**
  * An application's id, in a response or a path (anything else in a path gets 400
- * VALIDATION_FAILED). Any id the database's uuid column holds: `z.uuid()` would also want the
- * version and variant digits of RFC 9562, which an id written by hand may not have (LVP's seeded
- * application, `00000000-0000-4000-5000-…`). Such an application still lists and opens.
+ * VALIDATION_FAILED). Seeded ids are RFC 9562 too since R0's #89 (LVP's application is
+ * `00000000-0000-4005-8000-000000000001`).
  */
-export const FirmApplicationId = z.guid();
+export const FirmApplicationId = z.uuid();
 /** A firm (business) id in a path. */
 export const FirmId = z.uuid();
 
@@ -427,8 +426,7 @@ export const FirmApplicationRecord = z.object({
       entityType: EntityType,
       /**
        * The only part of the EIN the API keeps, from a column of its own (`ein_last4`), never from
-       * the stored form. Null without an EIN, and on every application until that column is on
-       * main (R0's #80).
+       * the stored form. Null when the application has no EIN.
        */
       einLast4: z
         .string()

@@ -518,9 +518,8 @@ export class FirmApplicationsService {
       contactEmail: row.contactEmail,
       contactPhone: row.contactPhone,
       formReadable: d !== null,
-      // The EIN's last 4 are never in the stored form. Null until R0's `ein_last4` column (#80) is
-      // on main; the column replaces this then.
-      business: d ? { ...d.business, einLast4: null } : null,
+      // The EIN's last 4 come only from their own column, never from the stored form.
+      business: d ? { ...d.business, einLast4: row.einLast4 } : null,
       primaryAdmin: d?.primaryAdmin ?? null,
       account: d?.account ?? null,
       credentials: d?.credentials ?? [],

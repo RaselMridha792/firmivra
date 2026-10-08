@@ -45,9 +45,8 @@ const firm = { id: randomUUID(), slug: `${tag}-approved-tax` };
 const odd = `r4odd${randomUUID().slice(0, 8)}`;
 const oddIds = {
   empty: randomUUID(),
-  // Written by hand like LVP's seeded id: the uuid column takes it, but its variant digit (5)
-  // isn't RFC 9562's.
-  legacy: `00000000-0000-4000-5000-${randomBytes(6).toString('hex')}`,
+  // Shaped like LVP's seeded id (RFC 9562 since R0's #89).
+  legacy: `00000000-0000-4005-8000-${randomBytes(6).toString('hex')}`,
   badWebsite: randomUUID(),
   freeMail: randomUUID(),
 };
@@ -136,6 +135,11 @@ beforeAll(async () => {
           contactEmail: email,
           contactPhone: data.primaryAdmin.phone,
           data,
+          // The EIN's last 4 and its keyed hash live in their own columns (R0's #80, set together),
+          // never in `data`. A synthetic hash: these tests don't compute it.
+          ...(id === ids.asked
+            ? { einLast4: '6789', einHash: new Uint8Array(randomBytes(32)) }
+            : {}),
         },
       });
     }
@@ -170,7 +174,7 @@ beforeAll(async () => {
     // The same email on the first two: the duplicate checks still run, from the columns.
     const shared = `${odd}.older@older.example.test`;
     await older(oddIds.empty, 5, shared, {}, '+14045550105');
-    // Like LVP's seeded application: an older shape, no phone column, and an id written by hand.
+    // Like LVP's seeded application: an older shape and no phone column.
     await older(oddIds.legacy, 6, shared, { businessType: 'Tax and accounting firm' }, null);
     const site = `${odd}.site@older.example.test`;
     await older(oddIds.badWebsite, 7, site, form(7, site, 'not a website'), '+14045550107');
@@ -393,8 +397,8 @@ describe('GET /admin/firm-applications/{id}', () => {
     const a = res.body as FirmApplicationRecord;
     expect(a.status).toBe('PENDING_REVIEW');
     expect(a.formReadable).toBe(true);
-    // Never from the stored form; R0's ein_last4 column (#80) fills it once it is on main.
-    expect(a.business?.einLast4).toBeNull();
+    // From the ein_last4 column only, never from the stored form.
+    expect(a.business?.einLast4).toBe('6789');
     expect(JSON.stringify(a)).not.toMatch(/"ein"/);
     expect(a.history.map((h) => [h.type, h.message, h.by?.userId ?? null])).toEqual([
       ['INFO_REQUESTED', 'Please send your PTIN.', fx.users.admin.id],
@@ -433,6 +437,8 @@ describe('GET /admin/firm-applications/{id}', () => {
 
   it('runs the checks: the email domain against the website, duplicates', async () => {
     const a = (await get(`/admin/firm-applications/${ids.pending}`)).body as FirmApplicationRecord;
+    // No EIN on this one: no last 4.
+    expect(a.business?.einLast4).toBeNull();
     expect(Object.fromEntries(a.checks.map((c) => [c.key, c.result]))).toEqual({
       DUPLICATE_EIN: 'SKIPPED',
       DUPLICATE_NAME: 'PASS',

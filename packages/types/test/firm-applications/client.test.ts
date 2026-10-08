@@ -400,10 +400,10 @@ describe('api.firmApplications: a stored form the API could not read', () => {
     });
   });
 
-  it('lists and opens one whose id was written by hand, like the seed, and its firm', async () => {
-    // LVP's seeded application: the database's uuid column takes it, RFC 9562 doesn't (variant 5).
-    const seeded = '00000000-0000-4000-5000-000000000001';
-    expect(z.uuid().safeParse(seeded).success).toBe(false);
+  it("lists and opens LVP's seeded application and its firm; ids are RFC 9562 only", async () => {
+    // The seed's id since R0's #89 (before it, the variant digit was 5).
+    const seeded = '00000000-0000-4005-8000-000000000001';
+    expect(z.uuid().safeParse(seeded).success).toBe(true);
     const answering = (body: unknown) => client(fakeFetch(200, body).fn);
     const listed = { items: [{ ...row, id: seeded }], total: 1, page: 1, pageSize: 20 };
     await expect(answering(listed).list()).resolves.toMatchObject({ items: [{ id: seeded }] });
@@ -416,8 +416,10 @@ describe('api.firmApplications: a stored form the API could not read', () => {
       application: { id: seeded },
     });
     for (const bad of [
-      '00000000-0000-4000-5000-00000000000g',
-      '00000000000040005000000000000001',
+      // The seed's old id: variant digit 5, not RFC 9562.
+      '00000000-0000-4000-5000-000000000001',
+      '00000000-0000-4005-8000-00000000000g',
+      '00000000000040058000000000000001',
     ]) {
       expect(FirmApplicationId.safeParse(bad).success, bad).toBe(false);
     }
