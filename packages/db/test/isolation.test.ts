@@ -723,7 +723,8 @@ describe('platform scope', () => {
     expect(await p.verificationCode.findMany()).toEqual([]);
     expect(await p.taxReturn.findMany()).toEqual([]);
     expect(await p.taxStatus.findMany()).toEqual([]);
-    expect(await p.invite.findMany()).toEqual([]);
+    // Only the activation links the platform sent itself, never a firm's own invites.
+    expect((await p.invite.findMany()).every((i) => i.sentByPlatform)).toBe(true);
     expect(await p.client.findMany()).toEqual([]);
     expect(await p.clientProfile.findMany()).toEqual([]);
     expect(await p.clientTaxStatus.findMany()).toEqual([]);
