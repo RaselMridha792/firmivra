@@ -59,6 +59,33 @@ describe('ApiExceptionFilter', () => {
     expect(plain.res.headers['Retry-After']).toBeUndefined();
   });
 
+  it("keeps the body parser's refusals: 413 for a body too large, 400 for one not JSON (#109 review)", () => {
+    const parserError = (status: number, type: string) =>
+      Object.assign(new Error('refused by the body parser'), {
+        status,
+        statusCode: status,
+        expose: true,
+        type,
+      });
+    const large = host();
+    new ApiExceptionFilter().catch(parserError(413, 'entity.too.large'), large.host);
+    expect(large.res.statusCode).toBe(413);
+    expect(large.res.body).toMatchObject({ error: { code: 'PAYLOAD_TOO_LARGE' } });
+    const broken = host();
+    new ApiExceptionFilter().catch(parserError(400, 'entity.parse.failed'), broken.host);
+    expect(broken.res.statusCode).toBe(400);
+    expect(broken.res.body).toMatchObject({ error: { code: 'BAD_REQUEST' } });
+    // Not exposed, or not a client error: still 500.
+    const hidden = host();
+    const spy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    new ApiExceptionFilter().catch(
+      Object.assign(new Error('internal'), { status: 500, expose: false }),
+      hidden.host,
+    );
+    spy.mockRestore();
+    expect(hidden.res.statusCode).toBe(500);
+  });
+
   it('still answers 500 for anything else', () => {
     const { res, host: h } = host();
     const spy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
