@@ -142,6 +142,9 @@ test('saves administrator-only notes and shows not-found for an unknown id', asy
 
   await page.goto(admin('/applications/00000000-0000-4000-8000-999999999999'));
   await expect(page.getByTestId('page-not-found')).toBeVisible();
+
+  await page.goto(admin('/applications/not-a-valid-id'));
+  await expect(page.getByTestId('page-not-found')).toBeVisible();
 });
 
 test('shows a clear no-permission state for a non-admin session', async ({ page }) => {

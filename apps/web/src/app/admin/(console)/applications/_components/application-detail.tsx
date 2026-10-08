@@ -7,6 +7,7 @@ import {
   FIRM_PLANS,
   FIRM_SERVICES,
   PRACTICE_TYPES,
+  FirmApplicationId,
   type FirmApplicationRecord,
 } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
@@ -421,7 +422,7 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
   );
 }
 
-export function ApplicationDetail({ id }: { id: string }) {
+function ApplicationDetailContent({ id }: { id: string }) {
   const { me } = useMe();
   const query = useApiQuery(applicationDetailKey(id), () => api.firmApplications.get(id));
   if (!me.platformAdmin) return <NoApplicationPermission />;
@@ -430,4 +431,17 @@ export function ApplicationDetail({ id }: { id: string }) {
       {(application) => <ApplicationRecord key={application.id} application={application} />}
     </ApplicationPageState>
   );
+}
+
+export function ApplicationDetail({ id }: { id: string }) {
+  if (!FirmApplicationId.safeParse(id).success) {
+    return (
+      <Card data-testid="page-not-found">
+        <p className="font-medium text-text">We couldn&apos;t find this.</p>
+        <p className="mt-1 text-sm text-muted">It may have been removed, or the link is wrong.</p>
+      </Card>
+    );
+  }
+
+  return <ApplicationDetailContent id={id} />;
 }

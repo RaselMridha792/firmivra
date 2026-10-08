@@ -61,7 +61,7 @@ Checklist:
 
 **Status (Oct 8, 2026):** Implemented on `tumit/FIR-F04b-applications`, synced through `main` (`3bd9025`), and opened as [PR #111](https://github.com/RaselMridha792/firmivra/pull/111). The typed R4 API drives the application list, detail, notes and review actions. Unreadable forms use stored applicant columns and safe placeholders.
 
-**Verification:** Shared types build, web typecheck, ESLint, production build and `git diff --check` pass. All 8 mock Playwright cases reported `ok`; Windows left the dev server running, so the runner was interrupted during teardown. The temporary pnpm shim was removed. Result screenshots still need attaching to the PR.
+**Verification:** Shared types build, web typecheck, ESLint, production build and `git diff --check` pass. All 8 mock Playwright cases reported `ok`; Windows left the dev server running, so the runner was interrupted during teardown. The temporary pnpm shim was removed. Rasel's pre-review follow-up is addressed: `page.tsx` no longer calls `notFound()`; `ApplicationDetail` handles malformed IDs in its client-side not-found state, with a mock E2E assertion. Result screenshots still need attaching to the PR.
 
 **GitHub status:** PR #111 is open on `tumit/FIR-F04b-applications`; Path guard passed on the previous head and CI is running for the latest push. Fahad and Rasel are requested reviewers. The branch diff is above the repository's approximate 400-line review target. Merge follows green CI and the required reviews.
 
