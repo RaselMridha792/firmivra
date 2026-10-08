@@ -10,6 +10,7 @@ import { useApiQuery } from '../../../../../lib/query';
 import { AppointmentDetail } from './appointment-detail';
 import { DayGrid, WeekGrid } from './calendar-grid';
 import { CalendarToolbar, type CalendarView } from './calendar-toolbar';
+import { NewAppointment } from './new-appointment';
 import { APPOINTMENTS, AVAILABILITY } from './shared';
 import { addDays, dayLabel, todayIn, toInstant, weekStart } from './time';
 
@@ -27,13 +28,20 @@ export function CalendarScreen() {
           <h1 data-testid="page-title" className="text-2xl font-semibold text-text">
             Calendar
           </h1>
-          <p className="text-sm text-muted">Appointments, in your firm&apos;s time zone.</p>
+          <p className="text-sm text-muted">Your firm&apos;s appointments by week or day.</p>
         </div>
         <Link href="/settings/availability" className="text-sm font-medium text-link">
           Working hours and blocked time
         </Link>
       </div>
-      <PageState query={availability}>{(data) => <Calendar availability={data} />}</PageState>
+      <PageState query={availability}>
+        {(data) => (
+          <>
+            <p className="text-sm text-muted">Times are in {data.timezone}.</p>
+            <Calendar availability={data} />
+          </>
+        )}
+      </PageState>
     </div>
   );
 }
@@ -45,6 +53,7 @@ function Calendar({ availability }: { availability: Availability }) {
   const [anchor, setAnchor] = useState(today);
   const [staff, setStaff] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const from = view === 'week' ? weekStart(anchor) : anchor;
   const days = view === 'week' ? 7 : 1;
   const appointments = useApiQuery([...APPOINTMENTS, from, days, staff], () =>
@@ -63,12 +72,14 @@ function Calendar({ availability }: { availability: Availability }) {
       <CalendarToolbar
         view={view}
         label={label}
+        atToday={from <= today && today < addDays(from, days)}
         staff={staff}
         members={availability.members}
         onView={setView}
         onMove={(step) => setAnchor(addDays(anchor, step * days))}
         onToday={() => setAnchor(today)}
         onStaff={setStaff}
+        onNew={() => setCreating(true)}
       />
       <PageState query={appointments}>
         {(items) =>
@@ -88,8 +99,20 @@ function Calendar({ availability }: { availability: Availability }) {
           )
         }
       </PageState>
+      <Modal open={creating} title="New appointment" onClose={() => setCreating(false)}>
+        {creating ? (
+          <NewAppointment
+            timeZone={timeZone}
+            members={availability.members}
+            date={anchor}
+            onDone={() => setCreating(false)}
+          />
+        ) : null}
+      </Modal>
       <Modal open={openId !== null} title="Appointment" onClose={() => setOpenId(null)}>
-        {openId ? <AppointmentDetail id={openId} timeZone={timeZone} /> : null}
+        {openId ? (
+          <AppointmentDetail id={openId} timeZone={timeZone} members={availability.members} />
+        ) : null}
       </Modal>
     </>
   );

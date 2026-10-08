@@ -10,21 +10,26 @@ export type CalendarView = 'day' | 'week';
 export function CalendarToolbar({
   view,
   label,
+  atToday,
   staff,
   members,
   onView,
   onMove,
   onToday,
   onStaff,
+  onNew,
 }: {
   view: CalendarView;
   label: string;
+  /** Today is already in view. */
+  atToday: boolean;
   staff: string;
   members: MemberAvailability[];
   onView: (view: CalendarView) => void;
   onMove: (step: -1 | 1) => void;
   onToday: () => void;
   onStaff: (userId: string) => void;
+  onNew: () => void;
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3 rounded-card border border-border bg-surface p-4">
@@ -32,7 +37,7 @@ export function CalendarToolbar({
         <Button variant="secondary" onClick={() => onMove(-1)} aria-label={`Previous ${view}`}>
           <ChevronLeft aria-hidden className="size-4" />
         </Button>
-        <Button variant="secondary" onClick={onToday}>
+        <Button variant="secondary" onClick={onToday} disabled={atToday}>
           Today
         </Button>
         <Button variant="secondary" onClick={() => onMove(1)} aria-label={`Next ${view}`}>
@@ -64,6 +69,7 @@ export function CalendarToolbar({
             ...members.map(({ member }) => ({ value: member.userId, label: member.name })),
           ]}
         />
+        <Button onClick={onNew}>New appointment</Button>
       </div>
     </div>
   );
