@@ -52,6 +52,11 @@ export function settingsFixture(): FirmSettings {
     portalHeader: null,
     welcomeMessage: null,
     clientSignUpEnabled: true,
+    entityType: 'LLC',
+    einLast4: null,
+    teamSize: 4,
+    services: ['TAX_PREPARATION', 'BOOKKEEPING'],
+    description: null,
     updatedAt: at,
   });
   return settingsCache;
@@ -84,9 +89,15 @@ const STEP_NAMES: Record<SetupStep, string> = {
  * An in-memory `api.settings` with the same functions, rules and errors as the API.
  * The firm starts in Pending Setup with no wizard step done; `setupDone: true` starts it Active.
  * `role: 'STAFF'` lets a screen try its no-permission state: every call gets 403 FORBIDDEN.
+ * `encryptionDown: true` answers a change with an EIN 503 ENCRYPTION_UNAVAILABLE, as the API does
+ * while the firm's key isn't ready.
  */
 export function createSettingsMock(
-  options: { role?: 'OWNER' | 'ADMIN' | 'STAFF'; setupDone?: boolean } = {},
+  options: {
+    role?: 'OWNER' | 'ADMIN' | 'STAFF';
+    setupDone?: boolean;
+    encryptionDown?: boolean;
+  } = {},
 ): SettingsClient {
   // State is replaced, never edited, and callers always get copies, like a real API response.
   const sample = settingsFixture();
@@ -102,7 +113,11 @@ export function createSettingsMock(
     : { completedSteps: [], completedAt: null };
   let documents: LegalDocument[] = legalFixtures().map((doc) => ({ ...doc }));
   const now = () => new Date().toISOString();
-  const copySettings = () => ({ ...settings, business: { ...settings.business } });
+  const copySettings = () => ({
+    ...settings,
+    business: { ...settings.business },
+    services: [...settings.services],
+  });
   const copySetup = () => ({ ...setup, completedSteps: [...setup.completedSteps] });
   const allowed = async () => {
     await pause();
@@ -118,10 +133,15 @@ export function createSettingsMock(
     },
     update: async (body) => {
       await allowed();
-      const patch = parseInput(UpdateFirmSettingsRequest, body);
+      const { ein, ...patch } = parseInput(UpdateFirmSettingsRequest, body);
+      if (ein && options.encryptionDown) {
+        throw fail(503, 'ENCRYPTION_UNAVAILABLE', 'The EIN cannot be saved right now');
+      }
       const changes = Object.fromEntries(
         Object.entries(patch).filter(([, value]) => value !== undefined),
       );
+      // The EIN is write-only: only its last 4 digits are kept, as in the API.
+      if (ein !== undefined) changes.einLast4 = ein === null ? null : ein.slice(-4);
       settings = { ...settings, ...changes, updatedAt: now() };
       return copySettings();
     },

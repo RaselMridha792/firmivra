@@ -98,6 +98,17 @@ describe('auth clients', () => {
     expect((calls[0]?.init.headers as Record<string, string>)['x-business-id']).toBe('b1');
   });
 
+  it('refuses an invite name the database would refuse, before sending', async () => {
+    const { fn, calls } = fakeFetch(201, {});
+    const auth = createStaffAuthClient({ baseUrl: '', businessId: 'b1', fetch: fn });
+    for (const name of ['x'.repeat(121), 'New\u0007Staff']) {
+      await expect(
+        auth.createInvite({ email: 'new@lvp.test', name, role: 'STAFF' }),
+      ).rejects.toThrow();
+    }
+    expect(calls).toHaveLength(0);
+  });
+
   it('turns auth errors into ApiRequestError with the code', async () => {
     const { fn } = fakeFetch(401, {
       error: { code: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect' },
