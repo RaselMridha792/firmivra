@@ -11,6 +11,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { Notifier } from '../notifications/notifier.js';
 import { changedFields, NO_DATE_OF_BIRTH, readDateOfBirth } from './client-secrets.js';
 
 type UpdateBody = z.output<typeof UpdateMyProfileRequest>;
@@ -29,6 +30,7 @@ const archived = () =>
   });
 
 const accountSelect = {
+  userId: true,
   portalRole: true,
   email: true,
   clientId: true,
@@ -65,6 +67,7 @@ export class MyProfileService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly fe: FieldEncryption,
+    private readonly notifier: Notifier,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -146,6 +149,7 @@ export class MyProfileService {
 
   /** The primary login edits phone, address and the additional information. */
   async update(businessId: string, clientAccountId: string, body: UpdateBody): Promise<MyProfile> {
+    let newLoginPhone: { userId: string; phone: string | null } | null = null;
     const mine = await this.inFirm(businessId, async (tx) => {
       const current = await this.mine(tx, businessId, clientAccountId, true);
       if (current.account.portalRole !== 'PRIMARY') throw primaryOnly();
@@ -156,6 +160,18 @@ export class MyProfileService {
           where: { businessId_id: { businessId, id: clientId } },
           data: { phone: body.phone },
         });
+        // R6: the PRIMARY login's own number follows (texts and the SMS switch read users.phone).
+        // A new or removed number is unverified and clears every SMS choice, in this transaction.
+        const { userId } = current.account;
+        const user = await tx.user.findFirst({ where: { id: userId }, select: { phone: true } });
+        if (user && user.phone !== body.phone) {
+          await tx.clientAccount.updateMany({
+            where: { businessId, id: clientAccountId, phoneVerifiedAt: { not: null } },
+            data: { phoneVerifiedAt: null },
+          });
+          await this.notifier.phoneChanged(businessId, userId, tx);
+          newLoginPhone = { userId, phone: body.phone };
+        }
       }
       const profile: Prisma.ClientProfileUncheckedUpdateInput = {};
       if (body.address) {
@@ -179,12 +195,24 @@ export class MyProfileService {
       }
       return this.mine(tx, businessId, clientAccountId);
     });
+    if (newLoginPhone) await this.moveLoginPhone(newLoginPhone);
     await this.audit.log(
       'portal.profile_updated',
       { type: 'client', id: mine.client.id },
       { fields: changedFields(body) },
     );
     return this.view(businessId, mine);
+  }
+
+  /**
+   * The login's number lives on its user (users.phone): written in the person's own scope, since
+   * users cannot change in a firm's scope, after the firm's change committed (its SMS choices are
+   * already off). A client login belongs to one firm only (client_accounts.user_id is unique), so
+   * no other firm holds SMS choices for it. If this step fails, the firm's record has the new
+   * number, the login keeps the old one, and no SMS choice is left on.
+   */
+  private async moveLoginPhone({ userId, phone }: { userId: string; phone: string | null }) {
+    await this.database.forUser(userId).user.update({ where: { id: userId }, data: { phone } });
   }
 
   /**
