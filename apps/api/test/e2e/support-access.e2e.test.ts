@@ -10,13 +10,19 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
+import { createPrismaClient, databaseErrorCode, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { AdminSupportAccess, AdminSupportAccessList, FirmSupportAccess } from '@firmivra/types';
+import {
+  AdminSupportAccess,
+  AdminSupportAccessList,
+  AuditLogPage,
+  FirmSupportAccess,
+} from '@firmivra/types';
 import { z } from 'zod';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { SupportScope } from '../../src/support-access/support-scope.js';
 
 // The contract drops unknown keys; these tests refuse them, so a leaked field (who asked) fails.
 const FirmView = z.strictObject(FirmSupportAccess.shape);
@@ -541,5 +547,101 @@ describe("the Super Admins' list", () => {
     expect([bad.status, codeOf(bad)]).toEqual([400, 'VALIDATION_FAILED']);
     const firmSession = await adminCall('get', '/support-access', people.ownerA);
     expect(firmSession.status).toBe(401);
+  });
+});
+
+describe('the first support view: GET /admin/firms/{businessId}/audit-log', () => {
+  const read = (businessId: string, who = people.super1, query = '') =>
+    adminCall('get', `/firms/${businessId}/audit-log${query}`, who);
+
+  /** support.viewed rows of one grant: the firm's (its id) or the platform's (null). */
+  const viewed = async (grantId: string, businessId: string | null) =>
+    (await auditOf(grantId, businessId)).filter(([action]) => action === 'support.viewed');
+
+  it('403 SUPPORT_GRANT_REQUIRED without the reader’s own active grant, and nothing logged', async () => {
+    // super1's request to firm A is still pending; firm B's only grant was revoked.
+    for (const path of [firms.a.id, firms.b.id, randomUUID()]) {
+      const res = await read(path);
+      expect([res.status, codeOf(res)], path).toEqual([403, 'SUPPORT_GRANT_REQUIRED']);
+    }
+    expect(await viewed(asked.super1A2.id, null)).toEqual([]);
+    const bad = await read('not-a-uuid');
+    expect(bad.status).toBe(400);
+  });
+
+  it("an approved grant reads the firm's log, read-only, logged in both logs as the view", async () => {
+    await answer(asked.super1A2.id, 'approve');
+    const res = await read(firms.a.id, people.super1, '?limit=100');
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const page = AuditLogPage.parse(res.body);
+    // The firm's own rows: the approval this test just made, by the firm's Owner.
+    expect(page.items.some((i) => i.action === 'support.approved')).toBe(true);
+    // Another Super Admin's grant is theirs alone; another firm needs its own grant.
+    expect((await read(firms.b.id)).status).toBe(403);
+    expect(await viewed(asked.super1A2.id, null)).toEqual([
+      ['support.viewed', people.super1.id, { businessId: firms.a.id, view: 'audit_log' }],
+    ]);
+    expect(await viewed(asked.super1A2.id, firms.a.id)).toEqual([
+      ['support.viewed', people.super1.id, { view: 'audit_log' }],
+    ]);
+    // The firm sees the view as Firmivra Support, never the person.
+    const own = await request(app.getHttpServer())
+      .get('/api/v1/business/audit-log?action=support.viewed')
+      .set('x-business-id', firms.a.id)
+      .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`);
+    expect(own.status).toBe(200);
+    const shown = AuditLogPage.parse(own.body).items;
+    expect(shown.length).toBeGreaterThan(0);
+    expect(JSON.stringify(shown)).not.toContain(people.super1.id);
+    expect(JSON.stringify(shown)).not.toContain('Fake R8 super1');
+
+    // Nothing in the firm can change inside a support read.
+    const scope = app.get(SupportScope);
+    await expect(
+      scope.read(
+        people.super1.id,
+        firms.a.id,
+        'audit_log',
+        (tx) => tx.$executeRaw`UPDATE businesses SET name = name WHERE id = ${firms.a.id}::uuid`,
+      ),
+    ).rejects.toSatisfy((e) => databaseErrorCode(e) === '25006');
+  });
+
+  it('a revoke waiting behind a support read, or a read behind a revoke, is a retryable 409', async () => {
+    const db = owner();
+    try {
+      // A support read holds the grant FOR NO KEY UPDATE; the Owner's revoke gives up after 2 s.
+      const reading = await hold(
+        db,
+        (tx) => tx.$queryRaw`
+          SELECT 1 FROM support_access_grants WHERE id = ${asked.super1A2.id}::uuid
+          FOR NO KEY UPDATE`,
+      );
+      const revoke = await firmCall('post', `/${asked.super1A2.id}/revoke`, people.ownerA, 'a', {});
+      await reading.release();
+      expect([revoke.status, codeOf(revoke)]).toEqual([409, 'CONFLICT']);
+      expect(revoke.headers['retry-after']).toBe('2');
+
+      // A revoke in progress holds the row; a support read gives up after R0's 2 s.
+      const revoking = await hold(
+        db,
+        (tx) => tx.$queryRaw`
+          SELECT 1 FROM support_access_grants WHERE id = ${asked.super1A2.id}::uuid FOR UPDATE`,
+      );
+      const res = await read(firms.a.id);
+      await revoking.release();
+      expect([res.status, codeOf(res)]).toEqual([409, 'CONFLICT']);
+    } finally {
+      await db.$disconnect();
+    }
+  });
+
+  it('ends with the grant: revoked or expired, the view is 403 again', async () => {
+    await answer(asked.super1A2.id, 'revoke');
+    expect([(await read(firms.a.id)).status]).toEqual([403]);
+    // super2's grant to firm A is active until it expires.
+    expect((await read(firms.a.id, people.super2)).status).toBe(200);
+    await expire(asked.super2A2.id);
+    expect((await read(firms.a.id, people.super2)).status).toBe(403);
   });
 });

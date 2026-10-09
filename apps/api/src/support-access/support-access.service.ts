@@ -19,6 +19,7 @@ import {
   statusOf,
   supportErrors,
 } from './grants.js';
+import { isLockTimeout, supportScopeErrors } from './support-scope.js';
 
 const HOUR = 60 * 60_000;
 type Firm = { id: string; name: string; slug: string };
@@ -157,9 +158,11 @@ export class SupportAccessService {
     decision: Decision,
     hours = 24,
   ): Promise<FirmSupportAccess> {
-    const { row, names, now } = await this.db.withScope(
-      { kind: 'business', businessId },
-      async (tx) => {
+    const { row, names, now } = await this.db
+      .withScope({ kind: 'business', businessId }, async (tx) => {
+        // A support read holds the grant (R0's app_enter_support_scope); a revoke waits for it
+        // at most this long, then the Owner tries again (409), never a held connection.
+        await tx.$executeRaw`SET LOCAL lock_timeout = '2s'`;
         const [current] = await tx.$queryRaw<(GrantRow & { dbNow: Date })[]>`
           SELECT ${GRANT_COLUMNS}, now() AS "dbNow" FROM support_access_grants g
           WHERE g.business_id = ${businessId}::uuid AND g.id = ${id}::uuid
@@ -196,8 +199,10 @@ export class SupportAccessService {
         );
         const approver = row.grantedByUserId ? [row.grantedByUserId] : [];
         return { row, names: await namesIn(tx, approver), now };
-      },
-    );
+      })
+      .catch((e: unknown) => {
+        throw isLockTimeout(e) ? supportScopeErrors.busy() : e;
+      });
     await this.platformCopy(
       DECIDED[decision],
       row.id,

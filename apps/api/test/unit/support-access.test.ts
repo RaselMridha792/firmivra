@@ -92,6 +92,7 @@ describe('the audit rows that follow an action are best effort', () => {
 
   it("an answer stands when the platform's copy fails: a warning with the grant id", async () => {
     const { service, audit, warn } = failingCopies({
+      $executeRaw: vi.fn().mockResolvedValue(0),
       $queryRaw: vi.fn().mockResolvedValue([{ ...pending, dbNow: new Date(now) }]),
       supportAccessGrant: {
         update: vi

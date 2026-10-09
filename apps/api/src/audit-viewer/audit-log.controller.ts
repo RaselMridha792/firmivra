@@ -1,9 +1,10 @@
-import { Controller, ForbiddenException, Get, Module, Query } from '@nestjs/common';
+import { Controller, Get, Module, Param, Query } from '@nestjs/common';
 import { AuditLogQuery, type AuditLogPage } from '@firmivra/types';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { SupportScope } from '../support-access/support-scope.js';
 import { AuditLogViewerService } from './audit-log.service.js';
 
 /**
@@ -27,23 +28,33 @@ export class AuditLogController {
 
 /**
  * GET /api/v1/admin/firms/{businessId}/audit-log: a Super Admin reads a firm's log only through
- * an approved support grant for that firm (R8). No grant check exists yet, so it always answers
- * 403 SUPPORT_GRANT_REQUIRED, before looking at the firm or the query, and reads nothing.
+ * their own approved, unexpired support grant for that firm (R8), in the firm's read-only support
+ * scope; the database logs each page as support.viewed in both logs. No grant: 403
+ * SUPPORT_GRANT_REQUIRED, whether or not the firm exists, and nothing is read.
  */
 @Controller('admin/firms/:businessId/audit-log')
 @Roles('SUPER_ADMIN')
 export class AdminAuditLogController {
+  constructor(
+    private readonly viewer: AuditLogViewerService,
+    private readonly support: SupportScope,
+  ) {}
+
   @Get()
-  list(): never {
-    throw new ForbiddenException({
-      code: 'SUPPORT_GRANT_REQUIRED',
-      message: 'Reading a firm’s audit log needs an approved support grant for that firm',
+  list(
+    @CurrentAuth() auth: AuthContext,
+    @Param('businessId', new ZodValidationPipe(z.uuid().transform((v) => v.toLowerCase())))
+    businessId: string,
+    @Query(new ZodValidationPipe(AuditLogQuery)) query: z.output<typeof AuditLogQuery>,
+  ): Promise<AuditLogPage> {
+    return this.viewer.list({ businessId, userId: auth.userId }, query, {
+      read: (fn) => this.support.read(auth.userId, businessId, 'audit_log', fn),
     });
   }
 }
 
 @Module({
   controllers: [AuditLogController, AdminAuditLogController],
-  providers: [AuditLogViewerService],
+  providers: [AuditLogViewerService, SupportScope],
 })
 export class AuditViewerModule {}

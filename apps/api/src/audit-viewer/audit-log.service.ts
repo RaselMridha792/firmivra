@@ -27,6 +27,14 @@ export interface AuditLogReader {
   userId: string;
 }
 
+/**
+ * A Super Admin's read under a support grant (R8): `read` opens the firm's read-only support
+ * scope (SupportScope.read), which itself logs `support.viewed` in both logs.
+ */
+export interface SupportRead {
+  read: <T>(fn: (tx: TxClient) => Promise<T>) => Promise<T>;
+}
+
 /** Every column the viewer shows; never the user agent or the firm id. */
 const rowSelect = {
   id: true,
@@ -60,7 +68,11 @@ export class AuditLogViewerService {
     this.cursorKey = deriveKey(secret, 'STAFF', CURSOR_KEY_LABEL);
   }
 
-  async list(reader: AuditLogReader, q: AuditLogFilters): Promise<AuditLogPage> {
+  async list(
+    reader: AuditLogReader,
+    q: AuditLogFilters,
+    support?: SupportRead,
+  ): Promise<AuditLogPage> {
     const { businessId } = reader;
     const scope: CursorScope = { businessId, userId: reader.userId, filters: q };
     const after =
@@ -85,54 +97,54 @@ export class AuditLogViewerService {
       ],
     };
 
-    const { rows, known } = await this.database.withScope(
-      { kind: 'business', businessId },
-      async (tx) => {
-        // The person filter finds only the firm's own people: filtering by a Super Admin's (or
-        // anyone else's) id must not tell the firm that this id acted here.
-        if (
-          q.actorUserId !== undefined &&
-          !(await this.isFirmPerson(tx, businessId, q.actorUserId))
-        ) {
-          return {
-            rows: [],
-            known: { supportAdmins: new Set(), people: new Map() } as KnownActors,
-          };
-        }
-        const rows = await tx.auditLog.findMany({
-          where,
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: q.limit + 1,
-          select: rowSelect,
-        });
-        const ids = [
-          ...new Set(rows.flatMap((r) => (r.actorUserId === null ? [] : [r.actorUserId]))),
-        ];
-        if (ids.length === 0) {
-          return { rows, known: { supportAdmins: new Set(), people: new Map() } as KnownActors };
-        }
-        // Super Admins who asked this firm for support access: the firm sees their requests.
-        const grants = await tx.supportAccessGrant.findMany({
-          where: { businessId, adminUserId: { in: ids } },
-          select: { adminUserId: true },
-        });
-        // Row-level security shows only this firm's members and clients.
-        const people = await tx.user.findMany({
-          where: { id: { in: ids } },
-          select: { id: true, pool: true, name: true },
-        });
-        const known: KnownActors = {
-          supportAdmins: new Set(grants.map((g) => g.adminUserId)),
-          people: new Map(people.map((p) => [p.id, { pool: p.pool, name: p.name }])),
+    const inScope = <T>(fn: (tx: TxClient) => Promise<T>) =>
+      support ? support.read(fn) : this.database.withScope({ kind: 'business', businessId }, fn);
+    const { rows, known } = await inScope(async (tx) => {
+      // The person filter finds only the firm's own people: filtering by a Super Admin's (or
+      // anyone else's) id must not tell the firm that this id acted here.
+      if (
+        q.actorUserId !== undefined &&
+        !(await this.isFirmPerson(tx, businessId, q.actorUserId))
+      ) {
+        return {
+          rows: [],
+          known: { supportAdmins: new Set(), people: new Map() } as KnownActors,
         };
-        return { rows, known };
-      },
-    );
+      }
+      const rows = await tx.auditLog.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: q.limit + 1,
+        select: rowSelect,
+      });
+      const ids = [
+        ...new Set(rows.flatMap((r) => (r.actorUserId === null ? [] : [r.actorUserId]))),
+      ];
+      if (ids.length === 0) {
+        return { rows, known: { supportAdmins: new Set(), people: new Map() } as KnownActors };
+      }
+      // Super Admins who asked this firm for support access: the firm sees their requests.
+      const grants = await tx.supportAccessGrant.findMany({
+        where: { businessId, adminUserId: { in: ids } },
+        select: { adminUserId: true },
+      });
+      // Row-level security shows only this firm's members and clients.
+      const people = await tx.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, pool: true, name: true },
+      });
+      const known: KnownActors = {
+        supportAdmins: new Set(grants.map((g) => g.adminUserId)),
+        people: new Map(people.map((p) => [p.id, { pool: p.pool, name: p.name }])),
+      };
+      return { rows, known };
+    });
 
     const page = rows.slice(0, q.limit);
     const last = page.at(-1);
-    // After the read, so the page never lists its own row. Later pages are the same read.
-    if (after === undefined) {
+    // After the read, so the page never lists its own row. Later pages are the same read. A
+    // support read is already in both logs (support.viewed, every page).
+    if (after === undefined && !support) {
       await this.audit.log('audit_log.viewed', { type: 'audit_log' }, viewedMetadata(q, range));
     }
     return {

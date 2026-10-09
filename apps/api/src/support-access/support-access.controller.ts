@@ -15,6 +15,7 @@ import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decora
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { SupportAccessService } from './support-access.service.js';
+import { SupportScope } from './support-scope.js';
 
 /** A uuid in the path, in one spelling: lock keys and comparisons need it (#108 review). */
 const lower = (v: string) => v.toLowerCase();
@@ -106,7 +107,7 @@ export class AdminSupportAccessController {
 
 @Module({
   controllers: [FirmSupportAccessController, AdminSupportAccessController],
-  providers: [SupportAccessService],
-  exports: [SupportAccessService],
+  providers: [SupportAccessService, SupportScope],
+  exports: [SupportAccessService, SupportScope],
 })
 export class SupportAccessModule {}
