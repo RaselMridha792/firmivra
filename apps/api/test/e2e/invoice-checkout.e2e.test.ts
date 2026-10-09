@@ -41,6 +41,13 @@ const paymentsOf = (invoiceId: string) =>
     tx.payment.findMany({ where: { invoiceId }, orderBy: { createdAt: 'asc' } }),
   );
 const creates = () => fake.calls.filter((c) => c.method === 'createCheckoutSession');
+/** Waits until `check` holds (the fake records each call as it starts), so no test sleeps a guess. */
+async function until(check: () => boolean) {
+  for (let i = 0; i < 500 && !check(); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(check()).toBe(true);
+}
 
 describe('Pay Now', () => {
   it("charges the balance from the database on the firm's own account, and answers the same checkout again", async () => {
@@ -125,7 +132,7 @@ describe('Pay Now', () => {
     fake.delayMs = 3_000;
     try {
       const first = pay(invoice.id);
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await until(() => creates().length === before + 1);
       const second = await pay(invoice.id, t.people.spouse);
       expect([second.status, codeOf(second)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
       // So does a cancel by the firm; neither held a connection waiting for the row.
@@ -141,10 +148,11 @@ describe('Pay Now', () => {
   it('answers 503 SERVICE_BUSY with Retry-After when three checkouts already wait on Stripe', async () => {
     const invoices = [];
     for (let i = 0; i < 4; i += 1) invoices.push(await open());
+    const before = creates().length;
     fake.delayMs = 1_000;
     try {
       const first = invoices.slice(0, 3).map((i) => pay(i.id));
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await until(() => creates().length === before + 3);
       const fourth = await pay(invoices[3]!.id);
       expect([fourth.status, codeOf(fourth)]).toEqual([503, 'SERVICE_BUSY']);
       expect(fourth.headers['retry-after']).toBe('5');

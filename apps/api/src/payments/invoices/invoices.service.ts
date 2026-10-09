@@ -23,6 +23,7 @@ import {
   CHECKOUT_LIMITS,
   expireCheckout,
   lockInvoice,
+  oneAtATime,
   openCheckouts,
   paymentInProgress,
   providerUnavailable,
@@ -74,24 +75,40 @@ export class InvoicesService {
     return actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {};
   }
 
-  /** The invoice, if its client is in reach; `lock` takes its row (FOR UPDATE) first. */
+  /** The invoice, if its client is in reach. */
   async load(
     tx: TxClient,
     businessId: string,
     actor: ClientsActor,
     id: string,
-    lock = false,
   ): Promise<InvoiceRow> {
-    if (lock) {
-      await tx.$queryRaw`
-        SELECT 1 FROM invoices WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
-    }
     const row = await tx.invoice.findFirst({
       where: { businessId, id, client: this.reach(actor) },
       select: invoiceSelect,
     });
     if (!row) throw notFound();
     return row;
+  }
+
+  /**
+   * A draft in reach, its row held. A sent invoice is 409 NOT_DRAFT before any lock, so editing
+   * one never waits behind a Pay Now; the row is then taken (briefly, as Pay Now does) and read
+   * again. Another client's `engagementId` is 404 first, as the contract orders it.
+   */
+  private async loadDraft(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    engagementId?: string | null,
+  ): Promise<InvoiceRow> {
+    const first = await this.load(tx, businessId, actor, id);
+    await this.checkEngagement(tx, businessId, first.clientId, engagementId);
+    if (first.status !== 'DRAFT') throw notDraft();
+    await lockInvoice(tx, businessId, id);
+    const current = await this.load(tx, businessId, actor, id);
+    if (current.status !== 'DRAFT') throw notDraft();
+    return current;
   }
 
   async list(businessId: string, actor: ClientsActor, q: ListQuery): Promise<InvoiceList> {
@@ -179,14 +196,23 @@ export class InvoicesService {
       select: { archivedAt: true },
     });
     if (!client) throw notFound();
-    if (engagementId) {
-      const service = await tx.engagement.findFirst({
-        where: { businessId, clientId, id: engagementId },
-        select: { id: true },
-      });
-      if (!service) throw notFound();
-    }
+    await this.checkEngagement(tx, businessId, clientId, engagementId);
     return client.archivedAt !== null;
+  }
+
+  /** `engagementId`, when given, must be one of this client's services (404 otherwise). */
+  private async checkEngagement(
+    tx: TxClient,
+    businessId: string,
+    clientId: string,
+    engagementId: string | null | undefined,
+  ): Promise<void> {
+    if (!engagementId) return;
+    const service = await tx.engagement.findFirst({
+      where: { businessId, clientId, id: engagementId },
+      select: { id: true },
+    });
+    if (!service) throw notFound();
   }
 
   /**
@@ -276,15 +302,10 @@ export class InvoicesService {
     body: DraftBody,
   ): Promise<Invoice> {
     return this.inFirm(businessId, async (tx) => {
-      const current = await this.load(tx, businessId, actor, id, true);
-      const isArchived = await this.checkClient(
-        tx,
-        businessId,
-        current.clientId,
-        body.engagementId,
-      );
-      if (current.status !== 'DRAFT') throw notDraft();
-      if (isArchived) throw archived();
+      const current = await this.loadDraft(tx, businessId, actor, id, body.engagementId);
+      if (await this.checkClient(tx, businessId, current.clientId, body.engagementId)) {
+        throw archived();
+      }
       await this.writeDraft(tx, businessId, id, body);
       const row = await this.load(tx, businessId, actor, id);
       await this.audit.logIn(
@@ -304,10 +325,8 @@ export class InvoicesService {
    */
   async send(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
     const { invoice, opened } = await this.inFirm(businessId, async (tx) => {
-      const current = await this.load(tx, businessId, actor, id, true);
-      const isArchived = await this.checkClient(tx, businessId, current.clientId, null);
-      if (current.status !== 'DRAFT') throw notDraft();
-      if (isArchived) throw archived();
+      const current = await this.loadDraft(tx, businessId, actor, id);
+      if (await this.checkClient(tx, businessId, current.clientId, null)) throw archived();
       if (current.totalCents === 0) {
         throw conflict('ZERO_TOTAL', 'There is nothing to pay on this invoice');
       }
@@ -343,6 +362,15 @@ export class InvoicesService {
    * draft loses `scheduled_for` (the portal never shows it); a canceled SCHEDULED one keeps it.
    */
   async cancel(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: z.output<typeof CancelInvoiceRequest>,
+  ): Promise<Invoice> {
+    return oneAtATime(businessId, id, () => this.cancelNow(businessId, actor, id, body));
+  }
+
+  private async cancelNow(
     businessId: string,
     actor: ClientsActor,
     id: string,
