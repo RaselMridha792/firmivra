@@ -1,5 +1,6 @@
 import {
   createAdminSupportAccessClient,
+  createAgreementsClient,
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
@@ -21,6 +22,7 @@ import {
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
   createMyNotesClient,
@@ -29,9 +31,11 @@ import {
   createMyReportsClient,
   createMyServicesClient,
   createMySignaturesClient,
+  createSigningClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
   createPaymentsSetupClient,
+  createPublicAgreementsClient,
   createRequest,
   createSettingsClient,
   createSupportAccessClient,
@@ -47,13 +51,23 @@ import {
   createAvailabilityMock,
   myAppointmentsMock,
 } from '../mocks/appointments';
+import {
+  createAgreementsMock,
+  myIntakeAgreementsMock,
+  publicAgreementsMock,
+} from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
-import { createEsignMock, mySignaturesMock } from '../mocks/esign';
+import {
+  createEsignMock,
+  createSigningMock,
+  MOCK_ESIGN_ROLE,
+  mySignaturesMock,
+} from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
@@ -190,6 +204,21 @@ export const api = {
   /** Workspaces (R12): a client's published reports in My Services, per firm (portal). */
   myReports: (firmSlug: string) =>
     dev && mocked('myReports') ? myReportsMock(firmSlug) : createMyReportsClient(request, firmSlug),
+  /** Intake agreements (R14): the firm's versioned agreements and their PDF originals. */
+  agreements:
+    dev && mocked('agreements')
+      ? createAgreementsMock({ role: MOCK_ROLE })
+      : createAgreementsClient(request),
+  /** Intake agreements (R14): what a Begin Online visitor signs before the form submits (public). */
+  publicAgreements: (firmSlug: string) =>
+    dev && mocked('publicAgreements')
+      ? publicAgreementsMock(firmSlug)
+      : createPublicAgreementsClient(request, firmSlug),
+  /** Intake agreements (R14): what the signed-in client signs for one of their portal intakes. */
+  myIntakeAgreements: (firmSlug: string) =>
+    dev && mocked('myIntakeAgreements')
+      ? myIntakeAgreementsMock(firmSlug)
+      : createMyIntakeAgreementsClient(request, firmSlug),
   /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
   auditLog:
     dev && mocked('auditLog')
@@ -236,13 +265,18 @@ export const api = {
   /** Firm Sign (R13): signature requests for the firm; `status()` for the menu (docs/api/esign.yaml). */
   esign:
     dev && mocked('esign')
-      ? createEsignMock({ role: MOCK_ROLE })
+      ? createEsignMock({ role: MOCK_ESIGN_ROLE ?? MOCK_ROLE })
       : createEsignClient(request, options.baseUrl),
   /** Firm Sign (R13): the signed-in client's Signature center, per firm (portal). */
   mySignatures: (firmSlug: string) =>
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** Firm Sign (R13): the signer pages at /{slug}/sign, no account (a link plus a code). */
+  signing: (firmSlug: string) =>
+    dev && mocked('signing')
+      ? createSigningMock(firmSlug)
+      : createSigningClient(request, firmSlug, options.baseUrl),
   /** Messages (R20): the firm's threads with its clients; read state and unread counts (docs/api/messages.yaml). */
   messages:
     dev && mocked('messages')

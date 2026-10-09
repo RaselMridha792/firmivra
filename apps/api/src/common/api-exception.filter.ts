@@ -135,10 +135,11 @@ function describe(exception: unknown): string {
   if (!(exception instanceof Error)) return typeof exception;
   const code = (exception as { code?: unknown }).code;
   // The stack starts with "Name: message", and a message can span lines (even ones that look
-  // like frames): drop it before reading frames.
+  // like frames): drop it before reading frames. A stack that doesn't start that way (rewritten
+  // by a library) may hold the message anywhere, so it gives no frames at all.
   const stack = exception.stack ?? '';
   const head = exception.toString();
-  const frames = (stack.startsWith(head) ? stack.slice(head.length) : stack)
+  const frames = (stack.startsWith(head) ? stack.slice(head.length) : '')
     .split('\n')
     .filter((line) => /^\s+at /.test(line))
     .join('\n');

@@ -169,6 +169,7 @@ describe('client.signup-submitted: a failing notifier never fails the sign-up', 
       userId: 'u1',
       emailVerifiedAt: new Date(),
       phoneVerifiedAt: null,
+      legalAcceptances: [],
     });
     steps['attemptUser'] = vi.fn().mockResolvedValue({ phone: s.phone, cognitoSub: 'sub-1' });
     steps['log'] = vi.fn().mockResolvedValue(undefined);

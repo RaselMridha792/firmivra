@@ -23,6 +23,7 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/notes': { params: { id: 'client' } },
   'POST /api/v1/business/clients/:id/notes': {
     params: { id: 'client' },
+    bodyIds: { engagementId: 'engagement' },
     body: { body: 'Fake note' },
   },
   'PATCH /api/v1/business/notes/:id': { params: { id: 'note' }, body: { body: 'Fake edit' } },
