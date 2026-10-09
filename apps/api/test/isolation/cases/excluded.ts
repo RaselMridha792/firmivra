@@ -7,6 +7,8 @@ const SIGN_UP = 'Public portal sign-up step: answers the same whether or not an 
 
 export const excluded: CaseModule['excluded'] = {
   'GET /api/v1/health': 'Public health check, no data',
+  'POST /api/v1/webhooks/stripe':
+    "Stripe's signed webhook: no session; the firm comes from the event's connected account",
   'GET /api/v1/me': "The session's own login and memberships, from the token",
   'POST /api/v1/firm-applications': 'Public: a new firm applies; no firm exists yet',
   'POST /api/v1/auth/sign-in': SIGN_IN,
