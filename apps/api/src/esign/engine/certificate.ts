@@ -32,6 +32,7 @@ const AUTH_METHODS: Record<EsignAuthMethod, string> = {
   EMAIL_CODE: 'Email code',
   ACCESS_CODE: 'Access code',
   PORTAL_SESSION: 'Client portal sign-in',
+  IN_PERSON: 'In person, on the firm’s device',
 };
 /** A role as printed: the spec's roles sentence-cased (BUSINESS_OWNER is "Business owner"). */
 const ROLE_LABEL = (role: string) => (/^[A-Z_]+$/.test(role) ? sentence(role) : role);

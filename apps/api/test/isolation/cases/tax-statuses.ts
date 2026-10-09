@@ -19,4 +19,10 @@ export const cases: CaseModule['cases'] = {
     body: { name: 'Fake renamed status' },
   },
   'POST /api/v1/business/tax-statuses/:id/archive': { params: { id: 'taxStatus' } },
+  // Found, but a new order must name every active status (409); another firm's status is 404.
+  'PUT /api/v1/business/tax-statuses/order': {
+    params: {},
+    bodyIds: { ids: 'taxStatus' },
+    expect: 409,
+  },
 };
