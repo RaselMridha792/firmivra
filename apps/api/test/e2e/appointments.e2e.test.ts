@@ -552,6 +552,7 @@ describe('working hours', () => {
     expect(mine).toEqual({
       member: { userId: people.adminA.id, name: names.adminA },
       hours: [{ weekday: 2, startsAt: '10:00', endsAt: '11:30' }],
+      meetingUrl: null,
     });
     // An empty list means no hours.
     expect(
