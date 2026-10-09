@@ -262,13 +262,14 @@ export function IntakeStepper({
   current,
   onEdit,
 }: {
-  steps: { id: number; label: string }[];
+  /** `skipped`: a step the answers leave out (Annual's business step for a personal return). */
+  steps: { id: number; label: string; skipped?: boolean }[];
   current: number;
   onEdit: (step: number) => void;
 }) {
   return (
     <ol aria-label="Intake progress" className="mb-3 flex">
-      {steps.map(({ id, label }, index) => (
+      {steps.map(({ id, label, skipped }, index) => (
         <li
           key={id}
           aria-current={current === id ? 'step' : undefined}
@@ -279,14 +280,19 @@ export function IntakeStepper({
           )}
           <Button
             variant="ghost"
-            disabled={id > current}
+            disabled={id > current || skipped}
             onClick={() => onEdit(id)}
-            aria-label={`Go to ${label}`}
-            className={`relative min-h-9! w-9 rounded-full! p-0! ${current === id ? 'bg-action! text-on-action!' : 'bg-folder-surface!'}`}
+            aria-label={skipped ? `${label} (not needed)` : `Go to ${label}`}
+            className={`relative min-h-9! w-9 rounded-full! p-0! ${current === id ? 'bg-action! text-on-action!' : 'bg-folder-surface!'} ${skipped ? 'opacity-50' : ''}`}
           >
             <span aria-hidden="true">{index + 1}</span>
           </Button>
-          <span className={`px-1 ${current === id ? 'font-semibold' : ''}`}>{label}</span>
+          <span
+            className={`px-1 ${current === id ? 'font-semibold' : ''} ${skipped ? 'text-muted line-through' : ''}`}
+          >
+            {label}
+          </span>
+          {skipped && <span className="text-xs text-muted">Not needed</span>}
         </li>
       ))}
     </ol>
@@ -323,16 +329,20 @@ export function ReviewCard({
   );
 }
 
-/** Label, answer and an optional key (the field's key when two labels read the same). */
-export function ReviewRows({ rows }: { rows: [string, ReactNode, string?][] }) {
+/** Label, answer, an optional key (when two labels read the same) and `wide` for a table answer. */
+export function ReviewRows({ rows }: { rows: [string, ReactNode, string?, boolean?][] }) {
   return (
     <dl className="overflow-hidden rounded-control border border-folder-border text-xs">
-      {rows.map(([label, value, id]) => (
+      {rows.map(([label, value, id, wide]) => (
         <div
           key={id ?? label}
-          className="grid grid-cols-2 border-b border-folder-border last:border-0"
+          className={`border-b border-folder-border last:border-0 ${wide ? '' : 'grid grid-cols-2'}`}
         >
-          <dt className="border-r border-folder-border px-2 py-1 text-firm-primary">{label}</dt>
+          <dt
+            className={`px-2 py-1 text-firm-primary ${wide ? 'font-semibold' : 'border-r border-folder-border'}`}
+          >
+            {label}
+          </dt>
           <dd className="min-w-0 px-2 py-1 break-words text-muted">{value || 'Not provided'}</dd>
         </div>
       ))}
