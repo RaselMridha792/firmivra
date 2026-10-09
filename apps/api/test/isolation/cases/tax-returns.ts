@@ -23,10 +23,12 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/tax-returns': { params: { id: 'client' } },
   'POST /api/v1/business/clients/:id/tax-returns': {
     params: { id: 'client' },
+    bodyIds: { engagementId: 'engagement', documentId: 'document' },
     body: { taxYear: 2024, filingType: 'BUSINESS' },
   },
   'PATCH /api/v1/business/tax-returns/:id': {
     params: { id: 'taxReturn' },
+    bodyIds: { engagementId: 'engagement', documentId: 'document' },
     body: { formType: '1040' },
   },
   'DELETE /api/v1/business/tax-returns/:id': { params: { id: 'taxReturn' } },
