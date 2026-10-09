@@ -17,8 +17,10 @@ import {
 import { MemoryEsignStore } from '../../src/esign/engine/esign-store.js';
 import type {
   DirectoryClient,
+  DirectoryClientContact,
   DirectoryDocument,
   DirectoryEngagement,
+  DirectoryFirm,
   DirectoryLogin,
   DirectoryMember,
   EsignDirectory,
@@ -66,8 +68,24 @@ export class InMemoryEsignRepository implements EsignRepository {
   /** Set to make the next draft write find the request no longer a DRAFT (a send that won). */
   loseNextWrite = false;
 
-  defaults(): Promise<EsignDefaults> {
-    return Promise.resolve(structuredClone(ESIGN_TEST_DEFAULTS));
+  /** Each firm's Signing Settings defaults (ESIGN_TEST_DEFAULTS unless set). */
+  readonly firmDefaults = new Map<string, EsignDefaults>();
+  /** The firms that have published a consent version. */
+  readonly consent = new Set<string>();
+
+  defaults(businessId?: string): Promise<EsignDefaults> {
+    const own = businessId === undefined ? undefined : this.firmDefaults.get(businessId);
+    return Promise.resolve(structuredClone(own ?? ESIGN_TEST_DEFAULTS));
+  }
+
+  consentPublished(businessId: string): Promise<boolean> {
+    return Promise.resolve(this.consent.has(businessId));
+  }
+
+  saveFields(businessId: string, id: string, fields: EsignField[]) {
+    return this.write(businessId, id, (row) =>
+      Object.assign(row.parts, structuredClone({ fields })),
+    );
   }
 
   createRequest(businessId: string, input: NewEsignRequest): Promise<EsignRequestRecord> {
@@ -201,6 +219,8 @@ export class InMemoryDirectory implements EsignDirectory {
   readonly logins = new PerFirm<DirectoryLogin>();
   readonly members = new PerFirm<DirectoryMember>();
   readonly documents = new PerFirm<DirectoryDocument>();
+  readonly contacts = new PerFirm<DirectoryClientContact>();
+  readonly firms = new Map<string, DirectoryFirm>();
 
   client(businessId: string, id: string) {
     return Promise.resolve(this.clients.of(businessId).get(id) ?? null);
@@ -216,6 +236,13 @@ export class InMemoryDirectory implements EsignDirectory {
   }
   document(businessId: string, id: string) {
     return Promise.resolve(this.documents.of(businessId).get(id) ?? null);
+  }
+  clientContact(businessId: string, id: string) {
+    return Promise.resolve(this.contacts.of(businessId).get(id) ?? null);
+  }
+  firm(businessId: string) {
+    const firm = this.firms.get(businessId);
+    return firm ? Promise.resolve(firm) : Promise.reject(new Error('no such firm'));
   }
 }
 
@@ -315,7 +342,14 @@ export function esignWorld() {
   };
   const directory = new InMemoryDirectory();
   const member = (firm: string, userId: string, name: string, active = true) =>
-    directory.members.of(firm).set(userId, { userId, name, email: `${name}@firm.test`, active });
+    directory.members.of(firm).set(userId, {
+      userId,
+      name,
+      email: `${name}@firm.test`,
+      phone: '+15555550100',
+      jobTitle: null,
+      active,
+    });
   member(a, users.ownerA, 'owner-a');
   member(a, users.adminA, 'admin-a');
   member(a, users.managerA, 'manager-a');
@@ -334,6 +368,32 @@ export function esignWorld() {
       .of(firm)
       .set(cid, { id: cid, displayName: name, assignedUserId: assigned, archived });
   client(a, ids.c1, 'Fake Client One', users.staffA);
+  for (const [firm, cid, name] of [
+    [a, ids.c1, 'Fake Client One'],
+    [a, ids.c2, 'Fake Client Two'],
+    [b, ids.cB, 'Fake Client B'],
+  ] as const) {
+    directory.contacts.of(firm).set(cid, {
+      displayName: name,
+      accountType: 'INDIVIDUAL',
+      firstName: 'Fake',
+      lastName: name.slice(5),
+      businessName: null,
+      email: `${cid.slice(0, 8)}@client.test`,
+      phone: '+15555550111',
+      address: '1 Sample St, Testville, NY 10001',
+      spouseName: null,
+    });
+  }
+  const firmOf = (name: string): DirectoryFirm => ({
+    name,
+    address: '2 Example Ave, Testville, NY 10002',
+    phone: '+15555550123',
+    email: 'office@firm.test',
+    timeZone: 'America/New_York',
+  });
+  directory.firms.set(a, firmOf('Fake Firm A'));
+  directory.firms.set(b, firmOf('Fake Firm B'));
   client(a, ids.c2, 'Fake Client Two', null);
   client(a, ids.archived, 'Fake Archived', users.staffA, true);
   client(b, ids.cB, 'Fake Client B', null);
@@ -383,6 +443,8 @@ export function esignWorld() {
     [b, users.ownerB, 'OWNER'],
   ];
   for (const [firm, userId, role] of roles) repo.roles.of(firm).set(userId, role);
+  repo.consent.add(a);
+  repo.consent.add(b);
   const modules = new InMemoryModules();
   modules.set(a, 'esign', true);
   modules.set(b, 'esign', true);

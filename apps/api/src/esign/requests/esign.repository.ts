@@ -120,6 +120,8 @@ export interface EsignRepository {
   parts(businessId: string, id: string): Promise<EsignRequestParts>;
   /** A member's Firm Sign access (OWNER and ADMIN follow the firm role); null if not a member. */
   esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
+  /** True once the firm has published a consent version (Signing Settings). */
+  consentPublished(businessId: string): Promise<boolean>;
   // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt,
   // resets every APPROVER recipient to WAITING (an edit asks for approval again) and returns
   // false (changing nothing) when it is not, or no longer exists.
@@ -140,6 +142,8 @@ export interface EsignRepository {
     recipients: EsignRecipientRecord[],
     fields: EsignField[],
   ): Promise<boolean>;
+  /** Replaces the fields. */
+  saveFields(businessId: string, id: string, fields: EsignField[]): Promise<boolean>;
   // Uploads between createUpload and confirmUpload (draft writes from addDocument on).
   saveUpload(businessId: string, upload: EsignPendingUpload): Promise<void>;
   /**

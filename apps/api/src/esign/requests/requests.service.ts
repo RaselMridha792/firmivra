@@ -50,9 +50,9 @@ export const esignRefusal = (code: EsignErrorCode) =>
   new ConflictException({ code, message: ESIGN_ERRORS[code] });
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 /** Owner and Admin reach every request; a MANAGER sees only what STAFF sees. */
-const seesAll = (actor: EsignActor) => actor.role === 'OWNER' || actor.role === 'ADMIN';
+export const seesAll = (actor: EsignActor) => actor.role === 'OWNER' || actor.role === 'ADMIN';
 
-const invalid = (path: string, message: string) =>
+export const invalid = (path: string, message: string) =>
   new BadRequestException({
     code: 'VALIDATION_FAILED',
     message: 'The request is not valid',

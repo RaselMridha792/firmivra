@@ -3,11 +3,13 @@ import { ModulesModule } from '../common/modules/requires-module.js';
 import {
   CODE_HASHER,
   type CodeHasher,
+  ESIGN_RULES,
   ESIGN_STORE,
   type EsignStore,
   PDF_ENGINE,
   type PdfEngine,
 } from './engine/engine.types.js';
+import { esignRules } from './engine/esign-rules.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
 import { EsignDocumentsService } from './requests/documents.service.js';
 import { ESIGN_DIRECTORY, PrismaEsignDirectory } from './requests/esign-directory.js';
@@ -17,6 +19,7 @@ import {
   notMigrated,
 } from './requests/esign.repository.js';
 import { EsignRequestsController, EsignStatusController } from './requests/requests.controller.js';
+import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 
 /**
@@ -30,6 +33,9 @@ import { EsignRequestsService } from './requests/requests.service.js';
   providers: [
     EsignRequestsService,
     EsignDocumentsService,
+    EsignPrepareService,
+    // R18's pure rules (no clock, no database).
+    { provide: ESIGN_RULES, useValue: esignRules },
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: CODE_HASHER, useValue: notMigrated<CodeHasher>('CodeHasher') },

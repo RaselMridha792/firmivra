@@ -2,8 +2,11 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/
 import type { z } from 'zod';
 import {
   CreateEsignRequestBody,
+  EsignPutFieldsBody,
   EsignPutPagePlanBody,
   EsignPutRecipientsBody,
+  type EsignMergeValues,
+  type EsignReadiness,
   EsignRequestId,
   type EsignRequestDetail,
   type EsignStatus,
@@ -14,6 +17,7 @@ import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decora
 import { RequiresModule } from '../../common/modules/requires-module.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { EsignPrepareService } from './prepare.service.js';
 import { type EsignActor, EsignRequestsService } from './requests.service.js';
 
 const idPipe = new ZodValidationPipe(EsignRequestId);
@@ -44,7 +48,10 @@ export class EsignStatusController {
 @Roles(...FIRM_STAFF)
 @RequiresModule('esign')
 export class EsignRequestsController {
-  constructor(private readonly requests: EsignRequestsService) {}
+  constructor(
+    private readonly requests: EsignRequestsService,
+    private readonly prepare: EsignPrepareService,
+  ) {}
 
   @Post()
   create(
@@ -104,5 +111,33 @@ export class EsignRequestsController {
     body: z.output<typeof EsignPutRecipientsBody>,
   ): Promise<EsignRequestDetail> {
     return this.requests.putRecipients(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  @Put(':id/fields')
+  putFields(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(EsignPutFieldsBody)) body: z.output<typeof EsignPutFieldsBody>,
+  ): Promise<EsignRequestDetail> {
+    return this.prepare.putFields(tenant.businessId, actorOf(auth, tenant), id, body);
+  }
+
+  @Get(':id/merge-values')
+  mergeValues(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<EsignMergeValues> {
+    return this.prepare.mergeValues(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Get(':id/readiness')
+  readiness(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<EsignReadiness> {
+    return this.prepare.readiness(tenant.businessId, actorOf(auth, tenant), id);
   }
 }

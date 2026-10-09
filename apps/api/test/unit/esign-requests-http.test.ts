@@ -1,5 +1,5 @@
-// R13 step 6, requests API parts 1b to 1e, over HTTP: EsignModule's status, draft, page plan,
-// recipients and document routes, pipes
+// R13 step 6, requests API parts 1b to 2a, over HTTP: EsignModule's status, draft, page plan,
+// recipients, document, fields, merge values and readiness routes, pipes
 // and the module switch
 // with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
 // role on the request, as the global guards do in the app; the guards themselves are tested in
@@ -19,7 +19,14 @@ import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EsignDocument, EsignRequestDetail, EsignStatus, UploadTicket } from '@firmivra/types';
+import {
+  EsignDocument,
+  EsignMergeValues,
+  EsignReadiness,
+  EsignRequestDetail,
+  EsignStatus,
+  UploadTicket,
+} from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
 import {
@@ -353,6 +360,119 @@ describe('Firm Sign documents over HTTP', () => {
         await send('post', `${base}/from-vault`, ownerA(), { documentId: doc }),
         await send('delete', `${base}/${doc}`, ownerA()),
         await send('get', `${base}/${doc}/content`, ownerA()),
+      ]) {
+        expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
+      }
+    } finally {
+      w.modules.set(w.a, 'esign', true);
+    }
+  });
+});
+
+describe('Firm Sign fields, merge values and readiness over HTTP', () => {
+  const newDraft = async (clientId = w.ids.c1) => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake letter',
+      source: 'CLIENT_RECORD',
+      clientId,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const documentId = randomUUID();
+    w.repo.seed(w.a, id, (row) => {
+      row.parts.pagePlan = [{ documentId, page: 0, rotation: 0 }];
+    });
+    return id;
+  };
+  const text = {
+    recipientId: null,
+    type: 'TEXT',
+    pageIndex: 0,
+    x: 0.1,
+    y: 0.1,
+    w: 0.3,
+    h: 0.05,
+    mergeKey: 'CLIENT_FULL_NAME',
+  };
+
+  it('puts fields, refusing unknown ids and bad bodies with 400 VALIDATION_FAILED', async () => {
+    const id = await newDraft();
+    const path = `/esign/requests/${id}/fields`;
+    const put = await send('put', path, ownerA(), { fields: [text] });
+    const detail = EsignRequestDetail.parse(put.body);
+    expect([put.status, detail.fields.map((f) => f.mergeKey)]).toEqual([200, ['CLIENT_FULL_NAME']]);
+    const kept = await send('put', path, ownerA(), {
+      fields: [{ ...text, id: detail.fields[0]!.id }],
+    });
+    expect(EsignRequestDetail.parse(kept.body).fields[0]!.id).toBe(detail.fields[0]!.id);
+    for (const body of [
+      { fields: [{ ...text, id: randomUUID() }] },
+      { fields: [{ ...text, pageIndex: 1 }] },
+      { fields: [{ ...text, type: 'CHECKBOX' }] },
+      { fields: [{ ...text, type: 'SIGNATURE' }] },
+      { fields: [text], extra: true },
+    ]) {
+      expect(errorOf(await send('put', path, ownerA(), body))).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    expect(errorOf(await send('put', path, ownerB(), { fields: [] }))).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await send('put', path, staffA2(), { fields: [] }))).toEqual([404, 'NOT_FOUND']);
+  });
+
+  it('reads merge values and readiness; 404 across firms and for unassigned Staff', async () => {
+    const id = await newDraft();
+    await send('put', `/esign/requests/${id}/fields`, ownerA(), { fields: [text] });
+    const merge = await call(`/esign/requests/${id}/merge-values`, ownerA());
+    expect(merge.status).toBe(200);
+    expect(EsignMergeValues.parse(merge.body).values.CLIENT_FULL_NAME).toBe('Fake Client One');
+    const ready = await call(`/esign/requests/${id}/readiness`, ownerA());
+    const readiness = EsignReadiness.parse(ready.body);
+    expect([ready.status, readiness.ready, readiness.autoSignaturePage]).toEqual([
+      200,
+      false,
+      false,
+    ]);
+    expect(readiness.problems.map((p) => p.code)).toEqual([
+      'NO_DOCUMENTS',
+      'NO_ENGAGEMENT',
+      'NO_SIGNERS',
+    ]);
+    for (const route of ['merge-values', 'readiness']) {
+      const path = `/esign/requests/${id}/${route}`;
+      expect(errorOf(await call(path, ownerB()))).toEqual([404, 'NOT_FOUND']);
+      expect(errorOf(await call(path, staffA2()))).toEqual([404, 'NOT_FOUND']);
+    }
+  });
+
+  it('lets an approver read readiness on a client not assigned to them', async () => {
+    const id = await newDraft(w.ids.c2);
+    const manager: Caller = { user: w.users.managerA, firm: w.a, role: 'STAFF' };
+    const path = `/esign/requests/${id}/readiness`;
+    expect(errorOf(await call(path, manager))).toEqual([404, 'NOT_FOUND']);
+    const approvers = await send('put', `/esign/requests/${id}/recipients`, ownerA(), {
+      recipients: [
+        {
+          kind: 'APPROVER',
+          role: 'MANAGER',
+          routingOrder: 1,
+          who: { type: 'STAFF', userId: w.users.managerA },
+        },
+      ],
+    });
+    expect(approvers.status).toBe(200);
+    const res = await call(path, manager);
+    expect(res.status).toBe(200);
+    expect(EsignReadiness.parse(res.body).problems.map((p) => p.code)).toContain(
+      'APPROVAL_PENDING',
+    );
+  });
+
+  it('answers MODULE_OFF (403) on the fields, merge values and readiness routes when off', async () => {
+    const id = await newDraft();
+    w.modules.set(w.a, 'esign', false);
+    try {
+      for (const res of [
+        await send('put', `/esign/requests/${id}/fields`, ownerA(), { fields: [] }),
+        await call(`/esign/requests/${id}/merge-values`, ownerA()),
+        await call(`/esign/requests/${id}/readiness`, ownerA()),
       ]) {
         expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
       }
