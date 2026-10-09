@@ -157,8 +157,9 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 
-  -- An expired draft takes no new resume link (clearing it stays allowed).
-  IF TG_OP = 'UPDATE' AND OLD.status = 'DRAFT' AND OLD.draft_expires_at <= now()
+  -- An expired draft, or an EXPIRED lead, takes no new resume link (clearing it stays allowed).
+  IF TG_OP = 'UPDATE'
+     AND (OLD.status = 'EXPIRED' OR (OLD.status = 'DRAFT' AND OLD.draft_expires_at <= now()))
      AND NEW.resume_token_hash IS NOT NULL
      AND (NEW.resume_token_hash IS DISTINCT FROM OLD.resume_token_hash
           OR NEW.resume_expires_at IS DISTINCT FROM OLD.resume_expires_at) THEN
@@ -220,7 +221,8 @@ BEGIN
      AND NEW.saved_steps IS NOT DISTINCT FROM OLD.saved_steps THEN
     RETURN NEW;
   END IF;
-  SELECT l.status = 'DRAFT' AND l.draft_expires_at <= now() INTO expired
+  SELECT l.status = 'EXPIRED' OR (l.status = 'DRAFT' AND l.draft_expires_at <= now())
+    INTO expired
     FROM intakes i JOIN leads l ON l.id = i.lead_id
     WHERE i.id = NEW.intake_id
     FOR SHARE OF l;
@@ -328,6 +330,7 @@ CREATE POLICY documents_delete ON documents FOR DELETE
 ALTER TABLE memberships ADD CONSTRAINT memberships_meeting_url
   CHECK (char_length(meeting_url) <= 500
          AND meeting_url ~ '^https://[^[:space:]\x01-\x20\x7F-\xA0\xAD\u034F\u061C\u115F\u1160\u1680\u17B4\u17B5\u180B-\u180F\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\U000E0000-\U000E0FFF]+$'
+         AND meeting_url ~ '^https://[^/]'
          AND meeting_url !~ '^https://[^/?#]*@'
          AND meeting_url !~ '["''<>\\`]');
 -- Hours before the start (0 = until the start), at most 30 days.

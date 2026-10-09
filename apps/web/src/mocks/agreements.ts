@@ -241,7 +241,10 @@ export function createAgreementsMock(
   return {
     list: async () => {
       await allowed();
-      return structuredClone({ items: ordered().map((s) => s.summary) });
+      return structuredClone({
+        items: ordered().map((s) => s.summary),
+        services: [{ ...SAMPLE_SERVICE, kind: 'BOOKKEEPING' as const }],
+      });
     },
     create: async (body) => {
       await allowed();
