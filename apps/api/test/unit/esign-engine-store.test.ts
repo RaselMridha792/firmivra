@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { CopyObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
+import { ConfigModule } from '../../src/config/config.module.js';
+import { loadEnv } from '../../src/config/env.js';
 import { EsignEngineModule } from '../../src/esign/engine/engine.module.js';
 import { ESIGN_STORE, type EsignStore } from '../../src/esign/engine/engine.types.js';
 import {
@@ -129,7 +131,9 @@ describe('S3 store', () => {
 describe('EsignEngineModule', () => {
   it('provides the store', async () => {
     process.env.S3_DOCUMENTS_BUCKET ??= 'fake-bucket';
-    const moduleRef = await Test.createTestingModule({ imports: [EsignEngineModule] }).compile();
+    const moduleRef = await Test.createTestingModule({
+      imports: [ConfigModule.forRoot(loadEnv()), EsignEngineModule],
+    }).compile();
     expect(moduleRef.get(ESIGN_STORE)).toBeInstanceOf(S3EsignStore);
     await moduleRef.close();
   });
