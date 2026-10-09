@@ -1019,10 +1019,11 @@ describe('document requests', () => {
   it('tells the firm (assigned member, Owners and Admins) and the client of each answer and decision', async () => {
     outbox.length = 0;
     const r = await newRequest();
-    await mine(people.spouse, { requestId: r.id });
+    const answered = await mine(people.spouse, { requestId: r.id });
     expect(await bellsOf(r.id, 'document-request.submitted')).toEqual(
       bells('document-request.submitted', c1Staff()),
     );
+    expect(await bellsOf(answered.id, 'document.uploaded')).toEqual([]);
     exact(FirmDocumentRequest, await decide(r.id, 'reject', people.staffA));
     expect(await bellsOf(r.id, 'document-request.rejected')).toEqual(
       bells('document-request.rejected', [people.primary]),

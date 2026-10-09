@@ -292,7 +292,10 @@ export const FirmDocumentRequest = z.object({
   status: RequestStatus,
   /** Shown to both: the client's reason (NOT_AVAILABLE) or the firm's (REJECTED). */
   statusNote: z.string().nullable(),
-  /** The files uploaded for it, newest first. */
+  /**
+   * The files uploaded for it, newest first: at most the newest 20 (the client's document list
+   * has them all).
+   */
   documents: z.array(z.object({ id: z.uuid(), fileName: z.string(), createdAt: DateTime })),
   requestedBy: MemberRef.nullable(),
   createdAt: DateTime,

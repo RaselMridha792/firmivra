@@ -27,6 +27,13 @@ export interface ScanResult {
 export type ScanOutcome =
   'CLEAN' | 'INFECTED' | 'FAILED' | 'UNSCANNED' | 'PENDING' | 'UNKNOWN' | 'IGNORED';
 
+/**
+ * How far back a scan result looks for its upload's refusal: wider than confirm's 30 minutes, so
+ * a result that GuardDuty or EventBridge delivers late is still IGNORED, not dead-lettered. A
+ * refused key never gets a document (confirm finds the refusal under the key's lock).
+ */
+const SCAN_REFUSALS_SINCE_MS = 24 * 60 * 60_000;
+
 /** UNSUPPORTED because of the file itself (docs/api/documents.yaml, "Scan results"). */
 const FILE_REASON =
   /^(PASSWORD_PROTECTED|OBJECT_SIZE_LIMIT_EXCEEDED|EXTRACTED_[A-Z_]+_LIMIT_EXCEEDED|EXTRACTION_RATIO_LIMIT_EXCEEDED)$/;
@@ -83,7 +90,7 @@ export class ScanResultsService {
       });
       if (!doc) {
         // GuardDuty scanned the PUT of a file the confirm then refused and deleted: nothing to do.
-        if (await refusedUpload(tx, businessId, uploadId)) {
+        if (await refusedUpload(tx, businessId, uploadId, { sinceMs: SCAN_REFUSALS_SINCE_MS })) {
           this.logger.log(`Scan result for refused upload ${uploadId}; ignored`);
           return 'IGNORED';
         }

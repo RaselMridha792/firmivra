@@ -41,8 +41,7 @@ let checking = 0;
 /**
  * How far back confirm looks for an earlier refusal of its key: a ticket lives 15 minutes
  * (UPLOAD_TOKEN_SECONDS), so any refusal of it is younger than that plus a confirm's own time.
- * Generous on purpose. A scan result looks as far back: it is redelivered for 30 minutes, so the
- * first delivery after a refusal finds it.
+ * Generous on purpose. A scan result looks further back (SCAN_REFUSALS_SINCE_MS).
  */
 export const REFUSALS_SINCE_MS = 30 * 60_000;
 
@@ -58,19 +57,19 @@ function yearsAfter(from: Date, years: number): Date {
 
 /**
  * Whether a refusal of this upload was audited (the mark `refuse` leaves before it deletes), in
- * the last REFUSALS_SINCE_MS: the time bound keeps the search on the (business_id, created_at)
- * index. With `clientId`, only a refusal for that client (confirm knows it; a scan result not).
+ * the last `sinceMs`: the time bound keeps the search on the (business_id, created_at) index.
+ * With `clientId`, only a refusal for that client (confirm knows it; a scan result not).
  */
 export async function refusedUpload(
   tx: TxClient,
   businessId: string,
   uploadId: string,
-  clientId?: string,
+  { clientId, sinceMs = REFUSALS_SINCE_MS }: { clientId?: string; sinceMs?: number } = {},
 ): Promise<boolean> {
   const row = await tx.auditLog.findFirst({
     where: {
       businessId,
-      createdAt: { gte: new Date(Date.now() - REFUSALS_SINCE_MS) },
+      createdAt: { gte: new Date(Date.now() - sinceMs) },
       action: 'document.upload_refused',
       entityType: 'client',
       ...(clientId && { entityId: clientId }),
@@ -178,7 +177,9 @@ export class UploadsService {
         if (saved) throw refusal('UPLOAD_EXPIRED');
         // Another confirm of this key refused it while this one checked the file: its file is
         // deleted (or being deleted), so nothing is saved for it.
-        if (await refusedUpload(tx, businessId, uploadIdOf(claim.key), claim.clientId)) {
+        if (
+          await refusedUpload(tx, businessId, uploadIdOf(claim.key), { clientId: claim.clientId })
+        ) {
           throw refusal('UPLOAD_MISMATCH');
         }
         // Lock order: the client (in recheck), the engagement, the category, the request.
@@ -288,7 +289,8 @@ export class UploadsService {
         actorUserId: claim.userId,
       });
     } catch (error) {
-      this.logger.warn(`${event} for document ${documentId} not written (${errorName(error)})`);
+      const kind = claim.requestId ? 'document request' : 'document';
+      this.logger.warn(`${event} for ${kind} ${recordId} not written (${errorName(error)})`);
     }
   }
 

@@ -210,7 +210,8 @@ info:
       (`409 REQUEST_CLOSED`), accept and reject need `SUBMITTED` (`409 NOTHING_SUBMITTED`), and
       accept a `CLEAN` newest file (`409 SCAN_PENDING` while it is checked). "I don't have this"
       takes only an open request of a client that isn't archived (`409 NO_OPEN_SERVICE`, as
-      for its uploads). A new answer (an upload) clears the old `statusNote`.
+      for its uploads). A new answer (an upload) clears the old `statusNote`. A request's
+      `documents` lists at most its newest 20 files (the client's document list has them all).
     - **Scan results (GuardDuty Malware Protection for S3).** Results reach the API only
       through a private channel: an EventBridge rule (source `aws.guardduty`, detail-type
       `GuardDuty Malware Protection Object Scan Result`, the documents bucket) to an SQS queue
@@ -243,7 +244,7 @@ info:
         result already set, a key outside `tenant/{businessId}/documents/`, and an upload the
         confirm refused: GuardDuty scanned its PUT before the refusal deleted the object, so a
         key with no document but a `document.upload_refused` audit entry for its upload id, in
-        the same firm and within the last 30 minutes, is `IGNORED` (logged with the upload id
+        the same firm and within the last 24 hours (a late delivery too), is `IGNORED` (logged with the upload id
         only, nothing audited) and never reaches the alarm.
       - Built (R5 API part 2): `ScanResultsService.recordScanResult({ key, status, reasons })`
         does all of the above for the handler to call (locks the request, then the document;
