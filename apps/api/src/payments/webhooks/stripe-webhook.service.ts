@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { AuditService } from '../../audit/audit.service.js';
 import { DATABASE } from '../../database/database.module.js';
 import { InvoiceNotices } from '../invoices/invoice-notices.js';
+import { paidCents } from '../invoices/invoice-view.js';
 import { providerUnavailable, stripeCall } from '../checkout/checkout-sessions.js';
 import { StripeAccountsWriter, toOnboardingState } from '../stripe/stripe-accounts.js';
 import {
@@ -237,6 +238,11 @@ export class StripeWebhookService {
       this.logger.error(`Amount mismatch on payment ${payment.id}: Stripe ${amount}`);
       return null;
     }
+    // The invoice row first, the order every money write on it takes (R0), so a void or an
+    // offline payment in between waits instead of changing the balance under the PAID step.
+    await tx.$queryRaw`
+      SELECT 1 FROM invoices
+       WHERE business_id = ${businessId}::uuid AND id = ${payment.invoiceId}::uuid FOR UPDATE`;
     await this.attach(ctx, payment.id);
     // Both success events of one payment can arrive at once: only one moves it from PENDING.
     const { count } = await tx.payment.updateMany({
@@ -258,12 +264,8 @@ export class StripeWebhookService {
     // A payment of an invoice canceled meanwhile is still recorded (the firm refunds it), and the
     // client is not told it was received.
     if (invoice.status !== 'OPEN') return null;
-    // The database's PAID rule counts SUCCEEDED payments only.
-    const paid = await tx.payment.aggregate({
-      where: { businessId, invoiceId: payment.invoiceId, status: 'SUCCEEDED' },
-      _sum: { amountCents: true },
-    });
-    if ((paid._sum.amountCents ?? 0) >= invoice.totalCents) {
+    // The database's PAID rule: app_invoice_paid_cents (Stripe and live offline payments).
+    if ((await paidCents(tx, payment.invoiceId)) >= invoice.totalCents) {
       await tx.invoice.update({
         where: { businessId_id: { businessId, id: payment.invoiceId } },
         data: { status: 'PAID', paidAt: new Date() },
