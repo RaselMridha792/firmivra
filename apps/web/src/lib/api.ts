@@ -56,6 +56,8 @@ import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
+import { myProfileMock } from '../mocks/clients';
+import { myTaxReturnsMock } from '../mocks/tax-returns';
 import {
   createClientNotesMock,
   createMessagesMock,
@@ -116,12 +118,16 @@ export const api = {
       : createEngagementsClient(request),
   taxReturns: createTaxReturnsClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
-  myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
+  myProfile: (firmSlug: string) =>
+    dev && mocked('myProfile') ? myProfileMock(firmSlug) : createMyProfileClient(request, firmSlug),
   myServices: (firmSlug: string) =>
     dev && mocked('myServices')
       ? myServicesMock(firmSlug)
       : createMyServicesClient(request, firmSlug),
-  myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
+  myTaxReturns: (firmSlug: string) =>
+    dev && mocked('myTaxReturns')
+      ? myTaxReturnsMock(firmSlug)
+      : createMyTaxReturnsClient(request, firmSlug),
   /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
   appointmentTypes:
     dev && mocked('appointmentTypes')

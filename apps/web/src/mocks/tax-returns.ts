@@ -196,3 +196,8 @@ export function createMyTaxReturnsMock(): MyTaxReturnsClient {
     },
   };
 }
+
+/** `api.myTaxReturns(slug)` in mock mode (read-only, so one client serves every firm). */
+export function myTaxReturnsMock(_firmSlug: string): MyTaxReturnsClient {
+  return createMyTaxReturnsMock();
+}

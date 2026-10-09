@@ -31,3 +31,15 @@ test('notifications filter, open their page, and mark all read', async ({ page }
   ).toBeTruthy();
   await page.screenshot({ path: testInfo.outputPath('notifications-375.png'), fullPage: true });
 });
+
+test('Recent Activity under the tabs shows the 5 newest and opens their pages', async ({
+  page,
+}) => {
+  await page.goto(portal('/lvp/documents'));
+  const recent = page.getByRole('list', { name: 'Recent activity' });
+  await expect(recent.getByRole('listitem')).toHaveCount(5);
+  await recent.getByRole('link', { name: /New document request/ }).click();
+  await expect(page).toHaveURL(/\/lvp\/documents$/);
+  await page.getByRole('link', { name: 'View All' }).first().click();
+  await expect(page).toHaveURL(/\/lvp\/notifications$/);
+});

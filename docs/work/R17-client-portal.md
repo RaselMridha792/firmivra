@@ -22,27 +22,28 @@ Not mine: `apps/api`, `packages/types`, `apps/web/src/mocks` (API sessions), `ap
 ## Steps
 
 - [x] 1. Docs: PAGE-MAP owners, this file, the NAHID.md pointer
-- [ ] 2. Sign-up (N02): the form; then verify-email, verify-phone and done
-- [ ] 3. Sign-in (N03) with MFA code and MFA setup
-- [ ] 4. Forgot and reset password (N03)
-- [ ] 5. Client shell (N01 follow-ups): full-width header with the firm logo and footer, drawer at 375 px, Signatures and Tax Calculators menu lines
-- [ ] 6. My Docs (N05): list with filters and search; then the upload popup and document requests
-- [ ] 7. My Profile (N05)
-- [ ] 8. Taxes tab; My Services (N06)
-- [ ] 9. Intake tab (N06): cards and frame now, finished when contract B, the sign block and R14's agreements land
-- [ ] 10. Messages and notes (N09), on R15's contract D
-- [ ] 11. Invoices (N09)
-- [ ] 12. Business tab (N09)
-- [ ] 13. Resources (N10) and External links (N09)
-- [ ] 14. Notifications (N10)
+- [x] 2. Sign-up (N02): the form; then verify-email, verify-phone and done
+- [x] 3. Sign-in (N03) with MFA code and MFA setup
+- [x] 4. Forgot and reset password (N03)
+- [x] 5. Client shell (N01 follow-ups): full-width header with the firm logo and footer, drawer at 375 px, Signatures and Tax Calculators menu lines
+- [x] 6. My Docs (N05): list with filters and search; then the upload popup and document requests
+- [x] 7. My Profile (N05)
+- [x] 8. Taxes tab; My Services (N06)
+- [ ] 9. Intake tab (N06): cards and frame done; the form when contract B, the sign block and R14's agreements land
+- [x] 10. Messages and notes (N09), on R20's messages contract
+- [x] 11. Invoices (N09)
+- [x] 12. Business tab (N09)
+- [x] 13. Resources (N10) and External links (N09)
+- [x] 14. Notifications (N10)
 - [ ] 15. Switch each screen off the mock as its API merges; Oct 16 pixel check, Oct 17 review fixes, Oct 18 production smoke test
 
 ## Needs from others
 
-- `apps/web/src/lib/api.ts` has no mock line for `myProfile` or `myTaxReturns` (their mock factories exist). Asked the Scrum thread who adds them.
-- Contracts and APIs: contract B and contract D (R15; R0 may own contract B), R14 agreements and `<Markdown>`, Arfan's sign block, R1 documents part 2, R10 step 7 tax returns (R21), invoices (R19), notifications (R16, #160), messages API (R20), signatures status (R13-api).
-- Nahid's next work and his "Your files" path guard under `.github/`: the Scrum thread and Rasel.
+- Contracts and APIs: contract B and the leads (R15), R14 agreements and `<Markdown>` (#155 first), Arfan's form blocks (#138) and sign block, R1 documents part 2, tax returns (R21), invoices (R19), notifications (R16, #160 merged), messages and notes API (R20), signatures status (R13-api).
+- The portal header bell's count and link: needs a Header prop or Fahad's bell; asked the Scrum thread who adds it.
+- Nahid's next work and the "Your files" > Nahid path guard under `.github/`: the Scrum thread and Rasel.
 
 ## Progress log
 
 - 2026-10-09: step 1, docs PR: portal rows in PAGE-MAP now owned by R17 (Rasel), this file, pointer line in NAHID.md.
+- 2026-10-09: steps 2-14 built as stacked branches rasel/R17-* (backed up on rasel/r17-client-portal-5vb4kh), each with a mock e2e at desktop and 375 px; waiting on Rasel's branch card to open the PRs. Step 9 has the cards and frame only. The mock lines for `myProfile` and `myTaxReturns` in `lib/api.ts` were added here with the Scrum thread's yes (those two lines only). Recent Activity reads the client's notifications.

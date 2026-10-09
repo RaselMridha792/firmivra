@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { isActive } from '../../../../../components/app-shell/types';
+import { RecentActivity } from './_components/recent-activity';
 import { QuickLinks, RightColumn } from './_components/side-cards';
 
 const tabs: [label: string, path: string][] = [
@@ -54,7 +55,10 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           })}
         </nav>
         {children}
-        <QuickLinks slug={firmSlug} />
+        <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
+          <RecentActivity slug={firmSlug} />
+          <QuickLinks slug={firmSlug} />
+        </div>
       </div>
       <RightColumn slug={firmSlug} />
     </div>
