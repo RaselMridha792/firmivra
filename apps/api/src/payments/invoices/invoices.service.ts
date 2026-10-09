@@ -210,7 +210,7 @@ export class InvoicesService {
    * never pick the same one.
    */
   private async nextNumber(tx: TxClient, businessId: string): Promise<string> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invoice-number:${businessId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invoice-number:${businessId}`}, 0))`;
     const year = (await firmToday(tx, businessId)).today.slice(0, 4);
     const [row] = await tx.$queryRaw<{ n: number | null }[]>`
       SELECT max(substring(number from '^INV-[0-9]{4}-([0-9]+)$')::int) AS n
