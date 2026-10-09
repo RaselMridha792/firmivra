@@ -3,17 +3,26 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type { MyProfile, RequestNameChangeRequest, UpdateMyProfileRequest } from '@firmivra/types';
+import {
+  type MyProfile,
+  type RequestNameChangeRequest,
+  SmsPhone,
+  type UpdateMyProfileRequest,
+} from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
-import { changedFields, readDateOfBirth, readDateOfBirthAfterWrite } from './client-secrets.js';
+import { Notifier } from '../notifications/notifier.js';
+import { changedFields, NO_DATE_OF_BIRTH, readDateOfBirth } from './client-secrets.js';
 
 type UpdateBody = z.output<typeof UpdateMyProfileRequest>;
+/** The PRIMARY login's number, from the value read in the firm's transaction to the new one. */
+type LoginPhoneMove = { userId: string; from: string | null; to: string | null };
 type NameChangeBody = z.output<typeof RequestNameChangeRequest>;
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
@@ -29,6 +38,7 @@ const archived = () =>
   });
 
 const accountSelect = {
+  userId: true,
   portalRole: true,
   email: true,
   clientId: true,
@@ -65,7 +75,10 @@ export class MyProfileService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly fe: FieldEncryption,
+    private readonly notifier: Notifier,
   ) {}
+
+  private readonly logger = new Logger(MyProfileService.name);
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId }, fn);
@@ -95,7 +108,6 @@ export class MyProfileService {
   private async view(
     businessId: string,
     { account, client }: Awaited<ReturnType<MyProfileService['mine']>>,
-    afterWrite = false,
   ): Promise<MyProfile> {
     const p = client.profile;
     const name = [p?.firstName, p?.middleName, p?.lastName].filter(Boolean).join(' ');
@@ -109,7 +121,7 @@ export class MyProfileService {
     if (account.portalRole === 'AUTHORIZED') {
       return {
         ...named,
-        dateOfBirth: null,
+        ...NO_DATE_OF_BIRTH,
         phone: null,
         address: NO_ADDRESS,
         preferredContactMethod: null,
@@ -120,11 +132,9 @@ export class MyProfileService {
     const primary = account.portalRole === 'PRIMARY';
     return {
       ...named,
-      dateOfBirth: !primary
-        ? null
-        : afterWrite
-          ? await readDateOfBirthAfterWrite(this.fe, businessId, client.id, p?.dobEnc)
-          : await readDateOfBirth(this.fe, businessId, client.id, p?.dobEnc),
+      ...(primary
+        ? await readDateOfBirth(this.fe, businessId, client.id, p?.dobEnc)
+        : NO_DATE_OF_BIRTH),
       phone: client.phone,
       address: {
         line1: p?.addressLine1 ?? null,
@@ -149,6 +159,7 @@ export class MyProfileService {
 
   /** The primary login edits phone, address and the additional information. */
   async update(businessId: string, clientAccountId: string, body: UpdateBody): Promise<MyProfile> {
+    let newLoginPhone: LoginPhoneMove | null = null;
     const mine = await this.inFirm(businessId, async (tx) => {
       const current = await this.mine(tx, businessId, clientAccountId, true);
       if (current.account.portalRole !== 'PRIMARY') throw primaryOnly();
@@ -159,6 +170,22 @@ export class MyProfileService {
           where: { businessId_id: { businessId, id: clientId } },
           data: { phone: body.phone },
         });
+        // R6: the PRIMARY login's own number follows (texts and the SMS switch read users.phone),
+        // only if texts may go to it (SmsPhone: US numbers only); any other number leaves the
+        // login with none. A new or removed number is unverified and clears every SMS choice, in
+        // this transaction.
+        const { userId } = current.account;
+        const loginPhone =
+          body.phone === null ? null : (SmsPhone.safeParse(body.phone).data ?? null);
+        const user = await tx.user.findFirst({ where: { id: userId }, select: { phone: true } });
+        if (user && user.phone !== loginPhone) {
+          await tx.clientAccount.updateMany({
+            where: { businessId, id: clientAccountId, phoneVerifiedAt: { not: null } },
+            data: { phoneVerifiedAt: null },
+          });
+          await this.notifier.phoneChanged(businessId, userId, tx);
+          newLoginPhone = { userId, from: user.phone, to: loginPhone };
+        }
       }
       const profile: Prisma.ClientProfileUncheckedUpdateInput = {};
       if (body.address) {
@@ -182,12 +209,38 @@ export class MyProfileService {
       }
       return this.mine(tx, businessId, clientAccountId);
     });
+    // The firm's change committed: its audit row first, so a failed login step never loses it.
     await this.audit.log(
       'portal.profile_updated',
       { type: 'client', id: mine.client.id },
       { fields: changedFields(body) },
     );
-    return this.view(businessId, mine, true);
+    if (newLoginPhone) {
+      const { userId } = newLoginPhone;
+      await this.moveLoginPhone(newLoginPhone).catch((e: unknown) => {
+        const name = e instanceof Error ? e.name : 'unknown';
+        this.logger.error(`My Profile: login phone not moved for user ${userId}: ${name}`);
+      });
+    }
+    return this.view(businessId, mine);
+  }
+
+  /**
+   * The login's number lives on its user (users.phone): written in the person's own scope, since
+   * users cannot change in a firm's scope, after the firm's change committed (its SMS choices are
+   * already off). A client login belongs to one firm only (client_accounts.user_id is unique), so
+   * no other firm holds SMS choices for it. If this step fails, the firm's record has the new
+   * number, the login keeps the old one, and no SMS choice is left on (logged with the user id).
+   * The write holds only while the login still has the number read in the firm's transaction, so
+   * a slower earlier save cannot overwrite a later one.
+   */
+  private async moveLoginPhone({ userId, from, to }: LoginPhoneMove): Promise<void> {
+    const { count } = await this.database
+      .forUser(userId)
+      .user.updateMany({ where: { id: userId, phone: from }, data: { phone: to } });
+    if (count === 0) {
+      this.logger.warn(`My Profile: login phone of user ${userId} changed meanwhile; kept`);
+    }
   }
 
   /**
