@@ -9,6 +9,7 @@ import {
   type PolicyDocument,
   permissionsBoundary,
   policySize,
+  SERVICE_LINKED_ROLES,
 } from '../src/bootstrap-policies';
 import { cdkJsonContext } from '../src/cdk-context';
 import { configFor, DEV_FIRMIVRA_COM } from '../src/config';
@@ -104,6 +105,30 @@ describe('bootstrap policies', () => {
       (action) => !allowed(boundary).some((pattern) => matches(pattern, action)),
     );
     expect(outside).toEqual([]);
+  });
+
+  it('let both create only the listed service-linked roles, the Cognito SES role among them', () => {
+    expect(SERVICE_LINKED_ROLES).toEqual([
+      'ecs.amazonaws.com',
+      'elasticloadbalancing.amazonaws.com',
+      'rds.amazonaws.com',
+      'vpcorigin.cloudfront.amazonaws.com',
+      'email.cognito-idp.amazonaws.com',
+    ]);
+    for (const doc of [exec, boundary]) {
+      const statements = doc.Statement.filter((s) =>
+        s.Action.includes('iam:CreateServiceLinkedRole'),
+      );
+      expect(statements).toEqual([
+        {
+          Sid: 'ServiceLinkedRoles',
+          Effect: 'Allow',
+          Action: ['iam:CreateServiceLinkedRole'],
+          Resource: `arn:aws:iam::${account}:role/aws-service-role/*`,
+          Condition: { StringEquals: { 'iam:AWSServiceName': SERVICE_LINKED_ROLES } },
+        },
+      ]);
+    }
   });
 
   it('refuse roles without the boundary, boundary removal and changes to themselves', () => {

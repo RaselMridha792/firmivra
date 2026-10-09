@@ -19,7 +19,9 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { MeModule } from '../me/me.controller.js';
 import { MeService } from '../me/me.service.js';
-import { ACTIVATION_MAILER, LogActivationMailer } from './activation-mailer.js';
+import { NotifyActivationMailer } from '../notify/adapters.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
+import { ACTIVATION_MAILER } from './activation-mailer.js';
 import { ChallengeSessions } from './challenge-session.js';
 import { Public } from './decorators.js';
 import {
@@ -198,8 +200,8 @@ export class AdminSignInController extends SignInRoutes {
     InvitesService,
     {
       provide: ACTIVATION_MAILER,
-      inject: [ENV],
-      useFactory: (env: Env) => new LogActivationMailer(env.AUTH_MODE === 'local'),
+      inject: [NOTIFY_SERVICE],
+      useFactory: (notify: NotifyService) => new NotifyActivationMailer(notify),
     },
     {
       provide: RefreshEnvelopes,

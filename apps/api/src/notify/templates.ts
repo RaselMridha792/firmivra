@@ -1,5 +1,13 @@
 import { type Branding, FIRMIVRA_BRANDING, hexColor } from './branding.js';
-import { type NotifyTemplate, type NotifyTemplates, TEMPLATE_SENDER } from './notify.types.js';
+import {
+  ALWAYS_SENT,
+  ESIGN_STAFF_EVENTS,
+  type EsignNamed,
+  type EsignStaffEvent,
+  type NotifyTemplate,
+  type NotifyTemplates,
+  TEMPLATE_SENDER,
+} from './notify.types.js';
 
 /**
  * Subject, plain text and simple HTML for every template (R6 step 3). A message holds the
@@ -33,6 +41,11 @@ export interface RenderedSms {
 export interface RenderOptions {
   /** The email has a Reply-To (for example Firmivra support), so the text may ask for a reply. */
   canReply?: boolean;
+  /**
+   * The recipient can switch this message off (NotifyService: a firm's message to someone with an
+   * account, not ALWAYS_SENT), so the footer may say where. Never for a bare address.
+   */
+  canOptOut?: boolean;
   /**
    * The origins a link may go to: the app, portal and admin sites from config (NotifyConfig's
    * `linkOrigins`). Without them every link is refused.
@@ -165,6 +178,25 @@ function calendarDate(value: string): string {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(date);
 }
 
+/** At most `max` characters (whole code points), with an ellipsis when cut. */
+function capped(value: string, max: number): string {
+  const chars = Array.from(value);
+  if (chars.length <= max) return value;
+  const kept = chars.slice(0, max - 1).join('');
+  return `${kept.trimEnd()}…`;
+}
+
+/** A Firm Sign request's title: one line, at most 200 characters (as the API accepts it). */
+const esignTitle = (data: Pick<EsignNamed, 'title'>): string =>
+  capped(required(data, 'title'), 200);
+
+/** The sender's own note, or null when there is none; at most 1000 characters. */
+function optionalMessage(data: { message: string | null }): string | null {
+  const value = field(data, 'message');
+  const shown = typeof value === 'string' ? multiLine(value) : '';
+  return shown ? capped(shown, 1000) : null;
+}
+
 // ---------- Blocks ----------
 
 const text = (value: string): Block => ({ kind: 'text', text: value });
@@ -204,6 +236,24 @@ function appointment(
     ],
   };
 }
+
+/** Firm Sign's staff updates in plain words. */
+const ESIGN_EVENT_TEXT: Record<EsignStaffEvent, (signer: string, title: string) => string> = {
+  VIEWED: (signer, title) => `${signer} opened "${title}".`,
+  SIGNED: (signer, title) => `${signer} signed "${title}".`,
+  COMPLETED: (_signer, title) => `Everyone has signed "${title}". The signed copy is filed.`,
+  EXPIRED: (_signer, title) => `"${title}" expired before everyone signed.`,
+};
+
+function esignEvent(data: NotifyTemplates['esign.staff-update']): EsignStaffEvent {
+  const event = field(data, 'event');
+  if (!ESIGN_STAFF_EVENTS.includes(event as EsignStaffEvent)) {
+    throw new NotifyTemplateError('Template data needs event');
+  }
+  return event as EsignStaffEvent;
+}
+
+const NO_FORWARD = 'This link is for you only. Please do not forward this email.';
 
 // ---------- Templates ----------
 
@@ -416,6 +466,224 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       ],
     };
   },
+
+  'begin-online.resume-link': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `Continue your request with ${firm}`,
+      blocks: [
+        text('Hello,'),
+        text(`Here is your link to continue the request you started with ${firm}.`),
+        button('Continue my request', link(d, 'link', o)),
+        small(
+          `The link works until ${dateTime(d, 'expiresAt', b.timeZone)}. A new link replaces this one. If you did not start a request, you can ignore this email.`,
+        ),
+      ],
+    };
+  },
+
+  'lead.confirmation': (d, b) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `${firm} received your request`,
+      blocks: [
+        text('Hello,'),
+        text(
+          `Thank you. ${firm} received your request for ${required(d, 'serviceName')} and will be in touch by email.`,
+        ),
+        small('If you did not send this request, you can ignore this email.'),
+      ],
+    };
+  },
+
+  'lead.received': (d, b, o) => ({
+    channel: 'email',
+    subject: `New Begin Online request: ${required(d, 'serviceName')}`,
+    blocks: [
+      text('Hello,'),
+      text(`${b.name} has a new Begin Online request for ${required(d, 'serviceName')}.`),
+      button('Review the request', link(d, 'link', o)),
+    ],
+  }),
+
+  'client.portal-invite': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `${firm} invites you to its client portal`,
+      blocks: [
+        hello(d),
+        text(
+          `${firm} accepted your request. Create your client portal account with this email address to share documents, sign forms and message the firm.`,
+        ),
+        button('Create my account', link(d, 'signUpLink', o)),
+      ],
+    };
+  },
+
+  'message.received': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `New message in ${firm}'s portal`,
+      blocks: [
+        hello(d),
+        text('You have a new message. Open it to read and reply.'),
+        button('Read the message', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  'esign.request': (d, b, o) => {
+    const firm = b.name;
+    const sender = required(d, 'senderName');
+    const title = esignTitle(d);
+    const message = optionalMessage(d);
+    return {
+      channel: 'email',
+      subject: `${firm} asks you to sign "${title}"`,
+      blocks: [
+        hello(d),
+        text(`${sender} at ${firm} asks you to sign "${title}".`),
+        ...(message === null ? [] : [quote(`Message from ${sender}`, message)]),
+        button('Review and sign', link(d, 'link', o)),
+        small(NO_FORWARD),
+      ],
+    };
+  },
+
+  'esign.code': (d, b) => ({
+    channel: 'email',
+    subject: `Your ${b.name} signing code`,
+    blocks: [
+      text(`Use this code to open "${esignTitle(d)}" from ${b.name}:`),
+      { kind: 'code', code: code(d) },
+      small(
+        'The code expires in 15 minutes. Never share it. If you did not ask for a code, you can ignore this email.',
+      ),
+    ],
+  }),
+
+  'esign.reminder': (d, b, o) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `Reminder: ${b.name} is waiting for your signature`,
+      blocks: [
+        hello(d),
+        text(`This is a reminder that ${b.name} asked you to sign "${title}".`),
+        button('Review and sign', link(d, 'link', o)),
+        small(NO_FORWARD),
+      ],
+    };
+  },
+
+  'esign.expiring': (d, b, o) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `"${title}" from ${b.name} expires soon`,
+      blocks: [
+        hello(d),
+        text(
+          `The request from ${b.name} to sign "${title}" expires on ${dateTime(d, 'expiresAt', b.timeZone)}.`,
+        ),
+        button('Review and sign', link(d, 'link', o)),
+        small(NO_FORWARD),
+      ],
+    };
+  },
+
+  'esign.completed': (d, b, o) => {
+    const title = esignTitle(d);
+    const copy = field(d, 'copyLink') !== undefined;
+    return {
+      channel: 'email',
+      subject: `"${title}" is signed`,
+      blocks: [
+        hello(d),
+        text(`Everyone has signed "${title}" for ${b.name}.`),
+        ...(copy
+          ? [
+              button('Download your copy', link(d, 'copyLink', o)),
+              small('The link works for 30 days and asks for a code we email you. ' + NO_FORWARD),
+            ]
+          : [
+              text('You can find the signed copy in your client portal.'),
+              button('Open the client portal', link(d, 'portalLink', o)),
+            ]),
+      ],
+    };
+  },
+
+  // To the sender. Never the reason: it can hold client content.
+  'esign.declined': (d, _b, o) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `"${title}" was declined`,
+      blocks: [
+        hello(d),
+        text(`${required(d, 'signerName')} declined to sign "${title}".`),
+        button('View the request', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  // To the recipients. No reason.
+  'esign.voided': (d, b) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `${b.name} cancelled "${title}"`,
+      blocks: [
+        hello(d),
+        text(`${b.name} cancelled the request to sign "${title}". You do not need to do anything.`),
+        text(`If you have questions, please contact ${b.name} directly.`),
+      ],
+    };
+  },
+
+  'esign.approval-requested': (d, _b, o) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `Approval needed: "${title}"`,
+      blocks: [
+        hello(d),
+        text(`${required(d, 'senderName')} asks you to approve sending "${title}" for signature.`),
+        button('Review the request', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  'esign.staff-update': (d, _b, o) => {
+    const title = esignTitle(d);
+    const signerValue = field(d, 'signerName');
+    const signer = (typeof signerValue === 'string' && oneLine(signerValue)) || 'A recipient';
+    const event = esignEvent(d);
+    const waiting = field(d, 'waitingOn');
+    const next = Array.isArray(waiting)
+      ? waiting
+          .filter((n): n is string => typeof n === 'string')
+          .map(oneLine)
+          .filter(Boolean)
+      : [];
+    return {
+      channel: 'email',
+      subject: `Update on "${title}"`,
+      blocks: [
+        hello(d),
+        text(ESIGN_EVENT_TEXT[event](signer, title)),
+        ...(event === 'SIGNED' && next.length > 0
+          ? [text(`Now waiting on ${next.join(', ')}.`)]
+          : []),
+        button('View the request', link(d, 'link', o)),
+      ],
+    };
+  },
 };
 
 // ---------- Layout ----------
@@ -479,11 +747,16 @@ function logo(url: string | null): string | null {
 }
 
 /**
- * Who sent it. No "turn off emails like this" line until preferences are read (R6 step 5): the
- * email must not promise a setting that does nothing yet.
+ * Who sent it, and on a message the person can switch off (`canOptOut`, never ALWAYS_SENT) where
+ * to do that: NotifyService reads the preferences since R6 step 5.
  */
-function footer(branding: Branding): string[] {
-  return [branding.isFirm ? `Sent by ${branding.name} through Firmivra.` : 'Sent by Firmivra.'];
+function footer(branding: Branding, template: NotifyTemplate, canOptOut: boolean): string[] {
+  return [
+    branding.isFirm ? `Sent by ${branding.name} through Firmivra.` : 'Sent by Firmivra.',
+    ...(!canOptOut || ALWAYS_SENT.has(template)
+      ? []
+      : ['You can turn off emails like this in your notification settings.']),
+  ];
 }
 
 function plainText(blocks: Block[], brand: string, foot: string[]): string {
@@ -612,7 +885,7 @@ export function render<T extends NotifyTemplate>(
   const content = (TEMPLATES[template] as Build<T>)(data, b, options);
   if (content.channel === 'sms') return { channel: 'sms', text: oneLine(content.text) };
   const subject = oneLine(content.subject);
-  const foot = footer(b);
+  const foot = footer(b, template, options.canOptOut === true);
   return {
     channel: 'email',
     fromName: b.name,

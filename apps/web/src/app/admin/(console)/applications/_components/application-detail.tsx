@@ -10,12 +10,12 @@ import {
   FirmApplicationId,
   type FirmApplicationRecord,
 } from '@firmivra/types';
-import { Button, Card } from '@firmivra/ui';
+import { Button, Card, Modal } from '@firmivra/ui';
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { APPLICATIONS_KEY, applicationDetailKey } from './application-data';
 import {
@@ -26,6 +26,13 @@ import {
 } from './application-ui';
 
 type Action = 'approve' | 'request-info' | 'decline';
+
+/** This module's codes (firm-applications schemas), and the reason rule behind a 400. */
+const DECISION_ERRORS: Record<string, string> = {
+  APPLICATION_DECIDED: 'Another administrator has already decided this application.',
+  SLUG_TAKEN: 'Another firm already uses this portal address.',
+  VALIDATION_FAILED: 'Check the text: it may be too long, or the same as your last message.',
+};
 type Field = readonly [label: string, value: string | null | undefined];
 
 function display(value: string | null | undefined) {
@@ -59,8 +66,16 @@ function FieldCard({ title, fields }: { title: string; fields: readonly Field[] 
   );
 }
 
-function ApplicationRecord({ application }: { application: FirmApplicationRecord }) {
+function ApplicationRecord({
+  application,
+  onStale,
+}: {
+  application: FirmApplicationRecord;
+  /** Reloads the application after someone else changed it. */
+  onStale: () => void;
+}) {
   const [action, setAction] = useState<Action | null>(null);
+  const [notice, setNotice] = useState('');
   const [message, setMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [notes, setNotes] = useState(application.internalNotes ?? '');
@@ -166,7 +181,13 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
       setAction(null);
       setMessage('');
     } catch (error) {
-      setActionError(errorMessage(error));
+      if (errorCode(error) === 'APPLICATION_DECIDED') {
+        setAction(null);
+        setNotice(errorMessage(error, DECISION_ERRORS));
+        onStale();
+        return;
+      }
+      setActionError(errorMessage(error, DECISION_ERRORS));
     }
   }
 
@@ -183,6 +204,11 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
       <Link href="/applications" className="w-fit text-sm font-medium text-brand-700">
         ← Back to Applications
       </Link>
+      {notice ? (
+        <p role="status" className="rounded-card bg-warning-soft p-3 text-sm text-warning">
+          {notice}
+        </p>
+      ) : null}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 data-testid="page-title" className="font-serif text-4xl font-semibold tracking-tight">
@@ -355,22 +381,20 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
         </Card>
       </div>
 
-      {action && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-brand-900/60 p-4">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="decision-title"
-            className="w-full max-w-lg rounded-card bg-surface p-6"
-          >
-            <h2 id="decision-title" className="text-xl font-semibold">
-              {action === 'approve'
-                ? 'Approve application?'
-                : action === 'decline'
-                  ? 'Decline application?'
-                  : 'Request information'}
-            </h2>
-            <p className="mt-2 text-sm text-muted">
+      <Modal
+        open={action !== null}
+        title={
+          action === 'approve'
+            ? 'Approve application?'
+            : action === 'decline'
+              ? 'Decline application?'
+              : 'Request information'
+        }
+        onClose={() => setAction(null)}
+      >
+        {action ? (
+          <div className="max-w-lg">
+            <p className="text-sm text-muted">
               {action === 'approve'
                 ? 'This creates the firm and sends its owner an activation link.'
                 : action === 'decline'
@@ -419,9 +443,9 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
                 </Button>
               </div>
             </form>
-          </section>
-        </div>
-      )}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }
@@ -432,7 +456,13 @@ function ApplicationDetailContent({ id }: { id: string }) {
   if (!me.platformAdmin) return <NoApplicationPermission />;
   return (
     <ApplicationPageState query={query}>
-      {(application) => <ApplicationRecord key={application.id} application={application} />}
+      {(application) => (
+        <ApplicationRecord
+          key={application.id}
+          application={application}
+          onStale={() => void query.refetch()}
+        />
+      )}
     </ApplicationPageState>
   );
 }

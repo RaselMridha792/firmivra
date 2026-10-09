@@ -26,7 +26,8 @@ const UploadClaim = z.object({
   clientAccountId: z.uuid().nullable(),
   clientId: z.uuid(),
   engagementId: z.uuid(),
-  // A requestId (the portal's upload for a request) comes with part 2.
+  /** The open request the portal's upload answers (SUBMITTED at confirm); null otherwise. */
+  requestId: z.uuid().nullable(),
   categoryId: z.uuid().nullable(),
   direction: DocumentDirection,
   taxYear: z.number().int().nullable(),
