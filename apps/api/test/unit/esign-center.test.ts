@@ -281,6 +281,7 @@ describe('signing from the Signature center', () => {
       action: 'esign.signer_portal_opened',
       entity: { type: 'esign_recipient', id: mine.id },
       metadata: { requestId, authMethod: 'PORTAL_SESSION' },
+      at: { businessId: w.a },
     });
   });
 

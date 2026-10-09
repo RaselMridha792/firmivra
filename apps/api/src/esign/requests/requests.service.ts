@@ -14,6 +14,7 @@ import {
   ESIGN_ERRORS,
   type EsignErrorCode,
   type EsignAccessRole,
+  type EsignDocument,
   EsignField,
   type EsignPage,
   type EsignPutRecipientsBody,
@@ -37,6 +38,7 @@ import { allowedActions, nextAction, signersOf } from './actions.js';
 import { type DirectoryClient, ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
 import {
   ESIGN_REPOSITORY,
+  type EsignDocumentRecord,
   type EsignDraftPatch,
   type EsignRecipientRecord,
   type EsignRepository,
@@ -241,7 +243,7 @@ export class EsignRequestsService {
       pageCount: pages.length,
       fieldsRemoved: parts.fields.length - fields.length,
     });
-    return this.toDetail(businessId, saved);
+    return this.answer(businessId, saved);
   }
 
   /** The whole list. Kept ids keep their colour; removed signers lose their fields. */
@@ -320,18 +322,11 @@ export class EsignRequestsService {
       recipientIds: recipients.map((r) => r.id),
       fieldsRemoved: parts.fields.length - fields.length,
     });
-    return this.toDetail(businessId, saved);
-  }
-
-  /** A draft write that found the request no longer a DRAFT, or changed since it was read. */
-  async drafted(write: Promise<boolean>): Promise<void> {
-    if (!(await write)) throw esignRefusal('INVALID_STATE');
+    return this.answer(businessId, saved);
   }
 
   /** The answer to a write: the request as written, with no view audit and no access check. */
-  async current(businessId: string, id: string): Promise<EsignRequestDetail> {
-    const record = await this.repo.findRequest(businessId, id);
-    if (!record) throw esignRefusal('INVALID_STATE');
+  answer(businessId: string, record: EsignRequestRecord): Promise<EsignRequestDetail> {
     return this.toDetail(businessId, record);
   }
 
@@ -386,14 +381,15 @@ export class EsignRequestsService {
     if (!record) throw notFound();
     if (await this.manages(businessId, actor, record)) {
       if (mode === 'write') readOnly(actor);
-      return { record, approverOnly: false };
+      return { record, approverOnly: false, parts: null };
     }
     if (mode === 'read') {
-      const { recipients } = await this.repo.parts(businessId, record.id);
-      const approves = recipients.some(
+      // `parts` is handed back so a read that needs them does not read them again.
+      const parts = await this.repo.parts(businessId, record.id);
+      const approves = parts.recipients.some(
         (r) => r.kind === 'APPROVER' && r.link.type === 'STAFF' && r.link.userId === actor.userId,
       );
-      if (approves) return { record, approverOnly: true };
+      if (approves) return { record, approverOnly: true, parts };
     }
     throw notFound();
   }
@@ -477,9 +473,10 @@ export class EsignRequestsService {
     actor: EsignActor | null = null,
   ): Promise<EsignRequestDetail> {
     const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
-    const [row, service] = await Promise.all([
+    const [row, service, voider] = await Promise.all([
       this.row(businessId, r, parts.recipients, actor),
       r.engagementId ? this.directory.engagement(businessId, r.engagementId) : null,
+      r.voidedByUserId ? this.directory.member(businessId, r.voidedByUserId) : null,
     ]);
     return {
       ...row,
@@ -491,18 +488,7 @@ export class EsignRequestsService {
       expiryDays: r.expiryDays,
       reminders: r.reminders,
       expiryWarningDays: r.expiryWarningDays,
-      documents: parts.documents.map((d) => ({
-        id: d.id,
-        position: d.position,
-        fileName: d.fileName,
-        contentType: d.contentType,
-        sizeBytes: d.sizeBytes,
-        pageCount: d.pageCount,
-        pageSizes: d.pageSizes,
-        sourceDocumentId: d.sourceDocumentId,
-        scanStatus: d.scanStatus,
-        createdAt: d.createdAt.toISOString(),
-      })),
+      documents: parts.documents.map(toDocument),
       // Contract fields only (the schemas drop anything else a row holds).
       pagePlan: parts.pagePlan.map(({ documentId, page, rotation }) => ({
         documentId,
@@ -521,16 +507,16 @@ export class EsignRequestsService {
         }),
       ),
       fields: parts.fields.map((f) => EsignField.parse(f)),
+      replacesRequestId: r.replacesRequestId,
+      replacedByRequestId: r.replacedByRequestId,
       // The columns below arrive with r0_esign and are read from part 3 on.
-      replacesRequestId: null,
-      replacedByRequestId: null,
       template: null,
       approvalNotes: [],
       declinedAt: null,
-      expiredAt: null,
-      voidedAt: null,
-      voidReason: null,
-      voidedBy: null,
+      expiredAt: iso(r.expiredAt),
+      voidedAt: iso(r.voidedAt),
+      voidReason: r.voidReason,
+      voidedBy: r.voidedByUserId ? { userId: r.voidedByUserId, name: voider?.name ?? '' } : null,
       originalSha256: r.originalSha256,
       finalSha256: null,
       certificateSha256: null,
@@ -542,8 +528,24 @@ export class EsignRequestsService {
 
 const clientRef = (c: DirectoryClient) => ({ id: c.id, displayName: c.displayName });
 
+/** A file as the contract shows it. */
+export function toDocument(d: EsignDocumentRecord): EsignDocument {
+  return {
+    id: d.id,
+    position: d.position,
+    fileName: d.fileName,
+    contentType: d.contentType,
+    sizeBytes: d.sizeBytes,
+    pageCount: d.pageCount,
+    pageSizes: d.pageSizes,
+    sourceDocumentId: d.sourceDocumentId,
+    scanStatus: d.scanStatus,
+    createdAt: d.createdAt.toISOString(),
+  };
+}
+
 /** A draft write's result: the request as written, or 409 INVALID_STATE when it was refused. */
-function savedOrRefused(record: EsignRequestRecord | null): EsignRequestRecord {
+export function savedOrRefused(record: EsignRequestRecord | null): EsignRequestRecord {
   if (!record) throw esignRefusal('INVALID_STATE');
   return record;
 }

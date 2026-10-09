@@ -389,6 +389,7 @@ describe('attachments', () => {
       action: 'esign.signer_attachment_removed',
       entity: { type: 'esign_recipient', id: me.id },
       metadata: { requestId: id, fieldId: attach.id },
+      at: { businessId: w.a },
     });
   });
 
@@ -493,6 +494,7 @@ describe('the completed-copy link', () => {
       action: 'esign.signer_copy_downloaded',
       entity: { type: 'esign_recipient', id: cc.id },
       metadata: { requestId: id, file: 'certificate' },
+      at: { businessId: w.a },
     });
   });
 

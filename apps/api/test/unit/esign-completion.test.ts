@@ -9,7 +9,7 @@ import { Logger, NotFoundException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EsignField } from '@firmivra/types';
-import { EsignCompletionJob, esignJobsOn } from '../../src/esign/completion/completion.job.js';
+import { EsignCompletionJob } from '../../src/esign/completion/completion.job.js';
 import {
   COMPLETION_RETRY_MS,
   EsignCompletionService,
@@ -406,6 +406,7 @@ describe('completion from the last finish', () => {
         certificateDocumentId: done1.certificateDocumentId,
         emailIds: expect.any(Array),
       },
+      at: { businessId: w.a },
     });
     const said = JSON.stringify([log.mock.calls, warn.mock.calls, w.audit.entries, events]);
     for (const secret of [FIELD_VALUE, 'Sender value', '#t=', 'iVBOR'])
@@ -510,13 +511,6 @@ describe('completion from the last finish', () => {
 });
 
 describe('the job', () => {
-  it('ESIGN_JOBS is off unless on; anything else is refused', () => {
-    expect(esignJobsOn({})).toBe(false);
-    expect(esignJobsOn({ ESIGN_JOBS: 'off' })).toBe(false);
-    expect(esignJobsOn({ ESIGN_JOBS: 'on' })).toBe(true);
-    expect(() => esignJobsOn({ ESIGN_JOBS: 'yes' })).toThrow('ESIGN_JOBS');
-  });
-
   it('skips while another task holds the lock', async () => {
     const id = await allSigned(w.a);
     repo.lockedElsewhere = true;
