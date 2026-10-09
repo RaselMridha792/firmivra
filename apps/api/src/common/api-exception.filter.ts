@@ -10,6 +10,23 @@ import type { Response } from 'express';
 import type { ApiError } from '@firmivra/types';
 import { requestContext } from './request-context.js';
 
+/**
+ * What an error without its own code and message says: only our own HttpExceptions (with a
+ * `code`) choose their words, so no library text (a path, a query, a stack) reaches a response.
+ */
+const MESSAGES: Partial<Record<number, string>> = {
+  400: 'The request is not valid',
+  401: 'Sign in to continue',
+  403: 'You do not have access to this',
+  404: 'Not found',
+  405: 'This method is not allowed here',
+  409: 'This conflicts with the current state',
+  413: 'The request is too large',
+  415: 'Send the body as JSON',
+  422: 'The request could not be processed',
+  429: 'Too many requests. Please try again in a moment.',
+};
+
 const CODES: Partial<Record<number, string>> = {
   400: 'BAD_REQUEST',
   401: 'UNAUTHENTICATED',
@@ -41,18 +58,22 @@ export class ApiExceptionFilter implements ExceptionFilter {
       const body = exception.getResponse();
       const fields =
         typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+      const ours = typeof fields['code'] === 'string';
       const error: ApiError['error'] = {
-        code:
-          typeof fields['code'] === 'string' ? fields['code'] : (CODES[status] ?? `HTTP_${status}`),
+        code: ours ? (fields['code'] as string) : (CODES[status] ?? `HTTP_${status}`),
         message:
-          typeof fields['message'] === 'string'
+          ours && typeof fields['message'] === 'string'
             ? fields['message']
-            : typeof body === 'string'
-              ? body
-              : exception.message,
+            : (MESSAGES[status] ?? (status >= 500 ? 'Something went wrong' : 'Request failed')),
         requestId,
       };
-      if (fields['details'] !== undefined) error.details = fields['details'];
+      // Only our own errors carry details; a library's response object stays inside.
+      if (ours && fields['details'] !== undefined) error.details = fields['details'];
+      if (!ours && status >= 500) {
+        this.logger.error(
+          `HTTP ${status} without a code: ${describe(exception)} (request ${requestId ?? 'none'})`,
+        );
+      }
       // A route that knows how long to wait says so: `retryAfter` seconds, sent as Retry-After.
       const retryAfter = fields['retryAfter'];
       if (typeof retryAfter === 'number' && Number.isInteger(retryAfter) && retryAfter > 0) {
@@ -100,9 +121,26 @@ export class ApiExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    this.logger.error(exception instanceof Error ? exception.stack : String(exception));
+    // By request id, with the error's kind and where it was thrown, never its message: a database
+    // or library message can quote the query and the values in it (CLAUDE.md rule 4).
+    this.logger.error(`Unhandled ${describe(exception)} (request ${requestId ?? 'none'})`);
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       error: { code: 'INTERNAL_ERROR', message: 'Something went wrong', requestId },
     });
   }
+}
+
+/** An error's name, code and stack frames, without its message (which may quote data). */
+function describe(exception: unknown): string {
+  if (!(exception instanceof Error)) return typeof exception;
+  const code = (exception as { code?: unknown }).code;
+  // The stack starts with "Name: message", and a message can span lines (even ones that look
+  // like frames): drop it before reading frames.
+  const stack = exception.stack ?? '';
+  const head = exception.toString();
+  const frames = (stack.startsWith(head) ? stack.slice(head.length) : stack)
+    .split('\n')
+    .filter((line) => /^\s+at /.test(line))
+    .join('\n');
+  return `${exception.name}${typeof code === 'string' ? ` ${code}` : ''}\n${frames}`;
 }
