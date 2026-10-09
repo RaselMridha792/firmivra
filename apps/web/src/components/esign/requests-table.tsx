@@ -162,7 +162,9 @@ export function RequestsTable({
   const next = list.data?.nextCursor ?? null;
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+      <div
+        className={`grid gap-3 ${clientId ? 'md:grid-cols-[minmax(0,2fr)_repeat(2,minmax(0,1fr))]' : 'md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]'}`}
+      >
         <Input
           label="Search documents"
           type="search"
