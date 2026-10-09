@@ -4,7 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
-import { chargeOf, FakeStripeGateway } from '../../src/payments/stripe/fake-stripe.js';
+import {
+  chargeOf,
+  FakeStripeAlreadyRefunded,
+  FakeStripeGateway,
+} from '../../src/payments/stripe/fake-stripe.js';
 import { codeOf, expectOk, Invoice, nyDay, startInvoiceApp } from './invoice-setup.js';
 import { deliverEvent, stripeEvent } from './stripe-events.js';
 
@@ -49,6 +53,7 @@ async function paid(cents = 30_000) {
         id: payment.processorRef,
         payment_status: 'paid',
         amount_total: cents,
+        currency: 'usd',
         payment_intent: intent,
         metadata: { payment_id: payment.id },
       }),
@@ -205,6 +210,18 @@ describe('refunds', () => {
     expectOk(await refund(invoiceId, paymentId, 1_000, key));
     expect(fake.calls.filter((c) => c.method === 'createRefund').length).toBe(creates);
     expect((await paymentOf(invoiceId)).refunds).toHaveLength(1);
+  });
+
+  it('answers 409 NOT_REFUNDABLE when Stripe says the charge is refunded in full already', async () => {
+    const { invoiceId, paymentId } = await paid(2_500);
+    fake.refundError = new FakeStripeAlreadyRefunded('Charge already refunded (fake)');
+    try {
+      const res = await refund(invoiceId, paymentId, 500);
+      expect([res.status, codeOf(res)]).toEqual([409, 'NOT_REFUNDABLE']);
+    } finally {
+      fake.refundError = null;
+    }
+    expect((await paymentOf(invoiceId)).refunds).toEqual([]);
   });
 
   it('confirms once on a duplicate charge.refunded; a failed or canceled refund frees its cents', async () => {

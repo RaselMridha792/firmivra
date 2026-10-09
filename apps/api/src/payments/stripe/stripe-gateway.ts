@@ -202,6 +202,8 @@ export function createStripeGateway(secretKey: string): StripeGateway {
         await stripe.checkout.sessions.create(
           {
             mode: 'payment',
+            // Cards only until a bank debit's refund can wait for its settlement (R7 Open).
+            allowed_payment_method_types: ['card'],
             line_items: [
               {
                 quantity: 1,
