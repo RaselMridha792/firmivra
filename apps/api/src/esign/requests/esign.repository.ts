@@ -1,5 +1,6 @@
 import type {
   EsignAccessRole,
+  EsignContentType,
   EsignDefaults,
   EsignDocument,
   EsignField,
@@ -80,6 +81,28 @@ export type EsignRecipientRecord = Omit<EsignRecipient, RecipientDates | 'hasAcc
   [K in RecipientDates]: Date | null;
 } & { accessCodeHash: string | null };
 
+/** A file to add: the repository gives it the next position and appends its pages. */
+export type NewEsignDocument = Omit<EsignDocumentRecord, 'position'>;
+
+/**
+ * An upload started by createUpload and not yet confirmed. Only the token's SHA-256 is kept; the
+ * key, size, type and checksum are the API's, never the confirming request's.
+ */
+export interface EsignPendingUpload {
+  tokenHash: string;
+  requestId: string;
+  /** Who started it: only they confirm it. */
+  userId: string;
+  /** The document's id once confirmed (the last part of `key`). */
+  documentId: string;
+  key: string;
+  fileName: string;
+  contentType: EsignContentType;
+  sizeBytes: number;
+  sha256: string;
+  createdAt: Date;
+}
+
 /** The request's documents (upload order), page plan (packet order), recipients and fields. */
 export interface EsignRequestParts {
   documents: EsignDocumentRecord[];
@@ -144,6 +167,40 @@ export interface EsignRepository {
     businessId: string,
     id: string,
     recipients: EsignRecipientRecord[],
+    fields: EsignField[],
+    readAt: Date,
+  ): Promise<EsignRequestRecord | null>;
+  // Uploads between createUpload and confirmUpload (draft writes from addDocument on).
+  saveUpload(businessId: string, upload: EsignPendingUpload): Promise<void>;
+  /**
+   * Deletes and returns this request's upload with the token hash, started by `userId`: each is
+   * confirmed at most once. Null when there is none (another firm's, request's or person's).
+   */
+  takeUpload(
+    businessId: string,
+    requestId: string,
+    userId: string,
+    tokenHash: string,
+  ): Promise<EsignPendingUpload | null>;
+  /**
+   * Adds the file at the next position and its pages, unturned, to the end of the page plan.
+   * TOO_MANY_PAGES (nothing added) when the plan would pass ESIGN_MAX_PAGES.
+   */
+  addDocument(
+    businessId: string,
+    id: string,
+    document: NewEsignDocument,
+  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'>;
+  /**
+   * Deletes the file and replaces the page plan and the fields (those pages' removed), and
+   * returns the request as written. Like the saves above, null unless lastActivityAt is still
+   * `readAt`.
+   */
+  removeDocument(
+    businessId: string,
+    id: string,
+    documentId: string,
+    pagePlan: EsignPage[],
     fields: EsignField[],
     readAt: Date,
   ): Promise<EsignRequestRecord | null>;
