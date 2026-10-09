@@ -1389,12 +1389,22 @@ describe('free slots', () => {
     expect(starts(after, people.staffA.id)).toEqual(
       ['09:00', '10:30', '10:45'].map((t) => at(14, t)),
     );
-    // Rescheduling: the moved appointment's own time counts as free, in any spelling of its id.
+    // Rescheduling: the moved appointment's own time counts as free, in any spelling of its id,
+    // and it keeps its own 30 minutes (up to 11:15, before the block).
     const moving = await slots(`${q}&excludeAppointmentId=${a.id}`);
     expect(starts(moving, people.staffA.id)).toEqual(
-      ['09:00', '09:15', '09:30', '09:45', '10:00', '10:15', '10:30', '10:45'].map((t) =>
-        at(14, t),
-      ),
+      [
+        '09:00',
+        '09:15',
+        '09:30',
+        '09:45',
+        '10:00',
+        '10:15',
+        '10:30',
+        '10:45',
+        '11:00',
+        '11:15',
+      ].map((t) => at(14, t)),
     );
     const capitals = await slots(`${q}&excludeAppointmentId=${a.id.toUpperCase()}`);
     expect(capitals.slots).toEqual(moving.slots);
@@ -1430,6 +1440,88 @@ describe('free slots', () => {
         'VALIDATION_FAILED',
       );
     }
+  });
+
+  it('a move keeps its own length after its type gets shorter, so every slot offered can be taken', async () => {
+    const type = await createType({ name: `Shrinking ${run}`, durationMinutes: 60 });
+    const a = await book({
+      clientId: ids.c1,
+      staffUserId: people.staffA.id,
+      typeId: type.id,
+      startsAt: at(37, '09:00'),
+    });
+    await book({
+      clientId: ids.c2,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(37, '10:30'),
+    });
+    exact(
+      AppointmentType,
+      await call('patch', `/appointment-types/${type.id}`, people.ownerA, { durationMinutes: 30 }),
+    );
+    const q = `typeId=${type.id}&from=${day(37)}&to=${day(37)}&staffUserId=${people.staffA.id}`;
+    const moving = await slots(`${q}&excludeAppointmentId=${a.id}`);
+    // 60 minutes around 10:30-11:00: never 09:45 or 10:00, which the type's 30 would offer.
+    expect(starts(moving, people.staffA.id)).toEqual(
+      ['09:00', '09:15', '09:30', '11:00'].map((t) => at(37, t)),
+    );
+    expect(moving.slots[0]?.endsAt).toBe(at(37, '10:00'));
+    for (const { startsAt } of moving.slots.slice(1)) {
+      const res = await call('post', `/appointments/${a.id}/reschedule`, people.ownerA, {
+        startsAt,
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+    }
+  });
+
+  it("leaves out the client's other appointments, with any staff member; Staff only for their clients", async () => {
+    // c3 already meets staffA2 at 09:00-09:30.
+    await book({
+      clientId: ids.c3,
+      staffUserId: people.staffA2.id,
+      typeId: consult.id,
+      startsAt: at(38, '09:00'),
+    });
+    const q = `typeId=${consult.id}&from=${day(38)}&to=${day(38)}&staffUserId=${people.staffA.id}`;
+    const all = ['09:00', '09:15', '09:30', '09:45', '10:00', '10:15', '10:30', '10:45'];
+    const free = [...all.slice(2), '11:00', '11:15', '11:30'].map((t) => at(38, t));
+    expect(starts(await slots(q), people.staffA.id)).toHaveLength(11);
+    expect(starts(await slots(`${q}&clientId=${ids.c3}`), people.staffA.id)).toEqual(free);
+    // Another firm's client: nothing of it is in this calendar for Owner; Staff get 404, as for
+    // any client not theirs.
+    expect(starts(await slots(`${q}&clientId=${ids.clientB}`), people.staffA.id)).toHaveLength(11);
+    expectError(
+      await call('get', `/appointments/slots?${q}&clientId=${ids.clientB}`, people.staffA),
+      404,
+      'NOT_FOUND',
+    );
+    // Moving c3's 11:00 with staffA: its own time is free, its 09:00 with staffA2 is not.
+    const moved = await book({
+      clientId: ids.c3,
+      staffUserId: people.staffA.id,
+      typeId: consult.id,
+      startsAt: at(38, '11:00'),
+    });
+    expect(starts(await slots(`${q}&excludeAppointmentId=${moved.id}`), people.staffA.id)).toEqual(
+      free,
+    );
+    expectError(
+      await call('post', `/appointments/${moved.id}/reschedule`, people.ownerA, {
+        startsAt: at(38, '09:15'),
+      }),
+      409,
+      'SLOT_TAKEN',
+    );
+    // Staff: their own client is fine; another's is 404, as the calendar's client filter.
+    expect(starts(await slots(`${q}&clientId=${ids.c1}`, people.staffA), people.staffA.id)).toEqual(
+      [...all.slice(0, 7), '11:30'].map((t) => at(38, t)),
+    );
+    expectError(
+      await call('get', `/appointments/slots?${q}&clientId=${ids.c3}`, people.staffA),
+      404,
+      'NOT_FOUND',
+    );
   });
 });
 
@@ -1817,6 +1909,32 @@ describe('at the same time', () => {
       await call('get', `/appointments?${range(19, 20)}`, people.ownerA),
     ).items;
     expect(items).toHaveLength(1);
+  });
+
+  it('one client booked with two staff members at one time: one 201, the other 409 SLOT_TAKEN', async () => {
+    for (const time of ['09:00', '10:00', '11:00']) {
+      const results = await Promise.all(
+        [people.staffA.id, people.staffA2.id].map((staffUserId) =>
+          call('post', '/appointments', people.ownerA, {
+            clientId: ids.c3,
+            staffUserId,
+            typeId: consult.id,
+            startsAt: at(39, time),
+          }),
+        ),
+      );
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      expectError(
+        results.find((r) => r.status === 409)!,
+        409,
+        'SLOT_TAKEN',
+      );
+    }
+    const items = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(39, 40)}&clientId=${ids.c3}`, people.ownerA),
+    ).items;
+    expect(items).toHaveLength(3);
   });
 
   it('a block and a booking of the same time never both pass', async () => {
