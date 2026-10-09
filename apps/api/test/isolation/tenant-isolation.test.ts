@@ -69,6 +69,8 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
   { param: 'year', value: '2025', routes: /\/tax-years\/:year(\/history)?$/ },
   { param: 'kind', value: 'terms', routes: /\/legal\/:kind(\/versions(\/:version)?)?$/ },
   { param: 'version', value: '1', routes: /\/legal\/:kind\/versions\/:version$/ },
+  // Each agreement record has version 1.
+  { param: 'version', value: '1', routes: /\/agreements\/:agreementId\/versions\/:version$/ },
   { param: 'key', value: 'tax-bracket', routes: /\/calculators\/:key$/ },
   { param: 'step', value: 'branding', routes: /\/setup\/steps\/:step$/ },
 ];
