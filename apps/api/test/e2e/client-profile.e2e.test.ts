@@ -330,6 +330,30 @@ describe('firm: the profile with SSN, EIN and date of birth', () => {
       tx.clientProfile.findUniqueOrThrow({ where: { clientId: ids.two } }),
     );
     expect(row.ssnLast4).toBeNull();
+
+    // Reads still load (Rasel, Oct 8): the date of birth on file is null and flagged.
+    const record = await request(kmsApp.getHttpServer())
+      .get(`/api/v1/business/clients/${ids.one}`)
+      .set('x-business-id', ids.firmA)
+      .set('authorization', `Bearer ${(login.body as { token: string }).token}`);
+    expect(record.status, JSON.stringify(record.body)).toBe(200);
+    expect(Profile.parse((record.body as { profile: unknown }).profile)).toMatchObject({
+      dateOfBirth: null,
+      dateOfBirthUnavailable: true,
+      ssnLast4: '3456',
+    });
+    const primaryLogin = await request(kmsApp.getHttpServer())
+      .post('/api/v1/dev/token')
+      .send({ email: people.primary.email })
+      .expect(200);
+    const mine = await request(kmsApp.getHttpServer())
+      .get(`/api/v1/portal/${ids.slugA}/me/profile`)
+      .set('authorization', `Bearer ${(primaryLogin.body as { token: string }).token}`);
+    expect(mine.status, JSON.stringify(mine.body)).toBe(200);
+    expect(Mine.parse(mine.body)).toMatchObject({
+      dateOfBirth: null,
+      dateOfBirthUnavailable: true,
+    });
   });
 });
 
@@ -391,6 +415,7 @@ describe('portal: My Profile', () => {
       portalRole: 'AUTHORIZED',
       fullName: 'Fake Person',
       dateOfBirth: null,
+      dateOfBirthUnavailable: false,
       email: people.authorized.email,
       phone: null,
       address: {

@@ -1,16 +1,20 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { FirmApplication, Prisma, TxClient } from '@firmivra/db';
+import type { Database, FirmApplication, Prisma, TxClient } from '@firmivra/db';
 import {
   type AdminDashboard,
   type AdminRef,
   type BusinessSummary,
+  CreateInviteRequest,
+  ENTITY_TYPES,
+  FIRM_SERVICES,
   type FirmApplicationCheck,
   type FirmApplicationCounts,
   type FirmApplicationEvent,
@@ -29,6 +33,8 @@ import {
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import type { InvitesService } from '../auth/invites.service.js';
+import { DATABASE } from '../database/database.module.js';
 import {
   NOTIFY_SERVICE,
   type NotifyMessage,
@@ -36,6 +42,8 @@ import {
   type NotifyTemplate,
 } from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
+import { FirmKeyJob } from './firm-key-job.js';
+import { OWNER_INVITES } from './owner-invites.js';
 
 /**
  * What `firm_applications.data` holds: the review page's groups, as submit (R4 step 2) stores
@@ -54,6 +62,8 @@ export const StoredApplication = z.object({
 });
 export type StoredApplication = z.infer<typeof StoredApplication>;
 
+/** The firms' addresses starting with a base, read in admin or platform scope. */
+type SlugQuery = { where: { slug: { startsWith: string } }; select: { slug: true } };
 type ListQuery = z.output<typeof ListFirmApplicationsQuery>;
 type FirmsQuery = z.output<typeof ListFirmsQuery>;
 
@@ -66,6 +76,46 @@ const alreadyDecided = () =>
   new ConflictException({
     code: 'APPLICATION_DECIDED',
     message: 'This application is already approved or declined',
+  });
+const slugTaken = () =>
+  new ConflictException({ code: 'SLUG_TAKEN', message: 'Another firm has this portal address' });
+const inviteNotNeeded = () =>
+  new ConflictException({
+    code: 'INVITE_NOT_NEEDED',
+    message: 'There is no activation link to send',
+  });
+
+/** What a failure was, for a warning: an API error's code, else the error's class. */
+const failureOf = (e: unknown): string => {
+  const body = e instanceof HttpException ? e.getResponse() : null;
+  const code = (body as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? code : e instanceof Error ? e.constructor.name : 'unknown';
+};
+
+/**
+ * The owner's newest activation link as the review page shows it: a revoked one no longer works,
+ * so it reads as EXPIRED (send a new one) like one past its expiry.
+ */
+export function ownerInviteStatus(
+  link: { expiresAt: Date; acceptedAt: Date | null; revokedAt: Date | null },
+  now = new Date(),
+): 'SENT' | 'EXPIRED' | 'ACCEPTED' {
+  if (link.acceptedAt) return 'ACCEPTED';
+  return link.revokedAt || link.expiresAt <= now ? 'EXPIRED' : 'SENT';
+}
+
+/**
+ * Whether the owner invite (step 3) would take this name: the invite's own rule
+ * (`CreateInviteRequest.name`: one line of at most 120 characters, no invisible or direction
+ * characters), which also covers R0's `invites_name`. Submit has kept the primary administrator's
+ * name to it since #107; older rows could hold up to 200 characters.
+ */
+export const ownerNameOk = (name: string): boolean =>
+  CreateInviteRequest.shape.name.safeParse(name).success;
+const ownerNameTooLong = () =>
+  new ConflictException({
+    code: 'OWNER_NAME_TOO_LONG',
+    message: "The primary administrator's name can't be used for the owner invite",
   });
 
 /**
@@ -174,6 +224,9 @@ export class FirmApplicationsService {
     private readonly admin: AdminPrisma,
     private readonly audit: AuditService,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
+    @Inject(DATABASE) private readonly database: Database,
+    @Inject(OWNER_INVITES) private readonly invites: InvitesService,
+    private readonly keyJob: FirmKeyJob,
   ) {}
 
   async list(q: ListQuery): Promise<ListFirmApplicationsResponse> {
@@ -365,6 +418,219 @@ export class FirmApplicationsService {
   }
 
   /**
+   * Approve: the decision, then the firm (PENDING_SETUP, named after the legal name) at `slug`, or
+   * else the free address the review page suggests. Two transactions, because the database takes
+   * each half only in its own scope: the decision in admin scope (recorded as the acting admin,
+   * with its audit row), then the firm in platform scope (businesses are created only there, and
+   * once the application links a firm, admin scope can no longer change it).
+   *
+   * If the second half fails (an address taken in between: 409 SLUG_TAKEN), the application is
+   * approved without a firm. Approving it again finishes the job, with the same or another
+   * address; the review page offers it (`suggestedSlug` stays set until a firm is linked).
+   * 409 OWNER_NAME_TOO_LONG and a taken `slug` are checked before the decision.
+   */
+  async approve(id: string, slug?: string): Promise<FirmApplicationRecord> {
+    await this.admin.transaction(async (tx) => {
+      await this.lock(tx, id);
+      const row = await tx.firmApplication.findUnique({ where: { id } });
+      if (!row) throw notFound();
+      if (row.status === 'DECLINED' || row.businessId) throw alreadyDecided();
+      if (!ownerNameOk(row.contactName)) throw ownerNameTooLong();
+      if (slug && (await tx.business.findUnique({ where: { slug }, select: { id: true } }))) {
+        throw slugTaken();
+      }
+      if (row.status === 'APPROVED') return;
+      await this.review(tx, id, { status: 'APPROVED' });
+      // In admin scope the database takes it only with the acting admin as the actor (#52).
+      await this.audit.logIn(tx, 'firm_application.approved', { type: 'firm_application', id });
+    });
+    const firmId = await this.createFirm(id, slug);
+    if (firmId) await this.setUpFirm(id, firmId);
+    return this.record(id);
+  }
+
+  /**
+   * After approve's commits (step 3), each on its own, so none can undo the approval: the new
+   * firm's settings from the application, its KMS key (a job, not awaited), and the owner's
+   * activation link (R2's invite, which commits and then emails). A failure is a warning with
+   * ids only; the Super Admin sends the link again with "Resend owner invite".
+   */
+  private async setUpFirm(id: string, firmId: string): Promise<void> {
+    void this.keyJob.start(firmId);
+    const row = await this.admin.db.firmApplication.findUniqueOrThrow({ where: { id } });
+    try {
+      await this.copySettings(id, firmId, this.stored(row));
+    } catch (e) {
+      this.logger.warn(
+        `Firm ${firmId}: settings not copied from its application (${failureOf(e)})`,
+      );
+    }
+    try {
+      await this.invites.createInvite({
+        businessId: firmId,
+        email: row.contactEmail,
+        name: row.contactName,
+        role: 'OWNER',
+        invitedBy: null,
+      });
+    } catch (e) {
+      this.logger.warn(`Firm application ${id}: the owner invite was not sent (${failureOf(e)})`);
+    }
+  }
+
+  /**
+   * The application's entity type, services and team size as the new firm's business details
+   * (setup step 2 shows them), in the firm's own scope; never the EIN, which the owner enters in
+   * setup. Codes outside the lists are left out, as the settings API does. A firm that already
+   * has settings keeps them.
+   */
+  private async copySettings(
+    id: string,
+    firmId: string,
+    d: StoredApplication | null,
+  ): Promise<void> {
+    if (!d) return;
+    const entityType = Object.hasOwn(ENTITY_TYPES, d.business.entityType)
+      ? d.business.entityType
+      : null;
+    const services = d.business.services
+      .filter((s) => Object.hasOwn(FIRM_SERVICES, s))
+      .slice(0, 20);
+    const { teamSize } = d.account;
+    const details = {
+      entityType,
+      services,
+      teamSize: teamSize >= 1 && teamSize <= 10_000 ? teamSize : null,
+    };
+    await this.database.withScope({ kind: 'business', businessId: firmId }, async (tx) => {
+      const { count } = await tx.businessSettings.createMany({
+        data: [{ businessId: firmId, ...details }],
+        skipDuplicates: true,
+      });
+      if (count === 0) return;
+      await this.audit.logIn(
+        tx,
+        'settings.copied_from_application',
+        { type: 'business', id: firmId },
+        { applicationId: id, fields: Object.keys(details) },
+        { businessId: firmId },
+      );
+    });
+  }
+
+  /**
+   * "Resend owner invite": a new activation link for the owner of the firm the approval created
+   * (the old one stops working), or the first one if approval could not send it. 409
+   * INVITE_NOT_NEEDED before the firm exists, for a suspended or closed firm, or once the owner
+   * has joined. R2's limits apply (429 RATE_LIMITED).
+   */
+  async resendOwnerInvite(id: string): Promise<FirmApplicationRecord> {
+    const db = this.admin.db;
+    const row = await db.firmApplication.findUnique({ where: { id } });
+    if (!row) throw notFound();
+    const firm =
+      row.status === 'APPROVED' && row.businessId
+        ? await db.business.findUnique({
+            where: { id: row.businessId },
+            select: { id: true, status: true },
+          })
+        : null;
+    if (firm?.status !== 'PENDING_SETUP' && firm?.status !== 'ACTIVE') throw inviteNotNeeded();
+    // Settings an approval could not copy (a failure, or a stop after the firm was created) are
+    // copied now; a firm that has settings keeps them.
+    if (firm.status === 'PENDING_SETUP') {
+      try {
+        await this.copySettings(id, firm.id, this.stored(row));
+      } catch (e) {
+        this.logger.warn(
+          `Firm ${firm.id}: settings not copied from its application (${failureOf(e)})`,
+        );
+      }
+    }
+    const owner = await this.owner(firm.id);
+    if (owner?.status === 'ACTIVE') throw inviteNotNeeded();
+    const invite =
+      owner?.status === 'INVITED'
+        ? await this.invites.resendInvite({
+            businessId: firm.id,
+            membershipId: owner.id,
+            invitedBy: null,
+          })
+        : await this.invites.createInvite({
+            businessId: firm.id,
+            email: row.contactEmail,
+            name: row.contactName,
+            role: 'OWNER',
+            invitedBy: null,
+          });
+    await this.audit.log(
+      'firm_application.owner_invite_resent',
+      { type: 'firm_application', id },
+      { businessId: firm.id, membershipId: invite.membershipId },
+    );
+    return this.record(id);
+  }
+
+  /** The firm's first owner, the one approval invited (admin scope reads OWNER memberships). */
+  private owner(businessId: string) {
+    return this.admin.db.membership.findFirst({
+      where: { businessId, role: 'OWNER' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, status: true },
+    });
+  }
+
+  /**
+   * The approved application's firm, in platform scope, linked to the application in the same
+   * transaction. Nothing happens if a firm is already linked (two approvals at once: the second
+   * waits on the row lock, then finds it). With no picked address, one taken in between moves on
+   * to the next free one, so only a picked address can be SLUG_TAKEN here. `business.created` is a
+   * platform event by the acting admin. Returns the firm's id when this call created it.
+   */
+  private async createFirm(id: string, slug: string | undefined): Promise<string | null> {
+    // Platform scope only for a Super Admin request (throws otherwise, like AdminPrisma's db).
+    void this.admin.adminUserId;
+    return this.database.withScope({ kind: 'platform' }, async (tx) => {
+      await this.lock(tx, id);
+      const row = await tx.firmApplication.findUnique({ where: { id } });
+      if (!row || row.status !== 'APPROVED') throw notFound();
+      if (row.businessId) return null;
+      const d = this.stored(row);
+      const taken = new Set<string>();
+      let firmId: string | undefined;
+      while (!firmId) {
+        const next = slug ?? (await this.freeSlug(tx, row.legalName, taken));
+        // ON CONFLICT DO NOTHING: a taken address returns no row and leaves the transaction usable.
+        const [created] = await tx.business.createManyAndReturn({
+          data: [
+            {
+              name: row.legalName,
+              legalName: row.legalName,
+              slug: next,
+              businessType: d?.business.practiceType ?? null,
+              // The only pack (#52's IndustryPack), whatever the practice type.
+              pack: 'TAX_ACCOUNTING',
+            },
+          ],
+          skipDuplicates: true,
+          select: { id: true },
+        });
+        if (created) firmId = created.id;
+        else if (slug) throw slugTaken();
+        else taken.add(next);
+      }
+      await tx.firmApplication.update({ where: { id }, data: { businessId: firmId } });
+      await this.audit.logIn(
+        tx,
+        'business.created',
+        { type: 'business', id: firmId },
+        { applicationId: id },
+      );
+      return firmId ?? null;
+    });
+  }
+
+  /**
    * "Save Note": internal notes, also after a decision. `null` clears them. The notes and their
    * audit row land together.
    */
@@ -387,11 +653,16 @@ export class FirmApplicationsService {
    * change, and after a decision it is 409.
    */
   private async pending(tx: TxClient, id: string): Promise<FirmApplication> {
-    await tx.$queryRaw`SELECT 1 FROM firm_applications WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
+    await this.lock(tx, id);
     const row = await tx.firmApplication.findUnique({ where: { id } });
     if (!row) throw notFound();
     if (decided(row) || row.businessId) throw alreadyDecided();
     return row;
+  }
+
+  /** Locks the application's row for this transaction (the lock an update takes). */
+  private async lock(tx: TxClient, id: string): Promise<void> {
+    await tx.$queryRaw`SELECT 1 FROM firm_applications WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
   }
 
   /**
@@ -465,7 +736,7 @@ export class FirmApplicationsService {
     const row = await db.firmApplication.findUnique({ where: { id } });
     if (!row) throw notFound();
     const d = this.stored(row);
-    const [history, firm] = await Promise.all([
+    const [history, firm, links] = await Promise.all([
       db.firmApplicationStatusHistory.findMany({
         where: { applicationId: id },
         orderBy: [{ changedAt: 'desc' }, { id: 'desc' }],
@@ -476,6 +747,14 @@ export class FirmApplicationsService {
             select: { id: true, slug: true, name: true, status: true },
           })
         : Promise.resolve(null),
+      // The owner's activation links Firmivra sent, newest first: R0's token-free copy.
+      row.businessId
+        ? db.platformOwnerInvite.findMany({
+            where: { businessId: row.businessId },
+            orderBy: [{ sentAt: 'desc' }, { inviteId: 'desc' }],
+            select: { sentAt: true, expiresAt: true, acceptedAt: true, revokedAt: true },
+          })
+        : Promise.resolve([]),
     ]);
     const admins = await this.adminRefs([
       row.reviewedByUserId,
@@ -509,24 +788,38 @@ export class FirmApplicationsService {
               reason: row.status === 'DECLINED' ? row.decisionReason : null,
             }
           : null,
-      suggestedSlug: reviewStatus(row.status) === 'PENDING_REVIEW' ? await this.suggest(row) : null,
+      // Also for an approved application whose firm is not created yet: approving again uses it.
+      suggestedSlug:
+        row.status !== 'DECLINED' && !row.businessId
+          ? await this.freeSlug(db, row.legalName)
+          : null,
       firm: firm as BusinessSummary | null,
-      // The owner's invite and its expiry are recorded by approve (step 3).
-      ownerInvite: null,
-      history: history.flatMap((h): FirmApplicationEvent[] => {
-        const at = h.changedAt.toISOString();
-        if (h.fromStatus === null) return [{ type: 'SUBMITTED', at, by: null, message: null }];
-        if (h.toStatus === 'APPROVED')
-          return [{ type: 'APPROVED', at, by: by(h.changedByUserId), message: null }];
-        if (h.toStatus === 'DECLINED') {
-          return [{ type: 'DECLINED', at, by: by(h.changedByUserId), message: h.reason }];
-        }
-        // A request for information: a new message on a pending application.
-        if (h.reason) {
-          return [{ type: 'INFO_REQUESTED', at, by: by(h.changedByUserId), message: h.reason }];
-        }
-        return [];
-      }),
+      ownerInvite: links[0]
+        ? { status: ownerInviteStatus(links[0]), expiresAt: links[0].expiresAt.toISOString() }
+        : null,
+      history: [
+        ...links.map((l): FirmApplicationEvent => ({
+          type: 'OWNER_INVITED',
+          at: l.sentAt.toISOString(),
+          by: null,
+          message: null,
+        })),
+        ...history.flatMap((h): FirmApplicationEvent[] => {
+          const at = h.changedAt.toISOString();
+          if (h.fromStatus === null) return [{ type: 'SUBMITTED', at, by: null, message: null }];
+          if (h.toStatus === 'APPROVED')
+            return [{ type: 'APPROVED', at, by: by(h.changedByUserId), message: null }];
+          if (h.toStatus === 'DECLINED') {
+            return [{ type: 'DECLINED', at, by: by(h.changedByUserId), message: h.reason }];
+          }
+          // A request for information: a new message on a pending application.
+          if (h.reason) {
+            return [{ type: 'INFO_REQUESTED', at, by: by(h.changedByUserId), message: h.reason }];
+          }
+          return [];
+        }),
+        // Newest first; a stable sort keeps a link before the approval that sent it.
+      ].sort((a, b) => b.at.localeCompare(a.at)),
     };
   }
 
@@ -611,17 +904,21 @@ export class FirmApplicationsService {
     ];
   }
 
-  /** The free portal address approve would use: the legal name, then -2, -3... */
-  private async suggest(row: FirmApplication): Promise<string> {
-    const base = slugBase(row.legalName);
-    const taken = new Set(
-      (
-        await this.admin.db.business.findMany({
-          where: { slug: { startsWith: base } },
-          select: { slug: true },
-        })
-      ).map((b) => b.slug),
-    );
+  /**
+   * The free portal address approve would use: the legal name, then -2, -3... `alsoTaken` adds
+   * addresses found taken since the firms were read.
+   */
+  private async freeSlug(
+    db: { business: { findMany(args: SlugQuery): Promise<{ slug: string }[]> } },
+    legalName: string,
+    alsoTaken: ReadonlySet<string> = new Set(),
+  ): Promise<string> {
+    const base = slugBase(legalName);
+    const firms = await db.business.findMany({
+      where: { slug: { startsWith: base } },
+      select: { slug: true },
+    });
+    const taken = new Set([...alsoTaken, ...firms.map((f) => f.slug)]);
     const free = (slug: string) => !taken.has(slug) && !RESERVED_FIRM_SLUGS.includes(slug);
     let slug = base;
     for (let i = 2; !free(slug); i++) slug = `${base}-${i}`;

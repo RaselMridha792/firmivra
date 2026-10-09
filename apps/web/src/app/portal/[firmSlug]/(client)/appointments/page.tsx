@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../components/page-placeholder';
+import { AppointmentsScreen } from './_components/appointments-screen';
 
 export const metadata: Metadata = { title: 'Appointments' };
 
 export default function AppointmentsPage() {
-  return <PagePlaceholder title="Appointments" ticket="N08" owner="Tumit" />;
+  return <AppointmentsScreen />;
 }
