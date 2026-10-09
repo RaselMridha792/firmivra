@@ -3,6 +3,7 @@ import {
   EsignApprovalBody,
   type EsignAccessRole,
   type EsignBulkBatch,
+  ESIGN_BULK_MAX,
   EsignErrorCode,
   EsignBulkSendBody,
   type EsignClient,
@@ -92,6 +93,16 @@ export function esignExtrasMock(
   const ownerOrAdmin = () => {
     if (ctx.role !== 'OWNER' && ctx.role !== 'ADMIN') throw forbidden();
   };
+  /** Owner and Admin, a Firm Sign Manager, or the caller when signed in as one. */
+  const mayApprove = (userId: string) => {
+    const m = ctx.members.find((x) => x.userId === userId);
+    if (!m) return false;
+    if (m.firmRole !== 'STAFF') return true;
+    return (
+      extras().esignRoles.get(userId) === 'MANAGER' ||
+      (userId === ctx.me.userId && ctx.role === 'MANAGER')
+    );
+  };
   const unlocked = async () => {
     await ctx.on();
     if (extras().kiosk) throw fail(403, 'KIOSK_LOCKED', 'An in-person signing is open');
@@ -178,8 +189,18 @@ export function esignExtrasMock(
       if (r.status !== 'DRAFT') throw fail(409, 'INVALID_STATE', 'Not a draft');
       const { problems } = await ctx.client.readiness(requestId);
       const approvers = r.recipients.filter((x) => x.kind === 'APPROVER');
-      if (approvers.length === 0 || problems.some((p) => p.code !== 'APPROVAL_PENDING')) {
+      if (
+        !problems.some((p) => p.code === 'APPROVAL_PENDING') ||
+        problems.some((p) => p.code !== 'APPROVAL_PENDING')
+      ) {
+        // Approvals that still stand (a failed send) need no new round: send it instead.
         throw fail(409, 'NOT_READY', 'The request is not ready');
+      }
+      for (const x of approvers) {
+        const userId = x.link.type === 'STAFF' ? x.link.userId : '';
+        if (userId === r.sender.userId || !mayApprove(userId)) {
+          throw fail(409, 'APPROVER_NOT_ALLOWED', 'This person cannot approve this request');
+        }
       }
       r.status = 'NEEDS_APPROVAL';
       for (const x of approvers) {
@@ -198,12 +219,7 @@ export function esignExtrasMock(
       const me = r.recipients.find(
         (x) => x.kind === 'APPROVER' && x.link.type === 'STAFF' && x.link.userId === ctx.me.userId,
       );
-      const allowed =
-        ctx.role === 'OWNER' ||
-        ctx.role === 'ADMIN' ||
-        ctx.role === 'MANAGER' ||
-        extras().esignRoles.get(ctx.me.userId) === 'MANAGER';
-      if (!me || !allowed || r.sender.userId === ctx.me.userId) {
+      if (!me || !mayApprove(ctx.me.userId) || r.sender.userId === ctx.me.userId) {
         throw fail(403, 'NOT_AN_APPROVER', 'You are not an approver');
       }
       if (r.status !== 'NEEDS_APPROVAL') throw fail(409, 'INVALID_STATE', 'Not waiting');
@@ -306,7 +322,7 @@ export function esignExtrasMock(
     bulk: async (batchId) => {
       await unlocked();
       const b = extras().batches.get(batchId);
-      if (!b || (!manager && b.createdBy.userId !== ctx.me.userId)) {
+      if (!b || (!ctx.manager && b.createdBy.userId !== ctx.me.userId)) {
         throw fail(404, 'NOT_FOUND', 'Not found');
       }
       return copy(b);
@@ -392,6 +408,10 @@ export function esignExtrasMock(
       return copy(dup);
     },
     bulkSend: async (templateId, body) => {
+      if (Array.isArray(body.clients) && body.clients.length > ESIGN_BULK_MAX) {
+        await ctx.on();
+        throw fail(400, 'BULK_LIMIT', 'At most 200 clients');
+      }
       const input = parseInput(EsignBulkSendBody, body);
       await unlocked();
       const t = template(templateId);

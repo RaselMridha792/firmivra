@@ -91,7 +91,10 @@ export const UpdateEsignProfileBody = z.strictObject({
 export type UpdateEsignProfileBody = z.input<typeof UpdateEsignProfileBody>;
 
 // ---------- Templates ----------
-/** FIRM: everyone in Firm Sign may use it. PRIVATE: only its owner (and Owner and Admin). */
+/**
+ * FIRM: everyone in Firm Sign may use it (and a Firm Sign Manager may change it). PRIVATE: only its
+ * owner (and Owner and Admin).
+ */
 export const EsignTemplateVisibility = z.enum(['FIRM', 'PRIVATE']);
 export type EsignTemplateVisibility = z.infer<typeof EsignTemplateVisibility>;
 
@@ -110,7 +113,7 @@ export const EsignTemplateRow = z.object({
   version: z.number().int().min(1),
   updatedAt: DateTime,
   archivedAt: DateTime.nullable(),
-  /** The caller may rename, change or archive it (its owner, Owner and Admin). */
+  /** The caller may rename, change or archive it (its owner, Owner, Admin, or a Manager for FIRM). */
   canEdit: z.boolean(),
 });
 export type EsignTemplateRow = z.infer<typeof EsignTemplateRow>;
@@ -194,7 +197,7 @@ export const SaveEsignTemplateBody = z.strictObject({
 });
 export type SaveEsignTemplateBody = z.input<typeof SaveEsignTemplateBody>;
 
-/** PATCH /esign/templates/{id} (its owner, Owner, Admin): only the keys sent change. */
+/** PATCH /esign/templates/{id} (its owner, Owner, Admin, a Manager for FIRM): only keys sent change. */
 export const UpdateEsignTemplateBody = z
   .strictObject({
     name: text(200, 'one', 'Name the template').optional(),
