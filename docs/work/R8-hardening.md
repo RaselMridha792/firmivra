@@ -48,6 +48,7 @@ Isolation suite green in CI; prod stacks deployed and empty.
 - R0 (from #171's pre-review, high priority): #215, a definer function that writes the firm's `support.requested` row from admin scope inside the ask's transaction (actor shown as Firmivra Support, no IP or user agent). Until it lands the API writes that row afterwards in the firm's scope, best effort.
 - Web or R1 (from R13-web): when the web app gets a Content-Security-Policy, the Firm Sign PDF viewer needs `worker-src 'self'` and `'wasm-unsafe-eval'` in `script-src` (pdf.js decoders from `_next/static/media`). The API's CSP in `configure-app.ts` covers API responses only.
 - R6: a notice to the firm's Owners when Firmivra Support asks for access (and, optionally, when a grant is about to expire). Until then the API logs it by id.
+- R1: a dev check of the sign-in limits with real Cognito. Cognito's own per-user lockout (about 5 wrong passwords, doubling up to about 15 minutes; not configurable) lets attacker networks lock the real user at Cognito, and their right password then returns NotAuthorizedException, so INVALID_CREDENTIALS counted against their own network. "Failures from one network lock only that network" can only be shown on dev.
 
 ## Decisions (Rasel's q31: the lead's defaults of Oct 8, confirmed by Rasel the same day)
 
