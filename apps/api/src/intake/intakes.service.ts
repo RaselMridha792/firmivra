@@ -25,6 +25,8 @@ import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
 
 /** Statuses in which the client can change the answers. */
 export const OPEN_STATUSES: IntakeStatus[] = ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'];
+/** An engagement has at most one live intake: a new one only after it expired or was archived. */
+const LIVE_STATUSES: IntakeStatus[] = [...OPEN_STATUSES, 'SUBMITTED', 'UNDER_REVIEW', 'COMPLETED'];
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const conflict = (code: string, message: string) => new ConflictException({ code, message });
@@ -206,6 +208,11 @@ export class IntakesService {
         intakes: { orderBy: { createdAt: 'desc' }, take: 1, select: summarySelect },
       },
     });
+    await this.audit.log(
+      'intake_choices.listed',
+      { type: 'intake' },
+      { count: engagements.length },
+    );
     return engagements.map((e) => ({
       engagement: { id: e.id, title: e.title, taxYear: e.taxYear },
       service: e.service,
@@ -223,8 +230,8 @@ export class IntakesService {
 
   /**
    * A new intake for an ACTIVE engagement the caller reaches, on its service's published form,
-   * with an empty version 1. Portal: an open intake of the engagement comes back as it is. Firm
-   * (send): an open one is 409 INTAKE_OPEN.
+   * with an empty version 1. One live intake per engagement (corrections and unlocking make new
+   * versions of it): portal, the live one comes back as it is; firm (send), it is 409 INTAKE_OPEN.
    */
   async start(
     businessId: string,
@@ -244,7 +251,8 @@ export class IntakesService {
         throw conflict('ENGAGEMENT_NOT_ACTIVE', 'This service is not active');
       }
       const open = await tx.intake.findFirst({
-        where: { businessId, engagementId, status: { in: OPEN_STATUSES } },
+        where: { businessId, engagementId, status: { in: LIVE_STATUSES } },
+        orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
       if (open) {
@@ -322,15 +330,13 @@ export class IntakesService {
     );
     const step = definition.steps.find((s) => s.key === stepKey)!;
     const stepKeys = new Set(step.sections.flatMap((s) => s.fields.map((f) => f.key)));
-    const merged = Object.fromEntries(Object.entries(stored).filter(([k]) => !stepKeys.has(k)));
-    Object.assign(merged, sealed);
     const view = await this.inFirm(businessId, async (tx) => {
       const rows = await tx.$queryRaw<{ status: IntakeStatus }[]>`
         SELECT status::text AS status FROM intakes WHERE id = ${id}::uuid FOR UPDATE`;
       const current = await tx.intakeSubmission.findFirst({
         where: { businessId, intakeId: id },
         orderBy: { version: 'desc' },
-        select: { id: true, submittedAt: true, savedSteps: true },
+        select: { id: true, submittedAt: true, savedSteps: true, answers: true },
       });
       if (
         !rows[0] ||
@@ -340,6 +346,12 @@ export class IntakesService {
       ) {
         throw locked();
       }
+      // Merged onto the answers as they are now, under the lock: a save of another step that
+      // landed since the read above is kept.
+      const merged = Object.fromEntries(
+        Object.entries(answersOf(current.answers)).filter(([k]) => !stepKeys.has(k)),
+      );
+      Object.assign(merged, sealed);
       await tx.intakeSubmission.update({
         where: { id: draft.id },
         data: {

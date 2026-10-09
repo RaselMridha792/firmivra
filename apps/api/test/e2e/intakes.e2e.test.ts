@@ -337,6 +337,12 @@ describe('firm: send, review, correct and unlock', () => {
       ),
     ).toBe('INVALID_STATUS');
     await markSubmitted(ids.intake);
+    // Starting again returns the submitted intake; the firm can't send a second one.
+    const same = view(await portal('post', '', people.one, { engagementId: ids.tax }));
+    expect(same).toMatchObject({ id: ids.intake, status: 'SUBMITTED', locked: true });
+    expect(codeOf(await firm('post', `/engagements/${ids.tax}/intakes`, people.owner, {}))).toBe(
+      'INTAKE_OPEN',
+    );
     const locked = await portal('put', `/${ids.intake}/steps/personal`, people.one, {
       answers: { firstName: 'Late' },
     });
