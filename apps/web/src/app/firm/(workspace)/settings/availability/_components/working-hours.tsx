@@ -38,8 +38,13 @@ export function WorkingHours({
     (body: SetWorkingHoursRequest) => api.availability.setWorkingHours(member.member.userId, body),
     { invalidate: CALENDAR },
   );
+  // An edit after a save makes "Working hours saved." untrue until the next save.
+  const edit = (next: WorkingHoursRange[]) => {
+    save.reset();
+    setHours(next);
+  };
   const change = (index: number, patch: Partial<WorkingHoursRange>) =>
-    setHours(hours.map((range, i) => (i === index ? { ...range, ...patch } : range)));
+    edit(hours.map((range, i) => (i === index ? { ...range, ...patch } : range)));
   const submit = () => {
     const checked = SetWorkingHoursRequest.safeParse({ hours });
     setProblem(checked.success ? '' : (checked.error.issues[0]?.message ?? 'Check the hours.'));
@@ -85,7 +90,7 @@ export function WorkingHours({
                       />
                       <Button
                         variant="ghost"
-                        onClick={() => setHours(hours.filter((_, i) => i !== index))}
+                        onClick={() => edit(hours.filter((_, i) => i !== index))}
                       >
                         Remove
                       </Button>
@@ -102,7 +107,7 @@ export function WorkingHours({
                     className="self-start"
                     aria-label={`Add hours on ${day}`}
                     onClick={() =>
-                      setHours([...hours, { weekday, startsAt: '09:00', endsAt: '17:00' }])
+                      edit([...hours, { weekday, startsAt: '09:00', endsAt: '17:00' }])
                     }
                   >
                     Add hours
