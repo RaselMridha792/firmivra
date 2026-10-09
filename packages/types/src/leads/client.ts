@@ -7,6 +7,7 @@ import {
   LeadCounts,
   LeadDetail,
   LeadId,
+  LeadUploadId,
   LeadList,
   ListLeadsQuery,
 } from './schemas.js';
@@ -49,7 +50,7 @@ export function createLeadsClient(request: ApiRequest) {
       }),
     /** A short-lived link to one CLEAN file; 409 FILE_NOT_AVAILABLE otherwise. */
     downloadUpload: async (id: string, uploadId: string): Promise<DownloadLink> =>
-      request(DownloadLink, `${one(id)}/uploads/${parseInput(LeadId, uploadId)}/download`),
+      request(DownloadLink, `${one(id)}/uploads/${parseInput(LeadUploadId, uploadId)}/download`),
   };
 }
 

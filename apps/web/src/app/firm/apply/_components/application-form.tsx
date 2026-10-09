@@ -227,7 +227,8 @@ export function ApplicationForm() {
               <Input label="Doing business as" {...form.register('business.dbaName')} />
               <Input
                 label="EIN"
-                type="password"
+                // Not a password field: browsers would offer to save it, or fill in a password.
+                type="text"
                 inputMode="numeric"
                 autoComplete="off"
                 data-testid="business-ein"
@@ -443,6 +444,11 @@ export function ApplicationForm() {
               >
                 Add credential
               </Button>
+              {issues.credentials?.root?.message || issues.credentials?.message ? (
+                <p className="text-xs text-danger">
+                  {issues.credentials.root?.message ?? issues.credentials.message}
+                </p>
+              ) : null}
             </fieldset>
           </Card>
 
