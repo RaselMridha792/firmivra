@@ -6,7 +6,8 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { APPOINTMENTS } from './shared';
-import { timeLabel } from './time';
+import { useState } from 'react';
+import { isCalendarDate, timeLabel } from './time';
 
 /**
  * A day's free times for an appointment type (the API's slots). `round` asks again: after
@@ -44,6 +45,8 @@ export function SlotPicker({
         ...(excludeAppointmentId ? { excludeAppointmentId } : {}),
       }),
   );
+  // What the date input shows while someone types; only a whole date is asked about.
+  const [typed, setTyped] = useState(date);
   const same = (slot: Slot) =>
     picked?.startsAt === slot.startsAt && picked.staff.userId === slot.staff.userId;
 
@@ -52,8 +55,11 @@ export function SlotPicker({
       <Input
         label="Date"
         type="date"
-        value={date}
-        onChange={(event) => onDate(event.target.value)}
+        value={typed}
+        onChange={(event) => {
+          setTyped(event.target.value);
+          if (isCalendarDate(event.target.value)) onDate(event.target.value);
+        }}
       />
       <PageState query={slots}>
         {({ slots: free }) =>

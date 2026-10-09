@@ -13,8 +13,12 @@ export const STRIPE_WEBHOOK_SECRET = Symbol('STRIPE_WEBHOOK_SECRET');
 
 /** The Stripe API version every call uses. Change it only together with the code that reads answers. */
 export const STRIPE_API_VERSION = '2026-09-30.endive';
-/** Each call to Stripe gives up after this long. */
-export const STRIPE_TIMEOUT_MS = 10_000;
+/**
+ * Each call to Stripe gives up after this long, with no retry by the SDK: calls that hold an
+ * invoice's row (Pay Now, cancel) make at most three of them inside a transaction capped at 30 s.
+ * Every create carries an idempotency key, so the client's own retry is safe.
+ */
+export const STRIPE_TIMEOUT_MS = 8_000;
 
 /** The fields of a connected account that Firmivra keeps (see `toOnboardingState`). */
 export interface ConnectedAccount {
@@ -114,6 +118,8 @@ export interface StripeGateway {
   ): Promise<StripeRefund[]>;
   /** Ends an open session, so it can no longer be paid. */
   expireCheckoutSession(accountId: string, sessionId: string): Promise<CheckoutSession>;
+  /** True for a live key: the webhook acts only on events of the same mode. */
+  readonly livemode: boolean;
 }
 
 /** The SDK's error type and code (`StripeConnectionError`, `idempotency_key_in_use`), never its message. */
@@ -156,15 +162,16 @@ const refund = (r: Stripe.Refund): StripeRefund => ({
   refundKey: r.metadata?.refund_key ?? null,
 });
 
-/** The real Stripe, with the platform's key, a pinned API version and a 10 s timeout. */
+/** The real Stripe, with the platform's key, a pinned API version and an 8 s timeout. */
 export function createStripeGateway(secretKey: string): StripeGateway {
   const stripe = new Stripe(secretKey, {
     apiVersion: STRIPE_API_VERSION,
     timeout: STRIPE_TIMEOUT_MS,
-    maxNetworkRetries: 1,
+    maxNetworkRetries: 0,
     appInfo: { name: 'Firmivra' },
   });
   return {
+    livemode: /^(sk|rk)_live_/.test(secretKey),
     createAccount: async ({ businessId, country, email }, idempotencyKey) =>
       pick(
         await stripe.accounts.create(

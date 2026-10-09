@@ -14,6 +14,12 @@ export const mockBusiness: BusinessSummary = {
   status: 'ACTIVE',
 };
 
+/** The name a Settings > Profile save gave the firm in the settings mock (mocks/settings.ts). */
+let renamed: string | undefined;
+export function renameMockBusiness(name: string): void {
+  renamed = name;
+}
+
 export function createMeMock() {
   const me: MeResponse = {
     user: {
@@ -28,7 +34,10 @@ export function createMeMock() {
   };
   return {
     me: async () => (await mockDelay(), me),
-    currentBusiness: async () => (await mockDelay(), mockBusiness),
+    currentBusiness: async () => (
+      await mockDelay(),
+      { ...mockBusiness, name: renamed ?? mockBusiness.name }
+    ),
     /** The portal's firm: only `lvp` exists, as in the portal mock (mocks/client-auth.ts). */
     portalBusiness: async (slug: string) => {
       await mockDelay();

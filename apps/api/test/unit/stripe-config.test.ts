@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadStripeConfig } from '../../src/payments/stripe/config.js';
+import { loadStripeConfig, loadWebhookSecret } from '../../src/payments/stripe/config.js';
 import { toOnboardingState } from '../../src/payments/stripe/stripe-accounts.js';
 import type { ConnectedAccount } from '../../src/payments/stripe/stripe-gateway.js';
 
@@ -42,6 +42,22 @@ describe('loadStripeConfig', () => {
   });
 });
 
+describe('loadWebhookSecret', () => {
+  it('is null when unset or empty, the secret when it is a whsec_ value', () => {
+    expect(loadWebhookSecret({})).toBeNull();
+    expect(loadWebhookSecret({ STRIPE_WEBHOOK_SECRET: '' })).toBeNull();
+    expect(loadWebhookSecret({ STRIPE_WEBHOOK_SECRET: 'whsec_abc123' })).toBe('whsec_abc123');
+  });
+
+  it('refuses anything else at boot without echoing the value', () => {
+    for (const value of ['sk_test_abc', 'whsec_', 'whsec_a-b']) {
+      expect(() => loadWebhookSecret({ STRIPE_WEBHOOK_SECRET: value })).toThrow(
+        /^Invalid Stripe settings: STRIPE_WEBHOOK_SECRET must be a whsec_ secret$/,
+      );
+    }
+  });
+});
+
 describe('toOnboardingState', () => {
   const account = (changes: Partial<ConnectedAccount> = {}): ConnectedAccount => ({
     id: 'acct_1',
@@ -73,6 +89,17 @@ describe('toOnboardingState', () => {
       payoutsEnabled: false,
       detailsSubmitted: true,
     });
+  });
+
+  it('is PENDING (In review), not RESTRICTED, while the account is under_review', () => {
+    const state = toOnboardingState(
+      account({
+        details_submitted: true,
+        requirements: { currently_due: [], past_due: [], disabled_reason: 'under_review' },
+      }),
+    );
+    expect(state.onboardingStatus).toBe('PENDING');
+    expect(state.detailsSubmitted).toBe(true);
   });
 
   it('is RESTRICTED when Stripe asks for more after the form was sent', () => {
