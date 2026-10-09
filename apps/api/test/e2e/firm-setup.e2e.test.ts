@@ -366,27 +366,29 @@ describe('After approve', () => {
     expect((await resend(randomUUID()).expect(404)).body.error.code).toBe('NOT_FOUND');
   });
 
-  it("shows the owner's link from platform_owner_invites: sent, then accepted", async () => {
-    const firm = (await approve(ids.copy)).firm!;
-    const { membership } = await ownerOf(firm.id);
-    // A link Firmivra sent in platform scope (the database keeps the token-free copy).
-    const expiresAt = new Date(Date.now() + 7 * 86_400_000);
-    const link = await asPlatform((tx) =>
-      tx.invite.create({
-        data: {
-          businessId: firm.id,
-          membershipId: membership!.id,
-          tokenHash: randomBytes(32).toString('hex'),
-          expiresAt,
-        },
-      }),
-    );
-    const sentRecord = await open(ids.copy);
-    expect(sentRecord.ownerInvite).toEqual({ status: 'SENT', expiresAt: expiresAt.toISOString() });
-    expect(sentRecord.history.map((h) => h.type)).toContain('OWNER_INVITED');
+  it("shows the owner's link from platform_owner_invites: sent, sent again, then accepted", async () => {
+    const approved = await approve(ids.copy);
+    const firm = approved.firm!;
+    const first = await ownerOf(firm.id);
+    // Approve's link is Firmivra's: written in platform scope, with the token-free copy.
+    expect(first.invites).toEqual([expect.objectContaining({ sentByPlatform: true })]);
+    expect(approved.ownerInvite).toEqual({
+      status: 'SENT',
+      expiresAt: first.invites[0]?.expiresAt.toISOString(),
+    });
+    expect(approved.history.map((h) => h.type)).toEqual(['OWNER_INVITED', 'APPROVED', 'SUBMITTED']);
+
+    const resent = FirmApplicationRecord.parse((await resend(ids.copy).expect(200)).body);
+    const second = await ownerOf(firm.id);
+    expect(second.invites.map((i) => [i.sentByPlatform, i.revokedAt === null])).toEqual([
+      [true, false],
+      [true, true],
+    ]);
+    expect(resent.ownerInvite?.expiresAt).toBe(second.invites[1]?.expiresAt.toISOString());
+    expect(resent.history.filter((h) => h.type === 'OWNER_INVITED')).toHaveLength(2);
 
     await asFirm(firm.id, (tx) =>
-      tx.invite.update({ where: { id: link.id }, data: { acceptedAt: new Date() } }),
+      tx.invite.update({ where: { id: second.invites[1]!.id }, data: { acceptedAt: new Date() } }),
     );
     expect((await open(ids.copy)).ownerInvite?.status).toBe('ACCEPTED');
   });
