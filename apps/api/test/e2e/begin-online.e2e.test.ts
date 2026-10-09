@@ -303,11 +303,7 @@ describe('Begin Online drafts', () => {
     expect(lead.lastName).toBe('Example');
   });
 
-  // Fails until intake-numbers.ts uses a field-encryption context the helper accepts: it passes
-  // the answer's path ("spouseSsn", "dependents.<rowId>.ssn") as `field`, which must match
-  // /^[a-z][a-z0-9_]{0,62}$/, so FieldEncryption throws INVALID_CONTEXT (500). Remove `.fails`
-  // once that is fixed.
-  it.fails('seals a spouse SSN and SSNs in group rows', async () => {
+  it('seals a spouse SSN and SSNs in group rows', async () => {
     const v = visitor(firms.a.slug);
     const started = BeginDraft.parse((await v.post('/drafts', annualStart())).body);
     const saved = await v.put('/drafts/current/steps/personal', {

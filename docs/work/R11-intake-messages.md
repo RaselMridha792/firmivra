@@ -45,7 +45,7 @@ Arfan's Begin Online and leads screens and Nahid's intake and messages tabs work
   7. Please confirm or replace the proposed dropdown lists: payroll frequency, system, funding and role; Tax Planning industry, headcount and years; Business Development timeframe; "How did you hear"; the dependent relationships.
   8. Should Business Development and Tax Planning ask for a confirmation email apart from the contact email, as drawn?
   9. Should starting a draft need a CAPTCHA besides the rate limits?
-- Begin Online (Oct 9, R15 thread): `auth/cross-site.middleware.ts` treats only `fv_portal_*` cookies as session cookies, so a write with the draft cookie `fv_bo_{slug}` and neither Origin nor Sec-Fetch-Site passes; add `fv_bo_` there (R2's file). `intake/intake-numbers.ts` passes the answer's path as the field-encryption `field`, which must match `^[a-z][a-z0-9_]{0,62}$`: `spouseSsn` and group rows (`dependents.<id>.ssn`) throw INVALID_CONTEXT (500); the e2e test marks it `it.fails`. Lead uploads have no scan hook yet: SCAN_MODE=guardduty leaves them PENDING until R5's scan result also updates `lead_uploads`.
+- Begin Online (Oct 9, R15 thread): `auth/cross-site.middleware.ts` treats only `fv_portal_*` cookies as session cookies, so a write with the draft cookie `fv_bo_{slug}` and neither Origin nor Sec-Fetch-Site passes; add `fv_bo_` there (R2's file). Lead uploads have no scan hook yet: SCAN_MODE=guardduty leaves them PENDING until R5's scan result also updates `lead_uploads`.
 - Octavia's firm agreements (three acknowledgments, signature, version pinned by id and SHA-256): a small follow-up after half A; nothing in half A blocks it.
 
 ## Progress log
