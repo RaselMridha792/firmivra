@@ -7,11 +7,17 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
+import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope, type Scope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { FirmApplicationRecord, ListFirmApplicationsResponse } from '@firmivra/types';
+import {
+  FirmApplicationRecord,
+  ListFirmApplicationsResponse,
+  type MfaSetupResponse,
+  type SignInResult,
+} from '@firmivra/types';
+import { LOCAL_MFA_CODE } from '../../src/auth/identity/local-identity.provider.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -51,15 +57,44 @@ const admin = (method: 'get' | 'post' | 'put', path: string) =>
   request(app.getHttpServer())
     [method](`/api/v1/admin${path}`)
     .set('authorization', `Bearer ${adminToken}`);
-const inFirm = (token: string, firmId: string, method: 'get' | 'put' | 'post', path: string) =>
-  request(app.getHttpServer())
+/** A firm-site call as `who`: a session's cookies (with the site's Origin) or a dev token. */
+const inFirm = (
+  who: { cookie: string } | { bearer: string },
+  firmId: string,
+  method: 'get' | 'put' | 'post',
+  path: string,
+) => {
+  const req = request(app.getHttpServer())
     [method](`/api/v1/business${path}`)
-    .set('authorization', `Bearer ${token}`)
     .set('x-business-id', firmId);
+  return 'cookie' in who
+    ? req.set('origin', origin).set('cookie', who.cookie)
+    : req.set('authorization', `Bearer ${who.bearer}`);
+};
 const viewer = (path: string) =>
   request(app.getHttpServer())
     .post(`/api/v1${path}`)
+    .set('origin', origin)
     .set('x-forwarded-for', 'fd16:6:6::1, 10.0.0.5');
+const PASSWORD = 'Owner-password-2026';
+/** The cookies a browser would send back. */
+const cookiesOf = (res: Response) =>
+  ((res.headers['set-cookie'] as unknown as string[] | undefined) ?? [])
+    .map((c) => c.split(';')[0])
+    .join('; ');
+/** An MFA step finished with the local code: first-time authenticator setup, or a code. */
+async function finishMfa(step: SignInResult): Promise<Response> {
+  let session: string;
+  if (step.status === 'MFA_SETUP_REQUIRED') {
+    const setup = await viewer('/auth/mfa/setup').send({ session: step.session }).expect(200);
+    session = (setup.body as MfaSetupResponse).session;
+  } else if (step.status === 'MFA_REQUIRED') {
+    session = step.session;
+  } else {
+    throw new Error(`unexpected ${step.status}`);
+  }
+  return viewer('/auth/mfa').send({ session, code: LOCAL_MFA_CODE }).expect(200);
+}
 
 beforeAll(async () => {
   const env = loadEnv({
@@ -143,8 +178,21 @@ describe('Firm onboarding, from application to an active firm', () => {
     expect(approval?.to).toBe(ownerEmail);
     const link = (approval?.data as { link: string }).link;
     const token = new URL(link).hash.replace('#token=', '');
-    await viewer('/auth/activate').send({ token, password: 'Owner-password-2026' }).expect(200);
-    const owner = await tokenFor(ownerEmail);
+    const activated = await viewer('/auth/activate')
+      .send({ token, password: PASSWORD })
+      .expect(200);
+    await finishMfa(activated.body as SignInResult);
+    // The owner signs in with the password the link set; a wrong one is refused.
+    const wrong = await viewer('/auth/sign-in')
+      .send({ email: ownerEmail, password: 'Not-the-password-1' })
+      .expect(401);
+    expect(wrong.body.error.code).toBe('INVALID_CREDENTIALS');
+    const signIn = await viewer('/auth/sign-in')
+      .send({ email: ownerEmail, password: PASSWORD })
+      .expect(200);
+    const signedIn = await finishMfa(signIn.body as SignInResult);
+    expect((signedIn.body as SignInResult).status).toBe('SIGNED_IN');
+    const owner = { cookie: cookiesOf(signedIn) };
     for (const step of ['branding', 'businessDetails', 'team', 'clientPortal']) {
       await inFirm(owner, firm.id, 'put', `/setup/steps/${step}`).expect(200);
     }
@@ -169,6 +217,10 @@ describe('Firm onboarding, from application to an active firm', () => {
       ['firm-application.approved', ownerEmail],
     ]);
 
+    // The firm's page on the Super Admin site lists it as active (opening it is audited).
+    const firmPage = await admin('get', `/firms/${firm.id}`).expect(200);
+    expect(firmPage.body).toMatchObject({ id: firm.id, status: 'ACTIVE' });
+
     // 5. Every action is audited: the platform's log (no firm) and the new firm's own.
     const platformRows = await as({ kind: 'platform' }, (tx) =>
       tx.auditLog.findMany({
@@ -184,6 +236,7 @@ describe('Firm onboarding, from application to an active firm', () => {
       ['firm_application.approved', fx.users.admin.id],
       ['business.created', fx.users.admin.id],
       ['firm_application.viewed', fx.users.admin.id],
+      ['business.viewed_by_admin', fx.users.admin.id],
     ]);
     // No EIN, notes or message in any row.
     expect(JSON.stringify(platformRows)).not.toMatch(/1234567|PTIN/);
@@ -201,6 +254,8 @@ describe('Firm onboarding, from application to an active firm', () => {
       'setup.finished',
     ]);
     expect(JSON.stringify(firmRows)).not.toMatch(/1234567|Owner-password/);
+    // The activation token is in no audit row, of the platform or the firm.
+    expect(JSON.stringify([platformRows, firmRows])).not.toContain(token);
 
     // 6. Firm B: sees nothing of the new firm, and neither side acts in the other (404: the
     // tenant guard doesn't say the firm exists).
@@ -213,7 +268,7 @@ describe('Firm onboarding, from application to an active firm', () => {
       expect(await asApp(fx.firmB.id, count)).toBe(0);
     }
     expect((await inFirm(owner, fx.firmB.id, 'get', '/setup')).status).toBe(404);
-    const ownerB = await tokenFor(fx.users.ownerB.email);
+    const ownerB = { bearer: await tokenFor(fx.users.ownerB.email) };
     expect((await inFirm(ownerB, firm.id, 'get', '/settings')).status).toBe(404);
     expect((await inFirm(ownerB, firm.id, 'post', '/setup/complete')).status).toBe(404);
   });
