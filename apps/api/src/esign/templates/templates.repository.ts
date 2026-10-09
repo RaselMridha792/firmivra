@@ -81,6 +81,12 @@ export type EsignTemplatePatch = Partial<
   Pick<EsignTemplateRecord, 'name' | 'description' | 'visibility'>
 >;
 
+/** A new template: the repository sets version 1, the dates and archivedAt null. */
+export type NewEsignTemplate = Pick<
+  EsignTemplateRecord,
+  'id' | 'name' | 'description' | 'visibility' | 'ownerUserId'
+>;
+
 export interface EsignTemplateRepository {
   /** The matching templates with their newest version, by updatedAt descending. */
   list(businessId: string, filter: EsignTemplateFilter): Promise<EsignListedTemplate[]>;
@@ -107,6 +113,15 @@ export interface EsignTemplateRepository {
   ): Promise<EsignTemplateRecord | 'NAME_TAKEN' | null>;
   /** archivedAt = now: it can't be used or changed again; requests made from it keep their copy. */
   archive(businessId: string, id: string, readAt: Date): Promise<EsignTemplateRecord | null>;
+  /**
+   * Inserts the template and its version 1 (saved by its owner, with `note`), in one transaction;
+   * NAME_TAKEN (nothing written) as `update`.
+   */
+  create(
+    businessId: string,
+    template: NewEsignTemplate,
+    first: EsignTemplateContent & { note: string | null },
+  ): Promise<EsignTemplateRecord | 'NAME_TAKEN'>;
 }
 
 export const TEMPLATE_REPOSITORY = Symbol('ESIGN_TEMPLATE_REPOSITORY');

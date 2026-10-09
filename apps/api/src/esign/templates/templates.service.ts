@@ -20,7 +20,7 @@ import {
 } from './templates.repository.js';
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
-const forbidden = () =>
+export const forbidden = () =>
   new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 export const templateEntity = (id: string) => ({ type: 'esign_template', id });

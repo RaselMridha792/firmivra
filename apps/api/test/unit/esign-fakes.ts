@@ -58,11 +58,13 @@ import type {
 } from '../../src/esign/lifecycle/lifecycle.repository.js';
 import type {
   EsignListedTemplate,
+  EsignTemplateContent,
   EsignTemplateFilter,
   EsignTemplatePatch,
   EsignTemplateRecord,
   EsignTemplateRepository,
   EsignTemplateVersionRecord,
+  NewEsignTemplate,
 } from '../../src/esign/templates/templates.repository.js';
 
 export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
@@ -922,6 +924,19 @@ export interface TemplateRow {
 /** Templates per firm; each write checks and writes in one synchronous step (as under a lock). */
 export class InMemoryTemplateRepository implements EsignTemplateRepository {
   readonly rows = new PerFirm<TemplateRow>();
+
+  create(
+    businessId: string,
+    template: NewEsignTemplate,
+    first: EsignTemplateContent & { note: string | null },
+  ): Promise<EsignTemplateRecord | 'NAME_TAKEN'> {
+    if (this.taken(businessId, template.name)) return Promise.resolve('NAME_TAKEN');
+    const now = new Date();
+    const record = { ...template, version: 1, createdAt: now, updatedAt: now, archivedAt: null };
+    const version = { ...first, version: 1, savedAt: now, savedByUserId: template.ownerUserId };
+    this.insert(businessId, { record, versions: [version] });
+    return Promise.resolve(structuredClone(record));
+  }
 
   list(businessId: string, f: EsignTemplateFilter): Promise<EsignListedTemplate[]> {
     const search = f.search?.toLowerCase();

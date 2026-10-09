@@ -30,4 +30,6 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'PATCH /api/v1/esign/templates/:templateId': OFF,
   'POST /api/v1/esign/templates/:templateId/archive': OFF,
   'GET /api/v1/esign/templates/:templateId/packet': OFF,
+  'POST /api/v1/esign/templates/:templateId/duplicate': OFF,
+  'POST /api/v1/esign/requests/:id/save-as-template': OFF,
 };
