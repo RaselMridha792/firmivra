@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ModulesModule } from '../common/modules/requires-module.js';
 import { EsignEngineModule } from './engine/engine.module.js';
+import { EsignLifecycleController } from './lifecycle/lifecycle.controller.js';
+import { LIFECYCLE_REPOSITORY } from './lifecycle/lifecycle.repository.js';
+import { EsignLifecycleService } from './lifecycle/lifecycle.service.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
 import { EsignDocumentsService } from './requests/documents.service.js';
 import { ESIGN_DIRECTORY, PrismaEsignDirectory } from './requests/esign-directory.js';
@@ -23,15 +26,22 @@ import { EsignSendService } from './requests/send.service.js';
  */
 @Module({
   imports: [ModulesModule, EsignEngineModule],
-  controllers: [EsignStatusController, EsignRequestsController, EsignDocumentsController],
+  controllers: [
+    EsignStatusController,
+    EsignRequestsController,
+    EsignDocumentsController,
+    EsignLifecycleController,
+  ],
   providers: [
     EsignRequestsService,
     EsignDocumentsService,
     EsignPrepareService,
     EsignListService,
     EsignSendService,
+    EsignLifecycleService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
+    { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
   ],
 })
 export class EsignModule {}

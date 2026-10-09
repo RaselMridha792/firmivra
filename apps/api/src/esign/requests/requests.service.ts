@@ -473,9 +473,10 @@ export class EsignRequestsService {
     actor: EsignActor | null = null,
   ): Promise<EsignRequestDetail> {
     const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
-    const [row, service] = await Promise.all([
+    const [row, service, voider] = await Promise.all([
       this.row(businessId, r, parts.recipients, actor),
       r.engagementId ? this.directory.engagement(businessId, r.engagementId) : null,
+      r.voidedByUserId ? this.directory.member(businessId, r.voidedByUserId) : null,
     ]);
     return {
       ...row,
@@ -506,16 +507,16 @@ export class EsignRequestsService {
         }),
       ),
       fields: parts.fields.map((f) => EsignField.parse(f)),
+      replacesRequestId: r.replacesRequestId,
+      replacedByRequestId: r.replacedByRequestId,
       // The columns below arrive with r0_esign and are read from part 3 on.
-      replacesRequestId: null,
-      replacedByRequestId: null,
       template: null,
       approvalNotes: [],
       declinedAt: null,
-      expiredAt: null,
-      voidedAt: null,
-      voidReason: null,
-      voidedBy: null,
+      expiredAt: iso(r.expiredAt),
+      voidedAt: iso(r.voidedAt),
+      voidReason: r.voidReason,
+      voidedBy: r.voidedByUserId ? { userId: r.voidedByUserId, name: voider?.name ?? '' } : null,
       originalSha256: r.originalSha256,
       finalSha256: null,
       certificateSha256: null,

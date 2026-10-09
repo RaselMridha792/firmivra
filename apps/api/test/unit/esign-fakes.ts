@@ -41,7 +41,19 @@ import type {
   NewEsignDocument,
   NewEsignRequest,
 } from '../../src/esign/requests/esign.repository.js';
-import type { EsignRequestStatus } from '@firmivra/types';
+import { ESIGN_OPEN_STATUSES, type EsignRequestStatus } from '@firmivra/types';
+import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
+import type { NotifyMessage, NotifyService } from '../../src/notify/notify.types.js';
+import type {
+  CorrectWrite,
+  EsignLifecycleRepository,
+  IssuedLink,
+  LifecycleEmail,
+  LifecycleWritten,
+  RemindWrite,
+  Replacement,
+  VoidWrite,
+} from '../../src/esign/lifecycle/lifecycle.repository.js';
 
 export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
   expiryDays: 30,
@@ -52,7 +64,7 @@ export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
   emailMessage: 'Please review and sign.',
 };
 
-interface Row {
+export interface Row {
   record: EsignRequestRecord;
   parts: EsignRequestParts;
 }
@@ -193,6 +205,12 @@ export class InMemoryEsignRepository implements EsignRepository {
       expiresAt: null,
       completedAt: null,
       originalSha256: null,
+      expiredAt: null,
+      voidedAt: null,
+      voidReason: null,
+      voidedByUserId: null,
+      replacesRequestId: null,
+      replacedByRequestId: null,
     };
     const parts = { documents: [], pagePlan: [], recipients: [], fields: [] };
     this.rows.of(businessId).set(record.id, { record, parts });
@@ -272,7 +290,9 @@ export class InMemoryEsignRepository implements EsignRepository {
   readonly tokenHashes = new PerFirm<string>();
   /** Each firm's queued Firm Sign emails, by id. */
   readonly outbox = new PerFirm<{
-    recipientId: string;
+    /** A recipient's email, or (staff updates) a member's. */
+    recipientId?: string;
+    userId?: string;
     template: string;
     status: 'QUEUED' | 'SENT' | 'FAILED';
     error: string | null;
@@ -381,6 +401,15 @@ export class InMemoryEsignRepository implements EsignRepository {
     );
   }
 
+  /** The stored row itself, read and changed synchronously (as under a lock); lifecycle fake. */
+  peek(businessId: string, id: string): Row | undefined {
+    return this.rows.of(businessId).get(id);
+  }
+
+  insert(businessId: string, row: Row): void {
+    this.rows.of(businessId).set(row.record.id, structuredClone(row));
+  }
+
   /** Test set-up: change a stored request directly (status, documents, fields...). */
   seed(businessId: string, id: string, change: (row: Row) => void): void {
     const row = this.rows.of(businessId).get(id);
@@ -424,6 +453,106 @@ export class InMemoryEsignRepository implements EsignRepository {
     for (const r of row.parts.recipients) if (r.kind === 'APPROVER') r.status = 'WAITING';
     return Promise.resolve(true);
   }
+}
+
+/** Lifecycle writes over the requests fake: each checks and writes in one synchronous step. */
+export class InMemoryLifecycleRepository implements EsignLifecycleRepository {
+  /** Each firm's signing links by token hash, with the token_version they were issued at. */
+  readonly links = new PerFirm<{ requestId: string; recipientId: string; tokenVersion: number }>();
+  /** Each firm's recipients' token_version (0 unless raised). */
+  readonly tokenVersions = new PerFirm<number>();
+
+  constructor(private readonly requests: InMemoryEsignRepository) {}
+
+  remind(businessId: string, id: string, write: RemindWrite, readAt: Date) {
+    return this.apply(businessId, id, write, readAt, (row) => {
+      for (const r of row.parts.recipients) {
+        if (!write.recipientIds.includes(r.id)) continue;
+        r.lastRemindedAt = write.at;
+        r.reminderCount += 1;
+      }
+      for (const l of write.links) this.link(businessId, id, l);
+    });
+  }
+
+  void(businessId: string, id: string, write: VoidWrite, readAt: Date) {
+    return this.apply(businessId, id, write, readAt, (row) => voided(row, write));
+  }
+
+  correct(businessId: string, id: string, write: CorrectWrite, readAt: Date) {
+    return this.apply(businessId, id, write, readAt, (row) => {
+      const r = row.parts.recipients.find((x) => x.id === write.recipientId);
+      if (r) Object.assign(r, structuredClone(write.patch));
+      const versions = this.tokenVersions.of(businessId);
+      versions.set(write.recipientId, (versions.get(write.recipientId) ?? 0) + 1);
+      if (write.link) this.link(businessId, id, write.link);
+    });
+  }
+
+  async replace(
+    businessId: string,
+    id: string,
+    write: VoidWrite & { replacement: Replacement },
+    readAt: Date,
+  ) {
+    const { record, parts, event } = write.replacement;
+    const written = await this.apply(businessId, id, write, readAt, (row) => {
+      voided(row, write);
+      row.record.replacedByRequestId = record.id;
+      this.requests.insert(businessId, { record, parts });
+      this.requests.timelines.of(businessId).set(record.id, [structuredClone(event)]);
+    });
+    return written && { ...written, created: structuredClone(record) };
+  }
+
+  /** The link's recipient, while its request is open and its version is the recipient's. */
+  findLink(businessId: string, tokenHash: string): string | null {
+    const link = this.links.of(businessId).get(tokenHash);
+    const row = link && this.requests.peek(businessId, link.requestId);
+    if (!link || !row || !ESIGN_OPEN_STATUSES.some((s) => s === row.record.status)) return null;
+    const version = this.tokenVersions.of(businessId).get(link.recipientId) ?? 0;
+    return link.tokenVersion === version ? link.recipientId : null;
+  }
+
+  private link(businessId: string, requestId: string, l: IssuedLink) {
+    const tokenVersion = this.tokenVersions.of(businessId).get(l.recipientId) ?? 0;
+    const link = { requestId, recipientId: l.recipientId, tokenVersion };
+    this.links.of(businessId).set(l.tokenHash, link);
+  }
+
+  private apply(
+    businessId: string,
+    id: string,
+    write: { at: Date; events: EsignEventRecord[]; emails: LifecycleEmail[] },
+    readAt: Date,
+    change: (row: Row) => void,
+  ): Promise<LifecycleWritten | null> {
+    const row = this.requests.peek(businessId, id);
+    if (!row || row.record.lastActivityAt.getTime() !== readAt.getTime()) {
+      return Promise.resolve(null);
+    }
+    change(row);
+    const last = row.record.lastActivityAt.getTime();
+    row.record.lastActivityAt = new Date(Math.max(write.at.getTime(), last + 1));
+    const timeline = this.requests.timelines.of(businessId);
+    timeline.set(id, [...(timeline.get(id) ?? []), ...structuredClone(write.events)]);
+    const outbox = this.requests.outbox.of(businessId);
+    const emailIds = write.emails.map((e) => {
+      const emailId = randomUUID();
+      outbox.set(emailId, { ...e, status: 'QUEUED', error: null });
+      return emailId;
+    });
+    return Promise.resolve({ request: structuredClone(row.record), emailIds });
+  }
+}
+
+function voided(row: Row, write: VoidWrite) {
+  Object.assign(row.record, {
+    status: 'VOIDED',
+    voidedAt: write.at,
+    voidReason: write.reason,
+    voidedByUserId: write.byUserId,
+  });
 }
 
 /** A firm's clients, services, portal logins and members. */
@@ -685,3 +814,43 @@ export function esignWorld() {
   };
 }
 export type EsignWorld = ReturnType<typeof esignWorld>;
+
+/** Records what it sends; `fail` rejects as the provider would. */
+export class FakeNotify implements NotifyService {
+  readonly sent: NotifyMessage[] = [];
+  fail = false;
+  send(message: NotifyMessage): Promise<void> {
+    if (this.fail) return Promise.reject(new NotifyDeliveryError(message.template, 'email', 'X'));
+    this.sent.push(structuredClone(message));
+    return Promise.resolve();
+  }
+}
+
+/** A recipient of a request sent 4 days ago: SENT by email to c1's primary login unless given. */
+export const sentRecipient = (
+  w: EsignWorld,
+  extra: Partial<EsignRecipientRecord> = {},
+): EsignRecipientRecord => ({
+  id: randomUUID(),
+  kind: 'SIGNER',
+  role: 'CLIENT',
+  roleLabel: null,
+  routingOrder: 1,
+  name: 'Fake primary',
+  email: 'primary@client.test',
+  phone: null,
+  link: { type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary },
+  delivery: 'EMAIL',
+  authMethod: 'EMAIL_CODE',
+  accessCodeHash: null,
+  colorIndex: 0,
+  status: 'SENT',
+  sentAt: new Date(Date.now() - 4 * 86_400_000),
+  viewedAt: null,
+  signedAt: null,
+  declinedAt: null,
+  declineReason: null,
+  lastRemindedAt: null,
+  reminderCount: 0,
+  ...extra,
+});

@@ -47,6 +47,14 @@ export interface EsignRequestRecord {
   completedAt: Date | null;
   /** Hex SHA-256 of the packet as sent; null until sent. */
   originalSha256: string | null;
+  /** The lifecycle (lifecycle.repository.ts): null until it expires, is voided or replaced. */
+  expiredAt: Date | null;
+  voidedAt: Date | null;
+  /** Staff only: never in an email, a log or the audit. */
+  voidReason: string | null;
+  voidedByUserId: string | null;
+  replacesRequestId: string | null;
+  replacedByRequestId: string | null;
 }
 
 export type NewEsignRequest = Omit<
@@ -59,6 +67,12 @@ export type NewEsignRequest = Omit<
   | 'expiresAt'
   | 'completedAt'
   | 'originalSha256'
+  | 'expiredAt'
+  | 'voidedAt'
+  | 'voidReason'
+  | 'voidedByUserId'
+  | 'replacesRequestId'
+  | 'replacedByRequestId'
 >;
 
 /** What PATCH may change. */
