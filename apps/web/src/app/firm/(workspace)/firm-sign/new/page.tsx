@@ -1,8 +1,14 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../components/page-placeholder';
+import { NewRequest } from './_components/new-request';
 
 export const metadata: Metadata = { title: 'New signature request' };
 
-export default function NewSignatureRequestPage() {
-  return <PagePlaceholder title="New signature request" ticket="R13" owner="R13-web" />;
+export default async function NewSignatureRequestPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ clientId?: string }>;
+}) {
+  // Send for Signature on a client record opens this page with the client chosen.
+  const { clientId } = await searchParams;
+  return <NewRequest clientId={typeof clientId === 'string' ? clientId : undefined} />;
 }
