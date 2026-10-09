@@ -92,3 +92,34 @@ test('a phone shows what is placed instead of the editor', async ({ page }) => {
   await draft(page);
   await expect(page.getByText('Use a tablet or a computer to place or move fields.')).toBeVisible();
 });
+
+test('a field the sender fills: a typed value, a merge field and a missing one', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await draft(page);
+  await expect(page.getByTestId('field-page')).toHaveCount(2);
+  const add = page.getByRole('group', { name: 'Add a field' });
+  await page.getByLabel('Add fields for').selectOption({ label: 'You, before sending' });
+  // Only a signer signs.
+  await expect(add.getByRole('button', { name: 'Signature' })).toBeDisabled();
+  await add.getByRole('button', { name: 'Text' }).click();
+
+  const panel = page.getByTestId('field-panel');
+  await page.getByRole('button', { name: 'Save fields' }).click();
+  await expect(page.getByText('Give the field a value or a merge field')).toBeVisible();
+  await panel.getByLabel('Value').fill('Synthetic engagement 2025');
+  await expect(page.getByTestId('field-box')).toHaveAccessibleName(
+    'Synthetic engagement 2025, Sender',
+  );
+
+  await panel.getByLabel('Fill with').selectOption({ label: 'Firm Name' });
+  await expect(panel.getByTestId('merge-chip')).toHaveText('Will show: LVP Accounting & Taxes');
+  await panel.getByLabel('Fill with').selectOption({ label: 'Spouse/Secondary Signer Name' });
+  await expect(panel.getByTestId('merge-chip')).toContainText('on file');
+  await expect(page.getByTestId('field-box')).toContainText('missing');
+
+  await panel.getByLabel('Fill with').selectOption({ label: 'Firm Name' });
+  await page.getByRole('button', { name: 'Save fields' }).click();
+  await expect(page.getByRole('link', { name: 'Next: Settings' })).toBeVisible();
+});

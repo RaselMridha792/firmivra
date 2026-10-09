@@ -7,8 +7,8 @@ import {
   type EsignRecipient,
   type EsignRequestDetail,
 } from '@firmivra/types';
-import { Button, Card, Checkbox, Select } from '@firmivra/ui';
-import { useQueryClient } from '@tanstack/react-query';
+import { Button, Card, Select } from '@firmivra/ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { FIELD_TYPE_LABELS } from '../../../../../../../../components/esign/field-labels';
@@ -22,6 +22,7 @@ import { errorMessage } from '../../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../../lib/query';
 import { FIELD_KEYS_ID, FieldBox } from './field-box';
 import { DEFAULT_SIZE, duplicate, type FieldDraft, fromField, newKey, toBody } from './field-draft';
+import { FieldPanel, SENDER, senderCanFill, senderText } from './field-panel';
 import { NextStepLink } from './next-step-link';
 import { requestKey, stepHref } from './steps';
 
@@ -97,6 +98,14 @@ function Editor({ r, signers }: { r: EsignRequestDetail; signers: EsignRecipient
   }, []);
 
   const active = fields.find((f) => f.key === activeKey);
+  // What merge fields will show for this client, sender and firm (asked again after each save).
+  const merge = useQuery({
+    // From the client, the sender and the firm: saving fields does not change them.
+    queryKey: ['esign', 'merge-values', r.id, r.client?.id],
+    queryFn: () => api.esign.mergeValues(r.id),
+    enabled: fields.some((f) => f.recipientId === null),
+  });
+  const values = merge.data?.values ?? {};
   const ready = r.documents.every((d) => d.scanStatus === 'CLEAN');
   function edit(next: FieldDraft[]) {
     // A save in flight replaces the list with its answer: changes wait for it.
@@ -125,13 +134,13 @@ function Editor({ r, signers }: { r: EsignRequestDetail; signers: EsignRecipient
     const onPage = fields.filter((f) => f.pageIndex === page).length;
     const f: FieldDraft = {
       key: newKey(),
-      recipientId: owner,
+      recipientId: owner === SENDER ? null : owner,
       type,
       pageIndex: page,
       x: 0.1,
       y: Math.min(0.1 + (onPage % 12) * 0.07, 1 - size.h),
       ...size,
-      required: type !== 'CHECKBOX',
+      required: owner !== SENDER && type !== 'CHECKBOX',
       label: '',
       mergeKey: null,
       value: '',
@@ -176,14 +185,18 @@ function Editor({ r, signers }: { r: EsignRequestDetail; signers: EsignRecipient
           label="Add fields for"
           value={owner}
           onChange={(e) => setOwner(e.target.value)}
-          options={signers.map((s) => ({ value: s.id, label: s.name }))}
+          options={[
+            ...signers.map((s) => ({ value: s.id, label: s.name })),
+            { value: SENDER, label: 'You, before sending' },
+          ]}
         />
         <div className="flex flex-col gap-2" role="group" aria-label="Add a field">
           {PALETTE.map((type) => (
             <Button
               key={type}
               variant="secondary"
-              disabled={!ready || save.isPending}
+              // The sender fills only text before sending; signing is the signers'.
+              disabled={!ready || save.isPending || (owner === SENDER && !senderCanFill(type))}
               onClick={() => add(type)}
             >
               {FIELD_TYPE_LABELS[type]}
@@ -199,31 +212,15 @@ function Editor({ r, signers }: { r: EsignRequestDetail; signers: EsignRecipient
           it.
         </p>
         {active && (
-          <div
-            data-testid="field-panel"
-            className="flex flex-col gap-3 border-t border-border pt-4"
-          >
-            <h3 className="font-semibold text-heading">{FIELD_TYPE_LABELS[active.type]}</h3>
-            <Select
-              label="Filled in by"
-              value={active.recipientId ?? ''}
-              onChange={(e) => patch(active.key, { recipientId: e.target.value })}
-              options={signers.map((s) => ({ value: s.id, label: s.name }))}
-            />
-            <Checkbox
-              label="Required"
-              checked={active.required}
-              onChange={(e) => patch(active.key, { required: e.target.checked })}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button variant="ghost" onClick={() => copy(active)}>
-                Duplicate
-              </Button>
-              <Button variant="ghost" onClick={() => remove(active.key)}>
-                Remove
-              </Button>
-            </div>
-          </div>
+          <FieldPanel
+            f={active}
+            signers={signers}
+            values={values}
+            mergeFailed={merge.isError}
+            onChange={(c) => patch(active.key, c)}
+            onDuplicate={() => copy(active)}
+            onRemove={() => remove(active.key)}
+          />
         )}
       </Card>
       <div
@@ -279,6 +276,7 @@ function Editor({ r, signers }: { r: EsignRequestDetail; signers: EsignRecipient
                           f={f}
                           colour={colour}
                           owner={name}
+                          text={f.recipientId === null ? senderText(f, values) : undefined}
                           active={f.key === activeKey}
                           focus={f.key === focusKey}
                           frame={() => framesRef.current.get(i)?.getBoundingClientRect()}

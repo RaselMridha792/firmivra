@@ -95,12 +95,14 @@ export function toBody(
       y: f.y,
       w: f.w,
       h: f.h,
-      required: f.required,
+      // A field the sender fills has nothing left for a signer to complete.
+      required: f.recipientId !== null && f.required,
       ...(f.label.trim() && { label: f.label }),
       options: f.options,
       ...(f.groupKey && { groupKey: f.groupKey }),
       // Only the sender's fields carry a value or a merge field.
-      ...(f.recipientId === null && (f.mergeKey ? { mergeKey: f.mergeKey } : { value: f.value })),
+      ...(f.recipientId === null &&
+        (f.mergeKey ? { mergeKey: f.mergeKey } : f.value.trim() ? { value: f.value } : {})),
     })),
   });
   if (parsed.success) return { ok: true, body: parsed.data };

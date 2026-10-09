@@ -18,6 +18,7 @@ export function FieldBox({
   f,
   colour,
   owner,
+  text,
   active,
   focus,
   frame,
@@ -30,6 +31,8 @@ export function FieldBox({
   colour: string;
   /** Whose field it is, for its label. */
   owner: string;
+  /** What a sender field shows instead of its name: its value or merge field. */
+  text?: string;
   active: boolean;
   /** Take the keyboard focus (a copy just made). */
   focus: boolean;
@@ -44,7 +47,7 @@ export function FieldBox({
     null,
   );
   const boxRef = useRef<HTMLDivElement>(null);
-  const title = f.label || FIELD_TYPE_LABELS[f.type];
+  const title = text ?? (f.label || FIELD_TYPE_LABELS[f.type]);
   useEffect(() => {
     if (focus) boxRef.current?.focus();
   }, [focus]);
