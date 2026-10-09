@@ -55,6 +55,8 @@ export interface EsignRequestRecord {
   voidedByUserId: string | null;
   replacesRequestId: string | null;
   replacedByRequestId: string | null;
+  /** When the expiry warning went out (once per request); null before. */
+  expiryWarnedAt: Date | null;
 }
 
 export type NewEsignRequest = Omit<
@@ -73,6 +75,7 @@ export type NewEsignRequest = Omit<
   | 'voidedByUserId'
   | 'replacesRequestId'
   | 'replacedByRequestId'
+  | 'expiryWarnedAt'
 >;
 
 /** What PATCH may change. */

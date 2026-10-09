@@ -43,12 +43,14 @@ import type {
 } from '../../src/esign/requests/esign.repository.js';
 import { ESIGN_OPEN_STATUSES, type EsignRequestStatus } from '@firmivra/types';
 import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
+import { expiryDue, reminderDue, warningDue } from '../../src/esign/lifecycle/lifecycle.job.js';
 import type { NotifyMessage, NotifyService } from '../../src/notify/notify.types.js';
 import type {
   CorrectWrite,
   EsignLifecycleRepository,
   IssuedLink,
   LifecycleEmail,
+  LifecycleWrite,
   LifecycleWritten,
   RemindWrite,
   Replacement,
@@ -211,6 +213,7 @@ export class InMemoryEsignRepository implements EsignRepository {
       voidedByUserId: null,
       replacesRequestId: null,
       replacedByRequestId: null,
+      expiryWarnedAt: null,
     };
     const parts = { documents: [], pagePlan: [], recipients: [], fields: [] };
     this.rows.of(businessId).set(record.id, { record, parts });
@@ -475,6 +478,46 @@ export class InMemoryLifecycleRepository implements EsignLifecycleRepository {
     });
   }
 
+  warn(businessId: string, id: string, write: RemindWrite, readAt: Date) {
+    return this.apply(businessId, id, write, readAt, (row) => {
+      row.record.expiryWarnedAt = write.at;
+      for (const l of write.links) this.link(businessId, id, l);
+    });
+  }
+
+  expire(businessId: string, id: string, write: LifecycleWrite, readAt: Date) {
+    return this.apply(businessId, id, write, readAt, (row) =>
+      Object.assign(row.record, { status: 'EXPIRED', expiredAt: write.at }),
+    );
+  }
+
+  /** The job's firms (ACTIVE with Firm Sign on). */
+  readonly firmIds: string[] = [];
+  /** Set while another task holds the job's lock. */
+  lockedElsewhere = false;
+
+  withJobLock<T>(work: () => Promise<T>): Promise<T | null> {
+    return this.lockedElsewhere ? Promise.resolve(null) : work();
+  }
+
+  firms() {
+    return Promise.resolve([...this.firmIds]);
+  }
+
+  /** As the SQL would select them, with the job's own rules. */
+  async due(businessId: string, now: Date, limit: number) {
+    const open = { visibleTo: null, statuses: ESIGN_OPEN_STATUSES };
+    const rows = await this.requests.listRequests(businessId, open, { after: null, limit: 1000 });
+    return rows
+      .filter(
+        ({ record: q, recipients: rs }) =>
+          expiryDue(q, rs, now) || warningDue(q, now) || rs.some((r) => reminderDue(q, r, now)),
+      )
+      .sort((x, y) => +x.record.expiresAt! - +y.record.expiresAt!)
+      .slice(0, limit)
+      .map((x) => x.record.id);
+  }
+
   void(businessId: string, id: string, write: VoidWrite, readAt: Date) {
     return this.apply(businessId, id, write, readAt, (row) => voided(row, write));
   }
@@ -605,9 +648,16 @@ export class FakeAudit {
     action: string;
     entity: { type: string; id?: string };
     metadata?: unknown;
+    /** The firm a job names (no request context); absent from a route. */
+    at?: { businessId?: string };
   }[] = [];
-  log(action: string, entity: { type: string; id?: string }, metadata?: Record<string, unknown>) {
-    this.entries.push({ action, entity, metadata });
+  log(
+    action: string,
+    entity: { type: string; id?: string },
+    metadata?: Record<string, unknown>,
+    at?: { businessId?: string },
+  ) {
+    this.entries.push({ action, entity, metadata, ...(at && { at }) });
     return Promise.resolve();
   }
 }

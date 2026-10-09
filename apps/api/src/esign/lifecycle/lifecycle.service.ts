@@ -119,7 +119,8 @@ export class EsignLifecycleService {
 
   /**
    * Reminds `targets` (their turn, checked by the caller): a fresh link each by email (PORTAL
-   * signers get the Signature center), REMINDER_SENT each. Null when the request changed.
+   * signers get the Signature center), REMINDER_SENT each; or (EXPIRY_WARNING, the job) warns
+   * them once with the expiry date. Null when the request changed.
    */
   async nudge(
     businessId: string,
@@ -127,7 +128,9 @@ export class EsignLifecycleService {
     targets: EsignRecipientRecord[],
     by: LifecycleBy,
     now: Date,
+    kind: 'REMINDER' | 'EXPIRY_WARNING' = 'REMINDER',
   ): Promise<LifecycleWritten | null> {
+    const template = kind === 'REMINDER' ? 'esign.reminder' : 'esign.expiring';
     const portal = await this.portal(businessId);
     const links: IssuedLink[] = [];
     const outgoing = targets.flatMap((r): Outgoing[] => {
@@ -138,18 +141,27 @@ export class EsignLifecycleService {
         links.push({ recipientId: r.id, tokenHash: hash });
         link = `${portal}/sign#t=${token}`;
       }
-      const data = { name: r.name, title: record.title, link };
-      const message = { template: 'esign.reminder' as const, to: r.email, businessId, data };
-      return [{ email: { recipientId: r.id, template: 'esign.reminder' }, message }];
+      const expiry = kind === 'EXPIRY_WARNING' && { expiresAt: record.expiresAt };
+      const data = { name: r.name, title: record.title, link, ...expiry };
+      return [
+        {
+          email: { recipientId: r.id, template },
+          message: { template, to: r.email, businessId, data },
+        },
+      ];
     });
     const write = {
       at: now,
       recipientIds: targets.map((r) => r.id),
       links,
-      events: targets.map((r) => event('REMINDER_SENT', now, by, r)),
+      events: targets.map((r) =>
+        event(kind === 'REMINDER' ? 'REMINDER_SENT' : 'EXPIRY_WARNING_SENT', now, by, r),
+      ),
       emails: outgoing.map((o) => o.email),
     };
-    const written = await this.lifecycle.remind(
+    const save = kind === 'REMINDER' ? this.lifecycle.remind : this.lifecycle.warn;
+    const written = await save.call(
+      this.lifecycle,
       businessId,
       record.id,
       write,
@@ -292,6 +304,7 @@ export class EsignLifecycleService {
           voidedByUserId: null,
           replacesRequestId: old.id,
           replacedByRequestId: null,
+          expiryWarnedAt: null,
         },
         parts: {
           documents,

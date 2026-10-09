@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ModulesModule } from '../common/modules/requires-module.js';
 import { EsignEngineModule } from './engine/engine.module.js';
 import { EsignLifecycleController } from './lifecycle/lifecycle.controller.js';
+import { EsignLifecycleJob } from './lifecycle/lifecycle.job.js';
 import { LIFECYCLE_REPOSITORY } from './lifecycle/lifecycle.repository.js';
 import { EsignLifecycleService } from './lifecycle/lifecycle.service.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
@@ -39,6 +40,7 @@ import { EsignSendService } from './requests/send.service.js';
     EsignListService,
     EsignSendService,
     EsignLifecycleService,
+    EsignLifecycleJob,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
