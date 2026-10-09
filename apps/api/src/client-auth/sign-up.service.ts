@@ -201,7 +201,7 @@ export class SignUpService {
     private readonly codes: VerificationCodesService,
     private readonly sessions: SignUpSessions,
     private readonly audit: AuditService,
-    @Inject(ENV) env: Env,
+    @Inject(ENV) private readonly env: Env,
   ) {
     this.secure = env.NODE_ENV === 'production';
     this.minResponseMs = env.AUTH_MODE === 'cognito' ? COGNITO_MIN_RESPONSE_MS : 0;
@@ -880,7 +880,12 @@ export class SignUpService {
   private async sendCode(owner: CodeOwner, channel: Channel, target: string, firm: Firm) {
     const issued = await this.codes.issue(owner, channel, target);
     if (issued.sent) {
-      const message = { to: target, code: issued.code, businessName: firm.name };
+      const message = {
+        to: target,
+        code: issued.code,
+        businessId: firm.id,
+        businessName: firm.name,
+      };
       try {
         await (channel === 'EMAIL' ? this.sender.emailCode(message) : this.sender.smsCode(message));
       } catch {
@@ -919,7 +924,12 @@ export class SignUpService {
     });
     if (!send) return;
     try {
-      await this.sender.alreadyRegistered({ to: email, businessName: firm.name });
+      await this.sender.alreadyRegistered({
+        to: email,
+        businessId: firm.id,
+        businessName: firm.name,
+        signInUrl: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/sign-in`,
+      });
     } catch {
       this.logger.warn(`Could not send the "already registered" notice for account ${accountId}`);
     }
