@@ -22,12 +22,14 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import type { Construct } from 'constructs';
 import { type EnvConfig, resourceName } from '../config';
 import { firmKeyStatements } from '../firm-key-policy';
 import type { AuthStack } from './auth-stack';
 import type { DataStack } from './data-stack';
 import type { EmailStack } from './email-stack';
+import { MalwareScan } from './malware-scan';
 import type { NetworkStack } from './network-stack';
 
 export type Site = 'admin' | 'app' | 'portal';
@@ -52,6 +54,7 @@ export const NO_IMAGE = 'none';
  * CloudFront reaches the load balancer through a VPC origin: no public load balancer, no
  * certificate needed on it. Without config.customDomain the sites use their *.cloudfront.net
  * domains; with it they get the certificate, aliases and DNS records.
+ * Also the alarm topic, and GuardDuty's malware scan of uploads with its result queue (malware-scan.ts).
  */
 export class AppStack extends Stack {
   readonly repositories: Record<'api' | 'web' | 'migrate', ecr.Repository>;
@@ -61,6 +64,9 @@ export class AppStack extends Stack {
   readonly distributions: Record<Site, cloudfront.Distribution>;
   /** Host name of each site (custom host, or the CloudFront domain). */
   readonly siteHosts: Record<Site, string>;
+  /** Alarm emails (Rasel subscribes by CLI after the deploy; no address in the repo). */
+  readonly alarmTopic: sns.Topic;
+  readonly malwareScan: MalwareScan;
 
   constructor(scope: Construct, id: string, props: AppStackProps) {
     super(scope, id, props);
@@ -252,6 +258,39 @@ export class AppStack extends Stack {
         retention: logs.RetentionDays.TWO_WEEKS,
         removalPolicy: RemovalPolicy.DESTROY,
       });
+    const apiLogs = logGroup('api');
+
+    // ---------- Alarms and the malware scan of uploads (R1 step 19) ----------
+    // Not encrypted: CloudWatch and EventBridge cannot publish to a topic under aws/sns, and a
+    // customer managed key is $1/month. It carries alarm states and plan status (names, ids and
+    // codes), never firm or client data. Revisit for prod.
+    this.alarmTopic = new sns.Topic(this, 'AlarmTopic', {
+      topicName: name('alarms'),
+      displayName: `Firmivra ${config.envName} alarms`,
+      enforceSSL: true,
+    });
+    // A topic policy replaces SNS's default one, so CloudWatch needs its own statement.
+    this.alarmTopic.addToResourcePolicy(
+      new iam.PolicyStatement({
+        sid: 'CloudWatchAlarms',
+        principals: [new iam.ServicePrincipal('cloudwatch.amazonaws.com')],
+        actions: ['sns:Publish'],
+        resources: [this.alarmTopic.topicArn],
+        conditions: {
+          ArnLike: {
+            'aws:SourceArn': `arn:aws:cloudwatch:${config.region}:${config.account}:alarm:${name('*')}`,
+          },
+          StringEquals: { 'aws:SourceAccount': config.account },
+        },
+      }),
+    );
+    this.malwareScan = new MalwareScan(this, 'MalwareScan', {
+      config,
+      bucketName: `${name('documents')}-${this.account}`,
+      documentsKey: data.documentsKey,
+      alarmTopic: this.alarmTopic,
+      apiLogs,
+    });
 
     // ---------- API ----------
     // R4 submit: HMAC-SHA256 of the EIN into firm_applications.ein_hash (the duplicate-EIN check).
@@ -279,7 +318,10 @@ export class AppStack extends Stack {
     apiTask.addContainer('api', {
       image: ecs.ContainerImage.fromEcrRepository(this.repositories.api, tag),
       portMappings: [{ containerPort: 4000 }],
-      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'api', logGroup: logGroup('api') }),
+      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'api', logGroup: apiLogs }),
+      // SIGTERM comes at the start of a Fargate Spot interruption's two minutes; 60 s lets the scan
+      // result in hand (about 48 s worst case) and open requests finish before SIGKILL.
+      stopTimeout: Duration.seconds(60),
       environment: {
         NODE_ENV: 'production',
         AUTH_MODE: 'cognito',
@@ -309,6 +351,7 @@ export class AppStack extends Stack {
             }
           : { EMAIL_MODE: 'log' }),
         SMS_MODE: 'sns',
+        SCAN_RESULTS_QUEUE_URL: this.malwareScan.queue.queueUrl,
       },
       secrets: {
         DB_APP_PASSWORD: ecs.Secret.fromSecretsManager(data.appDbSecret, 'password'),
@@ -338,6 +381,15 @@ export class AppStack extends Stack {
     for (const statement of firmKeyStatements(config.envName, config.region, config.account)) {
       apiRole.addToPrincipalPolicy(statement);
     }
+    // Scan results: read, delete, and make a result without a record visible again sooner. No
+    // dead-letter queue and no KMS (SSE-SQS).
+    apiRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        sid: 'ScanResultsQueue',
+        actions: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:ChangeMessageVisibility'],
+        resources: [this.malwareScan.queue.queueArn],
+      }),
+    );
     email?.identity.grantSendEmail(apiRole);
     apiRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
@@ -485,5 +537,16 @@ export class AppStack extends Stack {
       value: network.vpc.selectSubnets({ subnetType: ec2.SubnetType.PUBLIC }).subnetIds.join(','),
     });
     new CfnOutput(this, 'MigrateSecurityGroup', { value: network.apiSg.securityGroupId });
+    // Rasel's step 19 commands (docs/SETUP-LOG.md).
+    new CfnOutput(this, 'AlarmTopicArn', { value: this.alarmTopic.topicArn });
+    new CfnOutput(this, 'MalwareProtectionPlanId', {
+      value: this.malwareScan.plan.attrMalwareProtectionPlanId,
+    });
+    new CfnOutput(this, 'MalwareScanRoleArn', { value: this.malwareScan.planRole.roleArn });
+    new CfnOutput(this, 'ScanResultsQueueUrl', { value: this.malwareScan.queue.queueUrl });
+    new CfnOutput(this, 'ScanResultsQueueArn', { value: this.malwareScan.queue.queueArn });
+    new CfnOutput(this, 'ScanResultsDeadLetterQueueArn', {
+      value: this.malwareScan.deadLetterQueue.queueArn,
+    });
   }
 }

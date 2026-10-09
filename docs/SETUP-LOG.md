@@ -360,6 +360,218 @@ From this application on, rollback (c) is no longer safe: its stored EIN hash ne
 - **(c) The EIN-hash secret:** leave it. R4 submit reads it since #107, so removing it is safe only before the first dev application (step 5): after that, the stored hashes need the same key. If it must go: a PR that removes `EinHashKey` and `EIN_HASH_KEY` (the secret stays, retained). The name stays taken while the secret exists or waits for deletion, so a later PR that adds it again fails the app deploy (and Deploy dev rolls the stack back). Before adding it again, while no hash is stored: `aws secretsmanager delete-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --force-delete-without-recovery --profile firmivra-dev`. After a `delete-secret --recovery-window-in-days 30`, run `aws secretsmanager restore-secret --secret-id firmivra/dev/firm-applications/ein-hash-key --profile firmivra-dev` and then force-delete it, or keep the restored one and bring it back into the stack with `cdk import`.
 - **(d) Cognito email:** a PR that removes `cognitoEmail` from the dev config (the pools go back to `COGNITO_DEFAULT`), then `pnpm exec cdk deploy firmivra-dev-auth -c env=dev --exclusively --profile firmivra-dev`. The policies: `aws iam set-default-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --version-id <previous vN> --profile firmivra-dev` for each. The service-linked role stays (harmless).
 
+## GuardDuty Malware Protection of uploads (R1 step 19, Oct 9)
+
+Nothing here is in AWS before Rasel's yes. Everything is in `firmivra-dev-app` (`infra/src/stacks/malware-scan.ts`, used by `app-stack.ts`), so merging the infra PR deploys it through Deploy dev. The data stack does not change and needs no manual deploy. The bootstrap policies are manual and come first.
+
+**What it adds:**
+- **Plan role** `firmivra-dev-malware-scan`. It is AWS's template (malware-protection-s3-iam-policy-prerequisite), narrowed to `tenant/*` plus the validation object:
+  - GuardDuty's managed rule `DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*`, with `events:ManagedBy` for writes;
+  - the bucket's EventBridge setting and `ListBucket`;
+  - get, get-version and tag (also by version) on objects;
+  - `PutObject` on the validation object only;
+  - `kms:Decrypt` and `GenerateDataKey` on the documents key, through S3 only (`kms:ViaService`);
+  - no delete. The trust is exactly AWS's: `malware-protection-plan.guardduty.amazonaws.com`, with no condition, since none is documented for it.
+- **The plan:** every new object under `tenant/` of `firmivra-dev-documents-778127141557`, tagged `GuardDutyMalwareScanStatus` with its result. No detector is needed.
+- **Result queue** `firmivra-dev-malware-scan-results` (SSE-SQS, TLS only, long polling, 120 s visibility, 4 days) and its dead-letter queue `-dlq` (14 days, longer because a dead letter's age counts from its first enqueue). Only the results rule may send to either (`aws:SourceArn`).
+- **Rules on the default bus:**
+  - `firmivra-dev-malware-scan-results`: GuardDuty's "Object Scan Result" for this account and bucket, to the queue, with EventBridge's own delivery failures going to the dead-letter queue. It has no `resources` (plan ARN) filter, because AWS documents that only for upload-triggered scans, and on-demand rescans must come through too.
+  - `firmivra-dev-malware-scan-plan-health`: the plan's status changes (Active, Warning or warning, Error) and failed tagging, straight to the alarm topic.
+- **Alarm topic** `firmivra-dev-alarms`, shared with R8's later alarms. It has no subscription in the repo: Rasel subscribes by CLI after the deploy. It is not encrypted: CloudWatch and EventBridge cannot publish to a topic under `aws/sns`, and a customer managed key costs $1 a month. It carries alarm states and plan status only (names, ids and codes). Revisit for prod.
+- **Five alarms**, each emailing on ALARM and on OK:
+  - `dead-letters`: the dead-letter queue has messages. It stays in ALARM until the queue is redriven or purged (step 8).
+  - `stuck`: the oldest result is over 40 minutes old, so the API is not reading the queue.
+  - Three on markers in the API log `/firmivra/dev/api` (metric filters, namespace `Firmivra/dev`), each firing again for every new occurrence:
+    - `unfinished` (`SCAN_UNFINISHED`): our side could not finish a scan (ACCESS_DENIED, FAILED, UNSUPPORTED without a file reason). The file stays "checking"; rescan it (step 7's command, for one key).
+    - `rejected` (`SCAN_REJECTED`): a message that is not a scan result for this account, region and bucket was deleted. Either AWS changed the event, or our config is wrong.
+    - `last-receive` (`SCAN_LAST_RECEIVE`): a result still without a record goes to the dead-letter queue next.
+- **API task:**
+  - `SCAN_RESULTS_QUEUE_URL`;
+  - `sqs:ReceiveMessage`, `DeleteMessage` and `ChangeMessageVisibility` on the result queue only (no dead-letter queue, no KMS);
+  - `stopTimeout` 60 s. Fargate Spot sends SIGTERM at the start of its 2-minute warning, and SIGKILL follows after `stopTimeout`. 60 s lets the result in hand (about 48 s worst case) and open requests finish.
+- **Outputs:** `AlarmTopicArn`, `MalwareProtectionPlanId`, `MalwareScanRoleArn`, `ScanResultsQueueUrl`, `ScanResultsQueueArn`, `ScanResultsDeadLetterQueueArn`.
+
+**Key policy: IAM delegation, data stack untouched.** The documents key's policy is KMS's default statement (`kms:*` for the account root), which turns on IAM policies for the key. The API role's `DocumentsKey` statement already relies on that, and the plan role's grant (with `kms:ViaService` S3) works the same way. A key-policy statement naming the plan role would need either a dependency cycle (app imports from data) or a hard-coded ARN. It would also need a manual deploy of the termination-protected stack that holds the database. Tests pin that the key keeps only the root statement.
+
+**The queue's timing.**
+- A result whose upload has no record yet (`UNKNOWN`) is not deleted. The API makes its first 5 receives visible again after 20 s (`ChangeMessageVisibility`), so a result that beats the confirm shows within seconds. After that, the 120 s default applies.
+- `maxReceiveCount` is 20: 5 x 20 s + 15 x 120 s comes to about 32 minutes before the dead-letter queue. That is twice the 15-minute upload ticket, and below the 40-minute `stuck` alarm.
+- 120 s is more than twice the consumer's worst case. A Fargate Spot stop mid-message only means the message comes back, and the set-once scan result makes the repeat a no-op.
+
+**For the API PR** (the consumer, R5's path). It logs these markers, with ids and codes only:
+- `SCAN_UNFINISHED` for a PENDING outcome;
+- `SCAN_REJECTED` with the message id and the reason for any message it rejects (not JSON, not a scan result, a status outside the five, another account, region or bucket);
+- `SCAN_LAST_RECEIVE` when it keeps a message on receive 20.
+- A documents result that is `UNKNOWN` and older than the confirm window (event `time` + 15 min ticket + 5 min) is final: `IGNORED`, logged as an orphan upload. `UNKNOWN` stays only for a prefix with no handler yet, so never-confirmed uploads do not fill the dead-letter queue.
+- The API reads the queue URL from the env; it refuses to start in production without it, so it merges after this deploy is green.
+
+**Cost, dev, per month (us-east-1):** about $0.00 to $0.10 at today's volume (a few hundred synthetic uploads, all under 10 MB).
+- GuardDuty Malware Protection for S3: free for the first 12 months for 1,000 objects and 1 GB scanned per month, then $0.215 per 1,000 objects plus $0.09 per GB. On-demand rescans are not in the free tier (a few cents).
+- GuardDuty's own S3 calls are billed as normal S3 requests and not in its free tier: the GET of each object, the tag, and the validation object's PUT. That is fractions of a cent.
+- S3 object tags: $0.01 per 10,000 tags a month.
+- SQS: one task long-polling makes about 130,000 receives a month, under the 1 million free requests.
+- EventBridge: GuardDuty's events and same-account delivery are free; S3's events are under $0.01.
+- CloudWatch: 5 alarms and 3 log metrics, inside the free 10 of each.
+- SNS email: free (1,000 a month).
+- KMS: inside the 20,000 free requests (bucket key on).
+- Worst case at 5,000 uploads and 5 GB a month: about $1.30.
+- Sources: aws.amazon.com/guardduty/pricing, the GuardDuty guide's "pricing-malware-protection-for-s3-guardduty", and the SQS, EventBridge, CloudWatch and S3 pricing pages.
+
+**Networking:** API tasks have public IPs and allow all outbound, so they reach SQS's public endpoint. A move to private subnets would need an SQS interface endpoint, about $7.30 per AZ per month.
+
+**Later, not in this PR:**
+- Per-firm document keys (`docs/api/documents.yaml`, "KMS (pending)"): the plan role then needs `kms:Decrypt` and `GenerateDataKey` on the firm keys, with `kms:ViaService` S3. Without it, every scan is `ACCESS_DENIED` (`UNAUTHORIZED_TO_GET_OBJECT`), which leaves files PENDING and fires `unfinished`.
+- If the data stack ever adds S3 notifications to the documents bucket, it must set `eventBridgeEnabled: true`, or the plan stops getting events.
+- **Other prefixes:** R13's esign objects, R14's agreements and R15's leads are scanned too. That includes esign's server-written copies (PutObject, and CopyObject from the vault). Until each one registers its handler in the API's registry, their results go `UNKNOWN`, then to `last-receive` and the dead-letter queue, then step 8. The esign module is off on dev today, so this becomes noise only once it is on.
+
+### Step 19 commands (Rasel, after his yes; Git Bash, from the repo root)
+
+Every command is for the dev account and takes `--profile firmivra-dev`. `aws sso login --profile firmivra-dev` first if the session has expired.
+
+**0. The diffs, before review** (read-only), on the infra PR's branch (`git fetch origin && git switch rasel/R1-guardduty-infra`). Post the results on the PR:
+
+```bash
+cd infra
+pnpm exec cdk diff firmivra-dev-app -c env=dev --exclusively --profile firmivra-dev
+pnpm exec cdk diff firmivra-dev-data -c env=dev --exclusively --profile firmivra-dev
+```
+
+Expected for app:
+- IAM: the new role `firmivra-dev-malware-scan` with its inline policy, the `ScanResultsQueue` statement on the API task role, and the queue and topic policies;
+- new resources: the topic and its policy, 2 queues and 2 queue policies, the GuardDuty plan, 2 rules, 3 metric filters and 5 alarms;
+- a new API task definition revision (`SCAN_RESULTS_QUEUE_URL`, `StopTimeout`), the stack description, and 6 new outputs;
+- the two usual image-tag parameter lines.
+
+Expected for data: no differences. Anything else, above all a replacement or anything in data: stop.
+
+**1. Bootstrap policy versions, before the merge.** Without them the deploy fails and rolls back. Print the policies from the PR's branch (step 0's checkout), where the new statements are; switch back afterwards. Both should be at v2 today, so this makes v3:
+
+```bash
+cd infra
+pnpm exec tsx scripts/bootstrap-policies.ts exec > cfn-exec.json
+pnpm exec tsx scripts/bootstrap-policies.ts boundary > boundary.json
+for name in firmivra-cdk-cfn-exec firmivra-permissions-boundary; do
+  aws iam list-policy-versions --policy-arn arn:aws:iam::778127141557:policy/$name \
+    --query 'Versions[].[VersionId,IsDefaultVersion,CreateDate]' --output table --profile firmivra-dev
+done
+# Only for a policy that already has 5 versions: delete its oldest version that is not the default.
+aws iam delete-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --version-id <oldest non-default> --profile firmivra-dev
+aws iam create-policy-version --policy-arn arn:aws:iam::778127141557:policy/firmivra-permissions-boundary \
+  --policy-document file://boundary.json --set-as-default --profile firmivra-dev
+aws iam create-policy-version --policy-arn arn:aws:iam::778127141557:policy/firmivra-cdk-cfn-exec \
+  --policy-document file://cfn-exec.json --set-as-default --profile firmivra-dev
+rm cfn-exec.json boundary.json
+# Check (read-only): both lines say v3 and at least 1 line.
+for name in firmivra-cdk-cfn-exec firmivra-permissions-boundary; do
+  arn=arn:aws:iam::778127141557:policy/$name
+  v=$(aws iam get-policy --policy-arn "$arn" --query Policy.DefaultVersionId --output text --profile firmivra-dev)
+  n=$(aws iam get-policy-version --policy-arn "$arn" --version-id "$v" --output json --profile firmivra-dev | grep -c MalwareProtectionPlan)
+  echo "$name: default $v, $n line(s) with MalwareProtectionPlan"
+done
+```
+
+**2. Merge the infra PR.** Deploy dev deploys `firmivra-dev-app`, and R1 watches the run; wait for green. The old API image ignores `SCAN_RESULTS_QUEUE_URL`. From now on, results collect in the queue (up to 4 days). Any upload before step 5 makes `stuck` go to ALARM after 40 minutes, and it clears once the consumer drains the queue. So merge the API PR right after this run is green.
+
+**3. Subscribe to the alarms by email.** The address is typed in the terminal and never committed:
+
+```bash
+q() { aws cloudformation describe-stacks --stack-name firmivra-dev-app --profile firmivra-dev \
+  --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+aws sns subscribe --topic-arn "$(q AlarmTopicArn)" --protocol email --notification-endpoint <your address> --profile firmivra-dev
+```
+
+`q` reads a stack output; steps 4, 6 and 8 use it too. Click the link in the confirmation email, then test the path once:
+
+```bash
+aws cloudwatch set-alarm-state --alarm-name firmivra-dev-malware-scan-dead-letters --state-value ALARM --state-reason "path test" --profile firmivra-dev
+```
+
+An email arrives. The alarm goes back to OK at its next evaluation (within 5 minutes) and sends an OK email.
+
+**4. Plan status** (read-only). The plan's first "Active" event comes before the plan-health rule and the subscription exist, so no email arrives for it. This command is the check, and the rule covers later changes:
+
+```bash
+aws guardduty get-malware-protection-plan --malware-protection-plan-id "$(q MalwareProtectionPlanId)" --query '[Status,StatusReasons]' --profile firmivra-dev
+```
+
+- Expected: `ACTIVE`.
+- `WARNING` or `ERROR` right after the deploy can be IAM propagation (for example `UNAUTHORIZED_TO_ASSUME_ROLE` or `INSUFFICIENT_TEST_OBJECT_PERMISSIONS`): CloudFormation makes the role and calls GuardDuty at once. Wait 5 minutes and check again.
+- If it still shows, make GuardDuty validate again with the same role, then check again:
+
+```bash
+aws guardduty update-malware-protection-plan --malware-protection-plan-id "$(q MalwareProtectionPlanId)" --role "$(q MalwareScanRoleArn)" --profile firmivra-dev
+```
+
+Otherwise read the reason code in https://docs.aws.amazon.com/guardduty/latest/ug/troubleshoot-s3-malware-protection-status-errors.html.
+
+**5. Merge the API PR** (the consumer). Deploy dev ships it; wait for green. It drains what queued up since step 2.
+
+**6. The real-event check on dev,** with synthetic files only:
+- (a) In the portal, as the LVP test client, upload a plain synthetic PDF. It should show as ready within about a minute.
+- (b) Upload a synthetic PDF saved from Word with File > Save As > PDF > Options > "Encrypt the document with a password". It shows as ready (q24).
+- (c) Read the log. Empty output is a fail:
+
+```bash
+aws logs filter-log-events --log-group-name /firmivra/dev/api --filter-pattern '?"Scan result" ?"SCAN_UNFINISHED"' \
+  --start-time $(( ($(date +%s) - 3600) * 1000 )) --query 'events[].message' --output text --profile firmivra-dev
+```
+
+  Expected: `NO_THREATS_FOUND [] -> CLEAN` for (a), and `UNSUPPORTED [PASSWORD_PROTECTED] -> UNSCANNED` for (b). That confirms GuardDuty sends the reason; write it here. If (b) instead shows `SCAN_UNFINISHED ... UNSUPPORTED []`, R1 opens the PDF `/Encrypt` fallback PR, and after it deploys, rescan (b).
+- (d) An on-demand rescan of (a)'s object must come through the rule too. Its log line says `-> IGNORED` (the result is already set):
+
+```bash
+B=firmivra-dev-documents-778127141557
+aws guardduty send-object-malware-scan --s3-object "Bucket=$B,Key=tenant/<LVP id>/documents/<upload id of (a)>" --profile firmivra-dev
+```
+
+  Then run (c)'s command again a minute later.
+- (e) Tag and queue checks (read-only):
+
+```bash
+aws s3api get-object-tagging --bucket $B --key tenant/<LVP id>/documents/<upload id> --profile firmivra-dev   # GuardDutyMalwareScanStatus
+aws sqs get-queue-attributes --queue-url "$(q ScanResultsQueueUrl)" --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible --profile firmivra-dev
+```
+
+**7. Rescan uploads made before the plan existed.** They stay "checking", because GuardDuty scans new objects only. These are on-demand scans, a few cents:
+
+```bash
+aws s3api list-objects-v2 --bucket $B --prefix tenant/ --query 'Contents[].Key' --output text --profile firmivra-dev | tr '\t' '\n' | while read -r k; do
+  [ -z "$k" ] || [ "$k" = None ] && continue
+  t=$(aws s3api get-object-tagging --bucket $B --key "$k" --query "TagSet[?Key=='GuardDutyMalwareScanStatus'].Value" --output text --profile firmivra-dev)
+  [ -z "$t" ] || [ "$t" = None ] || continue
+  aws guardduty send-object-malware-scan --s3-object "Bucket=$B,Key=$k" --profile firmivra-dev && echo "sent ${k##*/}"
+done
+```
+
+Objects that were uploaded but never confirmed have no record, so their results are orphans: the API ignores them after the confirm window.
+
+**8. After each `dead-letters` or `last-receive` email:** look at the count, then redrive or purge, so the alarm goes back to OK and the next dead letter emails again.
+
+```bash
+aws sqs get-queue-attributes --queue-url "$(aws sqs get-queue-url --queue-name firmivra-dev-malware-scan-results-dlq --query QueueUrl --output text --profile firmivra-dev)" \
+  --attribute-names ApproximateNumberOfMessages --profile firmivra-dev
+# Once the waiting handler (R13 esign, R14 agreements, R15 leads) is on dev, within 14 days of the upload:
+aws sqs start-message-move-task --source-arn "$(q ScanResultsDeadLetterQueueArn)" --destination-arn "$(q ScanResultsQueueArn)" --profile firmivra-dev
+# Or, when nothing in it is needed (for example the path test's dead letters):
+aws sqs purge-queue --queue-url "$(aws sqs get-queue-url --queue-name firmivra-dev-malware-scan-results-dlq --query QueueUrl --output text --profile firmivra-dev)" --profile firmivra-dev
+```
+
+`--destination-arn` is required. Without it, SQS returns messages to their source queue, and the messages EventBridge wrote there itself (delivery failures) have no source queue.
+
+### Step 19 rollback, per item
+
+- **(a) The email subscription:** `aws sns list-subscriptions-by-topic --topic-arn "$(q AlarmTopicArn)" --profile firmivra-dev`, then `aws sns unsubscribe --subscription-arn <arn> --profile firmivra-dev`.
+- **(b) The consumer:** revert the API PR first. Its config refuses to start in production without `SCAN_RESULTS_QUEUE_URL`, so the infra revert must come after it.
+- **(c) The scan, queues, rules, alarms and topic:** a PR that removes `MalwareScan`, the topic, the API's `ScanResultsQueue` statement, `SCAN_RESULTS_QUEUE_URL` and the 6 outputs. Its merge deletes them; uploads then stay "checking" on dev. Deleting the plan should make GuardDuty remove its managed rule with the plan role. CloudFormation deletes the role right after the plan, so check that the rule is gone (read-only):
+
+```bash
+aws events list-rules --name-prefix DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3 --profile firmivra-dev
+```
+
+  If a rule is left: `aws events list-targets-by-rule --rule <name>`, then `aws events remove-targets --rule <name> --ids <ids> --force` and `aws events delete-rule --name <name> --force` (each with `--profile firmivra-dev`).
+- **(d) The bootstrap policies,** only after (c) is deployed: `aws iam set-default-policy-version --policy-arn arn:aws:iam::778127141557:policy/<name> --version-id v2 --profile firmivra-dev`, for each of the two.
+- **(e) What stays, harmless:** the bucket's EventBridge setting, which GuardDuty turned on; the `GuardDutyMalwareScanStatus` tags on objects; the API's 60 s `stopTimeout` (a separate one-line revert if wanted).
+
 ## Switching to dev.firmivra.com (config, certificate and aliases only; no code change)
 
 Done Oct 5: steps 1 to 3 (`customDomain: DEV_FIRMIVRA_COM`; the diff matched step 3; deployed network, email, app, data, auth in that order). Tests and the nag report still cover the CloudFront-domain setup (`customDomain: undefined`, `CLOUDFRONT_DOMAINS=1`).
