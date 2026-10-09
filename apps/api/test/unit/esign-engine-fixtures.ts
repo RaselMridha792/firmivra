@@ -12,7 +12,7 @@ const crc32 = (buf: Buffer) => {
   for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff]! ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 };
-const chunk = (type: string, data: Buffer) => {
+export const chunk = (type: string, data: Buffer) => {
   const len = Buffer.alloc(4);
   len.writeUInt32BE(data.length);
   const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
@@ -20,6 +20,25 @@ const chunk = (type: string, data: Buffer) => {
   crc.writeUInt32BE(crc32(body));
   return Buffer.concat([len, body, crc]);
 };
+
+/** A PNG from its IHDR fields and raw IDAT bytes, every CRC right: for broken-image tests. */
+export function rawPng(
+  ihdr: { width: number; height: number; depth: number; colour: number; lace?: number },
+  idat: Buffer,
+): Uint8Array {
+  const h = Buffer.alloc(13);
+  h.writeUInt32BE(ihdr.width, 0);
+  h.writeUInt32BE(ihdr.height, 4);
+  h.set([ihdr.depth, ihdr.colour, 0, 0, ihdr.lace ?? 0], 8);
+  return new Uint8Array(
+    Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk('IHDR', h),
+      chunk('IDAT', idat),
+      chunk('IEND', Buffer.alloc(0)),
+    ]),
+  );
+}
 
 /** A real RGBA PNG of `width` x `height`, a dark stroke on transparent; `noise` makes it big. */
 export function png(width: number, height: number, { noise = false } = {}): Uint8Array {

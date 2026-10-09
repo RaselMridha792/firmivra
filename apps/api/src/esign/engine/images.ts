@@ -1,3 +1,4 @@
+import { crc32, inflateSync } from 'node:zlib';
 import { EsignEngineError } from './engine.types.js';
 
 // JPG and PNG headers (ported from R13-api's engine branch), read before anything is decoded: a huge image is refused while it is
@@ -36,8 +37,110 @@ const ascii = (b: Uint8Array, at: number, length: number) =>
 
 const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 function pngHeader(b: Uint8Array): ImageHeader | undefined {
-  if (!PNG.every((x, i) => b[i] === x) || ascii(b, 12, 4) !== 'IHDR') return undefined;
-  return { width: view(b).getUint32(16), height: view(b).getUint32(20), turn: 0 };
+  const png = parsePng(b);
+  return png && { width: png.width, height: png.height, turn: 0 };
+}
+
+export interface PngInfo {
+  width: number;
+  height: number;
+}
+
+/** Channels per colour type; the bit depths each allows (PNG spec 11.2.2). */
+const COLOUR_TYPES: Partial<Record<number, { channels: number; depths: number[] }>> = {
+  0: { channels: 1, depths: [1, 2, 4, 8, 16] },
+  2: { channels: 3, depths: [8, 16] },
+  3: { channels: 1, depths: [1, 2, 4, 8] },
+  4: { channels: 2, depths: [8, 16] },
+  6: { channels: 4, depths: [8, 16] },
+};
+/** Adam7 passes: x start, y start, x step, y step. */
+const ADAM7 = [
+  [0, 0, 8, 8],
+  [4, 0, 8, 8],
+  [0, 4, 4, 8],
+  [2, 0, 4, 4],
+  [0, 2, 2, 4],
+  [1, 0, 2, 2],
+  [0, 1, 1, 2],
+] as const;
+
+/**
+ * A PNG checked the whole way before anything else decodes it: every chunk's CRC, IHDR's fields
+ * against the spec, a size within IMAGE_LIMITS, and image data that inflates to exactly the
+ * expected length with a valid filter byte on every row. A PNG that fails any of this can make
+ * a decoder spin or blow up memory, so it's undefined here.
+ */
+export function parsePng(b: Uint8Array): PngInfo | undefined {
+  try {
+    return readPng(b);
+  } catch {
+    return undefined; // a read past the end, or data that doesn't inflate
+  }
+}
+
+function readPng(b: Uint8Array): PngInfo | undefined {
+  if (!PNG.every((x, i) => b[i] === x)) return undefined;
+  const v = view(b);
+  let header: { width: number; height: number; depth: number; colour: number; laced: boolean };
+  let hasPalette = false;
+  const data: Uint8Array[] = [];
+  for (let at = 8, first = true; ; first = false) {
+    const length = v.getUint32(at);
+    const type = ascii(b, at + 4, 4);
+    if (at + 12 + length > b.length) return undefined;
+    const body = b.subarray(at + 8, at + 8 + length);
+    if (crc32(b.subarray(at + 4, at + 8 + length)) !== v.getUint32(at + 8 + length)) {
+      return undefined;
+    }
+    at += 12 + length;
+    if (first !== (type === 'IHDR')) return undefined;
+    if (type === 'IHDR') {
+      if (length !== 13) return undefined;
+      const h = view(body);
+      const [depth, colour, compression, filter, lace] = body.subarray(8, 13);
+      const allowed = COLOUR_TYPES[colour!];
+      if (!allowed?.depths.includes(depth!) || compression !== 0 || filter !== 0) return undefined;
+      if (lace !== 0 && lace !== 1) return undefined;
+      header = {
+        width: h.getUint32(0),
+        height: h.getUint32(4),
+        depth: depth!,
+        colour: colour!,
+        laced: lace === 1,
+      };
+      const { side, pixels } = IMAGE_LIMITS;
+      const { width, height } = header;
+      if (width < 1 || height < 1 || width > side || height > side || width * height > pixels) {
+        return undefined;
+      }
+    } else if (type === 'PLTE') {
+      hasPalette = true;
+    } else if (type === 'IDAT') {
+      data.push(body);
+    } else if (type === 'IEND') {
+      break;
+    }
+  }
+  const { width, height, depth, colour, laced } = header!;
+  if (colour === 3 && !hasPalette) return undefined;
+  const bits = COLOUR_TYPES[colour]!.channels * depth;
+  // Each row is one filter byte plus its packed pixels.
+  const passes = laced
+    ? ADAM7.map(([x0, y0, dx, dy]) => [Math.ceil((width - x0) / dx), Math.ceil((height - y0) / dy)])
+    : [[width, height]];
+  const rows: number[] = [];
+  let expected = 0;
+  for (const [w, h] of passes) {
+    if (w! <= 0 || h! <= 0) continue;
+    const rowBytes = 1 + Math.ceil((w! * bits) / 8);
+    for (let r = 0; r < h!; r++) rows.push(expected + r * rowBytes);
+    expected += h! * rowBytes;
+  }
+  const raw = inflateSync(Buffer.concat(data), { maxOutputLength: expected + 1 });
+  if (raw.length !== expected) return undefined;
+  if (rows.some((at) => raw[at]! > 4)) return undefined;
+  return { width, height };
 }
 
 /** Start-of-frame markers (C4, C8 and CC are other segments). */
