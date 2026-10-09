@@ -29,6 +29,7 @@ import { ClientsModule } from './clients/clients.controller.js';
 import { TaxReturnsModule } from './tax-returns/tax-returns.controller.js';
 import { EngagementsModule } from './engagements/engagements.controller.js';
 import { LeadsModule } from './leads/leads.controller.js';
+import { IntakesModule } from './intake/intakes.controller.js';
 import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
 import { AgreementsModule } from './agreements/agreements.controller.js';
@@ -95,6 +96,7 @@ export class AppModule {
         TaxReturnsModule,
         EngagementsModule,
         LeadsModule,
+        IntakesModule,
         MessagesModule,
         SettingsModule,
         AgreementsModule,
