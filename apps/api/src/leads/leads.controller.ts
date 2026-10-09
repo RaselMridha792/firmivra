@@ -1,10 +1,7 @@
 import { Body, Controller, Get, HttpCode, Module, Param, Post, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
-  ConvertLeadRequest,
-  type ConvertLeadResponse,
   DeclineLeadRequest,
-  type DownloadLink,
   type LeadCounts,
   type LeadDetail,
   LeadId,
@@ -15,13 +12,6 @@ import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorator
 import type { ClientsActor } from '../clients/clients.service.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
-import { loadDocumentsConfig, type DocumentsConfig } from '../storage/config.js';
-import {
-  createS3Client,
-  DOCUMENT_STORAGE,
-  S3DocumentStorage,
-} from '../storage/document-storage.js';
-import { LeadConvertService } from './lead-convert.service.js';
 import { LeadsService } from './leads.service.js';
 
 const idPipe = new ZodValidationPipe(LeadId);
@@ -35,10 +25,7 @@ function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
 @Controller('business/leads')
 @Roles(...FIRM_STAFF)
 export class LeadsController {
-  constructor(
-    private readonly leads: LeadsService,
-    private readonly converts: LeadConvertService,
-  ) {}
+  constructor(private readonly leads: LeadsService) {}
 
   @Get()
   list(
@@ -71,17 +58,6 @@ export class LeadsController {
     return this.leads.startReview(tenant.businessId, actorOf(auth, tenant), id);
   }
 
-  @Post(':id/convert')
-  @HttpCode(200)
-  convert(
-    @CurrentAuth() auth: AuthContext,
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id', idPipe) id: string,
-    @Body(new ZodValidationPipe(ConvertLeadRequest)) body: z.output<typeof ConvertLeadRequest>,
-  ): Promise<ConvertLeadResponse> {
-    return this.converts.convert(tenant.businessId, actorOf(auth, tenant), id, body);
-  }
-
   @Post(':id/decline')
   @HttpCode(200)
   decline(
@@ -92,30 +68,10 @@ export class LeadsController {
   ): Promise<LeadDetail> {
     return this.leads.decline(tenant.businessId, actorOf(auth, tenant), id, body.reason);
   }
-
-  @Get(':id/uploads/:uploadId/download')
-  download(
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id', idPipe) id: string,
-    @Param('uploadId', idPipe) uploadId: string,
-  ): Promise<DownloadLink> {
-    return this.converts.downloadUpload(tenant.businessId, id, uploadId);
-  }
 }
 
 @Module({
   controllers: [LeadsController],
-  providers: [
-    LeadsService,
-    LeadConvertService,
-    // R5's documents bucket, made the way storage/documents.controller.ts makes it.
-    {
-      provide: DOCUMENT_STORAGE,
-      useFactory: () => {
-        const config: DocumentsConfig = loadDocumentsConfig();
-        return new S3DocumentStorage(createS3Client(config), config.bucket);
-      },
-    },
-  ],
+  providers: [LeadsService],
 })
 export class LeadsModule {}

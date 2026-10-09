@@ -13,7 +13,6 @@ import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
 import {
   ANNUAL_TAX_FORM,
-  ConvertLeadResponse,
   LeadDetail as DetailShape,
   LeadListItem as ItemShape,
 } from '@firmivra/types';
@@ -359,32 +358,6 @@ describe('review', () => {
       'INVALID_STATUS',
     );
   });
-
-  it('links a CLEAN file only, and only of this lead', async () => {
-    const lead = ids.leads['new'];
-    const ok = expectOk(
-      await firm('get', `/${lead}/uploads/${ids.uploads['new.clean']}/download`, people.staffA),
-    ).body as { url: string };
-    expect(ok.url).toMatch(/^memory:tenant\//);
-    const pending = await firm(
-      'get',
-      `/${lead}/uploads/${ids.uploads['new.pending']}/download`,
-      people.staffA,
-    );
-    expect(codeOf(pending)).toBe('FILE_NOT_AVAILABLE');
-    const other = await firm(
-      'get',
-      `/${lead}/uploads/${ids.uploads['review.clean']}/download`,
-      people.staffA,
-    );
-    expect(other.status).toBe(404);
-    const draft = await firm(
-      'get',
-      `/${ids.leads['draft']}/uploads/${ids.uploads['draft.clean']}/download`,
-      people.ownerA,
-    );
-    expect(draft.status).toBe(404);
-  });
 });
 
 describe('decline', () => {
@@ -398,7 +371,7 @@ describe('decline', () => {
       expectOk(await firm('post', `/${lead}/decline`, people.ownerA, { reason })).body,
     );
     expect(declined).toMatchObject({ status: 'DECLINED', declineReason: reason });
-    expect(codeOf(await firm('post', `/${lead}/convert`, people.ownerA, {}))).toBe(
+    expect(codeOf(await firm('post', `/${lead}/decline`, people.ownerA, { reason: 'Again' }))).toBe(
       'INVALID_STATUS',
     );
     const audit = await inFirm(ids.firmA, (tx) =>
@@ -406,104 +379,5 @@ describe('decline', () => {
     );
     expect(audit.map((a) => a.action)).toContain('lead.declined');
     expect(JSON.stringify(audit)).not.toContain(reason);
-  });
-});
-
-describe('convert', () => {
-  it('makes the client and an ACTIVE engagement, carries the intake and files, and invites', async () => {
-    const lead = ids.leads['new'];
-    outbox.length = 0;
-    const res = ConvertLeadResponse.parse(
-      expectOk(await firm('post', `/${lead}/convert`, people.ownerA, {})).body,
-    );
-    expect(res.inviteSent).toBe(true);
-    expect(res.lead).toMatchObject({
-      status: 'CONVERTED',
-      engagementId: res.engagementId,
-      client: { id: res.clientId, displayName: 'Leadnew Sample' },
-    });
-    const state = await inFirm(ids.firmA, async (tx) => ({
-      client: await tx.client.findUniqueOrThrow({ where: { id: res.clientId } }),
-      engagement: await tx.engagement.findUniqueOrThrow({ where: { id: res.engagementId } }),
-      intake: await tx.intake.findFirstOrThrow({ where: { leadId: lead } }),
-      documents: await tx.document.findMany({ where: { engagementId: res.engagementId } }),
-    }));
-    expect(state.client).toMatchObject({ email: `lead-new-${run}@example.test` });
-    expect(state.engagement).toMatchObject({
-      status: 'ACTIVE',
-      serviceId: ids.service,
-      taxYear: 2025,
-      title: `Annual Tax ${run} 2025`,
-    });
-    expect(state.intake.engagementId).toBe(res.engagementId);
-    expect(state.documents.map((d) => d.intakeSlot).sort()).toEqual(['cleanSlot', 'pendingSlot']);
-    expect(state.documents.every((d) => d.intakeId === state.intake.id)).toBe(true);
-    expect(outbox).toHaveLength(1);
-    expect(outbox[0]).toMatchObject({
-      template: 'client.portal-invite',
-      to: `lead-new-${run}@example.test`,
-      businessId: ids.firmA,
-    });
-    expect(String((outbox[0]!.data as { signUpLink: string }).signUpLink)).toMatch(
-      new RegExp(`/${ids.slugA}/sign-up$`),
-    );
-    expect(codeOf(await firm('post', `/${lead}/convert`, people.ownerA, {}))).toBe(
-      'INVALID_STATUS',
-    );
-  });
-
-  it("refuses a new client with another client's email; goes to that client instead, uninvited", async () => {
-    const lead = ids.leads['taken'];
-    await inFirm(ids.firmA, (tx) =>
-      tx.lead.update({ where: { id: lead }, data: { email: `lead-taken-${run}@example.test` } }),
-    );
-    expect(codeOf(await firm('post', `/${lead}/convert`, people.ownerA, {}))).toBe(
-      'DUPLICATE_EMAIL',
-    );
-    outbox.length = 0;
-    const res = ConvertLeadResponse.parse(
-      expectOk(await firm('post', `/${lead}/convert`, people.ownerA, { clientId: ids.otherClient }))
-        .body,
-    );
-    expect(res).toMatchObject({ clientId: ids.otherClient, inviteSent: false });
-    expect(outbox).toHaveLength(0);
-  });
-
-  it('Staff convert into their own clients only, and assign only themselves', async () => {
-    const lead = ids.leads['staff'];
-    const notTheirs = await firm('post', `/${lead}/convert`, people.staffA, {
-      clientId: ids.otherClient,
-    });
-    expect(notTheirs.status).toBe(404);
-    const other = await firm('post', `/${lead}/convert`, people.staffA, {
-      assignedUserId: people.ownerA.id,
-    });
-    expect(codeOf(other)).toBe('FORBIDDEN');
-    const res = ConvertLeadResponse.parse(
-      expectOk(
-        await firm('post', `/${lead}/convert`, people.staffA, {
-          clientId: ids.staffClient,
-          title: 'Staff title',
-        }),
-      ).body,
-    );
-    const engagement = await inFirm(ids.firmA, (tx) =>
-      tx.engagement.findUniqueOrThrow({ where: { id: res.engagementId } }),
-    );
-    expect(engagement).toMatchObject({ assignedUserId: people.staffA.id, title: 'Staff title' });
-  });
-
-  it("another firm can't convert or decline it", async () => {
-    const lead = ids.leads['taken'];
-    for (const action of ['convert', 'decline', 'review']) {
-      const res = await firm(
-        'post',
-        `/${lead}/${action}`,
-        people.ownerB,
-        action === 'decline' ? { reason: 'x' } : {},
-        ids.firmB,
-      );
-      expect(res.status).toBe(404);
-    }
   });
 });
