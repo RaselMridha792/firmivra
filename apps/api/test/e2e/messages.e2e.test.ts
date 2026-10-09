@@ -543,6 +543,44 @@ describe('notices', () => {
       link: expect.stringMatching(new RegExp(`/clients/${ids.one}/messages$`)),
     });
     expect(JSON.stringify(sent)).not.toContain(secret);
+
+    // The bell item goes to the same people on the firm side, never to the sender.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      const bell = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.notification.findMany({
+          where: { businessId: ids.firmA, entityId: t.id },
+          select: { recipientUserId: true },
+        }),
+      );
+      const to = new Set(bell.map((b) => b.recipientUserId));
+      for (const p of [people.ownerA, people.adminA, people.staffA]) {
+        expect(to.has(p.id)).toBe(true);
+      }
+      for (const p of [people.staffA2, people.goneOwnerA, people.spouse]) {
+        expect(to.has(p.id)).toBe(false);
+      }
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it('a read at the same time as a message never leaves it unread without an email', async () => {
+    for (let round = 0; round < 8; round += 1) {
+      const t = await startThread({ subject: `Read race ${round}`, body: 'Unread' });
+      mail();
+      const [read, send] = await Promise.all([
+        portal('post', `/${t.id}/read`, people.primary, {}),
+        firm('post', `/message-threads/${t.id}/messages`, people.ownerA, { body: 'New' }),
+      ]);
+      expectOk(read);
+      expectOk(send, 201);
+      const sent = mail().length;
+      const detail = MyDetail.parse(expectOk(await portal('get', `/${t.id}`, people.primary)).body);
+      const unread = detail.messages.filter((m) => m.from === 'FIRM' && m.unread).length;
+      // Read first: the new message starts a run and is emailed. Send first: the read covers it.
+      expect(unread > 0 ? sent : 0, `round ${round}`).toBe(unread > 0 ? 1 : 0);
+    }
   });
   it('emails no one at a client whose primary login is disabled, not even the spouse', async () => {
     mail();
