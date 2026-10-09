@@ -349,8 +349,8 @@ function sensitiveKeys(definitions: readonly IntakeFormDefinition[]) {
  * closed: an SSN or EIN answer must be null, left out, or exactly `{ last4 }` with 4 digits
  * (not a string in any spelling, not a number, not a list, not an object with another key next
  * to `last4`), at the top level and in group rows. A key counts as an SSN or EIN when the
- * definition says so, or when the built-in form of the same kind (INTAKE_FORMS) does, so a wrong
- * definition can't hide one. Nothing may sit where this check can't see: every key is a field of
+ * definition says so, or when any built-in form (INTAKE_FORMS) does, whatever `definition.key`
+ * claims, so a wrong or relabelled definition can't hide one. Nothing may sit where this check can't see: every key is a field of
  * the form (keys match exactly, case included), and every answer has its type's shape (a group a
  * list of rows holding only a row id and the group's own fields; a grid rows of cells; an upload
  * `{ notAvailable, reason }`; a choice list strings; anything else one plain value). Cleaned and
@@ -362,8 +362,13 @@ export function intakeNumbersMasked(
   definition: IntakeFormDefinition,
   answers: Readonly<Values>,
 ): boolean {
-  const builtIn = INTAKE_FORMS[definition.key];
-  const sensitive = sensitiveKeys(builtIn ? [definition, builtIn] : [definition]);
+  // Every built-in form, not only the one `definition.key` names: the key comes from the same
+  // untrusted response, so a definition retyped as text and relabelled as another form must not
+  // hide a number field of any form.
+  const builtIns = Object.values(INTAKE_FORMS).filter(
+    (d): d is IntakeFormDefinition => d !== undefined,
+  );
+  const sensitive = sensitiveKeys([definition, ...builtIns]);
   const fields = new Map(intakeFields(definition).map((f) => [f.key, f]));
   const empty = (v: unknown) => v === undefined || v === null;
   /** One answer of a field that is not a group, by its type's shape. */
@@ -490,6 +495,9 @@ const Website = text(2048)
   .pipe(
     z
       .url({
+        // Stop here when it is not a URL, so the refine below never sees one `new URL` throws on
+        // (a 500 instead of a 400 on the public save).
+        abort: true,
         protocol: /^https?$/,
         hostname: z.regexes.domain,
         normalize: true,

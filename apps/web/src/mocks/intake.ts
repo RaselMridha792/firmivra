@@ -7,14 +7,14 @@ import {
   DOCUMENT_ERRORS,
   FirmSlug,
   hiddenSlotUploads,
-  INTAKE_AGREEMENT_ERRORS,
   INTAKE_EDITABLE_STATUSES,
   INTAKE_ERRORS,
   INTAKE_FORMS,
   INTAKE_LIMITS,
   INTAKE_NUMBERS_UNAVAILABLE,
+  INTAKE_SIGNING_ERRORS,
   INTAKE_UPLOAD_STATUS,
-  type IntakeAgreementErrorCode,
+  type IntakeAgreementBlock,
   type IntakeAnswers,
   type IntakeFormDefinition,
   type IntakeFormKey,
@@ -22,6 +22,7 @@ import {
   IntakeId,
   IntakeKey,
   intakeStepFields,
+  type IntakeSigningErrorCode,
   type IntakeUpload,
   intakeUploadCounts,
   IntakeUploadId,
@@ -37,6 +38,7 @@ import {
   type UploadTicket,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import { intakeBlockFixture } from './agreements';
 import { engagementFixtures } from './engagements';
 import { mockBusiness } from './me';
 
@@ -57,7 +59,7 @@ import { mockBusiness } from './me';
  * Intakes 5 and 6 are for services the My Services mock doesn't list.
  * `createMyIntakesMock({ portalRole: 'SPOUSE' })` is a spouse's login: it reads everything, and
  * every change answers 403 FORBIDDEN. No form carries an agreement: the review step shows the
- * firm's agreements from R14's `api.publicAgreements(slug)`.
+ * intake's agreement block from R14's `api.myIntakeAgreements(slug).block(intakeId)`.
  * Uploads need no storage (the ticket URL starts with `mock:`; `uploadFile()` skips the PUT). A
  * new file is CHECKING (scan PENDING) for 4 s, then READY (CLEAN). A name with "virus" ends
  * BLOCKED (INFECTED), one with "unreadable" BLOCKED (FAILED); an .xlsx or .docx named "password"
@@ -67,13 +69,16 @@ import { mockBusiness } from './me';
  * once: those past the limit answer 409 TOO_MANY_FILES). A submit takes the files whose slot is
  * not a shown upload field out of the intake (`hiddenSlotUploads`), before the status changes,
  * and keeps only the answers of shown fields.
- * Submit errors (MOCK_SUBMIT_TRIGGERS), until R14's signature is in the submit body: a complete
- * form with one of these words in a text answer (a comments box, say) answers that code instead:
- *   "noagreement" 409 NO_INTAKE_AGREEMENT, "agreementoutdated" 409 AGREEMENT_OUTDATED (the API's
- *   `details` carry the current agreements; ApiRequestError keeps no details yet),
- *   "acknowledgmentrequired" 400 ACKNOWLEDGMENT_REQUIRED, "signaturemismatch" 400
- *   SIGNATURE_MISMATCH, "pdfrequired" 400 PDF_REQUIRED. 400 VALIDATION_FAILED names the first
- *   problem of an incomplete form.
+ * Submit: the body needs `signature` (400 VALIDATION_FAILED without it, as the API). 400
+ * VALIDATION_FAILED names the first problem of an incomplete form; then the signature is checked
+ * against the intake's block (R14's mock, `intakeBlockFixture`) as the API does
+ * (`checkMockSignature`): an agreement left out or added, or an older version or bodySha256,
+ * answers 409 AGREEMENT_OUTDATED; a required acknowledgment not ticked 400
+ * ACKNOWLEDGMENT_REQUIRED; a box the agreement doesn't have, or `acceptLegal` on a portal submit,
+ * 400 VALIDATION_FAILED; a name with a no-break space (U+00A0) 400 SIGNATURE_MISMATCH (the
+ * database's whitespace differs from JavaScript's). A complete form with "noagreement" in a text
+ * answer (a comments box, say) answers 409 NO_INTAKE_AGREEMENT, as for a firm with no published
+ * firm-wide agreement.
  * A save (or a submit's answers) with a new SSN or EIN ending in 0503 (MOCK_KEY_DOWN_LAST4)
  * answers 503 ENCRYPTION_UNAVAILABLE and saves nothing, as the API does when the firm's key can't
  * be used.
@@ -184,33 +189,97 @@ export function checkFixture(
   if (first) throw new Error(`Mock fixture ${name}: ${first.path.join('.')} ${first.message}`);
 }
 
-/**
- * The words that make a complete form's submit answer a code instead (see the comment at the
- * top). TERMS_OUTDATED is Begin Online's only (its review step accepts the firm's Terms and
- * Privacy); the portal mock skips it.
- */
-export const MOCK_SUBMIT_TRIGGERS = {
-  noagreement: [409, 'NO_INTAKE_AGREEMENT'],
-  agreementoutdated: [409, 'AGREEMENT_OUTDATED'],
-  acknowledgmentrequired: [400, 'ACKNOWLEDGMENT_REQUIRED'],
-  signaturemismatch: [400, 'SIGNATURE_MISMATCH'],
-  pdfrequired: [400, 'PDF_REQUIRED'],
-  termsoutdated: [409, 'TERMS_OUTDATED'],
-} as const satisfies Record<string, readonly [number, IntakeAgreementErrorCode | 'TERMS_OUTDATED']>;
+/** A text answer with this word makes the block not ready (409 NO_INTAKE_AGREEMENT). */
+export const MOCK_NO_AGREEMENT_WORD = 'noagreement';
 
-/** The submit error a trigger word in a text answer asks for, if any (checked before the submit). */
-export function submitTrigger(
+/**
+ * The block a submit is checked against: R14's mock block for the form, or a not-ready one when a
+ * text answer holds MOCK_NO_AGREEMENT_WORD.
+ */
+export function mockSubmitBlock(
+  firmSlug: string,
+  form: IntakeFormKey,
+  where: 'begin' | 'portal',
   answers: IntakeAnswers,
-  messages: Readonly<Record<string, string>>,
-): ApiRequestError | null {
-  const texts = Object.values(answers)
-    .filter((v): v is string => typeof v === 'string')
-    .map((v) => v.toLowerCase());
-  for (const [word, [status, code]] of Object.entries(MOCK_SUBMIT_TRIGGERS)) {
-    const message = messages[code];
-    if (message && texts.some((t) => t.includes(word))) return fail(status, code, message);
+): IntakeAgreementBlock {
+  const block = intakeBlockFixture(firmSlug, form, where);
+  const noAgreement = Object.values(answers).some(
+    (v) => typeof v === 'string' && v.toLowerCase().includes(MOCK_NO_AGREEMENT_WORD),
+  );
+  return noAgreement ? { ...block, ready: false, agreements: [] } : block;
+}
+
+const signingFail = (status: number, code: IntakeSigningErrorCode) =>
+  fail(status, code, INTAKE_SIGNING_ERRORS[code]);
+
+/**
+ * Postgres' app_signature_name_key: as `signatureNameKey`, but its `\s` (glibc) is ASCII
+ * whitespace only, so a no-break space is not collapsed. A name whose two keys differ passes the
+ * schema and violates intake_signatures_typed_matches, which the API answers 400
+ * SIGNATURE_MISMATCH.
+ */
+const postgresNameKey = (value: string) =>
+  value
+    .normalize('NFC')
+    .replace(/[ \t\n\r\f\v]+/g, ' ')
+    .replace(/^ | $/g, '')
+    .toLowerCase();
+
+/**
+ * A submit's signature checked against the current block, in the API's order: `acceptLegal` on a
+ * portal submit (400 VALIDATION_FAILED), no published firm-wide agreement (409
+ * NO_INTAKE_AGREEMENT), the agreements signed not exactly the block's at its versions and
+ * bodySha256 (409 AGREEMENT_OUTDATED), Begin Online's Terms and Privacy (missing when the block's
+ * `legal` is set: 400 VALIDATION_FAILED; other versions: 409 TERMS_OUTDATED), a box the agreement
+ * doesn't have (400 VALIDATION_FAILED), a required box not ticked (400 ACKNOWLEDGMENT_REQUIRED),
+ * then the database's name check (400 SIGNATURE_MISMATCH).
+ */
+export function checkMockSignature(
+  block: IntakeAgreementBlock,
+  signature: ReturnType<typeof SubmitIntakeRequest.parse>['signature'],
+  where: 'begin' | 'portal',
+) {
+  if (where === 'portal' && signature.acceptLegal != null) {
+    throw fail(400, 'VALIDATION_FAILED', 'signature.acceptLegal: Not accepted here');
   }
-  return null;
+  if (!block.ready) throw signingFail(409, 'NO_INTAKE_AGREEMENT');
+  const signed = new Map(signature.agreements.map((a) => [a.agreementId, a]));
+  const current =
+    signed.size === block.agreements.length &&
+    block.agreements.every((a) => {
+      const s = signed.get(a.agreementId);
+      return s?.version === a.version && s.bodySha256 === a.bodySha256;
+    });
+  if (!current) throw signingFail(409, 'AGREEMENT_OUTDATED');
+  if (where === 'begin') {
+    const legal = block.legal;
+    const accepted = signature.acceptLegal ?? null;
+    if (legal && !accepted) {
+      throw fail(400, 'VALIDATION_FAILED', 'signature.acceptLegal: Accept the Terms and Privacy');
+    }
+    if (
+      accepted &&
+      (accepted.termsVersion !== legal?.terms.version ||
+        accepted.privacyVersion !== legal.privacy.version)
+    ) {
+      throw signingFail(409, 'TERMS_OUTDATED');
+    }
+  }
+  const ticked = new Set(signature.acknowledgments.map((a) => `${a.agreementId}:${a.key}`));
+  for (const a of signature.acknowledgments) {
+    const agreement = block.agreements.find((x) => x.agreementId === a.agreementId);
+    if (!agreement?.acknowledgments.some((k) => k.key === a.key)) {
+      throw fail(400, 'VALIDATION_FAILED', 'signature.acknowledgments: Unknown box');
+    }
+  }
+  const missing = block.agreements.some((a) =>
+    a.acknowledgments.some((k) => k.required && !ticked.has(`${a.agreementId}:${k.key}`)),
+  );
+  if (missing) throw signingFail(400, 'ACKNOWLEDGMENT_REQUIRED');
+  const { printedName, typedSignature } = signature.signer;
+  if (postgresNameKey(printedName) !== postgresNameKey(typedSignature)) {
+    throw signingFail(400, 'SIGNATURE_MISMATCH');
+  }
 }
 
 /**
@@ -717,15 +786,18 @@ export function createMyIntakesMock(
     submit: async (id, body) => {
       await mockDelay();
       const iid = parseInput(IntakeId, id);
-      const { answers } = parseInput(SubmitIntakeRequest, body);
+      const { answers, signature } = parseInput(SubmitIntakeRequest, body);
       firm();
       const row = changeable(find(iid));
       const form = definition(row);
       if (answers) saveStep(row, form.steps.at(-1)!.key, answers);
       const kept = keptFiles(form, row.answers, row.files);
       const clean = answersOrFail(form, row.answers, { mode: 'submit', uploads: slotCounts(kept) });
-      const triggered = submitTrigger(clean, INTAKE_AGREEMENT_ERRORS);
-      if (triggered) throw triggered;
+      checkMockSignature(
+        mockSubmitBlock(firmSlug, row.item.form, 'portal', clean),
+        signature,
+        'portal',
+      );
       // As the API, in one transaction: the files of hidden slots leave the intake (they stay in
       // My Documents) while it is still open, then the version is locked with the answers of the
       // shown fields only, the status changes and the note is cleared.
@@ -738,8 +810,7 @@ export function createMyIntakesMock(
         correction: null,
         updatedAt: now(),
       };
-      // The signature joins the body with R14's contract; the mock signs as the client.
-      row.signature = { printedName: 'Jamie Sample', signedAt: now() };
+      row.signature = { printedName: signature.signer.printedName, signedAt: now() };
       return view(row);
     },
     createUpload: async (id, body) => {

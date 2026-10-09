@@ -39,6 +39,19 @@ const at = '2026-10-08T09:00:00.000Z';
 const token = 'A'.repeat(40) + '_-9';
 const begin = (fn: typeof fetch, slug = 'lvp') =>
   createBeginOnlineClient(createRequest({ baseUrl: '/api/v1', fetch: fn }), slug);
+/** A Begin Online signature: one agreement, and the Terms and Privacy the block's legal named. */
+const signature = {
+  agreements: [
+    { agreementId: '0199b6a5-0001-7000-8000-000000000001', version: 3, bodySha256: 'c'.repeat(64) },
+  ],
+  acknowledgments: [],
+  acceptLegal: { termsVersion: 2, privacyVersion: 1 },
+  signer: {
+    printedName: 'Avery Example',
+    method: 'TYPED' as const,
+    typedSignature: 'Avery Example',
+  },
+};
 const facts = {
   fileName: 'W-2_2025.pdf',
   contentType: 'application/pdf' as const,
@@ -80,7 +93,7 @@ describe('api.beginOnline(firmSlug)', () => {
       () => api.createUpload('BOOKKEEPING', { slot: 'einDocument', ...facts }),
       () => api.confirmUpload('BOOKKEEPING', { uploadToken: 'token' }),
       () => api.removeUpload('BOOKKEEPING', id),
-      () => api.submit('PAYROLL', { answers: { additionalInformation: 'Thanks' } }),
+      () => api.submit('PAYROLL', { answers: { additionalInformation: 'Thanks' }, signature }),
     ]) {
       await call().catch(() => undefined);
     }
@@ -108,7 +121,7 @@ describe('api.beginOnline(firmSlug)', () => {
     // The resume token travels in the body only, never in a URL.
     expect(calls[6]?.body).toEqual({ token });
     expect(calls.some((c) => c.url.includes(token))).toBe(false);
-    expect(calls[11]?.body).toEqual({ answers: { additionalInformation: 'Thanks' } });
+    expect(calls[11]?.body).toEqual({ answers: { additionalInformation: 'Thanks' }, signature });
   });
 
   it('rejects bad input before sending anything', async () => {
@@ -129,7 +142,8 @@ describe('api.beginOnline(firmSlug)', () => {
       () => api.resume({ token: 'short' }),
       () => api.emailResumeLink({ email: '' }),
       () => api.createUpload('ANNUAL_TAX', { slot: 'governmentId', ...facts, fileName: 'W-2.png' }),
-      () => api.submit('ANNUAL_TAX', { answers: {}, leadId: id } as never),
+      () => api.submit('ANNUAL_TAX', { answers: {}, signature, leadId: id } as never),
+      () => api.submit('ANNUAL_TAX', { answers: {} } as never),
       () => begin(fn, 'a b').forms(),
     ]) {
       await expect(call()).rejects.toMatchObject({ status: 400, code: 'VALIDATION_FAILED' });

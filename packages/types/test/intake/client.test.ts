@@ -7,14 +7,14 @@ import {
   BOOKKEEPING_FORM,
   createMyIntakesClient,
   createRequest,
-  INTAKE_AGREEMENT_ERRORS,
+  AgreementOutdatedDetails,
+  INTAKE_SIGNING_ERRORS,
   INTAKE_CARDS,
   INTAKE_ERRORS,
   INTAKE_STATUS_LABELS,
   INTAKE_UPLOAD_STATUS,
-  IntakeAgreementErrorCode,
-  IntakeAgreementOutdatedDetails,
   IntakeErrorCode,
+  IntakeSigningErrorCode,
   IntakeStatus,
   intakeUploadCounts,
   MyIntake,
@@ -44,6 +44,14 @@ const id = '0199b6a8-0000-7000-8000-000000000001';
 const at = '2026-10-08T09:00:00.000Z';
 const intakes = (fn: typeof fetch, slug = 'lvp') =>
   createMyIntakesClient(createRequest({ baseUrl: '/api/v1', fetch: fn }), slug);
+/** A signature for one agreement, as the review step sends it (R14's IntakeSignatureInput). */
+const signature = {
+  agreements: [
+    { agreementId: '0199b6a5-0001-7000-8000-000000000001', version: 3, bodySha256: 'c'.repeat(64) },
+  ],
+  acknowledgments: [{ agreementId: '0199b6a5-0001-7000-8000-000000000001', key: 'read_agreement' }],
+  signer: { printedName: 'Jamie Sample', method: 'TYPED' as const, typedSignature: 'jamie sample' },
+};
 const facts = {
   fileName: 'Drivers_License.pdf',
   contentType: 'application/pdf' as const,
@@ -85,7 +93,7 @@ describe('api.myIntakes(firmSlug)', () => {
       () => api.list(),
       () => api.get(id),
       () => api.saveStep(id, 'personal', { answers: { firstName: 'Avery', middleName: null } }),
-      () => api.submit(id, { answers: { paymentPreference: 'PAY_AFTER' } }),
+      () => api.submit(id, { answers: { paymentPreference: 'PAY_AFTER' }, signature }),
       () => api.createUpload(id, { slot: 'governmentId', ...facts }),
       () => api.confirmUpload(id, { uploadToken: 'token' }),
       () => api.removeUpload(id, id),
@@ -102,7 +110,7 @@ describe('api.myIntakes(firmSlug)', () => {
       `POST ${base}/${id}/uploads/confirm`,
       `DELETE ${base}/${id}/uploads/${id}`,
     ]);
-    expect(calls[3]?.body).toEqual({ answers: { paymentPreference: 'PAY_AFTER' } });
+    expect(calls[3]?.body).toEqual({ answers: { paymentPreference: 'PAY_AFTER' }, signature });
     expect(calls[6]?.body).toBeUndefined();
   });
 
@@ -114,8 +122,9 @@ describe('api.myIntakes(firmSlug)', () => {
       () => api.saveStep(id, '../steps', { answers: {} }),
       () => api.saveStep(id, 'personal', { answers: { 'not a key': 1 } }),
       () => api.saveStep(id, 'personal', { answers: {}, businessId: id } as never),
-      () => api.submit(id, { answers: {}, businessId: id } as never),
-      () => api.submit(id, { answers: { comments: 1 }, agreementText: 'x' } as never),
+      () => api.submit(id, { answers: {}, signature, businessId: id } as never),
+      () => api.submit(id, { answers: { comments: 1 }, signature, agreementText: 'x' } as never),
+      () => api.submit(id, { answers: {} } as never),
       () => api.saveStep(id, 'personal', { answers: { ssn: { last4: '12345' } } }),
       () => api.createUpload(id, { slot: 'governmentId', ...facts, fileName: 'id.exe' }),
       () => api.createUpload(id, { slot: 'governmentId', ...facts, fileName: `id${RLO}fdp.pdf` }),
@@ -185,7 +194,7 @@ describe('api.myIntakes(firmSlug)', () => {
     const { fn: outdated } = fakeFetch(409, {
       error: { code: 'AGREEMENT_OUTDATED', message: 'Outdated', details: { agreements: [] } },
     });
-    await expect(intakes(outdated).submit(id, {})).rejects.toMatchObject({
+    await expect(intakes(outdated).submit(id, { signature })).rejects.toMatchObject({
       status: 409,
       code: 'AGREEMENT_OUTDATED',
     });
@@ -193,27 +202,37 @@ describe('api.myIntakes(firmSlug)', () => {
 });
 
 describe('the submit body and its errors', () => {
-  it('takes the review answers; the signature joins with R14 (until then no other key)', () => {
-    expect(SubmitIntakeRequest.parse({})).toEqual({});
+  it('needs the signature; the answers are optional', () => {
+    expect(SubmitIntakeRequest.parse({ signature })).toEqual({ signature });
+    expect(SubmitIntakeRequest.safeParse({}).success).toBe(false);
+    expect(SubmitIntakeRequest.safeParse({ answers: {} }).success).toBe(false);
     expect(SubmitIntakeRequest.safeParse({ signature: { fullName: 'Avery' } }).success).toBe(false);
+    // The typed signature must match the printed name, and each box is for a signed agreement.
+    expect(
+      SubmitIntakeRequest.safeParse({
+        signature: { ...signature, signer: { ...signature.signer, typedSignature: 'Avery' } },
+      }).success,
+    ).toBe(false);
+    expect(
+      SubmitIntakeRequest.safeParse({
+        signature: {
+          ...signature,
+          acknowledgments: [{ agreementId: id, key: 'read_agreement' }],
+        },
+      }).success,
+    ).toBe(false);
   });
 
-  it('has a message for every code, the agreement codes in both modules', () => {
+  it("has a message for every code; R14's signing codes in both modules, no PDF_REQUIRED", () => {
     expect(Object.keys(INTAKE_ERRORS).sort()).toEqual([...IntakeErrorCode.options].sort());
-    expect(Object.keys(INTAKE_AGREEMENT_ERRORS).sort()).toEqual(
-      [...IntakeAgreementErrorCode.options].sort(),
-    );
-    expect(IntakeAgreementErrorCode.options).toEqual([
-      'NO_INTAKE_AGREEMENT',
-      'AGREEMENT_OUTDATED',
-      'ACKNOWLEDGMENT_REQUIRED',
-      'SIGNATURE_MISMATCH',
-      'PDF_REQUIRED',
-    ]);
-    for (const code of IntakeAgreementErrorCode.options) {
+    for (const code of IntakeSigningErrorCode.options) {
       expect(IntakeErrorCode.options).toContain(code);
       expect(BeginOnlineErrorCode.options).toContain(code);
+      expect(INTAKE_ERRORS[code]).toBe(INTAKE_SIGNING_ERRORS[code]);
+      expect(BEGIN_ONLINE_ERRORS[code]).toBe(INTAKE_SIGNING_ERRORS[code]);
     }
+    expect(IntakeErrorCode.options).not.toContain('PDF_REQUIRED');
+    expect(BeginOnlineErrorCode.options).not.toContain('PDF_REQUIRED');
   });
 
   it('answers 503 ENCRYPTION_UNAVAILABLE in both modules with the same message', () => {
@@ -221,24 +240,14 @@ describe('the submit body and its errors', () => {
     expect(BeginOnlineErrorCode.options).toContain('ENCRYPTION_UNAVAILABLE');
     expect(INTAKE_ERRORS.ENCRYPTION_UNAVAILABLE).toBe(BEGIN_ONLINE_ERRORS.ENCRYPTION_UNAVAILABLE);
     expect(INTAKE_ERRORS.ENCRYPTION_UNAVAILABLE).not.toMatch(/KMS|key|encrypt/i);
+    // 400 TOO_MANY_NUMBERS (R15's MAX_SEALED_NUMBERS_PER_SAVE) has one message in both modules.
+    expect(INTAKE_ERRORS.TOO_MANY_NUMBERS).toBe(BEGIN_ONLINE_ERRORS.TOO_MANY_NUMBERS);
   });
 
-  it("describes AGREEMENT_OUTDATED's details: each agreement's id, version and hashes", () => {
-    const current = {
-      agreementId: '0199b6aa-0000-7000-8000-000000000001',
-      versionId: '0199b6ab-0000-7000-8000-000000000002',
-      version: 2,
-      bodySha256: 'c'.repeat(64),
-      pdfSha256: null,
-    };
-    expect(IntakeAgreementOutdatedDetails.parse({ agreements: [current] }).agreements).toEqual([
-      current,
-    ]);
-    expect(
-      IntakeAgreementOutdatedDetails.safeParse({
-        agreements: [{ ...current, bodySha256: 'not a hash' }],
-      }).success,
-    ).toBe(false);
+  it("reads AGREEMENT_OUTDATED's details as R14's current block", () => {
+    const block = { ready: true, agreements: [], legal: null };
+    expect(AgreementOutdatedDetails.parse(block)).toEqual(block);
+    expect(AgreementOutdatedDetails.safeParse({ agreements: [] }).success).toBe(false);
   });
 });
 

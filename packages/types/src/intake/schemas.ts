@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  INTAKE_SIGNING_ERRORS,
+  IntakeSignatureInput,
+  IntakeSigningErrorCode,
+} from '../agreements/schemas.js';
 import { CalendarDate } from '../clients/schemas.js';
 import { IntakeStatus, type ScanStatus } from '../db-enums.js';
 import { CreateMyUploadRequest, fileNameFitsType, UPLOAD_LIMITS } from '../documents/schemas.js';
@@ -14,8 +19,9 @@ import { INTAKE_LIMITS, IntakeFormDefinition, IntakeFormKey, IntakeKey } from '.
 // from the URL; another client's intake is 404. Every login of the client's record can list and
 // open its intakes; only the PRIMARY login saves, uploads and submits (`canEdit`, `canSubmit`; a
 // spouse or authorized login gets 403 FORBIDDEN), until members get permissions of their own.
-// No form carries an agreement of its own: the review step shows the firm's agreements from
-// R14's `api.publicAgreements(slug)`, and the submit carries the signature (SubmitIntakeRequest).
+// No form carries an agreement of its own: the review step shows the agreements of the intake's
+// form from R14's `api.myIntakeAgreements(slug).block(intakeId)`, and the submit carries the
+// signature (SubmitIntakeRequest).
 // SSNs and EINs are stored encrypted with the firm's KMS key and come back as `{ last4 }` only; a
 // response with a full one fails to parse, and so does one with an answer outside the form or a
 // group answer that is not a list of the group's rows (answers.ts, "SSNs and EINs").
@@ -34,7 +40,6 @@ import { INTAKE_LIMITS, IntakeFormDefinition, IntakeFormKey, IntakeKey } from '.
 // Responses are plain objects; requests are strict (unknown fields are refused).
 
 const DateTime = z.iso.datetime({ offset: true });
-const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 
 /**
  * Refuses a response whose answers could hold a full SSN or EIN (`intakeNumbersMasked`): a full
@@ -69,16 +74,21 @@ export type SavedIntakeStep = z.infer<typeof SavedIntakeStep>;
 
 /**
  * POST .../submit, for a portal intake and a Begin Online draft. `answers`: the review step's
- * answers, saved first as a save of that step would (so the last change can't race the submit).
- * The review step shows the firm's agreements (R14's `api.publicAgreements(slug)`); the person
- * ticks the acknowledgments and signs, and the signature comes with this body. In Begin Online
- * the review step also accepts the firm's Terms of Service and Privacy Policy: the versions
- * accepted travel with R14's signature (intake_signatures.terms_document_id and
- * privacy_document_id, Begin Online only; 409 TERMS_OUTDATED). If R14's input does not carry
- * them, Begin Online's submit gets its own body that adds `accepted` as R3's sign-up does.
+ * answers, saved first as a save of that step would (so the last change can't race the submit;
+ * a submit refused after that still keeps them saved).
+ * `signature` (required): R14's IntakeSignatureInput for the agreement block the review step
+ * showed (Begin Online: `api.publicAgreements(slug).block({ form })`; portal:
+ * `api.myIntakeAgreements(slug).block(intakeId)`): every agreement of the block with the version
+ * and bodySha256 it gave, the ticked acknowledgments and the typed signature. Begin Online also
+ * sends `acceptLegal` with the Terms and Privacy versions of the block's `legal` when it is set;
+ * a portal submit never does (400 VALIDATION_FAILED). The database refuses a submitted version
+ * without its intake_signatures row and one intake_signature_agreements row per agreement, so the
+ * API inserts them in the submit's transaction.
  * The API checks the whole form (`checkIntakeAnswers` in submit mode: 400 VALIDATION_FAILED with
- * `details: { issues }`, IntakeValidationDetails), then the signature against the firm's current
- * agreements (IntakeAgreementErrorCode). The locked version holds the cleaned answers of the
+ * `details: { issues }`, IntakeValidationDetails), then the signature against the current block
+ * (IntakeSigningErrorCode: 409 NO_INTAKE_AGREEMENT, 409 AGREEMENT_OUTDATED with
+ * AgreementOutdatedDetails, 400 ACKNOWLEDGMENT_REQUIRED, 400 SIGNATURE_MISMATCH, and Begin
+ * Online's 409 TERMS_OUTDATED). The locked version holds the cleaned answers of the
  * shown fields only (the answers of hidden fields are dropped; `restoreMaskedNumbers` keeps the
  * stored SSNs and EINs). The files whose slot is not a shown upload field leave the form
  * (`hiddenSlotUploads`): a portal intake detaches them (they stay in My Documents), a Begin
@@ -86,8 +96,7 @@ export type SavedIntakeStep = z.infer<typeof SavedIntakeStep>;
  */
 export const SubmitIntakeRequest = z.strictObject({
   answers: IntakeAnswersInput.optional(),
-  // TODO(R14): signature: IntakeSignatureInput from R14's agreements contract, added when it is on
-  // main (neither it nor #155's SignatureCaptureInput is on main yet).
+  signature: IntakeSignatureInput,
 });
 export type SubmitIntakeRequest = z.input<typeof SubmitIntakeRequest>;
 
@@ -156,58 +165,12 @@ export const INTAKE_NUMBERS_UNAVAILABLE =
   "Your SSN or EIN can't be saved right now, so nothing was saved. Please try again in a few minutes.";
 
 /**
- * The agreement and signature codes a submit can answer, in the portal and in Begin Online. The
- * agreements, their acknowledgments and the signature are R14's contract.
+ * What people see for 400 TOO_MANY_NUMBERS (INTAKE_ERRORS and BEGIN_ONLINE_ERRORS): one save or
+ * submit holds more than 120 new SSNs and EINs (the API's MAX_SEALED_NUMBERS_PER_SAVE; Annual Tax
+ * allows 102). Nothing was saved.
  */
-const AGREEMENT_CODES = [
-  /** 409: the firm has no current intake agreement for this service, so nothing can be signed. */
-  'NO_INTAKE_AGREEMENT',
-  /**
-   * 409: an agreement signed is no longer the firm's current version. `details`: the current
-   * agreement block (IntakeAgreementOutdatedDetails); show it and sign again.
-   */
-  'AGREEMENT_OUTDATED',
-  /** 400: a required acknowledgment of an agreement is not ticked. */
-  'ACKNOWLEDGMENT_REQUIRED',
-  /** 400: the typed signature does not match the printed name. */
-  'SIGNATURE_MISMATCH',
-  /**
-   * 400: an agreement has a PDF original, and the signature does not cover it (R14's contract
-   * says how the review step offers the PDF and what the signature sends for it).
-   */
-  'PDF_REQUIRED',
-] as const;
-export const IntakeAgreementErrorCode = z.enum(AGREEMENT_CODES);
-export type IntakeAgreementErrorCode = z.infer<typeof IntakeAgreementErrorCode>;
-
-/** What people see for the agreement codes (part of INTAKE_ERRORS and BEGIN_ONLINE_ERRORS). */
-export const INTAKE_AGREEMENT_ERRORS = {
-  NO_INTAKE_AGREEMENT: "This form can't be signed right now. Please contact the firm.",
-  AGREEMENT_OUTDATED: 'The agreement has been updated. Please read the new version and sign again.',
-  ACKNOWLEDGMENT_REQUIRED: 'Please tick each required box to continue.',
-  SIGNATURE_MISMATCH: 'Type your name exactly as printed.',
-  PDF_REQUIRED: "Please open the agreement's PDF, then sign again.",
-} as const satisfies Record<IntakeAgreementErrorCode, string>;
-
-/**
- * `error.details` of 409 AGREEMENT_OUTDATED: the firm's current agreement block, for the review
- * step to show again. A loose shape until R14's agreements contract is on main (it then becomes
- * R14's type): each agreement's id, its current version and the SHA-256 values a signature pins
- * (the Markdown text's, and the PDF original's when there is one). `ApiRequestError` does not keep
- * `details` yet (R11, "Needs from others"): until it does, reload `api.publicAgreements(slug)`.
- */
-export const IntakeAgreementOutdatedDetails = z.object({
-  agreements: z.array(
-    z.object({
-      agreementId: z.uuid(),
-      versionId: z.uuid(),
-      version: z.number().int().min(1),
-      bodySha256: Sha256,
-      pdfSha256: Sha256.nullable(),
-    }),
-  ),
-});
-export type IntakeAgreementOutdatedDetails = z.infer<typeof IntakeAgreementOutdatedDetails>;
+export const INTAKE_TOO_MANY_NUMBERS =
+  'This step has too many new SSNs or EINs to save at once. Please save fewer rows, then add the rest.';
 
 // ---------- The client's intakes (portal) ----------
 export const IntakeId = z.uuid();
@@ -268,7 +231,11 @@ export const MyIntakeListItem = z.object({
   form: IntakeFormKey,
   /** The form's title, e.g. "Annual Tax Intake Form". */
   title: z.string(),
-  /** The service (engagement) it is for. */
+  /**
+   * The service it is for: `id` is the client's engagement (engagements.id), not the firm's
+   * service catalogue entry. The agreements to sign come from
+   * `api.myIntakeAgreements(slug).block(intakeId)`, which resolves the service itself.
+   */
   service: z.object({ id: z.uuid(), title: z.string() }),
   status: IntakeStatus,
   dueOn: CalendarDate.nullable(),
@@ -288,7 +255,7 @@ export const MyIntakeList = z.object({ items: z.array(MyIntakeListItem).max(200)
 /**
  * GET /portal/{firmSlug}/me/intakes/{id}: the form, its answers and files. A full SSN or EIN in
  * the answers fails to parse (only `{ last4 }` may come back). The agreements to sign are not
- * here: the review step reads the firm's from R14's `api.publicAgreements(slug)`.
+ * here: the review step reads them from R14's `api.myIntakeAgreements(slug).block(intakeId)`.
  */
 export const MyIntake = MyIntakeListItem.extend({
   definition: IntakeFormDefinition,
@@ -331,7 +298,16 @@ export const IntakeErrorCode = z.enum([
    * right now (no key yet, KMS down). Nothing is saved; try again later.
    */
   'ENCRYPTION_UNAVAILABLE',
-  ...AGREEMENT_CODES,
+  /** 400 on a save or submit with more than 120 new SSNs and EINs; nothing is saved. */
+  'TOO_MANY_NUMBERS',
+  /**
+   * The submit's signing codes (R14's IntakeSigningErrorCode): 409 NO_INTAKE_AGREEMENT, 409
+   * AGREEMENT_OUTDATED (`details`: R14's AgreementOutdatedDetails, the current block; until
+   * ApiRequestError keeps `details`, reload the block), 400 ACKNOWLEDGMENT_REQUIRED, 400
+   * SIGNATURE_MISMATCH, and 409 TERMS_OUTDATED (Begin Online only; a portal submit never answers
+   * it, since it sends no `acceptLegal`).
+   */
+  ...IntakeSigningErrorCode.options,
 ]);
 export type IntakeErrorCode = z.infer<typeof IntakeErrorCode>;
 
@@ -346,5 +322,6 @@ export const INTAKE_ERRORS = {
   INTAKE_EXPIRED: 'This form has expired. Contact your firm to reopen it.',
   TOO_MANY_FILES: 'There is no room for more files here. Remove a file to add another.',
   ENCRYPTION_UNAVAILABLE: INTAKE_NUMBERS_UNAVAILABLE,
-  ...INTAKE_AGREEMENT_ERRORS,
+  TOO_MANY_NUMBERS: INTAKE_TOO_MANY_NUMBERS,
+  ...INTAKE_SIGNING_ERRORS,
 } as const satisfies Record<IntakeErrorCode, string>;

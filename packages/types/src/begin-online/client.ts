@@ -94,7 +94,11 @@ export function createBeginOnlineClient(request: ApiRequest, firmSlug: string) {
      * Step 3. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS;
      * 409 TOO_MANY_FILES when files confirmed since step 1 filled the slot or the draft: the API
      * checks the slot's `maxFiles` and INTAKE_LIMITS.maxFiles again inside the confirm
-     * transaction that adds the file, so uploads confirmed at once never pass either limit.
+     * transaction that adds the file, after `SELECT ... FOR NO KEY UPDATE` on the lead's row
+     * (FOR SHARE is not enough: two confirms at 49 would both count 49), so uploads confirmed at
+     * once never pass either limit. A ticket belongs to the draft (lead) that asked for it: the
+     * API checks the token's lead equals the draft cookie's lead, and once a start or a resume
+     * has replaced this browser's draft, an older ticket answers 410 UPLOAD_EXPIRED.
      */
     confirmUpload: async (form: IntakeFormKey, body: ConfirmUploadRequest): Promise<IntakeUpload> =>
       request(IntakeUpload, `${draft(form)}/uploads/confirm`, {
@@ -108,8 +112,10 @@ export function createBeginOnlineClient(request: ApiRequest, firmSlug: string) {
       }),
     /**
      * Signs and submits; the firm gets the lead. 400 VALIDATION_FAILED when the form is not
-     * complete (`checkIntakeAnswers` in submit mode shows where); then 409 TERMS_OUTDATED and the
-     * agreement codes (IntakeAgreementErrorCode).
+     * complete (`checkIntakeAnswers` in submit mode shows where); then the signing codes (R14's
+     * IntakeSigningErrorCode, TERMS_OUTDATED included); 503 ENCRYPTION_UNAVAILABLE for a new SSN
+     * or EIN the firm's key can't seal now. The body needs `signature` for the block from
+     * `api.publicAgreements(slug).block({ form })`, with `acceptLegal` when its `legal` is set.
      */
     submit: async (form: IntakeFormKey, body: SubmitIntakeRequest): Promise<BeginSubmitted> =>
       request(BeginSubmitted, `${draft(form)}/submit`, {
