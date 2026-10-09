@@ -255,7 +255,7 @@ describe('POST .../onboarding and .../onboarding/refresh', () => {
     expect(await auditCount(ids.firmA, 'payments.onboarding_link_created')).toBe(2);
   });
 
-  it("refresh stores Stripe's state and gives a new link; COMPLETE is 409 PAYMENTS_ALREADY_SET_UP", async () => {
+  it("refresh and a second start store Stripe's state; COMPLETE is 409 PAYMENTS_ALREADY_SET_UP", async () => {
     const db = createPrismaClient(testDatabaseUrls('test_api').owner);
     const { accountId } = await runInScope(db, { kind: 'platform' }, (tx) =>
       tx.stripeAccount.findUniqueOrThrow({ where: { businessId: ids.firmA } }),
@@ -269,14 +269,15 @@ describe('POST .../onboarding and .../onboarding/refresh', () => {
       payouts_enabled: true,
       details_submitted: true,
     });
-    const done = await post(people.ownerA, '/onboarding/refresh');
-    expect([done.status, codeOf(done)]).toEqual([409, 'PAYMENTS_ALREADY_SET_UP']);
+    // Finished at Stripe, account.updated not here yet: a second start stores Stripe's state.
+    const again = await post(people.ownerA, '/onboarding');
+    expect([again.status, codeOf(again)]).toEqual([409, 'PAYMENTS_ALREADY_SET_UP']);
     expect(Setup.parse((await call(app, people.ownerA)).body)).toMatchObject({
       onboardingStatus: 'COMPLETE',
       chargesEnabled: true,
     });
-    const again = await post(people.ownerA, '/onboarding');
-    expect([again.status, codeOf(again)]).toEqual([409, 'PAYMENTS_ALREADY_SET_UP']);
+    const done = await post(people.ownerA, '/onboarding/refresh');
+    expect([done.status, codeOf(done)]).toEqual([409, 'PAYMENTS_ALREADY_SET_UP']);
   });
 
   it("keeps firms apart: B's Owner gets 404 on firm A, and B's finished account is its own", async () => {

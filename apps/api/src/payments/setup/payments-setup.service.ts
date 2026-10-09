@@ -112,7 +112,10 @@ export class PaymentsSetupService {
       );
     }
     if (row.onboardingStatus === 'COMPLETE') throw setupConflict('PAYMENTS_ALREADY_SET_UP');
-    return this.link(stripe, businessId, row);
+    if (created) return this.link(stripe, businessId, row);
+    // An account made before: Stripe's state now, since the Owner may have finished onboarding
+    // and its account.updated may not have arrived yet.
+    return this.syncAndLink(stripe, businessId, row);
   }
 
   /** POST .../onboarding/refresh: a new link for the account already made, with its state stored. */
@@ -120,6 +123,11 @@ export class PaymentsSetupService {
     const stripe = this.gateway();
     const row = await this.row(businessId);
     if (!row) throw setupConflict('PAYMENTS_NOT_SET_UP');
+    return this.syncAndLink(stripe, businessId, row);
+  }
+
+  /** Stores Stripe's current state of the account, then a new link unless it is COMPLETE (409). */
+  private async syncAndLink(stripe: StripeGateway, businessId: string, row: AccountRow) {
     const account = await this.call('accounts.retrieve', businessId, () =>
       stripe.retrieveAccount(row.accountId),
     );
@@ -137,7 +145,7 @@ export class PaymentsSetupService {
     businessId: string,
     row: { id?: string; accountId: string },
   ): Promise<StripeOnboardingLink> {
-    const page = `${this.env.APP_BASE_URL.replace(/\/$/, '')}/settings/payments`;
+    const page = `${this.env.APP_BASE_URL.replace(/\/+$/, '')}/settings/payments`;
     const link = await this.call('accountLinks.create', businessId, () =>
       stripe.createAccountLink({
         accountId: row.accountId,
