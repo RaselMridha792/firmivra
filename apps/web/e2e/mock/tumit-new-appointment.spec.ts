@@ -40,7 +40,8 @@ test('a new appointment explains a taken time, then books a free one', async ({ 
   await dialog.getByLabel('Staff').selectOption({ label: 'Mock User' });
   await dialog.getByLabel('Date').fill(nextWeek(0));
 
-  // Jamie is already with Sam Staff at 10:00 AM, which the free times can't know.
+  // Jamie is already with Sam Staff at 10:00 AM. The API leaves that time out for Jamie
+  // (clientId); the mock still offers it, and answers SLOT_TAKEN as for a time just taken.
   await dialog.getByRole('button', { name: '10:00 AM' }).click();
   await dialog.getByRole('button', { name: 'Book 10:00 AM' }).click();
   await expect(dialog.getByRole('alert')).toHaveText(
