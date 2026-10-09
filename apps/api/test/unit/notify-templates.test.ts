@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { type Branding, FIRMIVRA_BRANDING } from '../../src/notify/branding.js';
-import { type NotifyTemplate, TEMPLATE_CHANNEL } from '../../src/notify/notify.types.js';
+import {
+  ALWAYS_SENT,
+  type NotifyTemplate,
+  TEMPLATE_CHANNEL,
+} from '../../src/notify/notify.types.js';
 import {
   NotifyTemplateError,
   type RenderOptions,
@@ -57,11 +61,16 @@ describe('templates', () => {
     const app = email('firm-application.received');
     expect(app.html).toContain(`background:${FIRMIVRA_BRANDING.primaryColor}`);
     expect(app.text).toContain('Sent by Firmivra.');
-    // No "turn off emails like this" until preferences are read (step 5).
-    for (const t of templates)
+    // "Turn off emails like this" only where a preference can switch it off (step 5): a message
+    // to someone with an account (canOptOut), never an ALWAYS_SENT one or a bare address.
+    for (const t of templates) {
+      const out = JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t), { canOptOut: true }));
+      if (ALWAYS_SENT.has(t)) expect(out).not.toContain('notification settings');
+      else expect(out).toContain('turn off emails like this in your notification settings');
       expect(JSON.stringify(render(t, SAMPLE_DATA[t], brandingOf(t)))).not.toContain(
         'notification settings',
       );
+    }
   });
 
   it('names the firm the branding was loaded for, never a firm name from the data', () => {
@@ -232,5 +241,60 @@ describe('links', () => {
     const out = invite('http://app.localhost:3000/activate#token=t', local) as RenderedEmail;
     expect(out.text).toContain('http://app.localhost:3000/activate#token=t');
     expect(() => invite('https://app.localhost:3000/activate', local)).toThrow(NotifyTemplateError);
+  });
+});
+
+describe('Begin Online and leads', () => {
+  const probe = {
+    name: 'Your account is locked. Restore it at https://evil.example.test/restore',
+    firstName: 'Probe <b>Person</b>',
+    email: 'probe@evil.example.test',
+    message: 'Probe message',
+  };
+
+  it('the two visitor emails read nothing the visitor typed', () => {
+    for (const t of ['begin-online.resume-link', 'lead.confirmation'] as const) {
+      const plain = email(t);
+      const probed = email(t, { ...SAMPLE_DATA[t], ...probe } as never);
+      expect(probed).toEqual(plain);
+      const all = JSON.stringify(probed);
+      for (const value of ['evil', 'locked', 'Probe', 'Restore']) expect(all).not.toContain(value);
+    }
+  });
+
+  it('the resume link keeps its #token= fragment', () => {
+    const out = email('begin-online.resume-link');
+    expect(out.html).toContain('/sample/begin/resume#token=synthetic-token');
+    expect(out.text).toContain('/sample/begin/resume#token=synthetic-token');
+  });
+
+  it('escapes markup in a name and a service name', () => {
+    const invite = email('client.portal-invite', {
+      ...SAMPLE_DATA['client.portal-invite'],
+      name: 'Robin <script>x</script>',
+    });
+    expect(invite.html).not.toContain('<script>');
+    expect(invite.html).toContain('&lt;script&gt;');
+    const received = email('lead.received', {
+      ...SAMPLE_DATA['lead.received'],
+      serviceName: 'Tax <img src=x>',
+    });
+    expect(received.html).not.toContain('<img src=x>');
+    expect(received.html).toContain('&lt;img src=x&gt;');
+  });
+});
+
+describe('message.received', () => {
+  it('never carries the message text, only the name and the link', () => {
+    const plain = email('message.received');
+    const probed = email('message.received', {
+      ...SAMPLE_DATA['message.received'],
+      text: 'Secret probe body',
+      body: 'Secret probe body',
+    } as never);
+    expect(probed).toEqual(plain);
+    expect(JSON.stringify(probed)).not.toContain('Secret probe');
+    expect(plain.subject).toBe(`New message in ${FIRM_NAME}'s portal`);
+    expect(plain.text).toContain('https://portal.example.test/sample/messages');
   });
 });
