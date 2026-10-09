@@ -473,11 +473,11 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
     };
   },
 
-  'message.new': (d, b, o) => {
+  'message.received': (d, b, o) => {
     const firm = b.name;
     return {
       channel: 'email',
-      subject: `New message on ${firm}`,
+      subject: `New message in ${firm}'s portal`,
       blocks: [
         hello(d),
         text('You have a new message. Open it to read and reply.'),

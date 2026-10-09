@@ -234,3 +234,58 @@ describe('links', () => {
     expect(() => invite('https://app.localhost:3000/activate', local)).toThrow(NotifyTemplateError);
   });
 });
+
+describe('Begin Online and leads', () => {
+  const probe = {
+    name: 'Your account is locked. Restore it at https://evil.example.test/restore',
+    firstName: 'Probe <b>Person</b>',
+    email: 'probe@evil.example.test',
+    message: 'Probe message',
+  };
+
+  it('the two visitor emails read nothing the visitor typed', () => {
+    for (const t of ['begin-online.resume-link', 'lead.confirmation'] as const) {
+      const plain = email(t);
+      const probed = email(t, { ...SAMPLE_DATA[t], ...probe } as never);
+      expect(probed).toEqual(plain);
+      const all = JSON.stringify(probed);
+      for (const value of ['evil', 'locked', 'Probe', 'Restore']) expect(all).not.toContain(value);
+    }
+  });
+
+  it('the resume link keeps its #token= fragment', () => {
+    const out = email('begin-online.resume-link');
+    expect(out.html).toContain('/sample/begin/resume#token=synthetic-token');
+    expect(out.text).toContain('/sample/begin/resume#token=synthetic-token');
+  });
+
+  it('escapes markup in a name and a service name', () => {
+    const invite = email('client.portal-invite', {
+      ...SAMPLE_DATA['client.portal-invite'],
+      name: 'Robin <script>x</script>',
+    });
+    expect(invite.html).not.toContain('<script>');
+    expect(invite.html).toContain('&lt;script&gt;');
+    const received = email('lead.received', {
+      ...SAMPLE_DATA['lead.received'],
+      serviceName: 'Tax <img src=x>',
+    });
+    expect(received.html).not.toContain('<img src=x>');
+    expect(received.html).toContain('&lt;img src=x&gt;');
+  });
+});
+
+describe('message.received', () => {
+  it('never carries the message text, only the name and the link', () => {
+    const plain = email('message.received');
+    const probed = email('message.received', {
+      ...SAMPLE_DATA['message.received'],
+      text: 'Secret probe body',
+      body: 'Secret probe body',
+    } as never);
+    expect(probed).toEqual(plain);
+    expect(JSON.stringify(probed)).not.toContain('Secret probe');
+    expect(plain.subject).toBe(`New message in ${FIRM_NAME}'s portal`);
+    expect(plain.text).toContain('https://portal.example.test/sample/messages');
+  });
+});

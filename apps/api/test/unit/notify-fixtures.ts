@@ -72,5 +72,8 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     name: 'Robin Example',
     signUpLink: 'https://portal.example.test/sample/sign-up',
   },
-  'message.new': { name: 'Robin Example', link },
+  'message.received': {
+    name: 'Robin Example',
+    link: 'https://portal.example.test/sample/messages',
+  },
 };
