@@ -27,6 +27,16 @@ export const settingsResolver: typeof checkSettings = async (...args) => {
   }
 };
 
+/**
+ * Only the fields the person changed. An unchanged field is never sent, so it can't undo someone
+ * else's change made while this form was open.
+ */
+export const changedOnly = (
+  values: UpdateFirmSettingsRequest,
+  dirty: Partial<Record<string, unknown>>,
+): UpdateFirmSettingsRequest =>
+  Object.fromEntries(Object.entries(values).filter(([field]) => Boolean(dirty[field])));
+
 /** A settings step: Save draft saves the fields; Continue also marks the step done. */
 export function useStepForm(
   step: SetupStep,
@@ -34,10 +44,12 @@ export function useStepForm(
   onNext: () => void,
 ) {
   const form = useForm({ resolver: settingsResolver, defaultValues });
+  // Read during render: react-hook-form only tracks dirtyFields once something reads it.
+  const { dirtyFields } = form.formState;
   const [draftSaved, setDraftSaved] = useState(false);
   const save = useApiMutation(
     async ({ values, done }: { values: UpdateFirmSettingsRequest; done: boolean }) => {
-      await api.settings.update(values);
+      if (Object.keys(values).length) await api.settings.update(values);
       if (done) await api.settings.completeStep(step);
     },
     { invalidate: FIRM_SETTINGS },
@@ -45,7 +57,18 @@ export function useStepForm(
   const submit = (done: boolean) =>
     form.handleSubmit((values) => {
       setDraftSaved(false);
-      save.mutate({ values, done }, { onSuccess: () => (done ? onNext() : setDraftSaved(true)) });
+      const changes = changedOnly(values, dirtyFields);
+      save.mutate(
+        { values: changes, done },
+        {
+          onSuccess: () => {
+            // Saved values are the new starting point; the write-only EIN is cleared.
+            form.reset({ ...form.getValues(), ein: undefined });
+            if (done) onNext();
+            else setDraftSaved(true);
+          },
+        },
+      );
     });
   return { form, save, draftSaved, submit };
 }
