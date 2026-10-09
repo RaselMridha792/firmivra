@@ -17,7 +17,9 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { NotificationsModule } from '../notifications/notifications.controller.js';
-import { CLIENT_CODE_SENDER, LogClientCodeSender } from './client-code-sender.js';
+import { NotifyClientCodeSender } from '../notify/adapters.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
+import { CLIENT_CODE_SENDER } from './client-code-sender.js';
 import { PortalInfoModule } from './portal-info.controller.js';
 import { SignUpSessions } from './sign-up-session.js';
 import { SignUpService } from './sign-up.service.js';
@@ -127,8 +129,9 @@ export class SignUpController {
     },
     {
       provide: CLIENT_CODE_SENDER,
-      inject: [ENV],
-      useFactory: (env: Env) => new LogClientCodeSender(env.AUTH_MODE === 'local'),
+      inject: [ENV, NOTIFY_SERVICE],
+      useFactory: (env: Env, notify: NotifyService) =>
+        new NotifyClientCodeSender(notify, env.AUTH_MODE === 'local'),
     },
   ],
   // The firm's sign-ups queue (step 4) sends its notices through the same sender.
