@@ -67,9 +67,10 @@ const entity = (id: string) => ({ type: 'esign_request', id });
 type PutRecipient = z.output<typeof EsignPutRecipientsBody>['recipients'][number];
 
 /**
- * Firm Sign requests (R13 step 6): status, drafts, page plan and recipients. Access: Owner and Admin reach every
- * request; Staff and Managers the ones they send and those of clients assigned to them; anything
- * else is 404. Changes apply to DRAFTs only (409 INVALID_STATE). The audit log gets ids only,
+ * Firm Sign requests (R13 step 6): status, drafts, page plan and recipients. Access: Owner and
+ * Admin reach every request; Staff and Managers the ones they send and those of clients assigned
+ * to them, and an approver the ones they approve; anything else is 404. Changes apply to DRAFTs
+ * only (409 INVALID_STATE). The audit log gets ids only,
  * never a file, a field value or an access code.
  */
 @Injectable()
@@ -322,7 +323,14 @@ export class EsignRequestsService {
     if (!record) throw notFound();
     if (!seesAll(actor) && record.senderUserId !== actor.userId) {
       const client = record.clientId && (await this.directory.client(businessId, record.clientId));
-      if (!client || client.assignedUserId !== actor.userId) throw notFound();
+      if (!client || client.assignedUserId !== actor.userId) {
+        // An approver always reaches the requests they approve, whatever the assignment.
+        const { recipients } = await this.repo.parts(businessId, record.id);
+        const approves = recipients.some(
+          (r) => r.kind === 'APPROVER' && r.link.type === 'STAFF' && r.link.userId === actor.userId,
+        );
+        if (!approves) throw notFound();
+      }
     }
     return record;
   }
