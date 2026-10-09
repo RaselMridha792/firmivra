@@ -37,7 +37,8 @@ import { type AuthContext, requestContext, type TenantContext } from '../common/
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
-import { INTAKE_SIGNING, type IntakeSigner, PLACEHOLDER_SIGNING } from './intake-signing.js';
+import { AgreementsModule } from '../agreements/agreements.controller.js';
+import { INTAKE_SIGNING, INTAKE_SIGNING_PROVIDER, type IntakeSigner } from './intake-signing.js';
 import { type IntakeUploader, IntakeUploadsService } from './intake-uploads.service.js';
 import { type IntakeReach, IntakesService } from './intakes.service.js';
 
@@ -264,9 +265,9 @@ export class IntakesController {
 }
 
 @Module({
-  imports: [FieldEncryptionModule, DocumentsModule],
+  imports: [FieldEncryptionModule, DocumentsModule, AgreementsModule],
   controllers: [MyIntakesController, ClientIntakesController, IntakesController],
-  providers: [IntakesService, IntakeUploadsService, PLACEHOLDER_SIGNING],
+  providers: [IntakesService, IntakeUploadsService, INTAKE_SIGNING_PROVIDER],
   exports: [IntakesService, INTAKE_SIGNING],
 })
 export class IntakesModule {}

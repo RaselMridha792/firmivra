@@ -1,7 +1,8 @@
-import { BadRequestException, type Provider, ServiceUnavailableException } from '@nestjs/common';
-import { databaseErrorCode, type TxClient } from '@firmivra/db';
-import { INTAKE_SIGNING_ERRORS, type IntakeSignatureInput } from '@firmivra/types';
+import type { Provider } from '@nestjs/common';
+import type { TxClient } from '@firmivra/db';
+import type { IntakeSignatureInput } from '@firmivra/types';
 import type { z } from 'zod';
+import { IntakeSignaturesService } from '../agreements/intake-signatures.service.js';
 import type { SignedBy } from './intake-submit.js';
 
 /**
@@ -37,39 +38,27 @@ export interface IntakeSigner {
 export const INTAKE_SIGNING = Symbol('INTAKE_SIGNING');
 
 /**
- * Until R14's sign() is wired it refuses every submit (503 SIGNING_UNAVAILABLE): the database
- * rejects a submitted version without its intake_signatures row, so going on without writing it
- * would only turn into a 500. Nothing is sent without its agreements.
+ * INTAKE_SIGNING is R14's IntakeSignaturesService.sign(tx, input): it checks the signature
+ * against the firm's current agreement block (and, for a lead, the Terms and Privacy), writes the
+ * intake_signatures row the database needs for a submitted version, and maps the database's
+ * intake_signatures_typed_matches check (SQLSTATE 23514) to 400 SIGNATURE_MISMATCH. It reads the
+ * IP and user agent from the request context, the same values as `ip` and `userAgent`.
  */
-export const PLACEHOLDER_SIGNING: Provider = {
+export const INTAKE_SIGNING_PROVIDER: Provider = {
   provide: INTAKE_SIGNING,
-  useFactory: (): IntakeSigner => ({
-    sign: () =>
-      Promise.reject(
-        new ServiceUnavailableException({
-          code: 'SIGNING_UNAVAILABLE',
-          message: 'Signing is not available right now. Please try again later.',
-        }),
-      ),
+  inject: [IntakeSignaturesService],
+  useFactory: (signatures: IntakeSignaturesService): IntakeSigner => ({
+    async sign(tx, input) {
+      const signed = await signatures.sign(tx, input);
+      return {
+        name: signed.printedName,
+        signedAt: signed.signedAt,
+        ip: signed.ip,
+        userAgent: signed.userAgent,
+      };
+    },
   }),
 };
 
-/**
- * The database's refusal of a signature row as the contract's answer, or undefined: the
- * intake_signatures_typed_matches check (SQLSTATE 23514) compares the two names with Postgres'
- * own folding, which can differ from the API's, so it is 400 SIGNATURE_MISMATCH, never a 500.
- */
-export function signingRefusal(error: unknown): BadRequestException | undefined {
-  if (databaseErrorCode(error) !== '23514') return undefined;
-  const meta = (error as { meta?: { driverAdapterError?: { cause?: unknown } } } | null)?.meta;
-  const cause = meta?.driverAdapterError?.cause as
-    { originalMessage?: unknown; constraint?: unknown } | undefined;
-  const text = [cause?.originalMessage, cause?.constraint, (error as Error | null)?.message]
-    .filter((t): t is string => typeof t === 'string')
-    .join(' ');
-  if (!text.includes('intake_signatures_typed_matches')) return undefined;
-  return new BadRequestException({
-    code: 'SIGNATURE_MISMATCH',
-    message: INTAKE_SIGNING_ERRORS.SIGNATURE_MISMATCH,
-  });
-}
+/** R14's mapping of the database's name check, for a signer that isn't R14's (tests). */
+export { signingRefusal } from '../agreements/intake-signatures.service.js';
