@@ -8,7 +8,7 @@ import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
 
-type Dialog = 'void' | 'replace' | 'approve' | 'submit' | null;
+type Dialog = 'void' | 'replace' | null;
 
 /** Every Firm Sign query: a change shows in the counters, lists and this page. */
 const ESIGN = ['esign'];
@@ -30,10 +30,6 @@ export function RequestActions({ r }: { r: EsignRequestDetail }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-3">
-        {can('APPROVE') && <Button onClick={() => setDialog('approve')}>Review and approve</Button>}
-        {can('SUBMIT_FOR_APPROVAL') && (
-          <Button onClick={() => setDialog('submit')}>Send for approval</Button>
-        )}
         {can('REMIND') && r.recipients.some(awaiting) && (
           <Button
             variant="secondary"
@@ -94,8 +90,6 @@ export function RequestActions({ r }: { r: EsignRequestDetail }) {
           onDone={(next) => router.push(`/firm-sign/requests/${next.id}`)}
         />
       )}
-      {dialog === 'submit' && <SubmitDialog id={r.id} onClose={close} />}
-      {dialog === 'approve' && <ApproveDialog id={r.id} onClose={close} />}
     </div>
   );
 }
@@ -152,88 +146,6 @@ function ReasonDialog({
           </Button>
         </div>
       </form>
-    </Modal>
-  );
-}
-
-function SubmitDialog({ id, onClose }: { id: string; onClose: () => void }) {
-  const submit = useApiMutation(() => api.esign.submitForApproval(id, { confirm: true }), {
-    invalidate: ESIGN,
-  });
-  return (
-    <Modal open title="Send for approval" onClose={onClose}>
-      <div className="flex w-full max-w-xl flex-col gap-4">
-        <p className="text-sm text-text">
-          The approvers review it first. Once the last one approves, it goes to the signers in your
-          name.
-        </p>
-        {submit.error && (
-          <p role="alert" className="text-sm text-danger">
-            {errorMessage(submit.error, ESIGN_ERRORS)}
-          </p>
-        )}
-        <div className="flex flex-wrap gap-3">
-          <Button
-            disabled={submit.isPending}
-            onClick={() => submit.mutate(undefined, { onSuccess: onClose })}
-          >
-            Send for approval
-          </Button>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function ApproveDialog({ id, onClose }: { id: string; onClose: () => void }) {
-  const [note, setNote] = useState('');
-  const [missing, setMissing] = useState(false);
-  const decide = useApiMutation(
-    (decision: 'APPROVE' | 'REJECT') =>
-      api.esign.decideApproval(id, { decision, ...(note.trim() && { note: note.trim() }) }),
-    { invalidate: ESIGN },
-  );
-  return (
-    <Modal open title="Review and approve" onClose={onClose}>
-      <div className="flex w-full max-w-xl flex-col gap-4">
-        <p className="text-sm text-text">
-          Approve to let it go to the signers, or ask the sender for changes. Your note stays inside
-          the firm.
-        </p>
-        <Input
-          label="Note (needed when you ask for changes)"
-          maxLength={500}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          error={missing ? 'Say what needs to change.' : undefined}
-        />
-        {decide.error && (
-          <p role="alert" className="text-sm text-danger">
-            {errorMessage(decide.error, ESIGN_ERRORS)}
-          </p>
-        )}
-        <div className="flex flex-wrap gap-3">
-          <Button
-            disabled={decide.isPending}
-            onClick={() => decide.mutate('APPROVE', { onSuccess: onClose })}
-          >
-            Approve
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={decide.isPending}
-            onClick={() => {
-              setMissing(!note.trim());
-              if (note.trim()) decide.mutate('REJECT', { onSuccess: onClose });
-            }}
-          >
-            Ask for changes
-          </Button>
-        </div>
-      </div>
     </Modal>
   );
 }
