@@ -10,6 +10,20 @@ export interface CustomDomain {
   hosts: { admin: string; app: string; portal: string };
 }
 
+/**
+ * Cognito's own emails (the password reset code) through our SES identity (DEVELOPER mode), from
+ * the email stack. Plain names, no cross-stack reference: the auth stack never imports from the
+ * email stack's template. Used only with customDomain (the email stack exists only then).
+ */
+export interface CognitoEmail {
+  /** Sender: an address in the verified domain (the API's EMAIL_FROM). */
+  from: string;
+  /** The email stack's SES domain identity. */
+  sesVerifiedDomain: string;
+  /** The email stack's configuration set. */
+  configurationSet: string;
+}
+
 export interface EnvConfig {
   envName: 'dev';
   account: string;
@@ -20,6 +34,8 @@ export interface EnvConfig {
    * Set it to switch domains; no code changes (docs/SETUP-LOG.md, "Switching to dev.firmivra.com").
    */
   customDomain?: CustomDomain;
+  /** Cognito's reset code emails through SES; without customDomain Cognito's default sender. */
+  cognitoEmail?: CognitoEmail;
   /**
    * The three distributions' *.cloudfront.net domains, filled in after the first app deploy.
    * Used for the documents bucket CORS while there is no custom domain. Unset: CORS allows
@@ -61,6 +77,12 @@ const dev: EnvConfig = {
   region: 'us-east-1',
   // dev.firmivra.com delegated to Route 53 at GoDaddy on Oct 5. Back to *.cloudfront.net: undefined.
   customDomain: DEV_FIRMIVRA_COM,
+  // The email stack's names (EmailStack: no-reply@<zone>, the zone, firmivra-dev-email).
+  cognitoEmail: {
+    from: 'no-reply@dev.firmivra.com',
+    sesVerifiedDomain: 'dev.firmivra.com',
+    configurationSet: 'firmivra-dev-email',
+  },
   github: { owner: 'RaselMridha792', ownerId: 149437621, repo: 'firmivra', repoId: 1404534844 },
   // AZ ids use1-az1 and use1-az2 (CloudFront VPC origins are not offered in every zone).
   availabilityZones: ['us-east-1a', 'us-east-1b'],
