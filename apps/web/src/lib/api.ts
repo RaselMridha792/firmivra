@@ -11,6 +11,7 @@ import {
   createContentClient,
   createDocumentsClient,
   createEngagementsClient,
+  createEsignClient,
   createFirmApplicationsClient,
   createInvoicesClient,
   createMyAppointmentsClient,
@@ -22,6 +23,7 @@ import {
   createMyProfileClient,
   createMyReportsClient,
   createMyServicesClient,
+  createMySignaturesClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
   createRequest,
@@ -45,8 +47,10 @@ import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
+import { createEsignMock, mySignaturesMock } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
+import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createSettingsMock } from '../mocks/settings';
@@ -96,11 +100,17 @@ export const api = {
       : createClientSignUpsClient(request),
   /** Client records (R10): firm side. */
   clients: createClientsClient(request),
-  engagements: createEngagementsClient(request),
+  engagements:
+    dev && mocked('engagements')
+      ? createEngagementsMock({ role: MOCK_ROLE })
+      : createEngagementsClient(request),
   taxReturns: createTaxReturnsClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
   myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
-  myServices: (firmSlug: string) => createMyServicesClient(request, firmSlug),
+  myServices: (firmSlug: string) =>
+    dev && mocked('myServices')
+      ? myServicesMock(firmSlug)
+      : createMyServicesClient(request, firmSlug),
   myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
   /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
   appointmentTypes:
@@ -194,4 +204,14 @@ export const api = {
     dev && mocked('myInvoices')
       ? myInvoicesMock(firmSlug)
       : createMyInvoicesClient(request, firmSlug),
+  /** Firm Sign (R13): signature requests for the firm; `status()` for the menu (docs/api/esign.yaml). */
+  esign:
+    dev && mocked('esign')
+      ? createEsignMock({ role: MOCK_ROLE })
+      : createEsignClient(request, options.baseUrl),
+  /** Firm Sign (R13): the signed-in client's Signature center, per firm (portal). */
+  mySignatures: (firmSlug: string) =>
+    dev && mocked('mySignatures')
+      ? mySignaturesMock(firmSlug)
+      : createMySignaturesClient(request, firmSlug),
 };

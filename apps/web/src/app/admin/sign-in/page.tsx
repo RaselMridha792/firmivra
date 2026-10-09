@@ -1,5 +1,5 @@
-import { SignInPanel } from '../../../components/sign-in-panel';
+import { SignIn } from '../../../components/auth/sign-in';
 
 export default function AdminSignIn() {
-  return <SignInPanel title="Super Admin console" pool="ADMIN" homePath="/" />;
+  return <SignIn site="admin" />;
 }
