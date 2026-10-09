@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../../../components/app-shell/app-shell';
 import type { NavItem } from '../../../components/app-shell/types';
 import { FirmContext } from '../../../components/firm-context';
@@ -93,6 +93,12 @@ function FirmArea({ children }: { children: ReactNode }) {
       active = false;
     };
   }, [router, queryClient]);
+  // After a settings save: the header shows the new name without a reload. A failed reload keeps
+  // the name on screen; the next page load shows the new one.
+  const refresh = useCallback(async () => {
+    const b = await api.currentBusiness().catch(() => null);
+    setFirm((current) => (b && current?.id === b.id ? b : current));
+  }, []);
 
   if (error) {
     return (
@@ -128,7 +134,7 @@ function FirmArea({ children }: { children: ReactNode }) {
       greeting={<span data-testid="firm-name">{firm.name}</span>}
     >
       {/* Pages read the firm and the role with useFirm() (and <RequireRole>). */}
-      <FirmContext value={{ firm, role }}>{children}</FirmContext>
+      <FirmContext value={{ firm, role, refresh }}>{children}</FirmContext>
     </AppShell>
   );
 }
