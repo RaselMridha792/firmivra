@@ -180,8 +180,16 @@ describe('drafts', () => {
         link: { type: 'STAFF', userId: w.users.staffA2 },
       }),
     );
-    expect((await svc.get(w.a, manager, forC2.id)).id).toBe(forC2.id);
+    const asApprover = await svc.get(w.a, manager, forC2.id);
+    expect([asApprover.id, asApprover.allowedActions]).toEqual([forC2.id, []]);
     expect(await refused(svc.get(w.a, staff, forC2.id))).toEqual([404, 'NOT_FOUND']);
+    // ...but never changes it: an approver's path is for reads and decisions only.
+    expect(await refused(svc.update(w.a, manager, forC2.id, { title: 'x' }))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    expect(await refused(svc.discard(w.a, manager, forC2.id))).toEqual([404, 'NOT_FOUND']);
+    expect((await svc.get(w.a, owner, forC2.id)).allowedActions).toContain('EDIT');
     expect(await svc.status(w.a, manager)).toEqual({ enabled: true, myEsignRole: 'MANAGER' });
     expect(await refused(svc.update(w.a, staff2, forC1.id, { title: 'x' }))).toEqual([
       404,
@@ -237,6 +245,37 @@ describe('drafts', () => {
     ]);
   });
 
+  it('audits every view (ids only), but not the answer to a PATCH', async () => {
+    const d = await draft(owner, w.ids.c1);
+    await svc.get(w.a, owner, d.id);
+    await svc.update(w.a, owner, d.id, { title: 'Form 8879' });
+    expect(w.audit.entries.map((e) => [e.action, e.metadata])).toEqual([
+      ['esign.request_created', expect.anything()],
+      ['esign.request_viewed', { clientId: w.ids.c1 }],
+      ['esign.request_updated', { changed: ['title'] }],
+    ]);
+  });
+
+  it('skips an empty PATCH: no write, no audit', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const before = (await w.repo.findRequest(w.a, d.id))?.lastActivityAt;
+    expect((await svc.update(w.a, owner, d.id, { clientId: w.ids.c1 })).id).toBe(d.id);
+    expect((await w.repo.findRequest(w.a, d.id))?.lastActivityAt).toEqual(before);
+    expect(w.audit.entries.map((e) => e.action)).toEqual(['esign.request_created']);
+  });
+
+  it('answers a PATCH from the written record, though the caller loses the request by it', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const cleared = await svc.update(w.a, staff, d.id, { clientId: null });
+    expect(cleared.client).toBeNull();
+    expect(w.audit.entries.at(-1)?.metadata).toEqual({
+      changed: ['clientId', 'engagementId'],
+      fromClientId: w.ids.c1,
+      toClientId: null,
+    });
+    expect(await refused(svc.get(w.a, staff, d.id))).toEqual([404, 'NOT_FOUND']);
+  });
+
   it('refuses a new client while the old client’s logins are recipients (409 RECIPIENTS_LINKED)', async () => {
     const d = await draft(owner, w.ids.c1);
     w.repo.seed(w.a, d.id, (row) => row.parts.recipients.push(loginRecipient(w.ids.primary)));
@@ -288,26 +327,29 @@ describe('the in-memory fakes', () => {
     expect(made).toMatchObject({ status: 'DRAFT', title: 'Engagement letter 2025' });
     expect(await w.repo.findRequest(w.a, made.id)).toEqual(made);
     expect(await w.repo.findRequest(w.b, made.id)).toBeNull();
-    expect(await w.repo.updateDraft(w.b, made.id, { title: 'x' })).toBe(false);
-    expect(await w.repo.deleteDraft(w.b, made.id)).toBe(false);
+    expect(await w.repo.updateDraft(w.b, made.id, { title: 'x' })).toBe('INVALID_STATE');
+    expect(await w.repo.deleteDraft(w.b, made.id)).toBeNull();
     expect((await w.repo.parts(w.b, made.id)).documents).toEqual([]);
     expect((await w.repo.findRequest(w.a, made.id))?.title).toBe('Engagement letter 2025');
   });
 
   it('writes to DRAFTs only, and can lose one write to a send', async () => {
     const made = await w.repo.createRequest(w.a, input());
-    expect(await w.repo.updateDraft(w.a, made.id, { title: 'Form 8879' })).toBe(true);
+    expect(await w.repo.updateDraft(w.a, made.id, { title: 'Form 8879' })).toMatchObject({
+      title: 'Form 8879',
+    });
     w.repo.loseNextWrite = true;
-    expect(await w.repo.updateDraft(w.a, made.id, { title: 'lost' })).toBe(false);
+    expect(await w.repo.updateDraft(w.a, made.id, { title: 'lost' })).toBe('INVALID_STATE');
+    expect(w.repo.loseNextWrite).toBe(false);
     w.repo.seed(w.a, made.id, (row) => (row.record.status = 'SENT'));
     expect(await w.repo.savePagePlan(w.a, made.id, [], [])).toBe(false);
     expect(await w.repo.saveRecipients(w.a, made.id, [], [])).toBe(false);
-    expect(await w.repo.deleteDraft(w.a, made.id)).toBe(false);
+    expect(await w.repo.deleteDraft(w.a, made.id)).toBeNull();
     expect(await w.repo.findRequest(w.a, made.id)).toMatchObject({
       status: 'SENT',
       title: 'Form 8879',
     });
-    expect(await w.repo.updateDraft(w.a, randomUUID(), { title: 'x' })).toBe(false);
+    expect(await w.repo.updateDraft(w.a, randomUUID(), { title: 'x' })).toBe('INVALID_STATE');
   });
 
   it('answers the directory per firm', async () => {

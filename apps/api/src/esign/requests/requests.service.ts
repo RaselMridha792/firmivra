@@ -4,6 +4,8 @@ import {
   type CreateEsignRequestBody,
   ESIGN_ERRORS,
   type EsignErrorCode,
+  EsignField,
+  EsignRecipient,
   type EsignRequestDetail,
   type EsignStatus,
   type OkResponse,
@@ -41,9 +43,10 @@ const entity = (id: string) => ({ type: 'esign_request', id });
 
 /**
  * Firm Sign requests (R13 step 6): status and drafts. Access: Owner and Admin reach every
- * request; Staff and Managers the ones they send and those of clients assigned to them, and an
- * approver the ones they approve; anything else is 404. Changes apply to DRAFTs only (409 INVALID_STATE). The audit log gets ids only,
- * never a file, a field value or an access code.
+ * request; Staff and Managers the ones they send and those of clients assigned to them; an
+ * approver may open and decide the ones they approve, but never change them. Anything else is
+ * 404. Changes apply to DRAFTs only (409 INVALID_STATE). The audit log gets ids only, never a
+ * file, a field value or an access code.
  */
 @Injectable()
 export class EsignRequestsService {
@@ -98,8 +101,11 @@ export class EsignRequestsService {
     return this.toDetail(businessId, record);
   }
 
+  /** Returns client data, so every view is audited (ids only). */
   async get(businessId: string, actor: EsignActor, id: string): Promise<EsignRequestDetail> {
-    return this.toDetail(businessId, await this.reach(businessId, actor, id));
+    const { record, approverOnly } = await this.reach(businessId, actor, id, 'read');
+    await this.audit.log('esign.request_viewed', entity(id), { clientId: record.clientId });
+    return this.toDetail(businessId, record, approverOnly);
   }
 
   async update(
@@ -114,11 +120,8 @@ export class EsignRequestsService {
       Object.entries(rest).filter(([, v]) => v !== undefined),
     );
     let clientId = record.clientId;
-    if (newClient !== undefined && newClient !== record.clientId) {
-      const { recipients } = await this.repo.parts(businessId, id);
-      if (recipients.some((r) => r.link.type === 'CLIENT_LOGIN')) {
-        throw esignRefusal('RECIPIENTS_LINKED');
-      }
+    const clientChange = newClient !== undefined && newClient !== record.clientId;
+    if (clientChange) {
       clientId = newClient && (await this.reachableClient(businessId, actor, newClient)).id;
       patch.clientId = clientId;
       patch.engagementId = null;
@@ -126,16 +129,25 @@ export class EsignRequestsService {
     if (newService !== undefined) {
       patch.engagementId = await this.openService(businessId, clientId, newService);
     }
-    await this.drafted(this.repo.updateDraft(businessId, id, patch));
-    await this.audit.log('esign.request_updated', entity(id), { changed: Object.keys(patch) });
-    return this.get(businessId, actor, id);
+    // Nothing to change: no write, no audit.
+    if (Object.keys(patch).length === 0) return this.toDetail(businessId, record);
+    // RECIPIENTS_LINKED is checked by the repository under the request's lock.
+    const written = await this.repo.updateDraft(businessId, id, patch, { clientChange });
+    if (typeof written === 'string') throw esignRefusal(written);
+    await this.audit.log('esign.request_updated', entity(id), {
+      changed: Object.keys(patch),
+      ...(clientChange && { fromClientId: record.clientId, toClientId: clientId }),
+    });
+    // From the written record: the caller may no longer reach it (a cleared client), yet the
+    // change was made and is answered.
+    return this.toDetail(businessId, written);
   }
 
   /** Deletes a never-sent DRAFT, then its stored files. */
   async discard(businessId: string, actor: EsignActor, id: string): Promise<OkResponse> {
     await this.draft(businessId, actor, id);
-    const { documents } = await this.repo.parts(businessId, id);
-    await this.drafted(this.repo.deleteDraft(businessId, id));
+    const documents = await this.repo.deleteDraft(businessId, id);
+    if (!documents) throw esignRefusal('INVALID_STATE');
     await this.audit.log('esign.request_discarded', entity(id), {
       documentIds: documents.map((d) => d.id),
     });
@@ -150,33 +162,36 @@ export class EsignRequestsService {
     return { ok: true };
   }
 
-  /** The request, if the caller may reach it; else 404 (another firm's id included). */
-  private async reach(businessId: string, actor: EsignActor, id: string) {
+  /**
+   * The request, if the caller may reach it; else 404 (another firm's id included). 'write'
+   * needs Owner or Admin, the sender or the client's assigned member; 'read' (also decisions)
+   * admits an approver of the request too, whatever their role or the assignment.
+   */
+  private async reach(businessId: string, actor: EsignActor, id: string, mode: 'read' | 'write') {
     const record = await this.repo.findRequest(businessId, id);
     if (!record) throw notFound();
-    if (!seesAll(actor) && record.senderUserId !== actor.userId) {
-      const client = record.clientId && (await this.directory.client(businessId, record.clientId));
-      if (!client || client.assignedUserId !== actor.userId) {
-        // An approver always reaches the requests they approve, whatever the assignment.
-        const { recipients } = await this.repo.parts(businessId, record.id);
-        const approves = recipients.some(
-          (r) => r.kind === 'APPROVER' && r.link.type === 'STAFF' && r.link.userId === actor.userId,
-        );
-        if (!approves) throw notFound();
-      }
+    if (await this.manages(businessId, actor, record)) return { record, approverOnly: false };
+    if (mode === 'read') {
+      const { recipients } = await this.repo.parts(businessId, record.id);
+      const approves = recipients.some(
+        (r) => r.kind === 'APPROVER' && r.link.type === 'STAFF' && r.link.userId === actor.userId,
+      );
+      if (approves) return { record, approverOnly: true };
     }
-    return record;
+    throw notFound();
   }
 
+  private async manages(businessId: string, actor: EsignActor, record: EsignRequestRecord) {
+    if (seesAll(actor) || record.senderUserId === actor.userId) return true;
+    const client = record.clientId && (await this.directory.client(businessId, record.clientId));
+    return !!client && client.assignedUserId === actor.userId;
+  }
+
+  /** A DRAFT the caller may change (write mode), else 404 or 409 INVALID_STATE. */
   private async draft(businessId: string, actor: EsignActor, id: string) {
-    const record = await this.reach(businessId, actor, id);
+    const { record } = await this.reach(businessId, actor, id, 'write');
     if (record.status !== 'DRAFT') throw esignRefusal('INVALID_STATE');
     return record;
-  }
-
-  /** A draft write that found the request no longer a DRAFT (sent or discarded meanwhile). */
-  private async drafted(write: Promise<boolean>): Promise<void> {
-    if (!(await write)) throw esignRefusal('INVALID_STATE');
   }
 
   private async reachableClient(businessId: string, actor: EsignActor, clientId: string) {
@@ -197,7 +212,12 @@ export class EsignRequestsService {
     return service.id;
   }
 
-  private async toDetail(businessId: string, r: EsignRequestRecord): Promise<EsignRequestDetail> {
+  /** `approverOnly`: reached only as an approver, who may open and decide but never change it. */
+  private async toDetail(
+    businessId: string,
+    r: EsignRequestRecord,
+    approverOnly = false,
+  ): Promise<EsignRequestDetail> {
     const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
     const [client, service, sender] = await Promise.all([
       r.clientId ? this.directory.client(businessId, r.clientId) : null,
@@ -225,7 +245,7 @@ export class EsignRequestsService {
       lastActivityAt: r.lastActivityAt.toISOString(),
       expiresAt: iso(r.expiresAt),
       completedAt: iso(r.completedAt),
-      allowedActions: draft ? ['EDIT', 'DISCARD', 'SEND'] : [],
+      allowedActions: draft && !approverOnly ? ['EDIT', 'DISCARD', 'SEND'] : [],
       internalNote: r.internalNote,
       emailSubject: r.emailSubject,
       emailMessage: r.emailMessage,
@@ -246,17 +266,24 @@ export class EsignRequestsService {
         scanStatus: d.scanStatus,
         createdAt: d.createdAt.toISOString(),
       })),
-      pagePlan: parts.pagePlan,
-      recipients: parts.recipients.map(({ accessCodeHash, ...x }) => ({
-        ...x,
-        hasAccessCode: accessCodeHash !== null,
-        sentAt: iso(x.sentAt),
-        viewedAt: iso(x.viewedAt),
-        signedAt: iso(x.signedAt),
-        declinedAt: iso(x.declinedAt),
-        lastRemindedAt: iso(x.lastRemindedAt),
+      // Contract fields only (the schemas drop anything else a row holds).
+      pagePlan: parts.pagePlan.map(({ documentId, page, rotation }) => ({
+        documentId,
+        page,
+        rotation,
       })),
-      fields: parts.fields,
+      recipients: parts.recipients.map(({ accessCodeHash, ...x }) =>
+        EsignRecipient.parse({
+          ...x,
+          hasAccessCode: accessCodeHash !== null,
+          sentAt: iso(x.sentAt),
+          viewedAt: iso(x.viewedAt),
+          signedAt: iso(x.signedAt),
+          declinedAt: iso(x.declinedAt),
+          lastRemindedAt: iso(x.lastRemindedAt),
+        }),
+      ),
+      fields: parts.fields.map((f) => EsignField.parse(f)),
       // The columns below arrive with r0_esign and are read from part 3 on.
       replacesRequestId: null,
       replacedByRequestId: null,

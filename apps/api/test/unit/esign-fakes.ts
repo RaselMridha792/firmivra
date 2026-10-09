@@ -80,12 +80,28 @@ export class InMemoryEsignRepository implements EsignRepository {
     return Promise.resolve(structuredClone(row?.parts ?? empty));
   }
 
-  updateDraft(businessId: string, id: string, patch: EsignDraftPatch): Promise<boolean> {
-    return this.write(businessId, id, (row) => Object.assign(row.record, structuredClone(patch)));
+  async updateDraft(
+    businessId: string,
+    id: string,
+    patch: EsignDraftPatch,
+    options: { clientChange?: boolean } = {},
+  ): Promise<EsignRequestRecord | 'INVALID_STATE' | 'RECIPIENTS_LINKED'> {
+    const row = this.rows.of(businessId).get(id);
+    const linked = row?.parts.recipients.some((r) => r.link.type === 'CLIENT_LOGIN');
+    if (row?.record.status === 'DRAFT' && options.clientChange && linked) {
+      return 'RECIPIENTS_LINKED';
+    }
+    const written = await this.write(businessId, id, (r) =>
+      Object.assign(r.record, structuredClone(patch)),
+    );
+    return written && row ? structuredClone(row.record) : 'INVALID_STATE';
   }
 
-  deleteDraft(businessId: string, id: string): Promise<boolean> {
-    return this.write(businessId, id, () => this.rows.of(businessId).delete(id));
+  async deleteDraft(businessId: string, id: string) {
+    const docs = this.rows.of(businessId).get(id)?.parts.documents ?? [];
+    const gone = docs.map(({ id: docId, s3Key }) => ({ id: docId, s3Key }));
+    const deleted = await this.write(businessId, id, () => this.rows.of(businessId).delete(id));
+    return deleted ? gone : null;
   }
 
   savePagePlan(businessId: string, id: string, pagePlan: EsignPage[], fields: EsignField[]) {
@@ -114,7 +130,9 @@ export class InMemoryEsignRepository implements EsignRepository {
 
   private write(businessId: string, id: string, change: (row: Row) => unknown): Promise<boolean> {
     const row = this.rows.of(businessId).get(id);
-    if (!row || row.record.status !== 'DRAFT' || this.loseNextWrite) {
+    if (!row || row.record.status !== 'DRAFT') return Promise.resolve(false);
+    if (this.loseNextWrite) {
+      // Cleared only when it caused the refusal, so it waits for a write that would have applied.
       this.loseNextWrite = false;
       return Promise.resolve(false);
     }

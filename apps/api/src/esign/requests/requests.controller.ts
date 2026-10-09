@@ -63,6 +63,8 @@ export class EsignRequestsController {
     return this.requests.create(tenant.businessId, actorOf(auth, tenant), body);
   }
 
+  // Part 3's fixed paths (GET /esign/requests/summary and the list's siblings) go above this
+  // line: declared after @Get(':id'), Nest would route them here and answer 400 for the id.
   @Get(':id')
   get(
     @CurrentAuth() auth: AuthContext,

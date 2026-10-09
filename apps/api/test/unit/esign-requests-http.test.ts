@@ -1,6 +1,5 @@
 // R13 step 6, requests API part 1b, over HTTP: EsignModule's status and draft routes, pipes
-// and the module switch
-// with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
+// and the module switch with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
 // role on the request, as the global guards do in the app; the guards themselves are tested in
 // guards.test.ts and the e2e suite. Synthetic data only.
 import { randomUUID } from 'node:crypto';
@@ -25,13 +24,14 @@ import {
   BUSINESS_MODULES,
   ModuleGuard,
   ModulesModule,
-  ModulesNotMigrated,
   RequiresModule,
 } from '../../src/common/modules/requires-module.js';
 import { CODE_HASHER, ESIGN_STORE } from '../../src/esign/engine/engine.types.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { ESIGN_REPOSITORY, notMigrated } from '../../src/esign/requests/esign.repository.js';
+import { ConfigModule } from '../../src/config/config.module.js';
+import { loadEnv } from '../../src/config/env.js';
 import { esignWorld, fakeHasher } from './esign-fakes.js';
 
 const w = esignWorld();
@@ -54,7 +54,7 @@ let app: INestApplication;
 
 beforeAll(async () => {
   const metadata: ModuleMetadata = {
-    imports: [EsignModule, FakeAuditModule, ModulesModule],
+    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, FakeAuditModule, ModulesModule],
     controllers: [ProbeController],
   };
   const moduleRef = await Test.createTestingModule(metadata)
@@ -242,8 +242,7 @@ describe('the module switch (ModuleGuard)', () => {
     expect(await answer(guardFor(false).canActivate(ctx(staffTenant, () => 1)))).toBe('allowed');
   });
 
-  it('is off for every firm until the modules column exists, and the stand-ins fail loudly', async () => {
-    expect(await new ModulesNotMigrated().isEnabled()).toBe(false);
+  it('fails loudly in a port that is not on main yet', () => {
     const stand = notMigrated<{ findRequest(): Promise<unknown>; then?: unknown }>('Repo');
     expect(stand.then).toBeUndefined();
     expect(() => stand.findRequest()).toThrow(/Repo.findRequest is not available yet/);
