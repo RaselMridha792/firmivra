@@ -1,6 +1,8 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Module, Param, Post, Put } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  ConfirmUploadRequest,
+  CreateIntakeUploadRequest,
   type IntakeChoiceList,
   IntakeId,
   IntakeKey,
@@ -10,6 +12,7 @@ import {
   SaveIntakeStepRequest,
   SendIntakeRequest,
   StartIntakeRequest,
+  type UploadTicket,
 } from '@firmivra/types';
 import {
   CurrentAuth,
@@ -21,6 +24,8 @@ import {
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
+import { DocumentsModule } from '../storage/documents.controller.js';
+import { type IntakeUploader, IntakeUploadsService } from './intake-uploads.service.js';
 import { type IntakeReach, IntakesService } from './intakes.service.js';
 
 const idPipe = new ZodValidationPipe(IntakeId);
@@ -35,7 +40,21 @@ function staff(auth: AuthContext, tenant: TenantContext): IntakeReach {
 @Controller('portal/:firmSlug/me/intakes')
 @Roles('CLIENT')
 export class MyIntakesController {
-  constructor(private readonly intakes: IntakesService) {}
+  constructor(
+    private readonly intakes: IntakesService,
+    private readonly files: IntakeUploadsService,
+  ) {}
+
+  private async uploader(auth: AuthContext, tenant: TenantContext): Promise<IntakeUploader> {
+    const reach = await this.reach(tenant);
+    if (reach.kind !== 'client' || tenant.kind !== 'client') throw new Error('unreachable');
+    return {
+      businessId: tenant.businessId,
+      userId: auth.userId,
+      clientAccountId: tenant.clientAccountId,
+      clientId: reach.clientId,
+    };
+  }
 
   private reach(tenant: TenantContext) {
     if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
@@ -78,6 +97,38 @@ export class MyIntakesController {
   ): Promise<IntakeView> {
     const reach = await this.reach(tenant);
     return this.intakes.saveStep(tenant.businessId, reach, id, stepKey, body.answers);
+  }
+
+  @Post(':id/uploads')
+  async createUpload(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CreateIntakeUploadRequest))
+    body: z.output<typeof CreateIntakeUploadRequest>,
+  ): Promise<UploadTicket> {
+    return this.files.createUpload(await this.uploader(auth, tenant), id, body);
+  }
+
+  @Post(':id/uploads/confirm')
+  @HttpCode(200)
+  async confirmUpload(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(ConfirmUploadRequest)) body: z.output<typeof ConfirmUploadRequest>,
+  ): Promise<IntakeView> {
+    return this.files.confirmUpload(await this.uploader(auth, tenant), id, body.uploadToken);
+  }
+
+  @Delete(':id/uploads/:documentId')
+  async removeUpload(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('documentId', idPipe) documentId: string,
+  ): Promise<IntakeView> {
+    return this.files.removeUpload(await this.uploader(auth, tenant), id, documentId);
   }
 }
 
@@ -171,9 +222,9 @@ export class IntakesController {
 }
 
 @Module({
-  imports: [FieldEncryptionModule],
+  imports: [FieldEncryptionModule, DocumentsModule],
   controllers: [MyIntakesController, ClientIntakesController, IntakesController],
-  providers: [IntakesService],
+  providers: [IntakesService, IntakeUploadsService],
   exports: [IntakesService],
 })
 export class IntakesModule {}

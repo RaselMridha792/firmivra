@@ -2,6 +2,13 @@ import { z } from 'zod';
 import { IntakeStatus, ScanStatus } from '../db-enums.js';
 import { type ApiRequest, parseInput } from '../client.js';
 import { CalendarDate } from '../clients/schemas.js';
+import {
+  ConfirmUploadRequest,
+  CreateMyUploadRequest,
+  fileNameFitsType,
+  UPLOAD_LIMITS,
+  UploadTicket,
+} from '../documents/index.js';
 import { text } from '../clients/text.js';
 import { ServiceRef } from '../engagements/schemas.js';
 import { IntakeAnswers, IntakeAnswersInput } from './answers.js';
@@ -94,6 +101,26 @@ export type SendIntakeRequest = z.input<typeof SendIntakeRequest>;
 export const RequestIntakeCorrectionRequest = z.strictObject({ note: text(2000, 'many') });
 export type RequestIntakeCorrectionRequest = z.input<typeof RequestIntakeCorrectionRequest>;
 
+const { fileName, contentType, sizeBytes, sha256 } = CreateMyUploadRequest.shape;
+
+/**
+ * POST .../intakes/{id}/uploads: a file for one of the form's upload slots, while the intake is
+ * open (PDF, JPG, PNG, .xlsx or .docx, at most 10 MB). PUT it to the ticket's URL, then
+ * `confirmUpload`. The file becomes one of the client's documents of that service.
+ */
+export const CreateIntakeUploadRequest = z
+  .strictObject({ slot: IntakeKey, fileName, contentType, sizeBytes, sha256 })
+  .superRefine((body, ctx) => {
+    if (!fileNameFitsType(body.fileName, body.contentType)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fileName'],
+        message: `The file name must end in ${UPLOAD_LIMITS.types[body.contentType].join(' or ')}`,
+      });
+    }
+  });
+export type CreateIntakeUploadRequest = z.input<typeof CreateIntakeUploadRequest>;
+
 export const IntakeErrorCode = z.enum([
   'NOT_FOUND',
   'VALIDATION_FAILED',
@@ -110,6 +137,9 @@ export const IntakeErrorCode = z.enum([
   'ENCRYPTION_UNAVAILABLE',
   /** A save or an upload landed while the form was being sent: review it and send again. */
   'INTAKE_CHANGED',
+  /** The slot (or the form) already has its most files: remove one first. */
+  'TOO_MANY_FILES',
+  /** Upload refusals as for documents: UPLOAD_EXPIRED, UPLOAD_MISMATCH, FILE_* ... */
 ]);
 export type IntakeErrorCode = z.infer<typeof IntakeErrorCode>;
 
@@ -138,6 +168,23 @@ export function createMyIntakesClient(request: ApiRequest, firmSlug: string) {
       request(IntakeView, `${one(id)}/steps/${step(stepKey)}`, {
         method: 'PUT',
         body: parseInput(SaveIntakeStepRequest, body),
+      }),
+    /** 409 INTAKE_LOCKED, TOO_MANY_FILES; 400 for a slot that is not an upload field. */
+    createUpload: async (id: string, body: CreateIntakeUploadRequest): Promise<UploadTicket> =>
+      request(UploadTicket, `${one(id)}/uploads`, {
+        method: 'POST',
+        body: parseInput(CreateIntakeUploadRequest, body),
+      }),
+    /** The intake with the new file in its slot. */
+    confirmUpload: async (id: string, body: ConfirmUploadRequest): Promise<IntakeView> =>
+      request(IntakeView, `${one(id)}/uploads/confirm`, {
+        method: 'POST',
+        body: parseInput(ConfirmUploadRequest, body),
+      }),
+    /** Takes the file out of its slot (it stays one of the client's documents). */
+    removeUpload: async (id: string, documentId: string): Promise<IntakeView> =>
+      request(IntakeView, `${one(id)}/uploads/${parseInput(IntakeId, documentId)}`, {
+        method: 'DELETE',
       }),
   };
 }
