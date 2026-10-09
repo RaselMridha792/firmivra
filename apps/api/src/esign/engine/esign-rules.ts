@@ -53,6 +53,9 @@ export function readiness(input: ReadinessInput): EsignReadiness {
   if (!input.engagementId) problems.push(problem('NO_ENGAGEMENT'));
   if (signers.length === 0) problems.push(problem('NO_SIGNERS'));
 
+  if (input.approvalRequired && !input.recipients.some((r) => r.kind === 'APPROVER')) {
+    problems.push(problem('APPROVER_MISSING'));
+  }
   for (const r of input.recipients) {
     if (r.delivery === 'EMAIL' && !(r.email && Email.safeParse(r.email).success)) {
       problems.push(problem('RECIPIENT_NO_CONTACT', { recipientId: r.id }));

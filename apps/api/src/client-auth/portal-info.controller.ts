@@ -17,10 +17,11 @@ import {
 } from '@firmivra/types';
 import { Public } from '../auth/decorators.js';
 import { DATABASE } from '../database/database.module.js';
+import { hexColor } from '../notify/branding.js';
 
 /** Until the firm sets its own: the navy and gold of the portal mockups. */
 export const DEFAULT_PRIMARY_COLOR = '#1F3A6B';
-/** No accent column yet (R0 asked Rasel); every firm gets this until there is one. */
+/** Until the firm picks its own accent (settings or the setup wizard): the mockups' gold. */
 export const DEFAULT_ACCENT_COLOR = '#C9A227';
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
@@ -81,6 +82,7 @@ export class PortalInfoService {
         where: { businessId: firm.id },
         select: {
           brandColor: true,
+          accentColor: true,
           clientSignUpEnabled: true,
           portalName: true,
           portalHeader: true,
@@ -95,7 +97,8 @@ export class PortalInfoService {
       branding: {
         logoUrl: null, // R5 serves logos
         primaryColor: settings?.brandColor ?? DEFAULT_PRIMARY_COLOR,
-        accentColor: DEFAULT_ACCENT_COLOR,
+        // As the emails do: only a `#rrggbb` value reaches the page's CSS.
+        accentColor: hexColor(settings?.accentColor, DEFAULT_ACCENT_COLOR),
         portalName: settings?.portalName ?? `${firm.name} Client Portal`,
         header: settings?.portalHeader ?? null,
         welcomeMessage: settings?.welcomeMessage ?? null,
