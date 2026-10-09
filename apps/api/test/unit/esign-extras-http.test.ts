@@ -10,6 +10,8 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   EsignApproverList,
+  EsignInPersonSession,
+  EsignInPersonState,
   EsignMemberRole,
   EsignMemberRoleList,
   EsignReport,
@@ -24,6 +26,7 @@ import { loadEnv } from '../../src/config/env.js';
 import { CODE_HASHER, ESIGN_STORE, PDF_ENGINE } from '../../src/esign/engine/engine.types.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { EXTRAS_REPOSITORY } from '../../src/esign/extras/extras.repository.js';
+import { KIOSK_AUTH } from '../../src/esign/extras/kiosk.js';
 import { LIFECYCLE_REPOSITORY } from '../../src/esign/lifecycle/lifecycle.repository.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { ESIGN_REPOSITORY } from '../../src/esign/requests/esign.repository.js';
@@ -40,6 +43,17 @@ import {
 
 const w = esignWorld();
 const notify = new FakeNotify();
+const extras = new InMemoryExtrasRepository(w.repo);
+/** The staff password is `Fake-staff-password-1`; sign-outs are counted. */
+const kioskAuth = {
+  signedOut: 0,
+  passwordOk: (_sub: string, password: string) =>
+    Promise.resolve(password === 'Fake-staff-password-1'),
+  signOut() {
+    kioskAuth.signedOut += 1;
+    return Promise.resolve();
+  },
+};
 
 @Global()
 @Module({
@@ -62,7 +76,9 @@ beforeAll(async () => {
     .overrideProvider(LIFECYCLE_REPOSITORY)
     .useValue(new InMemoryLifecycleRepository(w.repo))
     .overrideProvider(EXTRAS_REPOSITORY)
-    .useValue(new InMemoryExtrasRepository(w.repo))
+    .useValue(extras)
+    .overrideProvider(KIOSK_AUTH)
+    .useValue(kioskAuth)
     .overrideProvider(ESIGN_DIRECTORY)
     .useValue(w.directory)
     .overrideProvider(BUSINESS_MODULES)
@@ -260,6 +276,9 @@ describe('Firm Sign approvals over HTTP', () => {
         ['get', 'roles', undefined],
         ['put', `roles/${w.users.staffA}`, { esignRole: 'VIEWER' }],
         ['get', 'reports?from=2026-10-01&to=2026-10-31', undefined],
+        ['post', `requests/${id}/in-person`, { recipientId: randomUUID() }],
+        ['get', 'in-person', undefined],
+        ['post', 'in-person/exit', { password: 'Fake-staff-password-1' }],
       ] as const) {
         expect(errorOf(await call(method, path, ownerA(), body))).toEqual([403, 'MODULE_OFF']);
       }
@@ -330,5 +349,78 @@ describe('Firm Sign roles and reports over HTTP', () => {
       404,
       'NOT_FOUND',
     ]);
+  });
+});
+
+describe('Firm Sign in person over HTTP', () => {
+  /** A SENT request for c1 with an IN_PERSON signer whose turn it is. */
+  async function sent() {
+    const created = await post('requests', ownerA(), {
+      title: 'Fake in person',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const signer = sentRecipient(w, { delivery: 'IN_PERSON' });
+    w.repo.seed(w.a, id, (row) => {
+      Object.assign(row.record, { status: 'SENT', sentAt: new Date(), expiresAt: new Date() });
+      row.parts.recipients = [signer];
+    });
+    return { id, signerId: signer.id };
+  }
+  const exit = (password: string) => post('in-person/exit', ownerA(), { password });
+
+  it('locks every other firm route (403 KIOSK_LOCKED) until exit with the password', async () => {
+    const { id, signerId } = await sent();
+    const started = await post(`requests/${id}/in-person`, ownerA(), { recipientId: signerId });
+    expect(started.status).toBe(200);
+    expect(EsignInPersonSession.parse(started.body).signingUrl).toMatch(/\/sign#t=/);
+    for (const [method, path] of [
+      ['get', 'requests'],
+      ['get', `requests/${id}`],
+      ['get', 'approvers'],
+      ['get', 'status'],
+    ] as const) {
+      expect(errorOf(await call(method, path, ownerA()))).toEqual([403, 'KIOSK_LOCKED']);
+    }
+    const state = await call('get', 'in-person', ownerA());
+    expect(EsignInPersonState.parse(state.body).session?.recipientId).toBe(signerId);
+    // Only the member who started it is locked.
+    expect((await call('get', 'requests', staffA())).status).toBe(200);
+    expect(errorOf(await exit('Wrong-password-1'))).toEqual([400, 'PASSWORD_WRONG']);
+    expect(errorOf(await post('in-person/exit', ownerA(), {}))).toEqual([400, 'VALIDATION_FAILED']);
+    const left = await exit('Fake-staff-password-1');
+    expect([left.status, left.body]).toEqual([200, { ok: true }]);
+    expect((await call('get', 'requests', ownerA())).status).toBe(200);
+    expect(EsignInPersonState.parse((await call('get', 'in-person', ownerA())).body)).toEqual({
+      session: null,
+    });
+  });
+
+  it('signs an idle kiosk’s staff member out (401) on their next call', async () => {
+    const { id, signerId } = await sent();
+    await post(`requests/${id}/in-person`, ownerA(), { recipientId: signerId });
+    const lock = extras.locks.of(w.a).get(w.users.ownerA)!;
+    lock.activeAt = new Date(Date.now() - 16 * 60_000);
+    const before = kioskAuth.signedOut;
+    expect(errorOf(await call('get', 'in-person', ownerA()))).toEqual([401, 'UNAUTHENTICATED']);
+    expect(kioskAuth.signedOut).toBe(before + 1);
+    expect((await call('get', 'requests', ownerA())).status).toBe(200);
+  });
+
+  it('validates (400) and answers 404 across firms, to unassigned Staff and to a client', async () => {
+    const { id, signerId } = await sent();
+    for (const [path, body] of [
+      ['requests/not-a-uuid/in-person', { recipientId: signerId }],
+      [`requests/${id}/in-person`, { recipientId: 'nope' }],
+      [`requests/${id}/in-person`, {}],
+    ] as const) {
+      expect(errorOf(await post(path, ownerA(), body))).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    for (const who of [ownerB(), { ...staffA(), user: w.users.staffA2 }, clientA()]) {
+      const res = await post(`requests/${id}/in-person`, who, { recipientId: signerId });
+      expect(errorOf(res)).toEqual([404, 'NOT_FOUND']);
+    }
+    expect(extras.locks.of(w.b).size + extras.locks.of(w.a).size).toBe(0);
   });
 });

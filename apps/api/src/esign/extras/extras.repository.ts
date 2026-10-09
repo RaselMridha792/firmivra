@@ -52,6 +52,32 @@ export interface EsignReportRow {
   completionMs: number;
 }
 
+/** An in-person signing's lock on a staff member's Firm Sign access in one firm. */
+export interface EsignKioskLock {
+  userId: string;
+  requestId: string;
+  recipientId: string;
+  signerName: string;
+  startedAt: Date;
+  /** The in-person link stops working after this if signing has not started. */
+  linkExpiresAt: Date;
+  /** The signer's last activity (the signer routes move it); the idle timeout counts from it. */
+  activeAt: Date;
+}
+
+/**
+ * Starts an in-person signing (an open request, the recipient's turn): the recipient's
+ * token_version + 1 (every earlier link of theirs stops), a new link by its SHA-256 with purpose
+ * IN_PERSON until `linkExpiresAt`, the events, and the caller's lock (refused, null, if they
+ * already hold one).
+ */
+export interface StartInPersonWrite {
+  at: Date;
+  lock: EsignKioskLock;
+  tokenHash: string;
+  events: EsignEventRecord[];
+}
+
 export interface EsignExtrasRepository {
   submitForApproval(
     businessId: string,
@@ -80,6 +106,25 @@ export interface EsignExtrasRepository {
    * same visibility as the list (`visibleTo`).
    */
   report(businessId: string, filter: EsignReportFilter): Promise<EsignReportRow[]>;
+  startInPerson(
+    businessId: string,
+    id: string,
+    write: StartInPersonWrite,
+    readAt: Date,
+  ): Promise<EsignKioskLock | null>;
+  /** The member's lock in this firm; null when none (read on every staff request). */
+  kioskLock(businessId: string, userId: string): Promise<EsignKioskLock | null>;
+  /** Counts a wrong staff password on the lock (atomic); the count so far, 0 without a lock. */
+  kioskWrongPassword(businessId: string, userId: string): Promise<number>;
+  /**
+   * Removes the lock and ends the signer's session (their token_version + 1, so the in-person
+   * link and the signer cookie stop), with the events on its request; null when there was none.
+   */
+  endKiosk(
+    businessId: string,
+    userId: string,
+    write: { at: Date; events: EsignEventRecord[] },
+  ): Promise<EsignKioskLock | null>;
 }
 
 export const EXTRAS_REPOSITORY = Symbol('ESIGN_EXTRAS_REPOSITORY');

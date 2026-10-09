@@ -50,9 +50,11 @@ import type { NotifyMessage, NotifyService } from '../../src/notify/notify.types
 import type {
   ApprovalDecisionWrite,
   EsignExtrasRepository,
+  EsignKioskLock,
   EsignReportFilter,
   EsignReportRow,
   EsignStaffRole,
+  StartInPersonWrite,
   SubmitApprovalWrite,
 } from '../../src/esign/extras/extras.repository.js';
 import type {
@@ -678,6 +680,61 @@ export class InMemoryExtrasRepository implements EsignExtrasRepository {
       rows.set(q.senderUserId, row);
     }
     return [...rows.values()];
+  }
+
+  /** Each firm's kiosk locks by user id, with the wrong passwords so far. */
+  readonly locks = new PerFirm<EsignKioskLock & { wrong: number }>();
+  /** Each firm's in-person link hashes, with what they open. */
+  readonly inPersonLinks = new PerFirm<{ recipientId: string; expiresAt: Date }>();
+  /** Each firm's recipients' token_version raises (in-person start and end). */
+  readonly versionRaises = new PerFirm<number>();
+
+  startInPerson(businessId: string, id: string, write: StartInPersonWrite, readAt: Date) {
+    const { lock } = write;
+    if (this.locks.of(businessId).has(lock.userId)) return Promise.resolve(null);
+    const status = this.requests.peek(businessId, id)?.record.status;
+    if (!status || !ESIGN_OPEN_STATUSES.some((s) => s === status)) return Promise.resolve(null);
+    const written = this.apply(businessId, id, status, { ...write, emails: [] }, readAt, () => {
+      this.raise(businessId, lock.recipientId);
+      const link = { recipientId: lock.recipientId, expiresAt: lock.linkExpiresAt };
+      this.inPersonLinks.of(businessId).set(write.tokenHash, link);
+      this.locks.of(businessId).set(lock.userId, { ...structuredClone(lock), wrong: 0 });
+      return true;
+    });
+    return written.then((w) => (w ? structuredClone(lock) : null));
+  }
+
+  kioskLock(businessId: string, userId: string): Promise<EsignKioskLock | null> {
+    const found = this.locks.of(businessId).get(userId);
+    if (!found) return Promise.resolve(null);
+    const { wrong: _wrong, ...lock } = structuredClone(found);
+    return Promise.resolve(lock);
+  }
+
+  kioskWrongPassword(businessId: string, userId: string) {
+    const lock = this.locks.of(businessId).get(userId);
+    if (lock) lock.wrong += 1;
+    return Promise.resolve(lock?.wrong ?? 0);
+  }
+
+  async endKiosk(
+    businessId: string,
+    userId: string,
+    write: { at: Date; events: EsignEventRecord[] },
+  ) {
+    const lock = await this.kioskLock(businessId, userId);
+    if (!lock) return null;
+    this.locks.of(businessId).delete(userId);
+    this.raise(businessId, lock.recipientId);
+    const timeline = this.requests.timelines.of(businessId);
+    const events = timeline.get(lock.requestId) ?? [];
+    timeline.set(lock.requestId, [...events, ...structuredClone(write.events)]);
+    return lock;
+  }
+
+  private raise(businessId: string, recipientId: string) {
+    const versions = this.versionRaises.of(businessId);
+    versions.set(recipientId, (versions.get(recipientId) ?? 0) + 1);
   }
 
   private queue(businessId: string, email: LifecycleEmail) {
