@@ -27,8 +27,8 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/clients/:clientId/document-requests': {
     params: { clientId: 'client' },
     // The request's serviceId is the client's engagement, as for uploads.
-    bodyRecords: ['engagement'],
-    body: ({ rec }) => ({ serviceId: rec.engagement, title: 'Fake 1099' }),
+    bodyIds: { serviceId: 'engagement', categoryId: 'documentCategory' },
+    body: { title: 'Fake 1099' },
   },
   // Found, but nothing was uploaded for it yet, so there is nothing to accept or reject.
   'POST /api/v1/business/document-requests/:id/accept': { ...request, body: {}, expect: 409 },
