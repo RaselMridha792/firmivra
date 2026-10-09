@@ -300,6 +300,43 @@ describe('parallel attempts (reserved before Cognito is asked)', () => {
       SIGN_IN_LIMIT.perAttempt,
     );
   });
+
+  it('holds the per-attempt limit for codes sent from many networks at once (q20 review)', async () => {
+    const who = person('mfanets');
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: who.id, cognitoSub: who.id, pool: 'STAFF', email: who.email, name: 'Fake' },
+      }),
+    );
+    const first = await staffSignIn(who.email, LOCAL_PASSWORD);
+    const setup = await post('/api/v1/auth/mfa/setup', {
+      session: (first.body as { session: string }).session,
+    });
+    await post('/api/v1/auth/mfa', {
+      session: (setup.body as MfaSetupResponse).session,
+      code: LOCAL_MFA_CODE,
+    }).expect(200);
+    const signIn = await staffSignIn(who.email, LOCAL_PASSWORD);
+    const step = signIn.body as SignInResult;
+    if (step.status !== 'MFA_REQUIRED') throw new Error(`unexpected ${step.status}`);
+    // One challenge, each wrong code from its own /24, so no (email, network) lock is shared.
+    const results = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        request(app.getHttpServer())
+          .post('/api/v1/auth/mfa')
+          .set('x-forwarded-for', `198.60.${i + 1}.1, 10.0.0.5`)
+          .send({ session: step.session, code: '111111' }),
+      ),
+    );
+    const codes = results.map((r) => [r.status, codeOf(r)] as const);
+    expect(codes.filter(([s]) => s >= 500)).toEqual([]);
+    expect(codes.filter(([, c]) => c === 'MFA_CODE_INVALID').length).toBeLessThanOrEqual(
+      SIGN_IN_LIMIT.perAttempt,
+    );
+    // The rest are refused: busy (429) or the attempt is over (sign in again).
+    const answers = new Set(['401 MFA_CODE_INVALID', '401 CHALLENGE_EXPIRED', '429 RATE_LIMITED']);
+    expect(codes.map(([s, c]) => `${s} ${c}`).filter((a) => !answers.has(a))).toEqual([]);
+  });
 });
 
 describe('audit', () => {
