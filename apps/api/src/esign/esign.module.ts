@@ -13,6 +13,7 @@ import { EsignRequestsController, EsignStatusController } from './requests/reque
 import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
+import { EsignSendService } from './requests/send.service.js';
 
 /**
  * Firm Sign (R13). Behind the firm's 'esign' module (ModulesModule): off for a firm until
@@ -28,6 +29,7 @@ import { EsignRequestsService } from './requests/requests.service.js';
     EsignDocumentsService,
     EsignPrepareService,
     EsignListService,
+    EsignSendService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
   ],

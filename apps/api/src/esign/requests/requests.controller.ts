@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -26,6 +27,7 @@ import {
   type EsignSummary,
   ListEsignRequestsQuery,
   type OkResponse,
+  SendEsignRequestBody,
   UpdateEsignRequestBody,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
@@ -35,6 +37,7 @@ import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { EsignListService } from './list.service.js';
 import { EsignPrepareService } from './prepare.service.js';
 import { type EsignActor, EsignRequestsService } from './requests.service.js';
+import { EsignSendService } from './send.service.js';
 
 const idPipe = new ZodValidationPipe(EsignRequestId);
 
@@ -68,6 +71,7 @@ export class EsignRequestsController {
     private readonly requests: EsignRequestsService,
     private readonly prepare: EsignPrepareService,
     private readonly lists: EsignListService,
+    private readonly sender: EsignSendService,
   ) {}
 
   @Get()
@@ -185,5 +189,17 @@ export class EsignRequestsController {
     @Param('id', idPipe) id: string,
   ): Promise<EsignReadiness> {
     return this.prepare.readiness(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  /** `confirm: true` is the review screen's explicit confirmation (the pipe checks it). */
+  @Post(':id/send')
+  @HttpCode(200)
+  send(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SendEsignRequestBody)) _body: SendEsignRequestBody,
+  ): Promise<EsignRequestDetail> {
+    return this.sender.send(tenant.businessId, actorOf(auth, tenant), id);
   }
 }

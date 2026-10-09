@@ -37,6 +37,7 @@ import type {
   EsignRequestParts,
   EsignRequestFilter,
   EsignRequestRecord,
+  EsignSendWrite,
   NewEsignDocument,
   NewEsignRequest,
 } from '../../src/esign/requests/esign.repository.js';
@@ -191,6 +192,7 @@ export class InMemoryEsignRepository implements EsignRepository {
       sentAt: null,
       expiresAt: null,
       completedAt: null,
+      originalSha256: null,
     };
     const parts = { documents: [], pagePlan: [], recipients: [], fields: [] };
     this.rows.of(businessId).set(record.id, { record, parts });
@@ -264,6 +266,64 @@ export class InMemoryEsignRepository implements EsignRepository {
       (row) => Object.assign(row.parts, structuredClone({ recipients, fields })),
       readAt,
     );
+  }
+
+  /** Each firm's stored link-token hashes, by recipient id (only hashes, as the table). */
+  readonly tokenHashes = new PerFirm<string>();
+  /** Each firm's queued Firm Sign emails, by id. */
+  readonly outbox = new PerFirm<{
+    recipientId: string;
+    template: string;
+    status: 'QUEUED' | 'SENT' | 'FAILED';
+    error: string | null;
+  }>();
+
+  sendDraft(
+    businessId: string,
+    id: string,
+    write: EsignSendWrite,
+    readAt: Date,
+  ): Promise<string[] | null> {
+    const row = this.rows.of(businessId).get(id);
+    if (
+      row?.record.status !== 'DRAFT' ||
+      row.record.lastActivityAt.getTime() !== readAt.getTime()
+    ) {
+      return Promise.resolve(null);
+    }
+    Object.assign(row.record, {
+      status: 'SENT',
+      sentAt: write.sentAt,
+      expiresAt: write.expiresAt,
+      originalSha256: write.originalSha256,
+      lastActivityAt: write.sentAt,
+    });
+    for (const t of write.turn) {
+      const r = row.parts.recipients.find((x) => x.id === t.recipientId);
+      if (r) Object.assign(r, { status: 'SENT', sentAt: write.sentAt });
+      if (t.tokenHash) this.tokenHashes.of(businessId).set(t.recipientId, t.tokenHash);
+    }
+    const timeline = this.timelines.of(businessId);
+    timeline.set(id, [...(timeline.get(id) ?? []), structuredClone(write.event)]);
+    const ids = write.emails.map((e) => {
+      const emailId = randomUUID();
+      this.outbox.of(businessId).set(emailId, { ...e, status: 'QUEUED', error: null });
+      return emailId;
+    });
+    return Promise.resolve(ids);
+  }
+
+  emailOutcome(
+    businessId: string,
+    emailId: string,
+    outcome: { sent: true } | { sent: false; error: string },
+  ): Promise<void> {
+    const email = this.outbox.of(businessId).get(emailId);
+    if (email) {
+      email.status = outcome.sent ? 'SENT' : 'FAILED';
+      email.error = outcome.sent ? null : outcome.error;
+    }
+    return Promise.resolve();
   }
 
   /** Each firm's started uploads, by token hash. */
@@ -421,7 +481,16 @@ export class FakeStore extends MemoryEsignStore {
  * A PDF engine for tests: a "PDF" is the text `pdf:<pages>`, or `encrypted` or anything else
  * (unreadable); an image is one page of 600x400.
  */
-export const fakePdf: Pick<PdfEngine, 'inspect'> = {
+export const fakePdf: Pick<PdfEngine, 'inspect' | 'compose'> = {
+  /** The packet: `packet:` and each planned page as `<documentId>/<page>/<rotation>`. */
+  compose: (files, plan) => {
+    const known = new Set(files.map((f) => f.documentId));
+    if (plan.some((p) => !known.has(p.documentId))) {
+      return Promise.reject(new EsignEngineError('PDF_UNREADABLE'));
+    }
+    const pages = plan.map((p) => `${p.documentId}/${p.page}/${p.rotation}`).join(',');
+    return Promise.resolve(new Uint8Array(Buffer.from(`packet:${pages}`)));
+  },
   inspect: ({ contentType, bytes }): Promise<InspectedFile> => {
     if (contentType !== 'application/pdf') {
       return Promise.resolve({ pageCount: 1, pageSizes: [{ width: 600, height: 400 }] });
@@ -526,6 +595,7 @@ export function esignWorld() {
   }
   const firmOf = (name: string): DirectoryFirm => ({
     name,
+    slug: name.toLowerCase().replaceAll(' ', '-'),
     address: '2 Example Ave, Testville, NY 10002',
     phone: '+15555550123',
     email: 'office@firm.test',

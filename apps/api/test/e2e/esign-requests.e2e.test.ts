@@ -1,4 +1,4 @@
-// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b) through the real guard
+// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, and step 7's send) through the real guard
 // stack. The esign tables come with r0_esign, so this covers what answers before the repository:
 // 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module is off, and 400 for a
 // bad id or body where it is on. Synthetic data only.
@@ -30,6 +30,7 @@ const ROUTES = [
   ['get', '/api/v1/esign/requests', undefined],
   ['get', '/api/v1/esign/requests/summary', undefined],
   ['get', `/api/v1/esign/requests/${anyId}/events`, undefined],
+  ['post', `/api/v1/esign/requests/${anyId}/send`, { confirm: true }],
 ] as const;
 
 beforeAll(async () => {
@@ -127,6 +128,12 @@ describe('Firm Sign draft routes', () => {
       const res = await send('get', `/api/v1/esign/requests?${query}`, onOwner.email);
       expect(answer(res)).toBe('400 VALIDATION_FAILED');
     }
+    for (const body of [{}, { confirm: false }]) {
+      const res = await send('post', `/api/v1/esign/requests/${anyId}/send`, onOwner.email, body);
+      expect(answer(res)).toBe('400 VALIDATION_FAILED');
+    }
+    const badSend = await send('post', `${bad}/send`, onOwner.email, { confirm: true });
+    expect(answer(badSend)).toBe('400 VALIDATION_FAILED');
     const noTitle = await send('post', '/api/v1/esign/requests', onOwner.email, { title: '' });
     expect(answer(noTitle)).toBe('400 VALIDATION_FAILED');
   });

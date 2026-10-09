@@ -16,6 +16,7 @@ import { ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
 import {
   ESIGN_REPOSITORY,
   type EsignRepository,
+  type EsignRequestParts,
   type EsignRequestRecord,
 } from './esign.repository.js';
 import { type EsignActor, EsignRequestsService, invalid, seesAll } from './requests.service.js';
@@ -123,7 +124,16 @@ export class EsignPrepareService {
   /** The rules' readiness check, plus APPROVER_MISSING (below). */
   async readiness(businessId: string, actor: EsignActor, id: string): Promise<EsignReadiness> {
     const { record } = await this.requests.reach(businessId, actor, id, 'read');
-    const parts = await this.repo.parts(businessId, id);
+    return this.check(businessId, actor, record, await this.repo.parts(businessId, id));
+  }
+
+  /** The readiness of a request already reached and read (the send route's check too). */
+  async check(
+    businessId: string,
+    actor: EsignActor,
+    record: EsignRequestRecord,
+    parts: EsignRequestParts,
+  ): Promise<EsignReadiness> {
     const [merge, defaults, consentPublished] = await Promise.all([
       this.merge(businessId, actor, record, parts.fields),
       this.repo.defaults(businessId),

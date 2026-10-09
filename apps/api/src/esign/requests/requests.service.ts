@@ -529,7 +529,7 @@ export class EsignRequestsService {
       voidedAt: null,
       voidReason: null,
       voidedBy: null,
-      originalSha256: null,
+      originalSha256: r.originalSha256,
       finalSha256: null,
       certificateSha256: null,
       finalDocumentId: null,

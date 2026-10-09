@@ -45,11 +45,20 @@ export interface EsignRequestRecord {
   sentAt: Date | null;
   expiresAt: Date | null;
   completedAt: Date | null;
+  /** Hex SHA-256 of the packet as sent; null until sent. */
+  originalSha256: string | null;
 }
 
 export type NewEsignRequest = Omit<
   EsignRequestRecord,
-  'id' | 'status' | 'createdAt' | 'lastActivityAt' | 'sentAt' | 'expiresAt' | 'completedAt'
+  | 'id'
+  | 'status'
+  | 'createdAt'
+  | 'lastActivityAt'
+  | 'sentAt'
+  | 'expiresAt'
+  | 'completedAt'
+  | 'originalSha256'
 >;
 
 /** What PATCH may change. */
@@ -152,6 +161,31 @@ export interface EsignListedRequest {
 /** An esign_events row, with the names as they were then; never a field value or content. */
 export type EsignEventRecord = Omit<EsignEvent, 'createdAt'> & { createdAt: Date };
 
+/** The Firm Sign emails the send route queues (the other templates come with their routes). */
+export type EsignQueuedTemplate = 'esign.request';
+
+/** What sending a DRAFT writes, in one transaction. */
+export interface EsignSendWrite {
+  sentAt: Date;
+  expiresAt: Date;
+  /** Hex SHA-256 of the packet, stored at keyFor(businessId, id, `packet-<sha256>.pdf`). */
+  originalSha256: string;
+  /**
+   * The recipients whose turn it is: SENT with `sentAt`. `tokenHash` is the SHA-256 of their
+   * one-time link token (esign_recipients.token_hash); null when no link goes out (PORTAL signs
+   * from the Signature center, IN_PERSON on a staff device). Never the token itself.
+   */
+  turn: { recipientId: string; tokenHash: string | null }[];
+  /**
+   * The emails to queue (esign_emails, QUEUED): who and which template, never the address, the
+   * link or the token. A queued email that never went out is sent again by the job runner with a
+   * fresh token, since the first one is not stored.
+   */
+  emails: { recipientId: string; template: EsignQueuedTemplate }[];
+  /** The SENT event. */
+  event: EsignEventRecord;
+}
+
 export interface EsignRepository {
   /** Up to `limit` matching requests after `after`, by lastActivityAt then id, descending. */
   listRequests(
@@ -222,6 +256,24 @@ export interface EsignRepository {
   ): Promise<boolean>;
   /** Replaces the fields. */
   saveFields(businessId: string, id: string, fields: EsignField[], readAt: Date): Promise<boolean>;
+  /**
+   * Sends the DRAFT: status SENT, the dates, the hash, the turn's recipients, the events row and
+   * the queued emails, under the request's FOR UPDATE lock. Approvals stand. Answers the queued
+   * emails' ids in `emails` order; null (nothing written) unless it is still a DRAFT whose
+   * lastActivityAt is `readAt`, so a double-click sends once.
+   */
+  sendDraft(
+    businessId: string,
+    id: string,
+    write: EsignSendWrite,
+    readAt: Date,
+  ): Promise<string[] | null>;
+  /** Records a queued email's attempt: SENT, or FAILED with the error's class name only. */
+  emailOutcome(
+    businessId: string,
+    emailId: string,
+    outcome: { sent: true } | { sent: false; error: string },
+  ): Promise<void>;
   // Uploads between createUpload and confirmUpload (draft writes from addDocument on).
   saveUpload(businessId: string, upload: EsignPendingUpload): Promise<void>;
   /**

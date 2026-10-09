@@ -53,6 +53,8 @@ export interface DirectoryClientContact {
 /** What the firm merge fields read, and the firm's time zone for the date. */
 export interface DirectoryFirm {
   name: string;
+  /** The portal path's firm part (`{PORTAL_BASE_URL}/{slug}`). */
+  slug: string;
   address: string | null;
   phone: string | null;
   email: string | null;
@@ -182,6 +184,7 @@ export class PrismaEsignDirectory implements EsignDirectory {
       where: { id: businessId },
       select: {
         name: true,
+        slug: true,
         settings: {
           select: { contactEmail: true, contactPhone: true, timezone: true, ...ADDRESS },
         },
@@ -190,6 +193,7 @@ export class PrismaEsignDirectory implements EsignDirectory {
     const settings = row.settings;
     return {
       name: row.name,
+      slug: row.slug,
       address: oneLineAddress(settings),
       phone: settings?.contactPhone ?? null,
       email: settings?.contactEmail ?? null,
