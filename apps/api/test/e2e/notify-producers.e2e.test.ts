@@ -191,6 +191,8 @@ beforeAll(async () => {
     AUTH_MODE: 'local',
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
+    // The phone step's completion; sign-up-phone-optional.e2e covers the email step's.
+    SIGNUP_PHONE_VERIFICATION: 'required',
   });
   portalOrigin = new URL(env.PORTAL_BASE_URL).origin;
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })

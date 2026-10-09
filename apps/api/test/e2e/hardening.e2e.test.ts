@@ -97,7 +97,10 @@ describe('body limit', () => {
     expect(at.status).toBe(400);
   });
 
-  it('the largest valid bodies of the contracts fit under it', async () => {
+  // Not every contract fits yet: EsignPutFieldsBody lets 500 DROPDOWN fields carry 50 options of
+  // 100 characters each (3 MB in ASCII, 8.7 MB in three-byte characters). No route takes it yet;
+  // the cap is asked of R13 (R8-hardening.md, Needs from others).
+  it('the largest Terms, 500 TEXT fields and an adopt fit under it', async () => {
     // Three-byte characters wherever text is free: the most bytes per allowed character.
     const wide = (n: number) => '€'.repeat(n);
     const terms = { body: wide(100_000) };
@@ -185,10 +188,14 @@ describe('rate limits', () => {
         problems.push(`${key}: skips the throttler`);
         continue;
       }
-      const limit = read<number>('LIMIT');
-      const ttl = read<number>('TTL');
-      // Per minute, whatever window the route names.
-      const perMinute = limit !== undefined && ttl ? (limit * 60_000) / ttl : undefined;
+      const limit = read<unknown>('LIMIT');
+      const ttl = read<unknown>('TTL');
+      // Per minute, whatever window the route names. A limit worked out per request (a function)
+      // can't be checked here, so it fails too.
+      const perMinute =
+        typeof limit === 'number' && typeof ttl === 'number' && ttl > 0
+          ? (limit * 60_000) / ttl
+          : undefined;
       if (perMinute === undefined || perMinute > PUBLIC_WRITE_LIMIT) {
         problems.push(`${key}: ${limit} per ${ttl} ms`);
       }

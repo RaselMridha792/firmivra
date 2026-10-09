@@ -1,7 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
 import { DATABASE } from '../../database/database.module.js';
+import { STRIPE_TIMEOUT_MS } from './stripe-gateway.js';
 import type { ConnectedAccount } from './stripe-gateway.js';
+
+/** accounts.create may take two tries of STRIPE_TIMEOUT_MS while the lock is held. */
+const ENSURE_LIMITS = { timeout: 2 * STRIPE_TIMEOUT_MS + 5_000 };
 
 /** What Firmivra stores of a connected account (`stripe_accounts`). */
 export interface OnboardingState {
@@ -50,10 +54,25 @@ export function toOnboardingState(account: ConnectedAccount): OnboardingState {
 export class StripeAccountsWriter {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
-  /** The firm's first account. Fails on a second one (business_id and account_id are unique). */
-  async insert(businessId: string, accountId: string, state: OnboardingState) {
-    return this.database.withScope({ kind: 'platform' }, (tx) =>
-      tx.stripeAccount.create({ data: { businessId, accountId, ...state } }),
+  /**
+   * The firm's row, made first with `create()` (Stripe's accounts.create) when it has none. Runs
+   * under an advisory lock per firm, so two clicks at once wait for each other and the second finds
+   * the first one's row: one Stripe call, one row. `created` says whether this call made it.
+   */
+  async ensure(businessId: string, create: () => Promise<ConnectedAccount>) {
+    return this.database.withScope(
+      { kind: 'platform' },
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`stripe-connect:${businessId}`}, 0))`;
+        const found = await tx.stripeAccount.findUnique({ where: { businessId } });
+        if (found) return { row: found, created: false };
+        const account = await create();
+        const row = await tx.stripeAccount.create({
+          data: { businessId, accountId: account.id, ...toOnboardingState(account) },
+        });
+        return { row, created: true };
+      },
+      ENSURE_LIMITS,
     );
   }
 
