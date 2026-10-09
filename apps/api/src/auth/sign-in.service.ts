@@ -7,7 +7,7 @@ import { type AuthContext, requestContext } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
-import { Notifier } from '../notifications/notifier.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { httpError, runFlow } from './auth-errors.js';
 import { ChallengeSessions } from './challenge-session.js';
 import {
@@ -379,9 +379,7 @@ export class SignInService {
         });
       }
     } catch (e) {
-      this.logger.warn(
-        `account.password-changed for user ${userId} not written (${(e as Error).name})`,
-      );
+      this.logger.warn(`account.password-changed for user ${userId} not written (${errorName(e)})`);
     }
   }
 

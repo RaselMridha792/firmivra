@@ -85,7 +85,7 @@ const publicPost = (path: string, body: object, origin?: string) => {
 };
 
 /** The staff bell of `who` in `businessId`, through the list route. */
-async function staffBell(who: Who, businessId: string) {
+async function staffBell(who: Pick<Who, 'email'>, businessId: string) {
   const res = await request(app.getHttpServer())
     .get('/api/v1/business/me/notifications')
     .set('authorization', `Bearer ${await tokenFor(who.email)}`)
@@ -219,12 +219,15 @@ afterAll(async () => {
   await app?.close();
 });
 
-/** Invites `email` to firm A as Staff (by firm A's owner) and returns the link's token. */
-async function inviteToA(email: string): Promise<{ token: string; membershipId: string }> {
+/** Invites `email` to firm A as `role` (by firm A's owner) and returns the link's token. */
+async function inviteToA(
+  email: string,
+  role: 'ADMIN' | 'STAFF',
+): Promise<{ token: string; membershipId: string }> {
   const res = await as(
     people.ownerA,
     '/api/v1/auth/invites',
-    { email, name: 'Invited Person', role: 'STAFF' },
+    { email, name: 'Invited Person', role },
     firms.a.id,
   );
   expect(res.status, JSON.stringify(res.body)).toBe(201);
@@ -234,10 +237,21 @@ async function inviteToA(email: string): Promise<{ token: string; membershipId: 
   return { token, membershipId: (res.body as { membershipId: string }).membershipId };
 }
 
+/**
+ * The joiner leaves firm A again, so later tests keep exactly firm A's fixed Owners and Admins
+ * as the recipients of staff events.
+ */
+const leaveA = (membershipId: string) =>
+  asOwner(firms.a.id, (tx) =>
+    tx.membership.update({ where: { id: membershipId }, data: { status: 'DEACTIVATED' } }),
+  );
+
+// The joiners are invited as Admins: Owners and Admins are the event's recipients, so only the
+// actor exclusion keeps the joiner out of their own notice.
 describe('staff.joined (R2 invites)', () => {
   it('an activated invite reaches the Owners and Admins only, in that firm only', async () => {
     const email = `r6p-new-${run}@r6p.test`;
-    const { token, membershipId } = await inviteToA(email);
+    const { token, membershipId } = await inviteToA(email, 'ADMIN');
     await publicPost('/api/v1/auth/activate', { token, password: 'New-staff-password-1' }).expect(
       200,
     );
@@ -267,10 +281,13 @@ describe('staff.joined (R2 invites)', () => {
     );
     // The record is the membership's id; the payload holds only the name its text shows.
     for (const r of rows) expect(r.payload).toEqual({ name: 'Invited Person', client: null });
+    // The new Admin, now a recipient of staff events, never gets their own.
+    expect(about(await staffBell({ email }, firms.a.id), membershipId)).toEqual([]);
+    await leaveA(membershipId);
   });
 
   it('an accepted invite reaches firm A Owners and Admins, never the joiner', async () => {
-    const { token, membershipId } = await inviteToA(people.joinerB.email);
+    const { token, membershipId } = await inviteToA(people.joinerB.email, 'ADMIN');
     const accepted = await as(people.joinerB, '/api/v1/auth/activation/accept', { token });
     expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
 
@@ -281,6 +298,7 @@ describe('staff.joined (R2 invites)', () => {
     expect(rows.every((r) => r.businessId === firms.a.id && r.category === 'ACCOUNT')).toBe(true);
     expect(about(await staffBell(people.joinerB, firms.a.id), membershipId)).toEqual([]);
     expect(about(await staffBell(people.ownerB, firms.b.id), membershipId)).toEqual([]);
+    await leaveA(membershipId);
   });
 });
 

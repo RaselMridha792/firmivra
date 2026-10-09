@@ -719,6 +719,7 @@ describe('SignInService: the ceiling warning comes once per email per window (#2
       ChallengeSessions.fromEnv(env),
       { log: vi.fn() } as never,
       env,
+      { notify: vi.fn() } as never,
     ) as unknown as Gate;
   const { windowMs } = SIGN_IN_LIMIT;
 

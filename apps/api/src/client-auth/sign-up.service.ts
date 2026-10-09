@@ -18,7 +18,7 @@ import { deriveKey, poolSecrets } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
-import { Notifier } from '../notifications/notifier.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
 import { canonicalIp, networkOf } from '../common/network.js';
 import { PortalInfoService } from './portal-info.controller.js';
@@ -978,7 +978,7 @@ export class SignUpService {
       });
     } catch (e) {
       this.logger.warn(
-        `client.signup-submitted for client account ${accountId} not written (${(e as Error).name})`,
+        `client.signup-submitted for client account ${accountId} not written (${errorName(e)})`,
       );
     }
   }

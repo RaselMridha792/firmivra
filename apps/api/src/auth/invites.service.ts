@@ -23,7 +23,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE, OUTSIDE_CALL_LIMITS } from '../database/database.module.js';
-import { Notifier } from '../notifications/notifier.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { ACTIVATION_MAILER, type ActivationMailer } from './activation-mailer.js';
 import { runFlow } from './auth-errors.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from './identity/identity-provider.js';
@@ -206,7 +206,8 @@ export class InvitesService {
     private readonly audit: AuditService,
     @Inject(ENV) private readonly env: Env,
     // Absent in R4's own InvitesService (owner-invites.ts), which only creates invites: the
-    // link is used through this module's service, which writes the bell item.
+    // link is used through this module's service, which writes the bell item. Without
+    // NotificationsModule in the importing module, `staff.joined` is skipped silently.
     @Optional() private readonly notifier?: Notifier,
   ) {}
 
@@ -568,9 +569,7 @@ export class InvitesService {
         actorUserId: userId,
       });
     } catch (e) {
-      this.logger.warn(
-        `staff.joined for membership ${membershipId} not written (${(e as Error).name})`,
-      );
+      this.logger.warn(`staff.joined for membership ${membershipId} not written (${errorName(e)})`);
     }
   }
 
