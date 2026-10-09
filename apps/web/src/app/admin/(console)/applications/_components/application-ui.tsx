@@ -45,16 +45,16 @@ const statusNames: Record<FirmApplicationReviewStatus, string> = {
 };
 
 const statusTones: Record<FirmApplicationReviewStatus, string> = {
-  PENDING_REVIEW: 'bg-brand-50 text-brand-700',
-  APPROVED: 'bg-success/10 text-success',
-  DECLINED: 'bg-danger/10 text-danger',
+  PENDING_REVIEW: 'bg-warning-soft text-warning',
+  APPROVED: 'bg-success-soft text-success',
+  DECLINED: 'bg-danger-soft text-danger',
 };
 
 export function StatusPill({ status }: { status: FirmApplicationReviewStatus }) {
   return (
     <span
       data-testid="application-status"
-      className={`inline-flex rounded-control px-3 py-1 text-xs font-medium ${statusTones[status]}`}
+      className={`inline-flex rounded-pill px-3 py-1 text-sm font-medium ${statusTones[status]}`}
     >
       {statusNames[status]}
     </span>
