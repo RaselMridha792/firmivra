@@ -133,7 +133,8 @@ info:
     (`GET /portal/{slug}/me/signatures?tab=PENDING|SIGNED`), opens an ACTION_NEEDED one without
     an email code (`POST .../{recipientId}/session`, which sets the same signer cookie; then the
     signer routes from CONSENT on), and downloads a COMPLETED one's files. The client comes from
-    the portal session, never the URL; another login's recipient answers 404.
+    the portal session, never the URL; another login's recipient answers 404. While Firm Sign is
+    off, `status` answers `{ enabled: false }` and the other routes `403 MODULE_OFF`.
 
     ## Settings and templates (contract 2)
 
@@ -829,6 +830,24 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '410': { $ref: '#/components/responses/Gone' }
 
+  /portal/{firmSlug}/sign/attachments/{fieldId}:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+      - { name: fieldId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [esign-signer]
+      operationId: signerAttachmentRemove
+      x-roles: [SIGNER]
+      summary: 'Remove the file from one of their ATTACHMENT fields before they finish (`SignerField`, `attachmentName: null`); 404 when the field is not theirs or has no file'
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /portal/{firmSlug}/sign/copy:
     parameters:
       - { name: firmSlug, in: path, required: true, schema: { type: string } }
@@ -879,6 +898,7 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /portal/{firmSlug}/me/signatures/{recipientId}/session:
@@ -895,7 +915,9 @@ paths:
         '200':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /portal/{firmSlug}/me/signatures/{recipientId}/download:
@@ -915,6 +937,7 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
