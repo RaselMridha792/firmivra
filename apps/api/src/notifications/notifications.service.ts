@@ -25,7 +25,7 @@ export interface Me {
   businessId: string;
   userId: string;
   side: Side;
-  /** The client login (portal side): its verified phone offers SMS. */
+  /** The client login (portal side). */
   clientAccountId?: string;
 }
 
@@ -231,7 +231,7 @@ export class NotificationsService {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
         message: 'Text messages are not available for you yet',
-        details: [{ path: 'items', message: 'SMS is not offered: add a verified phone number' }],
+        details: [{ path: 'items', message: 'SMS is not offered: add a phone number' }],
       });
     }
     await this.inFirm(me, async (tx) => {
@@ -270,19 +270,15 @@ export class NotificationsService {
   }
 
   /**
-   * SMS shows once texts can go out (a registered number, SMS_MODE=sns) and the person has a
-   * verified phone number: a client login whose phone was verified at sign-up. Staff have no
-   * verified number in Firmivra yet, so EMAIL only.
+   * q27 (Rasel, Oct 8): the SMS switch shows for anyone with a phone number on their login; it
+   * only stores the choice, and no text goes out until SMS is switched on in config.
    */
   private async smsOffered(me: Me): Promise<boolean> {
-    if (this.config.sms.mode !== 'sns' || me.side !== 'client' || !me.clientAccountId) {
-      return false;
-    }
-    const account = await this.database.forBusiness(me.businessId).clientAccount.findFirst({
-      where: { businessId: me.businessId, id: me.clientAccountId, userId: me.userId },
-      select: { phoneVerifiedAt: true, user: { select: { phone: true } } },
+    const user = await this.database.forBusiness(me.businessId).user.findFirst({
+      where: { id: me.userId },
+      select: { phone: true },
     });
-    return Boolean(account?.phoneVerifiedAt && account.user.phone);
+    return Boolean(user?.phone);
   }
 
   private async answer(me: Me, sms: boolean): Promise<NotificationPreferences> {

@@ -231,9 +231,9 @@ const memberSelect = { userId: true, user: { select: { name: true } } } as const
 /**
  * Who gets an event, in beta (R6 Decisions, Oct 8; the lead's binding rule from #106 and q27):
  * - client side: the client's ACTIVE PRIMARY portal login only; a note reminder only its owner;
- * - staff side: the client's assigned member when that member is ACTIVE; the firm's ACTIVE
- *   Owners and Admins only when the client has none (or the record has no client, such as a
- *   sign-up waiting or a new team member). A Staff member not assigned to the client never.
+ * - staff side (q27): the client's assigned member when that member is ACTIVE, and always the
+ *   firm's ACTIVE Owners and Admins (also when the record has no client, such as a sign-up
+ *   waiting or a new team member). A Staff member not assigned to the client never.
  * The client's row is locked FOR SHARE first (as task assignment does), so a reassignment that
  * commits meanwhile is either seen or waits.
  */
@@ -277,26 +277,21 @@ async function recipientsOf(
         )?.displayName,
       );
     }
+    // q27 (Rasel, Oct 8): news about a client goes to its assigned member AND every Owner and
+    // Admin; a record without a client to the Owners and Admins; a personal one to that person.
     const members = record.personUserId
       ? await tx.membership.findMany({
           where: { ...active, userId: record.personUserId },
           select: memberSelect,
         })
-      : assigned
-        ? await tx.membership.findMany({
-            where: { ...active, userId: assigned },
-            select: memberSelect,
-          })
-        : [];
-    if (members.length === 0 && !record.personUserId) {
-      members.push(
-        ...(await tx.membership.findMany({
-          where: { ...active, role: { in: ['OWNER', 'ADMIN'] } },
+      : await tx.membership.findMany({
+          where: {
+            ...active,
+            OR: [{ role: { in: ['OWNER', 'ADMIN'] } }, ...(assigned ? [{ userId: assigned }] : [])],
+          },
           select: memberSelect,
           orderBy: { createdAt: 'asc' },
-        })),
-      );
-    }
+        });
     members.map(asStaff);
   }
   return { recipients: out, clientName };

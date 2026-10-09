@@ -361,7 +361,7 @@ describe('Notifier: who gets an event', () => {
     ]);
   });
 
-  it("a staff event reaches the client's assigned member only, never another Staff member", async () => {
+  it("a staff event reaches the client's assigned member and every Owner and Admin, never another Staff member", async () => {
     await notifier.notify({
       ...A(),
       event: 'message.received',
@@ -372,7 +372,11 @@ describe('Notifier: who gets an event', () => {
     const [row] = await rowsOf(people.staff1);
     expect(row).toMatchObject({ type: 'message.received', entityType: 'message_thread' });
     expect(row?.payload).toEqual({ client: 'Jamie Sample (fake)' });
-    for (const who of [people.ownerA, people.adminA, people.staff2, people.primary1]) {
+    // q27: the Owners and Admins always get client news too.
+    for (const who of [people.ownerA, people.adminA]) {
+      expect((await rowsOf(who)).filter((r) => r.entityId === ids.thread1)).toHaveLength(1);
+    }
+    for (const who of [people.staff2, people.primary1, people.adminGone]) {
       expect((await rowsOf(who)).filter((r) => r.type === 'message.received')).toEqual([]);
     }
   });
@@ -427,10 +431,12 @@ describe('Notifier: who gets an event', () => {
         recordId: ids.appointment1,
         actorUserId: people.primary1.id,
       }),
-    ).toEqual({ written: 1 });
+    ).toEqual({ written: 3 });
     const booked = async (who: Who) =>
       (await rowsOf(who)).filter((r) => r.entityId === ids.appointment1).length;
-    expect([await booked(people.primary1), await booked(people.staff1)]).toEqual([0, 1]);
+    expect(
+      await Promise.all([people.primary1, people.staff1, people.ownerA, people.adminA].map(booked)),
+    ).toEqual([0, 1, 1, 1]);
     expect(outbox.map((m) => [m.template, m.to, m.recipient])).toEqual([
       ['appointment.booked', people.primary1.email, { userId: people.primary1.id }],
     ]);
@@ -710,18 +716,12 @@ describe('portal routes: the client login’s own', () => {
   });
 });
 
-describe('SMS is offered only once texts can go out and the person has a verified phone', () => {
-  const setPhone = async (phone: string | null, verified: boolean) => {
+describe('SMS switch: shown for anyone with a phone number, whatever SMS_MODE says (q27)', () => {
+  const setPhone = async (who: Who, phone: string | null) => {
     const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     try {
       await runInScope(owner, { kind: 'platform' }, (tx) =>
-        tx.user.update({ where: { id: people.spouse1.id }, data: { phone } }),
-      );
-      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
-        tx.clientAccount.updateMany({
-          where: { businessId: ids.firmA, userId: people.spouse1.id },
-          data: { phoneVerifiedAt: verified ? new Date() : null },
-        }),
+        tx.user.update({ where: { id: who.id }, data: { phone } }),
       );
     } finally {
       await owner.$disconnect();
@@ -736,43 +736,34 @@ describe('SMS is offered only once texts can go out and the person has a verifie
     ).channels;
   const optIn = { items: [{ category: 'DOCUMENTS', sms: true }] };
 
-  it('client: only with SMS_MODE=sns, a phone number and its verification; staff never', async () => {
+  it('client and staff: EMAIL only without a number; SMS with one, and the choice is kept', async () => {
     const config = app.get<NotifyConfig>(NOTIFY_CONFIG);
-    const saved = config.sms;
-    config.sms = { mode: 'sns', originationNumber: '+15555550100' };
+    expect(config.sms.mode).not.toBe('sns');
+    // No phone number: EMAIL only, and an SMS opt-in is refused.
+    expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL']);
+    expectError(
+      await portal('patch', '/notification-preferences', people.spouse1, optIn),
+      400,
+      'VALIDATION_FAILED',
+    );
+    // A number (verified or not, SMS_MODE=log): the switch shows and stores the choice.
+    await setPhone(people.spouse1, '+15555550123');
+    expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL', 'SMS']);
+    const prefs = exact(
+      NotificationPreferences,
+      await portal('patch', '/notification-preferences', people.spouse1, optIn),
+    );
+    expect(prefs.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({ sms: true });
+    // Staff: the same rule.
+    expect(await channels(people.ownerA, 'firm')).toEqual(['EMAIL']);
+    await setPhone(people.ownerA, '+15555550124');
     try {
-      // No phone number: EMAIL only, and an SMS opt-in is refused.
-      expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL']);
-      expectError(
-        await portal('patch', '/notification-preferences', people.spouse1, optIn),
-        400,
-        'VALIDATION_FAILED',
-      );
-      // A number that was never verified: still EMAIL only.
-      await setPhone('+15555550123', false);
-      expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL']);
-      // A verified number but none on the account: EMAIL only.
-      await setPhone(null, true);
-      expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL']);
-      // Both: SMS is offered and the opt-in is kept.
-      await setPhone('+15555550123', true);
-      expect(await channels(people.spouse1, 'portal')).toEqual(['EMAIL', 'SMS']);
-      const prefs = exact(
-        NotificationPreferences,
-        await portal('patch', '/notification-preferences', people.spouse1, optIn),
-      );
-      expect(prefs.items.find((i) => i.category === 'DOCUMENTS')).toMatchObject({ sms: true });
-      // Staff have no verified number in Firmivra: EMAIL only, and the opt-in is refused.
-      expect(await channels(people.ownerA, 'firm')).toEqual(['EMAIL']);
-      expectError(
-        await firm('patch', '/notification-preferences', people.ownerA, optIn),
-        400,
-        'VALIDATION_FAILED',
-      );
+      expect(await channels(people.ownerA, 'firm')).toEqual(['EMAIL', 'SMS']);
     } finally {
-      config.sms = saved;
+      await setPhone(people.ownerA, null);
     }
-    // Texts cannot go out (SMS_MODE=log): EMAIL only again, and the stored choice shows off.
+    // The number removed: EMAIL only again, and the stored choice shows off.
+    await setPhone(people.spouse1, null);
     const off = exact(
       NotificationPreferences,
       await portal('get', '/notification-preferences', people.spouse1),
