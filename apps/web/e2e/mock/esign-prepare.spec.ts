@@ -14,9 +14,9 @@ test('start a request, upload a file, wait for its check and remove it', async (
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(/\/firm-sign\/requests\/[0-9a-f-]+\/prepare$/);
   await expect(page.getByTestId('page-title')).toHaveText('Synthetic Engagement Letter');
-  await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible();
-  await expect(page.getByText('Add a file to continue.')).toBeVisible();
-
+  await expect(
+    page.getByRole('navigation', { name: 'Steps' }).getByRole('link', { name: 'Documents' }),
+  ).toHaveAttribute('aria-current', 'step');
   await page
     .getByLabel('Upload files')
     .setInputFiles({ ...PDF, buffer: Buffer.from('%PDF-1.4 synthetic') });
@@ -31,6 +31,22 @@ test('start a request, upload a file, wait for its check and remove it', async (
   await expect(page.getByText('No files yet.')).toBeVisible();
 });
 
+test('from a client record: the client is chosen and their files can be added', async ({
+  page,
+}) => {
+  await page.goto(app(`/firm-sign/new?clientId=${JAMIE}`));
+  await expect(page.getByLabel('Client', { exact: true })).toHaveValue(JAMIE);
+  await page.getByLabel('Document name').fill('Synthetic W-2 sign-off');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText('For Jamie Sample')).toBeVisible();
+  await page.getByLabel('Find a file').fill('W-2');
+  await page.getByLabel('File', { exact: true }).selectOption({ label: 'W-2_2025.pdf' });
+  await page.getByRole('button', { name: 'Add file' }).click();
+  // Files from the client's documents were already checked.
+  await expect(page.getByTestId('request-files')).toContainText('W-2_2025.pdf');
+  await expect(page.getByTestId('request-files')).toContainText('Ready');
+});
+
 test('a file that cannot be read says so', async ({ page }) => {
   await page.goto(app('/firm-sign/new'));
   await page.getByLabel('Document name').fill('Synthetic broken upload');
@@ -42,22 +58,6 @@ test('a file that cannot be read says so', async ({ page }) => {
   });
   await expect(page.getByRole('alert').filter({ hasText: 'broken.pdf:' })).toBeVisible();
   await expect(page.getByText('No files yet.')).toBeVisible();
-});
-
-test('from a client record: the client is chosen and their files can be added', async ({
-  page,
-}) => {
-  await page.goto(app(`/firm-sign/new?clientId=${JAMIE}`));
-  await expect(page.getByLabel('Client')).toHaveValue(JAMIE);
-  await page.getByLabel('Document name').fill('Synthetic W-2 sign-off');
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByText('For Jamie Sample')).toBeVisible();
-  const pick = page.getByLabel(/Or pick from Jamie Sample/);
-  await pick.selectOption({ label: 'W-2_2025.pdf' });
-  await page.getByRole('button', { name: 'Add file' }).click();
-  // Files from the client's documents were already checked.
-  await expect(page.getByTestId('request-files')).toContainText('W-2_2025.pdf');
-  await expect(page.getByTestId('request-files')).toContainText('Ready');
 });
 
 test('a sent request cannot be prepared', async ({ page }) => {

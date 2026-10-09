@@ -3,21 +3,23 @@
 import {
   DOCUMENT_ERRORS,
   ESIGN_ERRORS,
+  ESIGN_MAX_PAGES,
   ESIGN_UPLOAD_TYPES,
   EsignContentType,
   type EsignDocument,
   type EsignRequestDetail,
+  UPLOAD_LIMITS,
 } from '@firmivra/types';
-import { Button, Card, Select } from '@firmivra/ui';
-import { useQueryClient } from '@tanstack/react-query';
+import { Button, Card, Input, Select } from '@firmivra/ui';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText } from 'lucide-react';
 import Link from 'next/link';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
-import { useApiMutation, useApiQuery } from '../../../../../../../../lib/query';
+import { useApiMutation } from '../../../../../../../../lib/query';
 import { uploadFile } from '../../../../../../../../lib/upload';
-import { stepHref } from './steps';
+import { requestKey, stepHref } from './steps';
 
 const ERRORS = { ...DOCUMENT_ERRORS, ...ESIGN_ERRORS };
 const ACCEPT = Object.entries(ESIGN_UPLOAD_TYPES)
@@ -33,20 +35,19 @@ const SCAN: Record<EsignDocument['scanStatus'], [string, string]> = {
 
 /** Step 1: the files to sign, uploaded or copied from the client's documents. */
 export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
-  const key = ['esign', 'requests', r.id];
-  const remove = useApiMutation((docId: string) => api.esign.removeDocument(r.id, docId), {
-    invalidate: key,
-  });
+  const queryClient = useQueryClient();
+  const remove = useApiMutation((docId: string) => api.esign.removeDocument(r.id, docId));
+  const ready = r.documents.length > 0 && r.documents.every((d) => d.scanStatus === 'CLEAN');
   return (
     <div className="flex flex-col gap-6">
       <Card className="flex flex-col gap-4">
         <h2 className="font-display text-2xl text-heading">Documents</h2>
         <p className="text-sm text-muted">
-          PDF, JPG or PNG, up to 10 MB each and 100 pages in all. Files are checked for viruses
-          before they can be sent.
+          PDF, JPG or PNG, up to {UPLOAD_LIMITS.maxBytes / 1024 / 1024} MB each and{' '}
+          {ESIGN_MAX_PAGES} pages in all. Files are checked for viruses before they can be sent.
         </p>
         <Upload r={r} />
-        {r.client && <FromClient r={r} clientId={r.client.id} />}
+        {r.client && <FromClient r={r} client={r.client} />}
       </Card>
       <Card>
         <h2 className="mb-4 font-semibold text-heading">Files in this request</h2>
@@ -70,7 +71,11 @@ export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
                     variant="ghost"
                     aria-label={`Remove ${d.fileName}`}
                     disabled={remove.isPending}
-                    onClick={() => remove.mutate(d.id)}
+                    onClick={() =>
+                      remove.mutate(d.id, {
+                        onSuccess: (next) => queryClient.setQueryData(requestKey(r.id), next),
+                      })
+                    }
                   >
                     Remove
                   </Button>
@@ -86,7 +91,7 @@ export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
         )}
       </Card>
       <div className="flex flex-wrap gap-3">
-        {r.documents.length > 0 ? (
+        {ready ? (
           <Link
             href={stepHref(r.id, 'recipients')}
             className="inline-flex min-h-11 items-center justify-center rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
@@ -94,7 +99,11 @@ export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
             Next: Recipients
           </Link>
         ) : (
-          <p className="text-sm text-muted">Add a file to continue.</p>
+          <p className="text-sm text-muted">
+            {r.documents.length === 0
+              ? 'Add a file to continue.'
+              : 'Wait until every file is ready, or remove the ones that are blocked.'}
+          </p>
         )}
       </div>
     </div>
@@ -106,11 +115,11 @@ function Upload({ r }: { r: EsignRequestDetail }) {
   const inputId = useId();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
-  const [failures, setFailures] = useState<string[]>([]);
+  const [failures, setFailures] = useState<{ key: string; text: string }[]>([]);
 
   async function send(files: File[]) {
-    const failed: string[] = [];
-    for (const file of files) {
+    setFailures([]);
+    for (const [i, file] of files.entries()) {
       setBusy(`Uploading ${file.name}…`);
       try {
         await uploadFile(file, {
@@ -118,13 +127,14 @@ function Upload({ r }: { r: EsignRequestDetail }) {
           finish: (uploadToken) => api.esign.confirmUpload(r.id, { uploadToken }),
           onProgress: (p) => setBusy(`Uploading ${file.name}: ${p}%`),
         });
+        // Each file shows (and starts its virus check) as soon as it is in.
+        void queryClient.invalidateQueries({ queryKey: requestKey(r.id) });
       } catch (error) {
-        failed.push(`${file.name}: ${errorMessage(error, ERRORS)}`);
+        const text = `${file.name}: ${errorMessage(error, ERRORS)}`;
+        setFailures((f) => [...f, { key: `${Date.now()}-${i}`, text }]);
       }
     }
     setBusy(null);
-    setFailures(failed);
-    await queryClient.invalidateQueries({ queryKey: ['esign', 'requests', r.id] });
   }
 
   return (
@@ -154,20 +164,34 @@ function Upload({ r }: { r: EsignRequestDetail }) {
         </p>
       )}
       {failures.map((f) => (
-        <p key={f} role="alert" className="text-sm text-danger">
-          {f}
+        <p key={f.key} role="alert" className="text-sm text-danger">
+          {f.text}
         </p>
       ))}
     </div>
   );
 }
 
-/** One of the client's own files (PDF, JPG or PNG that passed its virus check). */
-function FromClient({ r, clientId }: { r: EsignRequestDetail; clientId: string }) {
+/** One of the client's own files (PDF, JPG or PNG that passed its virus check), found by name. */
+function FromClient({
+  r,
+  client,
+}: {
+  r: EsignRequestDetail;
+  client: NonNullable<EsignRequestDetail['client']>;
+}) {
   const [picked, setPicked] = useState('');
-  const docs = useApiQuery(['documents', clientId, 'esign-pick'], () =>
-    api.documents.list(clientId, { limit: 100 }),
-  );
+  const [q, setQ] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(q.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [q]);
+  const docs = useQuery({
+    queryKey: ['documents', client.id, 'esign-pick', search],
+    queryFn: () => api.documents.list(client.id, { limit: 100, ...(search && { search }) }),
+    placeholderData: keepPreviousData,
+  });
   const usable = (docs.data?.items ?? []).filter(
     (d) =>
       d.scanStatus === 'CLEAN' &&
@@ -175,34 +199,52 @@ function FromClient({ r, clientId }: { r: EsignRequestDetail; clientId: string }
       !r.documents.some((x) => x.sourceDocumentId === d.id),
   );
   const add = useApiMutation((documentId: string) => api.esign.addFromVault(r.id, { documentId }), {
-    invalidate: ['esign', 'requests', r.id],
+    invalidate: requestKey(r.id),
   });
-  if (usable.length === 0) return null;
   return (
     <form
-      className="flex flex-wrap items-end gap-3"
+      className="flex flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (picked) add.mutate(picked, { onSuccess: () => setPicked('') });
       }}
     >
-      <div className="min-w-0 flex-1">
+      <h3 className="font-semibold text-heading">
+        Or add one of {client.displayName}&apos;s files
+      </h3>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Input
+          label="Find a file"
+          type="search"
+          maxLength={100}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
         <Select
-          label={`Or pick from ${r.client?.displayName ?? 'the client'}'s documents`}
+          label="File"
           value={picked}
           onChange={(e) => setPicked(e.target.value)}
           options={[
-            { value: '', label: 'Choose a file' },
+            {
+              value: '',
+              label: docs.isPending
+                ? 'Loading…'
+                : usable.length
+                  ? 'Choose a file'
+                  : 'No PDF, JPG or PNG files found',
+            },
             ...usable.map((d) => ({ value: d.id, label: d.fileName })),
           ]}
         />
       </div>
-      <Button type="submit" variant="secondary" disabled={!picked || add.isPending}>
-        Add file
-      </Button>
-      {add.error && (
-        <p role="alert" className="w-full text-sm text-danger">
-          {errorMessage(add.error, ERRORS)}
+      <div>
+        <Button type="submit" variant="secondary" disabled={!picked || add.isPending}>
+          Add file
+        </Button>
+      </div>
+      {(docs.isError || add.error) && (
+        <p role="alert" className="text-sm text-danger">
+          {errorMessage(add.error ?? docs.error, ERRORS)}
         </p>
       )}
     </form>
