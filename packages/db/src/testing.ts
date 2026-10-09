@@ -75,8 +75,8 @@ export async function prepareTestDatabase(
       invoices, invoice_lines, payments, payment_events, content_items, calculator_definitions,
       stripe_accounts, firm_application_status_history, verification_codes, tax_returns,
       payment_refunds, platform_user_signups, platform_owner_invites, firm_agreements,
-      firm_agreement_files, firm_agreement_versions, intake_signatures, intake_signature_agreements
-      CASCADE`);
+      firm_agreement_files, firm_agreement_versions, intake_signatures, intake_signature_agreements,
+      offline_payments CASCADE`);
   } finally {
     await owner.end();
   }

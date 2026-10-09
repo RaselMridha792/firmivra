@@ -1,14 +1,8 @@
 'use client';
 
-import {
-  ENTITY_TYPES,
-  FIRM_PLANS,
-  FIRM_SERVICES,
-  PRACTICE_TYPES,
-  type FirmApplicationReviewStatus,
-  type ListFirmApplicationsQuery,
-} from '@firmivra/types';
-import { Button, Card, Input } from '@firmivra/ui';
+import { type FirmApplicationReviewStatus, type ListFirmApplicationsQuery } from '@firmivra/types';
+import { Card } from '@firmivra/ui';
+import { CircleCheck, FileText, UsersRound, X } from 'lucide-react';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useMe } from '../../../../../components/signed-in';
@@ -16,9 +10,20 @@ import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
 import { applicationCountsKey, applicationListKey } from './application-data';
 import {
+  cellClass,
+  EmailText,
+  emailCellClass,
+  firstCellClass,
+  formatPhone,
+  ListPager,
+  ListTable,
+  SearchBox,
+  selectClass,
+  StatCard,
+} from '../../_components/list-parts';
+import {
   ApplicationPageState,
   dateParts,
-  MetricCards,
   NoApplicationPermission,
   StatusPill,
 } from './application-ui';
@@ -85,223 +90,250 @@ export function ApplicationList() {
 
   return (
     <div className="flex w-full flex-col gap-5">
-      <header>
-        <h1
-          data-testid="page-title"
-          className="font-serif text-5xl font-semibold tracking-tight text-text"
-        >
-          Firm Applications
-        </h1>
-        <p className="mt-2 text-lg text-muted">
-          Review and manage new firm applications. Approve firms to activate their accounts.
-        </p>
-      </header>
-
-      <ApplicationPageState query={counts}>
-        {(data) => <MetricCards counts={data} />}
-      </ApplicationPageState>
-
-      <Card className="!p-0" aria-label="Applications">
-        <div
-          role="tablist"
-          aria-label="Application status"
-          className="flex gap-5 overflow-x-auto border-b border-border px-5"
-        >
-          {tabs.map(({ id, label }) => {
-            const value =
-              id === 'all'
-                ? count?.all
-                : id === 'PENDING_REVIEW'
-                  ? count?.pendingReview
-                  : id === 'APPROVED'
-                    ? count?.approved
-                    : count?.declined;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={id === tab}
-                onClick={() => {
-                  setTab(id);
-                  setStatusFilter('');
-                  setPage(1);
-                }}
-                className={`shrink-0 border-b-2 px-1 py-4 text-sm ${id === tab ? 'border-brand-700 font-semibold text-brand-700' : 'border-transparent text-muted'}`}
-              >
-                {label} ({value ?? '…'})
-              </button>
-            );
-          })}
+      <header className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
+        <div>
+          <h1
+            data-testid="page-title"
+            className="font-display text-4xl font-bold tracking-tight text-heading md:text-5xl"
+          >
+            Firm Applications
+          </h1>
+          <p className="mt-1 text-lg text-muted">
+            Review and manage new firm applications. Approve firms to activate their accounts.
+          </p>
         </div>
-
-        <div className="grid gap-4 border-b border-border p-5 md:grid-cols-3">
-          <Input
+        <div className="flex flex-col gap-3 sm:flex-row 2xl:mt-2">
+          <SearchBox
             label="Search applications"
-            type="search"
-            maxLength={100}
+            className="sm:w-80"
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
               setPage(1);
             }}
-            placeholder="Business name, owner, or email"
+            placeholder="Search by business, owner, or email..."
           />
-          <label className="flex flex-col gap-1 text-sm font-medium text-text">
-            Status
-            <select
-              aria-label="Filter by status"
-              value={statusFilter}
-              onChange={(event) => {
-                setStatusFilter(event.target.value as StatusFilter);
-                setTab('all');
-                setPage(1);
-              }}
-              className="h-10 rounded-control border border-border bg-surface px-3 text-base font-normal"
-            >
-              {statuses.map(({ value, label }) => (
-                <option key={value || 'all'} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm font-medium text-text">
-            Date range
-            <select
-              aria-label="Filter by date range"
-              value={dateRange}
-              onChange={(event) => {
-                const value = event.target.value as DateRange;
-                setDateRange(value);
-                setDates(rangeBounds(value));
-                setPage(1);
-              }}
-              className="h-10 rounded-control border border-border bg-surface px-3 text-base font-normal"
-            >
-              <option value="all">All time</option>
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="month">This month</option>
-            </select>
-          </label>
+          <select
+            aria-label="Filter by status"
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(event.target.value as StatusFilter);
+              setTab('all');
+              setPage(1);
+            }}
+            className={selectClass}
+          >
+            {statuses.map(({ value, label }) => (
+              <option key={value || 'all'} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Filter by date range"
+            value={dateRange}
+            onChange={(event) => {
+              const value = event.target.value as DateRange;
+              setDateRange(value);
+              setDates(rangeBounds(value));
+              setPage(1);
+            }}
+            className={`${selectClass} sm:w-36`}
+          >
+            <option value="all">All Time</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="month">This month</option>
+          </select>
         </div>
+      </header>
 
-        <ApplicationPageState
-          query={applications}
-          empty="No applications match these filters."
-          isEmpty={(data) => data.total === 0}
-        >
-          {(data) => (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-5xl table-fixed text-left text-sm">
-                  <thead className="bg-canvas">
-                    <tr>
-                      {[
-                        'Business name',
-                        'Business type',
-                        'Owner / contact',
-                        'Email',
-                        'Services',
-                        'Requested plan',
-                        'Submitted',
-                        'Status',
-                        'Action',
-                      ].map((label) => (
-                        <th key={label} className="whitespace-nowrap px-3 py-4 font-medium">
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {data.items.map((application) => {
-                      const [day, time] = dateParts(application.submittedAt);
-                      return (
-                        <tr
-                          key={application.id}
-                          data-testid="application-row"
-                          className="align-top hover:bg-canvas/70"
-                        >
-                          <th
-                            scope="row"
-                            className="min-w-32 break-words px-3 py-4 text-left font-semibold"
-                          >
-                            {application.legalName}
-                          </th>
-                          <td className="px-3 py-4">
-                            {application.practiceType && application.entityType
-                              ? `${PRACTICE_TYPES[application.practiceType]} · ${ENTITY_TYPES[application.entityType]}`
-                              : '—'}
-                          </td>
-                          <td className="min-w-32 break-words px-3 py-4">
+      <ApplicationPageState query={counts}>
+        {(data) => (
+          <section
+            aria-label="Application totals"
+            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+          >
+            <StatCard
+              label="Pending Review"
+              value={data.pendingReview}
+              icon={FileText}
+              tone="info"
+            />
+            <StatCard
+              label="Approved This Month"
+              value={data.approvedThisMonth}
+              icon={CircleCheck}
+              tone="success"
+            />
+            <StatCard
+              label="Declined This Month"
+              value={data.declinedThisMonth}
+              icon={X}
+              tone="danger"
+            />
+            <StatCard label="Total Applications" value={data.all} icon={UsersRound} tone="purple" />
+          </section>
+        )}
+      </ApplicationPageState>
+
+      <div
+        role="tablist"
+        aria-label="Application status"
+        className="flex gap-6 overflow-x-auto border-b border-border"
+      >
+        {tabs.map(({ id, label }) => {
+          const value =
+            id === 'all'
+              ? count?.all
+              : id === 'PENDING_REVIEW'
+                ? count?.pendingReview
+                : id === 'APPROVED'
+                  ? count?.approved
+                  : count?.declined;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={id === tab}
+              onClick={() => {
+                setTab(id);
+                setStatusFilter('');
+                setPage(1);
+              }}
+              className={`-mb-px shrink-0 border-b-2 px-1 py-3 text-sm ${id === tab ? 'border-action font-semibold text-action' : 'border-transparent text-muted hover:text-heading'}`}
+            >
+              {label} ({value ?? '…'})
+            </button>
+          );
+        })}
+      </div>
+
+      <ApplicationPageState
+        query={applications}
+        empty="No applications match these filters."
+        isEmpty={(data) => data.total === 0}
+      >
+        {(data) => (
+          <>
+            <Card variant="elevated" className="overflow-hidden !p-0" aria-label="Applications">
+              <ul className="divide-y divide-border sm:hidden">
+                {data.items.map((application) => {
+                  const [day, time] = dateParts(application.submittedAt);
+                  return (
+                    <li key={application.id} className="space-y-3 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 break-words font-semibold text-heading">
+                          {application.legalName}
+                        </p>
+                        <StatusPill status={application.status} />
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border pt-3 text-sm">
+                        <div className="col-span-2">
+                          <dt className="text-xs text-muted">Owner / Contact</dt>
+                          <dd className="mt-1 break-words font-medium text-text">
                             {application.contactName}
-                            <span className="block text-muted">{application.contactPhone}</span>
-                          </td>
-                          <td className="break-all px-3 py-4">{application.contactEmail}</td>
-                          <td className="break-words px-3 py-4">
-                            {application.services
-                              .map((service) => FIRM_SERVICES[service])
-                              .join(', ') || '—'}
-                          </td>
-                          <td className="px-3 py-4">
-                            {application.requestedPlan
-                              ? FIRM_PLANS[application.requestedPlan]
-                              : '—'}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-4 text-muted">
-                            {day}
-                            <span className="block">{time}</span>
-                          </td>
-                          <td className="px-3 py-4">
-                            <StatusPill status={application.status} />
-                          </td>
-                          <td className="px-3 py-4">
-                            <Link
-                              aria-label={`Open application for ${application.legalName}`}
-                              className="inline-flex rounded-control bg-brand-700 px-3 py-2 font-medium text-white"
-                              href={`/applications/${application.id}`}
-                            >
-                              Open Application
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <span className="block font-normal text-muted wrap-anywhere">
+                              <EmailText value={application.contactEmail} />
+                            </span>
+                            {application.contactPhone ? (
+                              <span className="block font-normal text-muted">
+                                {formatPhone(application.contactPhone)}
+                              </span>
+                            ) : null}
+                          </dd>
+                        </div>
+                        <div className="col-span-2">
+                          <dt className="text-xs text-muted">Submitted</dt>
+                          <dd className="mt-1 text-text">
+                            {day}, {time}
+                          </dd>
+                        </div>
+                      </dl>
+                      <Link
+                        aria-label={`Open application for ${application.legalName}`}
+                        className="flex justify-center rounded-control bg-platform-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-platform-navy-raised"
+                        href={`/applications/${application.id}`}
+                      >
+                        Open Application
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="hidden sm:block">
+                <ListTable
+                  head={[
+                    { label: '#', center: true },
+                    { label: 'Business Name' },
+                    { label: 'Owner / Contact' },
+                    { label: 'Email' },
+                    { label: 'Submitted' },
+                    { label: 'Status' },
+                    { label: 'Actions', center: true },
+                  ]}
+                >
+                  {data.items.map((application, index) => {
+                    const [day, time] = dateParts(application.submittedAt);
+                    return (
+                      <tr
+                        key={application.id}
+                        data-testid="application-row"
+                        className="hover:bg-subtle"
+                      >
+                        <td className={firstCellClass}>{first + index}</td>
+                        <th
+                          scope="row"
+                          className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
+                        >
+                          {application.legalName}
+                        </th>
+                        <td className={`${cellClass} break-words`}>
+                          {application.contactName}
+                          {application.contactPhone ? (
+                            <span className="block whitespace-nowrap text-muted">
+                              {formatPhone(application.contactPhone)}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className={`${cellClass} ${emailCellClass}`}>
+                          <EmailText value={application.contactEmail} />
+                        </td>
+                        <td className={`${cellClass} whitespace-nowrap`}>
+                          {day}
+                          <span className="block">{time}</span>
+                        </td>
+                        <td className={cellClass}>
+                          <StatusPill status={application.status} />
+                        </td>
+                        <td className={`${cellClass} text-center`}>
+                          <Link
+                            aria-label={`Open application for ${application.legalName}`}
+                            className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-4 py-2.5 font-semibold text-white hover:bg-platform-navy-raised"
+                            href={`/applications/${application.id}`}
+                          >
+                            Open Application
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </ListTable>
               </div>
-              <footer className="flex flex-col gap-3 border-t border-border p-5 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-muted">
-                  Showing {first}–{last} of {data.total} applications
-                </p>
-                <nav aria-label="Application pages" className="flex items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    aria-label="Previous applications page"
-                    disabled={currentPage === 1}
-                    onClick={() => setPage(currentPage - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <span aria-current="page">
-                    {currentPage} / {pageCount}
-                  </span>
-                  <Button
-                    variant="secondary"
-                    aria-label="Next applications page"
-                    disabled={currentPage === pageCount}
-                    onClick={() => setPage(currentPage + 1)}
-                  >
-                    Next
-                  </Button>
-                </nav>
-              </footer>
-            </>
-          )}
-        </ApplicationPageState>
-      </Card>
+            </Card>
+            <ListPager
+              noun="applications"
+              first={first}
+              last={last}
+              total={data.total}
+              page={currentPage}
+              pageCount={pageCount}
+              onPage={setPage}
+            />
+          </>
+        )}
+      </ApplicationPageState>
     </div>
   );
 }
