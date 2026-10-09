@@ -22,7 +22,7 @@ test('email code, consent, then the document with my fields', async ({ page }) =
   await expect(page.getByTestId('page-title')).toHaveText('Bookkeeping Services Agreement');
   // The token never stays in the address bar.
   await expect(page).toHaveURL(/\/lvp\/sign$/);
-  await expect(page.getByText('j***@example.com')).toBeVisible();
+  await expect(page.getByText(/^j\*\*\*@example\./)).toBeVisible();
   await page.getByRole('button', { name: 'Email me a code' }).click();
   const code = page.getByLabel('Code from the email');
   await code.fill('000000');
@@ -60,14 +60,16 @@ test('no fields placed: signs on the added signature page', async ({ page }) => 
   await expect(page.getByText('You sign on the signature page at the end')).toBeVisible();
 });
 
-test('waiting, done and a link that no longer works', async ({ page }) => {
+test('waiting, and links that no longer work', async ({ page }) => {
   await page.goto(link(MOCK_SIGNING_TOKENS.waiting));
   await expect(page.getByRole('heading', { name: 'Not your turn yet' })).toBeVisible();
-  await page.goto(link(MOCK_SIGNING_TOKENS.done));
-  await expect(page.getByRole('heading', { name: "You're done" })).toBeVisible();
-  await page.goto(link(MOCK_SIGNING_TOKENS.expired));
-  await expect(page.getByRole('heading', { name: "This link can't be opened" })).toBeVisible();
-  await expect(page.getByText('This link is not valid any more.')).toBeVisible();
+  // A link already used to sign, and one that ran out.
+  for (const token of [MOCK_SIGNING_TOKENS.used, MOCK_SIGNING_TOKENS.expired]) {
+    await page.goto(link(token));
+    await expect(page.getByRole('heading', { name: "This link can't be opened" })).toBeVisible();
+    await expect(page.getByText('This link is not valid any more.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  }
 });
 
 test('the completed copy, after the email code', async ({ page }) => {
