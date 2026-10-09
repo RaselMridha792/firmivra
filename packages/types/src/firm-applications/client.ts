@@ -49,7 +49,10 @@ export function createFirmApplicationsClient(request: ApiRequest) {
       request(FirmApplicationCounts, `${BASE}/counts`),
     get: async (id: string): Promise<FirmApplicationRecord> =>
       request(FirmApplicationRecord, one(id)),
-    /** Creates the firm and invites its owner. 409 APPLICATION_DECIDED or SLUG_TAKEN. */
+    /**
+     * Creates the firm and invites its owner. 409 APPLICATION_DECIDED, SLUG_TAKEN or
+     * OWNER_NAME_TOO_LONG.
+     */
     approve: async (
       id: string,
       body: ApproveFirmApplicationRequest = {},
