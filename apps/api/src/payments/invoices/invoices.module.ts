@@ -18,6 +18,7 @@ import {
 import type { ClientsActor } from '../../clients/clients.service.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { NotificationsModule } from '../../notifications/notifications.controller.js';
 import { InvoiceJobs } from './invoice-jobs.js';
 import { InvoiceNotices } from './invoice-notices.js';
 import { InvoicesService } from './invoices.service.js';
@@ -96,6 +97,7 @@ export class InvoicesController {
 }
 
 @Module({
+  imports: [NotificationsModule],
   controllers: [InvoicesController, MyInvoicesController],
   providers: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceJobs],
   exports: [InvoicesService, MyInvoicesService, InvoiceNotices, InvoiceJobs],

@@ -43,7 +43,7 @@ const isUniqueViolation = (e: unknown) =>
  * The firm's invoices (R7 step 7; contract in packages/types/src/payments). Owner and Admin reach
  * every invoice; Staff only read those of clients assigned to them (others 404) and the routes
  * refuse them every change. The database computes line amounts, subtotal and total and keeps the
- * lifecycle; every change runs in one transaction with its audit row. Reads are not audited.
+ * lifecycle; every change runs in one transaction with its audit row; reads are audited after.
  */
 @Injectable()
 export class InvoicesService {
@@ -84,7 +84,7 @@ export class InvoicesService {
   async list(businessId: string, actor: ClientsActor, q: ListQuery): Promise<InvoiceList> {
     const after = q.cursor ? decodeCursor(q.cursor) : undefined;
     const term = q.search ? likeEscape(q.search) : undefined;
-    return this.inFirm(businessId, async (tx) => {
+    const list = await this.inFirm(businessId, async (tx) => {
       if (q.clientId) {
         const client = await tx.client.findFirst({
           where: { AND: [{ businessId, id: q.clientId }, this.reach(actor)] },
@@ -130,13 +130,26 @@ export class InvoicesService {
         paymentsEnabled: await paymentsEnabled(tx, businessId),
       };
     });
+    // Reads of client data are audited too (CLAUDE.md rule 8), as clients and engagements are.
+    await this.audit.log(
+      'invoices.listed',
+      { type: 'invoice' },
+      { count: list.items.length, ...(q.clientId ? { clientId: q.clientId } : {}) },
+    );
+    return list;
   }
 
   async get(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
-    return this.inFirm(businessId, async (tx) => {
+    const invoice = await this.inFirm(businessId, async (tx) => {
       const row = await this.load(tx, businessId, actor, id);
       return toInvoice(row, (await firmToday(tx, businessId)).today);
     });
+    await this.audit.log(
+      'invoice.viewed',
+      { type: 'invoice', id },
+      { clientId: invoice.client.id },
+    );
+    return invoice;
   }
 
   /** The client (404) and the service (one of this client's, 404); true when it is archived. */
@@ -260,7 +273,7 @@ export class InvoicesService {
         tx,
         'invoice.updated',
         { type: 'invoice', id },
-        { totalCents: row.totalCents, lines: row.lines.length },
+        { clientId: row.clientId, totalCents: row.totalCents, lines: row.lines.length },
       );
       return toInvoice(row, (await firmToday(tx, businessId)).today);
     });
@@ -302,7 +315,7 @@ export class InvoicesService {
       );
       return { invoice: toInvoice(row, today), opened: !later };
     });
-    if (opened) await this.notices.send('invoice.sent', businessId, id);
+    if (opened) await this.notices.send('invoice.sent', businessId, id, actor.userId);
     return invoice;
   }
 }
