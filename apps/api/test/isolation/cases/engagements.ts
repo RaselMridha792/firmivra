@@ -2,6 +2,10 @@
 import type { CaseModule } from '../world.js';
 
 export const records: CaseModule['records'] = {
+  /** The firm's annual tax service (the world's own one). */
+  service: {
+    create: ({ own }) => Promise.resolve(own.service),
+  },
   /** Client X's annual tax return engagement. */
   engagement: {
     clientPrivate: true,
@@ -40,12 +44,14 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/engagements': { params: { id: 'client' } },
   'POST /api/v1/business/clients/:id/engagements': {
     params: { id: 'client' },
-    body: ({ own }) => ({ serviceId: own.service, title: 'Fake engagement', taxYear: 2024 }),
+    bodyIds: { serviceId: 'service', assignedUserId: 'staffUser' },
+    body: { title: 'Fake engagement', taxYear: 2024 },
   },
   'GET /api/v1/business/engagements/:id': { params: { id: 'engagement' } },
   'GET /api/v1/business/engagements/:id/history': { params: { id: 'engagement' } },
   'PATCH /api/v1/business/engagements/:id': {
     params: { id: 'engagement' },
+    bodyIds: { assignedUserId: 'staffUser' },
     body: { title: 'Fake renamed engagement' },
   },
   'POST /api/v1/business/engagements/:id/cancel': {

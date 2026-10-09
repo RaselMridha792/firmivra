@@ -254,7 +254,8 @@ export function toMyDocument(row: DocumentRow, people: People): MyDocument {
   };
 }
 
-export const requestSelect = {
+/** A request as the portal reads it: without its files (toMyRequest never shows them). */
+export const myRequestSelect = {
   id: true,
   clientId: true,
   title: true,
@@ -267,8 +268,19 @@ export const requestSelect = {
   resolvedAt: true,
   engagement: { select: { id: true, title: true } },
   category: { select: { id: true, name: true } },
+} satisfies Prisma.DocumentRequestSelect;
+
+/**
+ * Files per request in the firm's view: the newest 20 (FirmDocumentRequest.documents sets no
+ * maximum; the client's document list has them all).
+ */
+const REQUEST_FILES = 20;
+
+export const requestSelect = {
+  ...myRequestSelect,
   documents: {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: REQUEST_FILES,
     select: { id: true, fileName: true, createdAt: true },
   },
 } satisfies Prisma.DocumentRequestSelect;
