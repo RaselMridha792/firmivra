@@ -60,8 +60,8 @@ let app: INestApplication;
 let jobs: ReminderJobs;
 let notifier: Notifier;
 const outbox: NotifyMessage[] = [];
-/** Set to make the fake sender refuse every message. */
-const delivery = { failing: false };
+/** Set `failing` to make the fake sender refuse every message; `during` runs inside a send. */
+const delivery: { failing: boolean; during?: () => Promise<void> } = { failing: false };
 const owner = () => createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
 
 async function inFirm<T>(businessId: string, work: (tx: TxClient) => Promise<T>, actor?: string) {
@@ -224,14 +224,14 @@ beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({
-      send: (message: NotifyMessage) => {
+      send: async (message: NotifyMessage) => {
+        await delivery.during?.();
         if (delivery.failing) {
           const error = new Error('provider down');
           error.name = 'NotifyDeliveryError';
-          return Promise.reject(error);
+          throw error;
         }
         outbox.push(message);
-        return Promise.resolve();
       },
     })
     .compile();
@@ -556,7 +556,7 @@ describe('reminder jobs', () => {
     ]);
   });
 
-  it('a retry is SKIPPED when its record no longer stands (cancelled, moved, canceled invoice)', async () => {
+  it('a retry is SKIPPED when its record no longer stands (cancelled, moved, started, canceled invoice)', async () => {
     const now = Date.now();
     const book = (hours: number) =>
       inFirm(ids.firm, (tx) =>
@@ -572,12 +572,14 @@ describe('reminder jobs', () => {
         }),
       );
     const [cancelled, moved, kept] = [await book(48), await book(49), await book(51)];
+    // Booked a while ago, starting soon: its copy fails now, and it has started by the retry.
+    const started = await book(0.001);
     const invoice = await inFirm(ids.firm, (tx) =>
       tx.invoice.create({ data: { businessId: ids.firm, clientId: ids.client, number: 'R6J-3' } }),
     );
     delivery.failing = true;
     try {
-      for (const a of [cancelled, moved, kept]) {
+      for (const a of [cancelled, moved, kept, started]) {
         await notifier.notify({
           businessId: ids.firm,
           event: 'appointment.booked',
@@ -602,12 +604,13 @@ describe('reminder jobs', () => {
         data: { status: 'CANCELED', canceledAt: new Date() },
       });
     });
+    while (Date.now() <= now + 0.001 * HOUR) await new Promise((r) => setTimeout(r, 50));
     outbox.length = 0;
     expect(await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS + 1_000))).toEqual({
       skipped: false,
       sent: 1,
     });
-    for (const id of [cancelled.id, moved.id, invoice.id]) {
+    for (const id of [cancelled.id, moved.id, invoice.id, started.id]) {
       expect((await deliveriesOf(id))[0]).toMatchObject({
         status: 'SKIPPED',
         attempts: 2,
@@ -622,5 +625,65 @@ describe('reminder jobs', () => {
     // SKIPPED is final.
     await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS * 3));
     expect(outbox).toHaveLength(1);
+  });
+
+  it('a retry is SKIPPED when the login is no longer the PRIMARY one', async () => {
+    const invoice = await inFirm(ids.firm, (tx) =>
+      tx.invoice.create({ data: { businessId: ids.firm, clientId: ids.client, number: 'R6J-4' } }),
+    );
+    delivery.failing = true;
+    try {
+      await notifier.notify({ businessId: ids.firm, event: 'invoice.sent', recordId: invoice.id });
+    } finally {
+      delivery.failing = false;
+    }
+    const role = (portalRole: 'PRIMARY' | 'SPOUSE') =>
+      inFirm(ids.firm, (tx) =>
+        tx.clientAccount.updateMany({
+          where: { businessId: ids.firm, userId: people.primary.id },
+          data: { portalRole },
+        }),
+      );
+    await role('SPOUSE');
+    try {
+      outbox.length = 0;
+      const [row] = await deliveriesOf(invoice.id);
+      expect(await notifier.retryDelivery(ids.firm, row!.id, 1)).toBe('skipped');
+      expect((await deliveriesOf(invoice.id))[0]).toMatchObject({ status: 'SKIPPED' });
+      expect(outbox).toEqual([]);
+    } finally {
+      await role('PRIMARY');
+    }
+  });
+
+  it("a slow attempt never overwrites a later claim's outcome", async () => {
+    const invoice = await inFirm(ids.firm, (tx) =>
+      tx.invoice.create({ data: { businessId: ids.firm, clientId: ids.client, number: 'R6J-5' } }),
+    );
+    delivery.failing = true;
+    try {
+      await notifier.notify({ businessId: ids.firm, event: 'invoice.sent', recordId: invoice.id });
+    } finally {
+      delivery.failing = false;
+    }
+    const [row] = await deliveriesOf(invoice.id);
+    // While this attempt sends, another task claims the delivery again (attempts 2 -> 3).
+    delivery.during = async () => {
+      delivery.during = undefined;
+      await inFirm(ids.firm, (tx) =>
+        tx.notificationDelivery.update({ where: { id: row!.id }, data: { attempts: 3 } }),
+      );
+    };
+    try {
+      await notifier.retryDelivery(ids.firm, row!.id, 1);
+    } finally {
+      delivery.during = undefined;
+    }
+    // The later claim decides: this attempt's SENT is not written over it.
+    expect((await deliveriesOf(invoice.id))[0]).toMatchObject({
+      status: 'FAILED',
+      attempts: 3,
+      sentAt: null,
+    });
   });
 });
