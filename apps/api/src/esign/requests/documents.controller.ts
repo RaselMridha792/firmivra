@@ -27,7 +27,7 @@ class UploadBodyPipe extends ZodValidationPipe<typeof CreateEsignUploadBody> {
   }
   override transform(value: unknown) {
     const type = (value as { contentType?: unknown } | null)?.contentType;
-    if (typeof type === 'string' && !(type in ESIGN_UPLOAD_TYPES)) {
+    if (typeof type === 'string' && !Object.hasOwn(ESIGN_UPLOAD_TYPES, type)) {
       throw new BadRequestException({
         code: 'FILE_TYPE_NOT_ALLOWED',
         message: ESIGN_ERRORS.FILE_TYPE_NOT_ALLOWED,
