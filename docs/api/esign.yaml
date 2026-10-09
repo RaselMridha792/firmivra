@@ -376,7 +376,7 @@ paths:
       tags: [esign]
       operationId: putEsignFields
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: The whole field list (`PutFieldsBody`)
+      summary: The whole field list (`PutFieldsBody`; at most 500 fields and 2,000 choices, so it stays under the 2 MB JSON limit)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '200': { $ref: '#/components/responses/Detail' }

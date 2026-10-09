@@ -64,6 +64,11 @@ export const ESIGN_MAX_PAGES = 100;
 /** The most recipients and fields a request may have. */
 export const ESIGN_MAX_RECIPIENTS = 20;
 export const ESIGN_MAX_FIELDS = 500;
+/**
+ * Choices across all of a request's fields. With it, the largest valid PUT fields body stays under
+ * the API's 2 MB JSON limit, even in 3-byte characters.
+ */
+export const ESIGN_MAX_FIELD_OPTIONS = 2000;
 
 /**
  * Files Firm Sign takes, at most 10 MB each: PDF, JPG and PNG. An image becomes one page. Word
@@ -647,7 +652,11 @@ export const EsignPutFieldsBody = z.strictObject({
   fields: z
     .array(EsignPutField)
     .max(ESIGN_MAX_FIELDS, 'At most 500 fields')
-    .refine(uniqueIds, 'A field can be in the list only once'),
+    .refine(uniqueIds, 'A field can be in the list only once')
+    .refine(
+      (list) => list.reduce((n, f) => n + (f.options?.length ?? 0), 0) <= ESIGN_MAX_FIELD_OPTIONS,
+      'At most 2,000 choices across all fields',
+    ),
 });
 export type EsignPutFieldsBody = z.input<typeof EsignPutFieldsBody>;
 
