@@ -50,6 +50,7 @@ Arfan's Begin Online and leads screens and Nahid's intake and messages tabs work
 - R14: `IntakeSignatureSummary` (who signed, when, which agreement version). Contract D's `LeadDetail` gets `signature: IntakeSignatureSummary.nullable()` once R14's contract is on main.
 - R10 and R1 (`apps/api/src/field-encryption`): `FieldEncryption.encrypt` reads the firm's key id once per call, so a save of many SSNs and EINs makes one key-id lookup and one KMS data-key call per number (intake seals at most `MAX_SEALED_NUMBERS_PER_SAVE`, 4 at a time). A batch path (one key-id read for many values) would cut those calls.
 - R14 and the dev seed: every intake submit (Begin Online and portal) needs the firm's published firm-wide agreement, and only seeded firms have one. LVP on dev needs one published through R14's agreements API or screen (or the dev seed) before submit works there; without it submit answers 409 NO_INTAKE_AGREEMENT.
+- R15 follow-up (from the #280 re-check, later, not tonight): `leads.service.ts` lead detail shows the intake's live status, so after an unlock a lead reads IN_PROGRESS; show SUBMITTED or leave the status out. The read-audit test in `leads.e2e.test.ts` (about lines 384-429) depends on test order; make it seed its own rows.
 - Octavia's firm agreements (three acknowledgments, signature, version pinned by id and SHA-256): a small follow-up after half A; nothing in half A blocks it.
 
 ## Progress log
