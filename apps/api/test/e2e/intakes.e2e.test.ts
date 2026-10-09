@@ -3,7 +3,7 @@
 // intake for an ACTIVE engagement and autosaves it step by step; SSNs are sealed at rest and come
 // back as last 4. A submitted version is locked; Owner and Admin start the next version.
 import { randomUUID } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
+import { BadRequestException, type INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
@@ -12,8 +12,12 @@ import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { IntakeChoiceList, IntakeList, IntakeView, UploadTicket } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import {
+  INTAKE_SIGNING,
+  type IntakeSigner,
+  type IntakeSignInput,
+} from '../../src/intake/intake-signing.js';
 import type { SignedBy } from '../../src/intake/intake-submit.js';
-import { IntakesService } from '../../src/intake/intakes.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
@@ -118,6 +122,22 @@ const ok = (res: Response, status = 200) => {
 };
 const view = (res: Response) => IntakeView.parse(ok(res).body);
 
+/** Until another backend waits for a lock (at most 5 s): a request blocked on a row lock. */
+async function waitForLockWait(): Promise<void> {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  try {
+    for (let i = 0; i < 50; i++) {
+      const [row] = await owner.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM pg_locks WHERE NOT granted`;
+      if (row && row.n > 0) return;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error('NO LOCK WAIT SEEN');
+  } finally {
+    await owner.$disconnect();
+  }
+}
+
 /** One owner-role transaction in firm A, optionally as a signed-in user. */
 async function inFirm<T>(fn: (tx: TxClient) => Promise<T>, actorUserId?: string): Promise<T> {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
@@ -132,7 +152,7 @@ const ACKS = [
   { key: 'read', label: 'I read it', text: 'Synthetic acknowledgment.', required: true },
 ];
 /** Firm A's current firm-wide agreement version (synthetic), which a signature covers. */
-let firmWide: { id: string; bodySha256: string; pdfSha256: string | null };
+let firmWide: { id: string; agreementId: string; bodySha256: string; pdfSha256: string | null };
 
 /** Publishes a new firm-wide agreement for firm A (as the owner client, like the seed). */
 const publishFirmWide = () =>
@@ -150,32 +170,31 @@ const publishFirmWide = () =>
         acknowledgments: ACKS,
         publishedByUserId: people.owner.id,
       },
-      select: { id: true, bodySha256: true, pdfSha256: true },
+      select: { id: true, agreementId: true, bodySha256: true, pdfSha256: true },
     });
     return agreement.id;
   });
 
 /**
  * Test stand-in for R14's sign(): the intake_signatures row the database needs for a submit,
- * covering the firm-wide version, by client One's login (the transaction's actor).
+ * covering the firm-wide version, by the signing client's login (the transaction's actor), with
+ * the names and source the submit gave.
  */
-const signAsOne = async (
-  tx: TxClient,
-  v: { intakeId: string; submissionId: string },
-): Promise<SignedBy> => {
+const signAsOne = async (tx: TxClient, input: IntakeSignInput): Promise<SignedBy> => {
+  if (input.signer.kind !== 'client') throw new Error('a portal signer');
   const sig = await tx.intakeSignature.create({
     data: {
-      businessId: ids.firmA,
-      submissionId: v.submissionId,
-      intakeId: v.intakeId,
-      clientAccountId: ids.accountOne,
-      printedName: 'One Sample',
-      signatureText: 'One Sample',
+      businessId: input.businessId,
+      submissionId: input.submissionId,
+      intakeId: input.intakeId,
+      clientAccountId: input.signer.clientAccountId,
+      printedName: input.signature.signer.printedName,
+      signatureText: input.signature.signer.typedSignature,
       acknowledgments: ACKS.map((a) => ({ agreementVersionId: firmWide.id, ...a, checked: true })),
       answersSha256: '0'.repeat(64), // replaced by the database
       evidenceSha256: sha256(Buffer.from(randomUUID())),
-      ip: '203.0.113.7',
-      userAgent: 'test',
+      ip: input.ip,
+      userAgent: input.userAgent,
       agreements: {
         create: {
           agreementVersionId: firmWide.id,
@@ -187,6 +206,16 @@ const signAsOne = async (
   });
   return { name: sig.printedName, signedAt: sig.signedAt, ip: sig.ip, userAgent: sig.userAgent };
 };
+/** The app's INTAKE_SIGNING: the stand-in, or what a test puts in its place. */
+let signWith: IntakeSigner['sign'] = signAsOne;
+const testSigning: IntakeSigner = { sign: (tx, input) => signWith(tx, input) };
+
+/** Contract B's signature for firm A's current firm-wide agreement, by client One. */
+const signature = (name = 'One Sample', typed = name) => ({
+  agreements: [{ agreementId: firmWide.agreementId, version: 1, bodySha256: firmWide.bodySha256 }],
+  acknowledgments: [{ agreementId: firmWide.agreementId, key: 'read' }],
+  signer: { printedName: name, method: 'TYPED' as const, typedSignature: typed },
+});
 
 /** What a submit does to the database (submit itself waits on R14's signing service). */
 const markSubmitted = (intakeId: string) =>
@@ -195,7 +224,16 @@ const markSubmitted = (intakeId: string) =>
       where: { intakeId },
       orderBy: { version: 'desc' },
     });
-    const signed = await signAsOne(tx, { intakeId, submissionId: draft.id });
+    const signed = await signAsOne(tx, {
+      businessId: ids.firmA,
+      intakeId,
+      submissionId: draft.id,
+      serviceId: null,
+      signer: { kind: 'client', clientAccountId: ids.accountOne },
+      signature: signature(),
+      ip: '203.0.113.7',
+      userAgent: 'test',
+    });
     await tx.intakeSubmission.update({
       where: { id: draft.id },
       data: {
@@ -304,6 +342,8 @@ beforeAll(async () => {
     .useValue(storage)
     .overrideProvider(DOCUMENTS_CONFIG)
     .useValue({ bucket: 'unused', region: 'us-east-1', forcePathStyle: true, scanMode: 'local' })
+    .overrideProvider(INTAKE_SIGNING)
+    .useValue(testSigning)
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -550,7 +590,6 @@ describe('portal: uploads', () => {
 });
 
 describe('portal: submit', () => {
-  const signer = people.one.id;
   const file = (intakeId: string, slot: string) =>
     inFirm((tx) =>
       tx.document
@@ -576,16 +615,17 @@ describe('portal: submit', () => {
   const save = (intakeId: string, step: string, answers: object) =>
     portal('put', `/${intakeId}/steps/${step}`, people.one, { answers }).then(view);
 
-  const signed: number[] = [];
-  const sign = (tx: TxClient, v: { intakeId: string; submissionId: string; version: number }) => {
-    signed.push(v.version);
-    return signAsOne(tx, v);
+  const signed: string[] = [];
+  const submit = (intakeId: string, body: object = { signature: signature() }) => {
+    signWith = (tx, input) => {
+      signed.push(input.submissionId);
+      return signAsOne(tx, input);
+    };
+    return portal('post', `/${intakeId}/submit`, people.one, body);
   };
   const sent = { intakeId: '', spouseId: '' };
 
   it('checks the whole form; without a published firm-wide agreement 409 NO_INTAKE_AGREEMENT, nothing changed', async () => {
-    const service = app.get(IntakesService);
-    const reach = { kind: 'client' as const, clientId: ids.clientOne };
     const intake = view(await portal('post', '', people.one, { engagementId: ids.submitTax }));
     sent.intakeId = intake.id;
     await save(intake.id, 'personal', {
@@ -607,9 +647,7 @@ describe('portal: submit', () => {
       hasDependents: false,
     });
     // Incomplete: the spouse section and the documents are missing.
-    await expect(service.submit(ids.firmA, reach, intake.id, signer, sign)).rejects.toMatchObject({
-      response: { code: 'VALIDATION_FAILED' },
-    });
+    expect(codeOf(await submit(intake.id))).toBe('VALIDATION_FAILED');
     expect(signed).toEqual([]);
 
     const spouseId = await file(intake.id, 'spouseGovernmentId');
@@ -648,9 +686,10 @@ describe('portal: submit', () => {
         data: { archivedAt: new Date() },
       }),
     );
-    await expect(service.submit(ids.firmA, reach, intake.id, signer, sign)).rejects.toMatchObject({
-      status: 409,
-      response: {
+    const none = await submit(intake.id);
+    expect(none.status).toBe(409);
+    expect(none.body).toMatchObject({
+      error: {
         code: 'NO_INTAKE_AGREEMENT',
         message: "This form can't be signed right now. Please contact the firm.",
       },
@@ -661,9 +700,7 @@ describe('portal: submit', () => {
         data: { businessId: ids.firmA, scope: 'ALL_INTAKES', createdByUserId: people.owner.id },
       }),
     );
-    await expect(service.submit(ids.firmA, reach, intake.id, signer, sign)).rejects.toMatchObject({
-      response: { code: 'NO_INTAKE_AGREEMENT' },
-    });
+    expect(codeOf(await submit(intake.id))).toBe('NO_INTAKE_AGREEMENT');
     expect(signed).toEqual([]);
     const after = view(await portal('get', `/${intake.id}`, people.one));
     expect(after).toEqual(before);
@@ -690,21 +727,112 @@ describe('portal: submit', () => {
     await publishFirmWide();
   });
 
-  it('takes hidden-slot files out, signs the firm-wide agreement and locks the version', async () => {
-    const service = app.get(IntakesService);
-    const reach = { kind: 'client' as const, clientId: ids.clientOne };
+  it('refuses a body without a signature, and a portal signature with Terms and Privacy', async () => {
+    const { intakeId } = sent;
+    const missing = await submit(intakeId, {});
+    expect(missing.status).toBe(400);
+    expect(codeOf(missing)).toBe('VALIDATION_FAILED');
+    const legal = await submit(intakeId, {
+      signature: { ...signature(), acceptLegal: { termsVersion: 1, privacyVersion: 1 } },
+    });
+    expect(legal.status).toBe(400);
+    expect(codeOf(legal)).toBe('VALIDATION_FAILED');
+    // An explicit null is no acceptance (contract B: absent or null).
+    signWith = () => Promise.reject(new BadRequestException({ code: 'ACKNOWLEDGMENT_REQUIRED' }));
+    const nulled = await portal('post', `/${intakeId}/submit`, people.one, {
+      signature: { ...signature(), acceptLegal: null },
+    });
+    expect(codeOf(nulled)).toBe('ACKNOWLEDGMENT_REQUIRED');
+    expect(signed).toEqual([]);
+  });
+
+  it("a refused signature locks nothing; the database's name check is 400 SIGNATURE_MISMATCH", async () => {
+    const { intakeId } = sent;
+    const before = view(await portal('get', `/${intakeId}`, people.one));
+    signWith = () =>
+      Promise.reject(
+        new BadRequestException({ code: 'ACKNOWLEDGMENT_REQUIRED', message: 'Tick the box' }),
+      );
+    const refused = await portal('post', `/${intakeId}/submit`, people.one, {
+      signature: signature(),
+    });
+    expect(refused.status).toBe(400);
+    expect(codeOf(refused)).toBe('ACKNOWLEDGMENT_REQUIRED');
+    // Names the API took as the same but the database's intake_signatures_typed_matches check
+    // doesn't (its own case folding): a stand-in that stores another typed name.
+    signWith = (tx, input) =>
+      signAsOne(tx, {
+        ...input,
+        signature: {
+          ...input.signature,
+          signer: { ...input.signature.signer, typedSignature: 'Someone Else' },
+        },
+      });
+    const mismatch = await portal('post', `/${intakeId}/submit`, people.one, {
+      signature: signature(),
+    });
+    expect(mismatch.status, JSON.stringify(mismatch.body)).toBe(400);
+    expect(codeOf(mismatch)).toBe('SIGNATURE_MISMATCH');
+    const after = view(await portal('get', `/${intakeId}`, people.one));
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({ status: 'IN_PROGRESS', locked: false });
+    const signatures = await inFirm((tx) => tx.intakeSignature.count({ where: { intakeId } }));
+    expect(signatures).toBe(0);
+  });
+
+  it('saves the review answers, takes hidden-slot files out, signs and locks; an upload waits and is refused', async () => {
     const { intakeId, spouseId } = sent;
     const intake = { id: intakeId };
-    const submitted = await service.submit(ids.firmA, reach, intake.id, signer, sign);
+    // An upload started while the form is open, confirmed while the submit holds the intake.
+    const bytes = pdf('late upload');
+    const t = UploadTicket.parse(
+      ok(
+        await portal('post', `/${intakeId}/uploads`, people.one, {
+          slot: 'incomeDocuments',
+          fileName: 'late.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: bytes.length,
+          sha256: sha256(bytes),
+        }),
+        201,
+      ).body,
+    );
+    objects.set(t.url.slice('memory:'.length), bytes);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let entered!: () => void;
+    const signing = new Promise<void>((r) => (entered = r));
+    const submitting = submit(intake.id, {
+      answers: { paymentPreference: 'PAY_NOW_DISCOUNT' },
+      signature: signature(),
+    });
+    signWith = async (tx, input) => {
+      signed.push(input.submissionId);
+      entered();
+      await gate;
+      return signAsOne(tx, input);
+    };
+    await signing;
+    const confirming = portal('post', `/${intakeId}/uploads/confirm`, people.one, {
+      uploadToken: t.uploadToken,
+    });
+    await waitForLockWait();
+    release();
+    const res = await submitting;
+    const submitted = view(res);
     expect(submitted).toMatchObject({ status: 'SUBMITTED', locked: true, version: 1 });
     expect(submitted.answers['ssn']).toEqual({ last4: '3456' });
+    expect(submitted.answers['paymentPreference']).toBe('PAY_NOW_DISCOUNT');
     expect(submitted.uploads.map((u) => u.slot)).toEqual(['governmentId']);
-    expect(signed).toEqual([1]);
+    expect(signed).toHaveLength(1);
+    expect(codeOf(await confirming)).toBe('INTAKE_LOCKED');
     const stored = await inFirm(async (tx) => ({
       spouse: await tx.document.findUniqueOrThrow({ where: { id: spouseId } }),
       version: await tx.intakeSubmission.findFirstOrThrow({ where: { intakeId: intake.id } }),
+      late: await tx.document.count({ where: { intakeId: intake.id, fileName: 'late.pdf' } }),
     }));
     expect(stored.spouse).toMatchObject({ intakeId: null, intakeSlot: null });
+    expect(stored.late).toBe(0);
     expect(stored.version).toMatchObject({
       signerName: 'One Sample',
       submittedByUserId: people.one.id,
@@ -713,25 +841,9 @@ describe('portal: submit', () => {
     expect(JSON.stringify(stored.version.answers)).not.toContain('900123456');
 
     // Locked: a second submit and a save are refused.
-    await expect(service.submit(ids.firmA, reach, intake.id, signer, sign)).rejects.toMatchObject({
-      response: { code: 'INTAKE_LOCKED' },
-    });
+    expect(codeOf(await submit(intake.id))).toBe('INTAKE_LOCKED');
     expect(
       codeOf(await portal('put', `/${intake.id}/steps/review`, people.one, { answers: {} })),
     ).toBe('INTAKE_LOCKED');
-  });
-
-  it('a refused signature locks nothing', async () => {
-    const service = app.get(IntakesService);
-    const reach = { kind: 'client' as const, clientId: ids.clientOne };
-    const intake = view(await firm('get', `/intakes/${ids.intake}`, people.owner));
-    expect(intake.status).toBe('IN_PROGRESS'); // unlocked as version 3 above
-    await expect(
-      service.submit(ids.firmA, reach, intake.id, signer, async () => {
-        throw new Error('refused');
-      }),
-    ).rejects.toThrow();
-    const after = view(await portal('get', `/${intake.id}`, people.one));
-    expect(after).toMatchObject({ status: 'IN_PROGRESS', locked: false, version: 3 });
   });
 });

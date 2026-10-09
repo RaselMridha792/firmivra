@@ -145,6 +145,22 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
+  'POST /api/v1/portal/:firmSlug/me/intakes': {
+    params: {},
+    bodyIds: { engagementId: 'engagement' },
+  },
+  // Found, then already sent: 409 INTAKE_LOCKED (the signature's agreement ids are NOT_RECORDS).
+  'POST /api/v1/portal/:firmSlug/me/intakes/:id/submit': {
+    params: { id: 'submittedIntake' },
+    body: {
+      signature: {
+        agreements: [{ agreementId: randomUUID(), version: 1, bodySha256: 'a'.repeat(64) }],
+        acknowledgments: [],
+        signer: { printedName: 'Fake Client X', method: 'TYPED', typedSignature: 'Fake Client X' },
+      },
+    },
+    expect: 409,
+  },
   'GET /api/v1/portal/:firmSlug/me/intakes/:id': { params: { id: 'intake' } },
   'PUT /api/v1/portal/:firmSlug/me/intakes/:id/steps/:stepKey': {
     params: { id: 'intake' },

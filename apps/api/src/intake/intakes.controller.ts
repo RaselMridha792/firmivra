@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, Module, Param, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Module,
+  Param,
+  Post,
+  Put,
+} from '@nestjs/common';
 import type { z } from 'zod';
 import {
   ConfirmUploadRequest,
@@ -12,6 +23,7 @@ import {
   SaveIntakeStepRequest,
   SendIntakeRequest,
   StartIntakeRequest,
+  SubmitIntakeRequest,
   type UploadTicket,
 } from '@firmivra/types';
 import {
@@ -21,15 +33,23 @@ import {
   FIRM_STAFF,
   Roles,
 } from '../auth/decorators.js';
-import type { AuthContext, TenantContext } from '../common/request-context.js';
+import { type AuthContext, requestContext, type TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
+import { INTAKE_SIGNING, type IntakeSigner, PLACEHOLDER_SIGNING } from './intake-signing.js';
 import { type IntakeUploader, IntakeUploadsService } from './intake-uploads.service.js';
 import { type IntakeReach, IntakesService } from './intakes.service.js';
 
 const idPipe = new ZodValidationPipe(IntakeId);
 const stepPipe = new ZodValidationPipe(IntakeKey);
+/** Contract B's body; a portal signature carries no Terms and Privacy acceptance. */
+const submitPipe = new ZodValidationPipe(
+  SubmitIntakeRequest.refine((b) => b.signature.acceptLegal == null, {
+    path: ['signature', 'acceptLegal'],
+    message: 'A portal intake takes no Terms and Privacy acceptance',
+  }),
+);
 
 function staff(auth: AuthContext, tenant: TenantContext): IntakeReach {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
@@ -43,6 +63,7 @@ export class MyIntakesController {
   constructor(
     private readonly intakes: IntakesService,
     private readonly files: IntakeUploadsService,
+    @Inject(INTAKE_SIGNING) private readonly signer: IntakeSigner,
   ) {}
 
   private async uploader(auth: AuthContext, tenant: TenantContext): Promise<IntakeUploader> {
@@ -97,6 +118,27 @@ export class MyIntakesController {
   ): Promise<IntakeView> {
     const reach = await this.reach(tenant);
     return this.intakes.saveStep(tenant.businessId, reach, id, stepKey, body.answers);
+  }
+
+  @Post(':id/submit')
+  @HttpCode(200)
+  async submit(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(submitPipe) body: z.output<typeof SubmitIntakeRequest>,
+  ): Promise<IntakeView> {
+    const who = await this.uploader(auth, tenant);
+    const store = requestContext.getStore();
+    return this.intakes.submit(
+      tenant.businessId,
+      { kind: 'client', clientId: who.clientId },
+      id,
+      { userId: auth.userId, clientAccountId: who.clientAccountId },
+      body,
+      this.signer,
+      { ip: store?.ip ?? null, userAgent: store?.userAgent ?? null },
+    );
   }
 
   @Post(':id/uploads')
@@ -224,7 +266,7 @@ export class IntakesController {
 @Module({
   imports: [FieldEncryptionModule, DocumentsModule],
   controllers: [MyIntakesController, ClientIntakesController, IntakesController],
-  providers: [IntakesService, IntakeUploadsService],
-  exports: [IntakesService],
+  providers: [IntakesService, IntakeUploadsService, PLACEHOLDER_SIGNING],
+  exports: [IntakesService, INTAKE_SIGNING],
 })
 export class IntakesModule {}
