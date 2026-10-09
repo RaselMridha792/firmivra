@@ -142,7 +142,7 @@ export async function maskStoredNumbers(
     isSealed(value)
       ? { last4: value.last4 }
       : typeof value === 'string'
-        ? { last4: value.slice(-4) }
+        ? { last4: value.replace(/\D/g, '').slice(-4) }
         : value,
   );
   return out as IntakeAnswers;
