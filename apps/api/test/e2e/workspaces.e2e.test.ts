@@ -1171,11 +1171,11 @@ describe('#109 review', () => {
     expect([created.data.lines.length, created.data.lines[49]?.note]).toEqual([50, wide(400)]);
   });
 
-  it('answers 413 PAYLOAD_TOO_LARGE for a body over 100 KB, and 400 for one not JSON', async () => {
+  it('answers 413 PAYLOAD_TOO_LARGE for a body over the 2 MB limit, and 400 for one not JSON', async () => {
     const huge = await call('post', `/workspaces/${eng.bk1}/reports`, people.ownerA, 'a', {
       kind: 'REPORT',
       title: 'Too large',
-      data: { summary: 'x'.repeat(150_000) },
+      data: { summary: 'x'.repeat(2_200_000) },
     });
     expectError(huge, 413, 'PAYLOAD_TOO_LARGE');
     const broken = await request(app.getHttpServer())
