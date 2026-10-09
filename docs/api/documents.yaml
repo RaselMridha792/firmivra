@@ -106,9 +106,17 @@ info:
       the portal, and on a file with no known uploader). An AUTHORIZED login's `upload-targets`
       lists only the services with an open request, and its `document-requests` only the open
       requests.
-    - **Request emails.** "Request a document" emails every ACTIVE portal login of the client
-      (`document.requested`: the title, the due date and a link to the portal; R6 applies their
-      preferences). A failed email never undoes the request.
+    - **Notifications (R6's Notifier).** Once a change commits, the API writes the bell items
+      (`NOTIFICATION_EVENTS`) and, where the event has one, the email copy through NotifyService
+      (the recipient's preferences apply to the email; the bell is always on). Client side: the
+      client's ACTIVE PRIMARY login only (q27): "Request a document" (`document.requested`, the
+      bell and the email with the title, the due date and a link to the portal), accept
+      (`document-request.accepted`) and "Mark missing" (`document-request.rejected`), bell only.
+      Staff side: the client's assigned member and every ACTIVE Owner and Admin, never another
+      Staff member (q27): a portal upload for a request (`document-request.submitted`), "I don't
+      have this" (`document-request.not-available`) and a portal upload that answers no request
+      (`document.uploaded`). Nobody is told of a cancel, a firm upload or a refused upload, and
+      the person who acted gets no bell item. A notice that fails never undoes the change.
     - **Audit and privacy.** Uploads, views (`get`), every download link issued and request
       changes are audited with ids only. File contents, names of other clients and storage URLs
       never reach logs, emails or SMS.
@@ -202,7 +210,8 @@ info:
       (`409 REQUEST_CLOSED`), accept and reject need `SUBMITTED` (`409 NOTHING_SUBMITTED`), and
       accept a `CLEAN` newest file (`409 SCAN_PENDING` while it is checked). "I don't have this"
       takes only an open request of a client that isn't archived (`409 NO_OPEN_SERVICE`, as
-      for its uploads). A new answer (an upload) clears the old `statusNote`.
+      for its uploads). A new answer (an upload) clears the old `statusNote`. A request's
+      `documents` lists at most its newest 20 files (the client's document list has them all).
     - **Scan results (GuardDuty Malware Protection for S3).** Results reach the API only
       through a private channel: an EventBridge rule (source `aws.guardduty`, detail-type
       `GuardDuty Malware Protection Object Scan Result`, the documents bucket) to an SQS queue
@@ -231,8 +240,12 @@ info:
         after a `503`). Such a result is `UNKNOWN` (logged with the upload id): the handler
         leaves the message on the queue for redelivery (a visibility timeout and a max receive
         count that cover 30 minutes), then dead-letters it to the alarm (an upload never
-        confirmed or refused, its object deleted). `IGNORED` (delete the message) is only for a
-        result already set or a key outside `tenant/{businessId}/documents/`.
+        confirmed or refused, its object deleted). `IGNORED` (delete the message) is for a
+        result already set, a key outside `tenant/{businessId}/documents/`, and an upload the
+        confirm refused: GuardDuty scanned its PUT before the refusal deleted the object, so a
+        key with no document but a `document.upload_refused` audit entry for its upload id, in
+        the same firm and within the last 24 hours (a late delivery too), is `IGNORED` (logged with the upload id
+        only, nothing audited) and never reaches the alarm.
       - Built (R5 API part 2): `ScanResultsService.recordScanResult({ key, status, reasons })`
         does all of the above for the handler to call (locks the request, then the document;
         audits `document.scanned` with the result and reasons, `document.scan_unfinished` for
