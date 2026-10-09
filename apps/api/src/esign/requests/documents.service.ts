@@ -31,12 +31,7 @@ import {
   type EsignRepository,
   type NewEsignDocument,
 } from './esign.repository.js';
-import {
-  type EsignActor,
-  documentOf,
-  esignRefusal,
-  EsignRequestsService,
-} from './requests.service.js';
+import { type EsignActor, esignRefusal, EsignRequestsService } from './requests.service.js';
 
 type Store = Pick<EsignStore, 'keyFor' | 'presignUpload' | 'head' | 'read' | 'remove'>;
 
@@ -124,7 +119,7 @@ export class EsignDocumentsService {
         throw esignRefusal('UPLOAD_MISMATCH');
       }
       const { documentId, fileName, contentType, sizeBytes } = upload;
-      return this.add(businessId, id, bytes, {
+      return this.add(businessId, actor, id, bytes, {
         id: documentId,
         fileName,
         contentType,
@@ -172,6 +167,7 @@ export class EsignDocumentsService {
   /** Reads pages and sizes (409 PDF_ENCRYPTED, PDF_UNREADABLE) and adds the file to the draft. */
   private async add(
     businessId: string,
+    actor: EsignActor,
     id: string,
     bytes: Uint8Array,
     file: Omit<NewEsignDocument, 'pageCount' | 'pageSizes' | 'createdAt'>,
@@ -194,7 +190,8 @@ export class EsignDocumentsService {
       sourceDocumentId: added.sourceDocumentId,
       pageCount,
     });
-    return documentOf(added);
+    const { documents } = await this.requests.get(businessId, actor, id);
+    return documents.find((d) => d.id === added.id)!;
   }
 
   /** Runs `work`; a refusal (4xx) deletes the stored object first. */
