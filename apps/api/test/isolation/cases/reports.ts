@@ -25,10 +25,12 @@ export const cases: CaseModule['cases'] = {
   },
   'POST /api/v1/business/workspaces/:engagementId/reports': {
     params: { engagementId: 'workspace' },
+    bodyIds: { documentId: 'workspaceDocument' },
     body: { kind: 'REPORT', title: 'Fake report' },
   },
   'PATCH /api/v1/business/reports/:id': {
     params: { id: 'report' },
+    bodyIds: { documentId: 'workspaceDocument' },
     body: { title: 'Fake renamed report' },
   },
   'DELETE /api/v1/business/reports/:id': { params: { id: 'report' } },
