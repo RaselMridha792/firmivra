@@ -40,12 +40,19 @@ export function AppointmentDetail({ id, ...props }: DetailProps & { id: string }
   const detail = useApiQuery([...APPOINTMENTS, 'detail', id], () => api.appointments.get(id));
   return (
     <PageState query={detail}>
-      {(appointment) => <Body appointment={appointment} {...props} />}
+      {(appointment) => (
+        <Body appointment={appointment} onStale={() => void detail.refetch()} {...props} />
+      )}
     </PageState>
   );
 }
 
-function Body({ appointment, timeZone, members }: DetailProps & { appointment: Detail }) {
+function Body({
+  appointment,
+  timeZone,
+  members,
+  onStale,
+}: DetailProps & { appointment: Detail; onStale: () => void }) {
   const [action, setAction] = useState<'reschedule' | 'cancel' | null>(null);
   const [notice, setNotice] = useState('');
   const at = (iso: string) =>
@@ -106,10 +113,11 @@ function Body({ appointment, timeZone, members }: DetailProps & { appointment: D
           timeZone={timeZone}
           members={members}
           onDone={done('Appointment moved.')}
+          onStale={onStale}
         />
       ) : null}
       {action === 'cancel' ? (
-        <CancelForm id={appointment.id} onDone={done('Appointment cancelled.')} />
+        <CancelForm id={appointment.id} onDone={done('Appointment cancelled.')} onStale={onStale} />
       ) : null}
 
       <section aria-label="History">

@@ -95,7 +95,7 @@ function Calendar({ availability }: { availability: Availability }) {
               }}
             />
           ) : (
-            <DayGrid {...grid} items={items} />
+            <DayGrid {...grid} items={items} date={anchor} />
           )
         }
       </PageState>
