@@ -59,7 +59,19 @@ export function apiRoutes(app: INestApplication): ApiRoute[] {
   return routes;
 }
 
-/** The route's path with each `:param` filled from `values`, else a fresh random uuid. */
-export function fillPath(path: string, values: Record<string, string>, random: () => string) {
-  return path.replace(/:([A-Za-z0-9_]+)/g, (_, name: string) => values[name] ?? random());
+/** The route's `:param` names, in order. */
+export const paramsOf = (path: string): string[] =>
+  [...path.matchAll(/:([A-Za-z0-9_]+)/g)].map((m) => m[1] as string);
+
+/**
+ * The route's path with each `:param` filled from `values`. An unknown param throws, so a new
+ * route can't pass with a random id in place of a record; sweeps that only check a refusal pass
+ * `fallback`.
+ */
+export function fillPath(path: string, values: Record<string, string>, fallback?: () => string) {
+  return path.replace(/:([A-Za-z0-9_]+)/g, (_, name: string) => {
+    const value = values[name] ?? fallback?.();
+    if (value === undefined) throw new Error(`${path}: no value for :${name}`);
+    return value;
+  });
 }
