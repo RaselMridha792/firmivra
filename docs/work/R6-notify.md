@@ -5,12 +5,14 @@
 **From Oct 9:** steps 5 to 7 are built by R16 (a cloud thread, Rasel's Oct 8 decision), which logs its work below.
 
 **Owned paths (change only these):**
+
 - `apps/api/src/notify/**`
 - `packages/types/src/notifications/**`, `packages/types/test/notifications/**`
 - `apps/web/src/mocks/notifications.ts`, and the notifications lines in `apps/web/src/lib/api.ts`
 - `docs/api/notifications.yaml`
 
 **Read first (nothing else):** CLAUDE.md, docs/work/README.md, this file, and:
+
 - infra email stack (SES identity dev.firmivra.com)
 - Local Mailpit settings
 
@@ -71,7 +73,6 @@ Every flow above sends a real email to a verified address on dev.
 - Logos: `business_settings.logo_key` is a private S3 key; a signed URL would stop working in the inbox. Emails show the firm's name until R5 serves logos at a lasting public address (or the email embeds the logo as an inline attachment, which needs raw MIME on SES).
 - An environment without a custom domain gets `EMAIL_MODE=log` from the app stack with `NODE_ENV=production`, which the sender now refuses at start-up. Dev has its domain, so nothing breaks today.
 
-- Password reset: Cognito's ForgotPassword sends its own code email today (staff and clients). Keep Cognito's email (configured to send through SES), or move it to a custom email sender that calls this service (needs a Cognito trigger Lambda: an AWS change)?
 - Notifications: lock any category besides `ACCOUNT`? Octavia's My Profile spec says "critical notices may be mandatory" and lists marketing notices, which have no category (Phase 1 sends none).
 - Notifications: should SMS switches show before SNS is registered (texts go to the API log until then)? The contract shows SMS only once texts can be sent and the person has a phone number.
 - Notifications: where does a firm member change their own preferences? The firm site has no page for it in PAGE-MAP; the calls exist (`api.notifications.preferences()`).
@@ -98,6 +99,7 @@ Every flow above sends a real email to a verified address on dev.
 ## Progress log
 
 (newest last: date, step, what changed, commit)
+
 - 2026-10-07, step 1: `apps/api/src/notify/` with `NotifyService` (`send({ template, to, businessId, recipient, replyTo, data })`), the typed templates (`NotifyTemplates`: staff invite; client sign-up codes, already registered, approved, declined; firm application received, info requested, approved, declined; document requested; appointment booked, changed, reminder; invoice sent, payment received), `TEMPLATE_CHANNEL` (only the SMS code goes by SMS), `ALWAYS_SENT` (codes and decisions ignore preferences), the `NOTIFY_SERVICE` token in a global `NotifyModule`, and `LogNotifyService` until step 2 (whole message only with AUTH_MODE=local; otherwise template and firm only). "Email and SMS" in apps/api/README.md. Unit tests `apps/api/test/unit/notify.test.ts`. Branch `rasel/R6-notify-interface`.
 - 2026-10-08, step 7 (contract): `packages/types/src/notifications/` with `api.notifications` (firm, `/business/me/...`) and `api.myNotifications(slug)` (portal, `/portal/{firmSlug}/me/...`), one client type for both: `list({ unreadOnly, cursor, limit })` (items, `nextCursor`, `unreadCount`), `unreadCount()`, `markRead(id)`, `markAllRead()`, `preferences()` (`channels`, and every category's email and SMS with `locked`), `updatePreferences({ items })`. An item: id, category, title, body, `target { kind, id, clientId }`, `readAt`, `createdAt`; no URL from the server: `notificationLink(target, site)` builds the firm or portal path. `NOTIFICATION_EVENTS` (event, category, kind, side; email template names where they match), `LOCKED_NOTIFICATION_CATEGORIES` (`ACCOUNT`, refused by the update schema with 400) and `NOTIFICATION_CATEGORY_LABELS`. Errors in the order the API checks them: 415 and 403 ORIGIN_NOT_ALLOWED (changes, before sign-in), 401, 400 BUSINESS_REQUIRED (firm site), 404 (no place in the firm), 403 BUSINESS_INACTIVE or BUSINESS_SETUP_REQUIRED (only after the place in the firm is checked), 400 VALIDATION_FAILED, 404 (not the caller's own); no 409. Tests `packages/types/test/notifications/client.test.ts` (both clients: every route, method, body, answer and refusal; links; events). Mock `apps/web/src/mocks/notifications.ts` (lazy fixtures; firm: 8 items, 3 unread; portal: 12, 4 unread, one mock per firm; records from R5's and R10's mocks). `docs/api/notifications.yaml` with the events table and the rules for the API. No apps/api code. Branch `rasel/R6-notifications-contract`.
 - 2026-10-08, step 7 (contract, review): errors listed in the order the API checks them (cross-site 415 and 403 first, then 401, then the tenant guard's 400, 404 and status 403, then validation and the caller's own 404), and 415 on the read and read-all POSTs. Events `document-request.accepted` (client) and `staff.joined` (staff, new kind `membership` opening `/team`). Client events go to the PRIMARY login only in beta; `client-note.reminder` to the note's owner. `sms: true` refused while SMS is not offered (also in the mock), and a phone change clears SMS choices.

@@ -8,7 +8,7 @@ import {
 import type { Database } from '@firmivra/db';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
-import { FIRM_KEYS, type FirmKeys } from './firm-keys.js';
+import { awsErrorName, FIRM_KEYS, FirmKeyError, type FirmKeys } from './firm-keys.js';
 
 /** How often the job looks for firms still without a key (KMS_MODE=kms only). */
 export const FIRM_KEY_SWEEP_MS = 5 * 60_000;
@@ -51,9 +51,14 @@ export class FirmKeyJob implements OnModuleInit, OnApplicationShutdown {
     const current = this.running.get(businessId);
     if (current) return current;
     const run = this.provision(businessId)
-      .catch(() => {
-        // The id only: an AWS message can hold ARNs.
-        this.logger.warn(`Firm ${businessId}: its encryption key could not be made yet`);
+      .catch((e: unknown) => {
+        // A FirmKeyError names the unused key for a person to delete; otherwise the AWS error's
+        // name only, never its message.
+        this.logger.warn(
+          e instanceof FirmKeyError
+            ? e.message
+            : `Firm ${businessId}: its encryption key could not be made yet (${awsErrorName(e)})`,
+        );
       })
       .finally(() => this.running.delete(businessId));
     this.running.set(businessId, run);

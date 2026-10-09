@@ -100,7 +100,7 @@ This follows the stack in the original LVP draft, moved into one Firmivra AWS ac
 - **Amazon SES** (email, SPF/DKIM/DMARC) and **Amazon SNS** (SMS and MFA codes)
 - **CloudTrail, GuardDuty, Security Hub**; CloudWatch alarms tagged by tenant
 - **GitHub Actions → OIDC deploy** (Terraform or CDK; staging and production; no long-lived keys)
-- **Stripe, DocuSign or Dropbox Sign**: webhooks to the load balancer, signature-verified
+- **Stripe**: payment webhooks to the load balancer, signature-verified. E-signature is built in (Firm Sign), so it has no outside vendor and no webhook
 
 The original draft's cost estimate for one firm under 5,000 clients was roughly $200 to $350 a month. A shared platform starts near the same figure and grows with total clients and storage across all businesses.
 
@@ -276,7 +276,7 @@ Each map follows one person from first contact to everyday use: what they do, th
 | 5. Request | Requests a missing W-2 with a due date | Document requests | Request requested | Client: bell + email (no content) |
 | 6. Review | Accepts or marks the upload missing; adds an internal note | Engagement detail | Scan must be clean before preview | Client: request accepted |
 | 7. Advance | Moves the engagement to Review, then Signature | Status tracker | Status history row; audit event | Client: status changed |
-| 8. Sign & bill | Sends Form 8879 and 7216 consent, creates the invoice (if role allows) | Signatures, Invoices | Provider envelope; invoice due | Client: signature and invoice |
+| 8. Sign & bill | Sends Form 8879 and 7216 consent, creates the invoice (if role allows) | Firm Sign, Invoices | Firm Sign request (`esign_requests`); invoice due | Client: signature and invoice |
 | 9. Complete | After e-file is accepted, uploads the final return and closes | Tax returns | Engagement complete ; uploads close | Client: return ready |
 
 **Who:** An LVP personal tax client (business clients follow the same path with the Business intake and tab)
@@ -408,7 +408,7 @@ The original LVP draft centred everything on the **engagement**: one service for
 
 - Platform tables: `tenants` (id, slug, status, kms_key_id, pack, plan), `users` (staff identity, Cognito sub), `tenant_applications` (sign-up queue), `platform_users`, `grants` (Firmivra team, support access).
 - Tenant-scoped tables (`tenant_id` + RLS): `memberships` (user + role per business), `roles` (permission keys), `tenant_settings` (branding, modules, sign-up), `audit_events` (append-only), `clients` (individual / business; ssn_enc, custom_fields), `client_users`, `members` (portal logins: primary, spouse, authorized), `appointments`, `notes` (tasks, per client), `engagements` (service, period, status, assigned_user_id).
-- Belongs to an engagement: `documents` (vault, scan, retention), `document_requests`, `intake_submissions` (versioned), `signature_requests` (never deleted), `invoices` → `payments`, `message_threads` → `messages`, `engagement_status_history`, `client_businesses` (tax pack).
+- Belongs to an engagement: `documents` (vault, scan, retention), `document_requests`, `intake_submissions` (versioned), `esign_requests` with `esign_recipients`, `esign_fields` and append-only `esign_events` (Firm Sign; never deleted), `invoices` → `payments`, `message_threads` → `messages`, `engagement_status_history`, `client_businesses` (tax pack).
 
 Dots mark the "many" end. Authorization is always the same two questions: does this row's business match the session, and is this user allowed to see this client.
 
@@ -420,6 +420,8 @@ Dots mark the "many" end. Authorization is always the same two questions: does t
 | engagements | tenant | tenant\_id, client\_id, service, period, status, assigned\_user\_id | Uploads only while open |
 | documents | tenant | tenant\_id, engagement\_id, s3\_key, sha256, category, tax\_year, direction, scan\_status, retention\_until, legal\_hold | Download only after clean scan |
 | intake\_submissions | tenant | tenant\_id, engagement\_id, form\_type, form\_version, answers (JSONB), state, version | New row on every change |
+| esign\_requests | tenant | tenant\_id, client\_id, engagement\_id, status, original\_sha256, final\_sha256, certificate\_sha256, final\_document\_id | Frozen once sent; never deleted after send |
+| esign\_events | tenant | tenant\_id, request\_id, recipient\_id, type, actor, ip, at | Append-only; UPDATE and DELETE denied |
 | invoices, payments | tenant | tenant\_id, amount\_cents, status, processor\_ref; processor\_event\_id unique | Paid only by verified webhook |
 | audit\_events | both | tenant\_id (null = platform), actor, action, target, ip, at | UPDATE and DELETE denied |
 
@@ -441,7 +443,7 @@ General modules
 - Service workspaces
 - Calculators
 - Invoices & payments
-- E-signature
+- E-signature (Firm Sign, built in)
 - Tasks
 - Reports
 - Content editor
@@ -460,6 +462,21 @@ Core (everyone)
 - Branding
 
 The business type picked at sign-up sets the starter modules and the words in the UI ("client" or "patient", "firm" or "business", "engagement" or "case"). Custom fields per business cover small differences without new code.
+
+### Firm Sign (built-in e-signature)
+
+Decided by Rasel on 8 Oct: e-signature is our own module, Firm Sign, not DocuSign or Dropbox Sign. Octavia's "Firm Sign Developer Specification" is the spec. The contract is `docs/api/esign.yaml` and `packages/types/src/esign/`.
+
+- **Engine.** pdf-lib on the API (with fontkit and a Noto Sans font) builds the packet, stamps values and signature images, flattens form fields and writes the certificate and audit-trail pages. No outside vendor and no webhook.
+- **Tables.** `esign_requests`, `esign_documents`, `esign_recipients`, `esign_fields`, `esign_verification_codes` and `esign_events`, plus settings, consent versions, templates and bulk batches. Every table has `business_id` and RLS. `esign_events` is append-only, and every change also writes `AuditService.log`.
+- **Signers.** Signing links go to the portal host: `portal.firmivra.com/{slug}/sign#t=...`. The signer proves the link with an email code (or an access code, or a portal session from the Signature center), accepts the firm's consent text (its version is pinned), then signs. See "Firm Sign signers" in `docs/AUTH-DESIGN.md`.
+- **Integrity.** The SHA-256 of the original packet is stored at send. The SHA-256 values of the final PDF and the certificate are stored at completion and printed on the certificate.
+- **Filing.** On completion the flattened PDF and the certificate are filed as `FIRM_TO_CLIENT` documents on the request's engagement, in a 'Signed Documents' category (created on first use, kept forever, legal hold on). Each external signer gets a read-only copy link.
+- **Jobs.** A 60-second tick in the API, under `pg_try_advisory_lock`, sends reminders and expiry warnings, expires requests and retries completions.
+
+**Scan exception.** Every upload waits for the GuardDuty scan before anyone can open it. There is one exception: a `documents` row may start `CLEAN` only for the server-made final PDF or certificate of a `COMPLETED` request, with its key under `tenant/<id>/esign/<request>/final/` or `tenant/<id>/esign/<request>/certificate/`. A database trigger enforces it. Signer attachments and uploaded signature images always wait for the scan.
+
+**Module switch.** Firm Sign and calculators are per-firm modules in `business_settings.enabled_modules` (`'esign'`, `'calculators'`). The app role cannot change that column. Only `app_set_business_module(business, module, enabled, reason)` changes it: a `SECURITY DEFINER` function only the migrate role may run, which needs a reason and writes a `module.enabled` or `module.disabled` audit row. Rasel runs it through `packages/db/scripts/set-module.mjs` with `MODULE_CHANGE=<slug>:<module>:on|off` and `MODULE_REASON=...`. When `esign` is off, firm routes answer 403 `MODULE_OFF` and public signer routes answer 404. `GET /esign/status` and the portal's `GET /portal/{slug}/me/signatures/status` never error; they answer `enabled: false`.
 
 ## Tech stack
 
@@ -509,9 +526,9 @@ Sender name per business. Emails never carry SSNs, amounts or document content.
 
 Payments & e-sign
 
-**Stripe; DocuSign or Dropbox Sign**
+**Stripe; Firm Sign (built in)**
 
-Stripe decided 4 Oct, with hosted checkout; Stripe Connect so each business is paid into its own account (to confirm).
+Stripe decided 4 Oct, with hosted checkout; Stripe Connect so each business is paid into its own account (to confirm). Firm Sign decided 8 Oct: our own engine on pdf-lib, no e-signature vendor.
 
 Ops
 
@@ -601,10 +618,10 @@ Modules
 
 - Intake form engine with versioned forms, Begin Online public intake
 - Full appointments: firm calendar, staff availability and blocked time, client booking, no double booking, reminders, reschedule and cancel
-- Invoices and payments, e-signature
+- Invoices and payments, e-signature (Firm Sign, built in)
 - Two-way notifications, bulk actions with per-client results
 
-**Gate:** webhooks reject forged events and process duplicates once; Octavia's action-to-record map passes.
+**Gate:** payment webhooks reject forged events and process duplicates once; a PDF goes to 2 signers and comes back filed with its certificate; Octavia's action-to-record map passes.
 
 Phase 5
 Tax pack
@@ -672,6 +689,7 @@ The four Drive folders hold a platform guide, Super Admin scope, 7 portal instru
 | Payments | Stripe |
 | Payroll provider | Chosen after beta |
 | Email and SMS | Amazon SES and SNS |
+| E-signature | Built-in Firm Sign, no outside vendor (decided 8 Oct) |
 
 ### Still open
 
@@ -687,8 +705,8 @@ Which calculators are approved, and with what formulas and tax year?
 Stripe Connect, or one Stripe account per firm?
 :   The design assumes Connect so each firm is paid into its own account.
 
-Which e-signature vendor, and which video tool for appointments?
-:   DocuSign or Dropbox Sign; Zoom or a plain meeting link.
+Which video tool for appointments?
+:   Zoom or a plain meeting link. (E-signature is decided: the built-in Firm Sign.)
 
 How do businesses pay Firmivra?
 :   Plans, trial length and limits per plan.

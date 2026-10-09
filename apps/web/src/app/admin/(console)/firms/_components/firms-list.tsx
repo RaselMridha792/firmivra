@@ -100,7 +100,7 @@ export function FirmsList() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-content flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm font-semibold text-link">Super Admin Portal</p>

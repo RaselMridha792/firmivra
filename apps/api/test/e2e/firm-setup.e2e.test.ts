@@ -222,7 +222,9 @@ describe('After approve', () => {
       setupCompletedAt: null,
     });
     const audit = await asFirm(firm.id, (tx) =>
-      tx.auditLog.findMany({ where: { action: 'settings.copied_from_application' } }),
+      tx.auditLog.findMany({
+        where: { businessId: firm.id, action: 'settings.copied_from_application' },
+      }),
     );
     expect(audit).toEqual([
       expect.objectContaining({
