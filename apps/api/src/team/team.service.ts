@@ -14,7 +14,7 @@ import {
 } from '@firmivra/db';
 import type { MembershipRole, TeamMember } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
-import { InvitesService } from '../auth/invites.service.js';
+import { InvitesService, lockStaffInvites } from '../auth/invites.service.js';
 import { DATABASE } from '../database/database.module.js';
 
 /** Who acts: the signed-in member, as TenantGuard resolved them. */
@@ -32,7 +32,6 @@ const memberSelect = {
   status: true,
   joinedAt: true,
   createdAt: true,
-  user: { select: { id: true, name: true, email: true } },
   // The newest invite, open or not: its typed name and email until the person joins (#52), and,
   // while it is open, when it was sent and expires (an expired one still shows, for Resend).
   invites: {
@@ -56,7 +55,6 @@ type MemberRow = {
   status: TeamMember['status'];
   joinedAt: Date | null;
   createdAt: Date;
-  user: { id: string; name: string; email: string };
   invites: {
     name: string | null;
     email: string | null;
@@ -67,26 +65,50 @@ type MemberRow = {
   }[];
 };
 
+type Person = { id: string; name: string; email: string };
+
+/** Joined: the database stamped joined_at, the member is active, or their invite was used. */
+const hasJoined = (row: Pick<MemberRow, 'joinedAt' | 'status' | 'invites'>) =>
+  row.joinedAt !== null || row.status === 'ACTIVE' || !!row.invites[0]?.acceptedAt;
+
+/**
+ * Whose user row the firm may read for this member: a joined person, or an invited one whose
+ * newest invite lacks what was typed (invites made before #52). Anyone else's user row is never
+ * read: it may soon be hidden until the person joins (R0's staged change), and the typed name
+ * and email are what the firm sees.
+ */
+export const needsUserRow = (row: Pick<MemberRow, 'joinedAt' | 'status' | 'invites'>) =>
+  hasJoined(row) || !row.invites[0]?.name || !row.invites[0]?.email;
+
 /**
  * Who the firm sees: until the person joins, the name and email the inviter typed on the newest
  * invite (#52: never the person's own user row, which another firm or the person may have filled
  * in); the user row only for what an invite made before #52 lacks, as R2's resend does. Once the
- * person has joined, their user row.
+ * person has joined, their user row. `user` is that row when it was read (and visible).
  */
-export function shownPerson(row: Pick<MemberRow, 'joinedAt' | 'status' | 'user' | 'invites'>): {
-  id: string;
-  name: string;
-  email: string;
-} {
+export function shownPerson(
+  row: Pick<MemberRow, 'userId' | 'joinedAt' | 'status' | 'invites'>,
+  user: Person | undefined,
+): Person {
   const latest = row.invites[0];
-  // Joined: the database stamped joined_at, the member is active, or their invite was used.
-  const joined = row.joinedAt !== null || row.status === 'ACTIVE' || !!latest?.acceptedAt;
-  if (joined || !latest) return row.user;
+  if (hasJoined(row) || !latest) {
+    return user ?? { id: row.userId, name: '', email: '' };
+  }
   return {
-    id: row.user.id,
-    name: latest.name ?? row.user.name,
-    email: latest.email ?? row.user.email,
+    id: row.userId,
+    name: latest.name ?? user?.name ?? '',
+    email: latest.email ?? user?.email ?? '',
   };
+}
+
+/** The user rows the firm may read for these members (see needsUserRow), by id. */
+async function usersOf(
+  rows: MemberRow[],
+  read: (ids: string[]) => Promise<Person[]>,
+): Promise<Map<string, Person>> {
+  const ids = rows.filter(needsUserRow).map((r) => r.userId);
+  if (ids.length === 0) return new Map();
+  return new Map((await read(ids)).map((u) => [u.id, u]));
 }
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
@@ -139,8 +161,9 @@ export class TeamService {
     const rows = await this.database
       .forBusiness(businessId)
       .membership.findMany({ where: { businessId }, select: memberSelect });
+    const users = await usersOf(rows, this.readUsers(businessId));
     // Sorted by the name the firm sees (the typed one until the person joins).
-    return rows.map((row) => this.toMember(row, actor)).sort(byRoleThenName);
+    return rows.map((row) => this.toMember(row, users, actor)).sort(byRoleThenName);
   }
 
   /** Owners only (the route allows OWNER), for ACTIVE members. */
@@ -172,7 +195,7 @@ export class TeamService {
       );
       return this.find(tx, businessId, memberId);
     });
-    return this.toMember(row, actor);
+    return this.member(businessId, row, actor);
   }
 
   /**
@@ -187,6 +210,9 @@ export class TeamService {
       const target = await this.find(tx, businessId, memberId);
       assertManageable(actor, target);
       if (target.status === 'DEACTIVATED') return target;
+      // InvitesService's lock: a resend making a link either commits first (and its link is
+      // revoked below) or waits and then finds the member deactivated.
+      await lockStaffInvites(tx, businessId, target.userId);
       await tx.invite.updateMany({
         where: { businessId, membershipId: memberId, acceptedAt: null, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -202,7 +228,7 @@ export class TeamService {
       );
       return this.find(tx, businessId, memberId);
     });
-    return this.toMember(row, actor);
+    return this.member(businessId, row, actor);
   }
 
   /** A new link for an invited member, through R2's InvitesService (which audits it). */
@@ -228,7 +254,7 @@ export class TeamService {
       where: { businessId, id: memberId },
       select: memberSelect,
     });
-    return this.toMember(row, actor);
+    return this.member(businessId, row, actor);
   }
 
   /**
@@ -300,7 +326,22 @@ export class TeamService {
     return row;
   }
 
-  private toMember(row: MemberRow, actor: TeamActor): TeamMember {
+  /** One member as the firm sees it, with the user row only where it may be read. */
+  private async member(businessId: string, row: MemberRow, actor: TeamActor) {
+    const users = await usersOf([row], this.readUsers(businessId));
+    return this.toMember(row, users, actor);
+  }
+
+  private readUsers(businessId: string) {
+    const firm = this.database.forBusiness(businessId);
+    return (ids: string[]) =>
+      firm.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, email: true },
+      });
+  }
+
+  private toMember(row: MemberRow, users: Map<string, Person>, actor: TeamActor): TeamMember {
     // The open invite of an invited member (the newest invite; resend revokes the one before).
     const latest = row.invites[0];
     const invite =
@@ -309,7 +350,7 @@ export class TeamService {
         : undefined;
     return {
       id: row.id,
-      user: shownPerson(row),
+      user: shownPerson(row, users.get(row.userId)),
       role: row.role,
       status: row.status,
       invite: invite

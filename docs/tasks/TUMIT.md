@@ -55,6 +55,8 @@ Checklist:
 - [x] Signed-in loading, error and retry states (mock-mode Playwright)
 - [x] Playwright: the dashboard loads in mock mode
 
+**Visual follow-up (Oct 8):** Compared a 1536 px preview with `Dashboard Active .png` and adjusted the dashboard spacing, card heights, stat icon colours, the Platform Growth "(Beta)" label and the Platform Settings quick action. Platform Growth stays "Coming soon" as the ticket specifies. Ported to main on Oct 8 (F04 polish PR); the shared header and sidebar stay as on main.
+
 ### F04b · Oct 8 · Firm applications
 
 - **Pages:** `/applications` and `/applications/[id]`, in `admin/(console)/applications/`.
@@ -70,6 +72,8 @@ Checklist:
 - [x] After an action, the list and the counts refresh
 - [x] An unknown id shows not-found
 - [x] Playwright: approve an application in mock mode
+
+**Visual follow-up (Oct 8):** Widened the applications content to the console width, enlarged the headings and table text, and gave the detail actions their approve, request and decline colours (they still show as disabled while a request runs). Checked at 1672 px and 375 px. Ported to main on Oct 8 (F04 polish PR).
 
 ### N04 · Oct 9 · Public firm application form, and the firms list
 
@@ -101,9 +105,11 @@ Checklist:
 
 Checklist:
 
-- [ ] The wizard works while the firm is still Pending Setup
-- [ ] Owner and Admin only; staff see the no-permission state
-- [ ] Playwright: finish the wizard in mock mode
+- [x] The wizard works while the firm is still Pending Setup
+- [x] Owner and Admin only; staff see the no-permission state
+- [x] Playwright: finish the wizard in mock mode
+
+**Status (Oct 8, 2026):** The wizard comes in three PRs to stay under 400 lines. Part 1 (`tumit/FIR-F05-setup-wizard`): the step frame with Save draft, Back and Continue, and Branding with a live portal preview. Part 2 (`tumit/FIR-F05-setup-team`): Business details and Team. Part 3 (`tumit/FIR-F05-setup-finish`): Client portal and Finish. Then `tumit/FIR-F05-settings` (Profile, Branding and Client portal settings, which reuse the wizard's fields) and `tumit/FIR-F05-settings-team` (Terms & Privacy versions and Team).
 
 ### F09 · Oct 12-13 · Firm calendar and availability
 
@@ -111,6 +117,8 @@ Checklist:
 - **Mockup:** none.
 - **API:** R12's `api.appointments.*` and availability (contract by Oct 10).
 - **Build:** day and week views as a simple grid from `@firmivra/ui` (ask Rasel before adding a calendar package); appointment detail (client, type, location or video details); create, reschedule and cancel; each staff member's working hours and blocked time. Show a clear message when someone else just took a slot.
+
+**Status (Oct 8, 2026):** Seven stacked PRs, each under 400 lines, with no calendar package: `tumit/FIR-F09-calendar` (week and day grid, staff filter), `tumit/FIR-F09-appointment-detail`, `tumit/FIR-F09-reschedule-cancel` (free times, and a clear message on 409 SLOT_TAKEN), `tumit/FIR-F09-new-appointment`, `tumit/FIR-F09-availability` (working hours), `tumit/FIR-F09-blocked-time` and `tumit/FIR-F09-polish` (fixes from the visual review). `api.clients` has no mock switch in `lib/api.ts`, so the booking test answers the client search itself.
 
 ### N08 · Oct 14 · Portal appointments
 

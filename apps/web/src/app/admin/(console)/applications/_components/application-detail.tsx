@@ -179,13 +179,13 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
   }
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <Link href="/applications" className="w-fit text-sm font-medium text-brand-700">
         ← Back to Applications
       </Link>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 data-testid="page-title" className="font-serif text-3xl font-semibold tracking-tight">
+          <h1 data-testid="page-title" className="font-serif text-4xl font-semibold tracking-tight">
             {application.legalName}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -197,15 +197,19 @@ function ApplicationRecord({ application }: { application: FirmApplicationRecord
         </div>
         {canDecide && (
           <div className="flex flex-wrap gap-2">
-            <Button disabled={busy} onClick={() => openAction('approve')}>
+            <Button
+              disabled={busy}
+              className="enabled:!bg-success"
+              onClick={() => openAction('approve')}
+            >
               Approve Application
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => openAction('request-info')}>
+            <Button variant="outline" disabled={busy} onClick={() => openAction('request-info')}>
               Request Information
             </Button>
             <Button
-              variant="ghost"
-              className="text-danger"
+              variant="outline"
+              className="enabled:!border-danger enabled:!text-danger enabled:hover:!bg-danger-soft"
               disabled={busy}
               onClick={() => openAction('decline')}
             >
