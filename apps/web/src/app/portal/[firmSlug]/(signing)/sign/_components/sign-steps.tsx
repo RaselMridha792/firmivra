@@ -1,80 +1,25 @@
 'use client';
 
-import { ESIGN_ERRORS, type SignerCopyFile, type SignerEnvelope } from '@firmivra/types';
+import { ESIGN_ERRORS, type SignerCopyFile } from '@firmivra/types';
 import { Button, Card, EmptyState } from '@firmivra/ui';
-import { FieldOverlay, type OverlayField } from '../../../../../../components/esign/field-overlay';
-import { PdfPages } from '../../../../../../components/esign/pdf-pages';
 import { PageState } from '../../../../../../components/page-state';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { SignView } from './sign-view';
 import type { StepProps } from './signer-page';
 
 const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
 
-/**
- * SIGN: the document with the signer's own fields. Adopting a signature, filling the fields,
- * finishing and declining come in signer flow 2.
- */
-export function SignStep({ signing, firmSlug, opening }: StepProps) {
+/** SIGN: the document with the signer's fields (sign-view.tsx). */
+export function SignStep({ signing, firmSlug, opening, onState }: StepProps) {
   const envelope = useApiQuery(['signing', firmSlug, opening, 'envelope'], () =>
     signing.envelope(),
   );
   return (
     <PageState query={envelope} isEmpty={() => false}>
-      {(e) => <SignView envelope={e} />}
+      {(e) => <SignView signing={signing} envelope={e} onState={onState} />}
     </PageState>
   );
-}
-
-function SignView({ envelope }: { envelope: SignerEnvelope }) {
-  const fields = envelope.fields.map((f) => toOverlay(f, envelope));
-  const recipients = [{ id: envelope.me.recipientId, name: envelope.me.name, colorIndex: 0 }];
-  const count = envelope.fields.length;
-  return (
-    <div className="flex flex-col gap-4">
-      {envelope.message && (
-        <Card title={`Message from ${envelope.senderName}`}>
-          <p className="text-sm whitespace-pre-line text-text">{envelope.message}</p>
-        </Card>
-      )}
-      <p className="text-sm text-text">
-        {count
-          ? `You have ${count} ${count === 1 ? 'field' : 'fields'} to fill in, marked on the pages.`
-          : 'You sign on the signature page at the end of the document.'}
-      </p>
-      <PdfPages
-        source={envelope.packetUrl}
-        purpose="sign"
-        label={envelope.title}
-        overlay={(pageIndex) => (
-          <FieldOverlay
-            fields={fields}
-            recipients={recipients}
-            pageIndex={pageIndex}
-            ownerId={envelope.me.recipientId}
-          />
-        )}
-      />
-    </div>
-  );
-}
-
-/** A signer's field in the overlay's shape: all theirs, in the first recipient colour. */
-function toOverlay(f: SignerEnvelope['fields'][number], envelope: SignerEnvelope): OverlayField {
-  return {
-    id: f.id,
-    recipientId: envelope.me.recipientId,
-    type: f.type,
-    pageIndex: f.pageIndex,
-    x: f.x,
-    y: f.y,
-    w: f.w,
-    h: f.h,
-    required: f.required,
-    label: f.label,
-    value: null,
-    filled: false,
-  };
 }
 
 /** COPY: a completed request's signed document and certificate, from the copy link. */

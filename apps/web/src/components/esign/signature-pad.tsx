@@ -1,5 +1,6 @@
 'use client';
 
+import { ESIGN_SIGNATURE_PNG_MAX_BYTES } from '@firmivra/types';
 import { Button, Input, Tabs } from '@firmivra/ui';
 import {
   type PointerEvent,
@@ -18,12 +19,9 @@ const HEIGHT = 200;
 const RATIO = 2;
 /** Uploaded images above this size are refused before they are read. */
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
-/**
- * The longest adopted image (data URL characters) the signing API will take inside its JSON
- * body (Nest's default limit is 100 KB). Moves to packages/types/src/esign with R13-api's signing
- * contract.
- */
-export const MAX_SIGNATURE_CHARS = 90_000;
+/** The longest adopted image as a data URL: the signing API takes a PNG of at most 200 KB. */
+export const MAX_SIGNATURE_CHARS =
+  'data:image/png;base64,'.length + Math.floor(ESIGN_SIGNATURE_PNG_MAX_BYTES / 3) * 4;
 /** In an uploaded picture, pixels lighter than this are paper; darker ones are ink. */
 const PAPER = 0.75;
 /** Pixels between this and PAPER fade from ink to paper, so the strokes keep smooth edges. */
@@ -44,28 +42,6 @@ function blankCanvas() {
   const ctx = canvas.getContext('2d');
   ctx?.scale(RATIO, RATIO);
   return { canvas, ctx };
-}
-
-/** The name in the display font and the ink colour `from` sees, as a PNG; null when empty. */
-export function typedSignature(name: string, initials: boolean, from: Element): string | null {
-  const text = name.trim();
-  if (!text) return null;
-  const { canvas, ctx } = blankCanvas();
-  if (!ctx) return null;
-  const family = token('--font-display', from) || 'serif';
-  let size = initials ? 96 : 72;
-  ctx.font = `italic ${size}px ${family}`;
-  // Shrink long names until they fit the line.
-  while (size > 24 && ctx.measureText(text).width > WIDTH - 40) {
-    size -= 4;
-    ctx.font = `italic ${size}px ${family}`;
-  }
-  ctx.fillStyle = token('--color-heading', from);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  // The size floor can still leave a long name too wide; fillText squeezes it into the box.
-  ctx.fillText(text, WIDTH / 2, HEIGHT / 2, WIDTH - 40);
-  return canvas.toDataURL('image/png');
 }
 
 /**
@@ -97,18 +73,25 @@ async function uploadedSignature(file: File, from: Element): Promise<string> {
   return canvas.toDataURL('image/png');
 }
 
+/**
+ * What the signer adopts: typed text (the API sets it in the signature font, and a typed
+ * signature must match the printed name), or a drawn or uploaded PNG data URL.
+ */
+export type AdoptedMark =
+  { method: 'TYPED'; text: string } | { method: 'DRAWN' | 'UPLOADED'; png: string };
+
 interface SignaturePadProps {
   /** Initials get a shorter default text and a larger typed font. */
   kind: 'signature' | 'initials';
   /** Pre-fills the Type tab: the signer's name or initials. */
   defaultText?: string;
-  /** The adopted image as a PNG data URL, or null while there is nothing to adopt. */
-  onChange: (png: string | null) => void;
+  /** What the open tab holds, or null while there is nothing to adopt. */
+  onChange: (mark: AdoptedMark | null) => void;
 }
 
 /**
  * Adopt a signature or initials: type it, draw it (mouse, finger or pen) or upload a picture of
- * it. Every way ends as a PNG data URL. No extra package: a plain canvas.
+ * it. Drawn and uploaded ones end as a PNG data URL. No extra package: a plain canvas.
  */
 export function SignaturePad({ kind, defaultText = '', onChange }: SignaturePadProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -116,16 +99,18 @@ export function SignaturePad({ kind, defaultText = '', onChange }: SignaturePadP
   // Read when a panel reports, which can be after a tab change the panel's render did not see.
   const modeRef = useRef<Mode>('type');
   // Each tab keeps what it holds; the adopted image is always the open tab's.
-  const [values, setValues] = useState<Record<Mode, string | null>>({
+  const [values, setValues] = useState<Record<Mode, AdoptedMark | null>>({
     type: null,
     draw: null,
     upload: null,
   });
   const label = kind === 'initials' ? 'initials' : 'signature';
-  const report = (from: Mode) => (png: string | null) => {
-    setValues((v) => ({ ...v, [from]: png }));
-    if (from === modeRef.current) onChange(png);
+  const report = (from: Mode) => (mark: AdoptedMark | null) => {
+    setValues((v) => ({ ...v, [from]: mark }));
+    if (from === modeRef.current) onChange(mark);
   };
+  const image = (from: 'draw' | 'upload') => (png: string | null) =>
+    report(from)(png ? { method: from === 'draw' ? 'DRAWN' : 'UPLOADED', png } : null);
   return (
     <div ref={rootRef} data-testid={`signature-pad-${kind}`} className="flex flex-col gap-3">
       <Tabs
@@ -141,24 +126,17 @@ export function SignaturePad({ kind, defaultText = '', onChange }: SignaturePadP
           {
             id: 'type',
             label: 'Type',
-            content: (
-              <TypePanel
-                kind={kind}
-                defaultText={defaultText}
-                inkFrom={rootRef}
-                onChange={report('type')}
-              />
-            ),
+            content: <TypePanel kind={kind} defaultText={defaultText} onChange={report('type')} />,
           },
           {
             id: 'draw',
             label: 'Draw',
-            content: <DrawPanel label={label} inkFrom={rootRef} onChange={report('draw')} />,
+            content: <DrawPanel label={label} inkFrom={rootRef} onChange={image('draw')} />,
           },
           {
             id: 'upload',
             label: 'Upload',
-            content: <UploadPanel label={label} inkFrom={rootRef} onChange={report('upload')} />,
+            content: <UploadPanel label={label} inkFrom={rootRef} onChange={image('upload')} />,
           },
         ]}
       />
@@ -172,15 +150,14 @@ type InkFrom = RefObject<HTMLElement | null>;
 function TypePanel({
   kind,
   defaultText,
-  inkFrom,
   onChange,
-}: Pick<SignaturePadProps, 'kind' | 'onChange'> & { defaultText: string; inkFrom: InkFrom }) {
+}: Pick<SignaturePadProps, 'kind' | 'onChange'> & { defaultText: string }) {
   const [text, setText] = useState(defaultText);
   const initials = kind === 'initials';
-  // The pre-filled name counts as typed: hand its PNG up once, after the first render.
-  const png = (value: string) =>
-    inkFrom.current ? typedSignature(value, initials, inkFrom.current) : null;
-  const adoptDefault = useEffectEvent(() => onChange(png(defaultText)));
+  const mark = (value: string): AdoptedMark | null =>
+    value.trim() ? { method: 'TYPED', text: value.trim() } : null;
+  // The pre-filled name counts as typed: hand it up once, after the first render.
+  const adoptDefault = useEffectEvent(() => onChange(mark(defaultText)));
   useEffect(() => adoptDefault(), []);
 
   return (
@@ -188,10 +165,10 @@ function TypePanel({
       <Input
         label={initials ? 'Your initials' : 'Your full name'}
         value={text}
-        maxLength={initials ? 6 : 80}
+        maxLength={initials ? 10 : 200}
         onChange={(e) => {
           setText(e.target.value);
-          onChange(png(e.target.value));
+          onChange(mark(e.target.value));
         }}
         autoComplete={initials ? 'off' : 'name'}
       />

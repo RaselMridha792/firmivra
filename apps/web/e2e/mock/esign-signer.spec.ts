@@ -93,3 +93,70 @@ test('the signer pages fit a phone', async ({ page }) => {
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
   ).toBeTruthy();
 });
+
+async function openDocument(page: Page, token: string) {
+  await page.goto(link(token));
+  await page.getByRole('button', { name: 'Email me a code' }).click();
+  await page.getByLabel('Code from the email').fill(MOCK_SIGNING_CODE);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel(/I agree to sign .* documents electronically\./).check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+}
+
+test('adopt a signature, fill each required field with Next, then finish', async ({ page }) => {
+  await openDocument(page, MOCK_SIGNING_TOKENS.emailCode);
+  const progress = page.getByTestId('sign-progress');
+  // The printed name comes filled in; initials, job title, the box and the signature do not.
+  await expect(progress).toHaveText('1 of 5 required done');
+  // Finish before adopting asks for the signature first.
+  await page.getByRole('button', { name: 'Finish' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adopt your signature' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Printed name')).toHaveValue('Jamie Sample');
+  // A typed signature must match the printed name.
+  await dialog.getByLabel('Your full name').fill('Someone Else');
+  await dialog.getByRole('button', { name: 'Adopt and sign' }).click();
+  await expect(dialog.getByText('Type your signature exactly as your printed name.')).toBeVisible();
+  await dialog.getByLabel('Your full name').fill('Jamie Sample');
+  await expect(dialog.getByRole('textbox', { name: 'Your initials', exact: true })).toHaveValue(
+    'JS',
+  );
+  await dialog.getByRole('button', { name: 'Adopt and sign' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(progress).toHaveText('3 of 5 required done');
+  await expect(page.getByLabel(/^Signature \(required\), Jamie Sample, done$/)).toContainText(
+    'Jamie Sample',
+  );
+  // Finish now goes to the first empty required field, in document order.
+  await page.getByRole('button', { name: 'Finish' }).click();
+  await expect(page.getByText('Fill in every required field first: 2 are left.')).toBeVisible();
+  await page.getByLabel('Your job title', { exact: true }).fill('Owner');
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'I have read the engagement terms' }).check();
+  await expect(progress).toHaveText('5 of 5 required done');
+  await page.getByRole('button', { name: 'Finish' }).click();
+  await expect(page.getByRole('heading', { name: "You're done" })).toBeVisible();
+});
+
+test('upload an optional attachment', async ({ page }) => {
+  await openDocument(page, MOCK_SIGNING_TOKENS.emailCode);
+  await page.getByLabel('Photo ID (optional), Jamie Sample').click();
+  await page.getByTestId('attachment-upload').setInputFiles({
+    name: 'photo-id.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n%%EOF\n'),
+  });
+  await expect(page.getByText('Uploaded: photo-id.pdf')).toBeVisible();
+  await expect(
+    page.getByLabel('Photo ID (optional), Jamie Sample: photo-id.pdf, done'),
+  ).toBeVisible();
+});
+
+test('decline to sign, with a reason', async ({ page }) => {
+  await openDocument(page, MOCK_SIGNING_TOKENS.autoPage);
+  await page.getByRole('button', { name: 'Decline to sign' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Decline to sign' });
+  await dialog.getByLabel(/Reason/).fill('I need to talk to my spouse first.');
+  await dialog.getByRole('button', { name: 'Decline to sign' }).click();
+  await expect(page.getByRole('heading', { name: 'You declined' })).toBeVisible();
+});

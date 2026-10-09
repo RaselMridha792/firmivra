@@ -9,7 +9,7 @@ import {
 } from '../../../../../../components/esign/field-overlay';
 import { PdfPages } from '../../../../../../components/esign/pdf-pages';
 import { samplePdf, scannedSamplePdf } from '../../../../../../components/esign/sample-pdf';
-import { SignaturePad } from '../../../../../../components/esign/signature-pad';
+import { type AdoptedMark, SignaturePad } from '../../../../../../components/esign/signature-pad';
 
 /** Synthetic recipients and fields for the first sample, until the signing API lands. */
 const RECIPIENTS: OverlayRecipient[] = [
@@ -61,7 +61,7 @@ export function SignerSamples() {
   );
   const [shown, setShown] = useState(0);
   const doc = documents[shown] ?? documents[0]!;
-  const [signature, setSignature] = useState<string | null>(null);
+  const [signature, setSignature] = useState<AdoptedMark | null>(null);
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <h1 data-testid="page-title" className="text-2xl font-semibold text-heading">
