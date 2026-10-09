@@ -43,13 +43,13 @@ export function PdfPages({ source, label, onLoad, overlay }: PdfPagesProps) {
     let active = true;
     let task: ReturnType<Awaited<ReturnType<typeof loadPdfjs>>['pdfjs']['getDocument']> | undefined;
     (async () => {
-      const { pdfjs } = await loadPdfjs();
+      const { pdfjs, worker } = await loadPdfjs();
       if (!active) return;
       // pdf.js takes ownership of the bytes it is given, so it gets a copy.
       task = pdfjs.getDocument(
         typeof source === 'string'
-          ? { url: source, withCredentials: true }
-          : { data: source.slice() },
+          ? { url: source, withCredentials: true, worker }
+          : { data: source.slice(), worker },
       );
       const doc = await task.promise;
       const sizes = await Promise.all(

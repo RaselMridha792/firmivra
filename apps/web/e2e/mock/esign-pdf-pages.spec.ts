@@ -23,3 +23,18 @@ test('without its worker, pdf.js still draws the document', async ({ page }) => 
   await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
   expect(warnings.some((w) => w.includes('running it on the main thread'))).toBeTruthy();
 });
+
+test('the next document opens after the first one has drawn', async ({ page }) => {
+  // Closing one document must not take down the pdf.js worker the next one uses.
+  await page.goto(signPage);
+  await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
+  await page.getByRole('button', { name: 'Next document' }).click();
+  await expect(page.getByRole('document', { name: 'Sample tax organizer' })).toBeVisible();
+  await expect(page.getByTestId('pdf-page')).toHaveCount(2);
+  await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
+  await expect(page.getByTestId('pdf-error')).toHaveCount(0);
+  // And back, on the same worker.
+  await page.getByRole('button', { name: 'Next document' }).click();
+  await expect(page.getByTestId('pdf-page')).toHaveCount(3);
+  await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
+});

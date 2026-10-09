@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../components/page-placeholder';
+import { TeamScreen } from './_components/team-screen';
 
 export const metadata: Metadata = { title: 'Team' };
 
 export default function TeamPage() {
-  return <PagePlaceholder title="Team" ticket="F05" owner="Tumit" />;
+  return <TeamScreen />;
 }
