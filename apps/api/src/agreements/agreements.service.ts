@@ -29,8 +29,8 @@ import { day, isUniqueViolation, memberNames, memberRef } from '../workspaces/co
 
 /**
  * AGREEMENT_PDF_REQUIRED: every version needs a CLEAN PDF original (Rasel's decision 3, Oct 8).
- * Off by default until the PDF upload routes are on main, since no firm can make a CLEAN file
- * before then; R14's PDF originals PR turns the default back to true. Empty counts as unset.
+ * Off by default until a firm can upload and scan a PDF on dev end to end (the agreement editor's
+ * upload and the scan); then the default goes back to true. Empty counts as unset.
  */
 export interface AgreementsConfig {
   pdfRequired: boolean;
@@ -41,8 +41,9 @@ export function agreementsConfig(env: NodeJS.ProcessEnv = process.env): Agreemen
   const flag = z
     .enum(['true', 'false'])
     .default('false')
-    .parse(raw === '' ? undefined : raw);
-  return { pdfRequired: flag === 'true' };
+    .safeParse(raw === '' ? undefined : raw);
+  if (!flag.success) throw new Error('AGREEMENT_PDF_REQUIRED must be "true" or "false"');
+  return { pdfRequired: flag.data === 'true' };
 }
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
@@ -457,14 +458,14 @@ export class AgreementsService {
 }
 
 /**
- * The firm's Begin Online service for a form: its unarchived service of that kind (the first by
- * sort order, creation, then id); none answers 404. Runs in the firm's scope. When R0's
- * `services.begin_online` lands (one live Begin Online service per kind), filter on it here.
+ * The firm's Begin Online service for a form: its unarchived service of that kind marked
+ * `begin_online` (at most one, by R0's unique index); none answers 404. Runs in the firm's scope.
+ * Begin Online's submit resolves its service only through this, so the block and the signature
+ * always agree.
  */
 export async function beginOnlineService(tx: TxClient, form: IntakeFormKey) {
   const service = await tx.service.findFirst({
-    where: { kind: form, archivedAt: null },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    where: { kind: form, archivedAt: null, beginOnline: true },
     select: { id: true },
   });
   if (!service) throw notFound();
@@ -508,8 +509,9 @@ export async function currentAgreements(
       bodySha256: v.bodySha256,
       acknowledgments: acknowledgmentsOf(v.acknowledgments),
       pdf: {
-        // No PDF download route yet: R14's PDF originals PR sets this from the file.
-        available: false,
+        // A version links only a CLEAN file (the versions trigger) and a scan result never
+        // changes once set, so a linked file stays downloadable unless its bytes change.
+        available: v.pdfFile !== null,
         sha256: v.pdfFile?.sha256 ?? null,
         fileName: v.pdfFile?.fileName ?? null,
         sizeBytes: v.pdfFile?.sizeBytes ?? null,

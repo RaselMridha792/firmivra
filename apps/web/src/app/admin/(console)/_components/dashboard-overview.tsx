@@ -62,13 +62,17 @@ function StatCard({
       : stat.key === 'monthlyRevenueCents'
         ? (value / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
         : value.toLocaleString('en-US');
-  const linkClass = 'mt-1 inline-flex items-center gap-1 text-sm text-brand-700';
+  const linkClass = 'mt-1 inline-flex items-center gap-1 whitespace-nowrap text-sm text-brand-700';
 
   return (
-    <Card variant="elevated" data-testid={stat.testId} className="!p-4">
-      <div className="flex items-center gap-4">
+    // Four cards share a row from xl; until 2xl a smaller icon keeps "View Applications" on one line.
+    <Card variant="elevated" data-testid={stat.testId} className="!p-4 xl:!p-3 2xl:!p-4">
+      <div className="flex items-center gap-4 xl:gap-3 2xl:gap-4">
         <span
-          className={'flex size-16 shrink-0 items-center justify-center rounded-card ' + iconTone}
+          className={
+            'flex size-16 shrink-0 xl:size-12 2xl:size-16 items-center justify-center rounded-card ' +
+            iconTone
+          }
         >
           <Icon aria-hidden className="size-7" />
         </span>
