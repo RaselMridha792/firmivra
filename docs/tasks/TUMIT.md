@@ -162,8 +162,10 @@ You take the Super Admin site and the firm workspace; Arfan takes the portal and
 
 Checklist:
 
-- [ ] Owner and Admin see the log; Staff see the no-permission state
-- [ ] A "Firmivra Support" row shows no person and no IP
-- [ ] A range over 366 days, or only one end, shows the contract's message before any request
-- [ ] Loading, empty and error states
-- [ ] Playwright: filter and page through the log in mock mode
+- [x] Owner and Admin see the log; Staff see the no-permission state
+- [x] A "Firmivra Support" row shows no person and no IP
+- [x] A range over 366 days, or only one end, shows the contract's message before any request
+- [x] Loading, empty and error states
+- [x] Playwright: filter and page through the log in mock mode
+
+**Status (Oct 9, 2026):** On `tumit/FIR-F12-audit-log`. The table uses `@firmivra/ui`'s `Table` with its server paging (the API's cursor), and each row has a Details disclosure. The filters are checked with the contract's `AuditLogQuery` before any request. The mock has six entries, fewer than a page, so the spec checks that Next is off. Against the local API with the seed, the Owner got 50 rows and an active Next, Staff got the no-permission state (403), and 375 px had no horizontal scroll.
