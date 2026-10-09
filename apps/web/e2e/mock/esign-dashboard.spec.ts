@@ -58,3 +58,12 @@ test('a counter opens All requests with its status', async ({ page }) => {
   await expect(page).toHaveURL(/\/firm-sign\/requests\?status=COMPLETED$/);
   await expect(page.getByLabel('Status')).toHaveValue('COMPLETED');
 });
+
+test('tiles for screens not built yet say Soon and keep their subtitles', async ({ page }) => {
+  await page.goto(app('/firm-sign'));
+  const start = page.getByRole('group', { name: 'Start a request' });
+  await expect(start.getByText('PDF, Word, and more')).toBeVisible();
+  await expect(start.getByRole('link', { name: /Send from Client Record/ })).toHaveCount(0);
+  await expect(start.getByText('Send from Client Record')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'In-Person Signing' })).toHaveCount(0);
+});

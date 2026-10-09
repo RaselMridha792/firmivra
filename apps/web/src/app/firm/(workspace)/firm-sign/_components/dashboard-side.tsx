@@ -11,7 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
-import { canCreate, isFirmManager } from '../../../../../components/esign/esign-role';
+import { canCreate, isOwnerOrAdmin } from '../../../../../components/esign/esign-role';
 
 interface Action {
   label: string;
@@ -19,16 +19,24 @@ interface Action {
   href: string;
   /** Who sees it: creating needs more than view access; settings are Owner and Admin. */
   who: 'create' | 'managers' | 'all';
+  /** Its screen isn't there yet: shown, not a link. */
+  soon?: true;
 }
 
 const ACTIONS: Action[] = [
   // A template starts as a prepared request, saved with Save as template.
   { label: 'Create Template', icon: FilePlus, href: '/firm-sign/new', who: 'create' },
   { label: 'Upload a Template', icon: Upload, href: '/firm-sign/new', who: 'create' },
-  { label: 'Manage Templates', icon: Layers, href: '/firm-sign/templates', who: 'all' },
+  { label: 'Manage Templates', icon: Layers, href: '/firm-sign/templates', who: 'create' },
   { label: 'Bulk Send', icon: Users, href: '/firm-sign/bulk', who: 'create' },
-  // In person starts from a request whose signer signs on this device.
-  { label: 'In-Person Signing', icon: Monitor, href: '/firm-sign/requests', who: 'create' },
+  // In person starts on request detail, which lands later in this stack.
+  {
+    label: 'In-Person Signing',
+    icon: Monitor,
+    href: '/firm-sign/requests',
+    who: 'create',
+    soon: true,
+  },
   {
     label: 'Signing Settings',
     icon: Settings,
@@ -40,7 +48,7 @@ const ACTIONS: Action[] = [
 const visible = (a: Action, role: EsignAccessRole | null) =>
   a.who === 'all' ||
   (a.who === 'create' && canCreate(role)) ||
-  (a.who === 'managers' && isFirmManager(role));
+  (a.who === 'managers' && isOwnerOrAdmin(role));
 
 /** The mockup's Quick Actions and Need Help panels. */
 export function QuickActions({ role }: { role: EsignAccessRole | null }) {
@@ -49,15 +57,23 @@ export function QuickActions({ role }: { role: EsignAccessRole | null }) {
       <Card>
         <h2 className="mb-4 font-display text-2xl text-heading">Quick Actions</h2>
         <ul className="flex flex-col gap-2">
-          {ACTIONS.filter((a) => visible(a, role)).map(({ label, icon: Icon, href }) => {
+          {ACTIONS.filter((a) => visible(a, role)).map(({ label, icon: Icon, href, soon }) => {
             const body = (
               <>
                 <Icon aria-hidden className="size-5 text-brand-700" />
                 <span className="flex-1">{label}</span>
+                {soon && <span className="text-xs text-muted">Soon</span>}
               </>
             );
             const look =
               'flex min-h-11 items-center gap-3 rounded-control bg-brand-50 px-3 text-sm font-medium text-heading';
+            if (soon) {
+              return (
+                <li key={label}>
+                  <div className={look}>{body}</div>
+                </li>
+              );
+            }
             return (
               <li key={label}>
                 <Link

@@ -7,7 +7,7 @@ import {
   type EsignCounter,
 } from '@firmivra/types';
 import {
-  Ban,
+  AlarmClock,
   CircleCheck,
   CircleMinus,
   Clock,
@@ -15,11 +15,11 @@ import {
   Eye,
   File,
   FileText,
-  Hourglass,
   type LucideIcon,
   PenLine,
   Plus,
   Send,
+  Trash2,
   Upload,
   Users,
 } from 'lucide-react';
@@ -44,7 +44,7 @@ function Dashboard({ role }: { role: EsignAccessRole | null }) {
       <Hero />
       <StartTiles role={role} />
       <Counters />
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 2xl:grid-cols-[minmax(0,1fr)_18rem]">
         <RecentDocuments />
         <QuickActions role={role} />
       </div>
@@ -69,7 +69,7 @@ function Hero() {
       </div>
       <p
         aria-hidden="true"
-        className="hidden text-sm font-semibold tracking-widest text-heading uppercase sm:block"
+        className="hidden text-sm font-semibold tracking-eyebrow text-heading uppercase sm:block"
       >
         Documents
         <br />
@@ -87,6 +87,8 @@ interface Tile {
   icon: LucideIcon;
   href: string;
   primary?: true;
+  /** Its screen isn't there yet: shown, not a link. */
+  soon?: true;
 }
 
 /** The mockup's five ways to start. Each opens the step it names. */
@@ -118,14 +120,22 @@ const TILES: Tile[] = [
     // A template starts as a prepared request, saved with Save as template.
     href: '/firm-sign/new',
   },
-  { title: 'Send from Client Record', text: 'Quick send', icon: Users, href: '/clients' },
+  // Until the client record has its Send for Signature button (Fahad, F06).
+  {
+    title: 'Send from Client Record',
+    text: 'Quick send',
+    icon: Users,
+    href: '/clients',
+    soon: true,
+  },
 ];
 
 function StartTiles({ role }: { role: EsignAccessRole | null }) {
   if (!canCreate(role)) {
     return (
       <p data-testid="view-only" className="text-sm text-muted">
-        You can view signature requests. Ask your firm&apos;s owner if you need to send them.
+        You can view signature requests. Ask your firm&apos;s Owner or Admin if you need to send
+        them.
       </p>
     );
   }
@@ -135,7 +145,7 @@ function StartTiles({ role }: { role: EsignAccessRole | null }) {
       aria-label="Start a request"
       className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
     >
-      {TILES.map(({ title, text, icon: Icon, href, primary }) => {
+      {TILES.map(({ title, text, icon: Icon, href, primary, soon }) => {
         const body = (
           <>
             <span
@@ -145,6 +155,7 @@ function StartTiles({ role }: { role: EsignAccessRole | null }) {
             </span>
             <span className="font-semibold">{title}</span>
             <span className={`text-sm ${primary ? 'text-white' : 'text-muted'}`}>{text}</span>
+            {soon && <span className="text-xs font-semibold text-muted">Soon</span>}
           </>
         );
         const look = `flex flex-col items-center gap-2 rounded-card border p-5 text-center shadow-card ${
@@ -152,6 +163,13 @@ function StartTiles({ role }: { role: EsignAccessRole | null }) {
             ? 'border-platform-navy bg-platform-navy text-white'
             : 'border-border bg-brand-50 text-heading'
         }`;
+        if (soon) {
+          return (
+            <div key={title} className={look}>
+              {body}
+            </div>
+          );
+        }
         return (
           <Link
             key={title}
@@ -174,15 +192,18 @@ const COUNTER_ICON: Record<EsignCounter, LucideIcon> = {
   PARTIALLY_SIGNED: PenLine,
   COMPLETED: CircleCheck,
   DECLINED: CircleMinus,
-  EXPIRED: Hourglass,
-  VOIDED: Ban,
+  EXPIRED: AlarmClock,
+  VOIDED: Trash2,
 };
 
-/** Each counter's colours: the status's tone (the mockup's tinted tiles). */
+/**
+ * Each counter's colours: the status's tone (the mockup's tinted tiles). Teal text on its soft tint
+ * is under 4.5:1, so Partially Signed's words are dark and only its icon is teal.
+ */
 const TONE_CLASS = {
   neutral: 'border-border bg-surface text-muted',
   info: 'border-info-soft bg-info-soft text-info',
-  accent: 'border-accent-soft bg-accent-soft text-accent',
+  accent: 'border-accent-soft bg-accent-soft text-heading',
   success: 'border-success-soft bg-success-soft text-success',
   warning: 'border-warning-soft bg-warning-soft text-warning',
   danger: 'border-danger-soft bg-danger-soft text-danger',
@@ -190,12 +211,12 @@ const TONE_CLASS = {
 
 /** The 9 counters (Delivered counts as Sent). Each opens All requests with that status. */
 function Counters() {
-  const summary = useApiQuery(['esign', 'summary'], () => api.esign.summary());
+  const summary = useApiQuery(['esign', 'requests', 'summary'], () => api.esign.summary());
   return (
     <PageState query={summary} isEmpty={() => false}>
       {(s) => (
         <nav aria-label="Requests by status">
-          <ul className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-9">
+          <ul className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-5 xl:grid-cols-9">
             {ESIGN_COUNTERS.map((key) => {
               const Icon = COUNTER_ICON[key];
               const label = ESIGN_STATUS_LABELS[key];
@@ -205,9 +226,17 @@ function Counters() {
                     href={`/firm-sign/requests?status=${key}`}
                     data-testid={`counter-${key}`}
                     aria-label={`${s.counts[key]} ${label}`}
-                    className={`flex h-full flex-col items-center gap-1 rounded-card border p-3 text-center focus-visible:outline-2 focus-visible:outline-focus ${TONE_CLASS[STATUS_TONE[key]]}`}
+                    className={`flex h-full flex-col items-center gap-1 rounded-card border p-3 text-center focus-visible:outline-2 focus-visible:outline-focus ${
+                      // The mockup's Voided tile is grey.
+                      key === 'VOIDED'
+                        ? 'border-border bg-disabled text-muted'
+                        : TONE_CLASS[STATUS_TONE[key]]
+                    }`}
                   >
-                    <Icon aria-hidden className="size-6" />
+                    <Icon
+                      aria-hidden
+                      className={`size-6 ${STATUS_TONE[key] === 'accent' ? 'text-accent' : ''}`}
+                    />
                     <span className="text-lg font-semibold">{s.counts[key]}</span>
                     <span className="text-sm">{label}</span>
                   </Link>
