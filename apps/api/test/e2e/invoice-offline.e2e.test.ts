@@ -309,6 +309,7 @@ describe('void a check or cash payment', () => {
           id: payment.processorRef,
           payment_status: 'paid',
           amount_total: 30_000,
+          currency: 'usd',
           payment_intent: intent,
           metadata: { payment_id: payment.id },
         }),
