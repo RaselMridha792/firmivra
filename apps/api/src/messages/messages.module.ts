@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
+import { MessageNotices } from './message-notices.js';
 import {
   ClientMessageThreadsController,
   MessageThreadsController,
@@ -10,6 +12,7 @@ import { NotesService } from './notes.service.js';
 
 /** Messages and notes (R20): firm threads, the portal's messages, read state and counts. */
 @Module({
+  imports: [NotificationsModule],
   controllers: [
     ClientMessageThreadsController,
     MessageThreadsController,
@@ -18,7 +21,7 @@ import { NotesService } from './notes.service.js';
     NotesController,
     MyNotesController,
   ],
-  providers: [MessagesService, NotesService],
+  providers: [MessagesService, NotesService, MessageNotices],
   exports: [MessagesService],
 })
 export class MessagesModule {}

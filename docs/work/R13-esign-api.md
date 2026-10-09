@@ -77,11 +77,11 @@ Target merge windows in brackets (Dhaka).
 
 - R13-web: builds on `api.esign` and `mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures,signing`).
 - Fahad and Nahid: menu lines read `api.esign.status()` and `api.mySignatures(slug).status()`.
-- R18: `EsignStore` has no presigned PUT (`presignUpload`) and its `head` gives no Content-Encoding, which the upload ticket and confirm (part 1b) need; until then part 1b presigns with R5's `S3DocumentStorage`. `EsignEngineModule` is not on a branch yet: `EsignModule` provides `CODE_HASHER` and `ESIGN_STORE` with failing stand-ins until it is.
-- R0 (r0_esign): the module switch reads the firm's enabled modules; SYSTEM-DESIGN says `business_settings.enabled_modules`, the requests brief says `businesses.enabled_modules`. `ModulesNotMigrated` keeps Firm Sign off for every firm until the column exists.
+- R18: `EsignStore` has no presigned PUT (`presignUpload`) and its `head` gives no Content-Encoding, which the upload ticket and confirm (part 1b) need; until then part 1b presigns with R5's `S3DocumentStorage`. `EsignEngineModule` (R18, #166) is on main: `EsignModule` imports it for `CODE_HASHER` and `ESIGN_STORE` from part 1b on.
+- R0 (r0_esign): the module switch is `business_settings.enabled_modules`, which is already on main (SYSTEM-DESIGN, "Module switch"); `PrismaBusinessModules` reads it, so no new column is needed. r0_esign only adds the lock (`app_set_business_module`). No firm lists 'esign' yet, so Firm Sign stays off.
 
 ## Progress log
 
 - Oct 8: started in the cloud. Contract 1 on `rasel/R13-api-contract-firm` (#135); Scrum pre-review fixes applied the same evening.
 - Oct 9: docs PR (step 4) on rasel/R13-api-docs (#157, merged). Contract 2 is #185 (stacked on R14's #155). The engine moved to R18 (Rasel's card, 09:15 UTC); my engine 1 branch went to them. Contract 3 on rasel/R13-api-contract-extras, stacked on #185.
-- Oct 9: requests API 1 on rasel/R13-api-requests-1 (stacked on contract 3, R18's engine interfaces merged in): `@RequiresModule()` and `ModuleGuard` in common/modules, `GET /esign/status`, drafts (create, get, update, discard), page plan and recipients, behind the `EsignRepository` and `EsignDirectory` ports (in-memory fakes in test/unit/esign-fakes.ts). Files (uploads, confirm, from-vault, remove, content) moved to part 1b for size. No local Postgres in the cloud thread, so the HTTP tests run EsignModule on the fakes; full AppModule e2e tests come once r0_esign lands.
+- Oct 9: requests API 1 on rasel/R13-api-requests-1 (stacked on contract 3, R18's engine interfaces merged in): `@RequiresModule()` and `ModuleGuard` in common/modules (reading `business_settings.enabled_modules`) and `GET /esign/status`, with an AppModule e2e test. Drafts (part 1b), page plan and recipients (part 1c) and files (parts 1d and 1e) follow, behind the `EsignRepository` and `EsignDirectory` ports.
