@@ -107,7 +107,8 @@ const Version = z.number().int().min(1);
  *     finish: (uploadToken) => api.esign.confirmUpload(requestId, { uploadToken }),
  *   })
  * Bad input rejects with ApiRequestError(400, 'VALIDATION_FAILED') before anything is sent.
- * `baseUrl` is the one given to `createRequest` (for `documentContentUrl`).
+ * `baseUrl` is the one given to `createRequest` (for `documentContentUrl` and
+ * `templates.packetUrl`).
  */
 export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
   const post = <S extends z.ZodType>(schema: S, path: string, body: unknown) =>
@@ -229,7 +230,7 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
     events: async (id: string): Promise<EsignEventList> =>
       request(EsignEventList, `${one(id)}/events`),
 
-    /** A new template from this request (see SaveEsignTemplateBody). */
+    /** A new template, PRIVATE unless asked (see SaveEsignTemplateBody). 409 TEMPLATE_HAS_CLIENT_FILES. */
     saveAsTemplate: async (id: string, body: SaveEsignTemplateBody): Promise<EsignTemplateDetail> =>
       post(
         EsignTemplateDetail,
@@ -329,6 +330,12 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
         ),
       get: async (templateId: string): Promise<EsignTemplateDetail> =>
         request(EsignTemplateDetail, template(templateId)),
+      /**
+       * Same-origin address of the template's packet, for the page viewer (pdfjs fetches it with
+       * the session cookie); the same as `get().packetUrl`. Not a call: nothing is sent until the
+       * viewer loads it.
+       */
+      packetUrl: (templateId: string): string => `${baseUrl}${template(templateId)}/packet`,
       /** 409 TEMPLATE_NAME_TAKEN or TEMPLATE_ARCHIVED. */
       update: async (
         templateId: string,
@@ -402,7 +409,7 @@ export function createMySignaturesClient(request: ApiRequest, firmSlug: string) 
   return {
     status: async (): Promise<MySignaturesStatus> =>
       request(MySignaturesStatus, `${base()}/status`),
-    /** Requests where one of the client's logins is a recipient, newest first. */
+    /** Requests where the signed-in login's own recipients are, newest first. */
     list: async (query: ListMySignaturesQuery = {}): Promise<MySignatureList> =>
       request(MySignatureList, `${base()}${toQuery(parseInput(ListMySignaturesQuery, query))}`),
     /**

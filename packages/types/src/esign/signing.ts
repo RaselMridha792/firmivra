@@ -306,7 +306,7 @@ export const MySignatureState = z.enum([
 ]);
 export type MySignatureState = z.infer<typeof MySignatureState>;
 
-/** One row of the Signature center: a request where one of the client's logins is a recipient. */
+/** One row of the Signature center: one of the signed-in login's own recipients on a request. */
 export const MySignatureRow = z.object({
   /** The recipient (this login on that request): pass it to `startSigning` and `download`. */
   recipientId: z.uuid(),

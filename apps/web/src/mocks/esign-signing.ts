@@ -647,6 +647,19 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
     emailMessage: null,
   })));
 
+/**
+ * What save-as-template and save-as-version refuse (SaveEsignTemplateBody): files still being
+ * checked, and any file copied from the client's documents.
+ */
+export const checkTemplateSource = (r: EsignRequestDetail): void => {
+  if (r.documents.some((d) => d.scanStatus !== 'CLEAN')) {
+    throw fail(409, 'SCAN_PENDING', 'A file is still being checked');
+  }
+  if (r.documents.some((d) => d.sourceDocumentId !== null)) {
+    throw fail(409, 'TEMPLATE_HAS_CLIENT_FILES', 'A file came from the client’s documents');
+  }
+};
+
 /** Signing Settings, templates and save-as-template for the firm-side mock. */
 export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
   const forbidden = () => fail(403, 'FORBIDDEN', 'Only an Owner or Admin can change this');
@@ -684,9 +697,7 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
       const input = parseInput(SaveEsignTemplateBody, body);
       await ctx.on();
       const r = ctx.find(requestId);
-      if (r.documents.some((d) => d.scanStatus !== 'CLEAN')) {
-        throw fail(409, 'SCAN_PENDING', 'A file is still being checked');
-      }
+      checkTemplateSource(r);
       if (r.pagePlan.length === 0) throw fail(409, 'INVALID_STATE', 'Add a document first');
       if (nameTaken(input.name)) throw fail(409, 'TEMPLATE_NAME_TAKEN', 'Name taken');
       const keyOf = (recipientId: string | null) => {
@@ -697,7 +708,7 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
         id: ctx.newId('8'),
         name: input.name,
         description: input.description ?? null,
-        visibility: input.visibility ?? 'FIRM',
+        visibility: input.visibility ?? 'PRIVATE',
         owner: ctx.me,
         pageCount: r.pagePlan.length,
         roleCount: r.recipients.length,
@@ -730,7 +741,8 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
           mergeKey: f.mergeKey,
           options: [...f.options],
           groupKey: f.groupKey,
-          value: f.mergeKey ? null : f.value,
+          // Only the sender's own typed values: never a merge-filled or a signer's value.
+          value: f.recipientId === null && !f.mergeKey ? f.value : null,
         })),
         routing: r.routing,
         expiryDays: r.expiryDays,
@@ -802,6 +814,10 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
         await ctx.on();
         return copy({ ...template(templateId), canEdit: rowOf(template(templateId)).canEdit });
       },
+      packetUrl: (templateId) => {
+        parseInput(EsignTemplateId, templateId);
+        return SAMPLE_PDF_URL;
+      },
       update: async (templateId, body) => {
         const input = parseInput(UpdateEsignTemplateBody, body);
         await ctx.on();
@@ -828,7 +844,7 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
         await ctx.on();
         const t = template(templateId);
         if (t.archivedAt) throw fail(409, 'TEMPLATE_ARCHIVED', 'This template is archived');
-        const given = new Map(input.roles.map((r) => [r.key, r.who]));
+        const fills = new Map(input.roles.map((r) => [r.key, r]));
         const logins = clientFixtures().find((c) => c.id === input.clientId)?.portalLogins ?? [];
         const login = (portalRole: string) =>
           logins.find((l) => l.portalRole === portalRole && l.status === 'ACTIVE');
@@ -843,8 +859,17 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
           if (role.role === 'PREPARER') return { type: 'STAFF', userId: ctx.me.userId };
           return undefined;
         };
-        const who = new Map(t.roles.map((role) => [role.key, given.get(role.key) ?? auto(role)]));
-        const open = t.roles.filter((role) => !who.get(role.key));
+        const who = new Map(
+          t.roles.map((role) => [role.key, fills.get(role.key)?.who ?? auto(role)]),
+        );
+        const methodOf = (role: EsignTemplateRole) =>
+          fills.get(role.key)?.authMethod ?? role.authMethod;
+        const open = t.roles.filter((role) => {
+          const fill = fills.get(role.key);
+          const needsCode =
+            methodOf(role) === 'ACCESS_CODE' && fill?.delivery !== 'IN_PERSON' && !fill?.accessCode;
+          return !who.get(role.key) || needsCode;
+        });
         if (open.length > 0) {
           throw fail(
             409,
@@ -890,7 +915,10 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
             roleLabel: role.roleLabel ?? undefined,
             routingOrder: role.routingOrder,
             who: who.get(role.key)!,
-            authMethod: role.authMethod === 'ACCESS_CODE' ? 'EMAIL_CODE' : role.authMethod,
+            delivery: fills.get(role.key)?.delivery,
+            authMethod: methodOf(role),
+            accessCode:
+              methodOf(role) === 'ACCESS_CODE' ? fills.get(role.key)?.accessCode : undefined,
           })),
         });
         const recipientOf = new Map(

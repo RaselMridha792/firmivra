@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
 import { text } from '../clients/text.js';
-import { EsignTemplateVisibility } from './admin.js';
+import { EsignBulkRoleFill, EsignTemplateVisibility } from './admin.js';
 import { EsignAccessRole, EsignRequestStatus } from './enums.js';
 import { EsignErrorCode } from './errors.js';
-import { EsignReadinessCode, EsignWhoExternal, EsignWhoStaff } from './schemas.js';
+import { EsignReadinessCode } from './schemas.js';
 
 // Firm Sign (R13), firm side, contract 3: the extras. Approvals, Firm Sign roles (Manager and
 // Viewer), template versions and duplicate, in-person signing, bulk send and reports. Same access
@@ -116,8 +116,9 @@ export type EsignTemplateVersionList = z.infer<typeof EsignTemplateVersionList>;
 
 /**
  * POST /esign/requests/{id}/save-as-version (the template's owner, Owner, Admin): the request's
- * packet, recipients (as roles), fields and settings become the template's next version. Same
- * checks as save-as-template (409 SCAN_PENDING). 409 TEMPLATE_ARCHIVED.
+ * packet, recipients (as roles), fields and settings become the template's next version. It
+ * copies, leaves out and refuses exactly what save-as-template does (SaveEsignTemplateBody: 409
+ * TEMPLATE_HAS_CLIENT_FILES, SCAN_PENDING). 409 TEMPLATE_ARCHIVED.
  */
 export const SaveEsignTemplateVersionBody = z.strictObject({
   templateId: z.uuid(),
@@ -205,7 +206,8 @@ export const ESIGN_BULK_MAX = 200;
  * their own assigned clients): one separate request per client, each with its own signers, audit trail and signed
  * copy; no request ever holds two clients. CLIENT, SPOUSE and PREPARER roles fill themselves for
  * each client; `roles` gives the same person for every other role (a STAFF member or an EXTERNAL
- * person, never a client login). Answers 202 with the batch; the job runner creates and sends the
+ * person, never a client login), and a role's delivery and access code, with the same rules as
+ * `use` (EsignBulkRoleFill). An access code given here is the same on every client's request. Answers 202 with the batch; the job runner creates and sends the
  * requests. A client whose request can't be sent (a readiness problem) stays a DRAFT and the batch
  * row says why. 400 BULK_LIMIT (the client checks it before sending), 409 TEMPLATE_ARCHIVED,
  * TEMPLATE_ROLES_UNFILLED, APPROVER_NOT_ALLOWED.
@@ -224,15 +226,7 @@ export const EsignBulkSendBody = z
       .max(ESIGN_BULK_MAX, 'At most 200 clients'),
     /** Each request's name; the template's name when left out. */
     title: text(200).optional(),
-    roles: z
-      .array(
-        z.strictObject({
-          key: z.string().min(1).max(40),
-          who: z.discriminatedUnion('type', [EsignWhoStaff, EsignWhoExternal]),
-        }),
-      )
-      .max(20)
-      .default([]),
+    roles: z.array(EsignBulkRoleFill).max(20).default([]),
     confirm: z.literal(true),
   })
   .refine((b) => new Set(b.clients.map((c) => c.clientId)).size === b.clients.length, {

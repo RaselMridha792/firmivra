@@ -232,7 +232,7 @@ describe('api.esign settings and templates', () => {
     ]);
     expect(calls[1]!.body).toEqual({ expiryDays: 14, emailMessage: null });
     expect(calls[9]!.body).toEqual({ clientId: other, roles: [] });
-    expect(calls[10]!.body).toEqual({ name: 'Engagement letter', visibility: 'FIRM' });
+    expect(calls[10]!.body).toEqual({ name: 'Engagement letter', visibility: 'PRIVATE' });
   });
 
   it('checks settings and template bodies', () => {
