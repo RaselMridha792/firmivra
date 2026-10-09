@@ -1,9 +1,11 @@
 // End-to-end: R7, sending an invoice (OPEN now or SCHEDULED for later) and the portal's Receipts &
 // Invoices (the signed-in client's own invoices through myInvoiceStatus()). Staff get 403 on send;
 // firm B and other clients get 404.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { MyInvoice, MyInvoiceDetail as Detail, MyInvoiceList as List } from '@firmivra/types';
+import { Notifier } from '../../src/notifications/notifier.js';
+import { NOTIFY_SERVICE, type NotifyService } from '../../src/notify/notify.types.js';
 import { codeOf, expectOk, Invoice, nyDay, startInvoiceApp } from './invoice-setup.js';
 
 const My = z.strictObject({
@@ -174,5 +176,113 @@ describe('GET /portal/{firmSlug}/me/invoices', () => {
     expect([b.status, codeOf(b)]).toEqual([404, 'NOT_FOUND']);
     const staff = await t.portal('get', '', t.people.ownerA);
     expect(staff.status).not.toBe(200);
+  });
+});
+
+describe('invoice.sent', () => {
+  /** What the send asked for: emails through NotifyService, and the bell items written. */
+  async function sentWith(fn: () => Promise<string>) {
+    const notify = t.app.get<NotifyService>(NOTIFY_SERVICE);
+    const spy = vi.spyOn(notify, 'send');
+    try {
+      const id = await fn();
+      const emails = spy.mock.calls.map(([m]) => m).filter((m) => m.template === 'invoice.sent');
+      const bell = await t.inScope(t.ids.firmA, (tx) =>
+        tx.notification.findMany({
+          where: { businessId: t.ids.firmA, entityId: id, type: 'invoice.sent' },
+          select: { recipientUserId: true },
+        }),
+      );
+      return { id, emails, bell };
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("goes once to the client's primary login, with the name, the number and a link only", async () => {
+    const { id, emails, bell } = await sentWith(async () => {
+      const draft = await create(t.ids.one);
+      expectOk(await send(draft.id));
+      return draft.id;
+    });
+    expect(emails.map((m) => m.to)).toEqual([t.people.primary.email]);
+    expect(Object.keys(emails[0]!.data as object).sort()).toEqual([
+      'invoiceNumber',
+      'link',
+      'name',
+    ]);
+    expect(String((emails[0]!.data as { link: string }).link)).toContain(`/${t.ids.slugA}/`);
+    expect(bell).toEqual([{ recipientUserId: t.people.primary.id }]);
+    expect(id).toBeTruthy();
+  });
+
+  it('is not sent for an invoice scheduled for later', async () => {
+    const { emails, bell } = await sentWith(async () => {
+      const draft = await create(t.ids.one, { scheduledFor: nyDay(3), dueOn: nyDay(10) });
+      expectOk(await send(draft.id));
+      return draft.id;
+    });
+    expect([emails, bell]).toEqual([[], []]);
+  });
+
+  it('a failing notice never fails the send', async () => {
+    const spy = vi.spyOn(t.app.get(Notifier), 'notify').mockRejectedValueOnce(new Error('down'));
+    try {
+      const draft = await create(t.ids.one);
+      const res = await send(draft.id);
+      expect(Invoice.parse(expectOk(res).body).status).toBe('OPEN');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('portal pages', () => {
+  it('a cursor still works after the invoice it ends on has left the view', async () => {
+    const ids: string[] = [];
+    for (const due of [5, 6, 7]) {
+      const draft = await create(t.ids.two, { dueOn: nyDay(due) });
+      expectOk(await send(draft.id));
+      ids.push(draft.id);
+    }
+    const first = MyList.parse(
+      expectOk(await t.portal('get', '?view=DUE&limit=1', t.people.other)).body,
+    );
+    expect(first.items.map((i) => i.id)).toEqual([ids[0]]);
+    await t.inScope(t.ids.firmA, (tx) =>
+      tx.invoice.update({
+        where: { id: ids[0] },
+        data: { status: 'CANCELED', canceledAt: new Date() },
+      }),
+    );
+    const next = MyList.parse(
+      expectOk(
+        await t.portal('get', `?view=DUE&limit=1&cursor=${first.nextCursor!}`, t.people.other),
+      ).body,
+    );
+    expect(next.items.map((i) => i.id)).toEqual([ids[1]]);
+  });
+
+  it('audits portal reads with ids and counts only', async () => {
+    const draft = await create(t.ids.one);
+    expectOk(await send(draft.id));
+    expectOk(await t.portal('get', '', t.people.primary));
+    expectOk(await t.portal('get', `/${draft.id}`, t.people.primary));
+    const audit = await t.inScope(t.ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: t.ids.firmA,
+          actorUserId: t.people.primary.id,
+          action: { in: ['my_invoices.listed', 'my_invoice.viewed'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 2,
+        select: { action: true, entityId: true },
+      }),
+    );
+    expect(audit).toEqual([
+      { action: 'my_invoice.viewed', entityId: draft.id },
+      { action: 'my_invoices.listed', entityId: null },
+    ]);
   });
 });

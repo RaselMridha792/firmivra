@@ -248,9 +248,11 @@ info:
       `200`, as the mock does (keys per payment); two refunds at once wait on the row lock, so
       one over the limit is `409`. Stripe's `charge_already_refunded` is `409 NOT_REFUNDABLE`;
       other Stripe errors `503`, nothing inserted. At most three Stripe calls run under the lock.
-    - **Notifications** (R6's helper): `invoice.sent` to the client when an invoice opens;
-      `payment.received` to the client and the firm when a payment succeeds. No amounts or card
-      details in SMS; emails name the invoice number.
+    - **Notifications** (R6's `Notifier.notify`, after the change commits): `invoice.sent` to the
+      client when an invoice opens (not when it is scheduled); `payment.received` to the client
+      and the firm when a payment succeeds. The Notifier picks the recipients (the client's ACTIVE
+      PRIMARY login, q27) and writes the bell items; emails carry the name, the invoice number and
+      a link only, never an amount. A failed notice never fails the change.
     - **Audit** (`AuditService.log`, ids and amounts only, never card or bank data):
       `invoice.created`, `invoice.updated`, `invoice.sent` (or `invoice.scheduled`),
       `invoice.opened` (by the job), `invoice.canceled`, `invoice.checkout_started` (the client's
@@ -258,7 +260,9 @@ info:
       `invoice.paid`, `payment.refund_requested` (who, payment, amount), `payment.refunded`,
       `payment.refund_failed`, `invoice.offline_payment_recorded` and
       `invoice.offline_payment_voided` (the payment's id, method and amount). Webhook entries name
-      Stripe as the actor. Reads are not audited.
+      Stripe as the actor. Reads are audited too (CLAUDE.md rule 8): `invoices.listed` (count,
+      the client filter) and `invoice.viewed` (id, client), after the read; the portal's
+      `my_invoices.listed` and `my_invoice.viewed` the same.
     - **Cursors** are opaque (the sort keys of the last item); a cursor the API did not make is
       `400 VALIDATION_FAILED`.
 
