@@ -10,9 +10,9 @@ import { shouldRetry } from '../../../../../../lib/query';
 
 /**
  * The clients chosen so far, in the order picked: the name, the service to file under, and how
- * many open services the client has (0 until known; more than one means one must be picked).
+ * many open services the client has (null until known; more than one means one must be picked).
  */
-export type Chosen = Map<string, { name: string; engagementId: string; services: number }>;
+export type Chosen = Map<string, { name: string; engagementId: string; services: number | null }>;
 
 /** Search the client list and tick clients; the chosen ones stay listed across searches. */
 export function ClientChecklist({
@@ -52,7 +52,7 @@ export function ClientChecklist({
   const toggle = (id: string, name: string, on: boolean) =>
     onChange((prev) => {
       const next = new Map(prev);
-      if (on) next.set(id, { name, engagementId: '', services: 0 });
+      if (on) next.set(id, { name, engagementId: '', services: null });
       else next.delete(id);
       return next;
     });
@@ -153,7 +153,7 @@ function ChosenClient({
   id: string;
   name: string;
   engagementId: string;
-  services: number;
+  services: number | null;
   onService: (engagementId: string) => void;
   onServices: (count: number) => void;
   onRemove: () => void;
@@ -167,11 +167,18 @@ function ChosenClient({
   // The parent checks, before sending, that a client with several services has one picked.
   useEffect(() => {
     if (list.data && open.length !== services) onServices(open.length);
-  }, [list.data, open.length, services, onServices]);
+    // Unknown services don't hold the send up: the copy is filed in the client's documents.
+    else if (list.isError && services === null) onServices(0);
+  }, [list.data, list.isError, open.length, services, onServices]);
   return (
     <li className="flex flex-wrap items-end justify-between gap-3 py-2">
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <span className="text-sm font-medium text-text">{name}</span>
+        {list.isError && (
+          <span className="text-sm text-muted">
+            Services couldn&apos;t be loaded: the signed copy goes to the client&apos;s documents.
+          </span>
+        )}
         {open.length > 1 && (
           <Select
             label={`${name}: service`}

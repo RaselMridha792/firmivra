@@ -75,6 +75,8 @@ function BulkForm({ canListMembers }: { canListMembers: boolean }) {
   );
   const t = template.data;
   const busy = send.isPending || leaving;
+  // Each chosen client's services must be known first, to tell whether one must be picked.
+  const checking = [...clients.values()].some((c) => c.services === null);
   const asked = t ? askedRoles(shared(t.roles)) : [];
   /** Any change means the sender confirms again. */
   const changed = () => {
@@ -89,7 +91,7 @@ function BulkForm({ canListMembers }: { canListMembers: boolean }) {
     const given = chosen.flatMap((c) => (c.who ? [{ r: c.r, who: c.who }] : []));
     const next: Record<string, string> = {};
     for (const c of chosen) if (!c.who) next[c.r.key] = 'Choose who';
-    const unfiled = [...clients.values()].filter((c) => c.services > 1 && !c.engagementId);
+    const unfiled = [...clients.values()].filter((c) => (c.services ?? 0) > 1 && !c.engagementId);
     if (unfiled.length) {
       next.clients = `Choose the service for ${unfiled.map((c) => c.name).join(', ')}`;
     }
@@ -221,8 +223,8 @@ function BulkForm({ canListMembers }: { canListMembers: boolean }) {
             </p>
           )}
           <div>
-            <Button type="submit" disabled={busy || (!!templateId && !t)}>
-              {busy ? 'Sending…' : 'Send'}
+            <Button type="submit" disabled={busy || checking || (!!templateId && !t)}>
+              {busy ? 'Sending…' : checking ? 'Checking clients…' : 'Send'}
             </Button>
           </div>
         </form>
