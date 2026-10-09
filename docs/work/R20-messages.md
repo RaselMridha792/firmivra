@@ -35,5 +35,5 @@ Not R20's: R15's intake, Begin Online and leads; `apps/api/src/notify` (R15's `m
 - R15: `docs/work/R11-intake-messages.md` (lines 6-8 and step 6) still lists the messages paths. R15 handed them to R20 on Oct 9 and adds "moved to R20 on Oct 9" under R11 step 6 in its next docs change.
 
 ## Progress log
-- Oct 9: contract (step 1) on `rasel/r20-messages-ui8jcx`, PR #168.
+- Oct 9: contract (step 1) on `rasel/r20-messages-ui8jcx`, PR #168 (merged).
 - Oct 9: threads, read state and unread counts (steps 2-3) on `rasel/R20-threads`, PR #177; client replies lock the thread FOR NO KEY UPDATE (no deadlock on parallel replies).

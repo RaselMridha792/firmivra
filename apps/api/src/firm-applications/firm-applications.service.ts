@@ -6,11 +6,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { FirmApplication, Prisma, TxClient } from '@firmivra/db';
+import type { Database, FirmApplication, Prisma, TxClient } from '@firmivra/db';
 import {
   type AdminDashboard,
   type AdminRef,
   type BusinessSummary,
+  CreateInviteRequest,
   type FirmApplicationCheck,
   type FirmApplicationCounts,
   type FirmApplicationEvent,
@@ -29,6 +30,7 @@ import {
 } from '@firmivra/types';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
+import { DATABASE } from '../database/database.module.js';
 import {
   NOTIFY_SERVICE,
   type NotifyMessage,
@@ -54,6 +56,8 @@ export const StoredApplication = z.object({
 });
 export type StoredApplication = z.infer<typeof StoredApplication>;
 
+/** The firms' addresses starting with a base, read in admin or platform scope. */
+type SlugQuery = { where: { slug: { startsWith: string } }; select: { slug: true } };
 type ListQuery = z.output<typeof ListFirmApplicationsQuery>;
 type FirmsQuery = z.output<typeof ListFirmsQuery>;
 
@@ -66,6 +70,22 @@ const alreadyDecided = () =>
   new ConflictException({
     code: 'APPLICATION_DECIDED',
     message: 'This application is already approved or declined',
+  });
+const slugTaken = () =>
+  new ConflictException({ code: 'SLUG_TAKEN', message: 'Another firm has this portal address' });
+
+/**
+ * Whether the owner invite (step 3) would take this name: the invite's own rule
+ * (`CreateInviteRequest.name`: one line of at most 120 characters, no invisible or direction
+ * characters), which also covers R0's `invites_name`. Submit has kept the primary administrator's
+ * name to it since #107; older rows could hold up to 200 characters.
+ */
+export const ownerNameOk = (name: string): boolean =>
+  CreateInviteRequest.shape.name.safeParse(name).success;
+const ownerNameTooLong = () =>
+  new ConflictException({
+    code: 'OWNER_NAME_TOO_LONG',
+    message: "The primary administrator's name can't be used for the owner invite",
   });
 
 /**
@@ -174,6 +194,7 @@ export class FirmApplicationsService {
     private readonly admin: AdminPrisma,
     private readonly audit: AuditService,
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
+    @Inject(DATABASE) private readonly database: Database,
   ) {}
 
   async list(q: ListQuery): Promise<ListFirmApplicationsResponse> {
@@ -365,6 +386,86 @@ export class FirmApplicationsService {
   }
 
   /**
+   * Approve: the decision, then the firm (PENDING_SETUP, named after the legal name) at `slug`, or
+   * else the free address the review page suggests. Two transactions, because the database takes
+   * each half only in its own scope: the decision in admin scope (recorded as the acting admin,
+   * with its audit row), then the firm in platform scope (businesses are created only there, and
+   * once the application links a firm, admin scope can no longer change it).
+   *
+   * If the second half fails (an address taken in between: 409 SLUG_TAKEN), the application is
+   * approved without a firm. Approving it again finishes the job, with the same or another
+   * address; the review page offers it (`suggestedSlug` stays set until a firm is linked).
+   * 409 OWNER_NAME_TOO_LONG and a taken `slug` are checked before the decision.
+   */
+  async approve(id: string, slug?: string): Promise<FirmApplicationRecord> {
+    await this.admin.transaction(async (tx) => {
+      await this.lock(tx, id);
+      const row = await tx.firmApplication.findUnique({ where: { id } });
+      if (!row) throw notFound();
+      if (row.status === 'DECLINED' || row.businessId) throw alreadyDecided();
+      if (!ownerNameOk(row.contactName)) throw ownerNameTooLong();
+      if (slug && (await tx.business.findUnique({ where: { slug }, select: { id: true } }))) {
+        throw slugTaken();
+      }
+      if (row.status === 'APPROVED') return;
+      await this.review(tx, id, { status: 'APPROVED' });
+      // In admin scope the database takes it only with the acting admin as the actor (#52).
+      await this.audit.logIn(tx, 'firm_application.approved', { type: 'firm_application', id });
+    });
+    await this.createFirm(id, slug);
+    return this.record(id);
+  }
+
+  /**
+   * The approved application's firm, in platform scope, linked to the application in the same
+   * transaction. Nothing happens if a firm is already linked (two approvals at once: the second
+   * waits on the row lock, then finds it). With no picked address, one taken in between moves on
+   * to the next free one, so only a picked address can be SLUG_TAKEN here. `business.created` is a
+   * platform event by the acting admin.
+   */
+  private async createFirm(id: string, slug: string | undefined): Promise<void> {
+    // Platform scope only for a Super Admin request (throws otherwise, like AdminPrisma's db).
+    void this.admin.adminUserId;
+    await this.database.withScope({ kind: 'platform' }, async (tx) => {
+      await this.lock(tx, id);
+      const row = await tx.firmApplication.findUnique({ where: { id } });
+      if (!row || row.status !== 'APPROVED') throw notFound();
+      if (row.businessId) return;
+      const d = this.stored(row);
+      const taken = new Set<string>();
+      let firmId: string | undefined;
+      while (!firmId) {
+        const next = slug ?? (await this.freeSlug(tx, row.legalName, taken));
+        // ON CONFLICT DO NOTHING: a taken address returns no row and leaves the transaction usable.
+        const [created] = await tx.business.createManyAndReturn({
+          data: [
+            {
+              name: row.legalName,
+              legalName: row.legalName,
+              slug: next,
+              businessType: d?.business.practiceType ?? null,
+              // The only pack (#52's IndustryPack), whatever the practice type.
+              pack: 'TAX_ACCOUNTING',
+            },
+          ],
+          skipDuplicates: true,
+          select: { id: true },
+        });
+        if (created) firmId = created.id;
+        else if (slug) throw slugTaken();
+        else taken.add(next);
+      }
+      await tx.firmApplication.update({ where: { id }, data: { businessId: firmId } });
+      await this.audit.logIn(
+        tx,
+        'business.created',
+        { type: 'business', id: firmId },
+        { applicationId: id },
+      );
+    });
+  }
+
+  /**
    * "Save Note": internal notes, also after a decision. `null` clears them. The notes and their
    * audit row land together.
    */
@@ -387,11 +488,16 @@ export class FirmApplicationsService {
    * change, and after a decision it is 409.
    */
   private async pending(tx: TxClient, id: string): Promise<FirmApplication> {
-    await tx.$queryRaw`SELECT 1 FROM firm_applications WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
+    await this.lock(tx, id);
     const row = await tx.firmApplication.findUnique({ where: { id } });
     if (!row) throw notFound();
     if (decided(row) || row.businessId) throw alreadyDecided();
     return row;
+  }
+
+  /** Locks the application's row for this transaction (the lock an update takes). */
+  private async lock(tx: TxClient, id: string): Promise<void> {
+    await tx.$queryRaw`SELECT 1 FROM firm_applications WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
   }
 
   /**
@@ -509,7 +615,11 @@ export class FirmApplicationsService {
               reason: row.status === 'DECLINED' ? row.decisionReason : null,
             }
           : null,
-      suggestedSlug: reviewStatus(row.status) === 'PENDING_REVIEW' ? await this.suggest(row) : null,
+      // Also for an approved application whose firm is not created yet: approving again uses it.
+      suggestedSlug:
+        row.status !== 'DECLINED' && !row.businessId
+          ? await this.freeSlug(db, row.legalName)
+          : null,
       firm: firm as BusinessSummary | null,
       // The owner's invite and its expiry are recorded by approve (step 3).
       ownerInvite: null,
@@ -611,17 +721,21 @@ export class FirmApplicationsService {
     ];
   }
 
-  /** The free portal address approve would use: the legal name, then -2, -3... */
-  private async suggest(row: FirmApplication): Promise<string> {
-    const base = slugBase(row.legalName);
-    const taken = new Set(
-      (
-        await this.admin.db.business.findMany({
-          where: { slug: { startsWith: base } },
-          select: { slug: true },
-        })
-      ).map((b) => b.slug),
-    );
+  /**
+   * The free portal address approve would use: the legal name, then -2, -3... `alsoTaken` adds
+   * addresses found taken since the firms were read.
+   */
+  private async freeSlug(
+    db: { business: { findMany(args: SlugQuery): Promise<{ slug: string }[]> } },
+    legalName: string,
+    alsoTaken: ReadonlySet<string> = new Set(),
+  ): Promise<string> {
+    const base = slugBase(legalName);
+    const firms = await db.business.findMany({
+      where: { slug: { startsWith: base } },
+      select: { slug: true },
+    });
+    const taken = new Set([...alsoTaken, ...firms.map((f) => f.slug)]);
     const free = (slug: string) => !taken.has(slug) && !RESERVED_FIRM_SLUGS.includes(slug);
     let slug = base;
     for (let i = 2; !free(slug); i++) slug = `${base}-${i}`;
