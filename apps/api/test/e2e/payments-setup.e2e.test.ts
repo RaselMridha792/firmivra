@@ -1,4 +1,5 @@
-// Settings > Payments (R7): GET /business/payments/setup, the firm's Stripe Connect account.
+// Settings > Payments (R7): GET /business/payments/setup, the firm's Stripe Connect account, and
+// StripeAccountsWriter (the only writer of `stripe_accounts`, platform scope) on the app's role.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -14,6 +15,7 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { FakeStripeGateway } from '../../src/payments/stripe/fake-stripe.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../../src/payments/stripe/stripe-gateway.js';
+import { StripeAccountsWriter } from '../../src/payments/stripe/stripe-accounts.js';
 
 const Setup = z.strictObject(PaymentsSetup.shape);
 const run = randomUUID().slice(0, 8);
@@ -24,7 +26,7 @@ const people = {
   staffA: person('staff-a'),
   ownerB: person('owner-b'),
 };
-const ids = { firmA: '', firmB: '' };
+const ids = { firmA: '', firmB: '', firmC: '' };
 
 async function seed() {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
@@ -40,7 +42,10 @@ async function seed() {
     ids.firmB = (
       await tx.business.create({ data: { slug: `setup-b-${run}`, name: 'B', status: 'ACTIVE' } })
     ).id;
-    // Firm B has finished Stripe; firm A has not started.
+    ids.firmC = (
+      await tx.business.create({ data: { slug: `setup-c-${run}`, name: 'C', status: 'ACTIVE' } })
+    ).id;
+    // Firm B has finished Stripe; firms A and C have not started (C is for the writer's tests).
     await tx.stripeAccount.create({
       data: {
         businessId: ids.firmB,
@@ -165,5 +170,58 @@ describe('GET /business/payments/setup', () => {
     const res = await call(off, people.ownerA);
     expect(res.status).toBe(503);
     expect(codeOf(res)).toBe('PAYMENT_PROVIDER_UNAVAILABLE');
+  });
+});
+
+describe('StripeAccountsWriter', () => {
+  const pending = {
+    onboardingStatus: 'PENDING',
+    chargesEnabled: false,
+    payoutsEnabled: false,
+    detailsSubmitted: false,
+  } as const;
+  const complete = {
+    onboardingStatus: 'COMPLETE',
+    chargesEnabled: true,
+    payoutsEnabled: true,
+    detailsSubmitted: true,
+  } as const;
+  const accountC = `acct_${run}C`;
+  // The owner client bypasses the RLS, so every read names the firm.
+  const rowOf = async (businessId: string) => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      return await owner.stripeAccount.findMany({ where: { businessId } });
+    } finally {
+      await owner.$disconnect();
+    }
+  };
+
+  it("inserts the firm's first account, and refuses a second one", async () => {
+    const writer = app.get(StripeAccountsWriter);
+    await writer.insert(ids.firmC, accountC, pending);
+    expect(await rowOf(ids.firmC)).toEqual([
+      expect.objectContaining({ businessId: ids.firmC, accountId: accountC, ...pending }),
+    ]);
+    await expect(writer.insert(ids.firmC, `acct_${run}C2`, pending)).rejects.toThrow();
+    expect(await rowOf(ids.firmC)).toHaveLength(1);
+  });
+
+  it("updates the firm's own account only", async () => {
+    const writer = app.get(StripeAccountsWriter);
+    await writer.update(ids.firmC, accountC, { ...pending, detailsSubmitted: true });
+    expect((await rowOf(ids.firmC))[0]).toMatchObject({ detailsSubmitted: true });
+    // Firm A naming firm B's account changes nothing.
+    await expect(writer.update(ids.firmA, `acct_${run}B`, pending)).rejects.toThrow();
+    expect((await rowOf(ids.firmB))[0]).toMatchObject(complete);
+    expect(await rowOf(ids.firmA)).toEqual([]);
+  });
+
+  it('finds the firm by its acct_ id, and answers null for an unknown one', async () => {
+    const writer = app.get(StripeAccountsWriter);
+    expect(await writer.updateByAccountId(accountC, complete)).toBe(ids.firmC);
+    expect((await rowOf(ids.firmC))[0]).toMatchObject(complete);
+    expect(await writer.updateByAccountId(`acct_${run}unknown`, complete)).toBeNull();
+    expect(await rowOf(ids.firmA)).toEqual([]);
   });
 });

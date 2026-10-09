@@ -10,6 +10,8 @@ import { z } from 'zod';
  * SMS_MODE=log: texts go to the API log (template and firm only). SMS_MODE=sns: Amazon SNS from
  * SMS_ORIGINATION_NUMBER, the registered toll-free number; until that is set, texts go to the log,
  * so an environment without a registered number never fails a request over a text.
+ * NOTIFY_JOBS=on|off: the reminder jobs in this task (default on, off under NODE_ENV=test
+ * or the test runner).
  * APP_BASE_URL, PORTAL_BASE_URL and ADMIN_BASE_URL (required with ses and smtp): a link in a message
  * may only go to one of these three origins; https, or http with NODE_ENV development or test.
  */
@@ -42,6 +44,10 @@ const Schema = z
     APP_BASE_URL: z.string().optional(),
     PORTAL_BASE_URL: z.string().optional(),
     ADMIN_BASE_URL: z.string().optional(),
+    /** The reminder jobs (R6 step 7): on by default, off by default under NODE_ENV=test. */
+    NOTIFY_JOBS: z.enum(['on', 'off']).optional(),
+    /** Set by the test runner: the jobs stay off there too, whatever NODE_ENV says. */
+    VITEST: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
@@ -116,6 +122,8 @@ export interface NotifyConfig {
   sms: SmsConfig;
   /** The origins of the app, portal and admin sites (those set): where message links may go. */
   linkOrigins: string[];
+  /** Run the reminder jobs in this API task (NOTIFY_JOBS; off by default in tests). */
+  jobs: boolean;
 }
 
 const ADDRESS = z.email();
@@ -155,5 +163,8 @@ export function loadNotifyConfig(
     const origin = env[key] === undefined ? null : siteOrigin(env[key], local);
     return origin === null ? [] : [origin];
   });
-  return { email, sms, linkOrigins: [...new Set(linkOrigins)] };
+  const jobs = env.NOTIFY_JOBS
+    ? env.NOTIFY_JOBS === 'on'
+    : env.NODE_ENV !== 'test' && env.VITEST === undefined;
+  return { email, sms, linkOrigins: [...new Set(linkOrigins)], jobs };
 }

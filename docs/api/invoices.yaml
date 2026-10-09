@@ -150,16 +150,28 @@ info:
       raw body for the signature check (`stripe.webhooks.constructEvent` with the Connect
       endpoint's secret; a bad or old signature is `400` and nothing is recorded). Find the firm
       from `event.account` in platform scope (`stripe_accounts`), then open that firm's business
-      scope; an unknown account is acknowledged (`200`) and ignored. Insert `payment_events`
-      first (the unique event id makes a duplicate delivery a no-op answered `200`); only the
-      type is kept, never the payload. Then, in the same transaction:
+      scope; an unknown account is acknowledged (`200`) and ignored. Without
+      `STRIPE_WEBHOOK_SECRET` or `STRIPE_SECRET_KEY` the answer is `503` (Stripe retries). An
+      event whose `livemode` differs from the key's mode is acknowledged and ignored. The per-IP
+      rate limit does not apply (the signature is the gate). A duplicate is found first and asks
+      Stripe nothing. What must be asked at Stripe is asked before the event is recorded, so a
+      Stripe failure is `503` and the retry is acted on. Then insert `payment_events` (the unique
+      event id makes a duplicate delivery a no-op answered `200`); only the type is kept, never
+      the payload. An event acts on the payment named in its metadata only when the object is
+      that payment's own: a Checkout Session's id is the payment's `processor_ref`, a payment
+      intent is the `payment_intent` of that session at Stripe (`sessions.retrieve`), and the
+      currency is the payment's; otherwise it is recorded and changes nothing. Then, in the same
+      transaction:
       - `checkout.session.completed` with `payment_status: paid`, or `payment_intent.succeeded`
         (the payment from its metadata; a bank debit settles with it): link the event, set the
         payment `SUCCEEDED` with `paid_at`, then the invoice `PAID` once `SUCCEEDED` payments cover
         its total. The amount is Stripe's (`amount_total`, or `amount_received`), checked against
-        the payment row; a mismatch is logged and alarmed, never trusted. Both events come for one
-        payment: once it is `SUCCEEDED`, the other is recorded and changes nothing (`paid_at` is
-        set once). The database takes only these two types for `SUCCEEDED`, so
+        the payment row before the event is linked; a mismatch is logged and alarmed, never
+        trusted. Both events come for one payment, possibly at once: only the one that moves it
+        from `PENDING` acts, the other is recorded and changes nothing (`paid_at` is set once).
+        `PAID` counts `SUCCEEDED` payments only (the database's rule). A payment of an invoice
+        canceled meanwhile is recorded (the firm refunds it) and the client gets no
+        `payment.received`. The database takes only these two types for `SUCCEEDED`, so
         `checkout.session.async_payment_succeeded` is ignored.
       - `checkout.session.completed` with `payment_status: unpaid` (a bank debit): record it; the
         payment stays `PENDING` and shows as processing.
@@ -168,7 +180,8 @@ info:
         never become `SUCCEEDED`). A payment becomes `FAILED` only on
         `checkout.session.async_payment_failed` (a bank debit; Stripe's short `failure_code` from
         the payment intent's last error) or `checkout.session.expired` (`checkout_expired`, not
-        listed to anyone); the invoice stays open. e2e (step 6): a declined test card, then a good
+        listed to anyone); the invoice stays open. A payment already `SUCCEEDED` or `FAILED` is
+        never changed by them. e2e (step 6): a declined test card, then a good
         one in the same session, ends `PAID` with one `SUCCEEDED` payment.
       - `charge.refunded` (Stripe sends one per refund; the charge in the event does not list its
         refunds): find the payment from the charge's payment intent and link the event to it. List
@@ -179,12 +192,18 @@ info:
         inserted `SUCCEEDED` with this event (Stripe's `re_` or `pyr_` id, amount, the payment's
         account). One event confirms one refund (`payment_refunds_one_per_event`); a refund
         already `SUCCEEDED` or `FAILED` is never touched again; none left to confirm: recorded and
-        ignored. The database sets the payment `REFUNDED` when confirmed refunds cover it.
-      - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED` (its
+        ignored. The database sets the payment `REFUNDED` when confirmed refunds cover it. A
+        payment intent the account does not have at Stripe (`resource_missing`): recorded and
+        ignored. Only `charge.refunded` can confirm a refund (the database's rule), so a bank
+        refund still pending at Stripe is confirmed with it; if Stripe fails it later, it is
+        logged and alarmed (below).
+      - `refund.failed` (or `refund.updated` to failed or canceled): the `PENDING` row becomes `FAILED` (its
         cents are refundable again). One already `SUCCEEDED` is final: logged and alarmed, not
         changed; one with no row never counted and is ignored.
-      - `account.updated`: find the firm's `stripe_accounts` row by the `acct_` id and update it
-        with `toOnboardingState(account)`, the same function onboarding uses, through the one
+      - `account.updated`: fetch the account from Stripe (`accounts.retrieve`; events can arrive
+        out of order, so the event's copy is not used), then, before the event is recorded, find
+        the firm's `stripe_accounts` row by the `acct_` id and update it with
+        `toOnboardingState(account)`, the same function onboarding uses, through the one
         platform-scope writer in `apps/api/src/payments/stripe` (`forPlatform()`; the RLS lets only
         platform scope write `stripe_accounts`, so no firm can claim an `acct_` id or switch
         charges on). The `businessId` is the row's own, never the event's.
@@ -204,19 +223,21 @@ info:
       acting member (`404` for no such payment on this invoice, `409 ALREADY_VOIDED`); the
       database reopens a `PAID` invoice it no longer covers. Both audited (ids, method and amount;
       never the note). The portal's View lists live offline payments' method, amount and day only.
-    - **Refund.** Lock the payment row (`404` if it is not this invoice's). When it is
-      `SUCCEEDED` and the amount fits its `refundableCents`, call Stripe's `refunds.create` on the
-      connected account with the payment intent, the amount, `metadata.refund_key` (the
-      `idempotencyKey`) and `Idempotency-Key: {businessId}:{paymentId}:{idempotencyKey}`, then
-      insert the `PENDING` `payment_refunds` row with Stripe's refund id, unless a row with that
-      id exists already (a retry, where Stripe answers the first refund again, or its webhook
-      recorded it first). Otherwise, before answering `409`, look for a retry of a refund already
-      made: when the payment is `SUCCEEDED` or `REFUNDED`, list its refunds at Stripe
-      (`refunds.list` by payment intent) for one with this `metadata.refund_key` whose id has a
-      row here; if there is one, answer the invoice as it is (`200`, nothing new). Else `409
-      NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE`. So a double click or a retry after
-      a timeout or a `503` refunds once and answers `200`, as the mock does (keys per payment).
-      No column keeps the key: Stripe does. Stripe errors: `503`, nothing inserted.
+    - **Refund.** Lock the payment row (`404` if it is not this invoice's; `409 NOT_REFUNDABLE`
+      unless it is `SUCCEEDED` or `REFUNDED`). Get its payment intent from the session
+      (`sessions.retrieve`) and list its refunds at Stripe (`refunds.list` by payment intent). One
+      with this `metadata.refund_key` is a retry of a refund already made: answer the invoice as
+      it is (`200`), inserting its `PENDING` row only if none exists and Stripe has not failed or
+      canceled it. This holds after Stripe's 24-hour idempotency window too, since no column
+      keeps the key. Otherwise `409 NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE` (more
+      than `refundableCents`), else call `refunds.create` on the connected account with the
+      payment intent, the amount, `metadata.refund_key` (the `idempotencyKey`) and
+      `Idempotency-Key: {businessId}:{paymentId}:{idempotencyKey}`, then insert the `PENDING`
+      `payment_refunds` row with Stripe's refund id unless one exists (its webhook recorded it
+      first). So a double click or a retry after a timeout or a `503` refunds once and answers
+      `200`, as the mock does (keys per payment); two refunds at once wait on the row lock, so
+      one over the limit is `409`. Stripe's `charge_already_refunded` is `409 NOT_REFUNDABLE`;
+      other Stripe errors `503`, nothing inserted. At most three Stripe calls run under the lock.
     - **Notifications** (R6's helper): `invoice.sent` to the client when an invoice opens;
       `payment.received` to the client and the firm when a payment succeeds. No amounts or card
       details in SMS; emails name the invoice number.
@@ -245,7 +266,9 @@ info:
     - **Start** (`POST .../onboarding`): under a Postgres advisory lock per firm (two clicks wait
       for each other), read the firm's `stripe_accounts` row. None: create the account with the
       idempotency key `fv-connect-{businessId}` (a retry, or a second click, gets the same account
-      from Stripe) and insert the row (`PENDING`, from `toOnboardingState(account)`). Every
+      from Stripe; Stripe keeps a key only 24 hours, so a retry more than 24 hours after a create
+      whose row was never inserted makes a second account, and the first stays orphaned at
+      Stripe) and insert the row (`PENDING`, from `toOnboardingState(account)`). Every
       `stripe_accounts` write (here, refresh and `account.updated`) goes through the one
       platform-scope writer in `apps/api/src/payments/stripe` (`forPlatform()`), with the
       `businessId` from the tenant guard: the RLS lets only platform scope insert or update the

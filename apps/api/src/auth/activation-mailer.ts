@@ -1,10 +1,11 @@
 import { Logger } from '@nestjs/common';
 
-/** Nest injection token for the ActivationMailer. R6 provides the real email sender. */
+/** Nest injection token for the ActivationMailer: R6's NotifyActivationMailer (notify/adapters.ts). */
 export const ACTIVATION_MAILER = Symbol('ACTIVATION_MAILER');
 
 export interface ActivationEmail {
   inviteId: string;
+  businessId: string;
   to: string;
   name: string;
   businessName: string;

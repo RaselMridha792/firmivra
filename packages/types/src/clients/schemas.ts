@@ -111,6 +111,11 @@ export const ClientProfile = z.object({
   businessName: z.string().nullable(),
   entityType: z.string().nullable(),
   dateOfBirth: CalendarDate.nullable(),
+  /**
+   * True when a date of birth is on file but can't be read right now (no firm key, KMS down, a
+   * damaged value): `dateOfBirth` is then null, and the screen asks for it to be entered again.
+   */
+  dateOfBirthUnavailable: z.boolean(),
   /** The only part of the SSN the API ever returns. */
   ssnLast4: last4,
   /** BUSINESS clients: the only part of the EIN the API ever returns. */
@@ -265,6 +270,11 @@ export const MyProfile = z.object({
   portalRole: ClientPortalRole,
   fullName: z.string(),
   dateOfBirth: CalendarDate.nullable(),
+  /**
+   * True when a date of birth is on file but can't be read right now (no firm key, KMS down, a
+   * damaged value): `dateOfBirth` is then null, and the screen asks for it to be entered again.
+   */
+  dateOfBirthUnavailable: z.boolean(),
   /** The login email; changing it is an account (sign-in) change, not a profile edit. */
   email: z.string(),
   phone: z.string().nullable(),
@@ -320,7 +330,10 @@ export const ClientErrorCode = z.enum([
   'TAX_STATUS_ARCHIVED',
   /** 409: a name change request is already open. */
   'NAME_CHANGE_PENDING',
-  /** 503: SSN, EIN and date of birth can't be saved or shown right now (no firm key yet, KMS down). */
+  /**
+   * 503: SSN, EIN and date of birth can't be saved right now (no firm key yet, KMS down). Reads
+   * never fail for it: an unreadable date of birth is null with `dateOfBirthUnavailable`.
+   */
   'ENCRYPTION_UNAVAILABLE',
 ]);
 export type ClientErrorCode = z.infer<typeof ClientErrorCode>;
