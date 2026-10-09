@@ -9,6 +9,7 @@ import {
   type MyInvoiceList,
 } from '@firmivra/types';
 import type { z } from 'zod';
+import { AuditService } from '../../audit/audit.service.js';
 import { DATABASE } from '../../database/database.module.js';
 import {
   firmToday,
@@ -25,11 +26,37 @@ type ListQuery = z.output<typeof ListMyInvoicesQuery>;
 const MAX_INVOICES = 2_000;
 const badCursor = () =>
   new BadRequestException({ code: 'VALIDATION_FAILED', message: 'The cursor is not valid' });
-/** Opaque: the last item's id. */
-const encode = (id: string) => Buffer.from(`my:${id}`).toString('base64url');
-const decode = (cursor: string) => {
-  const text = Buffer.from(cursor, 'base64url').toString();
-  return text.startsWith('my:') ? text.slice(3) : '';
+/** Where an item sits in the portal's order (`order` below): section rank, date, number, id. */
+type SortKey = [rank: 0 | 1, date: string, number: string, id: string];
+const keyOf = (i: MyInvoice): SortKey =>
+  MY_INVOICE_SECTIONS.CURRENT.includes(i.status)
+    ? [0, i.dueOn ?? '9999-12-31', i.number, i.id]
+    : [1, i.paidAt ?? i.canceledAt ?? '', i.number, i.id];
+/** CURRENT first, soonest due date first (none last); then PAST, newest first; then number, id. */
+function compareKeys(a: SortKey, b: SortKey): number {
+  if (a[0] !== b[0]) return a[0] - b[0];
+  if (a[1] !== b[1]) return (a[1] < b[1] ? -1 : 1) * (a[0] === 0 ? 1 : -1);
+  if (a[2] !== b[2]) return a[2] < b[2] ? -1 : 1;
+  return a[3] === b[3] ? 0 : a[3] < b[3] ? -1 : 1;
+}
+const order = (a: MyInvoice, b: MyInvoice) => compareKeys(keyOf(a), keyOf(b));
+/**
+ * Opaque: the last item's sort keys, so the next page resumes after them even when that invoice
+ * has left the view since (paid, canceled). Only a cursor that does not decode is 400.
+ */
+const encode = (i: MyInvoice) =>
+  Buffer.from(JSON.stringify(['my', ...keyOf(i)])).toString('base64url');
+const decode = (cursor: string): SortKey | null => {
+  try {
+    const v: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+    if (!Array.isArray(v) || v.length !== 5 || v[0] !== 'my') return null;
+    const [, rank, date, number, id] = v as unknown[];
+    if (rank !== 0 && rank !== 1) return null;
+    if (![date, number, id].every((x) => typeof x === 'string')) return null;
+    return [rank, date as string, number as string, id as string];
+  } catch {
+    return null;
+  }
 };
 
 /**
@@ -39,7 +66,10 @@ const decode = (cursor: string) => {
  */
 @Injectable()
 export class MyInvoicesService {
-  constructor(@Inject(DATABASE) private readonly database: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    private readonly audit: AuditService,
+  ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId }, fn);
@@ -56,11 +86,13 @@ export class MyInvoicesService {
   }
 
   async list(businessId: string, clientAccountId: string, q: ListQuery): Promise<MyInvoiceList> {
-    return this.inFirm(businessId, async (tx) => {
+    const list = await this.inFirm(businessId, async (tx) => {
       const clientId = await this.clientOf(tx, businessId, clientAccountId);
       const rows = await tx.invoice.findMany({
         where: { businessId, clientId, status: { not: 'DRAFT' } },
         select: invoiceSelect,
+        // The newest if a client ever has more; the rest is sorted after reading.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: MAX_INVOICES,
       });
       const { today, timeZone } = await firmToday(tx, businessId);
@@ -83,25 +115,29 @@ export class MyInvoicesService {
       let start = 0;
       if (q.cursor) {
         const after = decode(q.cursor);
-        const at = after ? shown.findIndex((i) => i.id === after) : -1;
-        if (at < 0) throw badCursor();
-        start = at + 1;
+        if (!after) throw badCursor();
+        start = shown.findIndex((i) => compareKeys(keyOf(i), after) > 0);
+        if (start < 0) start = shown.length;
       }
       const page = shown.slice(start, start + q.limit);
       const more = start + q.limit < shown.length;
       return {
         items: page,
-        nextCursor: more && page.length > 0 ? encode(page.at(-1)!.id) : null,
+        nextCursor: more && page.length > 0 ? encode(page.at(-1)!) : null,
         paymentsEnabled: on,
       };
     });
+    await this.audit.log('my_invoices.listed', { type: 'invoice' }, { count: list.items.length });
+    return list;
   }
 
   async get(businessId: string, clientAccountId: string, id: string): Promise<MyInvoiceDetail> {
-    return this.inFirm(businessId, async (tx) => {
+    const detail = await this.inFirm(businessId, async (tx) => {
       const { row, mine } = await this.mine(tx, businessId, clientAccountId, id);
       return toMyInvoiceDetail(row, mine);
     });
+    await this.audit.log('my_invoice.viewed', { type: 'invoice', id });
+    return detail;
   }
 
   /** One of the client's own shown invoices (404 otherwise), as the client sees it. */
@@ -117,20 +153,4 @@ export class MyInvoicesService {
     if (!mine) throw notFound();
     return { row, mine };
   }
-}
-
-/** CURRENT first, soonest due date first (none last); then PAST, newest first; then by id. */
-function order(a: MyInvoice, b: MyInvoice): number {
-  const rank = (i: MyInvoice) => (MY_INVOICE_SECTIONS.CURRENT.includes(i.status) ? 0 : 1);
-  if (rank(a) !== rank(b)) return rank(a) - rank(b);
-  if (rank(a) === 0) {
-    const da = a.dueOn ?? '9999-12-31';
-    const db = b.dueOn ?? '9999-12-31';
-    if (da !== db) return da < db ? -1 : 1;
-  } else {
-    const ta = a.paidAt ?? a.canceledAt ?? '';
-    const tb = b.paidAt ?? b.canceledAt ?? '';
-    if (ta !== tb) return ta > tb ? -1 : 1;
-  }
-  return a.id < b.id ? -1 : 1;
 }
