@@ -59,7 +59,7 @@ function Upcoming({
         <div className="min-w-0 text-sm">
           <p className="font-semibold text-heading">{item.type?.name ?? 'Appointment'}</p>
           <p className="text-text">{when(item.startsAt)}</p>
-          <p className="text-muted">
+          <p className="break-words text-muted">
             {LOCATION_LABELS[item.locationKind]} with {item.staffName}
             {details?.startsWith('https://') ? (
               <a
@@ -77,12 +77,15 @@ function Upcoming({
         </div>
         {item.changeableUntil ? (
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setAction(action === 'reschedule' ? null : 'reschedule')}
-            >
-              Reschedule
-            </Button>
+            {/* Free times are per kind of appointment: one without a kind can only be cancelled. */}
+            {item.type ? (
+              <Button
+                variant="outline"
+                onClick={() => setAction(action === 'reschedule' ? null : 'reschedule')}
+              >
+                Reschedule
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               onClick={() => setAction(action === 'cancel' ? null : 'cancel')}
@@ -93,9 +96,11 @@ function Upcoming({
         ) : null}
       </div>
       <p className="text-xs text-muted">
-        {item.changeableUntil
-          ? `You can change this online until ${when(item.changeableUntil)}.`
-          : 'To change this appointment, please contact us.'}
+        {!item.changeableUntil
+          ? 'To change this appointment, please contact us.'
+          : item.type
+            ? `You can change this online until ${when(item.changeableUntil)}.`
+            : `You can cancel this online until ${when(item.changeableUntil)}. To move it, please contact us.`}
       </p>
       {action === 'reschedule' && item.type ? (
         <Reschedule
