@@ -92,7 +92,7 @@ export function RightColumn({ slug }: { slug: string }) {
       <LinkCard
         icon={FolderOpen}
         title="Firm Uploaded Documents"
-        href={`/${slug}/business`}
+        href={`/${slug}/documents?source=firm`}
         action="View Firm Documents"
       >
         View documents shared with you by the firm.
