@@ -28,6 +28,8 @@ export * from './audit-log/index.js';
 export * from './support-access/index.js';
 export * from './payments/index.js';
 export * from './notifications/index.js';
+export * from './esign/index.js';
+export * from './intake/index.js';
 // The same values as the database enums in db-enums.ts (exported through ./schemas.js). These
 // modules define their own copies, so name the ones the root exports.
 export { AppointmentStatus, LocationKind } from './appointments/index.js';

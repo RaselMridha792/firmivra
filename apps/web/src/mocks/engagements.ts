@@ -1,4 +1,5 @@
 import {
+  type ClientPortalRole,
   ApiRequestError,
   CancelEngagementRequest,
   ClientId,
@@ -119,6 +120,15 @@ const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const now = () => new Date().toISOString();
 const newestFirst = (a: Engagement, b: Engagement) =>
   b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+/**
+ * As in the API: an archived client takes no new engagement, edit or reactivation; complete and
+ * cancel stay allowed, to wind its work down.
+ */
+const assertNotArchived = (clientId: string) => {
+  if (clientFixtures().find((c) => c.id === clientId)?.archivedAt) {
+    throw fail(409, 'CLIENT_ARCHIVED', 'Restore the client first');
+  }
+};
 /** The clients a role may reach (Staff: their assigned ones). */
 const reachable = (role?: MockFirmRole) =>
   new Set(
@@ -197,6 +207,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       if (options.role === 'STAFF' && assignedUserId) throw forbidden();
       const service = services.find((s) => s.id === serviceId);
       if (!clients.has(id) || !service) throw notFound();
+      assertNotArchived(id);
       checkStage(serviceId, data.stage);
       const billingInterval = data.billingInterval ?? 'ONE_TIME';
       return save(
@@ -217,6 +228,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
       const { assignedUserId, ...data } = parseInput(UpdateEngagementRequest, body);
       if (options.role === 'STAFF' && assignedUserId !== undefined) throw forbidden();
       const row = find(eid);
+      assertNotArchived(row.clientId);
       checkStage(row.service.id, data.stage);
       return save({
         ...row,
@@ -252,6 +264,7 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
     reactivate: async (id) => {
       await pause();
       const row = find(parseInput(EngagementId, id));
+      assertNotArchived(row.clientId);
       if (row.status !== 'CANCELLED') {
         throw fail(409, 'INVALID_STATUS', 'Only a cancelled engagement can be reactivated');
       }
@@ -267,6 +280,9 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
         status: 'ACTIVE',
         cancelledAt: null,
         cancellationReason: null,
+        completedAt: null,
+        cancelRequestedAt: null,
+        cancelRequestReason: null,
         updatedAt: now(),
       });
     },
@@ -281,9 +297,14 @@ export function createEngagementsMock(options: { role?: MockFirmRole } = {}): En
   };
 }
 
-/** 14 days before the next billing date, for an ACTIVE recurring service; else null. */
+/**
+ * 14 days before the next billing date, for an ACTIVE recurring service; else null. A next
+ * billing date already past is stale: no deadline (as in the API).
+ */
 const cancelBy = (r: Engagement) =>
-  r.status === 'ACTIVE' && r.recurring && r.nextBillingOn ? addDays(r.nextBillingOn, -14) : null;
+  r.status === 'ACTIVE' && r.recurring && r.nextBillingOn && r.nextBillingOn >= today()
+    ? addDays(r.nextBillingOn, -14)
+    : null;
 
 const toMyService = (r: Engagement): MyService =>
   MyService.parse({
@@ -303,8 +324,14 @@ const toMyService = (r: Engagement): MyService =>
     documentAccessUntil: r.cancelledAt ? addDays(r.cancelledAt.slice(0, 10), 60) : null,
   });
 
-/** An in-memory `api.myServices(slug)` for the first fixture client. */
-export function createMyServicesMock(): MyServicesClient {
+/**
+ * An in-memory `api.myServices(slug)` for the first fixture client. `portalRole: 'SPOUSE'` (or
+ * AUTHORIZED) is another login of that client: it reads, and a cancellation request is 403.
+ */
+export function createMyServicesMock(
+  options: { portalRole?: ClientPortalRole } = {},
+): MyServicesClient {
+  const primary = (options.portalRole ?? 'PRIMARY') === 'PRIMARY';
   const { all, find, save } = createStore(new Set([client]));
   return {
     list: async () => {
@@ -315,6 +342,7 @@ export function createMyServicesMock(): MyServicesClient {
       await pause();
       const eid = parseInput(EngagementId, id);
       const { reason } = parseInput(RequestCancellationRequest, body);
+      if (!primary) throw fail(403, 'FORBIDDEN', 'This action is not permitted');
       const row = find(eid);
       if (!row.recurring) {
         throw fail(409, 'NOT_RECURRING', 'Only recurring services can be cancelled here');
@@ -342,4 +370,15 @@ export function createMyServicesMock(): MyServicesClient {
       );
     },
   };
+}
+
+let mineByFirm: Map<string, MyServicesClient> | undefined;
+
+/** `api.myServices(slug)` in mock mode: one per firm slug, made on first use. */
+export function myServicesMock(firmSlug: string): MyServicesClient {
+  mineByFirm ??= new Map();
+  const key = firmSlug.toLowerCase();
+  const found = mineByFirm.get(key) ?? createMyServicesMock();
+  mineByFirm.set(key, found);
+  return found;
 }
