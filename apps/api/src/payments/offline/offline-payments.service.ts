@@ -13,9 +13,11 @@ import { DATABASE } from '../../database/database.module.js';
 import {
   CHECKOUT_LIMITS,
   expireCheckout,
+  lockInvoice,
   openCheckouts,
   paymentInProgress,
   providerUnavailable,
+  withStripeHold,
 } from '../checkout/checkout-sessions.js';
 import { InvoiceNotices } from '../invoices/invoice-notices.js';
 import {
@@ -124,7 +126,10 @@ export class OfflinePaymentsService {
           message: 'The day received cannot be after today',
         });
       }
-      const current = await this.invoices.load(tx, businessId, actor, id, true);
+      // In reach first (404 otherwise), then the row, waiting briefly (409 while a Pay Now runs).
+      await this.invoices.load(tx, businessId, actor, id);
+      await lockInvoice(tx, businessId, id);
+      const current = await this.invoices.load(tx, businessId, actor, id);
       const known = await tx.offlinePayment.findUnique({
         where: { businessId_idempotencyKey: { businessId, idempotencyKey: body.idempotencyKey } },
         select: { invoiceId: true },
@@ -148,9 +153,12 @@ export class OfflinePaymentsService {
       // A checkout the client opened and left would let both kinds of money in: end it first.
       if (current.payments.some((p) => p.status === 'PENDING')) {
         if (!this.stripe) throw providerUnavailable();
-        for (const open of await openCheckouts(tx, this.stripe, businessId, id)) {
-          await expireCheckout(tx, this.stripe, businessId, open);
-        }
+        const stripe = this.stripe;
+        await withStripeHold(async () => {
+          for (const open of await openCheckouts(tx, stripe, this.audit, businessId, id)) {
+            await expireCheckout(tx, stripe, this.audit, businessId, id, open);
+          }
+        });
       }
       const payment = await tx.offlinePayment.create({
         data: {
