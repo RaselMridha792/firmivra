@@ -41,6 +41,8 @@ import { EsignSignerService } from './signer.service.js';
 /** Per viewer IP, like the sign-in routes; the per-recipient code limits are the repository's. */
 const ATTEMPTS = { default: { limit: 10, ttl: 60_000 } };
 const SENDS = { default: { limit: 5, ttl: 60_000 } };
+/** Every other public signer write (hardening: at most 30 a minute from one IP). */
+const STEPS = { default: { limit: 30, ttl: 60_000 } };
 type Out<S extends z.ZodType> = z.output<S>;
 
 /** The signer pages' API (docs/api/esign.yaml): public, the token then the cookie. */
@@ -65,6 +67,7 @@ export class EsignSignerController {
 
   @Post('session/end')
   @HttpCode(200)
+  @Throttle(STEPS)
   end(@Param('firmSlug') slug: string, @Res({ passthrough: true }) res: Response) {
     return this.signer.end(slug, res);
   }
@@ -114,6 +117,7 @@ export class EsignSignerController {
 
   @Post('consent')
   @HttpCode(200)
+  @Throttle(STEPS)
   async acceptConsent(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerAcceptConsentBody)) body: Out<typeof SignerAcceptConsentBody>,
@@ -141,6 +145,7 @@ export class EsignSignerController {
 
   @Post('adopt')
   @HttpCode(200)
+  @Throttle(STEPS)
   async adopt(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerAdoptBody)) body: Out<typeof SignerAdoptBody>,
@@ -151,6 +156,7 @@ export class EsignSignerController {
 
   @Post('finish')
   @HttpCode(200)
+  @Throttle(STEPS)
   async finish(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerFinishBody)) body: Out<typeof SignerFinishBody>,
@@ -161,6 +167,7 @@ export class EsignSignerController {
 
   @Post('decline')
   @HttpCode(200)
+  @Throttle(STEPS)
   async decline(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerDeclineBody)) body: Out<typeof SignerDeclineBody>,
