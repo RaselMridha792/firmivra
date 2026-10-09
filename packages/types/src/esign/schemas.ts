@@ -513,6 +513,11 @@ export const EsignWhoExternal = z.strictObject({
   phone: Phone.optional(),
 });
 
+/** A code the firm gives an ACCESS_CODE signer another way. Only its hash is stored. */
+export const EsignAccessCode = z
+  .string()
+  .regex(/^[A-Za-z0-9]{4,20}$/, 'Use 4 to 20 letters or digits');
+
 /**
  * One recipient in PUT /esign/requests/{id}/recipients. `id` keeps an existing recipient (and its
  * fields and colour); leave it out for a new one. Who they are:
@@ -538,10 +543,7 @@ export const EsignPutRecipient = z
     delivery: EsignDelivery.default('EMAIL'),
     authMethod: EsignChosenAuthMethod.default('EMAIL_CODE'),
     /** Required for a new ACCESS_CODE; leave it out to keep the code already set. */
-    accessCode: z
-      .string()
-      .regex(/^[A-Za-z0-9]{4,20}$/, 'Use 4 to 20 letters or digits')
-      .optional(),
+    accessCode: EsignAccessCode.optional(),
   })
   .superRefine((r, ctx) => {
     if (r.role === 'CUSTOM' && !r.roleLabel) {

@@ -1,9 +1,8 @@
 import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
-import type { Request, Response } from 'express';
-import type { Database, TxClient } from '@firmivra/db';
-import type { IntakeAnswersInput, IntakeSignatureInput } from '@firmivra/types';
+import type { Request } from 'express';
+import type { Database } from '@firmivra/db';
+import type { BeginSubmitted, IntakeAnswersInput, IntakeSignatureInput } from '@firmivra/types';
 import type { z } from 'zod';
-import { beginOnlineCookie, type DraftSubmitted } from './wire.js';
 import { AuditService } from '../audit/audit.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -14,8 +13,8 @@ import { lockVersion, prepareSubmit, type SlotFile } from '../intake/intake-subm
 import type { IntakeSigner } from '../intake/intake-signing.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
-import { BeginOnlineService, type Draft } from './begin-online.service.js';
-import { draftErrors, rethrowExpired } from './drafts.js';
+import { BeginOnlineService, type Draft, serviceFor } from './begin-online.service.js';
+import { holdDraft, rethrowExpired } from './drafts.js';
 
 const changed = () =>
   new ConflictException({
@@ -34,15 +33,14 @@ const sameFiles = (a: SlotFile[], b: SlotFile[]) =>
  * (`prepareSubmit`); then, holding the lead and its intake, nothing may have changed, the files of
  * hidden slots are deleted while the lead is still a draft (R0: lead files go only then), the
  * agreements are signed (`sign`) and the version is locked (409 NO_INTAKE_AGREEMENT, nothing
- * changed, while the firm has no published firm-wide agreement). The lead becomes SUBMITTED and its
- * key is cleared (its draft expiry stays: R0 freezes it). After commit: the removed files' objects
- * are deleted, the cookie is cleared, and the visitor and the firm's owners and admins get an
- * email (service name and a link only).
+ * changed, while the firm has no published firm-wide agreement). The lead becomes SUBMITTED (its
+ * draft expiry stays: R0 freezes it); its cookie and resume link stay, so they answer 409
+ * DRAFT_SUBMITTED from then on (contract B). After commit: the removed files' objects are deleted,
+ * and the visitor and the firm's owners and admins get an email (service name and a link only).
  */
 @Injectable()
 export class DraftSubmitService {
   private readonly logger = new Logger(DraftSubmitService.name);
-  private readonly secure: boolean;
 
   constructor(
     @Inject(DATABASE) private readonly database: Database,
@@ -52,25 +50,23 @@ export class DraftSubmitService {
     private readonly drafts: BeginOnlineService,
     private readonly fe: FieldEncryption,
     private readonly audit: AuditService,
-  ) {
-    this.secure = env.NODE_ENV === 'production';
-  }
+  ) {}
 
   async submit(
     slug: string,
+    path: string,
     req: Request,
-    res: Response,
     body: { answers?: IntakeAnswersInput; signature: z.output<typeof IntakeSignatureInput> },
     signer: IntakeSigner,
     source: { ip: string | null; userAgent: string | null },
-  ): Promise<DraftSubmitted> {
+  ): Promise<BeginSubmitted> {
     if (body.answers) {
       // The review step's answers, saved first as a save of that step (kept if the submit fails).
-      const open = await this.drafts.draftOf(slug, req);
+      const open = await this.drafts.draftOf(slug, path, req);
       const review = open.definition.steps.at(-1)!.key;
-      await this.drafts.saveStep(slug, review, body.answers, req);
+      await this.drafts.saveAnswers(open, review, body.answers);
     }
-    const draft = await this.drafts.draftOf(slug, req);
+    const draft = await this.drafts.draftOf(slug, path, req);
     const { firm, leadId, intakeId } = draft;
     const businessId = firm.id;
     const before = filesOf(draft);
@@ -86,7 +82,7 @@ export class DraftSubmitService {
         // First, before counting or removing files or signing: the intake row, as the portal's
         // submit holds it (R0), then the lead.
         await tx.$queryRaw`SELECT 1 FROM intakes WHERE id = ${intakeId}::uuid FOR NO KEY UPDATE`;
-        const lead = await holdLead(tx, draft);
+        const lead = await holdDraft(tx, leadId);
         const current = await tx.intakeSubmission.findFirst({
           where: { intakeId, submittedAt: null },
           select: { id: true, version: true, answers: true },
@@ -106,6 +102,9 @@ export class DraftSubmitService {
         }
         // Nothing to sign: 409 NO_INTAKE_AGREEMENT before any file or version changes.
         await requireFirmWideAgreement(tx, businessId);
+        // The agreements signed are those of the block the review step showed: R14's
+        // `beginOnlineService` resolves the service, as the block does.
+        const service = await serviceFor(tx, draft.form);
         const removed = hidden.length
           ? await tx.leadUpload.findMany({
               where: { id: { in: hidden.map((f) => f.id) } },
@@ -122,7 +121,7 @@ export class DraftSubmitService {
         await lockVersion(tx, ids, answers, null, () =>
           signer.sign(tx, {
             ...ids,
-            serviceId: draft.service.id,
+            serviceId: service.id,
             signer: { kind: 'lead', leadId, email: lead.email },
             signature: body.signature,
             ...source,
@@ -135,7 +134,7 @@ export class DraftSubmitService {
         if (!submittedAt) throw new Error('The version was not submitted');
         await tx.lead.update({
           where: { id: leadId },
-          data: { status: 'SUBMITTED', submittedAt, resumeTokenHash: null, resumeExpiresAt: null },
+          data: { status: 'SUBMITTED', submittedAt },
         });
         await this.audit.logIn(
           tx,
@@ -158,14 +157,8 @@ export class DraftSubmitService {
       .catch(rethrowExpired);
 
     await this.removeObjects(businessId, done.keys);
-    const { name, path } = beginOnlineCookie(firm.slug);
-    res.clearCookie(name, { httpOnly: true, secure: this.secure, sameSite: 'strict', path });
     await this.emails(draft, done.email, done.staff);
-    return {
-      leadId,
-      service: draft.service,
-      submittedAt: done.submittedAt.toISOString(),
-    };
+    return { received: true, form: draft.form, submittedAt: done.submittedAt.toISOString() };
   }
 
   /** The removed files' objects, each only while no row has its key. */
@@ -214,16 +207,4 @@ export class DraftSubmitService {
       }
     }
   }
-}
-
-/** Locks the lead while it is still this live draft with this key, or 404 / 410. */
-async function holdLead(tx: TxClient, draft: Draft) {
-  const rows = await tx.$queryRaw<{ email: string }[]>`
-    SELECT email FROM leads
-     WHERE id = ${draft.leadId}::uuid AND status = 'DRAFT' AND draft_expires_at > now()
-       AND resume_token_hash = ${draft.hash}
-       FOR UPDATE`;
-  const lead = rows[0];
-  if (!lead) throw draftErrors.noDraft();
-  return lead;
 }
