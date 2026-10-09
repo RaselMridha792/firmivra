@@ -188,9 +188,16 @@ export class EsignRequestsService {
     await this.draft(businessId, actor, id);
     const documents = await this.repo.deleteDraft(businessId, id);
     if (!documents) throw esignRefusal('INVALID_STATE');
-    await this.audit.log('esign.request_discarded', entity(id), {
-      documentIds: documents.map((d) => d.id),
-    });
+    // The draft is gone once deleteDraft commits: a failed audit write must not answer 500 and
+    // leave its files behind, so it is logged (ids only) and the files are still removed.
+    try {
+      await this.audit.log('esign.request_discarded', entity(id), {
+        documentIds: documents.map((d) => d.id),
+      });
+    } catch (error) {
+      const name = error instanceof Error ? error.name : typeof error;
+      this.logger.error(`Could not audit the discard of esign request ${id}: ${name}`);
+    }
     for (const doc of documents) {
       try {
         await this.store.remove(businessId, doc.s3Key);
@@ -227,13 +234,14 @@ export class EsignRequestsService {
       if (pages[index]?.rotation !== old.rotation) throw esignRefusal('PAGE_HAS_FIELDS');
       return [{ ...f, pageIndex: index }];
     });
-    const write = this.repo.savePagePlan(businessId, id, pages, fields, record.lastActivityAt);
-    await this.drafted(write);
+    const saved = savedOrRefused(
+      await this.repo.savePagePlan(businessId, id, pages, fields, record.lastActivityAt),
+    );
     await this.audit.log('esign.page_plan_updated', entity(id), {
       pageCount: pages.length,
       fieldsRemoved: parts.fields.length - fields.length,
     });
-    return this.current(businessId, id);
+    return this.toDetail(businessId, saved);
   }
 
   /** The whole list. Kept ids keep their colour; removed signers lose their fields. */
@@ -272,8 +280,7 @@ export class EsignRequestsService {
         approvers.add(key);
       }
       // A kept id that is now someone else needs a new code: the old one was given to another.
-      const samePerson =
-        old && JSON.stringify(old.link) === JSON.stringify(who.link) && old.email === who.email;
+      const samePerson = old && sameLink(old.link, who.link) && old.email === who.email;
       let accessCodeHash: string | null = null;
       if (input.authMethod === 'ACCESS_CODE' && input.delivery !== 'IN_PERSON') {
         accessCodeHash = input.accessCode
@@ -306,19 +313,14 @@ export class EsignRequestsService {
     }
     const signers = new Set(recipients.filter((r) => r.kind === 'SIGNER').map((r) => r.id));
     const fields = parts.fields.filter((f) => f.recipientId === null || signers.has(f.recipientId));
-    const write = this.repo.saveRecipients(
-      businessId,
-      id,
-      recipients,
-      fields,
-      record.lastActivityAt,
+    const saved = savedOrRefused(
+      await this.repo.saveRecipients(businessId, id, recipients, fields, record.lastActivityAt),
     );
-    await this.drafted(write);
     await this.audit.log('esign.recipients_updated', entity(id), {
       recipientIds: recipients.map((r) => r.id),
       fieldsRemoved: parts.fields.length - fields.length,
     });
-    return this.current(businessId, id);
+    return this.toDetail(businessId, saved);
   }
 
   /** A draft write that found the request no longer a DRAFT, or changed since it was read. */
@@ -539,3 +541,18 @@ export class EsignRequestsService {
 }
 
 const clientRef = (c: DirectoryClient) => ({ id: c.id, displayName: c.displayName });
+
+/** A draft write's result: the request as written, or 409 INVALID_STATE when it was refused. */
+function savedOrRefused(record: EsignRequestRecord | null): EsignRequestRecord {
+  if (!record) throw esignRefusal('INVALID_STATE');
+  return record;
+}
+
+/** The same person by link: type and id compared field by field (never by JSON key order). */
+function sameLink(a: EsignRecipient['link'], b: EsignRecipient['link']): boolean {
+  if (a.type === 'STAFF') return b.type === 'STAFF' && a.userId === b.userId;
+  if (a.type === 'CLIENT_LOGIN') {
+    return b.type === 'CLIENT_LOGIN' && a.clientAccountId === b.clientAccountId;
+  }
+  return a.type === b.type;
+}

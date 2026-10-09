@@ -663,6 +663,11 @@ export function createEsignMock(
         x.status !== 'APPROVED',
     );
     if (role === 'VIEWER') return r.sentAt ? ['DOWNLOAD'] : [];
+    // Reached only as its approver: decide it, and download it once sent.
+    if (!firmWide && r.sender.userId !== me.userId && !assigned(r.client?.id)) {
+      const decide: EsignAction[] = r.status === 'NEEDS_APPROVAL' && approver ? ['APPROVE'] : [];
+      return r.sentAt ? [...decide, 'DOWNLOAD'] : decide;
+    }
     const approvers = r.recipients.filter((x) => x.kind === 'APPROVER');
     if (r.status === 'DRAFT')
       return approvers.some((x) => x.status !== 'APPROVED')

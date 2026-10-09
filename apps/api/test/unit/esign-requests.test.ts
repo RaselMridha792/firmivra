@@ -5,7 +5,7 @@
 // own rows, writes reach DRAFTs only). Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type EsignField,
   type EsignPutRecipientsBody,
@@ -343,6 +343,16 @@ describe('drafts', () => {
       metadata: { documentIds: [file.id] },
     });
   });
+
+  it('still deletes the files when the discard audit fails after the delete', async () => {
+    const d = await draft(staff, w.ids.c1);
+    const file = doc(2, 0);
+    w.repo.seed(w.a, d.id, (row) => row.parts.documents.push(file));
+    vi.spyOn(w.audit, 'log').mockRejectedValueOnce(new Error('audit down'));
+    expect(await svc.discard(w.a, staff, d.id)).toEqual({ ok: true });
+    expect(await refused(svc.get(w.a, owner, d.id))).toEqual([404, 'NOT_FOUND']);
+    expect(w.store.removed).toEqual([{ businessId: w.a, key: file.s3Key }]);
+  });
 });
 
 describe('PUT page plan', () => {
@@ -582,6 +592,33 @@ describe('PUT recipients', () => {
     expect(parallel.recipients.map((r) => r.routingOrder)).toEqual([1, 1]);
   });
 
+  it('keeps an access code for the same member or login, never for another one', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const coded = { authMethod: 'ACCESS_CODE' as const };
+    const people: [Input['who'], Input['who']][] = [
+      [
+        { type: 'STAFF', userId: w.users.staffA },
+        { type: 'STAFF', userId: w.users.managerA },
+      ],
+      [
+        { type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary },
+        { type: 'CLIENT_LOGIN', clientAccountId: w.ids.spouse },
+      ],
+    ];
+    for (const [who, someoneElse] of people) {
+      const first = await put(d.id, [signer(who, { ...coded, accessCode: 'k3ep42' })]);
+      const id = first.recipients[0]!.id;
+      // The same person, no new code: the stored one stays.
+      const again = await put(d.id, [signer(who, { id, ...coded })]);
+      expect(again.recipients[0]).toMatchObject({ id, hasAccessCode: true });
+      // The same id now someone else: a new code is needed.
+      expect(await refused(put(d.id, [signer(someoneElse, { id, ...coded })]))).toEqual([
+        400,
+        'VALIDATION_FAILED',
+      ]);
+    }
+  });
+
   it('lets Staff manage recipients on their assigned client’s request', async () => {
     const d = await draft(owner, w.ids.c1);
     const res = await put(
@@ -736,9 +773,15 @@ describe('the in-memory fakes', () => {
     w.repo.loseNextWrite = true;
     expect(await w.repo.updateDraft(w.a, made.id, { title: 'lost' })).toBe('INVALID_STATE');
     expect(w.repo.loseNextWrite).toBe(false);
+    // A write answers the request as written, strictly later; a stale readAt is refused.
+    const read = (await w.repo.findRequest(w.a, made.id))!;
+    const saved = await w.repo.savePagePlan(w.a, made.id, [], [], read.lastActivityAt);
+    expect(saved?.lastActivityAt.getTime()).toBeGreaterThan(read.lastActivityAt.getTime());
+    expect(await w.repo.saveRecipients(w.a, made.id, [], [], read.lastActivityAt)).toBeNull();
     w.repo.seed(w.a, made.id, (row) => (row.record.status = 'SENT'));
-    expect(await w.repo.savePagePlan(w.a, made.id, [], [], new Date())).toBe(false);
-    expect(await w.repo.saveRecipients(w.a, made.id, [], [], new Date())).toBe(false);
+    const now = saved!.lastActivityAt;
+    expect(await w.repo.savePagePlan(w.a, made.id, [], [], now)).toBeNull();
+    expect(await w.repo.saveRecipients(w.a, made.id, [], [], now)).toBeNull();
     expect(await w.repo.deleteDraft(w.a, made.id)).toBeNull();
     expect(await w.repo.findRequest(w.a, made.id)).toMatchObject({
       status: 'SENT',
