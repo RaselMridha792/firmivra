@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { PageContainer } from '@firmivra/ui';
 import { ApplicationForm } from './_components/application-form';
 import { BrandLockup } from '../../../components/app-shell/brand-lockup';
 
@@ -8,8 +9,8 @@ export const metadata: Metadata = { title: 'Apply' };
 
 export default function ApplyPage() {
   return (
-    <main className="min-h-screen bg-canvas px-4 py-6 sm:px-8 sm:py-10">
-      <div className="mx-auto max-w-5xl">
+    <main className="min-h-screen bg-canvas py-6 sm:py-10">
+      <PageContainer>
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <BrandLockup subtitle="Firm application" />
           <Link
@@ -32,7 +33,7 @@ export default function ApplyPage() {
         <p className="mt-6 text-center text-xs text-muted">
           Your information is used to review your Firmivra application.
         </p>
-      </div>
+      </PageContainer>
     </main>
   );
 }
