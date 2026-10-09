@@ -1,4 +1,5 @@
-// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, and step 7's send)
+// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send and step
+// 8's lifecycle)
 // through the real guard stack. The esign tables come with r0_esign, so this covers what answers
 // before the repository: 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module
 // is off, and 400 for a bad id or body where it is on. Synthetic data only.
@@ -46,6 +47,8 @@ const withId = (id: string): Route[] => [
   ['get', `${base(id)}/readiness`, undefined],
   ['get', `${base(id)}/events`, undefined],
   ['post', `${base(id)}/send`, { confirm: true }],
+  ['post', `${base(id)}/remind`, {}],
+  ['post', `${base(id)}/void`, { reason: 'Fake reason' }],
 ];
 const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
@@ -141,6 +144,8 @@ describe('Firm Sign draft routes', () => {
       ['delete', `${base(anyId)}/documents/not-a-uuid`, undefined],
       ['get', `${base(anyId)}/documents/not-a-uuid/content`, undefined],
       ['put', `${base(anyId)}/fields`, { fields: [], extra: true }],
+      ['post', `${base(anyId)}/remind`, { recipientId: 'not-a-uuid' }],
+      ['post', `${base(anyId)}/void`, { reason: '' }],
       ...['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1'].map((query): Route => [
         'get',
         `/api/v1/esign/requests?${query}`,
