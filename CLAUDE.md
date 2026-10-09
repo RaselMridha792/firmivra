@@ -22,7 +22,7 @@ Firmivra is one multi-tenant platform shared by many businesses. Each business (
 - `docs/PROJECT-DRAFT-v2.md`: scope, the 62 screens, security requirements, API outline, acceptance criteria.
 - `docs/AUTH-DESIGN.md`: Cognito pools, sign-in flow, cookies, guards (see "Authentication" below).
 - `docs/SCRUM-PLAN.md`: team, process, sprints, Definition of Ready and Done.
-- `docs/mockups/{begin-online,client-portal,super-admin}/`: Octavia's mockups. Screens must match them.
+- `docs/mockups/{begin-online,client-portal,super-admin,firm-workspace}/`: Octavia's mockups. Screens must match them.
 - `docs/specs/`: Octavia's written instructions (.docx) for each area.
 - `docs/tasks/<NAME>.md`: each developer's ticket plan.
 
@@ -105,12 +105,12 @@ Local stand-ins for AWS (no LocalStack): S3 is s3mock (`S3_ENDPOINT`, path-style
 
 ## Junior developers
 
-From Oct 7, Fahad, Nahid, Tumit and Arfan build screens and tests; Rasel's Claude Code sessions build every API. R1 creates every page as a placeholder; the developers change only the files listed under their name in `docs/junior/PAGE-MAP.md` (Fahad also `packages/ui`) and their own `docs/tasks/<NAME>.md`, and follow `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md`.
+From Oct 7, Fahad, Nahid, Tumit and Arfan build screens and tests; Rasel's Claude Code sessions build every API. R1 creates the pages as placeholders (R13-web and R14 create their own Firm Sign and calculator pages); the developers change only the files listed under their name in `docs/junior/PAGE-MAP.md` (Fahad also `packages/ui`) and their own `docs/tasks/<NAME>.md`, and follow `docs/junior/GUIDE.md` and `docs/junior/AI-RULES.md`.
 
 ## Parallel sessions
 
-- Rasel's workstreams (R0 to R12) are in `docs/work/`, one file each. The rules for them (worktrees, branches, PR size, the database lock) are in `docs/work/README.md`.
+- Rasel's workstreams (R0 to R16) are in `docs/work/`, one file each. The rules for them (worktrees, branches, PR size, the database lock) are in `docs/work/README.md`.
 - A workstream session reads only `CLAUDE.md`, `docs/work/README.md` and its own R file (plus the files that R file lists under "Read first").
 - It edits only its own R file and the paths that R file owns.
-- Only the lead session (the main checkout, `Business-full-stack-project/`) edits `docs/work/BOARD.md` and merges. `BOARD.md` is git-ignored and exists only in the main checkout.
+- Rasel merges every PR. The lead session and `docs/work/BOARD.md` are closed (Oct 8): open questions for Rasel go under "Needs from others" in the session's own R file and in its reply.
 - Where these rules differ from the rest of this file (branch names, PR size and titles, what to read), `docs/work/README.md` and the R file win.

@@ -175,11 +175,18 @@ function invitedMember(options: {
   inTx: { status: string; role?: string }[];
   moved?: number[];
   userRow?: { name: string; email: string };
+  /** The inviter's membership as the invite transaction reads it (null: no longer active). */
+  inviter?: { role: string } | null;
 }) {
-  const findFirst = vi.fn();
-  for (const { status, role = 'STAFF' } of options.inTx) {
-    findFirst.mockResolvedValueOnce({ id: 'm1', status, role });
-  }
+  const inTx = [...options.inTx];
+  const inviter = options.inviter === undefined ? { role: 'OWNER' } : options.inviter;
+  // The invitee's membership, one answer per transaction run; the inviter's (read with
+  // status ACTIVE) as given.
+  const findFirst = vi.fn(async (args: { where: { status?: string } }) => {
+    if (args.where.status === 'ACTIVE') return inviter;
+    const next = inTx.shift();
+    return next ? { id: 'm1', status: next.status, role: next.role ?? 'STAFF' } : undefined;
+  });
   const moveMembership = vi.fn();
   for (const count of options.moved ?? [1]) moveMembership.mockResolvedValueOnce({ count });
   const userRow = vi
@@ -368,6 +375,28 @@ describe('InvitesService.resendInvite', () => {
     expect(sent.send).not.toHaveBeenCalled();
   });
 
+  it("refuses an inviter who is no longer an active member, read in the invite's transaction", async () => {
+    const { tx, sent, resend } = invitedMember({
+      typed: { name: 'Typed Name', email: 'typed@lvp.test' },
+      inTx: [{ status: 'INVITED' }],
+      inviter: null,
+    });
+    await expect(resend()).rejects.toMatchObject({ response: { code: 'FORBIDDEN' } });
+    expect(tx.invite.create).not.toHaveBeenCalled();
+    expect(sent.send).not.toHaveBeenCalled();
+  });
+
+  it("refuses an inviter demoted to a role that can't invite this one", async () => {
+    const { tx, resend } = invitedMember({
+      typed: { name: 'Typed Name', email: 'typed@lvp.test' },
+      inTx: [{ status: 'INVITED', role: 'ADMIN' }],
+      before: { role: 'ADMIN', typed: { name: 'Typed Name', email: 'typed@lvp.test' } },
+      inviter: { role: 'ADMIN' },
+    });
+    await expect(resend()).rejects.toMatchObject({ response: { code: 'FORBIDDEN' } });
+    expect(tx.invite.create).not.toHaveBeenCalled();
+  });
+
   it('checks again on the retry: deactivated between the read and the update is 409 too', async () => {
     const { tx, sent, resend } = invitedMember({
       typed: { name: 'Typed Name', email: 'typed@lvp.test' },
@@ -375,7 +404,9 @@ describe('InvitesService.resendInvite', () => {
       moved: [0],
     });
     await expect(resend()).rejects.toMatchObject({ response: { code: 'NOT_INVITED' } });
-    expect(tx.membership.findFirst).toHaveBeenCalledTimes(2);
+    // The invitee's membership was read in both runs (the inviter's only in the first).
+    const reads = tx.membership.findFirst.mock.calls.filter(([a]) => a.where.status !== 'ACTIVE');
+    expect(reads).toHaveLength(2);
     expect(tx.invite.create).not.toHaveBeenCalled();
     expect(sent.send).not.toHaveBeenCalled();
   });

@@ -162,6 +162,14 @@ describe('api.myDocuments(slug) (portal)', () => {
     ]);
   });
 
+  it("carries the household uploader's name, or null (the firm's files, no known uploader)", () => {
+    const shape = MyDocument.shape.uploadedBy;
+    expect(shape.parse({ name: 'Alex Sample', byClient: true })).toEqual({ name: 'Alex Sample' });
+    expect(shape.parse(null)).toBeNull();
+    expect(shape.safeParse(undefined).success).toBe(false);
+    expect(shape.safeParse({}).success).toBe(false);
+  });
+
   it('refuses a bad firm address before building a path', async () => {
     const { fn, calls } = fakeFetch(200, {});
     const error = await rejection(createMyDocumentsClient(request(fn), '../lvp').list());
@@ -181,6 +189,7 @@ describe('api.myDocuments(slug) (portal)', () => {
       sizeBytes: 1,
       taxYear: 2025,
       status: 'READY',
+      uploadedBy: { name: 'Jamie Sample' },
       uploadedAt: at,
     };
     expect(MyDocument.safeParse({ ...doc, source: 'INTERNAL' }).success).toBe(false);
@@ -193,6 +202,8 @@ describe('api.myDocuments(slug) (portal)', () => {
     ['a line separator', 'w2 .pdf'],
     ['a path', '../../x.pdf'],
     ['a backslash', 'a\\b.pdf'],
+    ['a lone surrogate', '\uD800x.pdf'],
+    ['a NUL', 'a\0.pdf'],
     ['no ending', 'CON'],
     ['an ending of another type', 'evil.html'],
     ['a second ending', 'x.pdf.exe'],
@@ -216,6 +227,21 @@ describe('api.myDocuments(slug) (portal)', () => {
       'Scan.PDF',
       'id.JPEG',
     ]);
+  });
+
+  it.each([
+    ['NUL', '\0'],
+    ['a NUL inside', 'a\0b'],
+    ['a control character', 'a\u001fb'],
+    ['a lone surrogate', 'w\uDC00'],
+  ])('refuses a search with %s on both sides, before sending', async (_, search) => {
+    const { fn, calls } = fakeFetch(200, {});
+    const firm = createDocumentsClient(request(fn));
+    const portal = createMyDocumentsClient(request(fn), 'lvp');
+    for (const list of [() => firm.list(id, { search }), () => portal.list({ search })]) {
+      expect((await rejection(list())).code).toBe('VALIDATION_FAILED');
+    }
+    expect(calls).toHaveLength(0);
   });
 
   it('keeps the upload types and the picker endings together', () => {
@@ -334,6 +360,7 @@ describe('Excel and Word files (both sides)', () => {
       sizeBytes: 1,
       taxYear: 2025,
       status: 'BLOCKED',
+      uploadedBy: null,
       uploadedAt: at,
     };
     expect(MyDocument.parse(mine).status).toBe('BLOCKED');

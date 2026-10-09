@@ -140,7 +140,8 @@ export const MyService = z.object({
   nextBillingOn: CalendarDate.nullable(),
   /**
    * The last day a cancellation can be asked for: 14 days before the next billing date, in the
-   * firm's time zone. Null when the service is not ACTIVE and recurring with a next billing date.
+   * firm's time zone. Null when the service is not ACTIVE and recurring with a next billing date,
+   * or when that date has already passed (stale: a request is then taken).
    */
   cancelBy: CalendarDate.nullable(),
   cancelRequestedAt: DateTime.nullable(),
@@ -177,5 +178,7 @@ export const EngagementErrorCode = z.enum([
   'TOO_LATE_TO_CANCEL',
   /** 409: only recurring services take a cancellation request. */
   'NOT_RECURRING',
+  /** 409: an archived client takes no new engagement, edit or reactivation. */
+  'CLIENT_ARCHIVED',
 ]);
 export type EngagementErrorCode = z.infer<typeof EngagementErrorCode>;

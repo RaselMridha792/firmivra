@@ -82,15 +82,15 @@ export function ApplicationList() {
   if (!me.platformAdmin) return <NoApplicationPermission />;
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <header>
         <h1
           data-testid="page-title"
-          className="font-serif text-4xl font-semibold tracking-tight text-text"
+          className="font-serif text-5xl font-semibold tracking-tight text-text"
         >
           Firm Applications
         </h1>
-        <p className="mt-2 text-muted">
+        <p className="mt-2 text-lg text-muted">
           Review and manage new firm applications. Approve firms to activate their accounts.
         </p>
       </header>
@@ -192,7 +192,7 @@ export function ApplicationList() {
           {(data) => (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-5xl table-fixed text-left text-xs">
+                <table className="w-full min-w-5xl table-fixed text-left text-sm">
                   <thead className="bg-canvas">
                     <tr>
                       {[
@@ -206,7 +206,7 @@ export function ApplicationList() {
                         'Status',
                         'Action',
                       ].map((label) => (
-                        <th key={label} className="whitespace-nowrap px-2 py-4 font-medium">
+                        <th key={label} className="whitespace-nowrap px-3 py-4 font-medium">
                           {label}
                         </th>
                       ))}
@@ -223,38 +223,38 @@ export function ApplicationList() {
                         >
                           <th
                             scope="row"
-                            className="min-w-32 break-words px-2 py-4 text-left font-semibold"
+                            className="min-w-32 break-words px-3 py-4 text-left font-semibold"
                           >
                             {application.legalName}
                           </th>
-                          <td className="px-2 py-4">
+                          <td className="px-3 py-4">
                             {application.practiceType && application.entityType
                               ? `${PRACTICE_TYPES[application.practiceType]} · ${ENTITY_TYPES[application.entityType]}`
                               : '—'}
                           </td>
-                          <td className="min-w-32 break-words px-2 py-4">
+                          <td className="min-w-32 break-words px-3 py-4">
                             {application.contactName}
                             <span className="block text-muted">{application.contactPhone}</span>
                           </td>
-                          <td className="break-all px-2 py-4">{application.contactEmail}</td>
-                          <td className="break-words px-2 py-4">
+                          <td className="break-all px-3 py-4">{application.contactEmail}</td>
+                          <td className="break-words px-3 py-4">
                             {application.services
                               .map((service) => FIRM_SERVICES[service])
                               .join(', ') || '—'}
                           </td>
-                          <td className="px-2 py-4">
+                          <td className="px-3 py-4">
                             {application.requestedPlan
                               ? FIRM_PLANS[application.requestedPlan]
                               : '—'}
                           </td>
-                          <td className="whitespace-nowrap px-2 py-4 text-muted">
+                          <td className="whitespace-nowrap px-3 py-4 text-muted">
                             {day}
                             <span className="block">{time}</span>
                           </td>
-                          <td className="px-2 py-4">
+                          <td className="px-3 py-4">
                             <StatusPill status={application.status} />
                           </td>
-                          <td className="px-2 py-4">
+                          <td className="px-3 py-4">
                             <Link
                               aria-label={`Open application for ${application.legalName}`}
                               className="inline-flex rounded-control bg-brand-700 px-3 py-2 font-medium text-white"
