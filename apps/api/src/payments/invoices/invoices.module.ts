@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from '@nestjs/common';
-import type { z } from 'zod';
+import { z } from 'zod';
 import {
   CreateInvoiceRequest,
   type Invoice,
@@ -18,9 +18,14 @@ import {
 import type { ClientsActor } from '../../clients/clients.service.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { InvoiceNotices } from './invoice-notices.js';
 import { InvoicesService } from './invoices.service.js';
+import { MyInvoicesController } from './my-invoices.controller.js';
+import { MyInvoicesService } from './my-invoices.service.js';
 
 const idPipe = new ZodValidationPipe(InvoiceId);
+/** send takes no fields at all. */
+const SendInvoiceRequest = z.strictObject({});
 
 export function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
@@ -65,6 +70,18 @@ export class InvoicesController {
     return this.invoices.create(tenant.businessId, actorOf(auth, tenant), body);
   }
 
+  @Post(':id/send')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  send(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(SendInvoiceRequest)) _body: z.output<typeof SendInvoiceRequest>,
+  ): Promise<Invoice> {
+    return this.invoices.send(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
   @Put(':id')
   @Roles(...FIRM_MANAGERS)
   update(
@@ -78,8 +95,8 @@ export class InvoicesController {
 }
 
 @Module({
-  controllers: [InvoicesController],
-  providers: [InvoicesService],
-  exports: [InvoicesService],
+  controllers: [InvoicesController, MyInvoicesController],
+  providers: [InvoicesService, MyInvoicesService, InvoiceNotices],
+  exports: [InvoicesService, MyInvoicesService, InvoiceNotices],
 })
 export class InvoicesModule {}

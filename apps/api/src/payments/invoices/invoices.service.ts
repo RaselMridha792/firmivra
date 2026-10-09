@@ -16,8 +16,10 @@ import {
   likeEscape,
 } from '../../clients/clients.service.js';
 import { DATABASE } from '../../database/database.module.js';
+import { InvoiceNotices } from './invoice-notices.js';
 import {
   conflict,
+  day,
   firmToday,
   type InvoiceRow,
   invoiceSelect,
@@ -48,6 +50,7 @@ export class InvoicesService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly notices: InvoiceNotices,
   ) {}
 
   inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -261,5 +264,45 @@ export class InvoicesService {
       );
       return toInvoice(row, (await firmToday(tx, businessId)).today);
     });
+  }
+
+  /**
+   * A draft goes to the client: SCHEDULED when its scheduled day is after the firm's today (the
+   * daily job opens it then), otherwise OPEN now with `scheduled_for` cleared. Opening sends
+   * `invoice.sent` to the client after the change commits.
+   */
+  async send(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
+    const { invoice, opened } = await this.inFirm(businessId, async (tx) => {
+      const current = await this.load(tx, businessId, actor, id, true);
+      const isArchived = await this.checkClient(tx, businessId, current.clientId, null);
+      if (current.status !== 'DRAFT') throw notDraft();
+      if (isArchived) throw archived();
+      if (current.totalCents === 0) {
+        throw conflict('ZERO_TOTAL', 'There is nothing to pay on this invoice');
+      }
+      const { today } = await firmToday(tx, businessId);
+      const scheduledFor = day(current.scheduledFor);
+      const later = scheduledFor !== null && scheduledFor > today;
+      const dueOn = day(current.dueOn);
+      if (!later && dueOn !== null && dueOn < today) {
+        throw conflict('DUE_DATE_PASSED', 'The due date has passed; change it first');
+      }
+      await tx.invoice.update({
+        where: { businessId_id: { businessId, id } },
+        data: later
+          ? { status: 'SCHEDULED' }
+          : { status: 'OPEN', issuedAt: new Date(), scheduledFor: null },
+      });
+      const row = await this.load(tx, businessId, actor, id);
+      await this.audit.logIn(
+        tx,
+        later ? 'invoice.scheduled' : 'invoice.sent',
+        { type: 'invoice', id },
+        { clientId: row.clientId, number: row.number, totalCents: row.totalCents },
+      );
+      return { invoice: toInvoice(row, today), opened: !later };
+    });
+    if (opened) await this.notices.send('invoice.sent', businessId, id);
+    return invoice;
   }
 }
