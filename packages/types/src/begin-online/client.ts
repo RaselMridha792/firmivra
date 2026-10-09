@@ -6,11 +6,13 @@ import {
   BeginOnlineServiceList,
   BeginOnlineSlug,
   CreateDraftUploadRequest,
+  DraftSubmitted,
   DraftUpload,
   ResumeDraftRequest,
   ResumeLinkSent,
   SaveDraftStepRequest,
   StartDraftRequest,
+  SubmitDraftRequest,
 } from './schemas.js';
 import { z } from 'zod';
 import { OkResponse } from '../schemas.js';
@@ -100,6 +102,19 @@ export function createBeginOnlineClient(request: ApiRequest, firmSlug: string) {
       request(DraftUpload, `${drafts()}/current/uploads/confirm`, {
         method: 'POST',
         body: parseInput(ConfirmUploadRequest, body),
+      }),
+    /**
+     * Sends the draft: the whole form is checked (every shown required answer and upload), files
+     * in slots the answers hide are removed, the agreements are signed and the version is locked.
+     * The firm gets a pending lead; the visitor a confirmation email. The cookie is cleared. 400
+     * VALIDATION_FAILED (`details.issues`, or names that differ); 404 NOT_FOUND or
+     * DRAFT_NOT_FOUND (also once sent); 409 INTAKE_CHANGED; 410 DRAFT_EXPIRED; 429 RATE_LIMITED;
+     * 503 SIGNING_UNAVAILABLE or ENCRYPTION_UNAVAILABLE.
+     */
+    submit: async (body: SubmitDraftRequest) =>
+      request(DraftSubmitted, `${drafts()}/current/submit`, {
+        method: 'POST',
+        body: parseInput(SubmitDraftRequest, body),
       }),
     /** Removes a file of the draft. 404 NOT_FOUND or DRAFT_NOT_FOUND; 410 DRAFT_EXPIRED. */
     deleteUpload: async (id: string) =>

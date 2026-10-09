@@ -203,6 +203,38 @@ export function resumeTokenFromHash(hash: string): string | null {
   return token && ResumeDraftRequest.safeParse({ token }).success ? token : null;
 }
 
+// ---------- Submit ----------
+
+/** A name as typed: 1 to 200 characters after trimming, no control characters. */
+const SignedName = z
+  .string()
+  .trim()
+  .min(1, 'Enter your name')
+  .max(200, 'Use at most 200 characters')
+  .regex(/^[^\p{Cc}]*$/u, 'Remove the special characters');
+/** Trimmed, inner whitespace collapsed, lower-cased: how the two names are compared. */
+const comparable = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * POST .../drafts/current/submit: the printed name and the typed signature, which must be the
+ * same name (letter case and spacing aside). The firm's agreements are signed with them (R14).
+ */
+export const SubmitDraftRequest = z
+  .strictObject({ printedName: SignedName, typedSignature: SignedName })
+  .refine((b) => comparable(b.printedName) === comparable(b.typedSignature), {
+    message: 'Type the same name as your printed name',
+    path: ['typedSignature'],
+  });
+export type SubmitDraftRequest = z.input<typeof SubmitDraftRequest>;
+
+/** The answer to a submit: the draft is sent; its cookie is cleared. */
+export const DraftSubmitted = z.object({
+  leadId: z.uuid(),
+  service: z.object({ id: z.uuid(), kind: IntakeFormKey, name: z.string() }),
+  submittedAt: DateTime,
+});
+export type DraftSubmitted = z.infer<typeof DraftSubmitted>;
+
 // ---------- Uploads ----------
 const { fileName, contentType, sizeBytes, sha256 } = CreateMyUploadRequest.shape;
 
@@ -250,6 +282,10 @@ export const BeginOnlineErrorCode = z.enum([
   'FILE_HAS_MACROS',
   /** 503: files or email can't be reached right now. */
   'SERVICE_UNAVAILABLE',
+  /** 409: the draft changed while it was being sent (another tab saved): review and send again. */
+  'INTAKE_CHANGED',
+  /** 503: the agreements can't be signed right now. */
+  'SIGNING_UNAVAILABLE',
   /** 429: too many requests; try again later. */
   'RATE_LIMITED',
   /** 503: SSNs and EINs can't be saved right now. */
@@ -270,6 +306,8 @@ export const BEGIN_ONLINE_ERRORS = {
   FILE_PASSWORD_PROTECTED: 'Remove the password and upload the file again.',
   FILE_HAS_MACROS: 'Save it as a regular .xlsx or .docx without macros and upload again.',
   SERVICE_UNAVAILABLE: 'This is not available right now. Please try again in a moment.',
+  INTAKE_CHANGED: 'Your form changed in another window. Please review it and send it again.',
+  SIGNING_UNAVAILABLE: 'Signing is not available right now. Please try again later.',
   RATE_LIMITED: 'Too many attempts. Please try again later.',
   ENCRYPTION_UNAVAILABLE: 'Your answers cannot be saved right now. Please try again later.',
 } as const satisfies Record<BeginOnlineErrorCode, string>;

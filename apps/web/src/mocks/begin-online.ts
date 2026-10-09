@@ -11,6 +11,8 @@ import {
   ConfirmUploadRequest,
   CreateDraftUploadRequest,
   type DraftUpload,
+  hiddenSlotUploads,
+  intakeUploadCounts,
   INTAKE_LIMITS,
   intakeFields,
   INTAKE_FORMS,
@@ -24,6 +26,7 @@ import {
   ResumeDraftRequest,
   SaveDraftStepRequest,
   StartDraftRequest,
+  SubmitDraftRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 
@@ -200,6 +203,27 @@ function createBeginOnlineMock(): BeginOnlineClient {
       if (!d.savedSteps.includes(step)) d.savedSteps.push(step);
       d.expiresAt = Date.now() + 30 * DAY;
       return view(d);
+    },
+    // As the API: the whole form, files of hidden slots out; then the draft is gone (no email).
+    submit: async (body) => {
+      parseInput(SubmitDraftRequest, body);
+      await mockDelay();
+      const d = live();
+      const hidden = hiddenSlotUploads(d.definition, d.answers, d.uploads);
+      const kept = d.uploads.filter((u) => !hidden.includes(u));
+      const result = checkIntakeAnswers(d.definition, d.answers, {
+        mode: 'submit',
+        uploads: intakeUploadCounts(kept.map((u) => ({ slot: u.slot, status: u.scanStatus }))),
+        today: today(),
+      });
+      if (result.issues.length) throw fail(400, 'VALIDATION_FAILED', result.issues);
+      draft = null;
+      const { id, kind, name } = d.service;
+      return {
+        leadId: d.leadId,
+        service: { id, kind, name },
+        submittedAt: new Date().toISOString(),
+      };
     },
     // The mock sends no email: the link is "sent" and the draft renewed.
     sendResumeLink: async () => {

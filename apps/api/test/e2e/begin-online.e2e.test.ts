@@ -14,7 +14,9 @@ import {
   BeginOnlineForm,
   BeginOnlineServiceList,
   beginOnlineCookie,
+  ANNUAL_TAX_FORM,
   INTAKE_FORMS,
+  intakeStepFields,
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -574,5 +576,183 @@ describe('Begin Online uploads', () => {
                       WHERE id = ${draft.leadId}::uuid`,
     );
     expect(codeOf(await v.post('/drafts/current/uploads', file(pdf())))).toBe('DRAFT_EXPIRED');
+  });
+});
+
+describe('Begin Online submit', () => {
+  /** A complete Annual Tax (single filer, personal return), as in the contract's tests. */
+  const complete: Record<string, unknown> = {
+    firstName: 'Avery',
+    lastName: 'Example',
+    dateOfBirth: '1985-04-12',
+    phone: '(404) 555-0123',
+    email: `avery.submit.${run}@example.com`,
+    ssn: '900-12-3456',
+    street: '100 Example Way',
+    city: 'Atlanta',
+    state: 'GA',
+    zip: '30301',
+    filingStatus: 'SINGLE',
+    claimedAsDependent: false,
+    returnTypes: ['PERSONAL'],
+    legalStatus: 'US_CITIZEN',
+    armedForces: false,
+    hasDependents: false,
+    socialSecurityCard: { notAvailable: true, reason: 'Ordered a replacement card.' },
+    certifyDocuments: true,
+    paymentPreference: 'PAY_AFTER',
+  };
+  /** The complete answers of one step. */
+  const stepAnswers = (key: string, values = complete) => {
+    const step = ANNUAL_TAX_FORM.steps.find((s) => s.key === key)!;
+    const keys = new Set(intakeStepFields(step).map((f) => f.key));
+    return Object.fromEntries(Object.entries(values).filter(([k]) => keys.has(k)));
+  };
+  const signature = { printedName: 'Avery Example', typedSignature: '  avery   EXAMPLE ' };
+
+  /** A CLEAN file in `slot`, inserted as confirm would, with its object in storage. */
+  async function addFile(leadId: string, slot: string) {
+    const bytes = pdf(slot);
+    const key = `tenant/${firms.a.id}/leads/${leadId}/${randomUUID()}`;
+    storage.objects.set(key, bytes);
+    await asOwner(firms.a.id, async (tx) => {
+      const row = await tx.leadUpload.create({
+        data: {
+          businessId: firms.a.id,
+          leadId,
+          slot,
+          fileName: `${slot}.pdf`,
+          contentType: 'application/pdf',
+          sizeBytes: bytes.length,
+          sha256: sha256(bytes),
+          s3Key: key,
+        },
+      });
+      await tx.leadUpload.update({
+        where: { id: row.id },
+        data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+      });
+    });
+    return key;
+  }
+
+  beforeAll(async () => {
+    await asOwner(firms.a.id, async (tx) => {
+      await tx.membership.create({
+        data: {
+          businessId: firms.a.id,
+          userId: fx.users.ownerA.id,
+          role: 'OWNER',
+          status: 'ACTIVE',
+        },
+      });
+      await tx.membership.create({
+        data: {
+          businessId: firms.a.id,
+          userId: fx.users.staffA.id,
+          role: 'STAFF',
+          status: 'ACTIVE',
+        },
+      });
+    });
+  });
+
+  it('checks the whole form, removes hidden-slot files, locks the version and emails', async () => {
+    const v = visitor(firms.a.slug);
+    const married = { ...complete, filingStatus: 'MARRIED_FILING_JOINTLY' };
+    const draft = BeginDraft.parse(
+      (await v.post('/drafts', { ...annualStart(), answers: stepAnswers('personal', married) }))
+        .body,
+    );
+    const kept = await addFile(draft.leadId, 'governmentId');
+    const hidden = await addFile(draft.leadId, 'spouseGovernmentId');
+
+    // Incomplete: the documents and review steps are not answered yet.
+    const early = await v.post('/drafts/current/submit', signature);
+    expect([early.status, codeOf(early)]).toEqual([400, 'VALIDATION_FAILED']);
+    expect(early.body.error.details.issues.length).toBeGreaterThan(0);
+
+    const personal = { ...stepAnswers('personal'), ssn: { last4: '3456' } };
+    expect((await v.put('/drafts/current/steps/personal', { answers: personal })).status).toBe(200);
+    for (const step of ['documents', 'review']) {
+      expect(
+        (await v.put(`/drafts/current/steps/${step}`, { answers: stepAnswers(step) })).status,
+      ).toBe(200);
+    }
+    const mismatch = await v.post('/drafts/current/submit', {
+      printedName: 'Avery Example',
+      typedSignature: 'Someone Else',
+    });
+    expect(codeOf(mismatch)).toBe('VALIDATION_FAILED');
+
+    // Firm B's site never sends firm A's draft.
+    const b = visitor(firms.b.slug);
+    b.cookie = v.cookie.replace(
+      beginOnlineCookie(firms.a.slug).name,
+      beginOnlineCookie(firms.b.slug).name,
+    );
+    expect(codeOf(await b.post('/drafts/current/submit', signature))).toBe('DRAFT_NOT_FOUND');
+
+    const sentBefore = outbox.length;
+    const cookie = v.cookie;
+    const res = await v.post('/drafts/current/submit', signature);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ leadId: draft.leadId, service: { id: services.annual } });
+    const raw = (res.headers['set-cookie'] as unknown as string[]).join('\n');
+    expect(raw).toMatch(
+      new RegExp(`^${beginOnlineCookie(firms.a.slug).name}=;.*Expires=Thu, 01 Jan 1970`, 'm'),
+    );
+
+    const lead = await asOwner(firms.a.id, (tx) =>
+      tx.lead.findUniqueOrThrow({
+        where: { id: draft.leadId },
+        include: { intakes: { include: { submissions: true } }, uploads: true },
+      }),
+    );
+    expect(lead).toMatchObject({
+      status: 'SUBMITTED',
+      resumeTokenHash: null,
+      resumeExpiresAt: null,
+    });
+    expect(lead.submittedAt).not.toBeNull();
+    expect(lead.draftExpiresAt).not.toBeNull();
+    expect(lead.intakes[0]?.status).toBe('SUBMITTED');
+    const version = lead.intakes[0]!.submissions[0]!;
+    expect(version).toMatchObject({ signerName: 'Avery Example', submittedByUserId: null });
+    expect(version.submittedAt).not.toBeNull();
+    expect(JSON.stringify(version.answers)).not.toMatch(/900-?12-?3456/);
+    expect(lead.uploads.map((u) => u.slot)).toEqual(['governmentId']);
+    expect(storage.objects.has(hidden)).toBe(false);
+    expect(storage.objects.has(kept)).toBe(true);
+
+    // The emails: the visitor's confirmation and the firm's owner (not staff); no answers.
+    const mails = outbox.slice(sentBefore);
+    expect(mails.map((m) => [m.template, m.to]).sort()).toEqual(
+      [
+        ['lead.confirmation', complete['email']],
+        ['lead.received', fx.users.ownerA.email],
+      ].sort(),
+    );
+    const received = mails.find((m) => m.template === 'lead.received')!;
+    expect(received.data).toEqual({
+      serviceName: expect.any(String),
+      link: expect.stringMatching(new RegExp(`/leads/${draft.leadId}$`)),
+    });
+    expect(JSON.stringify(mails.map((m) => m.data))).not.toMatch(
+      /Avery|Example|3456|Atlanta|30301/,
+    );
+
+    const audit = await asOwner(firms.a.id, (tx) =>
+      tx.auditLog.findFirstOrThrow({
+        where: { entityId: draft.leadId, action: 'begin_online.submitted' },
+      }),
+    );
+    expect(audit.metadata).toMatchObject({ version: 1, removed: 1 });
+
+    // The key is gone: the old cookie opens nothing and a second submit is refused.
+    const old = visitor(firms.a.slug);
+    old.cookie = cookie;
+    expect(codeOf(await old.get('/drafts/current'))).toBe('DRAFT_NOT_FOUND');
+    expect(codeOf(await old.post('/drafts/current/submit', signature))).toBe('DRAFT_NOT_FOUND');
   });
 });

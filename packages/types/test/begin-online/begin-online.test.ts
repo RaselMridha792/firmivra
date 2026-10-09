@@ -15,6 +15,7 @@ import {
   PAYROLL_FORM,
   SaveDraftStepRequest,
   StartDraftRequest,
+  SubmitDraftRequest,
 } from '../../src/index.js';
 
 function fakeFetch(body: unknown) {
@@ -159,5 +160,17 @@ describe('Begin Online contract', () => {
       `DELETE /api/v1/portal/lvp/begin-online/drafts/current/uploads/${id}`,
     ]);
     expect(calls[1]?.body).toEqual({ token });
+  });
+
+  it('a submit needs the same name printed and typed', () => {
+    const ok = (printedName: string, typedSignature: string) =>
+      SubmitDraftRequest.safeParse({ printedName, typedSignature }).success;
+    expect(ok('Avery Example', '  avery   EXAMPLE ')).toBe(true);
+    expect(ok('Avery Example', 'Avery Sample')).toBe(false);
+    expect(ok('', '')).toBe(false);
+    expect(ok('A'.repeat(201), 'A'.repeat(201))).toBe(false);
+    expect(ok('Avery\u0007', 'Avery\u0007')).toBe(false);
+    const extra = { printedName: 'A B', typedSignature: 'A B', leadId: id };
+    expect(SubmitDraftRequest.safeParse(extra).success).toBe(false);
   });
 });

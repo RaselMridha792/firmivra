@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Inject,
   Module,
   Param,
   Post,
@@ -20,12 +21,14 @@ import {
   type BeginOnlineServiceList,
   ConfirmUploadRequest,
   CreateDraftUploadRequest,
+  type DraftSubmitted,
   type DraftUpload,
   ResumeDraftRequest,
   type ResumeLinkSent,
   SaveDraftStepRequest,
   type UploadTicket,
   StartDraftRequest,
+  SubmitDraftRequest,
 } from '@firmivra/types';
 import { Public } from '../auth/decorators.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
@@ -33,7 +36,10 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { BeginOnlineService } from './begin-online.service.js';
 import { DRAFT_UPLOAD_PROVIDERS, DraftUploadsService } from './draft-uploads.service.js';
+import { DraftSubmitService } from './draft-submit.service.js';
 import { ResumeLinksService } from './resume-links.service.js';
+import { INTAKE_SIGNING, type IntakeSigner, PLACEHOLDER_SIGNING } from './signing.js';
+import { requestContext } from '../common/request-context.js';
 
 /** Per viewer IP, in memory (see configure-app.ts): a new draft is the scarce one. */
 export const BEGIN_ONLINE_THROTTLE = {
@@ -43,6 +49,7 @@ export const BEGIN_ONLINE_THROTTLE = {
   resumeLink: { default: { limit: 5, ttl: 600_000 } },
   resume: { default: { limit: 10, ttl: 60_000 } },
   upload: { default: { limit: 30, ttl: 60_000 } },
+  submit: { default: { limit: 5, ttl: 60_000 } },
 };
 
 /**
@@ -56,6 +63,8 @@ export class BeginOnlineController {
     private readonly beginOnline: BeginOnlineService,
     private readonly links: ResumeLinksService,
     private readonly uploads: DraftUploadsService,
+    private readonly submits: DraftSubmitService,
+    @Inject(INTAKE_SIGNING) private readonly signing: IntakeSigner,
   ) {}
 
   @Get('services')
@@ -126,6 +135,25 @@ export class BeginOnlineController {
     return this.links.resume(slug, body.token, res);
   }
 
+  @Post('drafts/current/submit')
+  @Public()
+  @HttpCode(200)
+  @Throttle(BEGIN_ONLINE_THROTTLE.submit)
+  submit(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(SubmitDraftRequest)) body: z.output<typeof SubmitDraftRequest>,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<DraftSubmitted> {
+    const context = requestContext.getStore();
+    const signature = {
+      ...body,
+      ip: context?.ip ?? null,
+      userAgent: context?.userAgent ?? null,
+    };
+    return this.submits.submit(slug, req, res, (tx, ids) => this.signing.sign(tx, ids, signature));
+  }
+
   @Post('drafts/current/uploads')
   @Public()
   @HttpCode(200)
@@ -170,7 +198,10 @@ export class BeginOnlineController {
     BeginOnlineService,
     ResumeLinksService,
     DraftUploadsService,
+    DraftSubmitService,
     ...DRAFT_UPLOAD_PROVIDERS,
+    // R14's intake signing service replaces this placeholder (see signing.ts).
+    PLACEHOLDER_SIGNING,
   ],
 })
 export class BeginOnlineModule {}
