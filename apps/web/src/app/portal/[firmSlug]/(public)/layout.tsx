@@ -1,5 +1,6 @@
 'use client';
 
+import { PageSection } from '@firmivra/ui';
 import Image from 'next/image';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
@@ -15,7 +16,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
   const { branding, business } = usePortal();
   return (
     <div className="flex min-h-screen flex-col bg-surface">
-      <header className="border-b border-border bg-folder-surface px-6 py-4">
+      <PageSection as="header" className="border-b border-border bg-folder-surface py-4">
         <Link
           href={`/${business.slug}`}
           className="flex items-center gap-3 text-xl font-bold text-firm-primary"
@@ -25,9 +26,9 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
           )}
           {business.name}
         </Link>
-      </header>
+      </PageSection>
       <main className="flex-1">{children}</main>
-      <PortalFooter />
+      <PortalFooter width="public" />
     </div>
   );
 }
