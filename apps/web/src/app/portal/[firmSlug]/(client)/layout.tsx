@@ -155,7 +155,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   );
   return (
     <div className="flex min-h-screen flex-col">
-      <div className="flex items-stretch border-b border-border bg-surface">
+      <div className="flex items-stretch border-b border-border bg-surface print:hidden">
         <Link
           href={`/${business.slug}/home`}
           className="hidden w-sidebar shrink-0 items-center gap-3 px-4 text-lg font-bold text-firm-primary md:flex"
@@ -175,12 +175,14 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         </div>
       </div>
       <div className="flex flex-1">
-        <aside className="hidden w-sidebar shrink-0 bg-firm-primary md:block">
+        <aside className="hidden w-sidebar shrink-0 bg-firm-primary md:block print:hidden">
           <div className="sticky top-0 h-screen">{menu(false)}</div>
         </aside>
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>
-      <PortalFooter contact />
+      <div className="print:hidden">
+        <PortalFooter contact />
+      </div>
       <div className="[&_dialog]:m-0 [&_dialog]:h-screen! [&_dialog]:max-h-screen! [&_dialog]:w-sidebar! [&_dialog]:rounded-none [&_dialog]:p-0 [&_dialog>div]:p-4">
         <Modal open={drawer} title="Portal menu" onClose={() => setDrawer(false)}>
           {menu(true)}
