@@ -31,6 +31,7 @@ export * from './payments/index.js';
 export * from './notifications/index.js';
 export * from './esign/index.js';
 export * from './intake/index.js';
+export * from './begin-online/index.js';
 export * from './leads/index.js';
 export * from './messages/index.js';
 // The same values as the database enums in db-enums.ts (exported through ./schemas.js). These
