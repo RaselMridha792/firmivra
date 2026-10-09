@@ -8,6 +8,7 @@ import {
   FIRM_SERVICES,
   PRACTICE_TYPES,
   FirmApplicationId,
+  type FirmApplicationEvent,
   type FirmApplicationRecord,
 } from '@firmivra/types';
 import { Button, Card, Modal } from '@firmivra/ui';
@@ -45,6 +46,14 @@ function humanize(value: string) {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+/** Who an event without a message came from: a Super Admin, else the applicant or the owner. */
+function eventSource(event: FirmApplicationEvent) {
+  if (event.by) return `Recorded by ${event.by.name}.`;
+  if (event.type === 'OWNER_INVITED') return 'Activation link sent to the owner.';
+  if (event.type === 'FIRM_ACTIVATED') return 'The owner finished setup.';
+  return 'Received from applicant.';
 }
 
 function FieldCard({ title, fields }: { title: string; fields: readonly Field[] }) {
@@ -362,10 +371,7 @@ function ApplicationRecord({
                   key={`${event.at}-${event.type}-${event.by?.userId ?? 'applicant'}-${event.message ?? ''}`}
                 >
                   <p className="font-medium">{humanize(event.type)}</p>
-                  <p className="text-sm text-muted">
-                    {event.message ||
-                      (event.by ? `Recorded by ${event.by.name}.` : 'Received from applicant.')}
-                  </p>
+                  <p className="text-sm text-muted">{event.message || eventSource(event)}</p>
                   <time dateTime={event.at} className="text-xs text-muted">
                     {dateText(event.at)}
                   </time>
