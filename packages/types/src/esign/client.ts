@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import { ApiRequestError, type ApiRequest, parseInput, toQuery } from '../client.js';
 import { portalMe } from '../clients/client.js';
-import { OkResponse } from '../schemas.js';
+import { FirmSlug, OkResponse } from '../schemas.js';
 import { DownloadLink, type UploadFileFacts, UploadTicket } from '../documents/schemas.js';
 import { ESIGN_ERRORS } from './errors.js';
 import {
@@ -35,9 +35,45 @@ import {
   UpdateEsignRequestBody,
   EsignVoidBody,
 } from './schemas.js';
+import {
+  EsignConsentVersion,
+  EsignConsentVersionList,
+  EsignSettings,
+  EsignTemplateDetail,
+  EsignTemplateId,
+  EsignTemplateList,
+  ListEsignTemplatesQuery,
+  PublishEsignConsentBody,
+  SaveEsignTemplateBody,
+  UpdateEsignProfileBody,
+  UpdateEsignSettingsBody,
+  UpdateEsignTemplateBody,
+  UseEsignTemplateBody,
+} from './admin.js';
+import {
+  ListMySignaturesQuery,
+  MySignatureList,
+  SignerAcceptConsentBody,
+  SignerAccessCodeBody,
+  SignerAdoptBody,
+  SignerAttachmentConfirmBody,
+  SignerAttachmentUploadBody,
+  SignerCodeSent,
+  SignerConsent,
+  SignerCopy,
+  SignerCopyFile,
+  SignerDeclineBody,
+  SignerEnvelope,
+  SignerField,
+  SignerFinishBody,
+  SignerSessionBody,
+  SignerState,
+  SignerVerifyCodeBody,
+} from './signing.js';
 
 const BASE = '/esign';
 const one = (id: string) => `${BASE}/requests/${parseInput(EsignRequestId, id)}`;
+const template = (id: string) => `${BASE}/templates/${parseInput(EsignTemplateId, id)}`;
 
 /**
  * `api.esign` (apps/web/src/lib/api.ts): Firm Sign's signature requests, for the firm
@@ -169,22 +205,154 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
     /** The timeline, oldest first. */
     events: async (id: string): Promise<EsignEventList> =>
       request(EsignEventList, `${one(id)}/events`),
+
+    /** A new template from this request (see SaveEsignTemplateBody). */
+    saveAsTemplate: async (id: string, body: SaveEsignTemplateBody): Promise<EsignTemplateDetail> =>
+      post(
+        EsignTemplateDetail,
+        `${one(id)}/save-as-template`,
+        parseInput(SaveEsignTemplateBody, body),
+      ),
+
+    /** Signing Settings. Changes are Owner and Admin only (403 FORBIDDEN). */
+    settings: {
+      get: async (): Promise<EsignSettings> => request(EsignSettings, `${BASE}/settings`),
+      update: async (body: UpdateEsignSettingsBody): Promise<EsignSettings> =>
+        put(EsignSettings, `${BASE}/settings`, parseInput(UpdateEsignSettingsBody, body)),
+      consentVersions: async (): Promise<EsignConsentVersionList> =>
+        request(EsignConsentVersionList, `${BASE}/settings/consent-versions`),
+      publishConsent: async (body: PublishEsignConsentBody): Promise<EsignConsentVersion> =>
+        post(
+          EsignConsentVersion,
+          `${BASE}/settings/consent-versions`,
+          parseInput(PublishEsignConsentBody, body),
+        ),
+      /** The caller's own job title (any member). */
+      updateMyProfile: async (body: UpdateEsignProfileBody): Promise<EsignSettings> =>
+        put(EsignSettings, `${BASE}/me/profile`, parseInput(UpdateEsignProfileBody, body)),
+    },
+
+    /** Templates the caller may use: FIRM ones and their own PRIVATE ones. */
+    templates: {
+      list: async (query: ListEsignTemplatesQuery = {}): Promise<EsignTemplateList> =>
+        request(
+          EsignTemplateList,
+          `${BASE}/templates${toQuery(parseInput(ListEsignTemplatesQuery, query))}`,
+        ),
+      get: async (templateId: string): Promise<EsignTemplateDetail> =>
+        request(EsignTemplateDetail, template(templateId)),
+      /** 409 TEMPLATE_NAME_TAKEN or TEMPLATE_ARCHIVED. */
+      update: async (
+        templateId: string,
+        body: UpdateEsignTemplateBody,
+      ): Promise<EsignTemplateDetail> =>
+        request(EsignTemplateDetail, template(templateId), {
+          method: 'PATCH',
+          body: parseInput(UpdateEsignTemplateBody, body),
+        }),
+      /** Archived templates can't be used; requests made from them keep their copy. */
+      archive: async (templateId: string): Promise<EsignTemplateDetail> =>
+        post(EsignTemplateDetail, `${template(templateId)}/archive`, {}),
+      /** A new DRAFT from the template. */
+      use: async (templateId: string, body: UseEsignTemplateBody): Promise<EsignRequestDetail> =>
+        post(
+          EsignRequestDetail,
+          `${template(templateId)}/use`,
+          parseInput(UseEsignTemplateBody, body),
+        ),
+    },
   };
 }
 
 export type EsignClient = ReturnType<typeof createEsignClient>;
 
 /**
- * `api.mySignatures(firmSlug)`: the signed-in client's Signature center at one firm. This
- * contract has only `status()`, for the portal menu's 'Signatures' line; the list, signing and
- * downloads come in contract 2.
+ * `api.mySignatures(firmSlug)`: the signed-in client's Signature center at one firm (the client
+ * comes from the session). Every call but `status()` answers 404 when Firm Sign is off.
  */
 export function createMySignaturesClient(request: ApiRequest, firmSlug: string) {
   const base = () => `${portalMe(firmSlug)}/signatures`;
+  const mine = (recipientId: string) => `${base()}/${parseInput(EsignRecipientId, recipientId)}`;
   return {
     status: async (): Promise<MySignaturesStatus> =>
       request(MySignaturesStatus, `${base()}/status`),
+    /** Requests where one of the client's logins is a recipient, newest first. */
+    list: async (query: ListMySignaturesQuery = {}): Promise<MySignatureList> =>
+      request(MySignatureList, `${base()}${toQuery(parseInput(ListMySignaturesQuery, query))}`),
+    /**
+     * Opens the signer pages for an ACTION_NEEDED row without an email code (the portal sign-in
+     * counts). Sets the signer cookie; then use `api.signing(firmSlug)` from `consent` on.
+     */
+    startSigning: async (recipientId: string): Promise<SignerState> =>
+      request(SignerState, `${mine(recipientId)}/session`, { method: 'POST', body: {} }),
+    /** A COMPLETED request's signed PDF or certificate: a 5-minute link. */
+    download: async (recipientId: string, file: SignerCopyFile): Promise<DownloadLink> =>
+      request(
+        DownloadLink,
+        `${mine(recipientId)}/download${toQuery({ file: parseInput(SignerCopyFile, file) })}`,
+      ),
   };
 }
 
 export type MySignaturesClient = ReturnType<typeof createMySignaturesClient>;
+
+/**
+ * `api.signing(firmSlug)`: the signer pages at /{slug}/sign#t=<token> (signing.ts). No account:
+ * `session(token)` sets the signer cookie, and every other call uses it. 404 LINK_INVALID for any
+ * bad, used, expired or other firm's link, and when the cookie is gone.
+ * `baseUrl` is the one given to `createRequest` (for `packetUrl`).
+ */
+export function createSigningClient(request: ApiRequest, firmSlug: string, baseUrl = '/api/v1') {
+  const base = () => `/portal/${parseInput(FirmSlug, firmSlug)}/sign`;
+  const post = <S extends z.ZodType>(schema: S, path: string, body: unknown = {}) =>
+    request(schema, `${base()}${path}`, { method: 'POST', body });
+  return {
+    /** Trade the link's token (from `#t=`) for the signer cookie. Call once, then drop the token. */
+    session: async (token: string): Promise<SignerState> =>
+      post(SignerState, '/session', parseInput(SignerSessionBody, { token })),
+    /** Where the signer is now (after a reload). */
+    state: async (): Promise<SignerState> => request(SignerState, `${base()}/state`),
+    /** Leave: clears the cookie. */
+    end: async (): Promise<OkResponse> => post(OkResponse, '/session/end'),
+
+    sendCode: async (): Promise<SignerCodeSent> => post(SignerCodeSent, '/code/send'),
+    verifyCode: async (body: SignerVerifyCodeBody): Promise<SignerState> =>
+      post(SignerState, '/code/verify', parseInput(SignerVerifyCodeBody, body)),
+    verifyAccessCode: async (body: SignerAccessCodeBody): Promise<SignerState> =>
+      post(SignerState, '/access-code', parseInput(SignerAccessCodeBody, body)),
+
+    consent: async (): Promise<SignerConsent> => request(SignerConsent, `${base()}/consent`),
+    acceptConsent: async (body: SignerAcceptConsentBody): Promise<SignerState> =>
+      post(SignerState, '/consent', parseInput(SignerAcceptConsentBody, body)),
+
+    envelope: async (): Promise<SignerEnvelope> => request(SignerEnvelope, `${base()}/envelope`),
+    /** The document's address for the page viewer (also `envelope().packetUrl`). Not a call. */
+    packetUrl: (): string => `${baseUrl}${base()}/packet`,
+    adopt: async (body: SignerAdoptBody): Promise<SignerEnvelope> =>
+      post(SignerEnvelope, '/adopt', parseInput(SignerAdoptBody, body)),
+    finish: async (body: SignerFinishBody): Promise<SignerState> =>
+      post(SignerState, '/finish', parseInput(SignerFinishBody, body)),
+    decline: async (body: SignerDeclineBody = {}): Promise<SignerState> =>
+      post(SignerState, '/decline', parseInput(SignerDeclineBody, body)),
+
+    /** An ATTACHMENT field's file, with `uploadFile()` (apps/web/src/lib/upload.ts). */
+    createAttachmentUpload: async (body: SignerAttachmentUploadBody): Promise<UploadTicket> =>
+      post(UploadTicket, '/attachments/uploads', parseInput(SignerAttachmentUploadBody, body)),
+    confirmAttachment: async (body: SignerAttachmentConfirmBody): Promise<SignerField> =>
+      post(
+        SignerField,
+        '/attachments/uploads/confirm',
+        parseInput(SignerAttachmentConfirmBody, body),
+      ),
+
+    /** Step COPY: the completed request's files. */
+    copy: async (): Promise<SignerCopy> => request(SignerCopy, `${base()}/copy`),
+    downloadCopy: async (file: SignerCopyFile): Promise<DownloadLink> =>
+      request(
+        DownloadLink,
+        `${base()}/copy/download${toQuery({ file: parseInput(SignerCopyFile, file) })}`,
+      ),
+  };
+}
+
+export type SigningClient = ReturnType<typeof createSigningClient>;
