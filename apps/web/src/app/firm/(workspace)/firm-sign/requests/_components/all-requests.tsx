@@ -1,0 +1,56 @@
+'use client';
+
+import { type EsignQuickFilter, type EsignRequestStatus } from '@firmivra/types';
+import { Button } from '@firmivra/ui';
+import { useState } from 'react';
+import { RequestsTable } from '../../../../../../components/esign/requests-table';
+import { api } from '../../../../../../lib/api';
+import { useApiQuery } from '../../../../../../lib/query';
+
+const QUICK: { id: EsignQuickFilter; label: string }[] = [
+  { id: 'AWAITING_SIGNATURE', label: 'Awaiting signature' },
+  { id: 'EXPIRING_SOON', label: 'Expiring soon' },
+  { id: 'RECENTLY_COMPLETED', label: 'Recently completed' },
+  { id: 'MY_REQUESTS', label: 'My requests' },
+  { id: 'NEEDS_MY_APPROVAL', label: 'Needs my approval' },
+];
+
+/** /firm-sign/requests: every request the caller may see, with the quick filters. */
+export function AllRequests({ status }: { status?: EsignRequestStatus }) {
+  const summary = useApiQuery(['esign', 'summary'], () => api.esign.summary());
+  const [quick, setQuick] = useState<EsignQuickFilter | undefined>();
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 data-testid="page-title" className="text-3xl font-semibold text-heading">
+        Signature requests
+      </h1>
+      <div role="group" aria-label="Quick filters" className="flex flex-wrap gap-2">
+        <Button
+          variant={quick ? 'outline' : 'primary'}
+          aria-pressed={!quick}
+          onClick={() => setQuick(undefined)}
+        >
+          All
+        </Button>
+        {QUICK.map((f) => (
+          <Button
+            key={f.id}
+            variant={quick === f.id ? 'primary' : 'outline'}
+            aria-pressed={quick === f.id}
+            onClick={() => setQuick(f.id)}
+          >
+            {f.label}
+            {summary.data && ` (${summary.data.quickFilters[f.id]})`}
+          </Button>
+        ))}
+      </div>
+      <RequestsTable
+        // A quick filter starts the list over, from its first page.
+        key={quick ?? 'all'}
+        limit={25}
+        caption="Signature requests"
+        initial={{ range: 'all', quickFilter: quick, ...(status && { status }) }}
+      />
+    </div>
+  );
+}
