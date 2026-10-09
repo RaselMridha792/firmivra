@@ -28,11 +28,14 @@ export interface PolicyDocument {
 const HOSTED_ZONE_IDS = [DEV_FIRMIVRA_COM.hostedZoneId];
 
 /** Service-linked roles that our resources need the first time they are created. */
-const SERVICE_LINKED_ROLES = [
+export const SERVICE_LINKED_ROLES = [
   'ecs.amazonaws.com',
   'elasticloadbalancing.amazonaws.com',
   'rds.amazonaws.com',
   'vpcorigin.cloudfront.amazonaws.com',
+  // Cognito sending through our SES identity (AWSServiceRoleForAmazonCognitoIdpEmailService),
+  // created by the session that updates the pool: the CloudFormation execution role.
+  'email.cognito-idp.amazonaws.com',
 ];
 
 const serviceLinkedRoles = (resource: string): Statement => ({
