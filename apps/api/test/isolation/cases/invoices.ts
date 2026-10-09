@@ -1,4 +1,4 @@
-// Invoices to a client: the firm's invoice routes and the portal's own invoices.
+// Invoices to a client: the firm's invoice routes, and the portal's own invoices and Pay Now.
 import { randomUUID } from 'node:crypto';
 import type { CaseModule, SeedContext } from '../world.js';
 
@@ -50,5 +50,15 @@ export const cases: CaseModule['cases'] = {
   },
   // Found, but a draft with no lines has nothing to pay.
   'POST /api/v1/business/invoices/:id/send': { params: { id: 'invoice' }, expect: 409 },
+  'POST /api/v1/business/invoices/:id/cancel': {
+    params: { id: 'invoice' },
+    body: { reason: 'Billed by mistake' },
+  },
   'GET /api/v1/portal/:firmSlug/me/invoices/:id': { params: { id: 'openInvoice' } },
+  // Found, but firm P has no Stripe account that takes charges.
+  'POST /api/v1/portal/:firmSlug/me/invoices/:id/checkout': {
+    params: { id: 'openInvoice' },
+    body: {},
+    expect: 409,
+  },
 };
