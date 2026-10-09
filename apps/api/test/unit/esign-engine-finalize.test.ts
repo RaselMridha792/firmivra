@@ -417,3 +417,20 @@ describe('active content', () => {
     expect(String(out.context.lookup(left.get(0)))).toContain('/GoTo');
   });
 });
+
+describe('visible box', () => {
+  it('places boxes on the CropBox clipped to the MediaBox, as a viewer shows the page', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([600, 800]);
+    page.setCropBox(100, 200, 300, 400);
+    const placed = placeBox(page, { pageIndex: 0, x: 0, y: 0, w: 1, h: 1 });
+    expect(placed.at(0, 0)).toEqual({ x: 100, y: 200 });
+    expect([placed.w, placed.h]).toEqual([300, 400]);
+    // A CropBox larger than the MediaBox shows only the MediaBox.
+    const big = doc.addPage([600, 800]);
+    big.setCropBox(-100, -100, 900, 1100);
+    const all = placeBox(big, { pageIndex: 1, x: 0, y: 0, w: 1, h: 1 });
+    expect(all.at(0, 0)).toEqual({ x: 0, y: 0 });
+    expect([all.w, all.h]).toEqual([600, 800]);
+  });
+});

@@ -20,7 +20,7 @@ import {
   type SignaturePageSigner,
   type Stamp,
 } from './engine.types.js';
-import { ownRotation } from './pdf-compose.js';
+import { ownRotation, visibleBox } from './pdf-compose.js';
 
 // Stamp, flatten and signature pages (R18 step 6).
 
@@ -64,7 +64,7 @@ export function printableWith(font: PDFFont, text: string): string {
  */
 export function placeBox(page: PDFPage, box: FieldBox) {
   const r = ownRotation(page);
-  const crop = page.getCropBox();
+  const crop = visibleBox(page);
   const turned = r % 180 !== 0;
   const shownW = turned ? crop.height : crop.width;
   const shownH = turned ? crop.width : crop.height;
