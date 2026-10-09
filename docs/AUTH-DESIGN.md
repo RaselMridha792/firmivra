@@ -66,7 +66,7 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 
 - **Firm owner:** created when Super Admin approves an application; gets an activation email with a one-time link (7 days) to set a password and MFA.
 - **Staff:** invited by owner or admin; same activation flow.
-- **Clients:** self sign-up on the firm's portal (email and phone verified with 6-digit codes), then status `PENDING_APPROVAL` until the firm approves. A pending client can sign in only to see "waiting for approval".
+- **Clients:** self sign-up on the firm's portal (email and phone verified with 6-digit codes), then status `PENDING_APPROVAL` until the firm approves. SMS fallback (Rasel, Oct 8): with `SIGNUP_PHONE_VERIFICATION=optional` (the default, also on production, until SNS SMS registration is approved) the email code completes the sign-up and no SMS is sent; the phone number is still saved, unverified. `required` restores the phone code (docs/api/client-auth.yaml). A pending client can sign in only to see "waiting for approval".
 - **Forgot password:** our API wraps Cognito `ForgotPassword` / `ConfirmForgotPassword` so the flow stays inside the firm's portal. Same response whether or not the account exists. Rate-limited.
 - **Emails:** sent by our API through SES (NotifyService) with Firmivra or firm branding. The one exception is the password reset code: Cognito's `ForgotPassword` sends it, through our SES identity (next section).
 
