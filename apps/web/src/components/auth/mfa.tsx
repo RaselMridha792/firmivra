@@ -21,7 +21,8 @@ export function Mfa({
   session: string;
   setup?: MfaSetupResponse;
   onBack: () => void;
-  onSignedIn?: () => Promise<void>;
+  /** Runs once signed in, in place of opening the workspace. */
+  onSignedIn?: () => void;
 }) {
   const ready = useAuthReady();
   const router = useRouter();
@@ -34,8 +35,8 @@ export function Mfa({
     const result = await client.submitMfaCode(body);
     form.resetField('code');
     if (result.status === 'SIGNED_IN') {
-      if (onSignedIn) await onSignedIn();
-      router.replace('/');
+      if (onSignedIn) onSignedIn();
+      else router.replace('/');
     } else form.setValue('session', result.session);
   });
   return (
