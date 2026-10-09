@@ -199,37 +199,45 @@ export class StripeWebhookService {
   }
 
   /**
-   * This account's payment named in the object's metadata, linked to the event, but only when the
-   * object is that payment's own: a Checkout Session's id is the payment's `processor_ref`
-   * a payment intent was confirmed at Stripe (`confirmed`), and the currency is
-   * the payment's. Anything else is recorded and changes nothing.
+   * This account's payment named in the object's metadata, but only when the object is that
+   * payment's own: a Checkout Session's id is the payment's `processor_ref`, a payment intent was
+   * confirmed at Stripe (`confirmed`), and the object's currency (required) is the payment's.
+   * Anything else is recorded and changes nothing.
    */
-  private async link(ctx: Ctx, object: EventObject, confirmed: boolean) {
+  private async own(ctx: Ctx, object: EventObject, confirmed: boolean) {
     if (!confirmed) return null;
     const payment = await findPayment(ctx.tx, ctx.businessId, ctx.accountId, object);
     if (!payment) return null;
     const isSession = object.object === 'checkout.session';
     if (isSession && object.id !== payment.processorRef) return null;
-    if (object.currency && object.currency.toLowerCase() !== payment.currency) return null;
-    await ctx.tx.paymentEvent.update({
-      where: { id: ctx.eventRowId },
-      data: { paymentId: payment.id },
-    });
+    if (!object.currency || object.currency.toLowerCase() !== payment.currency) return null;
     return payment;
+  }
+
+  /** `own()`, then the event is linked to that payment. */
+  private async link(ctx: Ctx, object: EventObject, confirmed: boolean) {
+    const payment = await this.own(ctx, object, confirmed);
+    if (payment) await this.attach(ctx, payment.id);
+    return payment;
+  }
+
+  private attach(ctx: Ctx, paymentId: string) {
+    return ctx.tx.paymentEvent.update({ where: { id: ctx.eventRowId }, data: { paymentId } });
   }
 
   /** The payment SUCCEEDED, then its invoice PAID once succeeded payments cover the total. */
   private async succeed(ctx: Ctx, object: EventObject, amount: number | null, confirmed: boolean) {
     const { tx, businessId } = ctx;
-    const named = confirmed ? await findPayment(tx, businessId, ctx.accountId, object) : null;
-    if (named && amount !== named.amountCents) {
+    // The payment's own object first, so another session or currency never raises the alarm.
+    const payment = await this.own(ctx, object, confirmed);
+    if (!payment) return null;
+    if (amount !== payment.amountCents) {
       // Never trusted: logged for an alarm; the event is not linked, so nothing shows as paid
       // or processing.
-      this.logger.error(`Amount mismatch on payment ${named.id}: Stripe ${amount}`);
+      this.logger.error(`Amount mismatch on payment ${payment.id}: Stripe ${amount}`);
       return null;
     }
-    const payment = await this.link(ctx, object, confirmed);
-    if (!payment) return null;
+    await this.attach(ctx, payment.id);
     // Both success events of one payment can arrive at once: only one moves it from PENDING.
     const { count } = await tx.payment.updateMany({
       where: { businessId, id: payment.id, status: 'PENDING' },
@@ -364,7 +372,10 @@ export class StripeWebhookService {
     if (!row) return; // Never counted: ignored.
     await this.linkPayment(ctx, row.paymentId);
     if (row.status === 'SUCCEEDED') {
-      this.logger.error(`Stripe failed refund ${row.id}, already confirmed here`);
+      // Money the firm was told went back did not: logged for an alarm (R8), ids only.
+      this.logger.error(
+        `Refund mismatch on refund ${row.id}: Stripe failed it, already confirmed here`,
+      );
       return;
     }
     if (row.status !== 'PENDING') return;

@@ -20,6 +20,11 @@ export class FakeStripeMissing extends Error {
   override name = 'StripeInvalidRequestError:resource_missing';
 }
 
+/** What Stripe's SDK throws for a charge already refunded in full (in the dashboard, say). */
+export class FakeStripeAlreadyRefunded extends Error {
+  override name = 'StripeInvalidRequestError:charge_already_refunded';
+}
+
 /**
  * An in-memory Stripe for tests and STRIPE_MODE=fake: accounts keyed by idempotency key (the same
  * key answers the same account, as Stripe does), links on connect.stripe.com that open nothing.
@@ -38,6 +43,8 @@ export class FakeStripeGateway implements StripeGateway {
   down = false;
   /** A test-mode key, like every key outside production. */
   readonly livemode = false;
+  /** What the next refund creates throw while set, as Stripe's SDK would. */
+  refundError: Error | null = null;
   /** Milliseconds each call waits, to make two requests overlap in a test. */
   delayMs = 0;
 
@@ -151,6 +158,7 @@ export class FakeStripeGateway implements StripeGateway {
   ) {
     this.calls.push({ method: 'createRefund', accountId, params: { ...params, idempotencyKey } });
     await this.answer();
+    if (this.refundError) throw this.refundError;
     const known = this.refundsByKey.get(idempotencyKey);
     if (known) return this.refundView(known);
     const id = `re_fake${randomBytes(8).toString('hex')}`;
