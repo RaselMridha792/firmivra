@@ -124,7 +124,7 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       stripe:
-        specifier: ^23.0.0
+        specifier: 23.0.0
         version: 23.0.0(@types/node@22.20.5)
       zod:
         specifier: ^4.6.5

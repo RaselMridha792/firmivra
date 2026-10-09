@@ -75,6 +75,17 @@ describe('toOnboardingState', () => {
     });
   });
 
+  it('is PENDING (In review), not RESTRICTED, while the account is under_review', () => {
+    const state = toOnboardingState(
+      account({
+        details_submitted: true,
+        requirements: { currently_due: [], past_due: [], disabled_reason: 'under_review' },
+      }),
+    );
+    expect(state.onboardingStatus).toBe('PENDING');
+    expect(state.detailsSubmitted).toBe(true);
+  });
+
   it('is RESTRICTED when Stripe asks for more after the form was sent', () => {
     const state = toOnboardingState(
       account({
