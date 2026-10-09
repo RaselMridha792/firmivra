@@ -92,10 +92,13 @@ describe('api.myMessages and api.myNotes', () => {
       () => api.list({ filter: 'from-firm' }),
       () => api.create({ subject: 'Question', body: 'Hi' }),
       () => api.reply(id, { body: 'Hi' }),
+      () => api.get(id),
       () => api.markRead(id),
+      () => api.markUnread(id),
       () => api.unreadCount(),
       () => notes.get(),
       () => notes.save({ body: 'Remember the 1099s', remindAt: null }),
+      () => notes.setReminder({ remindAt: '2999-01-01T00:00:00Z' }),
       () => notes.removeReminder(),
     ])
       await call().catch(() => undefined);
@@ -103,10 +106,13 @@ describe('api.myMessages and api.myNotes', () => {
       'GET /api/v1/portal/lvp/me/messages?filter=from-firm&limit=25',
       'POST /api/v1/portal/lvp/me/messages',
       `POST /api/v1/portal/lvp/me/messages/${id}/messages`,
+      `GET /api/v1/portal/lvp/me/messages/${id}`,
       `POST /api/v1/portal/lvp/me/messages/${id}/read`,
+      `POST /api/v1/portal/lvp/me/messages/${id}/unread`,
       'GET /api/v1/portal/lvp/me/messages/unread-count',
       'GET /api/v1/portal/lvp/me/notes',
       'PUT /api/v1/portal/lvp/me/notes',
+      'PUT /api/v1/portal/lvp/me/notes/reminder',
       'DELETE /api/v1/portal/lvp/me/notes/reminder',
     ]);
     for (const c of calls) expect(JSON.stringify(c.body ?? {})).not.toContain('clientId');

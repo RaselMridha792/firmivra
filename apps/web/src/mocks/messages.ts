@@ -542,9 +542,14 @@ export function createMyNotesMock(): MyNotesClient {
       await mockDelay();
       const b = parseInput(SaveMyNoteRequest, body);
       const before = s().myNotes.get(JAMIE.userId)?.reminder ?? null;
+      // Only an unsent reminder still in the future moves to the new version, unsent.
+      const pending =
+        before && !before.sentAt && Date.parse(before.remindAt) > Date.now()
+          ? { remindAt: before.remindAt, sentAt: null }
+          : null;
       const reminder =
         b.remindAt === undefined
-          ? before
+          ? pending
           : b.remindAt === null
             ? null
             : { remindAt: b.remindAt, sentAt: null };
