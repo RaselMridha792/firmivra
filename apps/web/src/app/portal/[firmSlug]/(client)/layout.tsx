@@ -140,6 +140,20 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
     calculators: (calculators.data?.length ?? 0) > 0,
     unread: unread.data?.count ?? 0,
   });
+  const mottoBlock =
+    motto.length > 0 ? (
+      <div
+        data-testid="sidebar-motto"
+        className="mt-auto bg-firm-primary px-8 pt-8 pb-6 text-on-action"
+      >
+        <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
+        {motto.map((word) => (
+          <span key={word} className="mt-2 block text-sm tracking-motto uppercase">
+            {word}
+          </span>
+        ))}
+      </div>
+    ) : null;
   const menu = (inDrawer: boolean) => (
     <nav aria-label="Main" className="flex h-full flex-col bg-firm-primary p-4 text-on-action">
       {inDrawer ? <p className="text-xl font-bold">{business.name}</p> : null}
@@ -170,16 +184,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         <LogOut aria-hidden className="size-6" />
         Log Out
       </Button>
-      {motto.length > 0 ? (
-        <div data-testid="sidebar-motto" className="mt-auto px-4 pt-8 pb-2">
-          <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
-          {motto.map((word) => (
-            <span key={word} className="mt-2 block text-sm tracking-motto uppercase">
-              {word}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {inDrawer ? mottoBlock : null}
     </nav>
   );
   return (
@@ -215,8 +220,10 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
         </div>
       </div>
       <div className="flex flex-1">
-        <aside className="hidden w-sidebar shrink-0 bg-firm-primary md:block print:hidden">
-          <div className="sticky top-0 h-screen">{menu(false)}</div>
+        {/* The menu stays at the top while the page scrolls, the motto at the bottom. */}
+        <aside className="hidden w-sidebar shrink-0 flex-col bg-firm-primary md:flex print:hidden">
+          <div className="sticky top-0">{menu(false)}</div>
+          {mottoBlock ? <div className="sticky bottom-0 mt-auto">{mottoBlock}</div> : null}
         </aside>
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>

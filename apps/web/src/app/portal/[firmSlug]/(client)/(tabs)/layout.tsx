@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { isActive } from '../../../../../components/app-shell/types';
 import { RecentActivity } from './_components/recent-activity';
 import { QuickLinks, RightColumn } from './_components/side-cards';
+import { PortalPageHeader } from '../_components/portal-page-header';
 
 const tabs: [label: string, path: string][] = [
   ['Intake Form', 'intake'],
@@ -27,14 +28,15 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
       <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <div>
-          <p className="font-display text-4xl font-bold text-firm-primary">
-            My Client <span className="text-firm-accent">Portal</span>
-          </p>
-          <p className="text-muted">
-            Access your forms, documents, and resources anytime, anywhere.
-          </p>
-        </div>
+        <PortalPageHeader
+          titleAs="p"
+          title={
+            <>
+              My Client <span className="text-firm-accent">Portal</span>
+            </>
+          }
+          subtitle="Access your forms, documents, and resources anytime, anywhere."
+        />
         <nav
           aria-label="Portal folders"
           className="flex overflow-x-auto gap-1 border-b border-folder-border"

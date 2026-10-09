@@ -14,6 +14,7 @@ import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { NameChangeDialog, PROFILE_ERRORS } from './name-change-dialog';
 import { NotificationPreferencesCard } from './notification-preferences';
+import { PortalPageHeader } from '../../_components/portal-page-header';
 
 type Values = UpdateMyProfileRequest;
 
@@ -44,10 +45,10 @@ export function ProfileScreen() {
   const profile = useApiQuery(['my-profile', slug], () => api.myProfile(slug).get());
   return (
     <div className="grid min-w-0 grid-cols-1 gap-6">
-      <header>
-        <h1 className="font-display text-4xl font-bold text-heading">My Profile</h1>
-        <p className="text-text">Manage your information, preferences, and account settings.</p>
-      </header>
+      <PortalPageHeader
+        title="My Profile"
+        subtitle="Manage your information, preferences, and account settings."
+      />
       <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-2">
         <PageState query={profile} isEmpty={() => false}>
           {(p) => <AccountCard key={p.portalRole} slug={slug} profile={p} />}

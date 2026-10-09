@@ -9,6 +9,7 @@ import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
 import { ServiceCard } from './service-card';
+import { PortalPageHeader } from '../../_components/portal-page-header';
 
 type Group = 'active' | 'recurring' | 'completed' | 'cancelled';
 const GROUPS: [Group, string, string][] = [
@@ -34,12 +35,15 @@ export function ServicesScreen() {
   const services = useApiQuery(['my-services', slug], () => api.myServices(slug).list());
   return (
     <div className="grid min-w-0 grid-cols-1 gap-4">
-      <header>
-        <h1 className="font-display text-4xl font-bold text-heading">
-          My <span className="text-firm-accent">Services</span>
-        </h1>
-        <p className="text-text">View and manage the services you have with {business.name}.</p>
-      </header>
+      <PortalPageHeader
+        title={
+          <>
+            My <span className="text-firm-accent">Services</span>
+          </>
+        }
+        subtitle={`View and manage the services you've purchased with ${business.name}.`}
+        script="More Than Taxes. We Build Futures."
+      />
       <PageState query={services}>
         {(items) => (
           <Tabs
