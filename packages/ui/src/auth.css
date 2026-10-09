@@ -248,6 +248,29 @@
   font-size: var(--text-sm);
   color: var(--auth-muted);
 }
+/* R25: from 64rem to 84rem the card starts before the copy's mockup width ends, so the copy
+   fills only the space left of the card (37.109375vw = --auth-card-left) and wraps. */
+@media (64rem <= width < 84rem) {
+  .auth-copy {
+    margin-left: var(--space-8);
+    width: calc(37.109375vw - 2 * var(--space-8));
+  }
+  .auth-logo-light {
+    width: 100%;
+    max-width: var(--auth-logo-light-width);
+    height: auto;
+    aspect-ratio: 388 / 138;
+  }
+  .auth-copy h1 {
+    white-space: normal;
+  }
+  .auth-feature {
+    gap: var(--space-4);
+  }
+  .auth-feature p {
+    max-width: none;
+  }
+}
 @media (width < 64rem) {
   .auth-screen {
     min-height: 100vh;
