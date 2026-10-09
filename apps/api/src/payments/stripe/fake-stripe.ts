@@ -231,7 +231,8 @@ export class FakeStripeGateway implements StripeGateway {
   private view(sessionId: string, accountId?: string): CheckoutSession {
     const s = this.sessions.get(sessionId);
     // Stripe answers "no such session" for another account's session.
-    if (!s || (accountId && s.accountId !== accountId)) throw new Error('No such session (fake)');
+    if (!s || (accountId && s.accountId !== accountId))
+      throw new FakeStripeMissing('No such session (fake)');
     const { accountId: _account, params: _params, ...session } = s;
     return { ...session };
   }

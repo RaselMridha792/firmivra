@@ -5,6 +5,7 @@ import type { AuditService } from '../../audit/audit.service.js';
 import { conflict } from '../invoices/invoice-view.js';
 import {
   type CheckoutSession,
+  isStripeGone,
   stripeErrorName,
   type StripeGateway,
 } from '../stripe/stripe-gateway.js';
@@ -24,7 +25,8 @@ export const SESSION_MS = 60 * 60_000;
 /** A checkout this much older than its session can no longer be paid, whatever Stripe answers. */
 const STALE_MS = SESSION_MS + 15 * 60_000;
 /** How long a Pay Now or cancel waits for another one's hold on the invoice before answering 409. */
-const LOCK_WAIT = '1s';
+const WAIT_MS = 1_000;
+const LOCK_WAIT = `${WAIT_MS}ms`;
 /**
  * At most this many transactions of one API process wait on Stripe while they hold a pooled
  * connection and a row; one more answers 503 SERVICE_BUSY at once, so a slow Stripe or one client
@@ -32,6 +34,8 @@ const LOCK_WAIT = '1s';
  */
 const MAX_STRIPE_HOLDERS = 3;
 let stripeHolders = 0;
+/** The Pay Now or cancel running in this API process, by `{businessId}:{invoiceId}`. */
+const running = new Map<string, Promise<unknown>>();
 
 export const providerUnavailable = () =>
   new ServiceUnavailableException({
@@ -79,6 +83,43 @@ function lockNotAvailable(error: unknown): boolean {
   );
 }
 
+/**
+ * Runs `fn` (a Pay Now or cancel of one invoice) once no other one for the same invoice runs in
+ * this process. It waits for that one at most WAIT_MS without a transaction or a pooled
+ * connection, then answers 409 PAYMENT_IN_PROGRESS, so many clicks never queue on the row. The row
+ * lock (lockInvoice) still orders requests that reach other API tasks.
+ */
+export async function oneAtATime<T>(
+  businessId: string,
+  invoiceId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  // Keyed by firm too, so another firm's request for the same id still answers 404.
+  const key = `${businessId}:${invoiceId}`;
+  const deadline = Date.now() + WAIT_MS;
+  for (let other = running.get(key); other; other = running.get(key)) {
+    const left = deadline - Date.now();
+    if (left <= 0) throw paymentInProgress();
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      other.then(
+        () => undefined,
+        () => undefined,
+      ),
+      new Promise((resolve) => (timer = setTimeout(resolve, left))),
+    ]);
+    clearTimeout(timer);
+  }
+  // No await between the check above and this, so two waiters never both start.
+  const run = fn();
+  running.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (running.get(key) === run) running.delete(key);
+  }
+}
+
 /** Runs `fn`, which calls Stripe while holding a row, in one of the MAX_STRIPE_HOLDERS places. */
 export async function withStripeHold<T>(fn: () => Promise<T>): Promise<T> {
   if (stripeHolders >= MAX_STRIPE_HOLDERS) {
@@ -108,8 +149,9 @@ export interface OpenCheckout {
  * The invoice's checkouts that no event has reached yet, as Stripe sees them now. One Stripe has
  * already completed (paid, its webhook not here yet) is `PAYMENT_IN_PROGRESS`; one that expired is
  * marked FAILED (`checkout_expired`, listed to no one) and left out. One older than its session
- * that Stripe no longer answers for (account disconnected or replaced) is expired too, so it never
- * blocks the invoice; a younger one Stripe does not answer for is 503 (it may still be paid).
+ * that Stripe says is gone (missing, or the account disconnected or replaced) is expired too, so
+ * it never blocks the invoice. Any other Stripe error (a timeout, a 5xx), or a younger checkout, is
+ * 503: it may have been paid just before it ran out, and its webhook must still find it PENDING.
  */
 export async function openCheckouts(
   tx: TxClient,
@@ -125,12 +167,18 @@ export async function openCheckouts(
   const open: OpenCheckout[] = [];
   for (const { createdAt, ...p } of pending) {
     const stale = Date.now() - createdAt.getTime() > STALE_MS;
-    const session = await stripeCall('checkout.sessions.retrieve', p.id, () =>
-      stripe.retrieveCheckoutSession(p.accountId, p.processorRef),
-    ).catch((error: unknown) => {
-      if (stale) return null;
-      throw error;
-    });
+    let session: CheckoutSession | null;
+    try {
+      session = await stripe.retrieveCheckoutSession(p.accountId, p.processorRef);
+    } catch (error) {
+      if (!stale || !isStripeGone(error)) {
+        logger.warn(
+          `Stripe checkout.sessions.retrieve failed for ${p.id}: ${stripeErrorName(error)}`,
+        );
+        throw providerUnavailable();
+      }
+      session = null;
+    }
     if (session?.status === 'complete') throw paymentInProgress();
     if (!session || session.status === 'expired') {
       await markExpired(tx, audit, businessId, invoiceId, p.id);

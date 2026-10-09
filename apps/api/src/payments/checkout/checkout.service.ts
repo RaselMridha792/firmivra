@@ -13,6 +13,7 @@ import {
   CHECKOUT_LIMITS,
   expireCheckout,
   lockInvoice,
+  oneAtATime,
   openCheckouts,
   paymentInProgress,
   providerUnavailable,
@@ -40,6 +41,16 @@ export class CheckoutService {
   ) {}
 
   async start(
+    businessId: string,
+    clientAccountId: string,
+    invoiceId: string,
+  ): Promise<CheckoutLink> {
+    return oneAtATime(businessId, invoiceId, () =>
+      this.run(businessId, clientAccountId, invoiceId),
+    );
+  }
+
+  private async run(
     businessId: string,
     clientAccountId: string,
     invoiceId: string,
