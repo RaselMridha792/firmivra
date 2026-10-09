@@ -16,3 +16,9 @@ export { Tabs, type TabItem } from './tabs';
 export { Toast, Skeleton, EmptyState } from './states';
 export { Stepper, type StepItem } from './stepper';
 export { AuthFrame } from './auth-frame';
+export {
+  PageContainer,
+  PageSection,
+  type PageContainerProps,
+  type PageWidth,
+} from './page-container';
