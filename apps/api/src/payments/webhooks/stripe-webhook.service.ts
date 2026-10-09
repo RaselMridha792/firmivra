@@ -7,7 +7,6 @@ import { InvoiceNotices } from '../invoices/invoice-notices.js';
 import { providerUnavailable, stripeCall } from '../checkout/checkout-sessions.js';
 import { StripeAccountsWriter, toOnboardingState } from '../stripe/stripe-accounts.js';
 import {
-  type ConnectedAccount,
   STRIPE_GATEWAY,
   STRIPE_WEBHOOK_SECRET,
   type StripeGateway,
@@ -17,6 +16,8 @@ import {
 /** The fields of an event's object Firmivra reads (a Checkout Session or a payment intent). */
 interface EventObject {
   id?: string;
+  object?: string;
+  currency?: string;
   status?: string;
   metadata?: Record<string, string> | null;
   payment_status?: string;
@@ -59,6 +60,14 @@ export class StripeWebhookService {
   }
 
   async handle(event: Stripe.Event): Promise<void> {
+    // Without a key nothing can be checked at Stripe: 503, and Stripe delivers it again later.
+    if (!this.stripe) throw providerUnavailable();
+    const stripe = this.stripe;
+    if (event.livemode !== stripe.livemode) {
+      // A test event at a live endpoint (or the reverse) is never acted on.
+      this.logger.warn(`Ignored ${event.id}: livemode does not match the key`);
+      return;
+    }
     const accountId = event.account;
     if (!accountId) return;
     const known = await this.database.withScope({ kind: 'platform' }, (tx) =>
@@ -66,59 +75,92 @@ export class StripeWebhookService {
     );
     if (!known) return; // Not a firm's account: acknowledged and ignored.
     const { businessId } = known;
+    const inFirm = <T>(fn: (tx: TxClient) => Promise<T>) =>
+      this.database.withScope({ kind: 'business', businessId }, fn);
+    const where = {
+      processor_processorEventId: { processor: 'STRIPE' as const, processorEventId: event.id },
+    };
+    // A duplicate delivery asks Stripe nothing.
+    if (await inFirm((tx) => tx.paymentEvent.findUnique({ where, select: { id: true } }))) return;
     const object = event.data.object as EventObject;
 
-    // Asked before the transaction: Stripe's reason a bank debit failed.
+    // Stripe's answers are asked before the event is recorded, so a failure is 503 and the
+    // event comes again (a recorded event is never acted on twice).
     let failureCode: string | null = null;
-    if (event.type === 'checkout.session.async_payment_failed' && this.stripe) {
-      const intent = intentId(object);
-      failureCode = intent
-        ? await this.stripe
-            .retrievePaymentIntent(accountId, intent)
-            .then((i) => i.failureCode)
-            .catch(() => null)
-        : null;
-    }
-
-    // charge.refunded: the payment from the charge's payment intent, and the charge's refunds.
+    let intentConfirmed = false;
     let refund: { paymentId: string | null; refunds: StripeRefund[] } | null = null;
-    if (event.type === 'charge.refunded') {
-      if (!this.stripe) throw providerUnavailable();
-      const stripe = this.stripe;
-      const intent = intentId(object);
-      const charge = object.id;
-      if (intent && charge) {
-        const [info, refunds] = await Promise.all([
-          stripeCall('paymentIntents.retrieve', event.id, () =>
-            stripe.retrievePaymentIntent(accountId, intent),
-          ),
-          stripeCall('refunds.list', event.id, () => stripe.listRefunds(accountId, { charge })),
-        ]);
-        refund = { paymentId: info.paymentId, refunds };
+    switch (event.type) {
+      case 'account.updated': {
+        // Stripe's current state of the account, not the event's (events can arrive out of order).
+        const account = await stripeCall('accounts.retrieve', accountId, () =>
+          stripe.retrieveAccount(accountId),
+        );
+        await this.accounts.updateByAccountId(accountId, toOnboardingState(account));
+        break;
       }
+      case 'checkout.session.async_payment_failed': {
+        const intent = intentId(object);
+        failureCode = intent
+          ? await stripe
+              .retrievePaymentIntent(accountId, intent)
+              .then((i) => i.failureCode)
+              .catch(() => null)
+          : null;
+        break;
+      }
+      case 'charge.refunded': {
+        // The payment from the charge's payment intent, and the charge's refunds.
+        const intent = intentId(object);
+        const charge = object.id;
+        if (intent && charge) {
+          const [info, refunds] = await Promise.all([
+            stripeCall('paymentIntents.retrieve', event.id, () =>
+              stripe.retrievePaymentIntent(accountId, intent),
+            ),
+            stripeCall('refunds.list', event.id, () => stripe.listRefunds(accountId, { charge })),
+          ]);
+          refund = { paymentId: info.paymentId, refunds };
+        }
+        break;
+      }
+      case 'payment_intent.succeeded': {
+        // The intent must be the one Stripe made for this payment's own session.
+        const payment = await inFirm((tx) => findPayment(tx, businessId, accountId, object));
+        if (payment?.status === 'PENDING' && object.id) {
+          const session = await stripeCall('checkout.sessions.retrieve', payment.id, () =>
+            stripe.retrieveCheckoutSession(accountId, payment.processorRef),
+          );
+          intentConfirmed = session.paymentIntentId === object.id;
+        }
+        break;
+      }
+      default:
+        break;
     }
 
-    const outcome = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+    const outcome = await inFirm(async (tx) => {
       const inserted = await tx.paymentEvent.createMany({
         data: [{ businessId, processorEventId: event.id, accountId, type: event.type }],
         skipDuplicates: true,
       });
-      if (inserted.count === 0) return null; // A duplicate delivery.
-      const row = await tx.paymentEvent.findUniqueOrThrow({
-        where: { processor_processorEventId: { processor: 'STRIPE', processorEventId: event.id } },
-        select: { id: true },
-      });
+      if (inserted.count === 0) return null; // A duplicate delivery at the same moment.
+      const row = await tx.paymentEvent.findUniqueOrThrow({ where, select: { id: true } });
       const ctx = { tx, businessId, accountId, eventRowId: row.id };
       let paidInvoice: string | null = null;
       switch (event.type) {
         case 'checkout.session.completed':
           paidInvoice =
             object.payment_status === 'paid'
-              ? await this.succeed(ctx, object, object.amount_total ?? null)
-              : (await this.link(ctx, object), null);
+              ? await this.succeed(ctx, object, object.amount_total ?? null, true)
+              : (await this.link(ctx, object, true), null);
           break;
         case 'payment_intent.succeeded':
-          paidInvoice = await this.succeed(ctx, object, object.amount_received ?? null);
+          paidInvoice = await this.succeed(
+            ctx,
+            object,
+            object.amount_received ?? null,
+            intentConfirmed,
+          );
           break;
         case 'checkout.session.async_payment_failed':
           await this.fail(ctx, object, sanitize(failureCode) ?? 'payment_failed');
@@ -131,7 +173,8 @@ export class StripeWebhookService {
           break;
         case 'refund.failed':
         case 'refund.updated':
-          if (event.type === 'refund.failed' || object.status === 'failed') {
+          // A refund canceled at Stripe is as good as failed: its cents are refundable again.
+          if (event.type === 'refund.failed' || SETTLED_AT_STRIPE.has(object.status ?? '')) {
             await this.refundFailed(ctx, object.id ?? '');
           }
           break;
@@ -143,31 +186,24 @@ export class StripeWebhookService {
       await tx.paymentEvent.update({ where: { id: row.id }, data: { processedAt: new Date() } });
       return { paidInvoice };
     });
-    if (!outcome) return;
-
-    if (event.type === 'account.updated') {
-      await this.accounts.updateByAccountId(
-        accountId,
-        toOnboardingState(event.data.object as unknown as ConnectedAccount),
-      );
-    }
-    if (outcome.paidInvoice) {
+    if (outcome?.paidInvoice) {
       await this.notices.send('payment.received', businessId, outcome.paidInvoice);
     }
   }
 
-  /** This account's payment named in the object's metadata, linked to the event. */
-  private link(ctx: Ctx, object: EventObject) {
-    return this.linkPayment(ctx, object.metadata?.payment_id ?? null);
-  }
-
-  private async linkPayment(ctx: Ctx, paymentId: string | null) {
-    if (!paymentId || !UUID.test(paymentId)) return null;
-    const payment = await ctx.tx.payment.findFirst({
-      where: { businessId: ctx.businessId, id: paymentId, accountId: ctx.accountId },
-      select: { id: true, invoiceId: true, amountCents: true, status: true },
-    });
+  /**
+   * This account's payment named in the object's metadata, linked to the event, but only when the
+   * object is that payment's own: a Checkout Session's id is the payment's `processor_ref`
+   * a payment intent was confirmed at Stripe (`confirmed`), and the currency is
+   * the payment's. Anything else is recorded and changes nothing.
+   */
+  private async link(ctx: Ctx, object: EventObject, confirmed: boolean) {
+    if (!confirmed) return null;
+    const payment = await findPayment(ctx.tx, ctx.businessId, ctx.accountId, object);
     if (!payment) return null;
+    const isSession = object.object === 'checkout.session';
+    if (isSession && object.id !== payment.processorRef) return null;
+    if (object.currency && object.currency.toLowerCase() !== payment.currency) return null;
     await ctx.tx.paymentEvent.update({
       where: { id: ctx.eventRowId },
       data: { paymentId: payment.id },
@@ -176,19 +212,23 @@ export class StripeWebhookService {
   }
 
   /** The payment SUCCEEDED, then its invoice PAID once succeeded payments cover the total. */
-  private async succeed(ctx: Ctx, object: EventObject, amount: number | null) {
-    const payment = await this.link(ctx, object);
-    if (!payment || payment.status !== 'PENDING') return null;
-    if (amount !== payment.amountCents) {
-      // Never trusted: logged for an alarm, the payment stays as it is.
-      this.logger.error(`Amount mismatch on payment ${payment.id}: Stripe ${amount}`);
+  private async succeed(ctx: Ctx, object: EventObject, amount: number | null, confirmed: boolean) {
+    const { tx, businessId } = ctx;
+    const named = confirmed ? await findPayment(tx, businessId, ctx.accountId, object) : null;
+    if (named && amount !== named.amountCents) {
+      // Never trusted: logged for an alarm; the event is not linked, so nothing shows as paid
+      // or processing.
+      this.logger.error(`Amount mismatch on payment ${named.id}: Stripe ${amount}`);
       return null;
     }
-    const { tx, businessId } = ctx;
-    await tx.payment.update({
-      where: { businessId_id: { businessId, id: payment.id } },
+    const payment = await this.link(ctx, object, confirmed);
+    if (!payment) return null;
+    // Both success events of one payment can arrive at once: only one moves it from PENDING.
+    const { count } = await tx.payment.updateMany({
+      where: { businessId, id: payment.id, status: 'PENDING' },
       data: { status: 'SUCCEEDED', paidAt: new Date() },
     });
+    if (count === 0) return null;
     await this.audit.logIn(
       tx,
       'payment.succeeded',
@@ -200,16 +240,15 @@ export class StripeWebhookService {
       where: { businessId, id: payment.invoiceId },
       select: { status: true, totalCents: true },
     });
+    // A payment of an invoice canceled meanwhile is still recorded (the firm refunds it), and the
+    // client is not told it was received.
+    if (invoice.status !== 'OPEN') return null;
+    // The database's PAID rule counts SUCCEEDED payments only.
     const paid = await tx.payment.aggregate({
-      where: {
-        businessId,
-        invoiceId: payment.invoiceId,
-        status: { in: ['SUCCEEDED', 'REFUNDED'] },
-      },
+      where: { businessId, invoiceId: payment.invoiceId, status: 'SUCCEEDED' },
       _sum: { amountCents: true },
     });
-    // A payment of an invoice canceled meanwhile is still recorded; the firm refunds it.
-    if (invoice.status === 'OPEN' && (paid._sum.amountCents ?? 0) >= invoice.totalCents) {
+    if ((paid._sum.amountCents ?? 0) >= invoice.totalCents) {
       await tx.invoice.update({
         where: { businessId_id: { businessId, id: payment.invoiceId } },
         data: { status: 'PAID', paidAt: new Date() },
@@ -226,12 +265,13 @@ export class StripeWebhookService {
   }
 
   private async fail(ctx: Ctx, object: EventObject, code: string) {
-    const payment = await this.link(ctx, object);
-    if (!payment || payment.status !== 'PENDING') return;
-    await ctx.tx.payment.update({
-      where: { businessId_id: { businessId: ctx.businessId, id: payment.id } },
+    const payment = await this.link(ctx, object, true);
+    if (!payment) return;
+    const { count } = await ctx.tx.payment.updateMany({
+      where: { businessId: ctx.businessId, id: payment.id, status: 'PENDING' },
       data: { status: 'FAILED', failureCode: code },
     });
+    if (count === 0) return; // Already SUCCEEDED or FAILED: final.
     await this.audit.logIn(
       ctx.tx,
       'payment.failed',
@@ -239,6 +279,19 @@ export class StripeWebhookService {
       { ...STRIPE, invoiceId: payment.invoiceId, failureCode: code },
       { businessId: ctx.businessId },
     );
+  }
+
+  /** This account's payment by id, linked to the event (refund events name no session). */
+  private async linkPayment(ctx: Ctx, paymentId: string | null) {
+    const payment = await findPayment(ctx.tx, ctx.businessId, ctx.accountId, {
+      metadata: paymentId ? { payment_id: paymentId } : null,
+    });
+    if (!payment) return null;
+    await ctx.tx.paymentEvent.update({
+      where: { id: ctx.eventRowId },
+      data: { paymentId: payment.id },
+    });
+    return payment;
   }
 
   /**
@@ -320,6 +373,23 @@ export class StripeWebhookService {
 }
 
 const SETTLED_AT_STRIPE = new Set(['failed', 'canceled']);
+
+/** The payment named in the object's metadata, on this firm's account. */
+function findPayment(tx: TxClient, businessId: string, accountId: string, object: EventObject) {
+  const paymentId = object.metadata?.payment_id;
+  if (!paymentId || !UUID.test(paymentId)) return Promise.resolve(null);
+  return tx.payment.findFirst({
+    where: { businessId, id: paymentId, accountId },
+    select: {
+      id: true,
+      invoiceId: true,
+      amountCents: true,
+      currency: true,
+      status: true,
+      processorRef: true,
+    },
+  });
+}
 
 interface Ctx {
   tx: TxClient;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadStripeConfig } from '../../src/payments/stripe/config.js';
+import { loadStripeConfig, loadWebhookSecret } from '../../src/payments/stripe/config.js';
 import { toOnboardingState } from '../../src/payments/stripe/stripe-accounts.js';
 import type { ConnectedAccount } from '../../src/payments/stripe/stripe-gateway.js';
 
@@ -39,6 +39,22 @@ describe('loadStripeConfig', () => {
       /STRIPE_MODE/,
     );
     expect(() => loadStripeConfig({ STRIPE_MODE: 'fake' })).toThrow(/STRIPE_MODE/);
+  });
+});
+
+describe('loadWebhookSecret', () => {
+  it('is null when unset or empty, the secret when it is a whsec_ value', () => {
+    expect(loadWebhookSecret({})).toBeNull();
+    expect(loadWebhookSecret({ STRIPE_WEBHOOK_SECRET: '' })).toBeNull();
+    expect(loadWebhookSecret({ STRIPE_WEBHOOK_SECRET: 'whsec_abc123' })).toBe('whsec_abc123');
+  });
+
+  it('refuses anything else at boot without echoing the value', () => {
+    for (const value of ['sk_test_abc', 'whsec_', 'whsec_a-b']) {
+      expect(() => loadWebhookSecret({ STRIPE_WEBHOOK_SECRET: value })).toThrow(
+        /^Invalid Stripe settings: STRIPE_WEBHOOK_SECRET must be a whsec_ secret$/,
+      );
+    }
   });
 });
 

@@ -31,6 +31,8 @@ export class FakeStripeGateway implements StripeGateway {
   readonly calls: { method: keyof StripeGateway; accountId?: string; params?: unknown }[] = [];
   private readonly byKey = new Map<string, string>();
   down = false;
+  /** A test-mode key, like every key outside production. */
+  readonly livemode = false;
   /** Milliseconds each call waits, to make two requests overlap in a test. */
   delayMs = 0;
 
@@ -203,7 +205,10 @@ export class FakeStripeGateway implements StripeGateway {
   }
 
   /** As if the client paid (or the session ran out) at Stripe. */
-  setSession(sessionId: string, changes: Partial<Pick<CheckoutSession, 'status' | 'expiresAt'>>) {
+  setSession(
+    sessionId: string,
+    changes: Partial<Pick<CheckoutSession, 'status' | 'expiresAt' | 'paymentIntentId'>>,
+  ) {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error('No such session (fake)');
     const status = changes.status ?? s.status;
