@@ -2,6 +2,7 @@
 // list (filters, search, pages, paymentsEnabled) and get. Staff read only their assigned clients'
 // invoices. Firm B never reaches firm A's invoices.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { codeOf, expectOk, Invoice, InvoiceList, startInvoiceApp } from './invoice-setup.js';
 
@@ -117,5 +118,98 @@ describe('tenant isolation', () => {
     } finally {
       await app.$disconnect();
     }
+  });
+});
+
+describe('money on a read', () => {
+  it('counts a paid payment and its confirmed refund, and hides a checkout left open', async () => {
+    const invoice = await t.draft(t.ids.one, { status: 'OPEN' });
+    const businessId = t.ids.firmA;
+    const accountId = `acct_${t.run}A`;
+    const ids = await t.inScope(businessId, async (tx) => {
+      const base = { businessId, invoiceId: invoice.id, currency: 'usd', accountId };
+      const paid = await tx.payment.create({
+        data: {
+          ...base,
+          amountCents: 30_000,
+          processorRef: `cs_test_${randomUUID().replace(/-/g, '')}`,
+        },
+      });
+      const event = (type: string, paymentId: string) =>
+        tx.paymentEvent.create({
+          data: {
+            businessId,
+            accountId,
+            type,
+            paymentId,
+            processorEventId: `evt_${randomUUID().replace(/-/g, '')}`,
+          },
+        });
+      await event('checkout.session.completed', paid.id);
+      await tx.payment.update({
+        where: { id: paid.id },
+        data: { status: 'SUCCEEDED', paidAt: new Date() },
+      });
+      const refundEvent = await event('charge.refunded', paid.id);
+      await tx.paymentRefund.create({
+        data: {
+          businessId,
+          paymentId: paid.id,
+          accountId,
+          amountCents: 5_000,
+          currency: 'usd',
+          processorRefundId: `re_${randomUUID().replace(/-/g, '')}`,
+          status: 'SUCCEEDED',
+          eventId: refundEvent.id,
+          refundedAt: new Date(),
+        },
+      });
+      // A checkout the client opened and left: no event, not a payment yet.
+      await tx.payment.create({
+        data: {
+          ...base,
+          amountCents: 20_000,
+          processorRef: `cs_test_${randomUUID().replace(/-/g, '')}`,
+        },
+      });
+      return { paid: paid.id };
+    });
+    const got = Invoice.parse(
+      expectOk(await t.firm('get', `/${invoice.id}`, t.people.ownerA)).body,
+    );
+    expect(got).toMatchObject({ amountPaidCents: 30_000, refundedCents: 5_000 });
+    expect(got.payments).toEqual([
+      expect.objectContaining({
+        id: ids.paid,
+        status: 'SUCCEEDED',
+        refundedCents: 5_000,
+        refundableCents: 25_000,
+      }),
+    ]);
+  });
+
+  it('audits reads with ids and counts only', async () => {
+    const invoice = await t.draft(t.ids.one);
+    expectOk(await t.firm('get', `?clientId=${t.ids.one}`, t.people.ownerA));
+    expectOk(await t.firm('get', `/${invoice.id}`, t.people.ownerA));
+    const audit = await t.inScope(t.ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: t.ids.firmA,
+          actorUserId: t.people.ownerA.id,
+          action: { in: ['invoices.listed', 'invoice.viewed'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 2,
+        select: { action: true, entityId: true, metadata: true },
+      }),
+    );
+    expect(audit).toEqual([
+      { action: 'invoice.viewed', entityId: invoice.id, metadata: { clientId: t.ids.one } },
+      expect.objectContaining({
+        action: 'invoices.listed',
+        metadata: expect.objectContaining({ clientId: t.ids.one }),
+      }),
+    ]);
   });
 });
