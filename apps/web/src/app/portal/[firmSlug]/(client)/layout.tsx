@@ -134,7 +134,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const unread = useApiQuery(['my-messages', slug, 'unread'], () =>
     api.myMessages(slug).unreadCount(),
   );
-  const motto = taglineWords(branding.tagline);
+  const motto = taglineWords(branding);
   const nav = sections(slug, {
     signatures: signatures.data?.enabled === true,
     calculators: (calculators.data?.length ?? 0) > 0,
@@ -148,7 +148,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
       >
         <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
         {motto.map((word) => (
-          <span key={word} className="mt-2 block text-sm tracking-motto uppercase">
+          <span key={word} className="mt-2 block text-sm tracking-brand uppercase">
             {word}
           </span>
         ))}

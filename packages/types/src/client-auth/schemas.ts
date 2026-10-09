@@ -52,8 +52,6 @@ export const PortalInfo = z.object({
     header: z.string().nullable(),
     /** Welcome text on the landing page; null shows the default. */
     welcomeMessage: z.string().nullable(),
-    /** The firm's motto, words split by "|", for example "Plan | Prepare | Prosper". Not served yet. */
-    tagline: z.string().nullable().optional(),
   }),
   /** False when the firm closed sign-ups or has not published Terms and Privacy yet. */
   signUpOpen: z.boolean(),

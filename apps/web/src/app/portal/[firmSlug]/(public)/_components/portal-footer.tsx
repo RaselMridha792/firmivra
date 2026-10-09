@@ -18,7 +18,7 @@ const ROW = 'flex flex-wrap items-center gap-4 py-4';
 export function PortalFooter({ contact = false, width }: { contact?: boolean; width?: PageWidth }) {
   const { business, branding, legal } = usePortal();
   const [kind, setKind] = useState<LegalKind | null>(null);
-  const motto = taglineWords(branding.tagline);
+  const motto = taglineWords(branding);
   const links = [
     ...(['privacy', 'terms'] as const)
       .filter((item) => legal[item])

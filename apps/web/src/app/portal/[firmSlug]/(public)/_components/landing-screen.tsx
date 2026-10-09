@@ -72,13 +72,13 @@ export function LandingScreen() {
       'fill-current',
     ],
   ];
-  const motto = taglineWords(branding.tagline);
+  const motto = taglineWords(branding);
   return (
     <div data-testid="portal-landing" className="text-firm-primary">
       <section className="relative overflow-hidden bg-canvas">
         <HeroArt />
         <PageContainer className="relative py-12 md:py-16">
-          <p className="text-base font-bold tracking-motto text-firm-accent uppercase">
+          <p className="text-base font-bold tracking-brand text-firm-accent uppercase">
             Client Portal
           </p>
           <h1 className="my-4 font-display text-4xl leading-none font-bold md:text-6xl [&_span:last-child]:text-firm-accent">
@@ -98,7 +98,7 @@ export function LandingScreen() {
           {motto.length > 0 ? (
             <p
               data-testid="landing-motto"
-              className="mt-8 flex flex-wrap gap-x-6 text-sm font-bold tracking-motto uppercase"
+              className="mt-8 flex flex-wrap gap-x-6 text-sm font-bold tracking-brand uppercase"
             >
               {motto.map((word, index) => (
                 <span key={word} className="flex gap-6">

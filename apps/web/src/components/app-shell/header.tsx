@@ -22,7 +22,7 @@ export function Header({
   onOpenMenu: () => void;
   /** Replaces the plain bell button, for example the portal's bell with its unread count. */
   bell?: ReactNode;
-  /** Shows only the name next to the avatar, as the portal mockups do. */
+  /** Shows only the name next to the avatar, as the portal mockups do; screen readers still hear the role. */
   hideRole?: boolean;
 }) {
   const { me, signOut } = useMe();
@@ -87,7 +87,7 @@ export function Header({
             </span>
             <span className="hidden text-left text-sm sm:block">
               <span className="block font-semibold text-text">{me.user.name}</span>
-              {hideRole ? null : <span className="block text-muted">{roleLabel}</span>}
+              <span className={hideRole ? 'sr-only' : 'block text-muted'}>{roleLabel}</span>
             </span>
             <ChevronDown aria-hidden className="size-4 text-muted" />
           </button>

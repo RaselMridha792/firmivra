@@ -19,7 +19,7 @@ test('a signed-in client opens their portal, moves around and signs out', async 
   await expect(page).toHaveURL(portal('/lvp/profile'));
   await expect(page.getByTestId('firm-name')).toBeVisible();
 
-  await page.getByRole('button', { name: /John Doe/ }).click();
+  await page.getByRole('button', { name: /Client/ }).click();
   await page.getByRole('menuitem', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(portal('/lvp/sign-in'));
 });

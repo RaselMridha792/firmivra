@@ -3,6 +3,7 @@
 import { PageSection } from '@firmivra/ui';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { usePortal } from '../layout';
 import { ButtonLink } from './_components/button-link';
@@ -15,6 +16,9 @@ import { PortalFooter } from './_components/portal-footer';
  */
 export default function PublicLayout({ children }: { children: ReactNode }) {
   const { branding, business } = usePortal();
+  // The two buttons are for the landing page only: sign-in, sign-up, password reset and Begin
+  // Online keep the visitor on the task they opened.
+  const landing = usePathname() === `/${business.slug}`;
   return (
     <div className="flex min-h-screen flex-col bg-surface">
       <PageSection as="header" className="border-b border-border bg-folder-surface py-3">
@@ -35,18 +39,20 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
               business.name
             )}
           </Link>
-          <nav aria-label="Get started" className="flex flex-wrap gap-3">
-            <ButtonLink href={`/${business.slug}/begin`} className="w-auto!">
-              Begin Online
-            </ButtonLink>
-            <ButtonLink
-              variant="outline"
-              href={`/${business.slug}/appointments`}
-              className="w-auto!"
-            >
-              Book an Appointment
-            </ButtonLink>
-          </nav>
+          {landing ? (
+            <nav aria-label="Get started" className="flex flex-wrap gap-3">
+              <ButtonLink href={`/${business.slug}/begin`} className="w-auto!">
+                Begin Online
+              </ButtonLink>
+              <ButtonLink
+                variant="outline"
+                href={`/${business.slug}/appointments`}
+                className="w-auto!"
+              >
+                Clients: Book an Appointment
+              </ButtonLink>
+            </nav>
+          ) : null}
         </div>
       </PageSection>
       <main className="flex-1">{children}</main>
