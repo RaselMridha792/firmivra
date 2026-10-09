@@ -5,6 +5,7 @@ import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
 import { RequestMethod } from '@nestjs/common';
 import { MetadataScanner, ModulesContainer, Reflector } from '@nestjs/core';
 import { isPublicRoute, rolesOfRoute } from '../../src/auth/decorators.js';
+import { type BodyIdField, bodyIdFields } from './body-ids.js';
 
 export interface ApiRoute {
   /** "FirmSupportAccessController.approve" */
@@ -17,6 +18,10 @@ export interface ApiRoute {
   /** For reading the route's own metadata (a rate limit, for example). */
   handler: (...args: unknown[]) => unknown;
   controller: Type;
+  /** The body fields that name a record (`clientId`, `staffUserId`, `ids`), from its zod pipe. */
+  bodyIdFields: BodyIdField[];
+  /** Why the suite can't read the body's id fields, when it can't. */
+  bodyUnreadable?: string;
 }
 
 const parts = (value: unknown): string[] =>
@@ -43,14 +48,19 @@ export function apiRoutes(app: INestApplication): ApiRoute[] {
       if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(verb ?? '')) continue;
       for (const base of parts(Reflect.getMetadata(PATH_METADATA, controller))) {
         for (const tail of parts(sub)) {
+          const method = verb as ApiRoute['method'];
+          const path = `/api/v1/${[base, tail].filter(Boolean).join('/')}`;
+          const body = bodyIdFields(controller, handlerName, `${method} ${path}`);
           routes.push({
             name: `${controller.name}.${handlerName}`,
-            method: verb as ApiRoute['method'],
-            path: `/api/v1/${[base, tail].filter(Boolean).join('/')}`,
+            method,
+            path,
             roles: rolesOfRoute(reflector, handler, controller) ?? [],
             isPublic: isPublicRoute(reflector, handler, controller),
             handler: handler as ApiRoute['handler'],
             controller,
+            bodyIdFields: body.fields,
+            bodyUnreadable: body.unreadable,
           });
         }
       }
