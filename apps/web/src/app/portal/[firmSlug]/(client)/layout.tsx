@@ -2,9 +2,11 @@
 
 import { ApiRequestError, type BusinessSummary } from '@firmivra/types';
 import {
+  Calculator,
   CalendarDays,
   LogOut,
   ChartColumn,
+  PenLine,
   CloudUpload,
   FileText,
   House,
@@ -15,6 +17,7 @@ import {
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Button, Modal } from '@firmivra/ui';
+import Image from 'next/image';
 import Link from 'next/link';
 import { Header } from '../../../../components/app-shell/header';
 import { isActive } from '../../../../components/app-shell/types';
@@ -23,9 +26,14 @@ import { PortalFooter } from '../(public)/_components/portal-footer';
 import type { NavSections } from '../../../../components/app-shell/types';
 import { SignedIn, useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
+import { useApiQuery } from '../../../../lib/query';
 
-// Client menu (docs/junior/PAGE-MAP.md). R6 adds the unread count to Messages.
-const sections = (slug: string): NavSections => [
+// Client menu (docs/junior/PAGE-MAP.md). R6 adds the unread count to Messages. "Signatures" shows
+// when the firm uses Firm Sign, "Tax Calculators" when the firm shares at least one calculator.
+const sections = (
+  slug: string,
+  extra: { signatures: boolean; calculators: boolean },
+): NavSections => [
   [
     { label: 'Home', icon: House, href: `/${slug}/home` },
     { label: 'My Documents', icon: CloudUpload, href: `/${slug}/documents` },
@@ -34,6 +42,12 @@ const sections = (slug: string): NavSections => [
     { label: 'Appointments', icon: CalendarDays, href: `/${slug}/appointments` },
     { label: 'Invoices & Payments', icon: Receipt, href: `/${slug}/invoices` },
     { label: 'My Services', icon: ChartColumn, href: `/${slug}/services` },
+    ...(extra.signatures
+      ? [{ label: 'Signatures', icon: PenLine, href: `/${slug}/signatures` }]
+      : []),
+    ...(extra.calculators
+      ? [{ label: 'Tax Calculators', icon: Calculator, href: `/${slug}/calculator` }]
+      : []),
     { label: 'My Profile', icon: UserRound, href: `/${slug}/profile` },
   ],
 ];
@@ -41,7 +55,7 @@ const sections = (slug: string): NavSections => [
 /**
  * Every signed-in portal page: the sign-in check, then the client's firm (GET /portal/{slug}/business;
  * another firm's portal answers NOT_FOUND), then the client shell. Nahid builds the look from
- * docs/mockups/client-portal/My docs tab.png (N01).
+ * docs/mockups/client-portal/My docs tab.png (N01, R17).
  */
 export default function ClientLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
@@ -93,18 +107,31 @@ function ClientArea({ slug, children }: { slug: string; children: ReactNode }) {
     );
   }
 
-  return <PortalShell sections={sections(slug)}>{children}</PortalShell>;
+  return <PortalShell slug={slug}>{children}</PortalShell>;
 }
 
-function PortalShell({ children, sections }: { children: ReactNode; sections: NavSections }) {
-  const { business } = usePortal();
+/**
+ * docs/mockups/client-portal/My docs tab.png: a full-width header with the firm's logo, the menu
+ * on the left (a drawer below 768 px), and a full-width footer.
+ */
+function PortalShell({ children, slug }: { children: ReactNode; slug: string }) {
+  const { business, branding } = usePortal();
   const { me, signOut } = useMe();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
-  const menu = (
+  // A failed check only hides the menu line.
+  const signatures = useApiQuery(['my-signatures-status', slug], () =>
+    api.mySignatures(slug).status(),
+  );
+  const calculators = useApiQuery(['my-calculators', slug], () => api.myCalculators(slug).list());
+  const nav = sections(slug, {
+    signatures: signatures.data?.enabled === true,
+    calculators: (calculators.data?.length ?? 0) > 0,
+  });
+  const menu = (inDrawer: boolean) => (
     <nav aria-label="Main" className="flex h-full flex-col bg-firm-primary p-4 text-on-action">
-      <p className="text-xl font-bold">{business.name}</p>
-      {sections.flat().map(({ label, icon: Icon, href }) => (
+      {inDrawer ? <p className="text-xl font-bold">{business.name}</p> : null}
+      {nav.flat().map(({ label, icon: Icon, href }) => (
         <Link
           key={label}
           href={href ?? `/${business.slug}/home`}
@@ -127,20 +154,36 @@ function PortalShell({ children, sections }: { children: ReactNode; sections: Na
     </nav>
   );
   return (
-    <div className="min-h-screen">
-      <aside className="fixed inset-y-0 left-0 hidden w-sidebar md:block">{menu}</aside>
-      <div className="flex min-h-screen min-w-0 flex-col md:pl-sidebar [&_header>p]:flex-1 [&_header>p]:text-center [&_header>p]:font-display md:[&_header>p]:text-2xl">
-        <Header
-          roleLabel="Client"
-          onOpenMenu={() => setDrawer(true)}
-          greeting={`Welcome back, ${me.user.name.split(' ')[0]}!`}
-        />
-        <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
-        <PortalFooter contact />
+    <div className="flex min-h-screen flex-col">
+      <div className="flex items-stretch border-b border-border bg-surface">
+        <Link
+          href={`/${business.slug}/home`}
+          className="hidden w-sidebar shrink-0 items-center gap-3 px-4 text-lg font-bold text-firm-primary md:flex"
+        >
+          {branding.logoUrl ? (
+            <Image unoptimized src={branding.logoUrl} alt={business.name} width={176} height={56} />
+          ) : (
+            business.name
+          )}
+        </Link>
+        <div className="min-w-0 flex-1 [&_header]:border-b-0 [&_header>p]:flex-1 [&_header>p]:text-center [&_header>p]:font-display md:[&_header>p]:text-2xl">
+          <Header
+            roleLabel="Client"
+            onOpenMenu={() => setDrawer(true)}
+            greeting={`Welcome back, ${me.user.name.split(' ')[0]}!`}
+          />
+        </div>
       </div>
+      <div className="flex flex-1">
+        <aside className="hidden w-sidebar shrink-0 bg-firm-primary md:block">
+          <div className="sticky top-0 h-screen">{menu(false)}</div>
+        </aside>
+        <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
+      </div>
+      <PortalFooter contact />
       <div className="[&_dialog]:m-0 [&_dialog]:h-screen! [&_dialog]:max-h-screen! [&_dialog]:w-sidebar! [&_dialog]:rounded-none [&_dialog]:p-0 [&_dialog>div]:p-4">
         <Modal open={drawer} title="Portal menu" onClose={() => setDrawer(false)}>
-          {menu}
+          {menu(true)}
         </Modal>
       </div>
     </div>

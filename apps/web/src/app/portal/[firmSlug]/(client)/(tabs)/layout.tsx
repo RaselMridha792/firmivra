@@ -1,12 +1,10 @@
 'use client';
 
-import { Card } from '@firmivra/ui';
-import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { isActive } from '../../../../../components/app-shell/types';
-import { ButtonLink } from '../../(public)/_components/button-link';
+import { QuickLinks, RightColumn } from './_components/side-cards';
 
 const tabs: [label: string, path: string][] = [
   ['Intake Form', 'intake'],
@@ -18,8 +16,8 @@ const tabs: [label: string, path: string][] = [
 ];
 
 /**
- * "My Client Portal": the six folder tabs (links to their pages) and the right column.
- * Nahid builds the look from docs/mockups/client-portal/My docs tab.png (N01).
+ * "My Client Portal": the six folder tabs (links to their pages), Quick Links under the tab, and
+ * the right column (docs/mockups/client-portal/My docs tab.png, N01).
  */
 export default function TabsLayout({ children }: { children: ReactNode }) {
   const { firmSlug } = useParams<{ firmSlug: string }>();
@@ -56,24 +54,9 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           })}
         </nav>
         {children}
+        <QuickLinks slug={firmSlug} />
       </div>
-      <aside className="flex w-full flex-col gap-4 lg:w-72">
-        <Card title="Need Help?" className="bg-firm-primary! text-on-action [&_h2]:text-on-action">
-          <p className="my-3 text-sm">Our team is here for you.</p>
-          <ButtonLink href={`/${firmSlug}/messages`}>Send a Message</ButtonLink>
-        </Card>
-        <Card title="Upcoming Appointment">
-          <p className="my-3 text-sm text-muted">
-            View your appointments and book a time with our team.
-          </p>
-          <Link
-            href={`/${firmSlug}/appointments`}
-            className="inline-flex items-center gap-2 text-firm-accent underline"
-          >
-            Schedule Now <ArrowRight aria-hidden className="size-5" />
-          </Link>
-        </Card>
-      </aside>
+      <RightColumn slug={firmSlug} />
     </div>
   );
 }
