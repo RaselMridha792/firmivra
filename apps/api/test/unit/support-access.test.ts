@@ -121,7 +121,9 @@ describe('the audit rows that follow an action are best effort', () => {
   it("an ask stands when the firm's row fails: a warning with the grant id", async () => {
     const { service, audit, warn } = failingCopies({
       business: {
-        findUnique: vi.fn().mockResolvedValue({ id: firm, name: 'Fake Firm', slug: 'fake' }),
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ id: firm, name: 'Fake Firm', slug: 'fake', status: 'ACTIVE' }),
       },
       // The pair's lock, then no open request.
       $queryRaw: vi
@@ -141,10 +143,27 @@ describe('the audit rows that follow an action are best effort', () => {
       'support.requested',
       { type: 'support_access_grant', id: grantId },
       {},
-      { businessId: firm, actorUserId: admin },
+      { businessId: firm, actorUserId: admin, withoutOrigin: true },
     );
     expect(warn.mock.calls).toEqual([
       [`Could not copy support.requested to the firm's log (grant ${grantId})`],
     ]);
+  });
+
+  it('a firm that is not active is never asked: 409 FIRM_NOT_ACTIVE, nothing written', async () => {
+    const { service, audit } = failingCopies({
+      business: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ id: firm, name: 'Fake Firm', slug: 'fake', status: 'SUSPENDED' }),
+      },
+      $queryRaw: vi.fn(),
+      supportAccessGrant: { create: vi.fn() },
+    });
+    await expect(service.request(admin, firm, 'Fake reason')).rejects.toMatchObject({
+      response: { code: 'FIRM_NOT_ACTIVE' },
+    });
+    expect(audit.logIn).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
   });
 });

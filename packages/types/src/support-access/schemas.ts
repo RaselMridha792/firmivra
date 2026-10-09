@@ -96,6 +96,8 @@ export const SupportAccessErrorCode = z.enum([
   'SUPPORT_REQUEST_DECIDED',
   /** 409: revoke needs an active grant (a pending request is declined; an ended one is over). */
   'SUPPORT_GRANT_NOT_ACTIVE',
+  /** 409: the firm is not active (still in setup, suspended or closed), so no Owner can answer. */
+  'FIRM_NOT_ACTIVE',
   /** 403: a support view without an active grant for that firm. */
   'SUPPORT_GRANT_REQUIRED',
 ]);

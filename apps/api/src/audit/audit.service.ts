@@ -14,6 +14,8 @@ export interface AuditAt {
   /** The firm; `null` for the platform's row, never the context's firm. */
   businessId?: string | null;
   actorUserId?: string;
+  /** Leaves out the IP and user agent, for a row the actor's audience must not trace to them. */
+  withoutOrigin?: boolean;
 }
 
 /**
@@ -72,8 +74,8 @@ export class AuditService {
       entityType: entity.type,
       entityId: entity.id ?? null,
       metadata: metadata as Prisma.InputJsonValue | undefined,
-      ip: store?.ip ?? null,
-      userAgent: store?.userAgent ?? null,
+      ip: at.withoutOrigin ? null : (store?.ip ?? null),
+      userAgent: at.withoutOrigin ? null : (store?.userAgent ?? null),
       requestId: store?.requestId ?? null,
     };
   }

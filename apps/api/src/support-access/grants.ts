@@ -68,6 +68,11 @@ export const supportErrors = {
       code: 'SUPPORT_GRANT_NOT_ACTIVE',
       message: 'This support access grant is not active',
     }),
+  firmNotActive: () =>
+    new ConflictException({
+      code: 'FIRM_NOT_ACTIVE',
+      message: 'This firm is not active, so it cannot answer a support access request',
+    }),
   ownerOnly: () =>
     new ForbiddenException({
       code: 'FORBIDDEN',

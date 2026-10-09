@@ -88,4 +88,18 @@ describe('AuditService: where a row goes', () => {
     await new AuditService(db).log('thing.done', { type: 'thing' });
     expect(where(writes)).toEqual([['platform', null, null]]);
   });
+
+  it('withoutOrigin leaves out the IP and user agent, and keeps the request id', async () => {
+    const { db, writes } = fakeDb();
+    const audit = new AuditService(db);
+    await requestContext.run(inFirm, async () => {
+      await audit.log(
+        'thing.done',
+        { type: 'thing' },
+        {},
+        { businessId: other, withoutOrigin: true },
+      );
+    });
+    expect(writes[0]?.data).toMatchObject({ ip: null, userAgent: null, requestId: 'req-1' });
+  });
 });
