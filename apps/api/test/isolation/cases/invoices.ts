@@ -44,7 +44,7 @@ export const records: CaseModule['records'] = {
   openInvoice: { clientPrivate: true, create: openInvoice },
   /** Another one, for the checkout below (cash cannot be recorded while a checkout is open). */
   checkoutInvoice: { clientPrivate: true, create: openInvoice },
-  /** A Pay Now checkout the client opened on the open invoice and left (PENDING). */
+  /** A Pay Now checkout the client opened on its own open invoice and left (PENDING). */
   payment: {
     clientPrivate: true,
     async create({ tx, businessId, get }) {
