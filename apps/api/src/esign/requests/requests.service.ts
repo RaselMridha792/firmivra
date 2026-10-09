@@ -367,13 +367,16 @@ export class EsignRequestsService {
   async reach(businessId: string, actor: EsignActor, id: string, mode: 'read' | 'write') {
     const record = await this.repo.findRequest(businessId, id);
     if (!record) throw notFound();
-    if (await this.manages(businessId, actor, record)) return { record, approverOnly: false };
+    if (await this.manages(businessId, actor, record)) {
+      return { record, approverOnly: false, parts: null };
+    }
     if (mode === 'read') {
-      const { recipients } = await this.repo.parts(businessId, record.id);
-      const approves = recipients.some(
+      // `parts` is handed back so a read that needs them does not read them again.
+      const parts = await this.repo.parts(businessId, record.id);
+      const approves = parts.recipients.some(
         (r) => r.kind === 'APPROVER' && r.link.type === 'STAFF' && r.link.userId === actor.userId,
       );
-      if (approves) return { record, approverOnly: true };
+      if (approves) return { record, approverOnly: true, parts };
     }
     throw notFound();
   }

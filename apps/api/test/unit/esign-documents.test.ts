@@ -334,6 +334,67 @@ describe('from the vault', () => {
     expect(await refused(docs.addFromVault(w.a, staff2, own, source))).toEqual([404, 'NOT_FOUND']);
   });
 
+  it('copies Firm Sign’s own filed PDFs; Begin Online’s carried-over files are 409, not 500', async () => {
+    const id = await draft();
+    const at = (s3Key: string, stored = true) => {
+      const bytes = bytesOf('pdf:1');
+      if (stored) w.store.objects.set(s3Key, { bytes, contentType: 'application/pdf' });
+      const source = randomUUID();
+      w.directory.documents.of(w.a).set(source, {
+        id: source,
+        clientId: w.ids.c1,
+        fileName: 'filed.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: bytes.byteLength,
+        sha256: sha(bytes),
+        s3Key,
+        scanStatus: 'CLEAN',
+      });
+      return source;
+    };
+    // A completed request's final PDF and certificate, filed to the client's documents.
+    const done = randomUUID();
+    for (const name of ['final', 'certificate']) {
+      const source = at(`tenant/${w.a}/esign/${done}/${name}/${randomUUID()}`);
+      const doc = await docs.addFromVault(w.a, owner, id, source);
+      expect(doc).toMatchObject({ sourceDocumentId: source, scanStatus: 'CLEAN', pageCount: 1 });
+    }
+    // A Begin Online upload kept at conversion: EsignStore copies only from documents/ (R18).
+    const lead = at(`tenant/${w.a}/leads/${randomUUID()}/${randomUUID()}`);
+    expect(await refused(docs.addFromVault(w.a, owner, id, lead))).toEqual([409, 'FILE_BLOCKED']);
+    // A vault row whose stored object is gone: 404, in either folder.
+    for (const key of [
+      `tenant/${w.a}/documents/${randomUUID()}`,
+      `tenant/${w.a}/esign/${done}/final/${randomUUID()}`,
+    ]) {
+      expect(await refused(docs.addFromVault(w.a, owner, id, at(key, false)))).toEqual([
+        404,
+        'NOT_FOUND',
+      ]);
+    }
+    const copies = [...w.store.objects.keys()].filter((k) => k.includes(`/esign/${id}/`));
+    expect(copies).toHaveLength(2);
+  });
+
+  it('answers 404 for a document id that is only in another firm’s vault', async () => {
+    const id = await draft();
+    const theirs = randomUUID();
+    const bytes = bytesOf('pdf:1');
+    const s3Key = `tenant/${w.b}/documents/${theirs}`;
+    w.store.objects.set(s3Key, { bytes, contentType: 'application/pdf' });
+    w.directory.documents.of(w.b).set(theirs, {
+      id: theirs,
+      clientId: w.ids.c1,
+      fileName: 'theirs.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: bytes.byteLength,
+      sha256: sha(bytes),
+      s3Key,
+      scanStatus: 'CLEAN',
+    });
+    expect(await refused(docs.addFromVault(w.a, owner, id, theirs))).toEqual([404, 'NOT_FOUND']);
+  });
+
   it('lets an approver read a file’s bytes, but not copy from the vault (a write: 404)', async () => {
     const id = await draft();
     const content = bytesOf('pdf:1');
@@ -451,12 +512,21 @@ describe('the page viewer’s bytes', () => {
       w.repo.seed(w.a, id, (row) => {
         for (const d of row.parts.documents) d.scanStatus = status;
       });
+    const reads = () => w.audit.entries.filter((e) => e.action === 'esign.document_read');
     expect(await refused(read())).toEqual([409, 'SCAN_PENDING']);
+    expect(reads()).toEqual([]);
     scan('CLEAN');
     const file = await read(staff);
     expect([Buffer.from(file.bytes).toString(), file.contentType]).toEqual([
       'pdf:1',
       'application/pdf',
+    ]);
+    expect(reads()).toEqual([
+      {
+        action: 'esign.document_read',
+        entity: { type: 'esign_request', id },
+        metadata: { documentId: doc.id },
+      },
     ]);
     w.repo.seed(w.a, id, (row) => {
       row.record.status = 'SENT';
@@ -471,5 +541,7 @@ describe('the page viewer’s bytes', () => {
     expect(await refused(read())).toEqual([409, 'FILE_BLOCKED']);
     scan('INFECTED');
     expect(await refused(read())).toEqual([409, 'FILE_BLOCKED']);
+    // Only the two reads that answered bytes were audited: no refusal (404 or 409) writes one.
+    expect(reads()).toHaveLength(2);
   });
 });

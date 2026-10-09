@@ -1,5 +1,5 @@
 // End-to-end: the Firm Sign draft, page plan, recipients and file routes (R13 step 6, parts 1b
-// to 1d) through the real guard stack.
+// to 1e) through the real guard stack.
 // The esign tables come with r0_esign, so this covers what answers before the repository: 401
 // signed out, 403 for clients, 403 MODULE_OFF while the firm's module is off, and 400 for a bad
 // id or body where it is on. Synthetic data only.
@@ -39,7 +39,9 @@ const withId = (id: string): Route[] => [
   ['put', `${base(id)}/recipients`, { recipients: [] }],
   ['post', `${base(id)}/documents/uploads`, upload],
   ['post', `${base(id)}/documents/uploads/confirm`, { uploadToken: 'fake-token' }],
+  ['post', `${base(id)}/documents/from-vault`, { documentId: randomUUID() }],
   ['delete', `${base(id)}/documents/${randomUUID()}`, undefined],
+  ['get', `${base(id)}/documents/${randomUUID()}/content`, undefined],
 ];
 const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
@@ -129,7 +131,9 @@ describe('Firm Sign draft routes', () => {
       ['put', `${base(anyId)}/recipients`, { recipients: 'everyone' }],
       ['post', `${base(anyId)}/documents/uploads`, { ...upload, sizeBytes: 0 }],
       ['post', `${base(anyId)}/documents/uploads/confirm`, { uploadToken: '' }],
+      ['post', `${base(anyId)}/documents/from-vault`, { documentId: 'not-a-uuid' }],
       ['delete', `${base(anyId)}/documents/not-a-uuid`, undefined],
+      ['get', `${base(anyId)}/documents/not-a-uuid/content`, undefined],
     ];
     for (const [method, path, body] of badBodies) {
       expect(answer(await send(method, path, onOwner.email, body))).toBe('400 VALIDATION_FAILED');

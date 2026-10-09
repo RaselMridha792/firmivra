@@ -19,7 +19,7 @@ import {
   type UploadTicket,
 } from '@firmivra/types';
 import { AuditService } from '../../audit/audit.service.js';
-import { PUT_URL_SECONDS } from '../../storage/document-storage.js';
+import { PUT_URL_SECONDS, statusOf } from '../../storage/document-storage.js';
 import { UPLOAD_TOKEN_SECONDS } from '../../storage/upload-token.js';
 import {
   ESIGN_STORE,
@@ -28,7 +28,7 @@ import {
   PDF_ENGINE,
   type PdfEngine,
 } from '../engine/engine.types.js';
-import { ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
+import { type DirectoryDocument, ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
 import {
   ESIGN_REPOSITORY,
   type EsignRepository,
@@ -44,7 +44,7 @@ import {
 
 type Store = Pick<
   EsignStore,
-  'keyFor' | 'presignUpload' | 'head' | 'read' | 'copyFromVault' | 'remove'
+  'keyFor' | 'presignUpload' | 'head' | 'read' | 'put' | 'copyFromVault' | 'remove'
 >;
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
@@ -52,7 +52,12 @@ const expired = () =>
   new GoneException({ code: 'UPLOAD_EXPIRED', message: ESIGN_ERRORS.UPLOAD_EXPIRED });
 const sha256 = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const entity = (id: string) => ({ type: 'esign_request', id });
-const isEsignType = (type: string): type is EsignContentType => type in ESIGN_UPLOAD_TYPES;
+const isEsignType = (type: string): type is EsignContentType =>
+  Object.hasOwn(ESIGN_UPLOAD_TYPES, type);
+/** S3's missing key on a copy or read (the in-memory store rejects with that message). */
+const isNoSuchKey = (error: unknown) =>
+  error instanceof Error &&
+  (error.name === 'NoSuchKey' || error.message === 'NoSuchKey' || statusOf(error) === 404);
 
 /** A CLEAN file's bytes for the page viewer. */
 export interface EsignContent {
@@ -175,7 +180,7 @@ export class EsignDocumentsService {
     if (source.scanStatus !== 'CLEAN') throw esignRefusal('FILE_BLOCKED');
     const documentId = randomUUID();
     const key = this.store.keyFor(businessId, id, `source/${documentId}`);
-    await this.store.copyFromVault(businessId, source.s3Key, key);
+    await this.copySource(businessId, source, key);
     return this.removingOnRefusal(businessId, key, async () => {
       const bytes = await this.store.read(businessId, key);
       // The copy must be the file that was scanned.
@@ -191,6 +196,31 @@ export class EsignDocumentsService {
         sha256: source.sha256,
       });
     });
+  }
+
+  /**
+   * Copies a vault file into the request's folder. R5's uploads sit under documents/, and Firm
+   * Sign's own filed PDFs (final and certificate) under esign/, which EsignStore reads itself.
+   * Begin Online uploads carried over at conversion (leads/) EsignStore cannot copy yet (R18):
+   * 409 FILE_BLOCKED, never a 500. A vault row whose object is gone answers 404.
+   */
+  private async copySource(businessId: string, source: DirectoryDocument, key: string) {
+    const { s3Key } = source;
+    const under = (area: string) => s3Key.startsWith(`tenant/${businessId}/${area}/`);
+    try {
+      if (under('documents')) return await this.store.copyFromVault(businessId, s3Key, key);
+      if (under('esign')) {
+        const bytes = await this.store.read(businessId, s3Key);
+        if (!bytes) throw notFound();
+        return await this.store.put(businessId, key, bytes, source.contentType);
+      }
+    } catch (error) {
+      if (!isNoSuchKey(error)) throw error;
+      this.logger.warn(`Esign from-vault: document ${source.id} has no stored file`); // ids only
+      throw notFound();
+    }
+    this.logger.warn(`Esign from-vault: document ${source.id} is in a folder it can't copy from`);
+    throw esignRefusal('FILE_BLOCKED');
   }
 
   /** Removes the file, its pages and the fields on them, then the stored object. */
@@ -234,8 +264,8 @@ export class EsignDocumentsService {
     id: string,
     documentId: string,
   ): Promise<EsignContent> {
-    await this.requests.reach(businessId, actor, id, 'read');
-    const { documents } = await this.repo.parts(businessId, id);
+    const reached = await this.requests.reach(businessId, actor, id, 'read');
+    const { documents } = reached.parts ?? (await this.repo.parts(businessId, id));
     const doc = documents.find((d) => d.id === documentId);
     if (!doc) throw notFound();
     if (doc.scanStatus === 'PENDING') throw esignRefusal('SCAN_PENDING');
