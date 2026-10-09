@@ -1,0 +1,107 @@
+// End-to-end: the Firm Sign draft routes (R13 step 6, part 1b) through the real guard stack.
+// The esign tables come with r0_esign, so this covers what answers before the repository: 401
+// signed out, 403 for clients, 403 MODULE_OFF while the firm's module is off, and 400 for a bad
+// id or body where it is on. Synthetic data only.
+import { randomUUID } from 'node:crypto';
+import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { createPrismaClient, runInScope } from '@firmivra/db';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
+import { AppModule } from '../../src/app.module.js';
+import { configureApp } from '../../src/configure-app.js';
+import { loadEnv } from '../../src/config/env.js';
+
+const fx = inject('fixtures');
+let app: INestApplication;
+/** A firm of this file only, with Firm Sign on. */
+const onOwner = { id: randomUUID(), email: `r13-req-${randomUUID()}@on.test` };
+const anyId = randomUUID();
+const ROUTES = [
+  ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
+  ['get', `/api/v1/esign/requests/${anyId}`, undefined],
+  ['patch', `/api/v1/esign/requests/${anyId}`, { title: 'Fake letter' }],
+  ['delete', `/api/v1/esign/requests/${anyId}`, undefined],
+] as const;
+
+beforeAll(async () => {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+  const slug = `r13-req-${randomUUID().slice(0, 8)}`;
+  const firm = await runInScope(owner, { kind: 'platform' }, async (tx) => {
+    const u = onOwner;
+    await tx.user.create({
+      data: { id: u.id, cognitoSub: u.id, pool: 'STAFF', email: u.email, name: 'Fake R13 owner' },
+    });
+    return tx.business.create({ data: { slug, name: slug, status: 'ACTIVE' } });
+  });
+  await runInScope(owner, { kind: 'business', businessId: firm.id }, async (tx) => {
+    const businessId = firm.id;
+    await tx.membership.create({
+      data: { businessId, userId: onOwner.id, role: 'OWNER', status: 'ACTIVE' },
+    });
+    await tx.businessSettings.create({ data: { businessId, enabledModules: ['esign'] } });
+  });
+  await owner.$disconnect();
+  const env = loadEnv({
+    ...process.env,
+    NODE_ENV: 'test',
+    AUTH_MODE: 'local',
+    LOG_LEVEL: 'silent',
+    DATABASE_URL_APP: fx.appUrl,
+  });
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
+  configureApp(nest, env);
+  await nest.init();
+  app = nest;
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
+async function send(
+  method: 'get' | 'post' | 'patch' | 'delete',
+  path: string,
+  email: string | null,
+  body?: object,
+) {
+  const headers: Record<string, string> = {};
+  if (email) {
+    const res = await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email });
+    headers.authorization = `Bearer ${(res.body as { token: string }).token}`;
+  }
+  const req = request(app.getHttpServer())[method](path).set(headers);
+  return body ? req.send(body) : req;
+}
+const answer = (res: request.Response) =>
+  `${res.status} ${(res.body as { error?: { code: string } }).error?.code}`;
+
+describe('Firm Sign draft routes', () => {
+  it('refuses the signed out (401) and clients (403) on every route', async () => {
+    for (const [method, path, body] of ROUTES) {
+      expect((await send(method, path, null, body)).status).toBe(401);
+      expect((await send(method, path, fx.users.clientA.email, body)).status).toBe(403);
+    }
+  });
+
+  it('answers 403 MODULE_OFF to staff while the module is off', async () => {
+    for (const [method, path, body] of ROUTES) {
+      for (const who of [fx.users.ownerA, fx.users.staffA]) {
+        expect(answer(await send(method, path, who.email, body))).toBe('403 MODULE_OFF');
+      }
+    }
+  });
+
+  it('validates the id and the body where the module is on (400)', async () => {
+    const bad = '/api/v1/esign/requests/not-a-uuid';
+    for (const method of ['get', 'patch', 'delete'] as const) {
+      const body = method === 'patch' ? { title: 'Fake' } : undefined;
+      expect(answer(await send(method, bad, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
+    }
+    const noTitle = await send('post', '/api/v1/esign/requests', onOwner.email, { title: '' });
+    expect(answer(noTitle)).toBe('400 VALIDATION_FAILED');
+  });
+});

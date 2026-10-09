@@ -24,6 +24,7 @@ import {
   askedRoles,
   draftOf,
   memberOptions,
+  needsCode,
   type RoleDraft,
   roleErrorKey,
   TemplateRoles,
@@ -107,17 +108,26 @@ function StartForm({
   function fromTemplateSubmit() {
     const t = template.data;
     if (!t || t.archivedAt) return;
-    const chosen = askedRoles(t.roles).map((r) => ({ r, who: toWho(draftOf(roles, r, clientId)) }));
-    const missing = Object.fromEntries(
-      chosen.filter((c) => c.who === null).map((c) => [c.r.key, 'Choose who']),
-    );
+    const chosen = askedRoles(t.roles).map((r) => {
+      const d = draftOf(roles, r, clientId);
+      return { r, who: toWho(d), code: needsCode(r) ? d.accessCode.trim() : '' };
+    });
+    const missing: Record<string, string> = {};
+    for (const c of chosen) {
+      if (c.who === null) missing[c.r.key] = 'Choose who';
+      if (needsCode(c.r) && !c.code) missing[`${c.r.key}.accessCode`] = 'Set an access code';
+    }
     if (Object.keys(missing).length) return setRoleErrors(missing);
-    const given = chosen.filter((c) => c.who);
+    const given = chosen.filter((c) => c.who || c.code);
     const parsed = UseEsignTemplateBody.safeParse({
       ...(title.trim() && { title }),
       ...(clientId && { clientId }),
       ...(engagementId && { engagementId }),
-      roles: given.map((c) => ({ key: c.r.key, who: c.who })),
+      roles: given.map((c) => ({
+        key: c.r.key,
+        ...(c.who && { who: c.who }),
+        ...(c.code && { accessCode: c.code }),
+      })),
     });
     if (!parsed.success) {
       const next: Record<string, string> = {};

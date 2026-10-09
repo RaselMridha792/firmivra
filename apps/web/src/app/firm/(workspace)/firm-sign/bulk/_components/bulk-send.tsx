@@ -14,6 +14,7 @@ import {
   askedRoles,
   draftOf,
   memberOptions,
+  needsCode,
   type RoleDraft,
   roleErrorKey,
   TemplateRoles,
@@ -101,7 +102,11 @@ function BulkForm({ canListMembers }: { canListMembers: boolean }) {
         ...(c.engagementId && { engagementId: c.engagementId }),
       })),
       ...(title.trim() && { title }),
-      roles: given.map((g) => ({ key: g.r.key, who: g.who })),
+      roles: given.map((g) => ({
+        key: g.r.key,
+        who: g.who,
+        ...(needsCode(g.r) && { authMethod: 'EMAIL_CODE' as const }),
+      })),
       confirm: confirmed || undefined,
     });
     if (!parsed.success) {
@@ -167,6 +172,7 @@ function BulkForm({ canListMembers }: { canListMembers: boolean }) {
                 <TemplateRoles
                   roles={shared(t.roles)}
                   clientId=""
+                  codes={false}
                   drafts={roles}
                   errors={errors}
                   members={memberOptions(members.data)}
