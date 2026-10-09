@@ -44,7 +44,8 @@ import { requestContext } from '../common/request-context.js';
 /** Per viewer IP, in memory (see configure-app.ts): a new draft is the scarce one. */
 export const BEGIN_ONLINE_THROTTLE = {
   start: { default: { limit: 5, ttl: 60_000 } },
-  save: { default: { limit: 60, ttl: 60_000 } },
+  /** Autosave: one save every 2 seconds at most, within the public write limit. */
+  save: { default: { limit: 30, ttl: 60_000 } },
   /** Emails: few per IP (the per-draft and per-firm limits are counted in the database). */
   resumeLink: { default: { limit: 5, ttl: 600_000 } },
   resume: { default: { limit: 10, ttl: 60_000 } },
