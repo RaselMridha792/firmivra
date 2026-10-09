@@ -129,7 +129,7 @@ info:
 
     ## Signature center (contract 2)
 
-    A signed-in client lists the requests where one of their logins is a recipient
+    A signed-in client lists the requests where the signed-in login's own recipients are
     (`GET /portal/{slug}/me/signatures?tab=PENDING|SIGNED`), opens an ACTION_NEEDED one without
     an email code (`POST .../{recipientId}/session`, which sets the same signer cookie; then the
     signer routes from CONSENT on), and downloads a COMPLETED one's files. The client comes from
@@ -140,10 +140,33 @@ info:
     `GET/PUT /esign/settings` holds the firm's defaults (expiry, reminders, warning, auth method,
     approval switch, email message); only Owner and Admin change them. Consent texts are
     insert-only versions; nothing is sent before the first one (readiness `NO_CONSENT`). Any
-    member sets their own job title (the Staff Title merge field). A template copies a request's
-    packet, recipients (as roles) and fields; using one makes a new DRAFT and never changes the
-    template. CLIENT, SPOUSE (when the client has that login) and PREPARER roles fill themselves; the others need `roles[].who`
-    (`409 TEMPLATE_ROLES_UNFILLED`).
+    member sets their own job title (the Staff Title merge field).
+
+    A template copies a request's uploaded files, recipients (as roles, never who they were),
+    fields and settings; it never takes anything of one client: no client or service, no
+    merge-filled or signer values (merge keys stay), no sender-typed values unless the body sets
+    `keepSenderValues: true`, and no file from the client's documents
+    (`409 TEMPLATE_HAS_CLIENT_FILES`: upload a blank copy instead; `SCAN_PENDING` or
+    `FILE_BLOCKED` for a file not yet CLEAN).
+    `SaveEsignTemplateBody` lists exactly what is copied. A new template is PRIVATE unless saved
+    as FIRM. The page viewer reads its packet from `GET /esign/templates/{templateId}/packet`
+    (`api.esign.templates.packetUrl(id)`). Using one makes a new DRAFT and never changes the
+    template. CLIENT, SPOUSE (when the client has that login) and PREPARER roles fill
+    themselves; `roles[]` (`EsignTemplateRoleFill`) names who fills the others and sets a
+    role's delivery and access code. A role whose method is ACCESS_CODE needs its code unless
+    it signs IN_PERSON (`409 TEMPLATE_ROLES_UNFILLED` names every role still open). A bulk send
+    never takes an access code (`EsignBulkRoleFill`, 400): one code would be shared by every
+    client, so an ACCESS_CODE role needs another `authMethod` there.
+
+    ## Status codes
+
+    A POST that creates something answers `201`: a request (`create`, `replace`, a template's
+    `use`), a file (`confirm`, `from-vault`), an upload ticket, a template (`save-as-template`,
+    `duplicate`), a template version (`save-as-version`, `restore`) or a consent version. A POST
+    that acts on something that already exists answers `200` (send, remind, void, correct,
+    approvals, archive, in-person, a signer's attachment confirm, which fills a field, and every
+    other signer and Signature center step). Bulk send answers
+    `202` (the job runner does the work). GET, PUT, PATCH and DELETE answer `200`.
 
 servers:
   - url: /api/v1
@@ -286,9 +309,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '410':
-          description: '`UPLOAD_EXPIRED`'
-          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '410': { $ref: '#/components/responses/Gone' }
 
   /esign/requests/{id}/documents/from-vault:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
@@ -533,6 +554,7 @@ paths:
         '200':
           description: '`EsignEventList`'
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -781,7 +803,7 @@ paths:
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -805,7 +827,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '410': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
 
   /portal/{firmSlug}/sign/copy:
     parameters:
@@ -938,7 +960,7 @@ paths:
       summary: Publish a new version (`PublishEsignConsentBody` → `EsignConsentVersion`); Owner and Admin
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -1003,6 +1025,23 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /esign/templates/{templateId}/packet:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-admin]
+      operationId: esignTemplatePacket
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
+      summary: "The template’s packet PDF, for the page viewer on the same site (`EsignTemplateDetail.packetUrl`, `api.esign.templates.packetUrl(id)`). Anyone who may see the template: FIRM ones, and PRIVATE ones to their owner, Owner and Admin; any other is 404. CLEAN bytes only: a template only ever holds CLEAN files (save-as-template answers 409 SCAN_PENDING or FILE_BLOCKED otherwise). Archived templates still answer"
+      responses:
+        '200':
+          description: 'The packet, `Cache-Control: no-store`'
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /esign/templates/{templateId}/archive:
     parameters:
       - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1026,10 +1065,10 @@ paths:
       tags: [esign-admin]
       operationId: useEsignTemplate
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: A new DRAFT from it (`UseEsignTemplateBody` → `EsignRequestDetail`); 409 TEMPLATE_ROLES_UNFILLED, TEMPLATE_ARCHIVED, ENGAGEMENT_MISMATCH
+      summary: A new DRAFT from it (`UseEsignTemplateBody` → `EsignRequestDetail`); `roles[]` sets who, delivery and access code (`EsignTemplateRoleFill`); 409 TEMPLATE_ROLES_UNFILLED (no one, or no access code), TEMPLATE_ARCHIVED, ENGAGEMENT_MISMATCH
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -1044,10 +1083,10 @@ paths:
       tags: [esign-admin]
       operationId: saveEsignTemplate
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: A template from the request (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_NAME_TAKEN, SCAN_PENDING
+      summary: A template from the request, PRIVATE unless saved as FIRM; never a client's files or values, and sender-typed values only with `keepSenderValues: true` (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_NAME_TAKEN, SCAN_PENDING, FILE_BLOCKED
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -1099,10 +1138,10 @@ paths:
       tags: [esign-extras]
       operationId: saveEsignTemplateVersion
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: "The request becomes the template’s next version (`SaveEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_ARCHIVED, SCAN_PENDING"
+      summary: "The request becomes the template’s next version, copied as save-as-template does (`SaveEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_ARCHIVED, SCAN_PENDING, FILE_BLOCKED"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -1152,6 +1191,19 @@ paths:
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/approvers:
+    get:
+      tags: [esign-extras]
+      operationId: esignApprovers
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: Who may approve a request, for the approver picker (`EsignApproverList`). Active Owners, Admins and Managers, without the caller; names only
+      responses:
+        '200':
+          description: '`EsignApproverList`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -1210,7 +1262,7 @@ paths:
       summary: "Copies an older version into a new newest one (`RestoreEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_ARCHIVED"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -1228,7 +1280,7 @@ paths:
       summary: "A copy the caller owns, at version 1 (`DuplicateEsignTemplateBody` → `EsignTemplateDetail`). 409 TEMPLATE_NAME_TAKEN"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -1243,7 +1295,7 @@ paths:
       tags: [esign-extras]
       operationId: bulkSendEsignTemplate
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: "One separate request per client (`EsignBulkSendBody` → 202 `EsignBulkBatch`). 400 BULK_LIMIT; 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED"
+      summary: "One separate request per client (`EsignBulkSendBody` → 202 `EsignBulkBatch`); `roles[]` as in use (`EsignBulkRoleFill`, never a client login or an access code). 400 BULK_LIMIT, VALIDATION_FAILED (an access code); 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '202':
@@ -1333,13 +1385,16 @@ components:
       description: '`MODULE_OFF` (Firm Sign is off; mock: `NEXT_PUBLIC_API_MOCK_ESIGN=off`), `FORBIDDEN` (a Viewer changing something), `KIOSK_LOCKED` (an in-person signing is open on this session), `NOT_AN_APPROVER` or `ORIGIN_NOT_ALLOWED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
-      description: '`NOT_FOUND`: no such request, file, recipient or client, or one the caller may not see'
+      description: '`NOT_FOUND`: no such request, file, recipient, client or template, or one the caller may not see. `LINK_INVALID` on the signer routes: any unknown, expired, used or other firm''s link, a missing signer cookie, or Firm Sign off (one answer for all of them)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Gone:
+      description: '`UPLOAD_EXPIRED` (`EsignErrorCode`): the upload ticket is too old or was used; start the upload again'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     TooMany:
       description: '`CODE_LOCKED`, `CODE_TOO_SOON` or `RATE_LIMITED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Conflict:
-      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`, `ROLE_FIXED`, `NOT_IN_PERSON`, `APPROVER_NOT_ALLOWED`'
+      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`, `TEMPLATE_HAS_CLIENT_FILES`, `ROLE_FIXED`, `NOT_IN_PERSON`, `APPROVER_NOT_ALLOWED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
   schemas:
