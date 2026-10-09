@@ -97,9 +97,14 @@ export class ResumeLinksService {
             },
           }),
         ]);
-        if (address >= RESUME_LINK_LIMITS.perAddress || firmWide >= RESUME_LINK_LIMITS.perFirm) {
+        if (firmWide >= RESUME_LINK_LIMITS.perFirm) {
+          // Ids only. R8 turns this line into an alarm (no link from the firm for 24 h for now).
+          this.logger.warn(
+            `Firm ${businessId} reached its ${RESUME_LINK_LIMITS.perFirm} resume links a day`,
+          );
           return null;
         }
+        if (address >= RESUME_LINK_LIMITS.perAddress) return null;
         // The link lasts as long as the draft does now (never longer, and it renews nothing).
         const rows = await tx.$queryRaw<{ resume_expires_at: Date }[]>`
           UPDATE leads SET resume_token_hash = ${hash}, resume_expires_at = draft_expires_at

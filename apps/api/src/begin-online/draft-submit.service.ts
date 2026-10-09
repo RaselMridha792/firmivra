@@ -15,6 +15,7 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import { BeginOnlineService, type Draft, serviceFor } from './begin-online.service.js';
 import { holdDraft, rethrowExpired } from './drafts.js';
+import { ticketKeys } from './upload-tickets.js';
 
 const changed = () =>
   new ConflictException({
@@ -35,8 +36,9 @@ const sameFiles = (a: SlotFile[], b: SlotFile[]) =>
  * agreements are signed (`sign`) and the version is locked (409 NO_INTAKE_AGREEMENT, nothing
  * changed, while the firm has no published firm-wide agreement). The lead becomes SUBMITTED (its
  * draft expiry stays: R0 freezes it); its cookie and resume link stay, so they answer 409
- * DRAFT_SUBMITTED from then on (contract B). After commit: the removed files' objects are deleted,
- * and the visitor and the firm's owners and admins get an email (service name and a link only).
+ * DRAFT_SUBMITTED from then on (contract B). After commit: the removed files' objects (and those
+ * of tickets never confirmed) are deleted, and the visitor and the firm's owners and admins get an
+ * email (service name and a link only).
  */
 @Injectable()
 export class DraftSubmitService {
@@ -152,7 +154,15 @@ export class DraftSubmitService {
           where: { role: { in: ['OWNER', 'ADMIN'] }, status: 'ACTIVE' },
           select: { userId: true, user: { select: { email: true } } },
         });
-        return { submittedAt, email: lead.email, keys: removed.map((r) => r.s3Key), staff };
+        // The removed files' objects, and those of tickets never confirmed: each is deleted
+        // after commit unless a row holds its key (the files the lead keeps).
+        const { createdAt } = await tx.lead.findUniqueOrThrow({
+          where: { id: leadId },
+          select: { createdAt: true },
+        });
+        const tickets = await ticketKeys(tx, businessId, leadId, createdAt);
+        const keys = [...new Set([...removed.map((r) => r.s3Key), ...tickets])];
+        return { submittedAt, email: lead.email, keys, staff };
       })
       .catch(rethrowExpired);
 

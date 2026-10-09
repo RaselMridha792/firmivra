@@ -19,6 +19,7 @@ import {
   BeginSubmitted,
   INTAKE_FORMS,
   IntakeUpload,
+  INTAKE_LIMITS,
   IntakeUploadList,
   intakeFields,
   intakeStepFields,
@@ -37,6 +38,7 @@ import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import { REFUSALS_SINCE_MS } from '../../src/storage/uploads.service.js';
 import { firmWideVersion, publishFirmWideAgreement, signatureFor } from '../intake-signing.js';
 import { pdf, sha256 } from '../office-files.js';
 
@@ -79,8 +81,11 @@ const services = {} as Record<'annual' | 'payroll' | 'archived' | 'b', string>;
 const D = '/annual-tax/draft';
 
 let lastViewer = 0;
-/** Each test on its own viewer IP, so the per-IP limits apply only where tested. */
-const newViewer = () => `198.19.${Math.floor(++lastViewer / 250)}.${lastViewer % 250}`;
+/**
+ * Each test on its own viewer network (the start and resume limits count a /24 or /48 as one
+ * viewer), so the limits apply only where tested.
+ */
+const newViewer = () => `198.${18 + Math.floor(++lastViewer / 250)}.${lastViewer % 250}.1`;
 let lastEmail = 0;
 const newEmail = () => `Avery.${run}.${++lastEmail}@Example.com`;
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
@@ -566,6 +571,55 @@ describe('Begin Online drafts', () => {
     for (let i = 0; i < 6; i++) codes.push((await v.post(D, contact())).status);
     expect(codes).toEqual([201, 201, 201, 201, 201, 429]);
   });
+
+  it('counts starts per network: addresses of one /24 or /48 share the limit, and the row keeps it', async () => {
+    const statuses = async (viewers: string[]) => {
+      const codes: number[] = [];
+      for (const viewer of viewers) {
+        codes.push((await visitor(firms.b.slug, viewer).post(D, contact())).status);
+      }
+      return codes;
+    };
+    // IPv4: three addresses of 203.0.113.0/24 are one viewer; the next /24 is another.
+    const v4 = ['203.0.113.10', '203.0.113.20', '203.0.113.30'];
+    expect(await statuses([...v4, ...v4])).toEqual([201, 201, 201, 201, 201, 429]);
+    expect(await statuses(['203.0.114.10'])).toEqual([201]);
+    // IPv6: other /64s of one /48 count together; another /48 does not.
+    const v6 = ['2001:db8:5:a::1', '2001:db8:5:b::1', '2001:db8:5:ffff::9'];
+    expect(await statuses([...v6, ...v6])).toEqual([201, 201, 201, 201, 201, 429]);
+    expect(await statuses(['2001:db8:6::1'])).toEqual([201]);
+    // The daily limit counts the network the start row records (never only the address).
+    const rows = await asOwner(firms.b.id, (tx) =>
+      tx.auditLog.findMany({
+        where: { action: 'begin_online.draft_started', ip: { in: [...v4, ...v6] } },
+        select: { metadata: true },
+      }),
+    );
+    expect(new Set(rows.map((r) => (r.metadata as { net?: string }).net))).toEqual(
+      new Set(['203.0.113.0/24', '2001:0db8:0005::/48']),
+    );
+    expect(rows).toHaveLength(10);
+  });
+
+  it('limits resume links and resume pages per network (429)', async () => {
+    const codes: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const res = await visitor(firms.b.slug, `203.0.115.${i + 1}`).post('/resume-link', {
+        email: newEmail(),
+      });
+      codes.push(res.status);
+    }
+    expect(codes).toEqual([200, 200, 200, 200, 200, 429]);
+    const resumes: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      const res = await visitor(firms.b.slug, `2001:db8:7:${i}::1`).post('/resume', {
+        token: randomBytes(32).toString('base64url'),
+      });
+      resumes.push(res.status);
+    }
+    expect(resumes).toEqual([...Array<number>(10).fill(410), 429]);
+    await linksIdle();
+  });
 });
 
 describe('Begin Online resume links', () => {
@@ -698,6 +752,22 @@ describe('Begin Online resume links', () => {
   });
 });
 
+/** The key a ticket's PUT writes (the memory storage's URL is `memory:{key}`). */
+const keyOf = (ticket: Response) => (ticket.body as { url: string }).url.slice('memory:'.length);
+/** The codes of the refusals audited for a ticket's key. */
+const refusedCodes = async (ticket: Response) => {
+  const uploadId = keyOf(ticket).split('/').at(-1)!;
+  const rows = await asOwner(firms.a.id, (tx) =>
+    tx.auditLog.findMany({
+      where: {
+        action: 'begin_online.upload_refused',
+        metadata: { path: ['uploadId'], equals: uploadId },
+      },
+    }),
+  );
+  return rows.map((r) => (r.metadata as { code: string }).code);
+};
+
 describe('Begin Online uploads', () => {
   const file = (bytes: Buffer, slot = 'governmentId', fields: Record<string, unknown> = {}) => ({
     slot,
@@ -760,6 +830,135 @@ describe('Begin Online uploads', () => {
     await start(v);
     const res = await v.post(`${D}/uploads/confirm`, { uploadToken: ticket.body.uploadToken });
     expect([res.status, codeOf(res)]).toEqual([410, 'UPLOAD_EXPIRED']);
+    // The ticket can never be confirmed now: its object is refused and deleted.
+    expect(storage.objects.has(keyOf(ticket))).toBe(false);
+    expect(await refusedCodes(ticket)).toEqual(['UPLOAD_EXPIRED']);
+  });
+
+  it('a confirm after the draft expired deletes the object (410 DRAFT_EXPIRED)', async () => {
+    const v = visitor(firms.a.slug);
+    const { leadId } = await start(v);
+    const bytes = pdf('expired draft');
+    const ticket = await v.post(`${D}/uploads`, file(bytes));
+    await expireDraft(firms.a.id, leadId);
+    expect(codeOf(await v.get(D))).toBe('DRAFT_EXPIRED');
+    // The PUT lands after the expiry, then the confirm.
+    storage.put(ticket.body as { url: string }, bytes);
+    const res = await v.post(`${D}/uploads/confirm`, { uploadToken: ticket.body.uploadToken });
+    expect([res.status, codeOf(res)]).toEqual([410, 'DRAFT_EXPIRED']);
+    expect(storage.objects.has(keyOf(ticket))).toBe(false);
+    expect(await refusedCodes(ticket)).toEqual(['DRAFT_EXPIRED']);
+  });
+
+  it("another firm's site never deletes a ticket's object", async () => {
+    const v = visitor(firms.a.slug);
+    await start(v);
+    const bytes = pdf('firm a');
+    const ticket = await v.post(`${D}/uploads`, file(bytes));
+    storage.put(ticket.body as { url: string }, bytes);
+    const b = visitor(firms.b.slug);
+    await start(b, firms.b);
+    const res = await b.post(`${D}/uploads/confirm`, { uploadToken: ticket.body.uploadToken });
+    expect([res.status, codeOf(res)]).toEqual([410, 'UPLOAD_EXPIRED']);
+    expect(storage.objects.has(keyOf(ticket))).toBe(true);
+    expect(
+      (await v.post(`${D}/uploads/confirm`, { uploadToken: ticket.body.uploadToken })).status,
+    ).toBe(200);
+  });
+
+  it("open tickets count toward the slot's maxFiles; a confirm or refusal settles one", async () => {
+    const v = visitor(firms.a.slug);
+    await start(v);
+    const field = intakeFields(ANNUAL_TAX_FORM).find((f) => f.key === 'governmentId');
+    const max = field?.type === 'upload' ? field.maxFiles : 0;
+    const bytes = pdf('ticket cap');
+    const tickets: Response[] = [];
+    for (let i = 0; i < max; i++) {
+      const ticket = await v.post(`${D}/uploads`, file(bytes));
+      expect(ticket.status).toBe(200);
+      tickets.push(ticket);
+    }
+    const over = await v.post(`${D}/uploads`, file(bytes));
+    expect([over.status, codeOf(over)]).toEqual([409, 'TOO_MANY_FILES']);
+    const [first, second] = tickets;
+    storage.put(first!.body as { url: string }, bytes);
+    expect(
+      (await v.post(`${D}/uploads/confirm`, { uploadToken: first!.body.uploadToken })).status,
+    ).toBe(200);
+    // A confirmed file still takes its place.
+    expect((await v.post(`${D}/uploads`, file(bytes))).status).toBe(409);
+    storage.put(second!.body as { url: string }, pdf('other bytes'));
+    expect(
+      codeOf(await v.post(`${D}/uploads/confirm`, { uploadToken: second!.body.uploadToken })),
+    ).toBe('UPLOAD_MISMATCH');
+    // The refused ticket's place is free again, once: of two parallel tickets one is 409.
+    const racing = await Promise.all([
+      v.post(`${D}/uploads`, file(bytes)),
+      v.post(`${D}/uploads`, file(bytes)),
+    ]);
+    expect(racing.map((r) => r.status).sort()).toEqual([200, 409]);
+    // Another slot has its own room.
+    expect((await v.post(`${D}/uploads`, file(bytes, 'incomeDocuments'))).status).toBe(200);
+  });
+
+  it("open tickets count toward the draft's maxFiles across slots", async () => {
+    const v = visitor(firms.a.slug);
+    const { leadId } = await start(v);
+    for (let i = 0; i < 20; i++) await addFile(leadId, 'governmentId');
+    for (let i = 0; i < 20; i++) await addFile(leadId, 'socialSecurityCard');
+    for (let i = 0; i < INTAKE_LIMITS.maxFiles - 42; i++) await addFile(leadId, 'incomeDocuments');
+    for (const slot of ['incomeDocuments', 'deductionDocuments']) {
+      expect((await v.post(`${D}/uploads`, file(pdf(), slot))).status).toBe(200);
+    }
+    const res = await v.post(`${D}/uploads`, file(pdf(), 'businessDocuments'));
+    expect([res.status, codeOf(res)]).toEqual([409, 'TOO_MANY_FILES']);
+  });
+
+  it('only a refusal of the last REFUSALS_SINCE_MS blocks a confirm (a time-bound search)', async () => {
+    const v = visitor(firms.a.slug);
+    const { leadId } = await start(v);
+    const refusedAt = async (ticket: Response, createdAt: Date) =>
+      asOwner(firms.a.id, (tx) =>
+        tx.auditLog.create({
+          data: {
+            businessId: firms.a.id,
+            action: 'begin_online.upload_refused',
+            entityType: 'lead',
+            entityId: leadId,
+            metadata: { uploadId: keyOf(ticket).split('/').at(-1)!, code: 'UPLOAD_MISMATCH' },
+            createdAt,
+          },
+        }),
+      );
+    const bytes = pdf('refused before');
+    const old = await v.post(`${D}/uploads`, file(bytes));
+    storage.put(old.body as { url: string }, bytes);
+    await refusedAt(old, new Date(Date.now() - REFUSALS_SINCE_MS - 60_000));
+    expect(
+      (await v.post(`${D}/uploads/confirm`, { uploadToken: old.body.uploadToken })).status,
+    ).toBe(200);
+    const recent = await v.post(`${D}/uploads`, file(bytes));
+    storage.put(recent.body as { url: string }, bytes);
+    await refusedAt(recent, new Date(Date.now() - REFUSALS_SINCE_MS + 60_000));
+    const res = await v.post(`${D}/uploads/confirm`, { uploadToken: recent.body.uploadToken });
+    expect([res.status, codeOf(res)]).toEqual([409, 'UPLOAD_MISMATCH']);
+  });
+
+  it('an expiry deletes the objects of tickets never confirmed', async () => {
+    const v = visitor(firms.a.slug);
+    const { leadId } = await start(v);
+    const bytes = pdf('never confirmed');
+    const ticket = await v.post(`${D}/uploads`, file(bytes));
+    storage.put(ticket.body as { url: string }, bytes);
+    const kept = visitor(firms.a.slug);
+    await start(kept);
+    const other = await kept.post(`${D}/uploads`, file(bytes));
+    storage.put(other.body as { url: string }, bytes);
+    await expireDraft(firms.a.id, leadId);
+    await app.get(BeginOnlineSweep).run({ businessIds: [firms.a.id] });
+    expect(storage.objects.has(keyOf(ticket))).toBe(false);
+    // Another draft's ticket is not touched.
+    expect(storage.objects.has(keyOf(other))).toBe(true);
   });
 
   it('refuses a slot not in the form, an oversize or mistyped file, and bytes that differ', async () => {
@@ -1078,6 +1277,18 @@ describe('Begin Online submit', () => {
     );
     expect(codeOf(await b.post(`${D}/submit`, signature))).toBe('NOT_FOUND');
 
+    // Two tickets never confirmed: one PUT before the submit, one after it.
+    const upload = (name: string) => ({
+      slot: 'governmentId',
+      fileName: `${name}.pdf`,
+      contentType: 'application/pdf',
+      sizeBytes: pdf(name).length,
+      sha256: sha256(pdf(name)),
+    });
+    const unconfirmed = await v.post(`${D}/uploads`, upload('unconfirmed'));
+    storage.put(unconfirmed.body as { url: string }, pdf('unconfirmed'));
+    const late = await v.post(`${D}/uploads`, upload('late'));
+
     const sentBefore = outbox.length;
     const res = await v.post(`${D}/submit`, { ...signature, answers: stepAnswers('review') });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
@@ -1101,6 +1312,15 @@ describe('Begin Online submit', () => {
     expect(lead.uploads.map((u) => u.slot)).toEqual(['governmentId']);
     expect(storage.objects.has(hidden)).toBe(false);
     expect(storage.objects.has(kept)).toBe(true);
+    expect(storage.objects.has(keyOf(unconfirmed))).toBe(false);
+    // A PUT after the submit: its confirm is 409 DRAFT_SUBMITTED and the object is deleted.
+    storage.put(late.body as { url: string }, pdf('late'));
+    const lateConfirm = await v.post(`${D}/uploads/confirm`, {
+      uploadToken: late.body.uploadToken,
+    });
+    expect([lateConfirm.status, codeOf(lateConfirm)]).toEqual([409, 'DRAFT_SUBMITTED']);
+    expect(storage.objects.has(keyOf(late))).toBe(false);
+    expect(await refusedCodes(late)).toEqual(['DRAFT_SUBMITTED']);
 
     // The emails: the visitor's confirmation and the firm's owner (not staff); no answers.
     const mails = outbox.slice(sentBefore);
