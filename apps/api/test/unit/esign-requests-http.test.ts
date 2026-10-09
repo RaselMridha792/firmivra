@@ -1,8 +1,8 @@
-// R13 step 6, requests API parts 1b to 2a, over HTTP: EsignModule's status, draft, page plan,
-// recipients, document, fields, merge values and readiness routes, pipes and the module switch
-// with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
-// role on the request, as the global guards do in the app; the guards themselves are tested in
-// guards.test.ts and the e2e suite. Synthetic data only.
+// R13 step 6, requests API parts 1b to 2b, over HTTP: EsignModule's status, draft, page plan,
+// recipients, document, fields, merge values, readiness, list, counters and events routes, pipes
+// and the module switch with the in-memory ports (no database). A stand-in for TenantGuard puts
+// the caller's firm and role on the request, as the global guards do in the app; the guards
+// themselves are tested in guards.test.ts and the e2e suite. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
 import {
   Controller,
@@ -20,10 +20,13 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   EsignDocument,
+  EsignEventList,
   EsignMergeValues,
   EsignReadiness,
   EsignRequestDetail,
+  EsignRequestList,
   EsignStatus,
+  EsignSummary,
   UploadTicket,
 } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
@@ -523,6 +526,94 @@ describe('Firm Sign fields, merge values and readiness over HTTP', () => {
         await call(`/esign/requests/${id}/readiness`, ownerA()),
       ]) {
         expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
+      }
+    } finally {
+      w.modules.set(w.a, 'esign', true);
+    }
+  });
+});
+
+describe('Firm Sign list, counters and events over HTTP', () => {
+  const title = `Fake list ${randomUUID().slice(0, 8)}`;
+  let id: string;
+  beforeAll(async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title,
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    id = EsignRequestDetail.parse(created.body).id;
+    w.repo.timelines.of(w.a).set(id, [
+      {
+        id: randomUUID(),
+        type: 'CREATED',
+        createdAt: new Date(),
+        actorKind: 'STAFF',
+        actorName: 'owner-a',
+        recipient: null,
+        reason: null,
+        authMethod: null,
+      },
+    ]);
+  });
+
+  it('lists with the query pipe, and refuses a bad query (400)', async () => {
+    const res = await call(`/esign/requests?q=${encodeURIComponent(title)}&limit=5`, ownerA());
+    const page = EsignRequestList.parse(res.body);
+    expect(page.items.map((r) => [r.id, r.allowedActions])).toEqual([
+      [id, ['EDIT', 'DISCARD', 'SEND']],
+    ]);
+    for (const query of ['limit=0', 'status=NOPE', 'from=2026-10-05&to=2026-10-01', 'extra=1']) {
+      expect(errorOf(await call(`/esign/requests?${query}`, ownerA()))).toEqual([
+        400,
+        'VALIDATION_FAILED',
+      ]);
+    }
+    const bad = await call('/esign/requests?cursor=nope', ownerA());
+    expect(errorOf(bad)).toEqual([400, 'VALIDATION_FAILED']);
+    // Another firm and unassigned Staff do not see it.
+    const q = `?q=${encodeURIComponent(title)}`;
+    expect(
+      EsignRequestList.parse((await call(`/esign/requests${q}`, ownerB())).body).items,
+    ).toEqual([]);
+    expect(
+      EsignRequestList.parse((await call(`/esign/requests${q}`, staffA2())).body).items,
+    ).toEqual([]);
+  });
+
+  it('routes /summary to the counters, not to a request id', async () => {
+    const res = await call('/esign/requests/summary', ownerA());
+    const summary = EsignSummary.parse(res.body);
+    expect(summary.counts.DRAFT).toBeGreaterThan(0);
+    const b = EsignSummary.parse((await call('/esign/requests/summary', ownerB())).body);
+    expect(b.counts.DRAFT).toBe(0);
+  });
+
+  it('answers the events; 404 across firms and for a client the caller is not assigned', async () => {
+    const res = await call(`/esign/requests/${id}/events`, ownerA());
+    expect(EsignEventList.parse(res.body).items.map((e) => e.type)).toEqual(['CREATED']);
+    expect(errorOf(await call(`/esign/requests/${id}/events`, ownerB()))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    expect(errorOf(await call(`/esign/requests/${id}/events`, staffA2()))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    expect(errorOf(await call('/esign/requests/not-a-uuid/events', ownerA()))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+  });
+
+  it('answers MODULE_OFF (403) on the list, counters and events when off', async () => {
+    w.modules.set(w.a, 'esign', false);
+    try {
+      for (const path of ['', '/summary', `/${id}/events`]) {
+        expect(errorOf(await call(`/esign/requests${path}`, ownerA()))).toEqual([
+          403,
+          'MODULE_OFF',
+        ]);
       }
     } finally {
       w.modules.set(w.a, 'esign', true);

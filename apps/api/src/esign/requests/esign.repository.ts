@@ -3,6 +3,7 @@ import type {
   EsignContentType,
   EsignDefaults,
   EsignDocument,
+  EsignEvent,
   EsignField,
   EsignPage,
   EsignRecipient,
@@ -111,7 +112,60 @@ export interface EsignRequestParts {
   fields: EsignField[];
 }
 
+/** What the list and counters ask for: every condition given holds (from inclusive, before not). */
+export interface EsignRequestFilter {
+  /**
+   * Null: every request of the firm (Owner, Admin). A member's id: only the requests they send,
+   * those whose client is assigned to them (clients.assigned_user_id) and those they are a STAFF
+   * APPROVER recipient of.
+   */
+  visibleTo: string | null;
+  statuses?: readonly EsignRequestStatus[];
+  clientId?: string;
+  senderUserId?: string;
+  lastActivityFrom?: Date;
+  lastActivityBefore?: Date;
+  expiresFrom?: Date;
+  expiresBefore?: Date;
+  completedFrom?: Date;
+  /** Has this member as a STAFF APPROVER recipient who has not APPROVED. */
+  pendingApprover?: string;
+  /**
+   * Case-insensitive substring of the title, the client's display name, the sender's name or a
+   * SIGNER recipient's name (Prisma: ILIKE with %, _ and \ escaped).
+   */
+  search?: string;
+}
+
+/** Where the next page starts: after this row, in (lastActivityAt, id) descending order. */
+export interface EsignListAfter {
+  lastActivityAt: Date;
+  id: string;
+}
+
+/** A list row: the request and its recipients (for the signers, next action and actions). */
+export interface EsignListedRequest {
+  record: EsignRequestRecord;
+  recipients: EsignRecipientRecord[];
+}
+
+/** An esign_events row, with the names as they were then; never a field value or content. */
+export type EsignEventRecord = Omit<EsignEvent, 'createdAt'> & { createdAt: Date };
+
 export interface EsignRepository {
+  /** Up to `limit` matching requests after `after`, by lastActivityAt then id, descending. */
+  listRequests(
+    businessId: string,
+    filter: EsignRequestFilter,
+    page: { after: EsignListAfter | null; limit: number },
+  ): Promise<EsignListedRequest[]>;
+  /** How many requests match the filter, by status (a status with none may be left out). */
+  countRequests(
+    businessId: string,
+    filter: EsignRequestFilter,
+  ): Promise<Partial<Record<EsignRequestStatus, number>>>;
+  /** The request's timeline, oldest first; empty for another firm's request. */
+  events(businessId: string, id: string): Promise<EsignEventRecord[]>;
   /** The firm's defaults for new requests (Signing Settings). */
   defaults(businessId: string): Promise<EsignDefaults>;
   createRequest(businessId: string, input: NewEsignRequest): Promise<EsignRequestRecord>;

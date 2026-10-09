@@ -1,4 +1,4 @@
-// End-to-end: the Firm Sign draft routes (R13 step 6, parts 1b and 2a) through the real guard
+// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b) through the real guard
 // stack. The esign tables come with r0_esign, so this covers what answers before the repository:
 // 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module is off, and 400 for a
 // bad id or body where it is on. Synthetic data only.
@@ -27,6 +27,9 @@ const ROUTES = [
   ['put', `/api/v1/esign/requests/${anyId}/fields`, { fields: [] }],
   ['get', `/api/v1/esign/requests/${anyId}/merge-values`, undefined],
   ['get', `/api/v1/esign/requests/${anyId}/readiness`, undefined],
+  ['get', '/api/v1/esign/requests', undefined],
+  ['get', '/api/v1/esign/requests/summary', undefined],
+  ['get', `/api/v1/esign/requests/${anyId}/events`, undefined],
 ] as const;
 
 beforeAll(async () => {
@@ -65,6 +68,18 @@ afterAll(async () => {
   await app.close();
 });
 
+/** One token per person: the dev token route allows 30 a minute. */
+const tokens = new Map<string, string>();
+async function tokenOf(email: string): Promise<string> {
+  let token = tokens.get(email);
+  if (!token) {
+    const res = await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email });
+    token = (res.body as { token: string }).token;
+    tokens.set(email, token);
+  }
+  return token;
+}
+
 async function send(
   method: 'get' | 'post' | 'patch' | 'put' | 'delete',
   path: string,
@@ -72,10 +87,7 @@ async function send(
   body?: object,
 ) {
   const headers: Record<string, string> = {};
-  if (email) {
-    const res = await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email });
-    headers.authorization = `Bearer ${(res.body as { token: string }).token}`;
-  }
+  if (email) headers.authorization = `Bearer ${await tokenOf(email)}`;
   const req = request(app.getHttpServer())[method](path).set(headers);
   return body ? req.send(body) : req;
 }
@@ -104,13 +116,17 @@ describe('Firm Sign draft routes', () => {
       const body = method === 'patch' ? { title: 'Fake' } : undefined;
       expect(answer(await send(method, bad, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
     }
-    for (const route of ['merge-values', 'readiness']) {
+    for (const route of ['merge-values', 'readiness', 'events']) {
       const res = await send('get', `${bad}/${route}`, onOwner.email);
       expect(answer(res)).toBe('400 VALIDATION_FAILED');
     }
     const fields = `/api/v1/esign/requests/${anyId}/fields`;
     const noFields = await send('put', fields, onOwner.email, { fields: [], extra: true });
     expect(answer(noFields)).toBe('400 VALIDATION_FAILED');
+    for (const query of ['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1']) {
+      const res = await send('get', `/api/v1/esign/requests?${query}`, onOwner.email);
+      expect(answer(res)).toBe('400 VALIDATION_FAILED');
+    }
     const noTitle = await send('post', '/api/v1/esign/requests', onOwner.email, { title: '' });
     expect(answer(noTitle)).toBe('400 VALIDATION_FAILED');
   });

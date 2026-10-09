@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -18,6 +19,7 @@ import {
   type EsignPutRecipientsBody,
   EsignRecipient,
   type EsignRequestDetail,
+  type EsignRequestRow,
   type EsignStatus,
   type OkResponse,
   type UpdateEsignRequestBody,
@@ -31,6 +33,7 @@ import {
   ESIGN_STORE,
   type EsignStore,
 } from '../engine/engine.types.js';
+import { allowedActions, nextAction, signersOf } from './actions.js';
 import { type DirectoryClient, ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
 import {
   ESIGN_REPOSITORY,
@@ -41,16 +44,24 @@ import {
   type EsignRequestRecord,
 } from './esign.repository.js';
 
-/** The signed-in member and their access (from TenantGuard; MANAGER once Firm Sign roles land). */
+/**
+ * The signed-in member and their access (from TenantGuard; MANAGER and VIEWER once Firm Sign
+ * roles land). A VIEWER reads what STAFF could and changes nothing (403 FORBIDDEN).
+ */
 export interface EsignActor {
   userId: string;
-  role: Exclude<TenantRole, 'CLIENT'> | 'MANAGER';
+  role: Exclude<TenantRole, 'CLIENT'> | 'MANAGER' | 'VIEWER';
 }
 
 /** A Firm Sign refusal: 409 with the words users see (ESIGN_ERRORS). */
 export const esignRefusal = (code: EsignErrorCode) =>
   new ConflictException({ code, message: ESIGN_ERRORS[code] });
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+const readOnly = (actor: EsignActor) => {
+  if (actor.role === 'VIEWER') {
+    throw new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
+  }
+};
 /** Owner and Admin reach every request; a MANAGER sees only what STAFF sees. */
 export const seesAll = (actor: EsignActor) => actor.role === 'OWNER' || actor.role === 'ADMIN';
 
@@ -101,6 +112,7 @@ export class EsignRequestsService {
     actor: EsignActor,
     body: z.output<typeof CreateEsignRequestBody>,
   ): Promise<EsignRequestDetail> {
+    readOnly(actor);
     const client = body.clientId
       ? await this.reachableClient(businessId, actor, body.clientId)
       : null;
@@ -131,9 +143,9 @@ export class EsignRequestsService {
 
   /** Returns client data, so every view is audited (ids only). */
   async get(businessId: string, actor: EsignActor, id: string): Promise<EsignRequestDetail> {
-    const { record, approverOnly } = await this.reach(businessId, actor, id, 'read');
+    const { record } = await this.reach(businessId, actor, id, 'read');
     await this.audit.log('esign.request_viewed', entity(id), { clientId: record.clientId });
-    return this.toDetail(businessId, record, approverOnly);
+    return this.toDetail(businessId, record, actor);
   }
 
   async update(
@@ -370,7 +382,10 @@ export class EsignRequestsService {
   async reach(businessId: string, actor: EsignActor, id: string, mode: 'read' | 'write') {
     const record = await this.repo.findRequest(businessId, id);
     if (!record) throw notFound();
-    if (await this.manages(businessId, actor, record)) return { record, approverOnly: false };
+    if (await this.manages(businessId, actor, record)) {
+      if (mode === 'write') readOnly(actor);
+      return { record, approverOnly: false };
+    }
     if (mode === 'read') {
       const { recipients } = await this.repo.parts(businessId, record.id);
       const approves = recipients.some(
@@ -413,22 +428,27 @@ export class EsignRequestsService {
     return service.id;
   }
 
-  /** `approverOnly`: reached only as an approver, who may open and decide but never change it. */
-  private async toDetail(
+  /**
+   * The list's row for a request the caller may see. `actor` null: the answer to a draft write.
+   * Reached only as an approver (not Owner or Admin, the sender or the client's assigned member),
+   * the caller may decide and download, never change it.
+   */
+  async row(
     businessId: string,
     r: EsignRequestRecord,
-    approverOnly = false,
-  ): Promise<EsignRequestDetail> {
-    const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
-    const [client, service, sender] = await Promise.all([
+    recipients: EsignRecipientRecord[],
+    actor: EsignActor | null,
+  ): Promise<EsignRequestRow> {
+    const [client, sender] = await Promise.all([
       r.clientId ? this.directory.client(businessId, r.clientId) : null,
-      r.engagementId ? this.directory.engagement(businessId, r.engagementId) : null,
       this.directory.member(businessId, r.senderUserId),
     ]);
-    const signers = parts.recipients
-      .filter((x) => x.kind === 'SIGNER')
-      .sort((a, b) => a.routingOrder - b.routingOrder);
-    const draft = r.status === 'DRAFT';
+    const approverOnly =
+      actor !== null &&
+      !seesAll(actor) &&
+      r.senderUserId !== actor.userId &&
+      client?.assignedUserId !== actor.userId;
+    const signers = signersOf(recipients);
     return {
       id: r.id,
       title: r.title,
@@ -439,14 +459,28 @@ export class EsignRequestsService {
       signerNames: signers.map((s) => s.name),
       signedCount: signers.filter((s) => s.status === 'SIGNED').length,
       signerCount: signers.length,
-      // Sent requests' next action and actions come with part 3 (list and lifecycle).
-      nextAction: { kind: draft ? 'FINISH_DRAFT' : 'NONE', waitingOn: [] },
+      nextAction: nextAction(r.status, recipients),
       createdAt: r.createdAt.toISOString(),
       sentAt: iso(r.sentAt),
       lastActivityAt: r.lastActivityAt.toISOString(),
       expiresAt: iso(r.expiresAt),
       completedAt: iso(r.completedAt),
-      allowedActions: draft && !approverOnly ? ['EDIT', 'DISCARD', 'SEND'] : [],
+      allowedActions: allowedActions(r, recipients, actor, approverOnly),
+    };
+  }
+
+  private async toDetail(
+    businessId: string,
+    r: EsignRequestRecord,
+    actor: EsignActor | null = null,
+  ): Promise<EsignRequestDetail> {
+    const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
+    const [row, service] = await Promise.all([
+      this.row(businessId, r, parts.recipients, actor),
+      r.engagementId ? this.directory.engagement(businessId, r.engagementId) : null,
+    ]);
+    return {
+      ...row,
       internalNote: r.internalNote,
       emailSubject: r.emailSubject,
       emailMessage: r.emailMessage,

@@ -327,7 +327,7 @@ describe('drafts', () => {
     }
     const sent = await svc.get(w.a, owner, d.id);
     expect(sent).toMatchObject({ status: 'SENT', title: 'Engagement letter 2025' });
-    expect(sent.allowedActions).toEqual([]);
+    expect(sent.allowedActions).not.toContain('EDIT');
   });
 
   it('discards a DRAFT and deletes its stored files', async () => {

@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import type { z } from 'zod';
 import {
@@ -15,11 +16,15 @@ import {
   EsignPutFieldsBody,
   EsignPutPagePlanBody,
   EsignPutRecipientsBody,
+  type EsignEventList,
   type EsignMergeValues,
   type EsignReadiness,
   EsignRequestId,
   type EsignRequestDetail,
+  type EsignRequestList,
   type EsignStatus,
+  type EsignSummary,
+  ListEsignRequestsQuery,
   type OkResponse,
   UpdateEsignRequestBody,
 } from '@firmivra/types';
@@ -27,6 +32,7 @@ import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decora
 import { RequiresModule } from '../../common/modules/requires-module.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { EsignListService } from './list.service.js';
 import { EsignPrepareService } from './prepare.service.js';
 import { type EsignActor, EsignRequestsService } from './requests.service.js';
 
@@ -61,7 +67,18 @@ export class EsignRequestsController {
   constructor(
     private readonly requests: EsignRequestsService,
     private readonly prepare: EsignPrepareService,
+    private readonly lists: EsignListService,
   ) {}
+
+  @Get()
+  list(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Query(new ZodValidationPipe(ListEsignRequestsQuery))
+    query: z.output<typeof ListEsignRequestsQuery>,
+  ): Promise<EsignRequestList> {
+    return this.lists.list(tenant.businessId, actorOf(auth, tenant), query);
+  }
 
   @Post()
   create(
@@ -73,8 +90,16 @@ export class EsignRequestsController {
     return this.requests.create(tenant.businessId, actorOf(auth, tenant), body);
   }
 
-  // Part 3's fixed paths (GET /esign/requests/summary and the list's siblings) go above this
-  // line: declared after @Get(':id'), Nest would route them here and answer 400 for the id.
+  // Fixed paths go above @Get(':id'): declared after it, Nest would route them there and answer
+  // 400 for the id.
+  @Get('summary')
+  summary(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<EsignSummary> {
+    return this.lists.summary(tenant.businessId, actorOf(auth, tenant));
+  }
+
   @Get(':id')
   get(
     @CurrentAuth() auth: AuthContext,
@@ -142,6 +167,15 @@ export class EsignRequestsController {
     @Param('id', idPipe) id: string,
   ): Promise<EsignMergeValues> {
     return this.prepare.mergeValues(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Get(':id/events')
+  events(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<EsignEventList> {
+    return this.lists.events(tenant.businessId, actorOf(auth, tenant), id);
   }
 
   @Get(':id/readiness')

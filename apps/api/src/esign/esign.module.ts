@@ -10,6 +10,7 @@ import {
   notMigrated,
 } from './requests/esign.repository.js';
 import { EsignRequestsController, EsignStatusController } from './requests/requests.controller.js';
+import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 
@@ -26,6 +27,7 @@ import { EsignRequestsService } from './requests/requests.service.js';
     EsignRequestsService,
     EsignDocumentsService,
     EsignPrepareService,
+    EsignListService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
   ],

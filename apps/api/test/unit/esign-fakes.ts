@@ -28,14 +28,19 @@ import type {
 import type {
   EsignDocumentRecord,
   EsignDraftPatch,
+  EsignEventRecord,
+  EsignListAfter,
+  EsignListedRequest,
   EsignPendingUpload,
   EsignRecipientRecord,
   EsignRepository,
   EsignRequestParts,
+  EsignRequestFilter,
   EsignRequestRecord,
   NewEsignDocument,
   NewEsignRequest,
 } from '../../src/esign/requests/esign.repository.js';
+import type { EsignRequestStatus } from '@firmivra/types';
 
 export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
   expiryDays: 30,
@@ -72,6 +77,90 @@ export class InMemoryEsignRepository implements EsignRepository {
   readonly firmDefaults = new Map<string, EsignDefaults>();
   /** The firms that have published a consent version. */
   readonly consent = new Set<string>();
+  /** Each firm's timelines, by request id (test set-up writes them). */
+  readonly timelines = new PerFirm<EsignEventRecord[]>();
+
+  /** The directory stands in for the joins (client assignment and names, sender names). */
+  constructor(private readonly directory?: InMemoryDirectory) {}
+
+  async listRequests(
+    businessId: string,
+    filter: EsignRequestFilter,
+    page: { after: EsignListAfter | null; limit: number },
+  ): Promise<EsignListedRequest[]> {
+    const { after, limit } = page;
+    const rows = (await this.matching(businessId, filter))
+      .sort(
+        (x, y) =>
+          y.record.lastActivityAt.getTime() - x.record.lastActivityAt.getTime() ||
+          y.record.id.localeCompare(x.record.id),
+      )
+      .filter(
+        ({ record: r }) =>
+          !after ||
+          r.lastActivityAt < after.lastActivityAt ||
+          (r.lastActivityAt.getTime() === after.lastActivityAt.getTime() && r.id < after.id),
+      );
+    return structuredClone(
+      rows.slice(0, limit).map((x) => ({ record: x.record, recipients: x.parts.recipients })),
+    );
+  }
+
+  async countRequests(businessId: string, filter: EsignRequestFilter) {
+    const counts: Partial<Record<EsignRequestStatus, number>> = {};
+    for (const { record } of await this.matching(businessId, filter)) {
+      counts[record.status] = (counts[record.status] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  events(businessId: string, id: string): Promise<EsignEventRecord[]> {
+    return Promise.resolve(structuredClone(this.timelines.of(businessId).get(id) ?? []));
+  }
+
+  /** The firm's rows that match, as the SQL would select them. */
+  private async matching(businessId: string, f: EsignRequestFilter): Promise<Row[]> {
+    const dir = this.directory;
+    if (!dir) throw new Error('InMemoryEsignRepository needs the directory to list');
+    const matches = async ({ record: r, parts }: Row) => {
+      const client = r.clientId ? await dir.client(businessId, r.clientId) : null;
+      const sender = await dir.member(businessId, r.senderUserId);
+      const approver = (userId: string, pending: boolean) =>
+        parts.recipients.some(
+          (x) =>
+            x.kind === 'APPROVER' &&
+            x.link.type === 'STAFF' &&
+            x.link.userId === userId &&
+            (!pending || x.status !== 'APPROVED'),
+        );
+      const within = (d: Date | null, from?: Date, before?: Date) =>
+        (!from || (d !== null && d >= from)) && (!before || (d !== null && d < before));
+      const search = f.search?.toLowerCase();
+      const names = [
+        r.title,
+        client?.displayName ?? '',
+        sender?.name ?? '',
+        ...parts.recipients.filter((x) => x.kind === 'SIGNER').map((x) => x.name),
+      ];
+      return (
+        (f.visibleTo === null ||
+          r.senderUserId === f.visibleTo ||
+          client?.assignedUserId === f.visibleTo ||
+          approver(f.visibleTo, false)) &&
+        (!f.statuses || f.statuses.includes(r.status)) &&
+        (!f.clientId || r.clientId === f.clientId) &&
+        (!f.senderUserId || r.senderUserId === f.senderUserId) &&
+        within(r.lastActivityAt, f.lastActivityFrom, f.lastActivityBefore) &&
+        within(r.expiresAt, f.expiresFrom, f.expiresBefore) &&
+        within(r.completedAt, f.completedFrom) &&
+        (!f.pendingApprover || approver(f.pendingApprover, true)) &&
+        (!search || names.some((n) => n.toLowerCase().includes(search)))
+      );
+    };
+    const rows = [...this.rows.of(businessId).values()];
+    const keep = await Promise.all(rows.map(matches));
+    return rows.filter((_, i) => keep[i]);
+  }
 
   defaults(businessId?: string): Promise<EsignDefaults> {
     const own = businessId === undefined ? undefined : this.firmDefaults.get(businessId);
@@ -482,7 +571,7 @@ export function esignWorld() {
   login(a, ids.disabled, ids.c1, 'PRIMARY', 'DISABLED');
   login(a, ids.c2Login, ids.c2, 'PRIMARY');
   login(b, ids.loginB, ids.cB, 'PRIMARY');
-  const repo = new InMemoryEsignRepository();
+  const repo = new InMemoryEsignRepository(directory);
   const roles: [string, string, EsignAccessRole][] = [
     [a, users.ownerA, 'OWNER'],
     [a, users.adminA, 'ADMIN'],
