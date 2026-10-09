@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../lib/query';
+import { shortDate } from './format';
 import { StatusBadge } from './status-badge';
 
 /** The status filter's choices: Delivered is shown as Sent, so it is not a choice of its own. */
@@ -32,10 +33,9 @@ const RANGES = [
 const firstOfLast = (days: number) =>
   new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-const shortDate = (iso: string | null) => (
-  <span className="whitespace-nowrap">
-    {iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '–'}
-  </span>
+/** format.ts's date, kept on one line in a table cell. */
+const cellDate = (iso: string | null) => (
+  <span className="whitespace-nowrap">{shortDate(iso)}</span>
 );
 
 /** Who a request waits on, and how many have signed when there is more than one signer. */
@@ -170,11 +170,11 @@ export function RequestsTable({
     ...(detailed
       ? [{ id: 'waiting', label: 'Waiting On', cell: (r: EsignRequestRow) => waitingOn(r) }]
       : []),
-    { id: 'sent', label: 'Sent Date', cell: (r) => shortDate(r.sentAt) },
+    { id: 'sent', label: 'Sent Date', cell: (r) => cellDate(r.sentAt) },
     // The list is sorted and filtered on this date, so every row shows it.
-    { id: 'activity', label: 'Last Activity', cell: (r) => shortDate(r.lastActivityAt) },
+    { id: 'activity', label: 'Last Activity', cell: (r) => cellDate(r.lastActivityAt) },
     ...(detailed
-      ? [{ id: 'expires', label: 'Expires', cell: (r: EsignRequestRow) => shortDate(r.expiresAt) }]
+      ? [{ id: 'expires', label: 'Expires', cell: (r: EsignRequestRow) => cellDate(r.expiresAt) }]
       : []),
     {
       id: 'actions',

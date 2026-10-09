@@ -41,42 +41,53 @@ const STATUS: Record<
 
 /** What the recipient last did, and when. */
 function lastStep(r: EsignRecipient): string | null {
-  const [label, at] =
+  const [label, at]: [string, string | null] =
     r.status === 'SIGNED' || r.status === 'APPROVED'
       ? [r.status === 'SIGNED' ? 'Signed' : 'Approved', r.signedAt]
       : r.status === 'DECLINED' || r.status === 'REJECTED'
         ? [r.status === 'DECLINED' ? 'Declined' : 'Rejected', r.declinedAt]
-        : ['Viewed', r.viewedAt];
+        : r.status === 'SENT' || r.status === 'DELIVERED'
+          ? ['Sent', r.sentAt]
+          : ['Viewed', r.viewedAt];
   return at ? `${label} ${shortDate(at)}` : null;
 }
+
+/** Approvers first (they decide before anyone signs), then signing order. */
+const order = (r: EsignRecipient) => (r.kind === 'APPROVER' ? 0 : r.routingOrder);
 
 /** Each recipient in signing order, with where they are. */
 export function Recipients({
   recipients,
   ordered,
+  needsApproval,
 }: {
   recipients: EsignRecipient[];
   /** Sequential routing: show each one's turn. */
   ordered: boolean;
+  /** The request waits on its approvers: a waiting approver is the one to act. */
+  needsApproval: boolean;
 }) {
-  const sorted = [...recipients].sort((a, b) => a.routingOrder - b.routingOrder);
+  const sorted = [...recipients].sort((a, b) => order(a) - order(b));
   return (
     <Card>
       <h2 className="mb-4 font-display text-2xl text-heading">Recipients</h2>
       <ul className="flex flex-col divide-y divide-border">
         {sorted.map((r) => {
-          const [label, tone] = STATUS[r.status];
+          const [label, tone] =
+            needsApproval && r.kind === 'APPROVER' && r.status === 'WAITING'
+              ? (['Awaiting approval', 'warning'] as const)
+              : STATUS[r.status];
           const step = lastStep(r);
           return (
             <li key={r.id} data-testid="recipient" className="flex flex-col gap-2 py-3 first:pt-0">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-semibold text-heading">
+                <span className="min-w-0 font-semibold wrap-anywhere text-heading">
                   {ordered && r.kind === 'SIGNER' && `${r.routingOrder}. `}
                   {r.name}
                 </span>
                 <Badge tone={tone}>{label}</Badge>
               </div>
-              <span className="text-sm text-text">
+              <span className="text-sm break-words text-text">
                 {KIND[r.kind]}
                 {r.kind === 'SIGNER' && `, ${r.roleLabel ?? ROLE[r.role]}`}
                 {' · '}
@@ -91,7 +102,7 @@ export function Recipients({
                 </span>
               )}
               {r.declineReason && (
-                <span className="text-sm text-danger">Reason: {r.declineReason}</span>
+                <span className="text-sm break-words text-danger">Reason: {r.declineReason}</span>
               )}
             </li>
           );
