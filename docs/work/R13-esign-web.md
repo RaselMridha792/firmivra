@@ -25,7 +25,7 @@ Not mine: menu lines (Fahad, Nahid), PAGE-MAP rows (R1), `apps/api`, `packages/t
 
 - [x] 1. pdf.js spike (Oct 8)
 - [x] 2. Routes: placeholders with titles for every Firm Sign page (Oct 8, early)
-- [ ] 3. PdfPages viewer and SignaturePad; FieldOverlay
+- [ ] 3. PdfPages viewer and SignaturePad (merged in #146, Oct 9); scanned pages (PR open); FieldOverlay
 - [ ] 4. Signer flow 1 and 2; dashboard
 - [ ] 5. All requests; request detail; wizard steps 1-2
 - [ ] 6. Wizard steps 3-4; field editor 1
@@ -44,22 +44,33 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - Legacy build, not the modern one: the modern 6.x build calls `Map.prototype.getOrInsertComputed`, which Chromium 141 does not have, so it fails in browsers people still use. The legacy build carries the polyfills.
 - `isEvalSupported: false`: the option no longer exists in pdf.js 6. The eval path behind CVE-2024-4367 was removed; neither the main build nor the worker contains `eval(` or `new Function`. The version is far above 4.2.67.
 - Fallback, kept in the loader: if the worker cannot start, pdf.js runs on the main thread (importing the worker module sets `globalThis.pdfjsWorker`). Fine for documents up to 100 pages.
-- Later: when R8 adds a Content-Security-Policy, it needs `worker-src 'self'`.
+- The Content-Security-Policy (R21) needs `worker-src 'self'` and `'wasm-unsafe-eval'` in `script-src`: without the second, the scanned-page decoders cannot compile (the viewer then warns that scanned pages may be blank).
 - `pdfjs-dist` pulls the optional `@napi-rs/canvas` (Node only) into the lockfile; the browser never loads it.
 
 ## Open design points
+
+- No questions go to Octavia (Rasel, Oct 8): build from her spec and mockups, pick defaults here and note them below; anything that looks missing is checked in `client-info/OCTAVIA-PROVIDED.md`, then with the Scrum thread. Her dashboard mockup stays in the project files, not in the public repo.
 
 - Kiosk: the staff session stays signed in while the signer holds the device, so hiding the menu is not enough. The kiosk step needs a signer-only session from R13-api's in-person API and a way back to the workspace that asks the staff member again (for example a PIN or the password). To settle with R13-api before step 8.
 
 ## Needs from others
 
 - R13-api: `packages/types/src/esign` contract and mocks (`api.esign`, `api.signing(slug)`, `api.mySignatures(slug)`).
+- R13-api: the largest adopted signature image the signing API takes. The pad refuses data URLs over 90,000 characters (`MAX_SIGNATURE_CHARS` in `signature-pad.tsx`, under Nest's 100 KB JSON limit); the constant moves to `packages/types/src/esign` with the signing contract.
 - Fahad: "Firm Sign" in the firm menu; the Send for Signature button and the "Signatures" entry in the client record's tabs (`clients/[id]/layout.tsx`, F06).
 - Nahid: "Signatures" in the portal menu.
 - R1: PAGE-MAP rows for the Firm Sign pages.
-- Rasel: OK from Octavia before `FirmSign_Dashboard_Mockup.png` goes into the public repo.
+- Fahad (optional): a handwriting font token for typed signatures; until then they use `--font-display` italic.
+- Fahad (optional): eight recipient colour tokens `--color-recipient-0` to `-7` in packages/ui. `recipient-colors.ts` uses them when they exist and mixes the existing tokens until then.
 
 ## Progress log
 
 - 2026-10-08: pdf.js spike done, verdict above (loader on branch `rasel/R13-web-pdf-spike`, goes in with the PdfPages viewer PR).
 - 2026-10-08: routes PR: 14 placeholder pages with tab titles, the kiosk layout (signed in, no menu), the signer layout (firm name, no account), noindex on the signer and kiosk layouts, the kiosk runs the same firm checks as the workspace, the signer frame shows the firm logo and the portal footer, `e2e/mock/esign-routes.spec.ts` (15 tests green locally).
+- 2026-10-08: viewer PR: `pdfjs-dist` 6.3.289 and the loader (worker with a ready check, else the main thread; a failed load retries), `PdfPages` (pages draw as they scroll near and free their canvas when far, sized to the container, an overlay slot per page for FieldOverlay), a synthetic sample PDF shown on `/{firm}/sign` until the signing API lands, `e2e/mock/esign-pdf-pages.spec.ts` (incl. the no-worker fallback).
+- 2026-10-08: signature pad PR, stacked on the viewer: `SignaturePad` (type, draw, upload; always a PNG; each tab keeps its own value; ink and font from the pad's theme tokens), on `/{firm}/sign`, `e2e/mock/esign-signature-pad.spec.ts` (draw at 375 px).
+- 2026-10-09: #146 pre-review fix 1: one shared `PDFWorker` passed to every `getDocument`, so closing a document no longer destroys the worker the next one needs; the sign preview gets a Next document button and a spec that switches documents after the first draws (fails without the fix). Fix 2 (wasm, standard fonts and cMaps for scanned pages, plus a CCITT spec) goes in the next viewer PR, before any real document is shown; it needs a `/pdfjs/` exception in the proxy matcher from R1 or assets resolved with `import.meta.url`.
+- 2026-10-09: #147 pre-review fixes: an uploaded photo becomes ink on transparent paper (pixels lighter than 75% are paper, a fade down to 55% keeps smooth edges, strokes take the theme ink), so a phone photo of a signature adopts in a few KB; a picture that still comes out over the cap is refused with "This picture is too detailed. Try a closer photo on plain white paper."; the open tab is read from a ref when a panel reports (no stale tab after a quick switch); very long typed names are squeezed to fit the box.
+- 2026-10-09: #146 merged (viewer and signature pad together; #147 was merged into its branch). Scanned pages PR: pdf.js gets a `BinaryDataFactory` (`pdf-assets.ts`) that maps the files it asks for (the JBIG2 and JPEG 2000 wasm decoders, the Symbol and Dingbats fonts) to hashed files bundled by turbopack with `new URL(..., import.meta.url)`, fetched once per page load. No `/pdfjs/` folder or proxy exception is needed (checked in `next build`: the files land in `_next/static/media`). Not covered, because pdf.js loads them from a folder URL: CMaps (CJK text only), ICC profiles, the no-wasm decoders and the Liberation fallback for unembedded Helvetica/Times (the device's fonts are used). Without WebAssembly (iOS Lockdown Mode) the viewer warns the signer that scanned pages may be blank. Known limit: with one shared worker, pdf.js routes its first decoder fetch through the latest document, so request detail shows one document's pages at a time. A synthetic JPEG 2000 "scan" on `/{firm}/sign`; a spec reads the drawn pixels (fails without the factory).
+- 2026-10-09: FieldOverlay PR #193 (#172 merged): fields drawn on each page from their fractions, in the recipient's colour (`recipient-colors.ts`, eight colours by `colorIndex`; sender fields in a neutral ninth) with the field's label and the recipient's name (name hidden when the box is narrow; colour and aria-label always say it), a sender's prefilled value shown as text, dashed until filled, kept inside the page, other signers' fields faded for a signer, a button when the editor passes `onSelect`. Sample fields on `/{firm}/sign`; spec checks placement, colours and fading.
+- 2026-10-09: #172 merged. #172 follow-ups in #193: the viewer test-compiles an empty wasm module (catches a CSP without `'wasm-unsafe-eval'` as well as missing WebAssembly), the warning says "on another device" (every iOS browser is Safari underneath) with "before you sign" only for `purpose="sign"`, a CCITT fax page in the scanned sample (decoded by jbig2.wasm) with a pixel spec, and no extra copy of decoder bytes (pdf.js copies them itself).
