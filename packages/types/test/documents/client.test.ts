@@ -162,6 +162,14 @@ describe('api.myDocuments(slug) (portal)', () => {
     ]);
   });
 
+  it("carries the household uploader's name, or null (the firm's files, no known uploader)", () => {
+    const shape = MyDocument.shape.uploadedBy;
+    expect(shape.parse({ name: 'Alex Sample', byClient: true })).toEqual({ name: 'Alex Sample' });
+    expect(shape.parse(null)).toBeNull();
+    expect(shape.safeParse(undefined).success).toBe(false);
+    expect(shape.safeParse({}).success).toBe(false);
+  });
+
   it('refuses a bad firm address before building a path', async () => {
     const { fn, calls } = fakeFetch(200, {});
     const error = await rejection(createMyDocumentsClient(request(fn), '../lvp').list());
@@ -181,6 +189,7 @@ describe('api.myDocuments(slug) (portal)', () => {
       sizeBytes: 1,
       taxYear: 2025,
       status: 'READY',
+      uploadedBy: { name: 'Jamie Sample' },
       uploadedAt: at,
     };
     expect(MyDocument.safeParse({ ...doc, source: 'INTERNAL' }).success).toBe(false);
@@ -351,6 +360,7 @@ describe('Excel and Word files (both sides)', () => {
       sizeBytes: 1,
       taxYear: 2025,
       status: 'BLOCKED',
+      uploadedBy: null,
       uploadedAt: at,
     };
     expect(MyDocument.parse(mine).status).toBe('BLOCKED');

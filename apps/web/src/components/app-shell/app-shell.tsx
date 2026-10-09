@@ -59,7 +59,7 @@ export function AppShell({
         </div>
       ) : null}
 
-      <div className="flex min-h-screen flex-col md:pl-72">
+      <div className="flex min-h-screen flex-col md:pl-72 md:[&>header]:pr-4">
         <Header
           search={search}
           greeting={greeting}

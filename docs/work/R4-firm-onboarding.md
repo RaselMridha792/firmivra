@@ -74,6 +74,14 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - When submit lands, never log the `honeypot` value.
   - `AuditService` writes the admin's events through `forPlatform`. Writing them through `forAdmin` would let #52's `audit_logs_admin_insert` policy pin the actor in the database.
 - From the review of the #79 fixes (Oct 8), for step 3: approve works on an application whose form can't be read (`formReadable` false), since its review page shows the actions as usual. The firm's name comes from `legal_name`, the owner invite goes to `contact_name` and `contact_email`, and the pack is `TAX_ACCOUNTING` (the only pack) when the practice type is unknown.
+- For step 3, approve (Oct 8, from the reviews of #101, #107, #81 and the cloud review of the lead's #92):
+  - The firm's KMS key is made outside the HTTP request. On a brand-new key, `ensureKey` can take up to 5 minutes before `CreateAlias` passes (#101's tag condition), so approve doesn't wait for it inside a request or a transaction. Plan: a job, with the firm shown as "setting up" until its key is stored.
+  - The owner invite runs before the application turns `APPROVED`, or in the same transaction, so a refused invite never leaves an approved firm without one. A stored owner name over 120 characters (rows from before #107 could hold up to 200) answers a clear 409, `OWNER_NAME_TOO_LONG`, for the Super Admin to correct. E2e with a 121-character stored name.
+  - The firm's `business_settings` get the application's entity type, services, team size and description, never the EIN. The settings API (#93) drops codes outside `ENTITY_TYPES` and `FIRM_SERVICES`.
+  - Default document categories for the new firm, if Rasel places them here (see R1's "Needs from others").
+  - Save Note: one `admin.transaction` with `AuditService.logIn` (#81's follow-ups; submit's are done in #107 and #112).
+  - E2e owner clients pass `TEST_CLIENT_OPTIONS` (15 s maxWait).
+  - Don't add a second admin-scope provider: after approve merges, R2's plan moves `AdminPrisma` into the database module.
 - From the second pass on #79 (Oct 8), for step 2: submit writes the EIN's last 4 and its keyed hash to their columns (`ein_last4`, `ein_hash`, R0's #80), never into `data`: #80 refuses any key starting with "ein" there (any case, any depth). Once #80 is on main, the record's `business.einLast4` reads the column and DUPLICATE_EIN compares `ein_hash`.
 
 ## Needs from others
