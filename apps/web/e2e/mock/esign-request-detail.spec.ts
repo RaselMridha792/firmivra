@@ -86,6 +86,14 @@ test('correct a signer’s email', async ({ page }) => {
   await open(page, 'New Client Intake Form');
   await page.getByRole('button', { name: 'Correct Maria Lopez' }).click();
   const dialog = page.getByRole('dialog', { name: 'Correct Maria Lopez' });
+  // The same address in capitals is no change; a broken one says what is wrong.
+  await dialog.getByLabel('Email').fill('MARIA.LOPEZ@example.test');
+  await dialog.getByRole('button', { name: 'Save and resend' }).click();
+  await expect(dialog.getByText('Nothing has changed.')).toBeVisible();
+  await dialog.getByLabel('Email').fill('maria-at-example');
+  await dialog.getByRole('button', { name: 'Save and resend' }).click();
+  await expect(dialog.getByText('Nothing has changed.')).toHaveCount(0);
+  await expect(page.getByTestId('timeline')).not.toContainText('Recipient corrected');
   await dialog.getByLabel('Email').fill('maria.fixed@example.test');
   await dialog.getByRole('button', { name: 'Save and resend' }).click();
   await expect(dialog).toBeHidden();

@@ -2,6 +2,7 @@
 
 import { ESIGN_ERRORS, type EsignRecipient, type EsignRequestDetail } from '@firmivra/types';
 import { Button, Input, Modal, Toast } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api } from '../../../../../../../lib/api';
@@ -13,9 +14,11 @@ type Dialog = 'void' | 'replace' | null;
 /** Every Firm Sign query: a change shows in the counters, lists and this page. */
 const ESIGN = ['esign'];
 
-/** Whose turn it is: they can be reminded. */
+/** Whose turn it is, and reachable: an in-person signer signs on the firm's device instead. */
 export const awaiting = (x: EsignRecipient) =>
-  x.kind !== 'CC' && ['SENT', 'DELIVERED', 'VIEWED'].includes(x.status);
+  x.kind !== 'CC' &&
+  x.delivery !== 'IN_PERSON' &&
+  ['SENT', 'DELIVERED', 'VIEWED'].includes(x.status);
 
 /** The request's own buttons, each shown only when `allowedActions` has it. */
 export function RequestActions({ r }: { r: EsignRequestDetail }) {
@@ -27,37 +30,54 @@ export function RequestActions({ r }: { r: EsignRequestDetail }) {
   const resend = useApiMutation(() => api.esign.resendCopy(r.id), { invalidate: ESIGN });
   const failed = remind.error ?? resend.error;
   const close = () => setDialog(null);
+  /** One outcome on screen at a time: a new click clears the last one. */
+  const start = () => {
+    setDone(null);
+    remind.reset();
+    resend.reset();
+  };
+  const shown = {
+    remind: can('REMIND') && r.recipients.some(awaiting),
+    resend: can('RESEND_COPY'),
+    replace: can('REPLACE'),
+    void: can('VOID'),
+  };
+  if (!Object.values(shown).some(Boolean)) return null;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-3">
-        {can('REMIND') && r.recipients.some(awaiting) && (
+        {shown.remind && (
           <Button
             variant="secondary"
             disabled={remind.isPending}
-            onClick={() => remind.mutate(undefined, { onSuccess: () => setDone('Reminder sent.') })}
+            onClick={() => {
+              start();
+              remind.mutate(undefined, { onSuccess: () => setDone('Reminder sent.') });
+            }}
           >
             Remind now
           </Button>
         )}
-        {can('RESEND_COPY') && (
+        {shown.resend && (
           <Button
             variant="secondary"
             disabled={resend.isPending}
-            onClick={() =>
+            onClick={() => {
+              start();
               resend.mutate(undefined, {
                 onSuccess: () => setDone('A link to the signed copy went to each signer.'),
-              })
-            }
+              });
+            }}
           >
             Resend signed copy
           </Button>
         )}
-        {can('REPLACE') && (
+        {shown.replace && (
           <Button variant="secondary" onClick={() => setDialog('replace')}>
             Correct and resend
           </Button>
         )}
-        {can('VOID') && (
+        {shown.void && (
           <Button variant="ghost" onClick={() => setDialog('void')}>
             Void
           </Button>
@@ -112,16 +132,27 @@ function ReasonDialog({
 }) {
   const [reason, setReason] = useState('');
   const [missing, setMissing] = useState(false);
-  const action = useApiMutation(run, { invalidate: ESIGN });
+  const queryClient = useQueryClient();
+  // The answer is the request as it now is: shown at once, while the lists refresh behind it.
+  const action = useApiMutation(run);
+  const finish = (next: EsignRequestDetail) => {
+    queryClient.setQueryData(['esign', 'requests', next.id], next);
+    void queryClient.invalidateQueries({ queryKey: ESIGN });
+    onDone(next);
+  };
+  // Closing mid-request would drop what happens next (opening the new draft).
+  const leave = () => {
+    if (!action.isPending) onClose();
+  };
   return (
-    <Modal open title={title} onClose={onClose}>
+    <Modal open title={title} onClose={leave}>
       <form
         className="flex w-full max-w-xl flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           const value = reason.trim();
           setMissing(!value);
-          if (value) action.mutate(value, { onSuccess: onDone });
+          if (value) action.mutate(value, { onSuccess: finish });
         }}
       >
         <p className="text-sm text-text">{text}</p>
@@ -141,7 +172,7 @@ function ReasonDialog({
           <Button type="submit" disabled={action.isPending}>
             {confirm}
           </Button>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" disabled={action.isPending} onClick={onClose}>
             Cancel
           </Button>
         </div>

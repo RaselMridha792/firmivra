@@ -217,8 +217,8 @@ function Notices({ r }: { r: EsignRequestDetail }) {
 function save(url: string) {
   const a = document.createElement('a');
   a.href = url;
+  // The storage link is sent as an attachment, so the browser saves it and stays on this page.
   a.download = '';
-  a.rel = 'noopener';
   a.click();
 }
 
