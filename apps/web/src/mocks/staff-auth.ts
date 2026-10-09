@@ -13,16 +13,19 @@ import { createMeMock, mockBusiness } from './me';
 
 /**
  * Activation links that work in mock mode, /activate#token=<token>: `valid` is a new person (the
- * password form, then authenticator setup), `account` already has a login (sign in to accept),
+ * password form, then authenticator setup), `slowSetup` too, but its setup times out after
+ * activating (401 CHALLENGE_EXPIRED), `account` already has a login (sign in to accept),
  * `expired` is 410 INVITE_EXPIRED. Any other token, or a used one, is 404 INVITE_INVALID.
  */
 const MOCK_ACTIVATION_TOKENS = {
   valid: 'valid-token-0199-new-owner',
+  slowSetup: 'setup-token-0199-times-out',
   account: 'account-token-0199-has-login',
   expired: 'expired-token-0199-old-invite',
 } as const;
 
 const SECRET = 'JBSWY3DPEHPK3PXP';
+const EXPIRED_SESSION = 'mock-expired-session';
 
 /**
  * Mock of the firm site's activation (`staffAuth` in src/lib/auth.ts), so /activate works in mock
@@ -38,6 +41,7 @@ export function createStaffAuthMock(real: StaffAuthClient): StaffAuthClient {
   };
   const invites: Record<string, ActivationCheckResponse> = {
     [MOCK_ACTIVATION_TOKENS.valid]: invite('Avery Owner', 'OWNER', false),
+    [MOCK_ACTIVATION_TOKENS.slowSetup]: invite('Riley Staff', 'STAFF', false),
     [MOCK_ACTIVATION_TOKENS.account]: invite('Jordan Staff', 'STAFF', true),
   };
   const used = new Set<string>();
@@ -67,11 +71,17 @@ export function createStaffAuthMock(real: StaffAuthClient): StaffAuthClient {
         throw fail(409, 'ACCOUNT_EXISTS', 'You already have a login: sign in to accept the invite');
       }
       used.add(token);
-      return { status: 'MFA_SETUP_REQUIRED', session: 'mock-activation-session' };
+      const slow = token === MOCK_ACTIVATION_TOKENS.slowSetup;
+      return {
+        status: 'MFA_SETUP_REQUIRED',
+        session: slow ? EXPIRED_SESSION : 'mock-activation-session',
+      };
     },
     startMfaSetup: async (body) => {
       await mockDelay();
-      parseInput(MfaSetupRequest, body);
+      if (parseInput(MfaSetupRequest, body).session === EXPIRED_SESSION) {
+        throw fail(401, 'CHALLENGE_EXPIRED', 'The sign-in step expired');
+      }
       const otpauthUri = `otpauth://totp/Firmivra:mock?secret=${SECRET}&issuer=Firmivra`;
       return { session: 'mock-mfa-setup-session', secret: SECRET, otpauthUri };
     },

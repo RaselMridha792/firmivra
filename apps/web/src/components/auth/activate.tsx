@@ -34,6 +34,9 @@ const resolver: Resolver<Values> = async (values, context, options) => {
 /** Unknown, used, expired or missing links get one answer that never says who has an account. */
 const LINK_ERRORS = ['INVITE_INVALID', 'INVITE_EXPIRED', 'VALIDATION_FAILED'];
 const ROLES = { OWNER: 'Owner', ADMIN: 'Admin', STAFF: 'Staff' } as const;
+/** Button's classes with the screen's main-button look (auth-submit), for a link. */
+const SUBMIT_LINK =
+  'auth-submit inline-flex items-center justify-center gap-2 px-4 py-2 font-medium text-on-action focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
 
 /** Reads the token from /activate#token=..., then takes it out of the address bar and history. */
 function takeToken(): string {
@@ -56,6 +59,7 @@ export function Activate() {
   const [hasLogin, setHasLogin] = useState(false);
   const [linkGone, setLinkGone] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const [activated, setActivated] = useState(false);
   const [challenge, setChallenge] = useState<{ session: string; setup?: MfaSetupResponse }>();
   const check = useApiMutation((value: string) => staffAuth.checkActivation({ token: value }));
   const { mutate: checkLink } = check;
@@ -72,11 +76,16 @@ export function Activate() {
     const result = await staffAuth.activate({ token: tokenRef.current ?? '', password });
     form.reset();
     if (result.status === 'SIGNED_IN') return router.replace('/');
-    const setup =
-      result.status === 'MFA_SETUP_REQUIRED'
-        ? await staffAuth.startMfaSetup({ session: result.session })
-        : undefined;
-    setChallenge({ session: setup?.session ?? result.session, setup });
+    if (result.status === 'MFA_REQUIRED') return setChallenge({ session: result.session });
+    // The link is used up and the password set: if setup can't start now, sign-in starts it.
+    const setup = await staffAuth.startMfaSetup({ session: result.session }).catch(() => undefined);
+    if (setup) setChallenge({ session: setup.session, setup });
+    else setActivated(true);
+  });
+  // Someone with a login accepts once signed in; a failure is answered here, not on sign-in.
+  const join = useApiMutation<void, void>(async () => {
+    await staffAuth.acceptInvite({ token: tokenRef.current ?? '' });
+    router.replace('/');
   });
 
   if (challenge) {
@@ -88,12 +97,35 @@ export function Activate() {
       !(check.error instanceof TypeError) &&
       LINK_ERRORS.includes(errorCode(check.error) ?? 'VALIDATION_FAILED'));
   const invite = linkProblem ? undefined : check.data;
-  if (invite && signingIn) {
-    const accept = async () =>
-      void (await staffAuth.acceptInvite({ token: tokenRef.current ?? '' }));
-    return <SignIn site="firm" email={invite.email} onSignedIn={accept} />;
+  if (invite && signingIn && join.isIdle) {
+    return (
+      <SignIn
+        site="firm"
+        title="Join your firm"
+        email={invite.email}
+        onSignedIn={() => join.mutate()}
+      >
+        <Invitation invite={invite} />
+      </SignIn>
+    );
+  }
+  if (activated) {
+    return (
+      <AuthFrame site="firm" title="Account activated">
+        <h1 className="sr-only">Firm workspace</h1>
+        <Notice
+          id="activation-done"
+          role="status"
+          title="Your account is activated."
+          text="We couldn't start your authenticator setup. Sign in with your new password to finish it."
+          href="/sign-in"
+          action="Go to sign in"
+        />
+      </AuthFrame>
+    );
   }
   const joining = invite && (invite.hasAccount || hasLogin);
+  const joinCode = errorCode(join.error);
   const EyeIcon = show ? EyeOff : Eye;
 
   return (
@@ -109,21 +141,13 @@ export function Activate() {
         </p>
       ) : null}
       {linkProblem ? (
-        <div className="mt-6 grid gap-6 text-center">
-          <div role="alert" data-testid="activation-invalid" className="grid gap-2">
-            <p className="text-lg font-semibold">This activation link is not valid.</p>
-            <p className="text-muted">
-              It may have expired or already been used. Ask the person who invited you for a new
-              link, or sign in if you have already activated your account.
-            </p>
-          </div>
-          <a
-            href="/sign-in"
-            className="auth-submit inline-flex items-center justify-center gap-2 text-on-action focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-          >
-            Go to sign in <ArrowRight aria-hidden="true" className="h-7 w-7" />
-          </a>
-        </div>
+        <Notice
+          id="activation-invalid"
+          title="This activation link is not valid."
+          text="It may have expired or already been used. Ask the person who invited you for a new link, or sign in if you have already activated your account."
+          href="/sign-in"
+          action="Go to sign in"
+        />
       ) : check.isError ? (
         <div className="mt-6 grid gap-4 text-center">
           <p role="alert" className="text-danger">
@@ -135,13 +159,44 @@ export function Activate() {
         </div>
       ) : null}
       {invite ? <Invitation invite={invite} /> : null}
-      {invite && joining ? (
+      {invite && joining && join.isIdle ? (
         <div className="mt-6 grid gap-6 text-center">
           <p>
             You already have a Firmivra login. Sign in with this email to accept the invitation.
           </p>
           <Button className="auth-submit" onClick={() => setSigningIn(true)}>
             Sign in to accept <ArrowRight aria-hidden="true" className="h-7 w-7" />
+          </Button>
+        </div>
+      ) : null}
+      {invite && (join.isPending || join.isSuccess) ? (
+        <p role="status" className="mt-6 flex items-center justify-center gap-2 text-muted">
+          <LoaderCircle
+            aria-hidden="true"
+            className="size-5 animate-spin motion-reduce:animate-none"
+          />
+          Joining {invite.business.name}…
+        </p>
+      ) : null}
+      {invite && join.isError && LINK_ERRORS.includes(joinCode ?? '') ? (
+        <Notice
+          id="join-failed"
+          title="This invitation could not be accepted."
+          text="You are signed in, but the invitation may have expired, already been used, or be meant for another login. Ask the person who invited you for a new link."
+          href="/"
+          action="Go to your workspace"
+        />
+      ) : invite && join.isError ? (
+        <div className="mt-6 grid gap-4 text-center">
+          <p role="alert" className="text-danger">
+            {errorMessage(join.error)}
+          </p>
+          {/* A lost session signs in again; anything else tries the accept again. */}
+          <Button
+            variant="secondary"
+            onClick={() => (joinCode === 'UNAUTHENTICATED' ? join.reset() : join.mutate())}
+          >
+            Try again
           </Button>
         </div>
       ) : null}
@@ -176,7 +231,8 @@ export function Activate() {
                     autoComplete="new-password"
                     placeholder={name === 'password' ? 'Create a password' : 'Type it again'}
                     error={form.formState.errors[name]?.message}
-                    {...form.register(name)}
+                    // Once submitted, a change to the password re-checks the confirmation too.
+                    {...form.register(name, name === 'password' ? { deps: 'confirm' } : undefined)}
                   />
                   <LockKeyhole
                     aria-hidden="true"
@@ -224,6 +280,28 @@ export function Activate() {
         </>
       ) : null}
     </AuthFrame>
+  );
+}
+
+/** A message with the one way on, as a link in the screen's main-button look. */
+function Notice(props: {
+  id: string;
+  role?: 'alert' | 'status';
+  title: string;
+  text: string;
+  href: string;
+  action: string;
+}) {
+  return (
+    <div className="mt-6 grid gap-6 text-center">
+      <div role={props.role ?? 'alert'} data-testid={props.id} className="grid gap-2">
+        <p className="text-lg font-semibold">{props.title}</p>
+        <p className="text-muted">{props.text}</p>
+      </div>
+      <a href={props.href} className={SUBMIT_LINK}>
+        {props.action} <ArrowRight aria-hidden="true" className="h-7 w-7" />
+      </a>
+    </div>
   );
 }
 
