@@ -152,7 +152,7 @@ export class IntakeUploadsService {
       JOIN engagements e ON e.business_id = i.business_id AND e.id = i.engagement_id
       WHERE i.business_id = ${who.businessId}::uuid AND i.id = ${intakeId}::uuid
         AND e.client_id = ${who.clientId}::uuid
-      FOR UPDATE OF i`;
+      FOR NO KEY UPDATE OF i`;
     if (!row) throw notFound();
     const intake = await tx.intake.findUniqueOrThrow({
       where: { id: intakeId },

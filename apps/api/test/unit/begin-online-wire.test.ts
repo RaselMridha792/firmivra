@@ -1,35 +1,21 @@
 import { describe, expect, it } from 'vitest';
+// The Begin Online API's own wire shapes (src/begin-online/wire.ts) until it moves to contract B.
 import {
   ANNUAL_TAX_FORM,
+  BUSINESS_DEVELOPMENT_FORM,
+  INTAKE_FORMS,
+  PAYROLL_FORM,
+} from '@firmivra/types';
+import {
   BeginDraft,
   beginOnlineContact,
   beginOnlineCookie,
   beginOnlineTaxYear,
-  BUSINESS_DEVELOPMENT_FORM,
-  createBeginOnlineClient,
-  createRequest,
   CreateDraftUploadRequest,
   ResumeDraftRequest,
-  resumeTokenFromHash,
-  INTAKE_FORMS,
-  PAYROLL_FORM,
   SaveDraftStepRequest,
   StartDraftRequest,
-  SubmitDraftRequest,
-} from '../../src/index.js';
-
-function fakeFetch(body: unknown) {
-  const calls: { url: string; method: string; body: unknown }[] = [];
-  const fn = (async (url: string, init: RequestInit) => {
-    calls.push({
-      url,
-      method: init.method ?? 'GET',
-      body: init.body === undefined ? undefined : JSON.parse(init.body as string),
-    });
-    return new Response(JSON.stringify(body), { status: 200 });
-  }) as unknown as typeof fetch;
-  return { fn, calls };
-}
+} from '../../src/begin-online/wire.js';
 
 const id = '0199b6a0-0000-7000-8000-000000000001';
 const draft = {
@@ -44,7 +30,7 @@ const draft = {
 };
 const token = 'A'.repeat(42) + '_';
 
-describe('Begin Online contract', () => {
+describe('Begin Online API wire shapes', () => {
   it('a draft never carries a full SSN or EIN', () => {
     expect(BeginDraft.safeParse(draft).success).toBe(true);
     const full = { ...draft, answers: { ...draft.answers, ssn: '123456789' } };
@@ -104,27 +90,9 @@ describe('Begin Online contract', () => {
     });
   });
 
-  it('calls the routes under the firm slug', async () => {
-    const { fn, calls } = fakeFetch(draft);
-    const api = createBeginOnlineClient(createRequest({ baseUrl: '/api/v1', fetch: fn }), 'lvp');
-    await api.current();
-    await api.saveStep('personal', { answers: {} });
-    await api.startDraft({ serviceId: id, step: 'personal', answers: {} });
-    await expect(api.saveStep('../x', { answers: {} })).rejects.toMatchObject({
-      code: 'VALIDATION_FAILED',
-    });
-    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'GET /api/v1/portal/lvp/begin-online/drafts/current',
-      'PUT /api/v1/portal/lvp/begin-online/drafts/current/steps/personal',
-      'POST /api/v1/portal/lvp/begin-online/drafts',
-    ]);
-  });
-
-  it('reads the resume token from the fragment only when it is complete', () => {
-    expect(resumeTokenFromHash(`#token=${token}`)).toBe(token);
-    expect(resumeTokenFromHash(`#token=${token.slice(1)}`)).toBeNull();
-    expect(resumeTokenFromHash('')).toBeNull();
+  it('a resume token is complete and comes alone', () => {
     expect(ResumeDraftRequest.safeParse({ token }).success).toBe(true);
+    expect(ResumeDraftRequest.safeParse({ token: token.slice(1) }).success).toBe(false);
     expect(ResumeDraftRequest.safeParse({ token, extra: 1 }).success).toBe(false);
   });
 
@@ -146,31 +114,5 @@ describe('Begin Online contract', () => {
     ]) {
       expect(CreateDraftUploadRequest.safeParse(bad).success).toBe(false);
     }
-  });
-
-  it('calls the resume and upload routes', async () => {
-    const { fn, calls } = fakeFetch({ ok: true });
-    const api = createBeginOnlineClient(createRequest({ baseUrl: '/api/v1', fetch: fn }), 'lvp');
-    await api.sendResumeLink().catch(() => undefined);
-    await api.resume({ token }).catch(() => undefined);
-    await api.deleteUpload(id);
-    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'POST /api/v1/portal/lvp/begin-online/drafts/current/resume-link',
-      'POST /api/v1/portal/lvp/begin-online/drafts/resume',
-      `DELETE /api/v1/portal/lvp/begin-online/drafts/current/uploads/${id}`,
-    ]);
-    expect(calls[1]?.body).toEqual({ token });
-  });
-
-  it('a submit needs the same name printed and typed', () => {
-    const ok = (printedName: string, typedSignature: string) =>
-      SubmitDraftRequest.safeParse({ printedName, typedSignature }).success;
-    expect(ok('Avery Example', '  avery   EXAMPLE ')).toBe(true);
-    expect(ok('Avery Example', 'Avery Sample')).toBe(false);
-    expect(ok('', '')).toBe(false);
-    expect(ok('A'.repeat(201), 'A'.repeat(201))).toBe(false);
-    expect(ok('Avery\u0007', 'Avery\u0007')).toBe(false);
-    const extra = { printedName: 'A B', typedSignature: 'A B', leadId: id };
-    expect(SubmitDraftRequest.safeParse(extra).success).toBe(false);
   });
 });

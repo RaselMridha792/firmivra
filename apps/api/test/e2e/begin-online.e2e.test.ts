@@ -9,23 +9,21 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
+import { ANNUAL_TAX_FORM, INTAKE_FORMS, intakeStepFields } from '@firmivra/types';
 import {
   BeginDraft,
   BeginOnlineForm,
   BeginOnlineServiceList,
   beginOnlineCookie,
-  ANNUAL_TAX_FORM,
-  INTAKE_FORMS,
-  intakeStepFields,
-} from '@firmivra/types';
+} from '../../src/begin-online/wire.js';
+import { expiredDraftRefusal } from '../../src/begin-online/drafts.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
-import { INTAKE_SIGNING } from '../../src/begin-online/signing.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
-import { publishFirmWideAgreement, TEST_LEAD_SIGNING } from '../intake-signing.js';
+import { firmWideVersion, publishFirmWideAgreement, signatureFor } from '../intake-signing.js';
 import { pdf, sha256 } from '../office-files.js';
 
 /** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
@@ -169,9 +167,6 @@ beforeAll(async () => {
     .useValue(storage)
     .overrideProvider(DOCUMENTS_CONFIG)
     .useValue({ bucket: 'unused', region: 'us-east-1', forcePathStyle: true, scanMode: 'local' })
-    // Writes the signature row the database needs (the placeholder writes none).
-    .overrideProvider(INTAKE_SIGNING)
-    .useValue(TEST_LEAD_SIGNING)
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -584,6 +579,57 @@ describe('Begin Online uploads', () => {
   });
 });
 
+describe('Begin Online: an expired draft (R0 refuses new data)', () => {
+  it("maps the database's refusals of an expired draft to 410 DRAFT_EXPIRED", async () => {
+    const v = visitor(firms.a.slug);
+    const draft = BeginDraft.parse((await v.post('/drafts', annualStart())).body);
+    const refused = (work: Parameters<typeof asOwner>[1]) =>
+      asOwner(firms.a.id, work).then(
+        () => null,
+        (error: unknown) => expiredDraftRefusal(error) ?? error,
+      );
+    // Past its expiry in the database's clock, before the API has marked it EXPIRED.
+    await asOwner(
+      firms.a.id,
+      (tx) =>
+        tx.$executeRaw`UPDATE leads SET draft_expires_at = now() - interval '1 minute'
+                     WHERE id = ${draft.leadId}::uuid`,
+    );
+    const upload = await refused((tx) =>
+      tx.leadUpload.create({
+        data: {
+          businessId: firms.a.id,
+          leadId: draft.leadId,
+          slot: 'governmentId',
+          fileName: 'late.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 10,
+          sha256: 'c'.repeat(64),
+          s3Key: `tenant/${firms.a.id}/leads/${draft.leadId}/${randomUUID()}`,
+        },
+      }),
+    );
+    const answers = await refused(async (tx) => {
+      const intake = await tx.intake.findFirstOrThrow({ where: { leadId: draft.leadId } });
+      await tx.intakeSubmission.updateMany({
+        where: { intakeId: intake.id },
+        data: { answers: { firstName: 'Late' } },
+      });
+    });
+    const link = await refused((tx) =>
+      tx.lead.update({
+        where: { id: draft.leadId },
+        data: { resumeTokenHash: 'f'.repeat(64) },
+      }),
+    );
+    for (const error of [upload, answers, link]) {
+      expect(error).toMatchObject({ status: 410, response: { code: 'DRAFT_EXPIRED' } });
+    }
+    // And the API answers the same for this browser.
+    expect(codeOf(await v.get('/drafts/current'))).toBe('DRAFT_EXPIRED');
+  });
+});
+
 describe('Begin Online submit', () => {
   /** A complete Annual Tax (single filer, personal return), as in the contract's tests. */
   const complete: Record<string, unknown> = {
@@ -613,7 +659,15 @@ describe('Begin Online submit', () => {
     const keys = new Set(intakeStepFields(step).map((f) => f.key));
     return Object.fromEntries(Object.entries(values).filter(([k]) => keys.has(k)));
   };
-  const signature = { printedName: 'Avery Example', typedSignature: '  avery   EXAMPLE ' };
+  /** Firm A's submit body (R14's sign(): its firm-wide agreement and its Terms and Privacy). */
+  let signature: { signature: ReturnType<typeof signatureFor> & { acceptLegal?: unknown } };
+  /** Firm B has nothing to sign: any well-formed signature. */
+  const nothingToSign = {
+    signature: signatureFor(
+      { agreementId: randomUUID(), version: 1, bodySha256: 'a'.repeat(64) },
+      'Avery Example',
+    ),
+  };
 
   /** A CLEAN file in `slot`, inserted as confirm would, with its object in storage. */
   async function addFile(leadId: string, slot: string, firm = firms.a) {
@@ -663,8 +717,30 @@ describe('Begin Online submit', () => {
       await tx.membership.create({
         data: { businessId: firms.a.id, userId: team.staff.id, role: 'STAFF', status: 'ACTIVE' },
       });
-      // Firm A has its firm-wide intake agreement published; firm B has none.
+      // Firm A has its firm-wide intake agreement and its Terms and Privacy published; firm B
+      // has none.
       await publishFirmWideAgreement(tx, firms.a.id, team.owner.id);
+      for (const kind of ['TERMS', 'PRIVACY'] as const) {
+        await tx.firmLegalDocument.create({
+          data: {
+            businessId: firms.a.id,
+            kind,
+            version: 1,
+            body: 'Not legal text.',
+            publishedByUserId: team.owner.id,
+          },
+        });
+      }
+      signature = {
+        signature: {
+          ...signatureFor(
+            await firmWideVersion(tx, firms.a.id),
+            'Avery Example',
+            '  avery   EXAMPLE ',
+          ),
+          acceptLegal: { termsVersion: 1, privacyVersion: 1 },
+        },
+      };
     });
   });
 
@@ -697,7 +773,7 @@ describe('Begin Online submit', () => {
     const before = await read();
     const sentBefore = outbox.length;
 
-    const res = await v.post('/drafts/current/submit', signature);
+    const res = await v.post('/drafts/current/submit', nothingToSign);
     expect([res.status, codeOf(res)]).toEqual([409, 'NO_INTAKE_AGREEMENT']);
     expect(res.body.error.message).toBe(
       "This form can't be signed right now. Please contact the firm.",
@@ -733,16 +809,63 @@ describe('Begin Online submit', () => {
 
     const personal = { ...stepAnswers('personal'), ssn: { last4: '3456' } };
     expect((await v.put('/drafts/current/steps/personal', { answers: personal })).status).toBe(200);
-    for (const step of ['documents', 'review']) {
-      expect(
-        (await v.put(`/drafts/current/steps/${step}`, { answers: stepAnswers(step) })).status,
-      ).toBe(200);
+    // The review step's answers come with the submit (saved first as that step).
+    expect(
+      (await v.put('/drafts/current/steps/documents', { answers: stepAnswers('documents') }))
+        .status,
+    ).toBe(200);
+    const sig = signature.signature;
+    const refusals: [object, number, string][] = [
+      [{}, 400, 'VALIDATION_FAILED'],
+      [
+        { signature: { ...sig, signer: { ...sig.signer, typedSignature: 'Someone Else' } } },
+        400,
+        'VALIDATION_FAILED',
+      ],
+      // The same name to the API, not to Postgres' case folding (a dotted capital I).
+      [
+        {
+          signature: {
+            ...sig,
+            signer: {
+              ...sig.signer,
+              printedName: 'İvy Example',
+              typedSignature: 'i\u0307vy example',
+            },
+          },
+        },
+        400,
+        'SIGNATURE_MISMATCH',
+      ],
+      // The firm has published its Terms and Privacy: a lead accepts them, at their versions.
+      [{ signature: { ...sig, acceptLegal: undefined } }, 400, 'VALIDATION_FAILED'],
+      [{ signature: { ...sig, acceptLegal: null } }, 400, 'VALIDATION_FAILED'],
+      [
+        { signature: { ...sig, acceptLegal: { termsVersion: 2, privacyVersion: 1 } } },
+        409,
+        'TERMS_OUTDATED',
+      ],
+      [{ signature: { ...sig, acknowledgments: [] } }, 400, 'ACKNOWLEDGMENT_REQUIRED'],
+      [
+        { signature: { ...sig, agreements: [{ ...sig.agreements[0]!, version: 2 }] } },
+        409,
+        'AGREEMENT_OUTDATED',
+      ],
+    ];
+    for (const [body, status, code] of refusals) {
+      // Each from its own IP (5 submits a minute per IP), with this draft's cookie.
+      const same = visitor(firms.a.slug);
+      same.cookie = v.cookie;
+      const res = await same.post('/drafts/current/submit', {
+        ...body,
+        answers: stepAnswers('review'),
+      });
+      expect([res.status, codeOf(res)], JSON.stringify(body)).toEqual([status, code]);
     }
-    const mismatch = await v.post('/drafts/current/submit', {
-      printedName: 'Avery Example',
-      typedSignature: 'Someone Else',
-    });
-    expect(codeOf(mismatch)).toBe('VALIDATION_FAILED');
+    const unsigned = await asOwner(firms.a.id, (tx) =>
+      tx.intakeSignature.count({ where: { leadId: draft.leadId } }),
+    );
+    expect(unsigned).toBe(0);
 
     // Firm B's site never sends firm A's draft.
     const b = visitor(firms.b.slug);
@@ -754,7 +877,10 @@ describe('Begin Online submit', () => {
 
     const sentBefore = outbox.length;
     const cookie = v.cookie;
-    const res = await v.post('/drafts/current/submit', signature);
+    const res = await v.post('/drafts/current/submit', {
+      ...signature,
+      answers: stepAnswers('review'),
+    });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ leadId: draft.leadId, service: { id: services.annual } });
     const raw = (res.headers['set-cookie'] as unknown as string[]).join('\n');

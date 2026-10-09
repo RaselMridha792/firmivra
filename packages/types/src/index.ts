@@ -34,6 +34,7 @@ export * from './intake/index.js';
 export * from './begin-online/index.js';
 export * from './leads/index.js';
 export * from './messages/index.js';
+export * from './agreements/index.js';
 // The same values as the database enums in db-enums.ts (exported through ./schemas.js). These
 // modules define their own copies, so name the ones the root exports.
 export { AppointmentStatus, LocationKind } from './appointments/index.js';

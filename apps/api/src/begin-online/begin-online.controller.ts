@@ -15,21 +15,19 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
+import { ConfirmUploadRequest, SubmitIntakeRequest, type UploadTicket } from '@firmivra/types';
 import {
   type BeginDraft,
   type BeginOnlineForm,
   type BeginOnlineServiceList,
-  ConfirmUploadRequest,
   CreateDraftUploadRequest,
   type DraftSubmitted,
   type DraftUpload,
   ResumeDraftRequest,
   type ResumeLinkSent,
   SaveDraftStepRequest,
-  type UploadTicket,
   StartDraftRequest,
-  SubmitDraftRequest,
-} from '@firmivra/types';
+} from './wire.js';
 import { Public } from '../auth/decorators.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -38,7 +36,8 @@ import { BeginOnlineService } from './begin-online.service.js';
 import { DRAFT_UPLOAD_PROVIDERS, DraftUploadsService } from './draft-uploads.service.js';
 import { DraftSubmitService } from './draft-submit.service.js';
 import { ResumeLinksService } from './resume-links.service.js';
-import { INTAKE_SIGNING, type IntakeSigner, PLACEHOLDER_SIGNING } from './signing.js';
+import { INTAKE_SIGNING, type IntakeSigner } from '../intake/intake-signing.js';
+import { IntakesModule } from '../intake/intakes.controller.js';
 import { requestContext } from '../common/request-context.js';
 
 /** Per viewer IP, in memory (see configure-app.ts): a new draft is the scarce one. */
@@ -142,17 +141,15 @@ export class BeginOnlineController {
   @Throttle(BEGIN_ONLINE_THROTTLE.submit)
   submit(
     @Param('firmSlug') slug: string,
-    @Body(new ZodValidationPipe(SubmitDraftRequest)) body: z.output<typeof SubmitDraftRequest>,
+    @Body(new ZodValidationPipe(SubmitIntakeRequest)) body: z.output<typeof SubmitIntakeRequest>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<DraftSubmitted> {
     const context = requestContext.getStore();
-    const signature = {
-      ...body,
+    return this.submits.submit(slug, req, res, body, this.signing, {
       ip: context?.ip ?? null,
       userAgent: context?.userAgent ?? null,
-    };
-    return this.submits.submit(slug, req, res, (tx, ids) => this.signing.sign(tx, ids, signature));
+    });
   }
 
   @Post('drafts/current/uploads')
@@ -193,7 +190,7 @@ export class BeginOnlineController {
 }
 
 @Module({
-  imports: [PortalInfoModule, FieldEncryptionModule],
+  imports: [PortalInfoModule, FieldEncryptionModule, IntakesModule],
   controllers: [BeginOnlineController],
   providers: [
     BeginOnlineService,
@@ -201,8 +198,6 @@ export class BeginOnlineController {
     DraftUploadsService,
     DraftSubmitService,
     ...DRAFT_UPLOAD_PROVIDERS,
-    // R14's intake signing service replaces this placeholder (see signing.ts).
-    PLACEHOLDER_SIGNING,
   ],
 })
 export class BeginOnlineModule {}

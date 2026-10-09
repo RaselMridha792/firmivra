@@ -1,313 +1,346 @@
 import { z } from 'zod';
-import { FirmSlug } from '../schemas.js';
-import { ScanStatus } from '../db-enums.js';
+import { Email } from '../auth/schemas.js';
+import { Phone } from '../client-auth/schemas.js';
+import { clearable, text } from '../clients/text.js';
+import { checkIntakeAnswers, IntakeAnswers } from '../intake/answers.js';
 import {
-  CreateMyUploadRequest,
-  fileNameFitsType,
-  UPLOAD_LIMITS,
-  UploadContentType,
-} from '../documents/schemas.js';
-import {
+  INTAKE_LIMITS,
   IntakeFormDefinition,
   IntakeFormKey,
-  IntakeKey,
-  type IntakeFormDefinition as Definition,
+  intakeStepFields,
 } from '../intake/definition.js';
+import { INTAKE_SIGNING_ERRORS, IntakeSigningErrorCode } from '../agreements/schemas.js';
 import {
-  IntakeAnswers,
-  IntakeAnswersInput,
-  IntakeIssue,
-  intakeNumbersMasked,
-} from '../intake/answers.js';
-import { intakeStepFields } from '../intake/definition.js';
+  INTAKE_NUMBERS_UNAVAILABLE,
+  INTAKE_TOO_MANY_NUMBERS,
+  IntakeUpload,
+  refuseFullNumbers,
+} from '../intake/schemas.js';
 
-// Begin Online (R11): a visitor fills a service's intake form on a firm's portal site, signed
-// out. Routes: /api/v1/portal/{firmSlug}/begin-online/... (ACTIVE firms only: any other slug is
-// 404). No account is created.
-//
-// 1. `services()` lists the firm's Begin Online services; `form(serviceId)` gives the newest
-//    published definition of one (the built-in form, version 1, until the firm publishes its own).
-// 2. `startDraft()` with the first step's answers (they hold the contact: `email`, `phone` and
-//    `fullName`, or `firstName` and `lastName`) starts a draft. The API answers the draft and sets
-//    an HttpOnly cookie (`beginOnlineCookie(slug)`) that is the draft's only key: browser
-//    JavaScript never sees it, and only its SHA-256 is stored.
-// 3. `current()` reads the draft (with its own definition: a draft stays on the version it
-//    started with); `saveStep(stepKey, answers)` autosaves one step (types and limits only;
-//    nothing is required until submit). Saving a step replaces that step's answers.
-// 4. A draft runs 30 days from its last save, and at most 90 days from its start: then 410
-//    DRAFT_EXPIRED.
-// SSNs and EINs come back only as `{ last4 }`; send one back unchanged to keep the stored number.
-// Answer problems are 400 VALIDATION_FAILED with `details: { issues }` (IntakeIssue).
-
-/** The draft cookie: its name and path (the API sets it; listed for tests and the docs). */
-export function beginOnlineCookie(firmSlug: string) {
-  const slug = firmSlug.toLowerCase();
-  return { name: `fv_bo_${slug}`, path: `/api/v1/portal/${slug}/begin-online` } as const;
-}
-
-/** The service kinds whose drafts carry a tax year (the year the firm prepares). */
-const TAX_YEAR_KINDS: readonly IntakeFormKey[] = ['ANNUAL_TAX', 'QUARTERLY_TAX', 'TAX_PLANNING'];
-
-/**
- * The tax year a new draft is fixed to: the current year (as the mockups ask, R11 question 4)
- * for the tax services and for any form whose texts use `{taxYear}`; otherwise null.
- */
-export function beginOnlineTaxYear(definition: Definition, today: string): number | null {
-  const uses =
-    TAX_YEAR_KINDS.includes(definition.key) || JSON.stringify(definition).includes('{taxYear}');
-  return uses ? Number(today.slice(0, 4)) : null;
-}
-
-/** The visitor's contact, from the first step: what the lead is made of. */
-export interface BeginOnlineContact {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-}
-
-/**
- * The contact in the first step's cleaned answers (`checkIntakeAnswers`): `email`, `phone`, and
- * `firstName` and `lastName`, or `fullName` (split at its last space; it needs two words). An
- * issue for each one missing: the API answers 400 VALIDATION_FAILED with them.
- */
-export function beginOnlineContact(
-  definition: Definition,
-  answers: Readonly<Record<string, unknown>>,
-): { contact: BeginOnlineContact; issues: IntakeIssue[] } {
-  const step = definition.steps[0];
-  const fields = step ? intakeStepFields(step) : [];
-  const text = (key: string) => {
-    const value = answers[key];
-    return typeof value === 'string' ? value.trim() : '';
-  };
-  const issues: IntakeIssue[] = [];
-  const need = (key: string, message = 'This is required') => {
-    const label = fields.find((f) => f.key === key)?.label ?? key;
-    issues.push({ step: step?.key ?? '', path: [key], label, message });
-  };
-  let [firstName, lastName] = [text('firstName'), text('lastName')];
-  if (fields.some((f) => f.key === 'fullName')) {
-    const parts = text('fullName').split(/\s+/).filter(Boolean);
-    if (parts.length < 2) need('fullName', 'Enter your first and last name');
-    lastName = parts.pop() ?? '';
-    firstName = parts.join(' ');
-  } else {
-    if (!firstName) need('firstName');
-    if (!lastName) need('lastName');
-  }
-  if (!text('email')) need('email');
-  if (!text('phone')) need('phone');
-  return { issues, contact: { firstName, lastName, email: text('email'), phone: text('phone') } };
-}
+// Begin Online (R11): the public intake on a firm's portal site (portal.firmivra.com/{firmSlug}/
+// begin), without an account. A visitor picks one of the six services, gives their name and email
+// (that starts a draft), fills the form step by step with autosave, uploads files, signs and
+// submits. Submitting creates a pending lead for the firm's Begin Online review queue (R11 leads);
+// no account is created (the firm invites the client after it converts the lead).
+// Routes: /api/v1/portal/{firmSlug}/begin/... (public; the firm comes from the slug).
+//   GET  forms                         the services the firm offers online
+//   GET  forms/{path}                  one form's current definition (before a draft exists)
+//   POST {path}/draft                  start a draft (sets the draft cookie)
+//   GET  {path}/draft                  this browser's draft (404 when there is none)
+//   PUT  {path}/draft/steps/{step}     autosave one step
+//   GET, POST {path}/draft/uploads     the draft's files; step 1 of an upload
+//   POST {path}/draft/uploads/confirm  step 3 of an upload
+//   DELETE {path}/draft/uploads/{id}   remove a file
+//   POST {path}/draft/submit           sign and submit
+//   POST resume-link                   email the resume links of an address's drafts
+//   POST resume                        open a draft from its emailed link (sets the draft cookie)
+// `{path}` is the service's page path (BEGIN_ONLINE_SERVICES: annual-tax, bookkeeping...).
+// One service per kind: a firm offers at most one Begin Online service of each of the six kinds
+// (R0: services.begin_online, unique per firm and kind among unarchived services, never OTHER);
+// the API picks that one.
+// No form carries an agreement of its own: the review step shows the form's agreements from
+// R14's `api.publicAgreements(slug).block({ form })` (GET /portal/{firmSlug}/intake-agreements
+// ?form=<IntakeFormKey>), and the submit carries the signature (SubmitIntakeRequest).
+// The draft cookie: HttpOnly, one per service, on /api/v1/portal/{firmSlug}/begin, a few hours. Its
+// value is signed by the API and binds the firm, the lead, the form and an expiry, never a bare
+// lead id; JavaScript never sees it, nothing is kept in localStorage, and nothing about the draft
+// is in a URL.
+// The resume link is `/{firmSlug}/begin/resume#token=...`: the token is in the fragment (never sent
+// to a server or a log); the resume page posts it to `resume`. The API stores only its SHA-256.
+// Lifetime: only the visitor's own activity (start, a save, an upload) renews a draft, to 30 days
+// from then, never past 90 days after the start; asking for a link renews nothing. The database
+// (R0's r0_intake_engine) holds the API to it: a DRAFT lead always has leads.draft_expires_at (30
+// days from the start unless the API sets less); a renewal reaches at most 30 days from now and
+// never past 90 days after the start (created_at), and neither does a resume link; the expiry is
+// frozen once the lead leaves DRAFT; an expired draft is neither renewed nor submitted, it only
+// becomes EXPIRED. When a draft expires the API clears its answers and deletes its uploads and
+// their stored files, then marks the lead EXPIRED (leads are never deleted); then 410
+// DRAFT_EXPIRED. leads.tax_year is set once, at the start (2000 to 2100).
+// A submit deletes the files whose slot is not a shown upload field before the lead leaves DRAFT,
+// in the same transaction.
+// Every route is rate limited per IP address (429 RATE_LIMITED). The resume-link route always
+// answers the same, whether or not that address has a draft: its email goes out asynchronously
+// (no difference in timing), and a silent per-address limit sends nothing more after a few links
+// an hour, with the same answer.
+// SSNs and EINs are stored encrypted with the firm's KMS key and come back as `{ last4 }` only,
+// also on resume (answers.ts, "SSNs and EINs").
+// Responses are plain objects; requests are strict (unknown fields are refused).
 
 const DateTime = z.iso.datetime({ offset: true });
-export const BeginOnlineSlug = FirmSlug;
-
-/** GET .../begin-online/services: one card of "Choose Your Service". */
-export const BeginOnlineService = z.object({
-  id: z.uuid(),
-  kind: IntakeFormKey,
-  name: z.string(),
-  description: z.string().nullable(),
-  /** Package names offered (Bookkeeping: Starter, Growth, Premium). */
-  packages: z.array(z.string()),
-});
-export type BeginOnlineService = z.infer<typeof BeginOnlineService>;
-export const BeginOnlineServiceList = z.object({ items: z.array(BeginOnlineService) });
-export type BeginOnlineServiceList = z.infer<typeof BeginOnlineServiceList>;
 
 /**
- * GET .../begin-online/services/{serviceId}/form: the definition a new draft starts on.
- * `formId` is null while the firm has no stored version (the built-in form, version 1).
+ * The six services as the "Choose Your Service" page shows them, in its order: the page path, the
+ * card and its button, and which success page follows (TAX: "Success Tax Prep.png"; GENERAL:
+ * "Success Page for all services except taxes.png").
+ */
+export const BEGIN_ONLINE_SERVICES = {
+  ANNUAL_TAX: {
+    path: 'annual-tax',
+    title: 'Tax Preparation',
+    tagline: 'Individual & Business Tax Returns',
+    button: 'Tax Intake Form',
+    success: 'TAX',
+  },
+  BOOKKEEPING: {
+    path: 'bookkeeping',
+    title: 'Business Bookkeeping',
+    tagline: 'Keep Your Business on Track',
+    button: 'Bookkeeping Intake Form',
+    success: 'GENERAL',
+  },
+  PAYROLL: {
+    path: 'payroll',
+    title: 'Payroll Services',
+    tagline: 'Simple. Accurate. On Time.',
+    button: 'Payroll Intake Form',
+    success: 'GENERAL',
+  },
+  BUSINESS_DEVELOPMENT: {
+    path: 'business-development',
+    title: 'Business Development',
+    tagline: 'Plan. Grow. Succeed.',
+    button: 'Business Development Intake Form',
+    success: 'GENERAL',
+  },
+  QUARTERLY_TAX: {
+    path: 'quarterly-tax',
+    title: 'File Business Quarterly Taxes',
+    tagline: 'Stay Compliant. Avoid Penalties.',
+    button: 'Quarterly Tax Intake Form',
+    success: 'GENERAL',
+  },
+  TAX_PLANNING: {
+    path: 'tax-planning',
+    title: 'Tax Planning',
+    tagline: 'Strategize Today for a Brighter Tomorrow',
+    button: 'Tax Planning Intake Form',
+    success: 'GENERAL',
+  },
+} as const satisfies Record<
+  IntakeFormKey,
+  { path: string; title: string; tagline: string; button: string; success: 'TAX' | 'GENERAL' }
+>;
+
+/**
+ * The six services in the "Choose Your Service" page's order (BEGIN_ONLINE_SERVICES' own order,
+ * not IntakeFormKey's): the order `forms` answers in.
+ */
+export const BEGIN_ONLINE_FORM_ORDER = Object.keys(
+  BEGIN_ONLINE_SERVICES,
+) as readonly IntakeFormKey[];
+
+/** The service whose page path this is (`annual-tax` is ANNUAL_TAX), or null. */
+export function beginOnlineFormOfPath(path: string): IntakeFormKey | null {
+  const found = Object.entries(BEGIN_ONLINE_SERVICES).find(([, s]) => s.path === path);
+  return found ? (found[0] as IntakeFormKey) : null;
+}
+
+export const BEGIN_ONLINE_LIMITS = {
+  /** A save, an upload or the start renews a draft to this many days from then... */
+  draftDays: 30,
+  /** ...but never past this many days after the start. */
+  maxDraftDays: 90,
+} as const;
+
+// ---------- The firm's forms ----------
+/**
+ * GET /portal/{firmSlug}/begin/forms: the services the firm offers online (one per kind), in the
+ * page's order (BEGIN_ONLINE_FORM_ORDER).
+ */
+export const BeginOnlineFormList = z.object({
+  items: z
+    .array(z.object({ form: IntakeFormKey, title: z.string(), version: z.number().int() }))
+    .max(IntakeFormKey.options.length),
+});
+export type BeginOnlineFormItem = z.infer<typeof BeginOnlineFormList>['items'][number];
+
+/**
+ * GET /portal/{firmSlug}/begin/forms/{path}: the form to show before a draft exists. The
+ * agreements to sign are not here: the review step reads them from
+ * `api.publicAgreements(slug).block({ form })`, which resolves the firm's service of that kind.
  */
 export const BeginOnlineForm = z.object({
-  formId: z.uuid().nullable(),
+  form: IntakeFormKey,
   version: z.number().int().min(1),
+  title: z.string(),
   definition: IntakeFormDefinition,
+  /**
+   * For `{taxYear}` in the texts: the year the firm prepares (leads.tax_year, fixed in a draft at
+   * its start).
+   */
+  taxYear: z.number().int(),
 });
 export type BeginOnlineForm = z.infer<typeof BeginOnlineForm>;
 
-/**
- * POST .../begin-online/drafts. `step` is the form's first step; its answers must hold the
- * contact (400 VALIDATION_FAILED otherwise).
- */
-export const StartDraftRequest = z.strictObject({
-  serviceId: z.uuid(),
-  step: IntakeKey,
-  answers: IntakeAnswersInput,
+// ---------- The draft ----------
+/** Who the draft is from: the resume link and the confirmation go to this email. */
+export const BeginContact = z.object({
+  firstName: z.string(),
+  lastName: z.string(),
+  email: z.string(),
+  phone: z.string().nullable(),
 });
-export type StartDraftRequest = z.input<typeof StartDraftRequest>;
-
-/** PUT .../begin-online/drafts/current/steps/{stepKey}: that step's answers, all of them. */
-export const SaveDraftStepRequest = z.strictObject({ answers: IntakeAnswersInput });
-export type SaveDraftStepRequest = z.input<typeof SaveDraftStepRequest>;
+export type BeginContact = z.infer<typeof BeginContact>;
 
 /**
- * A file of the draft, in an upload slot of its form. `scanStatus`: PENDING while the malware scan
- * runs; only CLEAN and PENDING files count for a required slot (COUNTED_UPLOAD_STATUSES).
+ * POST .../{path}/draft: the card the service page opens with ("Let's get started"). The API copies
+ * these into the form's fields with the same keys (`beginOnlinePrefill`: firstName, lastName,
+ * fullName, email, phone; each only when it fits its field). Starting again replaces this
+ * browser's draft for the service (the old one stays resumable by its link). 404 when the firm
+ * doesn't offer the service online.
  */
-export const DraftUpload = z.object({
-  id: z.uuid(),
-  slot: IntakeKey,
-  fileName: z.string(),
-  contentType: UploadContentType,
-  sizeBytes: z.number().int(),
-  scanStatus: ScanStatus,
-  createdAt: DateTime,
+export const StartBeginDraftRequest = z.strictObject({
+  firstName: text(100, 'one', 'Enter your first name'),
+  lastName: text(100, 'one', 'Enter your last name'),
+  email: Email,
+  phone: clearable(Phone),
 });
-export type DraftUpload = z.infer<typeof DraftUpload>;
-
-/** The draft as the visitor sees it. SSNs and EINs only as `{ last4 }`. */
-export const BeginDraft = z
-  .object({
-    leadId: z.uuid(),
-    service: z.object({ id: z.uuid(), kind: IntakeFormKey, name: z.string() }),
-    /** The draft's own definition (it keeps the version it started with). */
-    definition: IntakeFormDefinition,
-    /** For `{taxYear}` in the texts (fillIntakeText); null when the service has none. */
-    taxYear: z.number().int().nullable(),
-    answers: IntakeAnswers,
-    /** Steps saved at least once (the stepper's ticks). */
-    savedSteps: z.array(IntakeKey),
-    /** When the draft runs out unless it is saved again (30 days from the last save). */
-    draftExpiresAt: DateTime,
-    /** Its files, oldest first (`createUpload`; files are added only while it is a draft). */
-    uploads: z.array(DraftUpload),
-  })
-  .refine((d) => intakeNumbersMasked(d.definition, d.answers), {
-    message: 'An SSN or EIN must come back masked',
-    path: ['answers'],
-  });
-export type BeginDraft = z.infer<typeof BeginDraft>;
-
-// ---------- Resume links ----------
+export type StartBeginDraftRequest = z.input<typeof StartBeginDraftRequest>;
 
 /**
- * POST .../drafts/current/resume-link answers when the draft now runs out. The email holds a link
- * `{portal}/{slug}/begin/resume#token=...` (the key in the fragment, never sent to a server); a
- * new link replaces the old one and this browser's cookie.
+ * The answers a new draft starts with, as the API and the mock fill them: the start card's
+ * contact copied into the form's fields with the same keys (firstName, lastName, fullName as
+ * "first last", email, phone). Each is kept only when the form has that field and the value passes
+ * it as a save of its step would, so the first save of that step never refuses it: a joined
+ * fullName longer than the field's maxLength (each name may have 100 characters) is left out.
  */
-export const ResumeLinkSent = z.object({ draftExpiresAt: DateTime });
-export type ResumeLinkSent = z.infer<typeof ResumeLinkSent>;
-
-/** POST .../drafts/resume: the fragment's token, in the body (never in a URL). */
-export const ResumeDraftRequest = z.strictObject({
-  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'This link is not complete'),
-});
-export type ResumeDraftRequest = z.input<typeof ResumeDraftRequest>;
-
-/** The resume page's `#token=...`, or null. */
-export function resumeTokenFromHash(hash: string): string | null {
-  const token = new URLSearchParams(hash.replace(/^#/, '')).get('token');
-  return token && ResumeDraftRequest.safeParse({ token }).success ? token : null;
+export function beginOnlinePrefill(
+  definition: IntakeFormDefinition,
+  contact: { firstName: string; lastName: string; email: string; phone?: string | null },
+): IntakeAnswers {
+  const values: Record<string, string | null | undefined> = {
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    fullName: `${contact.firstName} ${contact.lastName}`,
+    email: contact.email,
+    phone: contact.phone,
+  };
+  const out: IntakeAnswers = {};
+  for (const step of definition.steps) {
+    for (const f of intakeStepFields(step)) {
+      const value = values[f.key];
+      if (typeof value !== 'string') continue;
+      const { answers, issues } = checkIntakeAnswers(
+        definition,
+        { [f.key]: value },
+        { mode: 'save', step: step.key },
+      );
+      const clean = answers[f.key];
+      if (issues.length === 0 && clean !== undefined) out[f.key] = clean;
+    }
+  }
+  return out;
 }
 
-// ---------- Submit ----------
+/**
+ * A draft: the form it is on (its own version), the answers so far and its files. A full SSN or
+ * EIN in the answers fails to parse (only `{ last4 }` may come back).
+ */
+export const BeginDraft = BeginOnlineForm.extend({
+  contact: BeginContact,
+  answers: IntakeAnswers,
+  uploads: z.array(IntakeUpload).max(INTAKE_LIMITS.maxFiles),
+  /**
+   * Steps saved at least once (intake_submissions.saved_steps; the stepper's ticks; resume at the
+   * first one missing).
+   */
+  savedSteps: z.array(z.string()).max(10),
+  /**
+   * After this the draft is gone (410 DRAFT_EXPIRED). A start, a save or an upload renews it (30
+   * days, at most 90 days after the start); a resume link does not.
+   */
+  expiresAt: DateTime,
+  updatedAt: DateTime,
+}).superRefine(refuseFullNumbers);
+export type BeginDraft = z.infer<typeof BeginDraft>;
 
-/** A name as typed: 1 to 200 characters after trimming, no control characters. */
-const SignedName = z
+/** The resume link's token: 32 random bytes, base64url (43 characters). */
+export const ResumeToken = z
   .string()
-  .trim()
-  .min(1, 'Enter your name')
-  .max(200, 'Use at most 200 characters')
-  .regex(/^[^\p{Cc}]*$/u, 'Remove the special characters');
-/** Trimmed, inner whitespace collapsed, lower-cased: how the two names are compared. */
-const comparable = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+  .regex(/^[A-Za-z0-9_-]{43}$/, 'This link is not complete. Open it again from your email.');
 
 /**
- * POST .../drafts/current/submit: the printed name and the typed signature, which must be the
- * same name (letter case and spacing aside). The firm's agreements are signed with them (R14).
+ * The token in a resume link's fragment (`#token=...`), or null. The resume page reads
+ * `window.location.hash`, posts the token, then clears the fragment (history.replaceState).
  */
-export const SubmitDraftRequest = z
-  .strictObject({ printedName: SignedName, typedSignature: SignedName })
-  .refine((b) => comparable(b.printedName) === comparable(b.typedSignature), {
-    message: 'Type the same name as your printed name',
-    path: ['typedSignature'],
-  });
-export type SubmitDraftRequest = z.input<typeof SubmitDraftRequest>;
+export function resumeTokenFromHash(hash: string): string | null {
+  const token = new URLSearchParams(hash.replace(/^#/, '')).get('token');
+  return token && ResumeToken.safeParse(token).success ? token : null;
+}
 
-/** The answer to a submit: the draft is sent; its cookie is cleared. */
-export const DraftSubmitted = z.object({
-  leadId: z.uuid(),
-  service: z.object({ id: z.uuid(), kind: IntakeFormKey, name: z.string() }),
+/**
+ * POST /portal/{firmSlug}/begin/resume: opens the draft (and sets this browser's draft cookie).
+ * 410 DRAFT_EXPIRED for an expired, replaced or unknown link (the same answer for each); 409
+ * DRAFT_SUBMITTED once the draft was sent. The answer's `form` says which service page to open.
+ */
+export const ResumeBeginDraftRequest = z.strictObject({ token: ResumeToken });
+export type ResumeBeginDraftRequest = z.input<typeof ResumeBeginDraftRequest>;
+
+/**
+ * POST /portal/{firmSlug}/begin/resume-link ("Save and Continue Later", or "Email me my link" on
+ * the resume page): the API emails a fresh link for each open draft of this address at the firm
+ * (an older link stops working). It never extends a draft. Always `{ received: true }`, never
+ * saying whether the address has a draft: the email is sent asynchronously, and past a few links
+ * an hour for one address it silently sends nothing. 429 RATE_LIMITED per IP address.
+ */
+export const EmailResumeLinkRequest = z.strictObject({ email: Email });
+export type EmailResumeLinkRequest = z.input<typeof EmailResumeLinkRequest>;
+
+export const BeginReceived = z.object({ received: z.literal(true) });
+export type BeginReceived = z.infer<typeof BeginReceived>;
+
+/**
+ * POST .../{path}/draft/submit (the body is SubmitIntakeRequest: the review step's answers and
+ * the signature). The answers are locked, the files of slots that are not shown upload fields are
+ * deleted, the lead goes to the firm's review queue and the visitor gets a confirmation email
+ * that names the form, never the answers. Then this draft's calls answer 409 DRAFT_SUBMITTED.
+ * Open `/{firmSlug}/begin/done?form={path}`.
+ */
+export const BeginSubmitted = z.object({
+  received: z.literal(true),
+  form: IntakeFormKey,
   submittedAt: DateTime,
 });
-export type DraftSubmitted = z.infer<typeof DraftSubmitted>;
+export type BeginSubmitted = z.infer<typeof BeginSubmitted>;
 
-// ---------- Uploads ----------
-const { fileName, contentType, sizeBytes, sha256 } = CreateMyUploadRequest.shape;
-
-/**
- * POST .../drafts/current/uploads: a file for an upload slot of the draft's form (PDF, JPG, PNG,
- * .xlsx or .docx, at most 10 MB). Then PUT it to the ticket's URL and `confirmUpload`
- * (ConfirmUploadRequest), as with documents (`uploadFile()` in apps/web/src/lib/upload.ts).
- */
-export const CreateDraftUploadRequest = z
-  .strictObject({ slot: IntakeKey, fileName, contentType, sizeBytes, sha256 })
-  .superRefine((body, ctx) => {
-    if (!fileNameFitsType(body.fileName, body.contentType)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['fileName'],
-        message: `The file name must end in ${UPLOAD_LIMITS.types[body.contentType].join(' or ')}`,
-      });
-    }
-  });
-export type CreateDraftUploadRequest = z.input<typeof CreateDraftUploadRequest>;
-
-/** `error.details` of a 400 VALIDATION_FAILED about answers (the same as intake submit's). */
-export const BeginOnlineValidationDetails = z.object({ issues: z.array(IntakeIssue) });
-
+/** Stable `error.code` values of this module, besides the generic ones in ApiError. */
 export const BeginOnlineErrorCode = z.enum([
-  /** 400: the body or the answers (`details.issues`): a wrong step, a missing contact... */
-  'VALIDATION_FAILED',
-  /** 404: no such firm (or not ACTIVE), service or form. */
-  'NOT_FOUND',
-  /** 404: no draft for this browser (no cookie, or one that was replaced or is for another firm). */
-  'DRAFT_NOT_FOUND',
-  /** 410: the draft ran out (30 days without a save, or 90 days in all). */
+  /** 410: the draft or its resume link expired (or the link was replaced by a newer one). */
   'DRAFT_EXPIRED',
-  /** 409: the firm published a new version of the form meanwhile: reload it and start again. */
-  'FORM_CHANGED',
-  /** 410: a resume link that is not (or no longer) valid: replaced, expired or sent. */
-  'RESUME_LINK_EXPIRED',
-  /** 409: the slot (its `maxFiles`) or the draft (50 files) is full. */
+  /** 409: the draft was already submitted. */
+  'DRAFT_SUBMITTED',
+  /**
+   * 409: the slot holds its field's `maxFiles` or the draft holds INTAKE_LIMITS.maxFiles; every
+   * file counts, blocked ones too.
+   */
   'TOO_MANY_FILES',
-  /** 410: the upload ticket expired or was used. */
-  'UPLOAD_EXPIRED',
-  /** 409: the stored file is not the described one (size, checksum or type). */
-  'UPLOAD_MISMATCH',
-  'FILE_PASSWORD_PROTECTED',
-  'FILE_HAS_MACROS',
-  /** 503: files or email can't be reached right now. */
-  'SERVICE_UNAVAILABLE',
-  /** 409: the draft changed while it was being sent (another tab saved): review and send again. */
-  'INTAKE_CHANGED',
-  /** 503: the agreements can't be signed right now. */
-  'SIGNING_UNAVAILABLE',
-  /** 429: too many requests; try again later. */
-  'RATE_LIMITED',
-  /** 503: SSNs and EINs can't be saved right now. */
+  /**
+   * 503 on a save or submit that holds a new SSN or EIN: it can't be sealed with the firm's key
+   * right now (no key yet, KMS down). Nothing is saved; try again later.
+   */
   'ENCRYPTION_UNAVAILABLE',
+  /** 400 on a save or submit with more than 120 new SSNs and EINs; nothing is saved. */
+  'TOO_MANY_NUMBERS',
+  /**
+   * The submit's signing codes (R14's IntakeSigningErrorCode), TERMS_OUTDATED included: the
+   * Terms or Privacy versions in `signature.acceptLegal` are not the firm's current ones.
+   */
+  ...IntakeSigningErrorCode.options,
 ]);
 export type BeginOnlineErrorCode = z.infer<typeof BeginOnlineErrorCode>;
 
+/**
+ * What visitors see: `errorMessage(error, { ...DOCUMENT_ERRORS, ...BEGIN_ONLINE_ERRORS })` (an
+ * upload can also answer R5's UPLOAD_EXPIRED, UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED and
+ * FILE_HAS_MACROS). 429 RATE_LIMITED is generic ("Too many attempts..."). A submit's 400
+ * VALIDATION_FAILED carries `details: { issues }`; rerun `checkIntakeAnswers` to place them.
+ */
 export const BEGIN_ONLINE_ERRORS = {
-  VALIDATION_FAILED: 'Check the highlighted answers.',
-  NOT_FOUND: 'This page is not available.',
-  DRAFT_NOT_FOUND: 'We could not find your saved form. Please start again.',
-  DRAFT_EXPIRED: 'Your saved form has expired. Please start again.',
-  FORM_CHANGED: 'This form was just updated. Please reload the page.',
-  RESUME_LINK_EXPIRED: 'This link has expired or was replaced by a newer one.',
-  TOO_MANY_FILES: 'No more files can be added here.',
-  UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
-  UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
-  FILE_PASSWORD_PROTECTED: 'Remove the password and upload the file again.',
-  FILE_HAS_MACROS: 'Save it as a regular .xlsx or .docx without macros and upload again.',
-  SERVICE_UNAVAILABLE: 'This is not available right now. Please try again in a moment.',
-  INTAKE_CHANGED: 'Your form changed in another window. Please review it and send it again.',
-  SIGNING_UNAVAILABLE: 'Signing is not available right now. Please try again later.',
-  RATE_LIMITED: 'Too many attempts. Please try again later.',
-  ENCRYPTION_UNAVAILABLE: 'Your answers cannot be saved right now. Please try again later.',
+  DRAFT_EXPIRED:
+    'This link is no longer valid. If your form is still saved, enter your email for a new link.',
+  DRAFT_SUBMITTED: 'This form has already been submitted. Thank you!',
+  TOO_MANY_FILES: 'There is no room for more files here. Remove a file to add another.',
+  ENCRYPTION_UNAVAILABLE: INTAKE_NUMBERS_UNAVAILABLE,
+  TOO_MANY_NUMBERS: INTAKE_TOO_MANY_NUMBERS,
+  ...INTAKE_SIGNING_ERRORS,
 } as const satisfies Record<BeginOnlineErrorCode, string>;

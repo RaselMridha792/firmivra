@@ -1,7 +1,9 @@
 import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { Database, TxClient } from '@firmivra/db';
-import { beginOnlineCookie, type DraftSubmitted } from '@firmivra/types';
+import type { IntakeAnswersInput, IntakeSignatureInput } from '@firmivra/types';
+import type { z } from 'zod';
+import { beginOnlineCookie, type DraftSubmitted } from './wire.js';
 import { AuditService } from '../audit/audit.service.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -9,11 +11,11 @@ import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
 import { requireFirmWideAgreement } from '../intake/intake-agreement.js';
 import { lockVersion, prepareSubmit, type SlotFile } from '../intake/intake-submit.js';
-import type { IntakeSigning } from '../intake/intakes.service.js';
+import type { IntakeSigner } from '../intake/intake-signing.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import { BeginOnlineService, type Draft } from './begin-online.service.js';
-import { draftErrors } from './drafts.js';
+import { draftErrors, rethrowExpired } from './drafts.js';
 
 const changed = () =>
   new ConflictException({
@@ -58,8 +60,16 @@ export class DraftSubmitService {
     slug: string,
     req: Request,
     res: Response,
-    sign: IntakeSigning,
+    body: { answers?: IntakeAnswersInput; signature: z.output<typeof IntakeSignatureInput> },
+    signer: IntakeSigner,
+    source: { ip: string | null; userAgent: string | null },
   ): Promise<DraftSubmitted> {
+    if (body.answers) {
+      // The review step's answers, saved first as a save of that step (kept if the submit fails).
+      const open = await this.drafts.draftOf(slug, req);
+      const review = open.definition.steps.at(-1)!.key;
+      await this.drafts.saveStep(slug, review, body.answers, req);
+    }
     const draft = await this.drafts.draftOf(slug, req);
     const { firm, leadId, intakeId } = draft;
     const businessId = firm.id;
@@ -71,64 +81,81 @@ export class DraftSubmitService {
       draft.submission.answers,
       before,
     );
-    const done = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-      const lead = await holdLead(tx, draft);
-      await tx.$executeRaw`SELECT 1 FROM intakes WHERE id = ${intakeId}::uuid FOR UPDATE`;
-      const current = await tx.intakeSubmission.findFirst({
-        where: { intakeId, submittedAt: null },
-        select: { id: true, version: true, answers: true },
-      });
-      const files = await tx.leadUpload.findMany({
-        where: { leadId },
-        orderBy: { createdAt: 'asc' },
-        select: { id: true, slot: true, scanStatus: true },
-      });
-      const now = files.map((f) => ({ id: f.id, slot: f.slot, status: f.scanStatus }));
-      if (
-        current?.id !== draft.submission.id ||
-        JSON.stringify(current.answers) !== JSON.stringify(draft.submission.answers) ||
-        !sameFiles(now, before)
-      ) {
-        throw changed();
-      }
-      // Nothing to sign: 409 NO_INTAKE_AGREEMENT before any file or version changes.
-      await requireFirmWideAgreement(tx, businessId);
-      const removed = hidden.length
-        ? await tx.leadUpload.findMany({
-            where: { id: { in: hidden.map((f) => f.id) } },
-            select: { s3Key: true },
-          })
-        : [];
-      if (hidden.length) {
-        await tx.leadUpload.deleteMany({ where: { id: { in: hidden.map((f) => f.id) } } });
-      }
-      const ids = { businessId, intakeId, submissionId: current.id };
-      // Answers first, then the signature (R14 freezes them), then the version submitted.
-      await lockVersion(tx, ids, answers, null, () =>
-        sign(tx, { ...ids, version: current.version }),
-      );
-      const { submittedAt } = await tx.intakeSubmission.findUniqueOrThrow({
-        where: { id: current.id },
-        select: { submittedAt: true },
-      });
-      if (!submittedAt) throw new Error('The version was not submitted');
-      await tx.lead.update({
-        where: { id: leadId },
-        data: { status: 'SUBMITTED', submittedAt, resumeTokenHash: null, resumeExpiresAt: null },
-      });
-      await this.audit.logIn(
-        tx,
-        'begin_online.submitted',
-        { type: 'lead', id: leadId },
-        { serviceId: draft.service.id, intakeId, version: current.version, removed: hidden.length },
-        { businessId },
-      );
-      const staff = await tx.membership.findMany({
-        where: { role: { in: ['OWNER', 'ADMIN'] }, status: 'ACTIVE' },
-        select: { userId: true, user: { select: { email: true } } },
-      });
-      return { submittedAt, email: lead.email, keys: removed.map((r) => r.s3Key), staff };
-    });
+    const done = await this.database
+      .withScope({ kind: 'business', businessId }, async (tx) => {
+        // First, before counting or removing files or signing: the intake row, as the portal's
+        // submit holds it (R0), then the lead.
+        await tx.$queryRaw`SELECT 1 FROM intakes WHERE id = ${intakeId}::uuid FOR NO KEY UPDATE`;
+        const lead = await holdLead(tx, draft);
+        const current = await tx.intakeSubmission.findFirst({
+          where: { intakeId, submittedAt: null },
+          select: { id: true, version: true, answers: true },
+        });
+        const files = await tx.leadUpload.findMany({
+          where: { leadId },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, slot: true, scanStatus: true },
+        });
+        const now = files.map((f) => ({ id: f.id, slot: f.slot, status: f.scanStatus }));
+        if (
+          current?.id !== draft.submission.id ||
+          JSON.stringify(current.answers) !== JSON.stringify(draft.submission.answers) ||
+          !sameFiles(now, before)
+        ) {
+          throw changed();
+        }
+        // Nothing to sign: 409 NO_INTAKE_AGREEMENT before any file or version changes.
+        await requireFirmWideAgreement(tx, businessId);
+        const removed = hidden.length
+          ? await tx.leadUpload.findMany({
+              where: { id: { in: hidden.map((f) => f.id) } },
+              select: { s3Key: true },
+            })
+          : [];
+        if (hidden.length) {
+          await tx.leadUpload.deleteMany({ where: { id: { in: hidden.map((f) => f.id) } } });
+        }
+        const ids = { businessId, intakeId, submissionId: current.id };
+        // Answers first, then the signature (R14 freezes them), then the version submitted.
+        // R14's sign(): the lead's Terms and Privacy acceptance is required when the firm has
+        // published both (400 VALIDATION_FAILED without it, 409 TERMS_OUTDATED for old versions).
+        await lockVersion(tx, ids, answers, null, () =>
+          signer.sign(tx, {
+            ...ids,
+            serviceId: draft.service.id,
+            signer: { kind: 'lead', leadId, email: lead.email },
+            signature: body.signature,
+            ...source,
+          }),
+        );
+        const { submittedAt } = await tx.intakeSubmission.findUniqueOrThrow({
+          where: { id: current.id },
+          select: { submittedAt: true },
+        });
+        if (!submittedAt) throw new Error('The version was not submitted');
+        await tx.lead.update({
+          where: { id: leadId },
+          data: { status: 'SUBMITTED', submittedAt, resumeTokenHash: null, resumeExpiresAt: null },
+        });
+        await this.audit.logIn(
+          tx,
+          'begin_online.submitted',
+          { type: 'lead', id: leadId },
+          {
+            serviceId: draft.service.id,
+            intakeId,
+            version: current.version,
+            removed: hidden.length,
+          },
+          { businessId },
+        );
+        const staff = await tx.membership.findMany({
+          where: { role: { in: ['OWNER', 'ADMIN'] }, status: 'ACTIVE' },
+          select: { userId: true, user: { select: { email: true } } },
+        });
+        return { submittedAt, email: lead.email, keys: removed.map((r) => r.s3Key), staff };
+      })
+      .catch(rethrowExpired);
 
     await this.removeObjects(businessId, done.keys);
     const { name, path } = beginOnlineCookie(firm.slug);

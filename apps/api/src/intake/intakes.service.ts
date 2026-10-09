@@ -7,10 +7,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
+import type { z } from 'zod';
 import {
   checkIntakeAnswers,
   type IntakeAnswersInput,
   type IntakeChoice,
+  type IntakeSignatureInput,
   type IntakeStatus,
   type IntakeSummary,
   type IntakeView,
@@ -23,7 +25,8 @@ import { FieldEncryption } from '../field-encryption/field-encryption.service.js
 import { requireFirmWideAgreement } from './intake-agreement.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
 import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
-import { lockVersion, prepareSubmit, type SignedBy, type SlotFile } from './intake-submit.js';
+import type { IntakeSigner } from './intake-signing.js';
+import { lockVersion, prepareSubmit, type SlotFile } from './intake-submit.js';
 
 /** Statuses in which the client can change the answers. */
 export const OPEN_STATUSES: IntakeStatus[] = ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'];
@@ -36,16 +39,6 @@ const locked = () => conflict('INTAKE_LOCKED', 'This form was already sent to th
 const invalidStatus = () => conflict('INVALID_STATUS', 'Not possible in this status');
 const changed = () =>
   conflict('INTAKE_CHANGED', 'The form changed while it was being sent. Review it and send again.');
-
-/**
- * Signs the version being submitted, in the submit's transaction, after its final answers are
- * written: R14's intake signing service (sign()), which stores the intake_signatures row and
- * returns its evidence. Throws to refuse the submit.
- */
-export type IntakeSigning = (
-  tx: TxClient,
-  ids: { businessId: string; intakeId: string; submissionId: string; version: number },
-) => Promise<SignedBy>;
 
 /** Who may reach an intake: the client of its engagement (portal) or a member (firm). */
 export type IntakeReach =
@@ -460,26 +453,47 @@ export class IntakesService {
   }
 
   /**
-   * The client sends the open version (portal): the whole form checked, the files in slots the
-   * answers hide taken out of it, the agreements signed (`sign`), then the version locked and the
-   * intake SUBMITTED, in one transaction. 409 NO_INTAKE_AGREEMENT, with nothing changed, while the
-   * firm has no published firm-wide agreement to sign. A save or an upload that lands in between is 409
-   * INTAKE_CHANGED, so what was checked is what is locked.
+   * The client signs and sends the open version (portal; POST .../submit, contract B's
+   * SubmitIntakeRequest). `answers`, when sent, are the review step's and are saved first as a
+   * save of that step (they stay saved if the submit is then refused). Then the whole form is
+   * checked and, in one transaction run as the client's login (the database checks that the
+   * signature is that login's) that starts by holding the intake row: the files in slots the
+   * answers hide taken out of it, 409 NO_INTAKE_AGREEMENT while the firm has no published
+   * firm-wide agreement, the agreements signed (`signer`, INTAKE_SIGNING), then the version
+   * locked with the signer's evidence and the intake SUBMITTED. A portal signature takes no
+   * Terms and Privacy acceptance (400 VALIDATION_FAILED). A save or an upload that lands in
+   * between is 409 INTAKE_CHANGED, so what was checked is what is locked; one that comes while
+   * the submit holds the row waits and then finds it locked.
    */
   async submit(
     businessId: string,
     reach: IntakeReach & { kind: 'client' },
     id: string,
-    submittedByUserId: string,
-    sign: IntakeSigning,
+    who: { userId: string; clientAccountId: string },
+    body: { answers?: IntakeAnswersInput; signature: z.output<typeof IntakeSignatureInput> },
+    signer: IntakeSigner,
+    source: { ip: string | null; userAgent: string | null },
   ): Promise<IntakeView> {
+    if (body.signature.acceptLegal) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'A portal intake takes no Terms and Privacy acceptance',
+      });
+    }
+    if (body.answers) {
+      const first = await this.inFirm(businessId, (tx) => this.row(tx, businessId, reach, id));
+      const definition = readDefinition(first.form, first.engagement!.service.kind);
+      const review = definition.steps.at(-1)!;
+      await this.saveStep(businessId, reach, id, review.key, body.answers);
+    }
     const before = await this.inFirm(businessId, async (tx) => ({
       row: await this.row(tx, businessId, reach, id),
       files: await this.slotFiles(tx, businessId, id),
     }));
     const draft = before.row.submissions[0];
     if (!OPEN_STATUSES.includes(before.row.status) || !draft || draft.submittedAt) throw locked();
-    const definition = readDefinition(before.row.form, before.row.engagement!.service.kind);
+    const service = before.row.engagement!.service;
+    const definition = readDefinition(before.row.form, service.kind);
     const { answers, hidden } = await prepareSubmit(
       this.fe,
       { businessId, intakeId: id },
@@ -487,10 +501,12 @@ export class IntakesService {
       answersOf(draft.answers),
       before.files,
     );
-    // As the signed-in client: the database checks that the signature is that login's.
-    const asSigner = { kind: 'business' as const, businessId, actorUserId: submittedByUserId };
+    const asSigner = { kind: 'business' as const, businessId, actorUserId: who.userId };
     const view = await this.database.withScope(asSigner, async (tx) => {
-      const row = await this.lockRow(tx, businessId, reach, id);
+      // First, before counting files, detaching or signing: an upload confirm or a file removal
+      // (same row lock) waits for this submit and then finds the intake locked.
+      await tx.$queryRaw`SELECT 1 FROM intakes WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
+      const row = await this.row(tx, businessId, reach, id);
       const current = row.submissions[0];
       if (!OPEN_STATUSES.includes(row.status) || current?.id !== draft.id || current.submittedAt) {
         throw locked();
@@ -508,13 +524,15 @@ export class IntakesService {
           data: { intakeId: null, intakeSlot: null },
         });
       }
-      await lockVersion(
-        tx,
-        { businessId, intakeId: id, submissionId: draft.id },
-        answers,
-        submittedByUserId,
-        () =>
-          sign(tx, { businessId, intakeId: id, submissionId: draft.id, version: draft.version }),
+      const ids = { businessId, intakeId: id, submissionId: draft.id };
+      await lockVersion(tx, ids, answers, who.userId, () =>
+        signer.sign(tx, {
+          ...ids,
+          serviceId: service.id,
+          signer: { kind: 'client', clientAccountId: who.clientAccountId },
+          signature: body.signature,
+          ...source,
+        }),
       );
       return this.view(tx, businessId, await this.row(tx, businessId, reach, id));
     });
@@ -538,7 +556,7 @@ export class IntakesService {
 
   private async lockRow(tx: TxClient, businessId: string, reach: IntakeReach, id: string) {
     await this.row(tx, businessId, reach, id); // 404 before taking the lock
-    await tx.$executeRaw`SELECT 1 FROM intakes WHERE id = ${id}::uuid FOR UPDATE`;
+    await tx.$executeRaw`SELECT 1 FROM intakes WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
     return this.row(tx, businessId, reach, id);
   }
 }

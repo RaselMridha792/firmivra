@@ -24,6 +24,7 @@ import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from './config.js';
 import type { FirmActor } from './document-records.js';
 import { DocumentRequestsService } from './document-requests.service.js';
@@ -174,6 +175,8 @@ export class DocumentsController {
 }
 
 @Module({
+  // R6's Notifier: request and upload events reach the bell (and the email copy) once they commit.
+  imports: [NotificationsModule],
   controllers: [DocumentsController, MyDocumentsController],
   providers: [
     // Settings are checked when the app starts, so a bad SCAN_MODE never reaches a request.

@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { Database } from '@firmivra/db';
-import type { BeginDraft, ResumeLinkSent } from '@firmivra/types';
+import type { BeginDraft, ResumeLinkSent } from './wire.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PortalInfoService } from '../client-auth/portal-info.controller.js';
 import { ENV } from '../config/config.module.js';
@@ -17,7 +17,14 @@ import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { BeginOnlineService, type Draft } from './begin-online.service.js';
-import { draftErrors, hashToken, newDraftToken, renewDraft, writeDraftCookie } from './drafts.js';
+import {
+  draftErrors,
+  hashToken,
+  rethrowExpired,
+  newDraftToken,
+  renewDraft,
+  writeDraftCookie,
+} from './drafts.js';
 
 /**
  * Resume links a draft sends, counted in the audit log (so every API task shares the counts):
@@ -65,9 +72,8 @@ export class ResumeLinksService {
     const { firm, leadId } = draft;
     const { token, hash } = newDraftToken();
     const since = new Date(Date.now() - RESUME_LINK_LIMITS.windowMs);
-    const sent = await this.database.withScope(
-      { kind: 'business', businessId: firm.id },
-      async (tx) => {
+    const sent = await this.database
+      .withScope({ kind: 'business', businessId: firm.id }, async (tx) => {
         // Locks the lead first, so two sends for one draft count one after the other.
         const expiresAt = await renewDraft(tx, leadId, draft.hash, hash);
         if (!expiresAt) throw draftErrors.noDraft();
@@ -89,8 +95,8 @@ export class ResumeLinksService {
           { businessId: firm.id },
         );
         return { expiresAt, email: lead.email };
-      },
-    );
+      })
+      .catch(rethrowExpired);
     writeDraftCookie(res, firm.slug, token, sent.expiresAt, this.secure);
     const link = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/begin/resume#token=${token}`;
     try {

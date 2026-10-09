@@ -9,6 +9,7 @@ import {
 } from '@firmivra/types';
 import type { FieldEncryption } from '../field-encryption/field-encryption.service.js';
 import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
+import { signingRefusal } from './intake-signing.js';
 
 type Values = Record<string, unknown>;
 
@@ -62,8 +63,9 @@ export interface SignedBy {
  * Locks the draft version in the caller's transaction, which holds the intake row and checked
  * that the draft is still the open one. The order is the database's (R14's rules): the final
  * answers first (signing freezes them), then `sign` (its intake_signatures row, in this
- * transaction), then the version submitted with the same evidence and the intake SUBMITTED, its
- * correction note cleared with the status change.
+ * transaction; the database's SIGNATURE_MISMATCH check answers 400), then the version submitted
+ * with the same evidence and the intake SUBMITTED, its correction note cleared with the status
+ * change.
  */
 export async function lockVersion(
   tx: TxClient,
@@ -76,7 +78,9 @@ export async function lockVersion(
     where: { id: ids.submissionId },
     data: { answers: answers as Prisma.InputJsonValue },
   });
-  const signed = await sign();
+  const signed = await sign().catch((error: unknown) => {
+    throw signingRefusal(error) ?? error;
+  });
   await tx.intakeSubmission.update({
     where: { id: ids.submissionId },
     data: {
