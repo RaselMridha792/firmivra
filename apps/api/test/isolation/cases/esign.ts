@@ -5,6 +5,7 @@ import type { CaseModule } from '../world.js';
 const OFF = 'behind the esign module, off everywhere until r0_esign (#156)';
 
 export const moduleOff: CaseModule['moduleOff'] = {
+  'POST /api/v1/esign/requests': OFF,
   'GET /api/v1/esign/requests/:id': OFF,
   'PATCH /api/v1/esign/requests/:id': OFF,
   'DELETE /api/v1/esign/requests/:id': OFF,

@@ -50,3 +50,4 @@
 ## Progress log
 
 - Oct 9: #155 (R0's intake agreements and signature evidence tables) merged. Contract #259 opened on `claude/r14-agreements-calculators-2i2erk`; Scrum pre-review fixes applied (block keyed by form plus the portal route, text rules, version bounds, upload facts, error maps, mock fixes). Shared `FileName` rule now exported from `documents/schemas.ts` and reused for agreement PDFs.
+- Oct 9: agreements API on the revised contract (`rasel/R14-agreements-api`): the Begin Online block by `?form=` (the firm's unarchived service of that kind; until R0's `begin_online` column lands, the first by sort order, creation, id), the portal block by intake, `legal` only with both Terms and Privacy, 409 `SERVICE_AGREEMENT_LIMIT` under the firm's create lock.
