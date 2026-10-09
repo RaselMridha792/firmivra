@@ -23,9 +23,11 @@ import type {
   DirectoryFirm,
   DirectoryLogin,
   DirectoryMember,
+  DirectoryStaff,
   EsignDirectory,
 } from '../../src/esign/requests/esign-directory.js';
 import type {
+  EsignApprovalNote,
   EsignDocumentRecord,
   EsignDraftPatch,
   EsignEventRecord,
@@ -45,6 +47,12 @@ import { ESIGN_OPEN_STATUSES, type EsignRequestStatus } from '@firmivra/types';
 import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
 import { expiryDue, reminderDue, warningDue } from '../../src/esign/lifecycle/lifecycle.job.js';
 import type { NotifyMessage, NotifyService } from '../../src/notify/notify.types.js';
+import type {
+  ApprovalDecisionWrite,
+  EsignExtrasRepository,
+  EsignStaffRole,
+  SubmitApprovalWrite,
+} from '../../src/esign/extras/extras.repository.js';
 import type {
   CorrectWrite,
   EsignLifecycleRepository,
@@ -94,6 +102,12 @@ export class InMemoryEsignRepository implements EsignRepository {
   readonly consent = new Set<string>();
   /** Each firm's timelines, by request id (test set-up writes them). */
   readonly timelines = new PerFirm<EsignEventRecord[]>();
+  /** Each firm's approval notes, by request id. */
+  readonly notes = new PerFirm<EsignApprovalNote[]>();
+
+  approvalNotes(businessId: string, id: string): Promise<EsignApprovalNote[]> {
+    return Promise.resolve(structuredClone(this.notes.of(businessId).get(id) ?? []));
+  }
 
   /** The directory stands in for the joins (client assignment and names, sender names). */
   constructor(private readonly directory?: InMemoryDirectory) {}
@@ -589,6 +603,80 @@ export class InMemoryLifecycleRepository implements EsignLifecycleRepository {
   }
 }
 
+/** Extras writes over the requests fake: each checks and writes in one synchronous step. */
+export class InMemoryExtrasRepository implements EsignExtrasRepository {
+  constructor(private readonly requests: InMemoryEsignRepository) {}
+
+  submitForApproval(businessId: string, id: string, write: SubmitApprovalWrite, readAt: Date) {
+    return this.apply(businessId, id, 'DRAFT', write, readAt, (row) => {
+      row.record.status = 'NEEDS_APPROVAL';
+      for (const r of row.parts.recipients) {
+        if (r.kind === 'APPROVER') Object.assign(r, { status: 'SENT', sentAt: write.at });
+      }
+      return true;
+    });
+  }
+
+  decideApproval(businessId: string, id: string, write: ApprovalDecisionWrite, readAt: Date) {
+    return this.apply(businessId, id, 'NEEDS_APPROVAL', write, readAt, (row) => {
+      const me = row.parts.recipients.find((r) => r.id === write.recipientId);
+      if (me?.kind !== 'APPROVER' || me.status === 'APPROVED') return false;
+      if (write.decision === 'APPROVE') {
+        me.status = 'APPROVED';
+        if (write.last) row.record.status = 'DRAFT';
+      } else {
+        row.record.status = 'DRAFT';
+        for (const r of row.parts.recipients) {
+          if (r.kind === 'APPROVER') Object.assign(r, { status: 'WAITING', sentAt: null });
+        }
+      }
+      const notes = this.requests.notes.of(businessId);
+      const note = { recipientId: me.id, decision: write.decision, note: write.note ?? '' };
+      notes.set(id, [...(notes.get(id) ?? []), note]);
+      return true;
+    });
+  }
+
+  queueEmails(businessId: string, _id: string, emails: LifecycleEmail[]) {
+    return Promise.resolve(emails.map((e) => this.queue(businessId, e)));
+  }
+
+  staffRoles(businessId: string) {
+    const roles = new Map<string, EsignStaffRole>();
+    for (const [userId, role] of this.requests.roles.of(businessId)) {
+      if (role === 'MANAGER' || role === 'VIEWER') roles.set(userId, role);
+    }
+    return Promise.resolve(roles);
+  }
+
+  private queue(businessId: string, email: LifecycleEmail) {
+    const emailId = randomUUID();
+    this.requests.outbox.of(businessId).set(emailId, { ...email, status: 'QUEUED', error: null });
+    return emailId;
+  }
+
+  private apply(
+    businessId: string,
+    id: string,
+    status: EsignRequestStatus,
+    write: { at: Date; events: EsignEventRecord[]; emails: LifecycleEmail[] },
+    readAt: Date,
+    change: (row: Row) => boolean,
+  ): Promise<LifecycleWritten | null> {
+    const row = this.requests.peek(businessId, id);
+    const fresh = row?.record.lastActivityAt.getTime() === readAt.getTime();
+    if (!row || !fresh || row.record.status !== status || !change(row)) {
+      return Promise.resolve(null);
+    }
+    const last = row.record.lastActivityAt.getTime();
+    row.record.lastActivityAt = new Date(Math.max(write.at.getTime(), last + 1));
+    const timeline = this.requests.timelines.of(businessId);
+    timeline.set(id, [...(timeline.get(id) ?? []), ...structuredClone(write.events)]);
+    const emailIds = write.emails.map((e) => this.queue(businessId, e));
+    return Promise.resolve({ request: structuredClone(row.record), emailIds });
+  }
+}
+
 function voided(row: Row, write: VoidWrite) {
   Object.assign(row.record, {
     status: 'VOIDED',
@@ -603,7 +691,8 @@ export class InMemoryDirectory implements EsignDirectory {
   readonly clients = new PerFirm<DirectoryClient>();
   readonly engagements = new PerFirm<DirectoryEngagement>();
   readonly logins = new PerFirm<DirectoryLogin>();
-  readonly members = new PerFirm<DirectoryMember>();
+  /** Each firm's members, with their firm role. */
+  readonly people = new PerFirm<DirectoryStaff>();
   readonly documents = new PerFirm<DirectoryDocument>();
   readonly contacts = new PerFirm<DirectoryClientContact>();
   readonly firms = new Map<string, DirectoryFirm>();
@@ -617,8 +706,12 @@ export class InMemoryDirectory implements EsignDirectory {
   clientLogin(businessId: string, id: string) {
     return Promise.resolve(this.logins.of(businessId).get(id) ?? null);
   }
-  member(businessId: string, userId: string) {
-    return Promise.resolve(this.members.of(businessId).get(userId) ?? null);
+  member(businessId: string, userId: string): Promise<DirectoryMember | null> {
+    return Promise.resolve(this.people.of(businessId).get(userId) ?? null);
+  }
+  members(businessId: string) {
+    const active = [...this.people.of(businessId).values()].filter((m) => m.active);
+    return Promise.resolve(active.sort((x, y) => x.name.localeCompare(y.name)));
   }
   document(businessId: string, id: string) {
     return Promise.resolve(this.documents.of(businessId).get(id) ?? null);
@@ -743,22 +836,29 @@ export function esignWorld() {
     loginB: id(),
   };
   const directory = new InMemoryDirectory();
-  const member = (firm: string, userId: string, name: string, active = true) =>
-    directory.members.of(firm).set(userId, {
+  const member = (
+    firm: string,
+    userId: string,
+    name: string,
+    active = true,
+    firmRole: DirectoryStaff['firmRole'] = 'STAFF',
+  ) =>
+    directory.people.of(firm).set(userId, {
       userId,
       name,
       email: `${name}@firm.test`,
       phone: '+15555550100',
       jobTitle: null,
       active,
+      firmRole,
     });
-  member(a, users.ownerA, 'owner-a');
-  member(a, users.adminA, 'admin-a');
+  member(a, users.ownerA, 'owner-a', true, 'OWNER');
+  member(a, users.adminA, 'admin-a', true, 'ADMIN');
   member(a, users.managerA, 'manager-a');
   member(a, users.staffA, 'staff-a');
   member(a, users.staffA2, 'staff-a2');
   member(a, users.goneA, 'gone-a', false);
-  member(b, users.ownerB, 'owner-b');
+  member(b, users.ownerB, 'owner-b', true, 'OWNER');
   const client = (
     firm: string,
     cid: string,

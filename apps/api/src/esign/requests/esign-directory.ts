@@ -36,6 +36,9 @@ export interface DirectoryMember {
   active: boolean;
 }
 
+/** An active member and their firm role (Firm Sign roles and approvers). */
+export type DirectoryStaff = DirectoryMember & { firmRole: 'OWNER' | 'ADMIN' | 'STAFF' };
+
 /** What the client merge fields read. `address` is one line; null when none is on file. */
 export interface DirectoryClientContact {
   displayName: string;
@@ -99,6 +102,8 @@ export interface EsignDirectory {
   engagement(businessId: string, engagementId: string): Promise<DirectoryEngagement | null>;
   clientLogin(businessId: string, clientAccountId: string): Promise<DirectoryLogin | null>;
   member(businessId: string, userId: string): Promise<DirectoryMember | null>;
+  /** Every active member, by name. */
+  members(businessId: string): Promise<DirectoryStaff[]>;
   clientContact(businessId: string, clientId: string): Promise<DirectoryClientContact | null>;
   firm(businessId: string): Promise<DirectoryFirm>;
   document(businessId: string, documentId: string): Promise<DirectoryDocument | null>;
@@ -148,6 +153,21 @@ export class PrismaEsignDirectory implements EsignDirectory {
     });
     // TODO(r0_esign): the member's job title column arrives with r0_esign; null until then.
     return row && { userId, ...row.user, jobTitle: null, active: row.status === 'ACTIVE' };
+  }
+
+  async members(businessId: string): Promise<DirectoryStaff[]> {
+    const rows = await this.database.forBusiness(businessId).membership.findMany({
+      where: { businessId, status: 'ACTIVE' },
+      orderBy: [{ user: { name: 'asc' } }, { userId: 'asc' }],
+      select: {
+        userId: true,
+        role: true,
+        user: { select: { name: true, email: true, phone: true } },
+      },
+    });
+    return rows.map(({ userId, role, user }) => {
+      return { userId, ...user, jobTitle: null, active: true, firmRole: role };
+    });
   }
 
   async clientContact(businessId: string, id: string): Promise<DirectoryClientContact | null> {

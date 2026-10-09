@@ -21,6 +21,8 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'POST /api/v1/esign/requests/:id/void': OFF,
   'POST /api/v1/esign/requests/:id/recipients/:recipientId/correct': OFF,
   'POST /api/v1/esign/requests/:id/replace': OFF,
+  'POST /api/v1/esign/requests/:id/submit-for-approval': OFF,
+  'POST /api/v1/esign/requests/:id/approval': OFF,
   'POST /api/v1/esign/requests/:id/documents/uploads': OFF,
   'POST /api/v1/esign/requests/:id/documents/uploads/confirm': OFF,
   'DELETE /api/v1/esign/requests/:id/documents/:documentId': OFF,

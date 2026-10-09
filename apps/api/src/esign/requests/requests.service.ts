@@ -59,7 +59,7 @@ export interface EsignActor {
 export const esignRefusal = (code: EsignErrorCode) =>
   new ConflictException({ code, message: ESIGN_ERRORS[code] });
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
-const readOnly = (actor: EsignActor) => {
+export const readOnly = (actor: EsignActor) => {
   if (actor.role === 'VIEWER') {
     throw new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
   }
@@ -473,10 +473,11 @@ export class EsignRequestsService {
     actor: EsignActor | null = null,
   ): Promise<EsignRequestDetail> {
     const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
-    const [row, service, voider] = await Promise.all([
+    const [row, service, voider, approvalNotes] = await Promise.all([
       this.row(businessId, r, parts.recipients, actor),
       r.engagementId ? this.directory.engagement(businessId, r.engagementId) : null,
       r.voidedByUserId ? this.directory.member(businessId, r.voidedByUserId) : null,
+      this.repo.approvalNotes(businessId, r.id),
     ]);
     return {
       ...row,
@@ -511,7 +512,7 @@ export class EsignRequestsService {
       replacedByRequestId: r.replacedByRequestId,
       // The columns below arrive with r0_esign and are read from part 3 on.
       template: null,
-      approvalNotes: [],
+      approvalNotes,
       declinedAt: null,
       expiredAt: iso(r.expiredAt),
       voidedAt: iso(r.voidedAt),

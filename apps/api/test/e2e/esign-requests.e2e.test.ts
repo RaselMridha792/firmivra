@@ -1,5 +1,5 @@
 // End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send and step
-// 8's lifecycle)
+// 8's lifecycle, and the extras: approvals)
 // through the real guard stack. The esign tables come with r0_esign, so this covers what answers
 // before the repository: 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module
 // is off, and 400 for a bad id or body where it is on. Synthetic data only.
@@ -51,11 +51,14 @@ const withId = (id: string): Route[] => [
   ['post', `${base(id)}/void`, { reason: 'Fake reason' }],
   ['post', `${base(id)}/recipients/${randomUUID()}/correct`, { name: 'Fake Name' }],
   ['post', `${base(id)}/replace`, { reason: 'Fake reason' }],
+  ['post', `${base(id)}/submit-for-approval`, { confirm: true }],
+  ['post', `${base(id)}/approval`, { decision: 'APPROVE' }],
 ];
 const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
   ['get', '/api/v1/esign/requests', undefined],
   ['get', '/api/v1/esign/requests/summary', undefined],
+  ['get', '/api/v1/esign/approvers', undefined],
   ...withId(anyId),
 ];
 
@@ -151,6 +154,8 @@ describe('Firm Sign draft routes', () => {
       ['post', `${base(anyId)}/recipients/${randomUUID()}/correct`, {}],
       ['post', `${base(anyId)}/recipients/not-a-uuid/correct`, { name: 'Fake Name' }],
       ['post', `${base(anyId)}/replace`, {}],
+      ['post', `${base(anyId)}/submit-for-approval`, { confirm: false }],
+      ['post', `${base(anyId)}/approval`, { decision: 'REJECT' }],
       ...['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1'].map((query): Route => [
         'get',
         `/api/v1/esign/requests?${query}`,
