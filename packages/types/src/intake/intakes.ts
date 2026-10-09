@@ -108,6 +108,8 @@ export const IntakeErrorCode = z.enum([
   /** An intake of this engagement is still open: finish or correct that one. */
   'INTAKE_OPEN',
   'ENCRYPTION_UNAVAILABLE',
+  /** A save or an upload landed while the form was being sent: review it and send again. */
+  'INTAKE_CHANGED',
 ]);
 export type IntakeErrorCode = z.infer<typeof IntakeErrorCode>;
 

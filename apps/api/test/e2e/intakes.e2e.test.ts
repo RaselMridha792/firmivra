@@ -12,6 +12,7 @@ import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { IntakeChoiceList, IntakeList, IntakeView } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { IntakesService } from '../../src/intake/intakes.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -37,6 +38,7 @@ const ids = {
   other: '',
   pending: '',
   twoTax: '',
+  submitTax: '',
   intake: '',
   sent: '',
 };
@@ -173,6 +175,7 @@ beforeAll(async () => {
     ids.other = await engagement(ids.clientOne, other.id, 'Other work');
     ids.pending = await engagement(ids.clientOne, tax.id, 'Not yet', 'PENDING');
     ids.twoTax = await engagement(ids.clientTwo, tax.id, 'Two return');
+    ids.submitTax = await engagement(ids.clientOne, tax.id, '2025 amended');
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmB }, async (tx) => {
     const B = { businessId: ids.firmB };
@@ -214,8 +217,10 @@ afterAll(async () => {
 describe('portal: start and autosave', () => {
   it("lists the client's ACTIVE engagements that have a form", async () => {
     const choices = IntakeChoiceList.parse(ok(await portal('get', '/choices', people.one)).body);
-    expect(choices.items.map((c) => c.engagement.id)).toEqual([ids.tax]);
-    expect(choices.items[0]!.intake).toBeNull();
+    expect(choices.items.map((c) => c.engagement.id).sort()).toEqual(
+      [ids.tax, ids.submitTax].sort(),
+    );
+    expect(choices.items.every((c) => c.intake === null)).toBe(true);
   });
 
   it('starts once per engagement, on the published built-in form', async () => {
@@ -399,5 +404,137 @@ describe('firm: send, review, correct and unlock', () => {
       correctionNote: null,
       locked: false,
     });
+  });
+});
+
+describe('portal: submit', () => {
+  const signer = {
+    name: 'One Sample',
+    userId: people.one.id,
+    ip: '203.0.113.7',
+    userAgent: 'test',
+  };
+  const file = (intakeId: string, slot: string) =>
+    inFirm((tx) =>
+      tx.document
+        .create({
+          data: {
+            businessId: ids.firmA,
+            clientId: ids.clientOne,
+            engagementId: ids.submitTax,
+            intakeId,
+            intakeSlot: slot,
+            direction: 'CLIENT_TO_FIRM',
+            fileName: `${slot}.pdf`,
+            contentType: 'application/pdf',
+            sizeBytes: 1024,
+            sha256: 'b'.repeat(64),
+            s3Key: `tenant/${ids.firmA}/documents/${randomUUID()}`,
+            uploadedByUserId: people.one.id,
+          },
+          select: { id: true },
+        })
+        .then((d) => d.id),
+    );
+  const save = (intakeId: string, step: string, answers: object) =>
+    portal('put', `/${intakeId}/steps/${step}`, people.one, { answers }).then(view);
+
+  it('checks the whole form, takes hidden-slot files out, signs and locks the version', async () => {
+    const service = app.get(IntakesService);
+    const reach = { kind: 'client' as const, clientId: ids.clientOne };
+    const intake = view(await portal('post', '', people.one, { engagementId: ids.submitTax }));
+    const signed: number[] = [];
+    const sign = async (_tx: unknown, v: { version: number }) => {
+      signed.push(v.version);
+    };
+    await save(intake.id, 'personal', {
+      firstName: 'One',
+      lastName: 'Sample',
+      dateOfBirth: '1985-04-12',
+      phone: '(404) 555-0123',
+      email: 'one.sample@r11.test',
+      ssn: '900-12-3456',
+      street: '100 Example Way',
+      city: 'Atlanta',
+      state: 'GA',
+      zip: '30301',
+      filingStatus: 'MARRIED_FILING_JOINTLY',
+      claimedAsDependent: false,
+      returnTypes: ['PERSONAL'],
+      legalStatus: 'US_CITIZEN',
+      armedForces: false,
+      hasDependents: false,
+    });
+    // Incomplete: the spouse section and the documents are missing.
+    await expect(service.submit(ids.firmA, reach, intake.id, signer, sign)).rejects.toMatchObject({
+      response: { code: 'VALIDATION_FAILED' },
+    });
+    expect(signed).toEqual([]);
+
+    const spouseId = await file(intake.id, 'spouseGovernmentId');
+    await file(intake.id, 'governmentId');
+    // Single now: the spouse's ID slot is hidden, so its file leaves the form on submit.
+    await save(intake.id, 'personal', {
+      firstName: 'One',
+      lastName: 'Sample',
+      dateOfBirth: '1985-04-12',
+      phone: '(404) 555-0123',
+      email: 'one.sample@r11.test',
+      ssn: { last4: '3456' },
+      street: '100 Example Way',
+      city: 'Atlanta',
+      state: 'GA',
+      zip: '30301',
+      filingStatus: 'SINGLE',
+      claimedAsDependent: false,
+      returnTypes: ['PERSONAL'],
+      legalStatus: 'US_CITIZEN',
+      armedForces: false,
+      hasDependents: false,
+    });
+    await save(intake.id, 'documents', {
+      socialSecurityCard: { notAvailable: true, reason: 'Ordered a replacement card.' },
+      certifyDocuments: true,
+    });
+    await save(intake.id, 'review', { paymentPreference: 'PAY_AFTER' });
+
+    const sent = await service.submit(ids.firmA, reach, intake.id, signer, sign);
+    expect(sent).toMatchObject({ status: 'SUBMITTED', locked: true, version: 1 });
+    expect(sent.answers['ssn']).toEqual({ last4: '3456' });
+    expect(sent.uploads.map((u) => u.slot)).toEqual(['governmentId']);
+    expect(signed).toEqual([1]);
+    const stored = await inFirm(async (tx) => ({
+      spouse: await tx.document.findUniqueOrThrow({ where: { id: spouseId } }),
+      version: await tx.intakeSubmission.findFirstOrThrow({ where: { intakeId: intake.id } }),
+    }));
+    expect(stored.spouse).toMatchObject({ intakeId: null, intakeSlot: null });
+    expect(stored.version).toMatchObject({
+      signerName: 'One Sample',
+      submittedByUserId: people.one.id,
+    });
+    expect(stored.version.submittedAt).not.toBeNull();
+    expect(JSON.stringify(stored.version.answers)).not.toContain('900123456');
+
+    // Locked: a second submit and a save are refused.
+    await expect(service.submit(ids.firmA, reach, intake.id, signer, sign)).rejects.toMatchObject({
+      response: { code: 'INTAKE_LOCKED' },
+    });
+    expect(
+      codeOf(await portal('put', `/${intake.id}/steps/review`, people.one, { answers: {} })),
+    ).toBe('INTAKE_LOCKED');
+  });
+
+  it('a refused signature locks nothing', async () => {
+    const service = app.get(IntakesService);
+    const reach = { kind: 'client' as const, clientId: ids.clientOne };
+    const intake = view(await firm('get', `/intakes/${ids.intake}`, people.owner));
+    expect(intake.status).toBe('IN_PROGRESS'); // unlocked as version 3 above
+    await expect(
+      service.submit(ids.firmA, reach, intake.id, signer, async () => {
+        throw new Error('refused');
+      }),
+    ).rejects.toThrow();
+    const after = view(await portal('get', `/${intake.id}`, people.one));
+    expect(after).toMatchObject({ status: 'IN_PROGRESS', locked: false, version: 3 });
   });
 });

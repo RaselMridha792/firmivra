@@ -22,6 +22,7 @@ import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
 import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
+import { lockVersion, prepareSubmit, type SlotFile, type SubmitSigner } from './intake-submit.js';
 
 /** Statuses in which the client can change the answers. */
 export const OPEN_STATUSES: IntakeStatus[] = ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'];
@@ -32,6 +33,17 @@ const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not 
 const conflict = (code: string, message: string) => new ConflictException({ code, message });
 const locked = () => conflict('INTAKE_LOCKED', 'This form was already sent to the firm');
 const invalidStatus = () => conflict('INVALID_STATUS', 'Not possible in this status');
+const changed = () =>
+  conflict('INTAKE_CHANGED', 'The form changed while it was being sent. Review it and send again.');
+
+/**
+ * Records the signatures of the version being submitted, in the submit's transaction: R14's
+ * intake signing service (sign()). Throws to refuse the submit.
+ */
+export type IntakeSigning = (
+  tx: TxClient,
+  ids: { businessId: string; intakeId: string; submissionId: string; version: number },
+) => Promise<void>;
 
 /** Who may reach an intake: the client of its engagement (portal) or a member (firm). */
 export type IntakeReach =
@@ -443,6 +455,73 @@ export class IntakesService {
       { version },
     );
     return view;
+  }
+
+  /**
+   * The client sends the open version (portal): the whole form checked, the files in slots the
+   * answers hide taken out of it, the agreements signed (`sign`), then the version locked and the
+   * intake SUBMITTED, in one transaction. A save or an upload that lands in between is 409
+   * INTAKE_CHANGED, so what was checked is what is locked.
+   */
+  async submit(
+    businessId: string,
+    reach: IntakeReach & { kind: 'client' },
+    id: string,
+    signer: SubmitSigner,
+    sign: IntakeSigning,
+  ): Promise<IntakeView> {
+    const before = await this.inFirm(businessId, async (tx) => ({
+      row: await this.row(tx, businessId, reach, id),
+      files: await this.slotFiles(tx, businessId, id),
+    }));
+    const draft = before.row.submissions[0];
+    if (!OPEN_STATUSES.includes(before.row.status) || !draft || draft.submittedAt) throw locked();
+    const definition = readDefinition(before.row.form, before.row.engagement!.service.kind);
+    const { answers, hidden } = await prepareSubmit(
+      this.fe,
+      { businessId, intakeId: id },
+      definition,
+      answersOf(draft.answers),
+      before.files,
+    );
+    const view = await this.inFirm(businessId, async (tx) => {
+      const row = await this.lockRow(tx, businessId, reach, id);
+      const current = row.submissions[0];
+      if (!OPEN_STATUSES.includes(row.status) || current?.id !== draft.id || current.submittedAt) {
+        throw locked();
+      }
+      const files = await this.slotFiles(tx, businessId, id);
+      const same = (a: SlotFile[], b: SlotFile[]) =>
+        JSON.stringify(a.map((f) => [f.id, f.slot, f.status])) ===
+        JSON.stringify(b.map((f) => [f.id, f.slot, f.status]));
+      if (JSON.stringify(current.answers) !== JSON.stringify(draft.answers)) throw changed();
+      if (!same(files, before.files)) throw changed();
+      if (hidden.length > 0) {
+        await tx.document.updateMany({
+          where: { businessId, id: { in: hidden.map((f) => f.id) } },
+          data: { intakeId: null, intakeSlot: null },
+        });
+      }
+      await sign(tx, { businessId, intakeId: id, submissionId: draft.id, version: draft.version });
+      await lockVersion(tx, { businessId, intakeId: id, submissionId: draft.id }, answers, signer);
+      return this.view(tx, businessId, await this.row(tx, businessId, reach, id));
+    });
+    await this.audit.log(
+      'intake.submitted',
+      { type: 'intake', id },
+      { version: draft.version, detached: hidden.length },
+    );
+    return view;
+  }
+
+  /** The files in the intake's upload slots, oldest first. */
+  private async slotFiles(tx: TxClient, businessId: string, intakeId: string): Promise<SlotFile[]> {
+    const docs = await tx.document.findMany({
+      where: { businessId, intakeId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, intakeSlot: true, scanStatus: true },
+    });
+    return docs.map((d) => ({ id: d.id, slot: d.intakeSlot ?? '', status: d.scanStatus }));
   }
 
   private async lockRow(tx: TxClient, businessId: string, reach: IntakeReach, id: string) {
