@@ -7,16 +7,13 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const portal = (path: string) => `http://portal.localhost:${port}${path}`;
 
 test.use({ timezoneId: 'America/New_York' });
+// The mock puts its week after today and treats New York as a fixed UTC-4, while the screens
+// use the real zone. Run on a summer Wednesday: EDT is UTC-4, and next week is past the cutoffs.
+test.beforeEach(({ page }) => page.clock.setFixedTime(new Date('2026-07-08T12:00:00-04:00')));
 
-/** A day of next week (0 is Monday) in the firm's time zone, where the mock puts its week. */
-function nextWeek(offset: number) {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
-    new Date(),
-  );
-  const day = new Date(`${today}T00:00:00Z`);
-  const ahead = ((8 - day.getUTCDay()) % 7 || 7) + offset;
-  return new Date(day.getTime() + ahead * 86_400_000).toISOString().slice(0, 10);
-}
+/** A day of the mock's week ('YYYY-MM-DD'): 0 is next Monday, July 13. */
+const nextWeek = (offset: number) =>
+  new Date(Date.UTC(2026, 6, 13 + offset)).toISOString().slice(0, 10);
 
 test('a client books after a taken time, then reschedules and cancels', async ({ page }) => {
   await page.goto(portal('/lvp/appointments'));
