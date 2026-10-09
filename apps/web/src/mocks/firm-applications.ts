@@ -128,7 +128,8 @@ const done = (
 ) => ({
   type,
   at: hoursAgo(hours),
-  by: type === 'FIRM_ACTIVATED' ? null : ADMIN,
+  // As the API: the system invites the owner and the owner activates, so neither has a `by`.
+  by: type === 'FIRM_ACTIVATED' || type === 'OWNER_INVITED' ? null : ADMIN,
   message,
 });
 const firm = (n: number, name: string, slug: string, status: BusinessSummary['status']) => ({
@@ -438,7 +439,7 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
   const event = (type: FirmApplicationEvent['type'], message: string | null = null) => ({
     type,
     at: now(),
-    by: ADMIN,
+    by: type === 'OWNER_INVITED' ? null : ADMIN,
     message,
   });
   const invite = () => ({
