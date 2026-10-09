@@ -98,42 +98,111 @@ async function guarded<T>(work: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * The most SSN and EIN answers one save may seal. Annual Tax, the form with the most, allows 102:
+ * the SSN and the spouse's, plus one in each dependent row and each business row (50 rows each,
+ * `INTAKE_LIMITS.maxRows`). Each seal is its own KMS call, so a save over this is refused before
+ * any of them runs.
+ */
+export const MAX_SEALED_NUMBERS_PER_SAVE = 120;
+/** Seals run at most this many at a time. */
+const SEAL_CONCURRENCY = 4;
+
+/**
+ * The last four digits. Assumes a normalized full number (9 digits, as the answer schema checks
+ * an SSN or EIN): a shorter value gives fewer digits.
+ */
+const last4Of = (value: string): string => value.replace(/\D/g, '').slice(-4);
+
+/** Runs `work` on each item, at most `limit` at a time; results in item order. */
+async function pool<T, R>(items: T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const lane = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await work(items[i] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  return out;
+}
+
+/**
  * The answers as stored: each full number encrypted, each `{ last4 }` replaced by the stored
  * sealed value at the same path (run `restoreMaskedNumbers` against `maskStoredNumbers(stored)`
- * first, so a `{ last4 }` here always matches one). Call it BEFORE the write transaction: no KMS
- * call runs while a transaction holds a connection.
+ * first, so a `{ last4 }` here always matches one). Fails closed: a `{ last4 }` with no sealed
+ * value of the same last four (an older plain stored number of the same last four is sealed now),
+ * or any other shape, throws rather than losing the number. Call it BEFORE the write transaction:
+ * no KMS call runs while a transaction holds a connection.
  */
-export function sealIntakeNumbers(
+export async function sealIntakeNumbers(
   fe: FieldEncryption,
   where: { businessId: string; intakeId: string },
   definition: IntakeFormDefinition,
   answers: Readonly<Values>,
   stored: Readonly<Values>,
 ): Promise<Values> {
-  return guarded(() =>
-    eachNumber(definition, answers, stored, async (path, value, kept) => {
-      if (typeof value === 'string') {
-        const blob = await fe.encrypt(
-          {
-            businessId: where.businessId,
-            table: 'intake_submissions',
-            recordId: where.intakeId,
-            field: numberField(path),
-          },
-          value,
-        );
-        return {
-          last4: value.replace(/\D/g, '').slice(-4),
-          sealed: Buffer.from(blob).toString('base64'),
-        };
-      }
-      if (isMasked(value) && isSealed(kept) && kept.last4 === value.last4) return kept;
-      return value;
+  // First pass: each number to seal becomes a placeholder; nothing is encrypted yet.
+  const jobs: { path: string; value: string; slot: object }[] = [];
+  const toSeal = (path: string, value: string): object => {
+    const slot = {};
+    jobs.push({ path, value, slot });
+    return slot;
+  };
+  const planned = await eachNumber(definition, answers, stored, (path, value, kept) => {
+    if (value === null || value === undefined) return value;
+    if (typeof value === 'string') return toSeal(path, value);
+    if (isMasked(value)) {
+      if (isSealed(kept) && kept.last4 === value.last4) return kept;
+      if (typeof kept === 'string' && last4Of(kept) === value.last4) return toSeal(path, kept);
+    }
+    throw new Error(`Intake answer ${path} is not a number, a stored { last4 } or null`);
+  });
+  if (jobs.length === 0) return planned;
+  if (jobs.length > MAX_SEALED_NUMBERS_PER_SAVE) {
+    throw new HttpException(
+      {
+        code: 'TOO_MANY_NUMBERS',
+        message: `One save can hold at most ${MAX_SEALED_NUMBERS_PER_SAVE} new SSN and EIN answers.`,
+      },
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  const sealed = await guarded(() =>
+    pool(jobs, SEAL_CONCURRENCY, async ({ path, value }): Promise<SealedNumber> => {
+      const blob = await fe.encrypt(
+        {
+          businessId: where.businessId,
+          table: 'intake_submissions',
+          recordId: where.intakeId,
+          field: numberField(path),
+        },
+        value,
+      );
+      return { last4: last4Of(value), sealed: Buffer.from(blob).toString('base64') };
     }),
   );
+  // Second pass: each placeholder swapped for its sealed value.
+  const bySlot = new Map<unknown, SealedNumber>(
+    jobs.map((j, i) => [j.slot, sealed[i] as SealedNumber]),
+  );
+  return eachNumber(definition, planned, stored, (_path, value) => bySlot.get(value) ?? value);
 }
 
-/** The stored answers as responses and `restoreMaskedNumbers` see them: numbers as `{ last4 }`. */
+/** Drops `sealed` from every object in the answers, at any depth. */
+function stripSealed(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSealed);
+  if (!isObject(value)) return value;
+  const out: Values = {};
+  for (const [k, v] of Object.entries(value)) if (k !== 'sealed') out[k] = stripSealed(v);
+  return out;
+}
+
+/**
+ * The stored answers as responses and `restoreMaskedNumbers` see them: numbers as `{ last4 }`.
+ * Fails closed: a sealed value under a key this definition does not list as a number (another
+ * form version, a changed field type) still loses its blob.
+ */
 export async function maskStoredNumbers(
   definition: IntakeFormDefinition,
   stored: Readonly<Values>,
@@ -142,8 +211,8 @@ export async function maskStoredNumbers(
     isSealed(value)
       ? { last4: value.last4 }
       : typeof value === 'string'
-        ? { last4: value.replace(/\D/g, '').slice(-4) }
+        ? { last4: last4Of(value) }
         : value,
   );
-  return out as IntakeAnswers;
+  return stripSealed(out) as IntakeAnswers;
 }

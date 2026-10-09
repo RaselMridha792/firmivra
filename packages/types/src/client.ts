@@ -17,9 +17,77 @@ export class ApiRequestError extends Error {
     readonly code: string,
     message: string,
     readonly requestId?: string,
+    /** Seconds to wait before trying again, from the response's Retry-After (a 429 or 503). */
+    readonly retryAfter?: number,
   ) {
     super(message);
     this.name = 'ApiRequestError';
+  }
+}
+
+/** Retry-After in whole seconds, the only form the API sends; anything else is ignored. */
+function retryAfterSeconds(header: string | null): number | undefined {
+  const value = header?.trim() ?? '';
+  if (!/^\d{1,4}$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return seconds > 0 ? seconds : undefined;
+}
+
+/** Longest wait between two tries in `retryWhenUnavailable`, whatever Retry-After says. */
+const MAX_RETRY_WAIT_SECONDS = 30;
+/** The wait when a 503 has no Retry-After. */
+const DEFAULT_RETRY_WAIT_SECONDS = 5;
+
+/** Resolves after `ms`, or rejects with an AbortError as soon as `signal` aborts. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cancelled = () => new DOMException('Cancelled', 'AbortError');
+    if (signal?.aborted) {
+      reject(cancelled());
+      return;
+    }
+    const stop = () => {
+      clearTimeout(timer);
+      reject(cancelled());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', stop);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', stop, { once: true });
+  });
+}
+
+/**
+ * Calls `call` again while it fails with a 503 (the API or its storage is busy for a moment):
+ * waits the response's Retry-After (5 seconds without one, at most 30), at most `retries` times
+ * (3), then rejects with the last error. Any other error rejects at once. Only for calls that are
+ * safe to repeat, such as confirming an upload with the same token. A cancel via `signal` ends
+ * the wait at once with an AbortError.
+ */
+export async function retryWhenUnavailable<T>(
+  call: () => Promise<T>,
+  options: {
+    signal?: AbortSignal;
+    retries?: number;
+    /** Tests only: replaces the real wait. */
+    wait?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  } = {},
+): Promise<T> {
+  const { signal, retries = 3, wait = pause } = options;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await call();
+    } catch (error) {
+      if (!(error instanceof ApiRequestError) || error.status !== 503 || attempt >= retries) {
+        throw error;
+      }
+      const seconds = Math.min(
+        error.retryAfter ?? DEFAULT_RETRY_WAIT_SECONDS,
+        MAX_RETRY_WAIT_SECONDS,
+      );
+      await wait(seconds * 1000, signal);
+    }
   }
 }
 
@@ -89,6 +157,7 @@ export function createRequest(options: ApiClientOptions) {
         e?.code ?? `HTTP_${res.status}`,
         e?.message ?? res.statusText,
         e?.requestId,
+        retryAfterSeconds(res.headers.get('retry-after')),
       );
     }
     return schema.parse(json);
