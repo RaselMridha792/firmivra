@@ -21,6 +21,7 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import { submitLeadVersion } from '../submitted-lead.js';
 
 // Strict copies: a leaked column fails the parse.
 const Item = z.strictObject({
@@ -124,7 +125,11 @@ async function inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): 
   }
 }
 
-/** A lead as Begin Online leaves it: a draft with its intake, answers and files, then `status`. */
+/**
+ * A lead as Begin Online leaves it: a draft with its intake, answers and files; past DRAFT, its v1
+ * signed and submitted as the real submit does, then `status`. `laterDraft` adds an unsent v2
+ * (as an unlock or a correction would) that the lead must never show.
+ */
 async function seedLead(
   tx: TxClient,
   key: string,
@@ -132,6 +137,8 @@ async function seedLead(
   formId: string,
   businessId = ids.firmA,
   serviceId = ids.service,
+  ownerId = people.ownerA.id,
+  laterDraft = false,
 ) {
   const B = { businessId };
   const lead = await tx.lead.create({
@@ -148,7 +155,7 @@ async function seedLead(
   const intake = await tx.intake.create({
     data: { ...B, formId, leadId: lead.id, status: 'IN_PROGRESS' },
   });
-  await tx.intakeSubmission.create({
+  const v1 = await tx.intakeSubmission.create({
     data: {
       ...B,
       intakeId: intake.id,
@@ -184,14 +191,25 @@ async function seedLead(
     ids.uploads[`${key}.${slot}`] = upload.id;
   }
   if (status !== 'DRAFT') {
-    await tx.lead.update({
-      where: { id: lead.id },
-      data: {
-        status,
-        submittedAt: new Date(),
-        ...(status === 'DECLINED' ? { declineReason: 'Seeded' } : {}),
-      },
+    await submitLeadVersion(tx, {
+      businessId,
+      ownerId,
+      leadId: lead.id,
+      intakeId: intake.id,
+      submissionId: v1.id,
     });
+    if (status !== 'SUBMITTED') {
+      await tx.lead.update({
+        where: { id: lead.id },
+        data: { status, ...(status === 'DECLINED' ? { declineReason: 'Seeded' } : {}) },
+      });
+    }
+  }
+  if (laterDraft) {
+    await tx.intakeSubmission.create({
+      data: { ...B, intakeId: intake.id, version: 2, answers: { firstName: 'UnsentDraftV2' } },
+    });
+    await tx.intake.update({ where: { id: intake.id }, data: { status: 'IN_PROGRESS' } });
   }
   ids.leads[key] = lead.id;
 }
@@ -249,8 +267,9 @@ beforeAll(async () => {
         data: { ...A, displayName: 'Taken', email: `lead-taken-${run}@example.test` },
       })
     ).id;
-    await seedLead(tx, 'new', 'SUBMITTED', formId);
+    await seedLead(tx, 'new', 'SUBMITTED', formId, ids.firmA, ids.service, people.ownerA.id, true);
     await seedLead(tx, 'review', 'IN_REVIEW', formId);
+    await seedLead(tx, 'race', 'IN_REVIEW', formId);
     await seedLead(tx, 'declined', 'DECLINED', formId);
     await seedLead(tx, 'draft', 'DRAFT', formId);
     await seedLead(tx, 'taken', 'SUBMITTED', formId);
@@ -266,7 +285,7 @@ beforeAll(async () => {
       })
     ).id;
     const formId = await form(tx, ids.firmB, ids.serviceB);
-    await seedLead(tx, 'b', 'SUBMITTED', formId, ids.firmB, ids.serviceB);
+    await seedLead(tx, 'b', 'SUBMITTED', formId, ids.firmB, ids.serviceB, people.ownerB.id);
   });
   await owner.$disconnect();
 
@@ -324,7 +343,7 @@ describe('inbox', () => {
     expect(next.items.map((l) => l.id)).not.toContain(page.items[0]!.id);
 
     const counts = expectOk(await firm('get', '/count', people.ownerA)).body as object;
-    expect(counts).toEqual({ submitted: 3, inReview: 1 });
+    expect(counts).toEqual({ submitted: 3, inReview: 2 });
   });
 
   it("another firm sees none of them, and a draft's detail is 404", async () => {
@@ -338,10 +357,12 @@ describe('inbox', () => {
 });
 
 describe('review', () => {
-  it('shows the answers with the SSN as last 4 only, and the files', async () => {
+  it('shows the answers the visitor sent (not a later draft), SSN as last 4 only, and the files', async () => {
     const res = expectOk(await firm('get', `/${ids.leads['new']}`, people.staffA));
     expect(JSON.stringify(res.body)).not.toContain('sealed');
+    expect(JSON.stringify(res.body)).not.toContain('UnsentDraftV2');
     const lead = Detail.parse(res.body);
+    expect(lead.intake?.answers['firstName']).toBe('Leadnew');
     expect(lead.intake?.answers['ssn']).toEqual({ last4: '6789' });
     expect(lead.intake?.formVersion).toBe(1);
     expect(lead.intake?.uploads.map((u) => u.slot).sort()).toEqual(['cleanSlot', 'pendingSlot']);
@@ -357,6 +378,53 @@ describe('review', () => {
     expect(codeOf(await firm('post', `/${ids.leads['new']}/review`, people.ownerA, {}))).toBe(
       'INVALID_STATUS',
     );
+  });
+});
+
+describe('read audits', () => {
+  it('logs the list, the detail and the review, with no names, search text or other PII', async () => {
+    const lead = ids.leads['new']!;
+    const rows = await inFirm(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: ids.firmA,
+          action: { in: ['leads.listed', 'lead.viewed', 'lead.review_started'] },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    const listed = rows.filter((r) => r.action === 'leads.listed');
+    // The inbox test listed as ownerA (plain, by status, by search) and as staffA (two pages).
+    expect(listed.filter((r) => r.actorUserId === people.ownerA.id).length).toBeGreaterThanOrEqual(
+      3,
+    );
+    expect(listed.filter((r) => r.actorUserId === people.staffA.id).length).toBeGreaterThanOrEqual(
+      2,
+    );
+    for (const r of listed) {
+      expect(r).toMatchObject({ entityType: 'lead', entityId: null });
+      expect(Object.keys(r.metadata as object)).toEqual(['count']);
+    }
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        action: 'lead.viewed',
+        entityType: 'lead',
+        entityId: lead,
+        actorUserId: people.staffA.id,
+        metadata: null,
+      }),
+    );
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        action: 'lead.review_started',
+        entityId: lead,
+        actorUserId: people.staffA.id,
+      }),
+    );
+    const text = JSON.stringify(rows.map((r) => r.metadata));
+    for (const pii of ['leadreview', 'Leadnew', `lead-new-${run}`, '6789', '+1555']) {
+      expect(text).not.toContain(pii);
+    }
   });
 });
 
@@ -379,5 +447,27 @@ describe('decline', () => {
     );
     expect(audit.map((a) => a.action)).toContain('lead.declined');
     expect(JSON.stringify(audit)).not.toContain(reason);
+  });
+
+  it('two declines at the same time: one wins, the other is INVALID_STATUS, one audit row', async () => {
+    const lead = ids.leads['race']!;
+    const results = await Promise.all(
+      ['First', 'Second'].map(async (r) =>
+        firm('post', `/${lead}/decline`, people.ownerA, { reason: `${r} ${run}` }),
+      ),
+    );
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(results.map(codeOf).filter(Boolean)).toEqual(['INVALID_STATUS']);
+    const won = results.find((r) => r.status === 200)!;
+    const kept = Detail.parse(
+      expectOk(await firm('get', `/${lead}`, people.ownerA)).body,
+    ).declineReason;
+    expect(kept).toBe(Detail.parse(won.body).declineReason);
+    const audit = await inFirm(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, entityId: lead, action: 'lead.declined' },
+      }),
+    );
+    expect(audit).toHaveLength(1);
   });
 });
