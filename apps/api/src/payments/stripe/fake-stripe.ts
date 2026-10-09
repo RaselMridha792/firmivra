@@ -3,6 +3,7 @@ import type {
   AccountLinkParams,
   CheckoutParams,
   CheckoutSession,
+  StripeRefund,
   ConnectedAccount,
   CreateAccountParams,
   OnboardingLink,
@@ -89,6 +90,7 @@ export class FakeStripeGateway implements StripeGateway {
       status: 'open',
       amountTotal: params.amountCents,
       expiresAt: params.expiresAt,
+      paymentIntentId: `pi_${id.slice(3)}`,
       accountId: params.accountId,
       params,
     });
@@ -113,13 +115,91 @@ export class FakeStripeGateway implements StripeGateway {
     return this.view(sessionId);
   }
 
-  /** Failure codes by payment intent, for `paymentFailureCode`. */
+  /** Failure codes by payment intent, for `retrievePaymentIntent`. */
   readonly failureCodes = new Map<string, string>();
+  /** Refunds by id, with the account, the payment intent and the charge they belong to. */
+  readonly refunds = new Map<
+    string,
+    StripeRefund & { accountId: string; paymentIntentId: string; chargeId: string }
+  >();
+  private readonly refundsByKey = new Map<string, string>();
 
-  async paymentFailureCode(accountId: string, paymentIntentId: string) {
-    this.calls.push({ method: 'paymentFailureCode', accountId, params: { paymentIntentId } });
+  async retrievePaymentIntent(accountId: string, paymentIntentId: string) {
+    this.calls.push({ method: 'retrievePaymentIntent', accountId, params: { paymentIntentId } });
     await this.answer();
-    return this.failureCodes.get(paymentIntentId) ?? null;
+    const s = [...this.sessions.values()].find(
+      (x) => x.paymentIntentId === paymentIntentId && x.accountId === accountId,
+    );
+    if (!s) throw new Error('No such payment intent (fake)');
+    return {
+      paymentId: s.params.paymentId,
+      failureCode: this.failureCodes.get(paymentIntentId) ?? null,
+    };
+  }
+
+  async createRefund(
+    accountId: string,
+    params: { paymentIntentId: string; amountCents: number; refundKey: string },
+    idempotencyKey: string,
+  ) {
+    this.calls.push({ method: 'createRefund', accountId, params: { ...params, idempotencyKey } });
+    await this.answer();
+    const known = this.refundsByKey.get(idempotencyKey);
+    if (known) return this.refundView(known);
+    const id = `re_fake${randomBytes(8).toString('hex')}`;
+    this.refunds.set(id, {
+      id,
+      amountCents: params.amountCents,
+      status: 'pending',
+      created: Math.floor(Date.now() / 1000) + this.refunds.size,
+      refundKey: params.refundKey,
+      accountId,
+      paymentIntentId: params.paymentIntentId,
+      chargeId: chargeOf(params.paymentIntentId),
+    });
+    this.refundsByKey.set(idempotencyKey, id);
+    return this.refundView(id);
+  }
+
+  async listRefunds(accountId: string, by: { charge: string } | { paymentIntent: string }) {
+    this.calls.push({ method: 'listRefunds', accountId, params: by });
+    await this.answer();
+    return [...this.refunds.values()]
+      .filter(
+        (r) =>
+          r.accountId === accountId &&
+          ('charge' in by ? r.chargeId === by.charge : r.paymentIntentId === by.paymentIntent),
+      )
+      .sort((a, b) => a.created - b.created)
+      .map((r) => this.refundView(r.id));
+  }
+
+  /** As if Stripe settled (or failed) a refund, or the firm refunded in its own dashboard. */
+  setRefund(id: string, status: string) {
+    const r = this.refunds.get(id);
+    if (!r) throw new Error('No such refund (fake)');
+    this.refunds.set(id, { ...r, status });
+  }
+
+  /** A refund made in the firm's Stripe dashboard (no refund key). */
+  dashboardRefund(accountId: string, paymentIntentId: string, amountCents: number) {
+    const id = `re_dash${randomBytes(8).toString('hex')}`;
+    this.refunds.set(id, {
+      id,
+      amountCents,
+      status: 'succeeded',
+      created: Math.floor(Date.now() / 1000) + this.refunds.size,
+      refundKey: null,
+      accountId,
+      paymentIntentId,
+      chargeId: chargeOf(paymentIntentId),
+    });
+    return id;
+  }
+
+  private refundView(id: string): StripeRefund {
+    const { accountId: _a, paymentIntentId: _p, chargeId: _c, ...r } = this.refunds.get(id)!;
+    return { ...r };
   }
 
   /** As if the client paid (or the session ran out) at Stripe. */
@@ -145,3 +225,6 @@ export class FakeStripeGateway implements StripeGateway {
     this.accounts.set(accountId, { ...account, ...changes });
   }
 }
+
+/** The fake's charge of a payment intent. */
+export const chargeOf = (paymentIntentId: string) => `ch_${paymentIntentId.slice(3)}`;

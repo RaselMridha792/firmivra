@@ -77,7 +77,7 @@ const session = (
   object: 'checkout.session',
   payment_status: 'paid',
   amount_total: p.amountCents,
-  payment_intent: `pi_${p.id.replace(/-/g, '')}`,
+  payment_intent: fake.sessions.get(p.processorRef)!.paymentIntentId,
   metadata: { payment_id: p.id, invoice_id: 'x' },
   ...extra,
 });
@@ -172,7 +172,10 @@ describe('POST /webhooks/stripe', () => {
     );
     const mine = await t.portal('get', `/${invoiceId}`, t.people.primary);
     expect(mine.body).toMatchObject({ paymentProcessing: true, canPay: false });
-    fake.failureCodes.set(`pi_${payment.id.replace(/-/g, '')}`, 'insufficient_funds');
+    fake.failureCodes.set(
+      fake.sessions.get(payment.processorRef)!.paymentIntentId!,
+      'insufficient_funds',
+    );
     expectOk(
       await deliver(event('checkout.session.async_payment_failed', accountA(), session(payment))),
     );

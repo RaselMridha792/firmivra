@@ -70,6 +70,26 @@ export interface CheckoutSession {
   status: 'open' | 'complete' | 'expired';
   amountTotal: number;
   expiresAt: Date;
+  /** Set once the client has paid or tried to (Stripe makes it then). */
+  paymentIntentId: string | null;
+}
+
+export interface StripeRefund {
+  id: string;
+  amountCents: number;
+  /** Stripe's status: pending, requires_action, succeeded, failed or canceled. */
+  status: string;
+  /** Unix seconds. */
+  created: number;
+  /** `metadata.refund_key`: the refund dialog's idempotency key. */
+  refundKey: string | null;
+}
+
+export interface PaymentIntentInfo {
+  /** `metadata.payment_id`: Firmivra's payment. */
+  paymentId: string | null;
+  /** Stripe's short code for why the last attempt failed. */
+  failureCode: string | null;
 }
 
 export interface StripeGateway {
@@ -81,8 +101,17 @@ export interface StripeGateway {
   /** Stripe Checkout (mode payment, one line) on the connected account. */
   createCheckoutSession(params: CheckoutParams, idempotencyKey: string): Promise<CheckoutSession>;
   retrieveCheckoutSession(accountId: string, sessionId: string): Promise<CheckoutSession>;
-  /** Stripe's short code for why the payment intent's last attempt failed, if any. */
-  paymentFailureCode(accountId: string, paymentIntentId: string): Promise<string | null>;
+  retrievePaymentIntent(accountId: string, paymentIntentId: string): Promise<PaymentIntentInfo>;
+  createRefund(
+    accountId: string,
+    params: { paymentIntentId: string; amountCents: number; refundKey: string },
+    idempotencyKey: string,
+  ): Promise<StripeRefund>;
+  /** A charge's or a payment intent's refunds, oldest first. */
+  listRefunds(
+    accountId: string,
+    by: { charge: string } | { paymentIntent: string },
+  ): Promise<StripeRefund[]>;
   /** Ends an open session, so it can no longer be paid. */
   expireCheckoutSession(accountId: string, sessionId: string): Promise<CheckoutSession>;
 }
@@ -115,6 +144,16 @@ const session = (s: Stripe.Checkout.Session): CheckoutSession => ({
   status: s.status === 'complete' ? 'complete' : s.status === 'expired' ? 'expired' : 'open',
   amountTotal: s.amount_total ?? 0,
   expiresAt: new Date(s.expires_at * 1000),
+  paymentIntentId:
+    typeof s.payment_intent === 'string' ? s.payment_intent : (s.payment_intent?.id ?? null),
+});
+
+const refund = (r: Stripe.Refund): StripeRefund => ({
+  id: r.id,
+  amountCents: r.amount,
+  status: r.status ?? 'pending',
+  created: r.created,
+  refundKey: r.metadata?.refund_key ?? null,
 });
 
 /** The real Stripe, with the platform's key, a pinned API version and a 10 s timeout. */
@@ -177,15 +216,36 @@ export function createStripeGateway(secretKey: string): StripeGateway {
     },
     retrieveCheckoutSession: async (accountId, sessionId) =>
       session(await stripe.checkout.sessions.retrieve(sessionId, {}, { stripeAccount: accountId })),
-    paymentFailureCode: async (accountId, paymentIntentId) => {
+    retrievePaymentIntent: async (accountId, paymentIntentId) => {
       const intent = await stripe.paymentIntents.retrieve(
         paymentIntentId,
         {},
-        {
-          stripeAccount: accountId,
-        },
+        { stripeAccount: accountId },
       );
-      return intent.last_payment_error?.code ?? intent.last_payment_error?.decline_code ?? null;
+      const error = intent.last_payment_error;
+      return {
+        paymentId: intent.metadata?.payment_id ?? null,
+        failureCode: error?.code ?? error?.decline_code ?? null,
+      };
+    },
+    createRefund: async (accountId, p, idempotencyKey) =>
+      refund(
+        await stripe.refunds.create(
+          {
+            payment_intent: p.paymentIntentId,
+            amount: p.amountCents,
+            metadata: { refund_key: p.refundKey },
+          },
+          { stripeAccount: accountId, idempotencyKey },
+        ),
+      ),
+    listRefunds: async (accountId, by) => {
+      const params = 'charge' in by ? { charge: by.charge } : { payment_intent: by.paymentIntent };
+      const page = await stripe.refunds.list(
+        { ...params, limit: 100 },
+        { stripeAccount: accountId },
+      );
+      return page.data.map(refund).sort((a, b) => a.created - b.created);
     },
     expireCheckoutSession: async (accountId, sessionId) =>
       session(await stripe.checkout.sessions.expire(sessionId, {}, { stripeAccount: accountId })),

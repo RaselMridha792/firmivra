@@ -4,18 +4,20 @@ import Stripe from 'stripe';
 import { AuditService } from '../../audit/audit.service.js';
 import { DATABASE } from '../../database/database.module.js';
 import { InvoiceNotices } from '../invoices/invoice-notices.js';
-import { providerUnavailable } from '../checkout/checkout-sessions.js';
+import { providerUnavailable, stripeCall } from '../checkout/checkout-sessions.js';
 import { StripeAccountsWriter, toOnboardingState } from '../stripe/stripe-accounts.js';
 import {
   type ConnectedAccount,
   STRIPE_GATEWAY,
   STRIPE_WEBHOOK_SECRET,
   type StripeGateway,
+  type StripeRefund,
 } from '../stripe/stripe-gateway.js';
 
 /** The fields of an event's object Firmivra reads (a Checkout Session or a payment intent). */
 interface EventObject {
   id?: string;
+  status?: string;
   metadata?: Record<string, string> | null;
   payment_status?: string;
   payment_intent?: string | { id: string } | null;
@@ -71,8 +73,29 @@ export class StripeWebhookService {
     if (event.type === 'checkout.session.async_payment_failed' && this.stripe) {
       const intent = intentId(object);
       failureCode = intent
-        ? await this.stripe.paymentFailureCode(accountId, intent).catch(() => null)
+        ? await this.stripe
+            .retrievePaymentIntent(accountId, intent)
+            .then((i) => i.failureCode)
+            .catch(() => null)
         : null;
+    }
+
+    // charge.refunded: the payment from the charge's payment intent, and the charge's refunds.
+    let refund: { paymentId: string | null; refunds: StripeRefund[] } | null = null;
+    if (event.type === 'charge.refunded') {
+      if (!this.stripe) throw providerUnavailable();
+      const stripe = this.stripe;
+      const intent = intentId(object);
+      const charge = object.id;
+      if (intent && charge) {
+        const [info, refunds] = await Promise.all([
+          stripeCall('paymentIntents.retrieve', event.id, () =>
+            stripe.retrievePaymentIntent(accountId, intent),
+          ),
+          stripeCall('refunds.list', event.id, () => stripe.listRefunds(accountId, { charge })),
+        ]);
+        refund = { paymentId: info.paymentId, refunds };
+      }
     }
 
     const outcome = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
@@ -103,6 +126,15 @@ export class StripeWebhookService {
         case 'checkout.session.expired':
           await this.fail(ctx, object, 'checkout_expired');
           break;
+        case 'charge.refunded':
+          if (refund) await this.confirmRefund(ctx, refund.paymentId, refund.refunds);
+          break;
+        case 'refund.failed':
+        case 'refund.updated':
+          if (event.type === 'refund.failed' || object.status === 'failed') {
+            await this.refundFailed(ctx, object.id ?? '');
+          }
+          break;
         default:
           // payment_intent.payment_failed changes nothing: the client may try another card in the
           // same session. Other types are recorded and ignored.
@@ -125,8 +157,11 @@ export class StripeWebhookService {
   }
 
   /** This account's payment named in the object's metadata, linked to the event. */
-  private async link(ctx: Ctx, object: EventObject) {
-    const paymentId = object.metadata?.payment_id;
+  private link(ctx: Ctx, object: EventObject) {
+    return this.linkPayment(ctx, object.metadata?.payment_id ?? null);
+  }
+
+  private async linkPayment(ctx: Ctx, paymentId: string | null) {
     if (!paymentId || !UUID.test(paymentId)) return null;
     const payment = await ctx.tx.payment.findFirst({
       where: { businessId: ctx.businessId, id: paymentId, accountId: ctx.accountId },
@@ -205,7 +240,86 @@ export class StripeWebhookService {
       { businessId: ctx.businessId },
     );
   }
+
+  /**
+   * One charge.refunded confirms one refund: the oldest of the charge's refunds that Stripe has
+   * not failed or canceled and that has no SUCCEEDED or FAILED row here. Its PENDING row (made by
+   * Firmivra) becomes SUCCEEDED; with no row (made in the firm's Stripe dashboard) it is inserted
+   * SUCCEEDED. The database marks the payment REFUNDED once confirmed refunds cover it.
+   */
+  private async confirmRefund(ctx: Ctx, paymentId: string | null, refunds: StripeRefund[]) {
+    const payment = await this.linkPayment(ctx, paymentId);
+    if (!payment) return;
+    const { tx, businessId } = ctx;
+    const live = refunds.filter((r) => !SETTLED_AT_STRIPE.has(r.status));
+    const rows = await tx.paymentRefund.findMany({
+      where: { businessId, processorRefundId: { in: live.map((r) => r.id) } },
+    });
+    const byId = new Map(rows.map((r) => [r.processorRefundId, r]));
+    const next = live.find((r) => {
+      const row = byId.get(r.id);
+      return !row || row.status === 'PENDING';
+    });
+    if (!next) return; // Nothing left to confirm: recorded and ignored.
+    const confirmed = {
+      status: 'SUCCEEDED' as const,
+      eventId: ctx.eventRowId,
+      refundedAt: new Date(),
+    };
+    const row = byId.get(next.id);
+    if (row) {
+      await tx.paymentRefund.update({ where: { id: row.id }, data: confirmed });
+    } else {
+      const full = await tx.payment.findUniqueOrThrow({
+        where: { businessId_id: { businessId, id: payment.id } },
+        select: { currency: true },
+      });
+      await tx.paymentRefund.create({
+        data: {
+          businessId,
+          paymentId: payment.id,
+          processorRefundId: next.id,
+          accountId: ctx.accountId,
+          amountCents: next.amountCents,
+          currency: full.currency,
+          ...confirmed,
+        },
+      });
+    }
+    await this.audit.logIn(
+      tx,
+      'payment.refunded',
+      { type: 'payment', id: payment.id },
+      { ...STRIPE, invoiceId: payment.invoiceId, amountCents: next.amountCents },
+      { businessId },
+    );
+  }
+
+  /** A PENDING refund that failed at Stripe: its cents are refundable again. */
+  private async refundFailed(ctx: Ctx, refundId: string) {
+    const { tx, businessId } = ctx;
+    const row = await tx.paymentRefund.findFirst({
+      where: { businessId, processorRefundId: refundId, accountId: ctx.accountId },
+    });
+    if (!row) return; // Never counted: ignored.
+    await this.linkPayment(ctx, row.paymentId);
+    if (row.status === 'SUCCEEDED') {
+      this.logger.error(`Stripe failed refund ${row.id}, already confirmed here`);
+      return;
+    }
+    if (row.status !== 'PENDING') return;
+    await tx.paymentRefund.update({ where: { id: row.id }, data: { status: 'FAILED' } });
+    await this.audit.logIn(
+      tx,
+      'payment.refund_failed',
+      { type: 'payment', id: row.paymentId },
+      { ...STRIPE, amountCents: row.amountCents },
+      { businessId },
+    );
+  }
 }
+
+const SETTLED_AT_STRIPE = new Set(['failed', 'canceled']);
 
 interface Ctx {
   tx: TxClient;
