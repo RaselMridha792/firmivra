@@ -122,14 +122,14 @@ export function Timeline({ application }: { application: FirmApplicationRecord }
         return (
           <li
             key={`${event.at}-${event.type}-${event.by?.userId ?? 'applicant'}-${event.message ?? ''}`}
-            className="relative flex gap-3 pb-4 pl-6 text-sm before:absolute before:top-2 before:bottom-0 before:left-1.5 before:border-l-2 before:border-folder-border last:before:hidden"
+            className="relative flex flex-wrap gap-x-3 gap-y-1 pb-4 pl-6 text-sm before:absolute before:top-2 before:bottom-0 before:left-1.5 before:border-l-2 before:border-folder-border last:before:hidden"
           >
             <span aria-hidden className="absolute top-1 left-0 size-3 rounded-pill bg-link" />
             <time dateTime={event.at} className="w-24 shrink-0 text-muted">
               {day}
               <span className="block">{time}</span>
             </time>
-            <span className="min-w-0 flex-1 break-words">
+            <span className="min-w-0 grow basis-36 break-words">
               <span className="block font-semibold text-text">{EVENT_TITLES[event.type]}</span>
               <span className="text-muted">{describe(event)}</span>
             </span>
@@ -143,7 +143,9 @@ export function Timeline({ application }: { application: FirmApplicationRecord }
 /** What an approved firm has switched on in the beta: on once the owner finished setup. */
 export function ActiveFeatures({ active }: { active: boolean }) {
   return (
-    <ul className="mt-4 flex flex-col gap-1 rounded-control bg-success-soft p-3 text-sm">
+    <ul
+      className={`mt-4 flex flex-col gap-1 rounded-control p-3 text-sm ${active ? 'bg-success-soft' : 'bg-canvas'}`}
+    >
       {['Firm Workspace Access', 'Client Portal Access', 'Document Storage', 'Basic Settings'].map(
         (feature) => (
           <li key={feature} className="flex items-center gap-3 py-1">

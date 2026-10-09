@@ -146,14 +146,47 @@ test('application list stays within a 375px viewport', async ({ page }) => {
     .toBeLessThanOrEqual(375);
 });
 
-test('pending and approved application pages stay within a 375px viewport', async ({ page }) => {
+test('pending, approved and unreadable application pages stay within a 375px viewport', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  for (const name of ['Sample Ledger Advisors', 'Sample Riverside Tax Co']) {
+  const pages = [
+    {
+      name: 'Sample Ledger Advisors',
+      state: page.getByRole('button', { name: 'Approve Application' }),
+    },
+    {
+      name: 'Example Books & Payroll',
+      state: page.getByRole('button', { name: 'Approve Application' }),
+    },
+    {
+      name: 'Sample Riverside Tax Co',
+      state: page.getByRole('link', { name: /Open Firm Workspace/ }),
+    },
+  ];
+  for (const { name, state } of pages) {
     await page.goto(admin('/applications'));
     await page.getByRole('link', { name: `Open application for ${name}` }).click();
     await expect(page.getByTestId('page-title')).toHaveText(name);
+    await expect(state).toBeVisible();
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
       .toBeLessThanOrEqual(375);
   }
+  // An approved application whose form can't be read (like LVP's seeded one).
+  await page.goto(admin('/applications/00000000-0000-4005-8000-000000000008'));
+  await expect(page.getByTestId('page-title')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(375);
+});
+
+test('the detail cards stack in one column at 768px', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1000 });
+  await page.goto(admin('/applications'));
+  await page.getByRole('link', { name: 'Open application for Sample Riverside Tax Co' }).click();
+  const business = page.getByRole('heading', { name: 'Business Information' });
+  const administrator = page.getByRole('heading', { name: 'Primary Administrator' });
+  const [a, b] = await Promise.all([business.boundingBox(), administrator.boundingBox()]);
+  expect(a && b && Math.abs(a.x - b.x) < 2 && b.y > a.y).toBe(true);
 });

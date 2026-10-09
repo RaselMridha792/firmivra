@@ -290,7 +290,7 @@ function ApplicationRecord({
           </p>
           <Button
             type="submit"
-            className="shrink-0"
+            className="ml-auto shrink-0"
             disabled={busy || notes.trim() === (application.internalNotes ?? '').trim()}
           >
             {saveNotes.isPending ? 'Saving…' : 'Save Note'}
@@ -328,12 +328,12 @@ function ApplicationRecord({
         </p>
       ) : null}
       <header className="flex flex-wrap items-start justify-between gap-4">
-        {/* Below 2xl the buttons drop under a one-line title. */}
-        <div className="min-w-0 grow basis-full 2xl:basis-96">
+        {/* Below 2xl the decision buttons drop under the title; the firm link stays beside it. */}
+        <div className={`min-w-0 grow ${canDecide ? 'basis-full 2xl:basis-auto' : 'basis-auto'}`}>
           <div className="flex flex-wrap items-center gap-4">
             <h1
               data-testid="page-title"
-              className="font-display text-4xl font-bold tracking-tight text-heading"
+              className="font-display text-3xl font-bold tracking-tight text-heading md:text-4xl"
             >
               {application.legalName}
             </h1>
@@ -404,13 +404,11 @@ function ApplicationRecord({
         )}
       </header>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {/* One grid, so rows fill in order at every width. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <FieldCard icon={Building2} title="Business Information" fields={businessFields} />
         <FieldCard icon={UserRound} title="Primary Administrator" fields={adminFields} />
         <FieldCard icon={FileText} title="Account Details" fields={accountFields} />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {firm ? (
           <>
             <Card className="!p-4">
@@ -427,10 +425,7 @@ function ApplicationRecord({
             {historyCard}
           </>
         )}
-      </div>
-
-      {/* Not in the mockups, but the review needs them (PROJECT-DRAFT-v2: automated checks). */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {/* Not in the mockups, but the review needs them (PROJECT-DRAFT-v2: automated checks). */}
         {firm ? documentsCard : null}
         <Card className="!p-4">
           <CardHeading icon={IdCard}>Credentials</CardHeading>
