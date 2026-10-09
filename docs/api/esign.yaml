@@ -261,7 +261,7 @@ paths:
       tags: [esign]
       operationId: createEsignUpload
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: Upload step 1 (`CreateEsignUploadBody`, PDF, JPG or PNG; another type is 400 `FILE_TYPE_NOT_ALLOWED` from the client, before anything is sent); answers an `UploadTicket` (docs/api/documents.yaml)
+      summary: Upload step 1 (`CreateEsignUploadBody`, PDF, JPG or PNG; another type is 400 `FILE_TYPE_NOT_ALLOWED`, from the client before anything is sent and from the server too); answers an `UploadTicket` (docs/api/documents.yaml)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '201':
