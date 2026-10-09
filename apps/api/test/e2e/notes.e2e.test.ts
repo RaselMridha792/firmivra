@@ -347,6 +347,39 @@ describe('private notes', () => {
     expect(waiting).toBe(0);
   });
 
+  it('never carries a sent or past reminder to a new version', async () => {
+    expectOk(await portal('put', '/notes', people.spouse, { body: 'Spouse note' }));
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
+        const note = await tx.clientPrivateNote.findFirstOrThrow({
+          where: { businessId: ids.firmA, userId: people.spouse.id },
+          orderBy: { createdAt: 'desc' },
+        });
+        // As the reminder job leaves it: due and sent.
+        await tx.clientNoteReminder.create({
+          data: {
+            businessId: ids.firmA,
+            noteId: note.id,
+            userId: people.spouse.id,
+            remindAt: new Date(Date.now() - 60_000),
+          },
+        });
+        await tx.clientNoteReminder.updateMany({
+          where: { businessId: ids.firmA, noteId: note.id },
+          data: { remindedAt: new Date() },
+        });
+      });
+    } finally {
+      await owner.$disconnect();
+    }
+    expect((await mine(people.spouse))?.reminder?.sentAt).not.toBeNull();
+    const next = Mine.parse(
+      expectOk(await portal('put', '/notes', people.spouse, { body: 'Next version' })).body,
+    ).note;
+    expect(next?.reminder).toBeNull();
+  });
+
   it('refuses a reminder before the first save or in the past', async () => {
     const early = await portal('put', '/notes/reminder', people.other, { remindAt: future(3) });
     expect(early.status).toBe(404);
@@ -360,7 +393,7 @@ describe('private notes', () => {
   it('only its own login sees it: not the spouse, not staff, not the database without the actor', async () => {
     const text = `Spouse must not see ${run}`;
     expectOk(await portal('put', '/notes', people.primary, { body: text }));
-    expect(await mine(people.spouse)).toBeNull();
+    expect((await mine(people.spouse))?.body ?? null).not.toBe(text);
     expect((await mine(people.other))?.body ?? null).not.toBe(text);
     for (const who of [people.ownerA, people.staffA]) {
       for (const path of [`/clients/${ids.one}/notes`, `/clients/${ids.one}/message-threads`]) {

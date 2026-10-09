@@ -5,7 +5,7 @@ info:
   description: |
     Messages between a firm and its clients, the firm's internal notes, and each client login's
     private note: the firm's Messages pages and the client record's Messages and Notes tabs
-    (Fahad, F10) and the portal's Messages and Notes tab (R17, N09).
+    (Nahid, F10) and the portal's Messages and Notes tab (R17, N09).
 
     **Source of truth:** the zod schemas in `packages/types/src/messages/schemas.ts`, with typed
     calls in `createMessagesClient` (web: `api.messages`), `createClientNotesClient`
@@ -56,7 +56,7 @@ info:
       UNAUTHENTICATED`, `400 BUSINESS_REQUIRED` (firm site, several firms, no `x-business-id`),
       `404 NOT_FOUND` (no place in the firm), `403 BUSINESS_INACTIVE` or
       `BUSINESS_SETUP_REQUIRED`, `403 FORBIDDEN` (wrong role), `400 VALIDATION_FAILED`, `404
-      NOT_FOUND` (the record), then the route's own `403` or `409`.
+      NOT_FOUND` (the record), then the route's own `403` or `409` (`MessageErrorCode`, words in `MESSAGE_ERRORS`).
     - Every change comes from the browser (see "Calling the API from the web app" in auth.yaml).
 
     ## Pages and calls
@@ -139,7 +139,7 @@ paths:
     patch:
       tags: [firm]
       operationId: updateMessageThread
-      summary: Close or reopen the client's replies (`{ repliesEnabled }`)
+      summary: Close or reopen the client's replies (`{ repliesEnabled }`): Owner, Admin, and Staff on their own clients
       requestBody: { $ref: '#/components/requestBodies/Json' }
       responses:
         '200': { description: '`MessageThread`.' }
@@ -306,7 +306,8 @@ paths:
       summary: '"Save Note": `{ body, remindAt? }`, a new version'
       description: |
         `remindAt`: a future time sets or moves the reminder, `null` removes it, and leaving it
-        out keeps the current one on the new version.
+        out carries the current reminder to the new version only while it is unsent and still in
+        the future; a reminder already sent is never sent again.
       requestBody: { $ref: '#/components/requestBodies/Json' }
       responses:
         '200': { description: '`MyNoteResponse`.' }
