@@ -1,11 +1,21 @@
 :root {
-  --auth-display-font: 'Times New Roman', serif;
+  --auth-display-font: var(--font-display);
   --auth-body-line: 1.75rem;
   --auth-checkbox-size: 1.5625rem;
   --auth-submit-height: 3.875rem;
+  --auth-submit-size: 1.375rem;
   --auth-feature-gap: 0.9375rem;
   --auth-ink: #001744;
   --auth-cyan: #00d9d1;
+  /* R25: the card's accent rule is a greener teal than the left panel's cyan. */
+  --auth-teal: #0bc8a3;
+  /* R25: feature descriptions on the navy panel, a muted blue-grey. */
+  --auth-on-dark-muted: #b8c6d9;
+  /* R25: the feature tiles' gradients and the tagline's wide tracking (mockup). */
+  --auth-tile-blue: linear-gradient(180deg, #0b3a78, #072c5c);
+  --auth-tile-teal: linear-gradient(180deg, #00857e, #01524f);
+  --auth-tile-edge: rgba(255, 255, 255, 0.08);
+  --auth-portal-tracking: 0.3em;
   --auth-muted: #536a91;
   --auth-line: #cbdcf2;
   --auth-soft: #ebf1f8;
@@ -20,17 +30,23 @@
   --auth-copy-top: 6.5625rem;
   --auth-copy-left: 13.363%;
   --auth-copy-width: 27.5rem;
+  /* R25: narrower copy so the intro and each feature line wrap as in the mockup. */
+  --auth-description-width: 26.5rem;
+  --auth-feature-copy-width: 15rem;
   --auth-logo-light-width: 24.25rem;
-  --auth-logo-light-height: 9.625rem;
+  --auth-logo-light-height: 8.625rem;
   --auth-logo-width: 22.9375rem;
   --auth-logo-height: 8.25rem;
   --auth-title-size: 2.125rem;
-  --auth-pitch-size: 2.375rem;
+  --auth-pitch-size: 2.25rem;
   --auth-card-radius: 1.5rem;
   --auth-control-height: 3.625rem;
   --auth-control-radius: 0.6875rem;
   --auth-icon-size: 4.625rem;
   --auth-shadow: 0 1.125rem 2.375rem #00174426;
+  /* R25: the art keeps its 64rem height on taller pages; these continue its bottom edge. */
+  --auth-waves-edge: linear-gradient(90deg, #001c3a, #003166);
+  --auth-office-edge: linear-gradient(90deg, #e1ddd6, #bbb9c1, #bacbe5, #9b99a0, #e7dad3);
 }
 .auth-screen {
   position: relative;
@@ -43,14 +59,18 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: var(--auth-art-width);
-  background: url('./assets/admin-waves.svg') center / 100% 100% no-repeat;
+  background:
+    url('./assets/admin-waves.svg') center top / 100% var(--auth-canvas-height) no-repeat,
+    var(--auth-waves-edge);
   color: var(--color-on-action);
 }
 .auth-screen::before {
   content: '';
   position: absolute;
   inset: 0 0 0 var(--auth-art-width);
-  background: url('./assets/admin-office.png') right top / 100% 100% no-repeat;
+  background:
+    url('./assets/admin-office.png') right top / 100% var(--auth-canvas-height) no-repeat,
+    var(--auth-office-edge);
 }
 .auth-copy {
   margin: var(--auth-copy-top) 0 0 var(--auth-copy-left);
@@ -60,12 +80,11 @@
   width: var(--auth-logo-light-width);
   height: var(--auth-logo-light-height);
   background: url('./assets/firmivra-login-wordmark.png') left / contain no-repeat;
-  mix-blend-mode: lighten;
 }
 .auth-portal {
   margin-top: var(--space-4);
   font-size: var(--text-lg);
-  letter-spacing: var(--space-1);
+  letter-spacing: var(--auth-portal-tracking);
 }
 .auth-copy hr,
 .auth-card hr {
@@ -85,6 +104,7 @@
   color: var(--auth-cyan);
 }
 .auth-description {
+  max-width: var(--auth-description-width);
   margin-top: var(--space-4);
   font-size: var(--text-xl);
   line-height: var(--auth-body-line);
@@ -104,10 +124,12 @@
   place-items: center;
   height: var(--auth-icon-size);
   border-radius: var(--auth-control-radius);
-  background: var(--color-platform-navy-raised);
+  border: var(--container-border) solid var(--auth-tile-edge);
+  background: var(--auth-tile-blue);
+  box-shadow: var(--shadow-md);
 }
 .auth-icon.teal {
-  background: var(--color-platform-teal);
+  background: var(--auth-tile-teal);
 }
 .auth-icon svg {
   width: var(--space-10);
@@ -115,11 +137,13 @@
 }
 .auth-feature strong {
   font-size: var(--text-xl);
+  font-weight: var(--font-weight-semibold);
 }
 .auth-feature p {
   font-size: var(--text-lg);
   line-height: var(--text-lg--line-height);
-  color: var(--color-navigation-text);
+  max-width: var(--auth-feature-copy-width);
+  color: var(--auth-on-dark-muted);
 }
 .auth-card {
   position: relative;
@@ -136,7 +160,6 @@
   max-width: 100%;
   margin: auto;
   background: url('./assets/firmivra-wordmark.png') center / contain no-repeat;
-  mix-blend-mode: multiply;
 }
 .auth-card-portal {
   text-align: center;
@@ -148,6 +171,7 @@
 }
 .auth-card hr {
   margin-inline: auto;
+  background: var(--auth-teal);
 }
 .auth-card h2 {
   line-height: var(--text-3xl--line-height);
@@ -186,11 +210,13 @@
 }
 .auth-form label:has(input[type='checkbox']) {
   min-height: auto;
+  font-size: var(--text-base);
 }
 .auth-submit {
   width: 100%;
   min-height: var(--auth-submit-height);
-  font-size: var(--text-2xl);
+  font-size: var(--auth-submit-size);
+  font-weight: var(--font-weight-semibold);
   border-radius: var(--auth-control-radius);
   background: linear-gradient(20deg, var(--auth-blue-start), var(--auth-blue-end));
 }
@@ -227,6 +253,30 @@
 }
 .auth-security small {
   font-size: var(--text-sm);
+  color: var(--auth-muted);
+}
+/* R25: from 64rem to 84rem the card starts before the copy's mockup width ends, so the copy
+   fills only the space left of the card (37.109375vw = --auth-card-left) and wraps. */
+@media (64rem <= width < 84rem) {
+  .auth-copy {
+    margin-left: var(--space-8);
+    width: calc(37.109375vw - 2 * var(--space-8));
+  }
+  .auth-logo-light {
+    width: 100%;
+    max-width: var(--auth-logo-light-width);
+    height: auto;
+    aspect-ratio: 388 / 138;
+  }
+  .auth-copy h1 {
+    white-space: normal;
+  }
+  .auth-feature {
+    gap: var(--space-4);
+  }
+  .auth-feature p {
+    max-width: none;
+  }
 }
 @media (width < 64rem) {
   .auth-screen {

@@ -1,5 +1,7 @@
 export * from './definition.js';
 export * from './answers.js';
+export * from './schemas.js';
+export { createMyIntakesClient, type MyIntakesClient } from './client.js';
 export { US_STATES, UsState, MONTHS } from './options.js';
 export { INTAKE_FORMS } from './forms/index.js';
 export { ANNUAL_TAX_FORM } from './forms/annual-tax.js';
@@ -8,3 +10,4 @@ export { BOOKKEEPING_FORM } from './forms/bookkeeping.js';
 export { PAYROLL_FORM } from './forms/payroll.js';
 export { TAX_PLANNING_FORM } from './forms/tax-planning.js';
 export { BUSINESS_DEVELOPMENT_FORM } from './forms/business-development.js';
+export * from './intakes.js';
