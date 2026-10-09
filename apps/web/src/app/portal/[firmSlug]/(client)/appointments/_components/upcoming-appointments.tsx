@@ -10,26 +10,49 @@ import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { FreeTimes } from './free-times';
-import { APPOINTMENT_ERRORS, LOCATION_LABELS, myAppointmentsKey, today, when } from './shared';
+import {
+  APPOINTMENT_ERRORS,
+  LOCATION_LABELS,
+  myAppointmentsKey,
+  STALE,
+  TAKEN,
+  today,
+  when,
+} from './shared';
+
+/** A line above the list: what just changed, or why a change could not be made. */
+type Notice = { text: string; failed: boolean };
 
 /** The client's scheduled appointments, soonest first, with Reschedule and Cancel until the cutoff. */
 export function UpcomingAppointments({ slug }: { slug: string }) {
   const upcoming = useApiQuery([...myAppointmentsKey(slug), 'upcoming'], () =>
     api.myAppointments(slug).list({ when: 'upcoming' }),
   );
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<Notice | null>(null);
   return (
     <Card title="Upcoming appointments">
       {notice ? (
-        <p role="status" className="mb-3 text-sm font-medium text-success">
-          {notice}
+        <p
+          role={notice.failed ? 'alert' : 'status'}
+          className={`mb-3 text-sm font-medium ${notice.failed ? 'text-danger' : 'text-success'}`}
+        >
+          {notice.text}
         </p>
       ) : null}
       <PageState query={upcoming} empty="You have no upcoming appointments.">
         {(items) => (
           <ul className="flex flex-col divide-y divide-border">
             {items.map((item) => (
-              <Upcoming key={item.id} slug={slug} item={item} onChanged={setNotice} />
+              <Upcoming
+                key={item.id}
+                slug={slug}
+                item={item}
+                onNotice={setNotice}
+                onStale={(error) => {
+                  setNotice({ text: errorMessage(error, APPOINTMENT_ERRORS), failed: true });
+                  void upcoming.refetch();
+                }}
+              />
             ))}
           </ul>
         )}
@@ -41,16 +64,27 @@ export function UpcomingAppointments({ slug }: { slug: string }) {
 function Upcoming({
   slug,
   item,
-  onChanged,
+  onNotice,
+  onStale,
 }: {
   slug: string;
   item: MyAppointment;
-  onChanged: (notice: string) => void;
+  onNotice: (notice: Notice | null) => void;
+  /** The cutoff passed or the firm changed it meanwhile: say why and refresh the list. */
+  onStale: (error: unknown) => void;
 }) {
   const [action, setAction] = useState<'reschedule' | 'cancel' | null>(null);
-  const done = (notice: string) => () => {
+  const open = (next: 'reschedule' | 'cancel') => {
+    setAction(action === next ? null : next);
+    onNotice(null);
+  };
+  const done = (text: string) => () => {
     setAction(null);
-    onChanged(notice);
+    onNotice({ text, failed: false });
+  };
+  const stale = (error: unknown) => {
+    setAction(null);
+    onStale(error);
   };
   const details = item.locationDetails;
   return (
@@ -79,17 +113,11 @@ function Upcoming({
           <div className="flex gap-2">
             {/* Free times are per kind of appointment: one without a kind can only be cancelled. */}
             {item.type ? (
-              <Button
-                variant="outline"
-                onClick={() => setAction(action === 'reschedule' ? null : 'reschedule')}
-              >
+              <Button variant="outline" onClick={() => open('reschedule')}>
                 Reschedule
               </Button>
             ) : null}
-            <Button
-              variant="ghost"
-              onClick={() => setAction(action === 'cancel' ? null : 'cancel')}
-            >
+            <Button variant="ghost" onClick={() => open('cancel')}>
               Cancel
             </Button>
           </div>
@@ -108,10 +136,16 @@ function Upcoming({
           item={item}
           typeId={item.type.id}
           onDone={done('Your appointment was moved.')}
+          onStale={stale}
         />
       ) : null}
       {action === 'cancel' ? (
-        <Cancel slug={slug} id={item.id} onDone={done('Your appointment was cancelled.')} />
+        <Cancel
+          slug={slug}
+          id={item.id}
+          onDone={done('Your appointment was cancelled.')}
+          onStale={stale}
+        />
       ) : null}
     </li>
   );
@@ -122,11 +156,13 @@ function Reschedule({
   item,
   typeId,
   onDone,
+  onStale,
 }: {
   slug: string;
   item: MyAppointment;
   typeId: string;
   onDone: () => void;
+  onStale: (error: unknown) => void;
 }) {
   const [first] = useState(today);
   // Start at the appointment's own day (the client's calendar date), never before today.
@@ -153,6 +189,7 @@ function Reschedule({
         onDate={(next) => {
           setDate(next);
           setPicked(null);
+          move.reset();
         }}
         onPick={setPicked}
       />
@@ -163,8 +200,9 @@ function Reschedule({
           move.mutate(picked, {
             onSuccess: onDone,
             onError: (error) => {
-              if (errorCode(error) !== 'SLOT_TAKEN' && errorCode(error) !== 'SLOT_UNAVAILABLE')
-                return;
+              const code = errorCode(error) ?? '';
+              if (STALE.has(code)) return onStale(error);
+              if (!TAKEN.has(code)) return;
               setPicked(null);
               setRound(round + 1);
             },
@@ -186,7 +224,17 @@ function Reschedule({
   );
 }
 
-function Cancel({ slug, id, onDone }: { slug: string; id: string; onDone: () => void }) {
+function Cancel({
+  slug,
+  id,
+  onDone,
+  onStale,
+}: {
+  slug: string;
+  id: string;
+  onDone: () => void;
+  onStale: (error: unknown) => void;
+}) {
   const form = useForm({
     resolver: zodResolver(CancelMyAppointmentRequest),
     defaultValues: { reason: '' },
@@ -197,7 +245,12 @@ function Cancel({ slug, id, onDone }: { slug: string; id: string; onDone: () => 
   );
   return (
     <form
-      onSubmit={form.handleSubmit((body) => cancel.mutate(body, { onSuccess: onDone }))}
+      onSubmit={form.handleSubmit((body) =>
+        cancel.mutate(body, {
+          onSuccess: onDone,
+          onError: (error) => (STALE.has(errorCode(error) ?? '') ? onStale(error) : undefined),
+        }),
+      )}
       noValidate
       className="flex flex-col items-start gap-3 rounded-card border border-border bg-canvas p-4"
     >

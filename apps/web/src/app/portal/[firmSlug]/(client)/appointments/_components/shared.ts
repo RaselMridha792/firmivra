@@ -20,6 +20,12 @@ export const APPOINTMENT_ERRORS: Record<string, string> = {
   CLIENT_ARCHIVED: 'Your account is closed for new appointments. Please contact us.',
 };
 
+/** Someone took the time meanwhile: ask for the free times again. */
+export const TAKEN = new Set(['SLOT_TAKEN', 'SLOT_UNAVAILABLE']);
+
+/** The list is out of date: the cutoff passed, or the firm closed or removed the appointment. */
+export const STALE = new Set(['CHANGE_WINDOW_CLOSED', 'APPOINTMENT_CLOSED', 'NOT_FOUND']);
+
 /**
  * Times are shown in the client's own time zone, with its short name ("10:00 AM EDT"): the
  * portal has no firm time zone to show. Free times are for the firm's calendar dates.

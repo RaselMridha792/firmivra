@@ -8,9 +8,21 @@ import { api } from '../../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { FreeTimes } from './free-times';
-import { APPOINTMENT_ERRORS, LOCATION_LABELS, myAppointmentsKey, today, when } from './shared';
+import {
+  APPOINTMENT_ERRORS,
+  LOCATION_LABELS,
+  myAppointmentsKey,
+  TAKEN,
+  today,
+  when,
+} from './shared';
 
-const RETRY = new Set(['SLOT_TAKEN', 'SLOT_UNAVAILABLE']);
+/** Booking answers 404 for a kind of appointment that is no longer offered. */
+const TYPE_GONE = new Set(['NOT_FOUND', 'TYPE_ARCHIVED']);
+const BOOKING_ERRORS = {
+  ...APPOINTMENT_ERRORS,
+  NOT_FOUND: 'This kind of appointment is no longer offered.',
+};
 
 /** Book: pick a kind of appointment, then a free time, then confirm. */
 export function BookAppointment({ slug }: { slug: string }) {
@@ -20,13 +32,21 @@ export function BookAppointment({ slug }: { slug: string }) {
   return (
     <Card title="Book an appointment">
       <PageState query={types} empty="There are no appointments to book online. Please contact us.">
-        {(list) => <Booking slug={slug} types={list} />}
+        {(list) => <Booking slug={slug} types={list} onTypeGone={() => void types.refetch()} />}
       </PageState>
     </Card>
   );
 }
 
-function Booking({ slug, types }: { slug: string; types: BookableType[] }) {
+function Booking({
+  slug,
+  types,
+  onTypeGone,
+}: {
+  slug: string;
+  types: BookableType[];
+  onTypeGone: () => void;
+}) {
   const [first] = useState(today);
   const [type, setType] = useState<BookableType | null>(null);
   const [date, setDate] = useState(first);
@@ -42,6 +62,7 @@ function Booking({ slug, types }: { slug: string; types: BookableType[] }) {
     setType(next);
     setPicked(null);
     setBooked('');
+    book.reset();
   };
   const confirm = (slot: MySlot) =>
     book.mutate(slot, {
@@ -53,7 +74,14 @@ function Booking({ slug, types }: { slug: string; types: BookableType[] }) {
         setPicked(null);
       },
       onError: (error) => {
-        if (!RETRY.has(errorCode(error) ?? '')) return;
+        const code = errorCode(error) ?? '';
+        if (TYPE_GONE.has(code)) {
+          setType(null);
+          setPicked(null);
+          onTypeGone();
+          return;
+        }
+        if (!TAKEN.has(code)) return;
         setPicked(null);
         setRound(round + 1);
       },
@@ -93,6 +121,7 @@ function Booking({ slug, types }: { slug: string; types: BookableType[] }) {
           onDate={(next) => {
             setDate(next);
             setPicked(null);
+            book.reset();
           }}
           onPick={setPicked}
         />
@@ -109,7 +138,7 @@ function Booking({ slug, types }: { slug: string; types: BookableType[] }) {
       ) : null}
       {book.error ? (
         <p role="alert" className="text-sm text-danger">
-          {errorMessage(book.error, APPOINTMENT_ERRORS)}
+          {errorMessage(book.error, BOOKING_ERRORS)}
         </p>
       ) : null}
     </div>
