@@ -39,9 +39,9 @@ function toBody(
   for (const k of NUMBERS) if (!/^\d+$/.test(f[k].trim())) errors[k] = 'Enter a whole number';
   if (Object.keys(errors).length) return { ok: false, errors };
   const n = (k: NumberKey) => Number(f[k]);
-  // The send check refuses a first reminder on or after the expiry day.
-  if (n('max') > 0 && n('firstAfterDays') >= n('expiryDays')) {
-    errors.firstAfterDays = 'Make it sooner than the expiry';
+  // As the send check (remindersRunPastExpiry): the last reminder before the expiry.
+  if (n('max') > 0 && n('firstAfterDays') + (n('max') - 1) * n('everyDays') >= n('expiryDays')) {
+    errors.firstAfterDays = 'The last reminder would come on or after the expiry';
   }
   if (n('expiryWarningDays') >= n('expiryDays')) {
     errors.expiryWarningDays = 'Make it fewer days than the expiry';

@@ -26,14 +26,14 @@ test('change the email, expiry and reminders, with a wrong number caught first',
   await page.getByRole('button', { name: 'Save settings' }).click();
   await expect(page.getByText(/365/)).toBeVisible();
 
-  // A first reminder on or after the expiry day would stop the request from being sent.
-  await page.getByLabel('Expires after (days)').fill('2');
+  // Reminders on days 3, 6 and 9 run past an 8-day expiry, which would stop the send.
+  await page.getByLabel('Expires after (days)').fill('8');
   await page.getByLabel('Most reminders (0 turns them off)').fill('3');
-  await page.getByLabel('First reminder after (days)').fill('5');
-  await page.getByRole('button', { name: 'Save settings' }).click();
-  await expect(page.getByText('Make it sooner than the expiry')).toBeVisible();
-
   await page.getByLabel('First reminder after (days)').fill('3');
+  await page.getByLabel('Then remind every (days)').fill('3');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByText('The last reminder would come on or after the expiry')).toBeVisible();
+
   await page.getByLabel('Expires after (days)').fill('14');
   await page.getByLabel('Only your team sees this note').fill('Synthetic note');
   await page.getByRole('button', { name: 'Save settings' }).click();
