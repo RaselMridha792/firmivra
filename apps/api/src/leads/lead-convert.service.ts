@@ -52,7 +52,9 @@ export class LeadConvertService {
     const result = await this.inFirm(businessId, async (tx) => {
       const lead = await this.leads.lock(tx, businessId, id);
       if (!OPEN.includes(lead.status as (typeof OPEN)[number])) throw handled();
-      if (assignedUserId && !body.clientId) await this.activeMember(tx, businessId, assignedUserId);
+      // Checked whether the client is new or existing: an unknown, deactivated or other firm's
+      // user is 404, never the engagement's assignee.
+      if (assignedUserId) await this.activeMember(tx, businessId, assignedUserId);
       const clientId = body.clientId
         ? await this.existingClient(tx, businessId, actor, body.clientId)
         : await this.newClient(tx, businessId, lead, body, assignedUserId);
@@ -110,6 +112,19 @@ export class LeadConvertService {
         detail: await this.leads.detail(tx, businessId, id),
       };
     });
+    // The new client's and the engagement's own trails start here too (as R10's and R12's creates).
+    if (!body.clientId) {
+      await this.audit.log(
+        'client.created',
+        { type: 'client', id: result.clientId },
+        { from: 'lead', leadId: id },
+      );
+    }
+    await this.audit.log(
+      'engagement.created',
+      { type: 'engagement', id: result.engagementId },
+      { clientId: result.clientId, from: 'lead', leadId: id },
+    );
     await this.audit.log(
       'lead.converted',
       { type: 'lead', id },

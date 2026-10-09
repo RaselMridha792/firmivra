@@ -20,6 +20,7 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
 import { submitLeadVersion } from '../submitted-lead.js';
@@ -41,6 +42,7 @@ const person = (key: string) => ({ id: randomUUID(), email: `r11l-${key}-${run}@
 const people = {
   ownerA: person('owner-a'),
   staffA: person('staff-a'),
+  goneA: person('gone-a'),
   ownerB: person('owner-b'),
 };
 const ids = {
@@ -51,6 +53,8 @@ const ids = {
   serviceB: '',
   staffClient: '',
   otherClient: '',
+  archivedClient: '',
+  clientB: '',
   leads: {} as Record<string, string>,
   uploads: {} as Record<string, string>,
 };
@@ -167,10 +171,13 @@ async function seedLead(
       },
     },
   });
-  for (const [slot, scan] of [
+  const slots = [
     ['clean', 'CLEAN'],
     ['pending', 'PENDING'],
-  ] as const) {
+    // A CLEAN file whose stored object is gone (MemoryStorage's HEAD answers null).
+    ...(key === 'missing' ? ([['missing', 'CLEAN']] as const) : []),
+  ] as const;
+  for (const [slot, scan] of slots) {
     const upload = await tx.leadUpload.create({
       data: {
         ...B,
@@ -180,7 +187,7 @@ async function seedLead(
         contentType: 'application/pdf',
         sizeBytes: bytes.length,
         sha256: sha,
-        s3Key: `tenant/${businessId}/begin-online/${randomUUID()}`,
+        s3Key: `tenant/${businessId}/begin-online/${slot === 'missing' ? 'missing-' : ''}${randomUUID()}`,
       },
     });
     if (scan === 'CLEAN') {
@@ -249,9 +256,14 @@ beforeAll(async () => {
     for (const [userId, role] of [
       [people.ownerA.id, 'OWNER'],
       [people.staffA.id, 'STAFF'],
+      [people.goneA.id, 'STAFF'],
     ] as const) {
       await tx.membership.create({ data: { ...A, userId, role, status: 'ACTIVE' } });
     }
+    await tx.membership.update({
+      where: { businessId_userId: { businessId: ids.firmA, userId: people.goneA.id } },
+      data: { status: 'DEACTIVATED' },
+    });
     ids.service = (
       await tx.service.create({
         data: { ...A, kind: 'ANNUAL_TAX', name: `Annual Tax ${run}`, beginOnline: true },
@@ -268,6 +280,9 @@ beforeAll(async () => {
         data: { ...A, displayName: 'Taken', email: `lead-taken-${run}@example.test` },
       })
     ).id;
+    ids.archivedClient = (
+      await tx.client.create({ data: { ...A, displayName: 'Archived', archivedAt: new Date() } })
+    ).id;
     await seedLead(tx, 'new', 'SUBMITTED', formId, ids.firmA, ids.service, people.ownerA.id, true);
     await seedLead(tx, 'review', 'IN_REVIEW', formId);
     await seedLead(tx, 'race', 'IN_REVIEW', formId);
@@ -275,11 +290,17 @@ beforeAll(async () => {
     await seedLead(tx, 'draft', 'DRAFT', formId);
     await seedLead(tx, 'taken', 'SUBMITTED', formId);
     await seedLead(tx, 'staff', 'SUBMITTED', formId);
+    for (const key of ['assignee', 'nomail', 'quiet', 'missing']) {
+      await seedLead(tx, key, 'SUBMITTED', formId);
+    }
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmB }, async (tx) => {
     await tx.membership.create({
       data: { businessId: ids.firmB, userId: people.ownerB.id, role: 'OWNER', status: 'ACTIVE' },
     });
+    ids.clientB = (
+      await tx.client.create({ data: { businessId: ids.firmB, displayName: 'B client' } })
+    ).id;
     ids.serviceB = (
       await tx.service.create({
         data: { businessId: ids.firmB, kind: 'ANNUAL_TAX', name: `Tax B ${run}` },
@@ -301,6 +322,10 @@ beforeAll(async () => {
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({
       send: (message: NotifyMessage) => {
+        // An address the provider refuses: the conversion stands, inviteSent is false.
+        if (message.to.includes('-nomail-')) {
+          return Promise.reject(new NotifyDeliveryError(message.template, 'email', 'synthetic'));
+        }
         outbox.push(message);
         return Promise.resolve();
       },
@@ -344,7 +369,7 @@ describe('inbox', () => {
     expect(next.items.map((l) => l.id)).not.toContain(page.items[0]!.id);
 
     const counts = expectOk(await firm('get', '/count', people.ownerA)).body as object;
-    expect(counts).toEqual({ submitted: 3, inReview: 2 });
+    expect(counts).toEqual({ submitted: 7, inReview: 2 });
   });
 
   it("another firm sees none of them, and a draft's detail is 404", async () => {
@@ -387,6 +412,25 @@ describe('review', () => {
       await firm('get', `/${lead}/uploads/${ids.uploads['new.clean']}/download`, people.staffA),
     ).body as { url: string };
     expect(ok.url).toMatch(/^memory:tenant\//);
+    const issued = await inFirm(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { businessId: ids.firmA, action: 'lead_upload.download_link_issued' },
+      }),
+    );
+    expect(issued).toContainEqual(
+      expect.objectContaining({
+        entityType: 'lead_upload',
+        entityId: ids.uploads['new.clean'],
+        actorUserId: people.staffA.id,
+        metadata: expect.objectContaining({ leadId: lead }) as unknown,
+      }),
+    );
+    const gone = await firm(
+      'get',
+      `/${ids.leads['missing']}/uploads/${ids.uploads['missing.missing']}/download`,
+      people.ownerA,
+    );
+    expect(codeOf(gone)).toBe('FILE_NOT_AVAILABLE');
     const pending = await firm(
       'get',
       `/${lead}/uploads/${ids.uploads['new.pending']}/download`,
@@ -466,6 +510,9 @@ describe('decline', () => {
       expectOk(await firm('post', `/${lead}/decline`, people.ownerA, { reason })).body,
     );
     expect(declined).toMatchObject({ status: 'DECLINED', declineReason: reason });
+    expect(codeOf(await firm('post', `/${lead}/decline`, people.ownerA, { reason: 'Again' }))).toBe(
+      'INVALID_STATUS',
+    );
     expect(codeOf(await firm('post', `/${lead}/convert`, people.ownerA, {}))).toBe(
       'INVALID_STATUS',
     );
@@ -528,6 +575,43 @@ describe('convert', () => {
     expect(state.intake.engagementId).toBe(res.engagementId);
     expect(state.documents.map((d) => d.intakeSlot).sort()).toEqual(['cleanSlot', 'pendingSlot']);
     expect(state.documents.every((d) => d.intakeId === state.intake.id)).toBe(true);
+    const uploads = await inFirm(ids.firmA, (tx) =>
+      tx.leadUpload.findMany({ where: { leadId: lead } }),
+    );
+    expect(
+      state.documents
+        .map((d) => ({ leadUploadId: d.leadUploadId, s3Key: d.s3Key, scanStatus: d.scanStatus }))
+        .sort((a, b) => String(a.leadUploadId).localeCompare(String(b.leadUploadId))),
+    ).toEqual(
+      uploads
+        .map((u) => ({ leadUploadId: u.id, s3Key: u.s3Key, scanStatus: u.scanStatus }))
+        .sort((a, b) => a.leadUploadId.localeCompare(b.leadUploadId)),
+    );
+    const audit = await inFirm(ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: ids.firmA,
+          entityId: { in: [lead!, res.clientId, res.engagementId] },
+          action: { in: ['lead.converted', 'client.created', 'engagement.created'] },
+        },
+      }),
+    );
+    expect(audit.map((a) => [a.action, a.entityType, a.entityId]).sort()).toEqual([
+      ['client.created', 'client', res.clientId],
+      ['engagement.created', 'engagement', res.engagementId],
+      ['lead.converted', 'lead', lead],
+    ]);
+    expect(audit.find((a) => a.action === 'client.created')?.metadata).toEqual({
+      from: 'lead',
+      leadId: lead,
+    });
+    expect(audit.find((a) => a.action === 'lead.converted')?.metadata).toMatchObject({
+      clientId: res.clientId,
+      engagementId: res.engagementId,
+      newClient: true,
+      documents: 2,
+    });
+    expect(JSON.stringify(audit)).not.toContain(`lead-new-${run}`);
     expect(outbox).toHaveLength(1);
     expect(outbox[0]).toMatchObject({
       template: 'client.portal-invite',
@@ -595,5 +679,63 @@ describe('convert', () => {
       );
       expect(res.status).toBe(404);
     }
+  });
+
+  it("an unknown, deactivated or other firm's assignee is 404, with or without clientId", async () => {
+    const lead = ids.leads['assignee'];
+    for (const assignedUserId of [people.ownerB.id, randomUUID(), people.goneA.id]) {
+      for (const extra of [{ clientId: ids.otherClient }, {}]) {
+        const res = await firm('post', `/${lead}/convert`, people.ownerA, {
+          ...extra,
+          assignedUserId,
+        });
+        expect(res.status, JSON.stringify(res.body)).toBe(404);
+      }
+    }
+    const after = Detail.parse(expectOk(await firm('get', `/${lead}`, people.ownerA)).body);
+    expect(after).toMatchObject({ status: 'SUBMITTED', engagementId: null });
+  });
+
+  it("refuses an archived client, another firm's client, a draft and an unknown body key", async () => {
+    const lead = ids.leads['assignee'];
+    const archived = await firm('post', `/${lead}/convert`, people.ownerA, {
+      clientId: ids.archivedClient,
+    });
+    expect(codeOf(archived)).toBe('CLIENT_ARCHIVED');
+    const theirs = await firm('post', `/${lead}/convert`, people.ownerA, { clientId: ids.clientB });
+    expect(theirs.status).toBe(404);
+    const draft = await firm('post', `/${ids.leads['draft']}/convert`, people.ownerA, {});
+    expect(draft.status).toBe(404);
+    const unknown = await firm('post', `/${lead}/convert`, people.ownerA, { status: 'CONVERTED' });
+    expect(codeOf(unknown)).toBe('VALIDATION_FAILED');
+    const after = Detail.parse(expectOk(await firm('get', `/${lead}`, people.ownerA)).body);
+    expect(after.status).toBe('SUBMITTED');
+  });
+
+  it('a refused invitation leaves the conversion in place with inviteSent false', async () => {
+    outbox.length = 0;
+    const res = ConvertLeadResponse.parse(
+      expectOk(await firm('post', `/${ids.leads['nomail']}/convert`, people.ownerA, {})).body,
+    );
+    expect(res).toMatchObject({ inviteSent: false, lead: { status: 'CONVERTED' } });
+    expect(outbox).toHaveLength(0);
+  });
+
+  it('sendPortalInvite false converts without an invitation', async () => {
+    outbox.length = 0;
+    const res = ConvertLeadResponse.parse(
+      expectOk(
+        await firm('post', `/${ids.leads['quiet']}/convert`, people.ownerA, {
+          sendPortalInvite: false,
+          assignedUserId: people.staffA.id,
+        }),
+      ).body,
+    );
+    expect(res).toMatchObject({ inviteSent: false, lead: { status: 'CONVERTED' } });
+    expect(outbox).toHaveLength(0);
+    const engagement = await inFirm(ids.firmA, (tx) =>
+      tx.engagement.findUniqueOrThrow({ where: { id: res.engagementId } }),
+    );
+    expect(engagement.assignedUserId).toBe(people.staffA.id);
   });
 });

@@ -77,8 +77,11 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'lead' },
     body: { reason: 'Fake reason' },
   },
-  // Converts into a new client with the lead's own (unique) email.
-  'POST /api/v1/business/leads/:id/convert': { params: { id: 'lead' }, body: {} },
+  // Converts into the world's client, assigned to its staff member (both named in the body).
+  'POST /api/v1/business/leads/:id/convert': {
+    params: { id: 'lead' },
+    bodyIds: { clientId: 'client', assignedUserId: 'staffUser' },
+  },
   // No file store in tests: found, then 503.
   'GET /api/v1/business/leads/:id/uploads/:uploadId/download': {
     params: { id: 'lead', uploadId: 'leadUpload' },
