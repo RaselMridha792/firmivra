@@ -38,7 +38,12 @@ import {
   stepIssues,
 } from './intake-values';
 
-const draftKey = (slug: string, form: IntakeFormKey) => ['begin-online', slug, form, 'draft'];
+export const draftKey = (slug: string, form: IntakeFormKey) => [
+  'begin-online',
+  slug,
+  form,
+  'draft',
+];
 
 /** The service's form as its mockups head it: the title with its last two words in orange. */
 function FormHeader({

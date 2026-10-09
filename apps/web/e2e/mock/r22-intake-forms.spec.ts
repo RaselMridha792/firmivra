@@ -9,6 +9,8 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const origin = `http://portal.localhost:${port}`;
 
 const FORMS = [
+  // The first return type (Personal) hides step 2, Business Income & Expenses.
+  { path: 'annual-tax', title: 'Annual Tax Intake Form', steps: 3 },
   { path: 'quarterly-tax', title: 'Quarterly Tax Intake Form', steps: 4 },
   { path: 'bookkeeping', title: 'Business Bookkeeping Intake Form', steps: 4 },
   { path: 'payroll', title: 'Payroll Services Intake Form', steps: 3 },
@@ -151,6 +153,37 @@ test('Save and Continue Later saves the step and confirms the email', async ({ p
   await start(page, 'tax-planning');
   await page.getByRole('button', { name: 'Save and Continue Later' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'continue later' })).toContainText(
+    'avery@example.test',
+  );
+});
+
+test('the success pages: tax preparation and every other service', async ({ page }) => {
+  await page.goto(`${origin}/lvp/begin/done?form=annual-tax`);
+  await expect(page.getByRole('heading', { name: 'Success!' })).toBeVisible();
+  await expect(page.getByText('A free initial tax consultation')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Schedule an Appointment' })).toHaveAttribute(
+    'href',
+    '/lvp/appointments',
+  );
+  await page.goto(`${origin}/lvp/begin/done?form=payroll`);
+  await expect(page.getByText('Your Assigned Specialist Will Reach Out')).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+});
+
+test('a resume link opens the saved form; an expired one asks for a new link', async ({ page }) => {
+  await page.goto(`${origin}/lvp/begin/resume#token=mockSavedAnnualTaxDraft00000000000000000001`);
+  await expect(page).toHaveURL(`${origin}/lvp/begin/annual-tax`, { timeout: 20_000 });
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Annual Tax Intake Form');
+
+  await page.goto(`${origin}/lvp/begin/resume#token=mockExpiredBookkeepingDraft0000000000000002`);
+  await expect(page.getByTestId('begin-resume').getByRole('alert')).toContainText(
+    'no longer valid',
+  );
+  expect(page.url()).toBe(`${origin}/lvp/begin/resume`);
+  await page.getByLabel('Email Address *').fill('avery@example.test');
+  await page.getByRole('button', { name: 'Email Me My Link' }).click();
+  await expect(page.getByTestId('begin-resume').getByRole('status')).toContainText(
     'avery@example.test',
   );
 });
