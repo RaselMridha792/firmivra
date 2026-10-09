@@ -20,8 +20,8 @@ Not mine: `(public)/layout.tsx` and the portal header and footer (R17), `package
 ## Steps
 
 - [x] 1. This file; Arfan's #138 merged with main (titles 'Begin online' and 'Annual tax preparation' kept), `-m-6` replaced by PageContainer, his specs moved to `r22-*` (the second mock firm no longer exists)
-- [ ] 2. One intake engine in `_blocks/` that renders any form from its definition (contract B): stepper, numbered panels, every field type, grids with totals, repeating groups, uploads, review with Edit, Back/Next, save-and-continue-later
-- [ ] 3. The five other forms on the engine (quarterly tax, bookkeeping, payroll, tax planning, business development), each with a mock spec: every step, required errors, Back and Next, review, submit, success page, 375 px and keyboard
+- [x] 2. One intake engine in `_blocks/` that renders any form from its definition (contract B): stepper, numbered panels, every field type, grids with totals, repeating groups, uploads, review with Edit, Back/Next, save-and-continue-later
+- [x] 3. The five other forms on the engine (quarterly tax, bookkeeping, payroll, tax planning, business development), each with a mock spec: every step, required errors, Back and Next, review, submit, success page, 375 px and keyboard
 - [ ] 4. Annual tax moved onto the engine and contract B's client
 - [ ] 5. Resume and done pages (both success pages)
 - [ ] 6. Real API as R15's endpoints land (dev runs a production build, where mocks are compiled out)
@@ -34,4 +34,5 @@ Not mine: `(public)/layout.tsx` and the portal header and footer (R17), `package
 
 ## Progress log
 
-- 2026-10-09: step 1 (Arfan's #138 brought up to date, his commits kept).
+- 2026-10-09: step 1 (Arfan's #138 brought up to date, his commits kept): PR #266.
+- 2026-10-09: steps 2-3: the engine in `begin/_blocks/intake-*` renders a form from its definition (contract B, stacked on #257); checks use `checkIntakeAnswers` (the API's own check) instead of zodResolver, since the fields come from the definition. Quarterly tax, bookkeeping, payroll, tax planning and business development pages use it; `r22-intake-forms.spec.ts` runs each end to end. The agreement panel is a frame until R14's #259 (no signature in the submit yet). Submit's 503 (agreements not signable yet, R15) shows its own message.
