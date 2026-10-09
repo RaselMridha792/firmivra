@@ -97,9 +97,13 @@ describe('FirmKeyJob: failures', () => {
     const { job, tx } = jobWith(kms(ensureKey), true, ['f1', 'f2'], ['f2']);
     const before = Date.now();
     await job.sweep();
+    const after = Date.now();
     const where = (tx.business.findMany.mock.calls[0]![0] as { where: { createdAt: { lt: Date } } })
       .where;
-    expect(before - where.createdAt.lt.getTime()).toBeGreaterThanOrEqual(FIRM_KEY_SWEEP_MIN_AGE_MS);
+    // The cutoff is "now minus the minimum age", taken between before and after.
+    const cutoff = where.createdAt.lt.getTime();
+    expect(before - cutoff).toBeLessThanOrEqual(FIRM_KEY_SWEEP_MIN_AGE_MS);
+    expect(after - cutoff).toBeGreaterThanOrEqual(FIRM_KEY_SWEEP_MIN_AGE_MS);
     expect(ensureKey.mock.calls).toEqual([['f1']]);
   });
 
