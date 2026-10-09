@@ -2,8 +2,10 @@ import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 
 import { z } from 'zod';
 import { FirmSlug } from '@firmivra/types';
 import { deriveKey, Sealer, type PoolSecrets } from '../../auth/sealed.js';
+import { parsePng } from './images.js';
 import type {
   CodeHasher,
+  EsignCodeKind,
   IssuedToken,
   LinkTokens,
   SignatureImageCheck,
@@ -21,55 +23,22 @@ import type {
 export const SIGNATURE_LIMITS = { maxBytes: 200 * 1024, maxWidth: 1600, maxHeight: 600 } as const;
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-function crc32(bytes: Uint8Array): number {
-  let c = 0xffffffff;
-  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
 
 /**
- * A real PNG: the signature, IHDR first, every chunk's CRC right, at least one IDAT, IEND last
- * with nothing after it. Size and dimensions within SIGNATURE_LIMITS.
+ * A real PNG, checked the whole way by parsePng (CRCs, IHDR fields, image data that inflates to
+ * exactly its size), within SIGNATURE_LIMITS.
  */
 export class PngSignatureCheck implements SignatureImageCheck {
   check(png: Uint8Array): SignatureImageResult {
     if (png.byteLength > SIGNATURE_LIMITS.maxBytes) return { ok: false, reason: 'TOO_MANY_BYTES' };
     if (png.byteLength < 8 || PNG_MAGIC.some((b, i) => png[i] !== b)) return NOT_PNG;
-    const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
-    let at = 8;
-    let width = 0;
-    let height = 0;
-    let idat = false;
-    while (at + 12 <= png.byteLength) {
-      const length = view.getUint32(at);
-      const end = at + 12 + length;
-      if (end > png.byteLength) return NOT_PNG;
-      const type = String.fromCharCode(...png.subarray(at + 4, at + 8));
-      if (crc32(png.subarray(at + 4, at + 8 + length)) !== view.getUint32(at + 8 + length)) {
-        return NOT_PNG;
-      }
-      if (at === 8) {
-        if (type !== 'IHDR' || length !== 13) return NOT_PNG;
-        width = view.getUint32(at + 8);
-        height = view.getUint32(at + 12);
-        if (width < 1 || height < 1) return NOT_PNG;
-      } else if (type === 'IDAT') {
-        idat = true;
-      } else if (type === 'IEND') {
-        if (!idat || end !== png.byteLength) return NOT_PNG;
-        if (width > SIGNATURE_LIMITS.maxWidth || height > SIGNATURE_LIMITS.maxHeight) {
-          return { ok: false, reason: 'TOO_MANY_PIXELS' };
-        }
-        return { ok: true, width, height };
-      }
-      at = end;
+    const parsed = parsePng(png, { strict: true });
+    if (!parsed) return NOT_PNG;
+    const { width, height } = parsed;
+    if (width > SIGNATURE_LIMITS.maxWidth || height > SIGNATURE_LIMITS.maxHeight) {
+      return { ok: false, reason: 'TOO_MANY_PIXELS' };
     }
-    return NOT_PNG;
+    return { ok: true, width, height };
   }
 }
 const NOT_PNG = { ok: false, reason: 'NOT_PNG' } as const;
@@ -98,7 +67,7 @@ export const ESIGN_CODE_KEY_LABEL = 'fv-esign-code-v1';
 export const LOCAL_ESIGN_CODE = '000000';
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
 
-/** HMAC-SHA256 of recipient and code, under a key derived from the clients pool's secret. */
+/** HMAC-SHA256 of recipient, kind and code, under a key derived from the clients pool's secret. */
 export class HmacCodeHasher implements CodeHasher {
   private readonly key: Uint8Array;
 
@@ -115,13 +84,15 @@ export class HmacCodeHasher implements CodeHasher {
     return this.localMode ? LOCAL_ESIGN_CODE : String(randomInt(0, 1_000_000)).padStart(6, '0');
   }
 
-  hash(recipientId: string, code: string): string {
-    return createHmac('sha256', this.key).update(`${recipientId}\n${code}`, 'utf8').digest('hex');
+  hash(recipientId: string, kind: EsignCodeKind, code: string): string {
+    return createHmac('sha256', this.key)
+      .update(`${recipientId}\n${kind}\n${code}`, 'utf8')
+      .digest('hex');
   }
 
-  verify(recipientId: string, code: string, storedHash: string): boolean {
+  verify(recipientId: string, kind: EsignCodeKind, code: string, storedHash: string): boolean {
     if (!HEX_SHA256.test(storedHash)) return false;
-    const actual = Buffer.from(this.hash(recipientId, code), 'hex');
+    const actual = Buffer.from(this.hash(recipientId, kind, code), 'hex');
     return timingSafeEqual(actual, Buffer.from(storedHash, 'hex'));
   }
 }
