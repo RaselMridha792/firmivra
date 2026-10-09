@@ -2,6 +2,7 @@
 // Test Firm B for isolation checks. Safe to run again. Runs as the owner role, inside the same
 // scopes the app uses, so it also works where the owner is not a superuser.
 import { createHash, randomBytes } from 'node:crypto';
+import { INTAKE_FORMS } from '@firmivra/types';
 import { config } from 'dotenv';
 import { createPrismaClient, runInScope, type TxClient } from '../src/client.js';
 import {
@@ -24,7 +25,8 @@ import {
   SEED_BILLING_IDS,
   SEED_STRIPE_ACCOUNT_ID,
   SEED_PLATFORM_IDS,
-  SAMPLE_FORM_DEFINITION,
+  SEED_MEETING_URLS,
+  seedFormDefinition,
   SEED_AGREEMENT_IDS,
   SAMPLE_AGREEMENT,
 } from './seed-data.js';
@@ -122,6 +124,8 @@ async function seedServices(
       packages: [...s.packages],
       stages: [...s.stages],
       sortOrder,
+      // Every seeded service is offered on Begin Online: one per kind, none OTHER.
+      beginOnline: true,
     };
     const row = await tx.service.upsert({
       where: { businessId_name: { businessId, name: s.name } },
@@ -162,6 +166,7 @@ async function seedIntakeForms(
   const ids = new Map<string, string>();
   for (const name of serviceNames) {
     const serviceId = service(name);
+    const { kind } = await tx.service.findUniqueOrThrow({ where: { id: serviceId } });
     const row = await tx.intakeForm.upsert({
       where: { businessId_serviceId_version: { businessId, serviceId, version: 1 } },
       update: {},
@@ -170,7 +175,12 @@ async function seedIntakeForms(
         serviceId,
         version: 1,
         title: `${name} intake`,
-        definition: SAMPLE_FORM_DEFINITION,
+        // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
+        // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
+        definition:
+          kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
+            ? INTAKE_FORMS.ANNUAL_TAX
+            : seedFormDefinition(kind, `${name} intake`),
         // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
         agreementText: null,
         status: 'PUBLISHED',
@@ -310,14 +320,14 @@ async function main() {
   );
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
-    for (const [user, role] of [
-      [SEED_USERS.lvpOwner, 'OWNER'],
-      [SEED_USERS.lvpStaff, 'STAFF'],
+    for (const [user, role, meetingUrl] of [
+      [SEED_USERS.lvpOwner, 'OWNER', SEED_MEETING_URLS.lvpOwner],
+      [SEED_USERS.lvpStaff, 'STAFF', SEED_MEETING_URLS.lvpStaff],
     ] as const) {
       await tx.membership.upsert({
         where: { businessId_userId: { businessId: businesses.lvp, userId: user.id } },
-        update: { role, status: 'ACTIVE' },
-        create: { businessId: businesses.lvp, userId: user.id, role, status: 'ACTIVE' },
+        update: { role, status: 'ACTIVE', meetingUrl },
+        create: { businessId: businesses.lvp, userId: user.id, role, status: 'ACTIVE', meetingUrl },
       });
     }
     await tx.clientAccount.upsert({
@@ -672,7 +682,8 @@ async function main() {
         id: SEED_INTAKE_IDS.taxSubmission,
         intakeId: SEED_INTAKE_IDS.taxIntake,
         version: 1,
-        answers: { fullName: SEED_USERS.lvpClient.name },
+        // The real Annual Tax form's own questions, partly answered (an IN_PROGRESS intake).
+        answers: { firstName: 'Chris', lastName: 'Client' },
       },
     });
 
@@ -687,6 +698,7 @@ async function main() {
         lastName: 'Lead (fake)',
         email: 'lena.lead@begin.test',
         phone: '+15555550123',
+        taxYear: 2025,
       },
     });
     // Uploads are added while the lead is a draft; no file exists behind it in local S3.
@@ -722,12 +734,13 @@ async function main() {
     });
     // A submitted version is locked (even an empty upsert would update it), so create it once:
     // a draft, the signature evidence for LVP's firm-wide v1, then the submit that copies the
-    // signature's name, database time, IP and browser.
+    // signature's name, database time, IP and browser. Signing and submitting share this
+    // transaction, as the database requires.
     let signedAt = new Date();
     if (
       !(await tx.intakeSubmission.findUnique({ where: { id: SEED_INTAKE_IDS.leadSubmission } }))
     ) {
-      const answers = { fullName: 'Lena Lead (fake)', package: 'Growth' };
+      const answers = { fullName: 'Lena Lead (fake)' };
       await tx.intakeSubmission.create({
         data: {
           ...lvp,
@@ -757,6 +770,7 @@ async function main() {
             ...a,
             checked: true,
           })),
+          // The database replaces this with the hash of the stored answers.
           answersSha256: sha(answers),
           evidenceSha256: sha({ seed: SEED_AGREEMENT_IDS.leadSignature }),
           ip: '203.0.113.10',
@@ -878,9 +892,10 @@ async function main() {
         createdByUserId: SEED_USERS.lvpOwner.id,
       },
     });
+    // The VIDEO appointment carries its staff member's own meeting link.
     await tx.appointment.upsert({
       where: { id: SEED_CALENDAR_IDS.appointment },
-      update: {},
+      update: { locationDetails: SEED_MEETING_URLS.lvpStaff },
       create: {
         ...lvp,
         id: SEED_CALENDAR_IDS.appointment,
@@ -891,7 +906,7 @@ async function main() {
         startsAt: new Date('2026-10-20T18:00:00Z'),
         endsAt: new Date('2026-10-20T18:30:00Z'),
         locationKind: 'VIDEO',
-        locationDetails: 'The video link is sent before the meeting.',
+        locationDetails: SEED_MEETING_URLS.lvpStaff,
         bookedByUserId: SEED_USERS.lvpClient.id,
         bookedByClient: true,
       },
@@ -1281,17 +1296,65 @@ async function main() {
     },
   );
 
+  // INV-1002, part paid by a check the owner recorded: the database takes an offline payment only
+  // from the acting Owner or Admin, on an OPEN invoice, within the balance due.
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpOwner.id },
+    async (tx) => {
+      const lvp = { businessId: businesses.lvp };
+      const invoiceId = SEED_BILLING_IDS.offlineInvoice;
+      if (await tx.invoice.findUnique({ where: { id: invoiceId } })) return;
+      await tx.invoice.create({
+        data: {
+          ...lvp,
+          id: invoiceId,
+          clientId: SEED_CLIENT_IDS.lvp,
+          engagementId: SEED_WORK_IDS.lvpBookkeeping,
+          number: 'INV-1002',
+          createdByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+      await tx.invoiceLine.create({
+        data: {
+          ...lvp,
+          invoiceId,
+          description: 'Bookkeeping (Growth), October 2026',
+          unitAmountCents: 30000,
+        },
+      });
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'OPEN', issuedAt: new Date(), dueOn: new Date('2026-11-30') },
+      });
+      await tx.offlinePayment.create({
+        data: {
+          ...lvp,
+          id: SEED_BILLING_IDS.offlinePayment,
+          invoiceId,
+          method: 'CHECK',
+          amountCents: 10000,
+          reference: '1042',
+          receivedOn: new Date('2026-10-05'),
+          idempotencyKey: SEED_BILLING_IDS.offlinePaymentKey,
+          recordedByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+    },
+  );
+
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
     await tx.membership.upsert({
       where: {
         businessId_userId: { businessId: businesses.testFirmB, userId: SEED_USERS.firmBOwner.id },
       },
-      update: { role: 'OWNER', status: 'ACTIVE' },
+      update: { role: 'OWNER', status: 'ACTIVE', meetingUrl: SEED_MEETING_URLS.firmBOwner },
       create: {
         businessId: businesses.testFirmB,
         userId: SEED_USERS.firmBOwner.id,
         role: 'OWNER',
         status: 'ACTIVE',
+        meetingUrl: SEED_MEETING_URLS.firmBOwner,
       },
     });
     await tx.clientAccount.upsert({

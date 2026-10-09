@@ -13,10 +13,10 @@ import {
   PDFName,
   PDFNumber,
   PDFRawStream,
+  PDFPage,
   PDFString,
-  type PDFPage,
 } from 'pdf-lib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FieldBox } from '../../src/esign/engine/engine.types.js';
 import { compose } from '../../src/esign/engine/pdf-compose.js';
 import {
@@ -193,6 +193,34 @@ describe('finalize', () => {
           .join(),
       ),
     ).toMatch(/\/Subtype \/Type0/);
+  });
+
+  it('prints a typed signature when the signer has no image', async () => {
+    const signedAt = new Date('2026-10-09T02:30:00Z');
+    const drawn: string[] = [];
+    const real = PDFPage.prototype.drawText;
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText').mockImplementation(function (
+      this: PDFPage,
+      text,
+      options,
+    ) {
+      drawn.push(text);
+      real.call(this, text, options);
+    });
+    let bytes: Uint8Array;
+    try {
+      bytes = await finalize(await pdf([[612, 792]]), {
+        stamps: [],
+        signaturePages: [{ name: 'Fake Person', typed: 'Fake Person (typed)', signedAt }],
+        timeZone: 'UTC',
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    const out = await PDFDocument.load(bytes);
+    expect(out.getPageCount()).toBe(2);
+    expect(content(out.getPage(1))).not.toMatch(/\/Image[-\w]* Do/);
+    expect(drawn).toContain('Fake Person (typed)');
   });
 
   it('dates the signature page in the firm time zone', async () => {

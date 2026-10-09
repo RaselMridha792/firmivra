@@ -11,8 +11,9 @@ test('dashboard uses the firm applications mock and fits a 375 px screen', async
   await expect(page.getByRole('heading', { name: 'Welcome back, Morgan!' })).toBeVisible();
   await expect(page.getByTestId('stat-pending-applications-value')).toHaveText('4');
   await expect(page.getByTestId('stat-active-firms-value')).toHaveText('2');
-  await expect(page.getByTestId('stat-total-users-value')).toHaveText('Not available yet');
-  await expect(page.getByTestId('stat-monthly-revenue-value')).toHaveText('Not available yet');
+  // No figure yet: a dash (and "Not available yet" for screen readers), never a made-up zero.
+  await expect(page.getByTestId('stat-total-users-value')).toHaveText('— Not available yet');
+  await expect(page.getByTestId('stat-monthly-revenue-value')).toHaveText('— Not available yet');
 
   const navigation = page.getByRole('navigation', { name: 'Main' });
   await expect(navigation.locator('a[href="/applications"]')).toContainText('4');
@@ -45,8 +46,14 @@ test('dashboard uses the firm applications mock and fits a 375 px screen', async
     expectedSubmission.localTime,
   );
   await expect(page.getByTestId('system-status')).toContainText('Online');
-  await expect(page.getByTestId('platform-growth')).toContainText('Coming soon');
-  await expect(page.getByTestId('platform-growth').getByRole('img')).toHaveCount(0);
+  // Platform Growth draws new applications per day; firms and revenue have no history yet.
+  await expect(page.getByTestId('platform-growth').getByRole('img')).toHaveCount(1);
+  await expect(page.getByTestId('platform-growth')).toContainText('Active Firms');
+  await expect(page.getByLabel('Range')).toHaveValue('30');
+  const chart = page.getByTestId('platform-growth').getByRole('img');
+  await expect(chart).toHaveAttribute('aria-label', /last 30 days: [1-9]\d* in total/);
+  await page.getByLabel('Range').selectOption('7');
+  await expect(chart).toHaveAttribute('aria-label', /last 7 days: \d+ in total/);
   await expect(
     page.getByRole('button', { name: 'Notifications' }).locator('.bg-danger'),
   ).toHaveCount(0);

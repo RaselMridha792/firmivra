@@ -21,7 +21,7 @@ export function EsignGate({ children }: { children: (role: EsignAccessRole | nul
         ) : (
           <EmptyState
             title="Firm Sign is off"
-            description="Firm Sign isn't turned on for your firm. Ask Firmivra support to turn it on."
+            description="Firm Sign isn't turned on for your firm. Ask your firm's owner to contact Firmivra support."
           />
         )
       }

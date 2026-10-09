@@ -70,7 +70,7 @@ export type ReportData = z.infer<typeof ReportData>;
 
 /**
  * At most 50 lines with notes of 400 characters: with the summary, title and period, the largest
- * report is about 87 KB even in 3-byte characters (Bengali, Chinese), under the API's 100 KB
+ * report is about 87 KB even in 3-byte characters (Bengali, Chinese), under the API's 2 MB
  * request limit (#109 review).
  */
 const ReportDataInput = z.strictObject({
