@@ -16,10 +16,13 @@ import { InvoiceStatus, PaymentRefundStatus, PaymentStatus } from '../db-enums.j
 // subtotal minus the discount. Requests never carry those, and paying carries no amount at all:
 // the checkout charges what the database says is due.
 // Lifecycle (the database's): DRAFT -> SCHEDULED (opens on its scheduled date) or OPEN -> PAID;
-// DRAFT, SCHEDULED and OPEN can be CANCELED; PAID and CANCELED are final; nothing is deleted. An
-// invoice is PAID only once a verified Stripe webhook confirmed payments covering its total, so
-// nothing the browser does (Pay Now included) marks it paid. Refunds go through Stripe too and
-// count once its webhook confirms them; a refunded invoice stays PAID.
+// DRAFT, SCHEDULED and OPEN can be CANCELED; CANCELED is final, and PAID is final except that a
+// void can reopen it; nothing is deleted. An
+// invoice is PAID only once the money received covers its total: Stripe payments a verified
+// webhook confirmed, plus check or cash payments an Owner or Admin recorded (offline payments), so
+// nothing the client's browser does (Pay Now included) marks it paid. Refunds go through Stripe
+// too and count once its webhook confirms them; a refunded invoice stays PAID and is never owed
+// again. Voiding an offline payment that leaves a PAID invoice uncovered reopens it (OPEN).
 // Errors come in the order the API checks them: 415 UNSUPPORTED_MEDIA_TYPE and 403
 // ORIGIN_NOT_ALLOWED (changes, before sign-in), 401, the tenant guard (400 BUSINESS_REQUIRED and
 // 404 on the firm site, 404 for a portal with no place for the caller), 403 BUSINESS_INACTIVE or
@@ -212,12 +215,55 @@ export const FirmInvoicePayment = InvoicePayment.extend({
 });
 export type FirmInvoicePayment = z.infer<typeof FirmInvoicePayment>;
 
+/**
+ * How an offline payment arrived: CHECK or CASH. Card and bank payments go through Stripe
+ * (`payments`). The same values as the database's OfflinePaymentMethod (R0).
+ */
+const OfflineMethod = z.enum(['CHECK', 'CASH']);
+
+/**
+ * A check or cash payment the firm recorded on the invoice (Owner or Admin). It never changes; a
+ * mistake is voided with a reason and then no longer counts (record it again if needed).
+ */
+export const OfflinePayment = z.object({
+  id: z.uuid(),
+  method: OfflineMethod,
+  amountCents: Cents,
+  currency: z.string(),
+  /** The check number, or a cash receipt number; null for cash without one. */
+  reference: z.string().nullable(),
+  /** The day the firm received the money (its calendar). */
+  receivedOn: CalendarDate,
+  /** The firm's note; never shown to the client. */
+  note: z.string().nullable(),
+  recordedBy: MemberRef,
+  recordedAt: DateTime,
+  /** Voided: it no longer counts. All three are set together, once. */
+  voidedAt: DateTime.nullable(),
+  voidedBy: MemberRef.nullable(),
+  voidReason: z.string().nullable(),
+});
+export type OfflinePayment = z.infer<typeof OfflinePayment>;
+
+/** An offline payment on the client's "View": live ones only, method, amount and day. */
+export const MyOfflinePayment = OfflinePayment.pick({
+  id: true,
+  method: true,
+  amountCents: true,
+  currency: true,
+  receivedOn: true,
+});
+export type MyOfflinePayment = z.infer<typeof MyOfflinePayment>;
+
 /** Amounts on an invoice's detail, both sides. */
 const AmountDetail = {
   lines: z.array(InvoiceLine).max(INVOICE_LIMITS.maxLines),
   subtotalCents: Cents,
   discountCents: Cents,
-  /** Money received: the payments that succeeded, refunded ones included. */
+  /**
+   * Money received: Stripe payments that succeeded (refunded ones in full) plus live offline
+   * payments. The balance due is the total less this.
+   */
   amountPaidCents: Cents,
   /** Confirmed refunds of those payments. */
   refundedCents: Cents,
@@ -242,8 +288,8 @@ export const InvoiceListItem = z.object({
   currency: z.string(),
   totalCents: Cents,
   /**
-   * Still to pay: the total less what was paid and not refunded (never below 0) while DRAFT,
-   * SCHEDULED or OPEN; 0 once PAID or CANCELED.
+   * Still to pay: the total less the money received (`amountPaidCents`: a refund never makes money
+   * owed again; never below 0) while DRAFT, SCHEDULED or OPEN; 0 once PAID or CANCELED.
    */
   balanceDueCents: Cents,
   /**
@@ -268,6 +314,8 @@ export const Invoice = InvoiceListItem.extend({
   ...AmountDetail,
   /** Newest first. */
   payments: z.array(FirmInvoicePayment),
+  /** Check and cash payments, voided ones included; newest first. */
+  offlinePayments: z.array(OfflinePayment),
   /** The firm's reason; never shown to the client. */
   cancelReason: z.string().nullable(),
   createdBy: MemberRef.nullable(),
@@ -420,6 +468,58 @@ export const RefundPaymentRequest = z.strictObject({
 });
 export type RefundPaymentRequest = z.input<typeof RefundPaymentRequest>;
 
+export const OfflinePaymentId = z.uuid();
+
+/**
+ * POST /business/invoices/{id}/offline-payments (Owner and Admin): records a check or cash payment
+ * on an OPEN invoice, at most its balance due; the invoice turns PAID when the money received
+ * covers the total. The API first ends an open Pay Now checkout the client left (409
+ * PAYMENT_IN_PROGRESS when the client already paid on it). 409 NOT_OPEN, AMOUNT_TOO_LARGE,
+ * DUPLICATE_CHECK_NUMBER or PAYMENT_IN_PROGRESS; 400 for a day after the firm's today.
+ */
+export const RecordOfflinePaymentRequest = z
+  .strictObject({
+    method: OfflineMethod,
+    amountCents: Amount.min(1, 'Record at least $0.01'),
+    /**
+     * The check number (required for a check) or a cash receipt number: up to 20 letters, digits
+     * and hyphens, starting with a letter or digit. Left out when there is none (empty is 400).
+     */
+    reference: z
+      .string()
+      .trim()
+      .regex(
+        /^[A-Za-z0-9][A-Za-z0-9-]{0,19}$/,
+        'Use up to 20 letters, digits or hyphens, starting with a letter or digit',
+      )
+      .optional(),
+    /** The day the money arrived: from 2000-01-01, and not after the firm's today. */
+    receivedOn: CalendarDate.refine((d) => d >= '2000-01-01', 'Enter a date from 2000 on'),
+    /** For the firm only. Left out when there is none (empty is 400). */
+    note: text(500, 'many', 'Add a note').optional(),
+    /**
+     * A new random id each time the dialog opens, sent again unchanged on a retry: a retry of a
+     * payment already recorded answers the invoice as it is (200, nothing recorded twice).
+     */
+    idempotencyKey: z.uuid(),
+  })
+  .superRefine((body, ctx) => {
+    if (body.method === 'CHECK' && !body.reference) {
+      ctx.addIssue({ code: 'custom', path: ['reference'], message: 'Enter the check number' });
+    }
+  });
+export type RecordOfflinePaymentRequest = z.input<typeof RecordOfflinePaymentRequest>;
+
+/**
+ * POST /business/invoices/{id}/offline-payments/{offlinePaymentId}/void (Owner and Admin): the
+ * payment no longer counts; a PAID invoice it no longer covers reopens (OPEN). 409 ALREADY_VOIDED, or PAYMENT_IN_PROGRESS (retry)
+ * while another payment or cancel holds the invoice.
+ */
+export const VoidOfflinePaymentRequest = z.strictObject({
+  reason: text(500, 'many', 'Say why the payment is voided'),
+});
+export type VoidOfflinePaymentRequest = z.input<typeof VoidOfflinePaymentRequest>;
+
 // ---------- Portal (the signed-in client) ----------
 /** One of the client's invoices (Receipts & Invoices). Never a draft. */
 export const MyInvoice = z.object({
@@ -457,6 +557,8 @@ export const MyInvoiceDetail = MyInvoice.extend({
   ...AmountDetail,
   /** Newest first. */
   payments: z.array(InvoicePayment),
+  /** Check and cash payments the firm recorded, live ones only; newest first. */
+  offlinePayments: z.array(MyOfflinePayment),
 });
 export type MyInvoiceDetail = z.infer<typeof MyInvoiceDetail>;
 
@@ -538,6 +640,25 @@ export const InvoiceErrorCode = z.enum([
   'DUE_DATE_PASSED',
   /** 409: the invoice is paid or canceled, which is final. */
   'INVOICE_CLOSED',
+  /**
+   * 409 (cancel): the invoice holds money (a live offline payment, or a Stripe payment not refunded
+   * in full): void or refund it first.
+   */
+  'HAS_PAYMENTS',
+  /**
+   * 409 (offline payment): only an open invoice takes a payment (not a draft, upcoming, paid or
+   * canceled).
+   */
+  'NOT_OPEN',
+  /** 409 (offline payment): more than the balance due. */
+  'AMOUNT_TOO_LARGE',
+  /**
+   * 409 (offline payment): this check number (any case) is already recorded on a live payment of
+   * this invoice; void that one first, or check the number.
+   */
+  'DUPLICATE_CHECK_NUMBER',
+  /** 409 (void): the offline payment is voided already. */
+  'ALREADY_VOIDED',
   /** 409: the client is archived; restore the client first (as in api.clients). */
   'CLIENT_ARCHIVED',
   /** 409 (Pay Now): not open for payment: upcoming, paid, canceled, or nothing left to pay. */
@@ -571,6 +692,12 @@ export const INVOICE_ERRORS = {
   ZERO_TOTAL: 'There is nothing to pay on this invoice. Cancel it instead.',
   DUE_DATE_PASSED: 'The due date has passed. Choose a later due date, then send it.',
   INVOICE_CLOSED: 'This invoice is paid or canceled, so it can no longer be changed.',
+  HAS_PAYMENTS:
+    'This invoice has payments. Void its check or cash payments and refund its card payments first.',
+  NOT_OPEN: 'Only an open invoice can take a payment. Reload to see its status.',
+  AMOUNT_TOO_LARGE: 'The payment is more than the balance due on this invoice.',
+  DUPLICATE_CHECK_NUMBER: 'This check number is already recorded on this invoice.',
+  ALREADY_VOIDED: 'This payment is voided already. Reload to see it.',
   CLIENT_ARCHIVED: 'This client is archived. Restore the client first.',
   NOT_PAYABLE: 'This invoice is not open for payment. Reload to see its status.',
   PAYMENT_IN_PROGRESS:

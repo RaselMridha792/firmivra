@@ -1,7 +1,8 @@
 // End-to-end: R5 part 2. The portal's documents (lists, view, download, categories, upload
 // targets, uploads and confirm) with the household rules (Rasel, q12), the document requests on
 // both sides with their state machine, the request path of confirm, the scan results that reopen
-// a request (q22) or accept a password-protected PDF unscanned (q24), isolation between clients,
+// a request (q22) or accept a password-protected PDF unscanned (q24) and ignore a refused upload,
+// the bell items and emails through R6's Notifier (q27's recipients), isolation between clients,
 // logins and firms, and the audit (ids only). Storage is in memory here (CI has no s3mock).
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
@@ -21,6 +22,7 @@ import {
   MyDocumentList,
   MyDocumentRequest,
   MyDocumentRequestList,
+  type NotificationEvent,
   PORTAL_BLOCKED_TEXT,
   UploadTargets,
   UploadTicket,
@@ -28,6 +30,7 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { storedType } from '../../src/notifications/notification-text.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
@@ -83,6 +86,7 @@ const person = (key: string, pool: 'STAFF' | 'CLIENT' = 'CLIENT') => ({
 });
 const people = {
   ownerA: person('owner-a', 'STAFF'),
+  adminA: person('admin-a', 'STAFF'),
   staffA: person('staff-a', 'STAFF'),
   staffA2: person('staff-a2', 'STAFF'),
   ownerB: person('owner-b', 'STAFF'),
@@ -227,6 +231,23 @@ const auditOf = (entityId: string) =>
   asOwner(firms.a.id, (tx) =>
     tx.auditLog.findMany({ where: { entityId }, orderBy: { createdAt: 'asc' } }),
   );
+/** The bell items of one event written for a record, as [type, recipient] pairs, sorted. */
+const bellsOf = async (entityId: string, event: NotificationEvent) =>
+  (
+    await asOwner(firms.a.id, (tx) =>
+      tx.notification.findMany({
+        where: { businessId: firms.a.id, entityId, type: storedType(event) },
+        select: { type: true, recipientUserId: true },
+      }),
+    )
+  )
+    .map((n) => [n.type, n.recipientUserId])
+    .sort();
+/** What `bellsOf` gives when exactly `who` got an `event` item. */
+const bells = (event: NotificationEvent, who: Person[]) =>
+  who.map((p) => [storedType(event), p.id]).sort();
+/** q27: news about c1 reaches its assigned member and every Owner and Admin, never staffA2. */
+const c1Staff = () => [people.ownerA, people.adminA, people.staffA];
 const myList = async (who: Person, query = '') =>
   exact(MyDocumentList, await call('get', `/me/documents${query}`, who));
 /** Holds SCAN_MODE=guardduty (files stay PENDING) while `work` runs. */
@@ -290,6 +311,7 @@ beforeAll(async () => {
   });
   const staff = [
     ['a', people.ownerA, 'OWNER'],
+    ['a', people.adminA, 'ADMIN'],
     ['a', people.staffA, 'STAFF'],
     ['a', people.staffA2, 'STAFF'],
     ['b', people.ownerB, 'OWNER'],
@@ -790,7 +812,7 @@ describe('portal lists, views and downloads', () => {
 });
 
 describe('document requests', () => {
-  it('creates for an open service and emails the logins; Staff only their clients, firm B nothing', async () => {
+  it('creates for an open service and tells the PRIMARY login; Staff only their clients, firm B nothing', async () => {
     outbox.length = 0;
     const r = await newRequest({
       categoryId: ids.cat,
@@ -806,10 +828,12 @@ describe('document requests', () => {
       documents: [],
       resolvedAt: null,
     });
-    expect(outbox.map((m) => [m.template, m.to]).sort()).toEqual(
-      [people.primary, people.spouse, people.authorized]
-        .map((p) => ['document.requested', p.email])
-        .sort(),
+    // R6's Notifier (q27): the bell item and its email copy for the PRIMARY login only.
+    expect(outbox.map((m) => [m.template, m.to])).toEqual([
+      ['document.requested', people.primary.email],
+    ]);
+    expect(await bellsOf(r.id, 'document.requested')).toEqual(
+      bells('document.requested', [people.primary]),
     );
     const created = (await auditOf(r.id)).find((a) => a.action === 'document_request.created');
     expect(JSON.stringify(created?.metadata)).not.toMatch(/W-2|employer/);
@@ -990,6 +1014,73 @@ describe('document requests', () => {
       from: 'REJECTED',
       clientAccountId: accounts.spouse,
     });
+  });
+
+  it('tells the firm (assigned member, Owners and Admins) and the client of each answer and decision', async () => {
+    outbox.length = 0;
+    const r = await newRequest();
+    const answered = await mine(people.spouse, { requestId: r.id });
+    expect(await bellsOf(r.id, 'document-request.submitted')).toEqual(
+      bells('document-request.submitted', c1Staff()),
+    );
+    expect(await bellsOf(answered.id, 'document.uploaded')).toEqual([]);
+    exact(FirmDocumentRequest, await decide(r.id, 'reject', people.staffA));
+    expect(await bellsOf(r.id, 'document-request.rejected')).toEqual(
+      bells('document-request.rejected', [people.primary]),
+    );
+    // An upload started while the request is open, confirmed once it is answered (below).
+    const bytes = pdf('answered meanwhile');
+    const late = exact(
+      UploadTicket,
+      await call('post', '/me/documents/uploads', people.primary, {
+        ...facts(bytes),
+        serviceId: ids.e1,
+        requestId: r.id,
+      }),
+    );
+    storage.objects.set(late.url.slice('memory:'.length), bytes);
+    exact(
+      MyDocumentRequest,
+      await call('post', `/me/document-requests/${r.id}/not-available`, people.spouse, {
+        reason: 'We had none',
+      }),
+    );
+    expect(await bellsOf(r.id, 'document-request.not-available')).toEqual(
+      bells('document-request.not-available', c1Staff()),
+    );
+    // An upload the confirm refuses and a cancel tell nobody.
+    expectError(
+      await call('post', '/me/documents/uploads/confirm', people.primary, {
+        uploadToken: late.uploadToken,
+      }),
+      409,
+      'REQUEST_CLOSED',
+    );
+    exact(FirmDocumentRequest, await decide(r.id, 'cancel'));
+    const all = await asOwner(firms.a.id, (tx) =>
+      tx.notification.count({ where: { businessId: firms.a.id, entityId: r.id } }),
+    );
+    // One requested, three submitted, one rejected, three not-available: no more.
+    expect(all).toBe(8);
+
+    const r2 = await newRequest();
+    await mine(people.primary, { requestId: r2.id });
+    exact(FirmDocumentRequest, await decide(r2.id, 'accept'));
+    expect(await bellsOf(r2.id, 'document-request.accepted')).toEqual(
+      bells('document-request.accepted', [people.primary]),
+    );
+    // A client's upload that answers no request; the firm's own uploads tell nobody.
+    const theirs = await mine(people.spouse, {});
+    expect(await bellsOf(theirs.id, 'document.uploaded')).toEqual(
+      bells('document.uploaded', c1Staff()),
+    );
+    const own = await firmFile({});
+    expect(await bellsOf(own.id, 'document.uploaded')).toEqual([]);
+    // Decisions have no email copy: only the two requests' emails, to the PRIMARY login.
+    expect(outbox.map((m) => [m.template, m.to])).toEqual([
+      ['document.requested', people.primary.email],
+      ['document.requested', people.primary.email],
+    ]);
   });
 
   it('lists open requests first for the household', async () => {
@@ -1211,6 +1302,48 @@ describe('scan results (q22, q24)', () => {
     // The redelivered message.
     expect(await scans.recordScanResult({ key, status: 'NO_THREATS_FOUND' })).toBe('CLEAN');
     exact(FirmDocumentRequest, await decide(r.id, 'accept'));
+  });
+
+  it('ignores a result for an upload the confirm refused; one never confirmed stays UNKNOWN', async () => {
+    const ticketOf = async (label: string) => {
+      const t = exact(
+        UploadTicket,
+        await call('post', '/me/documents/uploads', people.primary, {
+          ...facts(pdf(label)),
+          serviceId: ids.e1,
+        }),
+      );
+      return { key: t.url.slice('memory:'.length), uploadToken: t.uploadToken };
+    };
+    const refused = await ticketOf('refused');
+    storage.objects.set(refused.key, pdf('another file'));
+    expectError(
+      await call('post', '/me/documents/uploads/confirm', people.primary, {
+        uploadToken: refused.uploadToken,
+      }),
+      409,
+      'UPLOAD_MISMATCH',
+    );
+    const audits = () =>
+      asOwner(firms.a.id, (tx) => tx.auditLog.count({ where: { businessId: firms.a.id } }));
+    const before = await audits();
+    expect(await scans.recordScanResult({ key: refused.key, status: 'THREATS_FOUND' })).toBe(
+      'IGNORED',
+    );
+    const saved = await asOwner(firms.a.id, (tx) =>
+      tx.document.count({ where: { s3Key: refused.key } }),
+    );
+    expect([saved, await audits()]).toEqual([0, before]);
+    // Firm A's refusal never answers for firm B's prefix.
+    const elsewhere = refused.key.replace(firms.a.id, firms.b.id);
+    expect(await scans.recordScanResult({ key: elsewhere, status: 'THREATS_FOUND' })).toBe(
+      'UNKNOWN',
+    );
+    const never = await ticketOf('never confirmed');
+    storage.objects.set(never.key, pdf('never confirmed'));
+    expect(await scans.recordScanResult({ key: never.key, status: 'NO_THREATS_FOUND' })).toBe(
+      'UNKNOWN',
+    );
   });
 
   it('accepts a password-protected PDF unscanned, fails other file reasons, and waits on our side', async () => {
