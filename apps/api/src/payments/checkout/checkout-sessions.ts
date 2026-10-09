@@ -4,7 +4,6 @@ import { INVOICE_ERRORS } from '@firmivra/types';
 import { conflict } from '../invoices/invoice-view.js';
 import {
   type CheckoutSession,
-  STRIPE_TIMEOUT_MS,
   stripeErrorName,
   type StripeGateway,
 } from '../stripe/stripe-gateway.js';
@@ -12,10 +11,12 @@ import {
 const logger = new Logger('Checkout');
 
 /**
- * A transaction that holds the invoice's row while it asks Stripe about its checkouts: a few
- * calls of up to STRIPE_TIMEOUT_MS each.
+ * A transaction that holds the invoice's row while it asks Stripe about its checkouts. Under the
+ * row lock an invoice has at most one open checkout, so Pay Now makes at most three Stripe calls
+ * (retrieve, expire, create) of up to STRIPE_TIMEOUT_MS each, inside the database's 30 s cap
+ * (MAX_TRANSACTION_MS in packages/db).
  */
-export const CHECKOUT_LIMITS = { timeout: 3 * STRIPE_TIMEOUT_MS + 5_000 };
+export const CHECKOUT_LIMITS = { timeout: 30_000 };
 
 export const providerUnavailable = () =>
   new ServiceUnavailableException({

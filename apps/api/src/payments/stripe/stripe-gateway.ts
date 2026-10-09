@@ -11,8 +11,12 @@ export const STRIPE_GATEWAY = Symbol('STRIPE_GATEWAY');
 
 /** The Stripe API version every call uses. Change it only together with the code that reads answers. */
 export const STRIPE_API_VERSION = '2026-09-30.endive';
-/** Each call to Stripe gives up after this long. */
-export const STRIPE_TIMEOUT_MS = 10_000;
+/**
+ * Each call to Stripe gives up after this long, with no retry by the SDK: calls that hold an
+ * invoice's row (Pay Now, cancel) make at most three of them inside a transaction capped at 30 s.
+ * Every create carries an idempotency key, so the client's own retry is safe.
+ */
+export const STRIPE_TIMEOUT_MS = 8_000;
 
 /** The fields of a connected account that Firmivra keeps (see `toOnboardingState`). */
 export interface ConnectedAccount {
@@ -113,12 +117,12 @@ const session = (s: Stripe.Checkout.Session): CheckoutSession => ({
   expiresAt: new Date(s.expires_at * 1000),
 });
 
-/** The real Stripe, with the platform's key, a pinned API version and a 10 s timeout. */
+/** The real Stripe, with the platform's key, a pinned API version and an 8 s timeout. */
 export function createStripeGateway(secretKey: string): StripeGateway {
   const stripe = new Stripe(secretKey, {
     apiVersion: STRIPE_API_VERSION,
     timeout: STRIPE_TIMEOUT_MS,
-    maxNetworkRetries: 1,
+    maxNetworkRetries: 0,
     appInfo: { name: 'Firmivra' },
   });
   return {
