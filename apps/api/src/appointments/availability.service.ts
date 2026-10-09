@@ -58,6 +58,12 @@ function toBlockedTime(row: BlockRow, names: ReadonlyMap<string, string>): Block
  */
 export const BLOCK_LIMITS = { perCalendar: 200 };
 
+/**
+ * Every member's meeting link reads as none until R0's memberships.meeting_url lands; R14's
+ * meeting-link API then reads the column (never log it: it can carry a passcode).
+ */
+const NO_MEETING_URL = null;
+
 /** Owner and Admin change anyone's; Staff only their own (a whole-firm block is a manager's). */
 function mayChange(actor: FirmActor, userId: string | null): void {
   if (actor.role === 'STAFF' && userId?.toLowerCase() !== actor.userId.toLowerCase()) {
@@ -93,7 +99,11 @@ export class AvailabilityService {
       );
       return {
         timezone: await firmTimeZone(tx, businessId),
-        members: members.map((member) => ({ member, hours: hours.get(member.userId) ?? [] })),
+        members: members.map((member) => ({
+          member,
+          hours: hours.get(member.userId) ?? [],
+          meetingUrl: NO_MEETING_URL,
+        })),
       };
     });
   }
@@ -123,7 +133,7 @@ export class AvailabilityService {
         });
       }
       const hours = await workingHours(tx, businessId, [userId]);
-      return { member, hours: hours.get(userId) ?? [] };
+      return { member, hours: hours.get(userId) ?? [], meetingUrl: NO_MEETING_URL };
     });
     await this.audit.log(
       'working_hours.set',

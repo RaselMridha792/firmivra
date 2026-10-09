@@ -44,7 +44,8 @@ export const IconKey = z
  * becomes "https://irs.gov/", spaces become %20), with no user name or password in it.
  */
 export const HttpsUrl = z
-  .url({ protocol: /^https$/, hostname: z.regexes.domain, normalize: true })
+  // abort: the checks below parse the link again, which throws on one that is not a URL.
+  .url({ protocol: /^https$/, hostname: z.regexes.domain, normalize: true, abort: true })
   .max(2000)
   .refine((u) => {
     const url = new URL(u);

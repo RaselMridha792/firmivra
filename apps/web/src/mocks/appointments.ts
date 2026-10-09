@@ -27,9 +27,11 @@ import {
   parseInput,
   RescheduleAppointmentRequest,
   RescheduleMyAppointmentRequest,
+  SetMeetingLinkRequest,
   SetWorkingHoursRequest,
   type Slot,
   SlotsQuery,
+  UpdateAppointmentRequest,
   UpdateAppointmentTypeRequest,
   type WorkingHoursRange,
 } from '@firmivra/types';
@@ -44,6 +46,8 @@ import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './c
  * `role: 'STAFF'` is Sam Staff, as in mocks/clients.ts: Sam sees in full his own appointments and
  * those of clients 1 and 2 (assigned to him); Riley Example's appointment with Mock User is Busy.
  * The firm's timezone is America/New_York; the mock treats it as a fixed UTC-4 (EDT).
+ * Meeting links (R14) are clearly fake: Mock User's is a Zoom-style link, Sam's a Meet-style one.
+ * They are copied at booking and swapped on a change of staff member as the API does.
  */
 const TIMEZONE = 'America/New_York';
 const OFFSET_MS = -4 * 60 * 60_000;
@@ -115,6 +119,8 @@ const errors = {
 type Store = {
   types: AppointmentType[];
   hours: Map<string, WorkingHoursRange[]>;
+  /** Each member's default video meeting link (synthetic). */
+  links: Map<string, string | null>;
   blocks: BlockedTime[];
   appointments: Appointment[];
   history: Map<string, AppointmentEvent[]>;
@@ -162,6 +168,10 @@ function seed(): Store {
     ],
     [mockStaff.userId, weekdays([['10:00', '16:00']])],
   ]);
+  const links = new Map<string, string | null>([
+    [mockMe.userId, 'https://zoom.us/j/0000000000'],
+    [mockStaff.userId, 'https://meet.google.com/aaa-bbbb-ccc'],
+  ]);
   // Next Monday, firm-local.
   const today = localDay(Date.now());
   const monday = today + ((8 - weekdayOf(today)) % 7 || 7) * DAY;
@@ -172,6 +182,7 @@ function seed(): Store {
     fields: Partial<Appointment> = {},
   ): Appointment => {
     const startsAt = localToIso(monday + day * DAY, time);
+    const staff = fields.staff ?? mockStaff;
     return Appointment.parse({
       id: id('3', n),
       client,
@@ -182,7 +193,8 @@ function seed(): Store {
       endsAt: plus(startsAt, 30),
       status: 'SCHEDULED',
       locationKind: 'VIDEO',
-      locationDetails: 'https://meet.example.test/lvp-consult',
+      // Copied from the staff member at booking, as the API does.
+      locationDetails: links.get(staff.userId) ?? null,
       bookedByClient: false,
       rescheduleCount: 0,
       cancelledAt: null,
@@ -201,7 +213,11 @@ function seed(): Store {
     }),
     // Riley is not Sam's client: Busy for Sam with Mock User, in full where Sam is the staff member.
     appointment(4, 0, '14:00', { client: riley, staff: mockMe }),
-    appointment(5, 4, '11:00', { client: riley }),
+    // A custom link staff typed for this one appointment: a change of member keeps it.
+    appointment(5, 4, '11:00', {
+      client: riley,
+      locationDetails: 'https://meet.example.test/riley-review',
+    }),
   ];
   const booked = (a: Appointment): AppointmentEvent => ({
     at,
@@ -233,7 +249,7 @@ function seed(): Store {
       createdBy: mockMe,
     },
   ];
-  return { types, hours, blocks, appointments, history, next: 100 };
+  return { types, hours, links, blocks, appointments, history, next: 100 };
 }
 
 const copy = <T>(value: T): T => structuredClone(value);
@@ -288,6 +304,22 @@ function freeStarts(
 
 const members = () => [mockMe, mockStaff];
 const member = (userId: string) => members().find((m) => m.userId === userId);
+const linkOf = (s: Store, userId: string) => s.links.get(userId) ?? null;
+const memberAvailability = (s: Store, m: MemberRef) => ({
+  member: m,
+  hours: s.hours.get(m.userId) ?? [],
+  meetingUrl: linkOf(s, m.userId),
+});
+
+/**
+ * As the API on a change of staff member: a VIDEO appointment's link follows the new member when
+ * it is empty or the previous member's current link; a custom link stays.
+ */
+function swappedLink(s: Store, a: Appointment, to: MemberRef): string | null {
+  if (a.locationKind !== 'VIDEO' || to.userId === a.staff.userId) return a.locationDetails;
+  const copied = a.locationDetails === null || a.locationDetails === linkOf(s, a.staff.userId);
+  return copied ? linkOf(s, to.userId) : a.locationDetails;
+}
 const dayRange = (from: string, to: string) =>
   [Date.parse(`${from}T00:00:00Z`), Date.parse(`${to}T00:00:00Z`)] as const;
 
@@ -415,10 +447,7 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
     get: async () => {
       await mockDelay();
       const s = db();
-      return copy({
-        timezone: TIMEZONE,
-        members: members().map((m) => ({ member: m, hours: s.hours.get(m.userId) ?? [] })),
-      });
+      return copy({ timezone: TIMEZONE, members: members().map((m) => memberAvailability(s, m)) });
     },
     setWorkingHours: async (userId, body) => {
       await mockDelay();
@@ -427,7 +456,17 @@ export function createAvailabilityMock(options: { role?: MockFirmRole } = {}): A
       if (!m) throw errors.notFound();
       mayChange(userId);
       db().hours.set(userId, input.hours);
-      return copy({ member: m, hours: input.hours });
+      return copy(memberAvailability(db(), m));
+    },
+    setMeetingLink: async (userId, body) => {
+      await mockDelay();
+      const input = parseInput(SetMeetingLinkRequest, body);
+      const m = member(userId);
+      if (!m) throw errors.notFound();
+      mayChange(userId);
+      // Existing appointments keep their link, as the API.
+      db().links.set(userId, input.meetingUrl);
+      return copy(memberAvailability(db(), m));
     },
     blockedTimes: async (query) => {
       await mockDelay();
@@ -585,6 +624,7 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       if (t?.archivedAt) throw errors.typeArchived();
       const endsAt = plus(input.startsAt, input.durationMinutes ?? t?.durationMinutes ?? 30);
       assertFree(s, { startsAt: input.startsAt, endsAt }, staff.userId, input.clientId);
+      const kind = input.locationKind ?? t?.locationKind ?? 'VIDEO';
       const created: Appointment = {
         id: id('3', s.next++),
         client: { id: booked.id, displayName: booked.displayName },
@@ -594,8 +634,10 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
         startsAt: new Date(input.startsAt).toISOString(),
         endsAt,
         status: 'SCHEDULED',
-        locationKind: input.locationKind ?? t?.locationKind ?? 'VIDEO',
-        locationDetails: input.locationDetails ?? null,
+        locationKind: kind,
+        // Without details, a VIDEO appointment gets the staff member's link.
+        locationDetails:
+          input.locationDetails ?? (kind === 'VIDEO' ? linkOf(s, staff.userId) : null),
         bookedByClient: false,
         rescheduleCount: 0,
         cancelledAt: null,
@@ -623,8 +665,32 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       assertFree(s, range, staff.userId, a.client.id, a.id);
       const before = copy(a);
       // As the database: the count follows time changes, not a change of member only.
-      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + (moved ? 1 : 0) });
+      Object.assign(a, range, {
+        staff,
+        locationDetails: swappedLink(s, a, staff),
+        rescheduleCount: a.rescheduleCount + (moved ? 1 : 0),
+      });
       record(s, a, 'RESCHEDULED', staffBy, before, null);
+      return copy(a);
+    },
+    update: async (appointmentId, body) => {
+      await mockDelay();
+      const input = parseInput(UpdateAppointmentRequest, body);
+      const a = find(appointmentId);
+      open(a);
+      const kind = input.locationKind ?? a.locationKind;
+      // Left out: VIDEO gets the staff member's link; another kind keeps its details unless the
+      // kind changes. Sent: null or '' clears.
+      const details =
+        input.locationDetails !== undefined
+          ? input.locationDetails
+          : kind === 'VIDEO'
+            ? linkOf(db(), a.staff.userId)
+            : kind === a.locationKind
+              ? a.locationDetails
+              : null;
+      // No history entry: the API keeps only an audit row, without the link.
+      Object.assign(a, { locationKind: kind, locationDetails: details });
       return copy(a);
     },
     cancel: async (appointmentId, body = {}) => {
@@ -766,7 +832,8 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
         ...range,
         status: 'SCHEDULED',
         locationKind: t.locationKind,
-        locationDetails: null,
+        // The chosen staff member's link for a VIDEO type, as the API.
+        locationDetails: t.locationKind === 'VIDEO' ? linkOf(s, staff.userId) : null,
         bookedByClient: true,
         rescheduleCount: 0,
         cancelledAt: null,
@@ -798,7 +865,11 @@ export function createMyAppointmentsMock(): MyAppointmentsClient {
       assertFree(s, range, staff.userId, client.id, a.id);
       const before = copy(a);
       const moved = startsAt !== new Date(a.startsAt).toISOString();
-      Object.assign(a, range, { staff, rescheduleCount: a.rescheduleCount + (moved ? 1 : 0) });
+      Object.assign(a, range, {
+        staff,
+        locationDetails: swappedLink(s, a, staff),
+        rescheduleCount: a.rescheduleCount + (moved ? 1 : 0),
+      });
       record(s, a, 'RESCHEDULED', clientBy, before, null);
       return copy(view(a));
     },

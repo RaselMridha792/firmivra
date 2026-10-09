@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
+import { HttpsUrl } from '../content/schemas.js';
 
 // Appointments (R12): the firm's calendar, availability and appointment types, and the client's
 // own appointments in the portal (System Wiring section 2).
@@ -29,6 +30,15 @@ import { clearable, text } from '../clients/text.js';
 // Times: ISO 8601 instants with an offset, and dates, from 2000 to 2100 (the API's calendar
 // years; anything else is 400 VALIDATION_FAILED). Times of day (working hours) are in the firm's
 // timezone, which availability and slot answers name (IANA, for example America/New_York).
+// Meeting links (R14): each member may keep a default video meeting link (MeetingUrl).
+// - It is copied at booking: a VIDEO appointment booked by staff without details, or booked by a
+//   client, gets the staff member's link in locationDetails (null when they have none).
+// - A change of staff member (firm or portal reschedule) swaps the link only when it is empty or
+//   equals the previous member's current link; a custom link stays (fix it with Edit location).
+// - Changing a member's link later never touches existing appointments.
+// - PATCH /business/appointments/{id} edits one appointment's location (UpdateAppointmentRequest).
+// - Links often carry a passcode (Zoom's ?pwd=): they are shown in the firm workspace and the
+//   portal only, never in logs, audit metadata (field names and set or cleared only), email or SMS.
 // Responses are plain objects (fields the API adds later are dropped); requests are strict.
 
 /** The calendar's years: [2000-01-01, 2101-01-01) UTC, as the API checks them. */
@@ -143,9 +153,30 @@ export const WorkingHoursRange = z.object({
 });
 export type WorkingHoursRange = z.infer<typeof WorkingHoursRange>;
 
+/**
+ * A video meeting link (Zoom, Teams, Meet...): an https link to a domain name (never an IP address
+ * or localhost) on the default port, with no user name or password, normalized as HttpsUrl does,
+ * at most 500 characters so it fits an appointment's locationDetails. '' reads as null (none).
+ * Never log it or put it in audit metadata: it can carry the meeting's passcode.
+ */
+export const MeetingUrl = z
+  .string()
+  .trim()
+  // Before parsing: the URL parser silently drops tabs and line breaks inside a link.
+  .regex(/^[^\p{Cc}\p{Cs}]*$/u, 'Remove the special characters')
+  .transform((s) => (s === '' ? null : s))
+  .pipe(
+    HttpsUrl.max(500, 'Use a shorter join link (at most 500 characters)')
+      .refine((u) => new URL(u).port === '', 'Remove the port from the link')
+      .nullable(),
+  );
+export type MeetingUrl = z.input<typeof MeetingUrl>;
+
 export const MemberAvailability = z.object({
   member: MemberRef,
   hours: z.array(WorkingHoursRange),
+  /** The member's default video meeting link, copied into new VIDEO appointments. */
+  meetingUrl: z.string().nullable(),
 });
 export type MemberAvailability = z.infer<typeof MemberAvailability>;
 
@@ -179,6 +210,14 @@ export const SetWorkingHoursRequest = z.strictObject({
     .refine(overlapsNone, 'Ranges on the same day cannot overlap'),
 });
 export type SetWorkingHoursRequest = z.input<typeof SetWorkingHoursRequest>;
+
+/**
+ * PUT /business/availability/{userId}/meeting-link: sets or clears (null or '') that member's
+ * default link. Owner and Admin for anyone, Staff for themselves (403 otherwise); an unknown,
+ * inactive or other firm's member is 404. Existing appointments keep their link.
+ */
+export const SetMeetingLinkRequest = z.strictObject({ meetingUrl: MeetingUrl.nullable() });
+export type SetMeetingLinkRequest = z.input<typeof SetMeetingLinkRequest>;
 
 /** Time a member is away (holiday, training), or the whole firm when `member` is null. */
 export const BlockedTime = z.object({
@@ -368,6 +407,21 @@ export type RescheduleAppointmentRequest = z.input<typeof RescheduleAppointmentR
 
 export const CancelAppointmentRequest = z.strictObject({ reason: Reason });
 export type CancelAppointmentRequest = z.input<typeof CancelAppointmentRequest>;
+
+/**
+ * PATCH /business/appointments/{id}: changes where it happens; send at least one field. Staff:
+ * only appointments they see in full (404 otherwise); a final one is 409 APPOINTMENT_CLOSED. When
+ * the result is VIDEO and `locationDetails` is left out, the staff member's link is filled in;
+ * null or '' clears it. Nothing changed writes nothing; otherwise the client gets the changed
+ * notice (with no link in it).
+ */
+export const UpdateAppointmentRequest = z
+  .strictObject({
+    locationKind: LocationKind.optional(),
+    locationDetails: clearable(text(500, 'many')),
+  })
+  .refine(nonEmpty, 'Change at least one field');
+export type UpdateAppointmentRequest = z.input<typeof UpdateAppointmentRequest>;
 
 // ---------- The client's own appointments (portal) ----------
 /** What a client sees of an appointment: never internal reasons or other clients. */

@@ -571,7 +571,11 @@ describe('working hours', () => {
             hours,
           }),
         ),
-      ).toEqual({ member: { userId: people.ownerA.id, name: names.ownerA }, hours });
+      ).toEqual({
+        member: { userId: people.ownerA.id, name: names.ownerA },
+        hours,
+        meetingUrl: null,
+      });
     }
     expectError(
       await call('put', `/availability/${people.staffA2.id}/working-hours`, people.staffA, {
