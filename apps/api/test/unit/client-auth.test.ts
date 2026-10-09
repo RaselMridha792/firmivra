@@ -9,17 +9,14 @@ import {
 import { LogClientCodeSender } from '../../src/client-auth/client-code-sender.js';
 import { linkable } from '../../src/client-auth/client-records.js';
 import { decodeCursor, encodeCursor } from '../../src/client-auth/client-sign-ups.service.js';
-import {
-  atLeast,
-  canonicalIp,
-  maskPhone,
-  networkOf,
-} from '../../src/client-auth/sign-up.service.js';
+import { atLeast, maskPhone } from '../../src/client-auth/sign-up.service.js';
+import { canonicalIp, networkOf } from '../../src/common/network.js';
 import { VerificationCodesService } from '../../src/client-auth/verification-codes.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
 describe('LogClientCodeSender (until R6)', () => {
-  const message = { to: 'jane@example.com', code: '482913', businessName: 'LVP' };
+  const businessId = '0190a000-0000-7000-8000-000000000001';
+  const message = { to: 'jane@example.com', code: '482913', businessId, businessName: 'LVP' };
 
   it('logs codes only in local mode', async () => {
     const logger = { log: vi.fn(), warn: vi.fn() };
@@ -32,13 +29,25 @@ describe('LogClientCodeSender (until R6)', () => {
     const sender = new LogClientCodeSender(false, logger);
     await sender.emailCode(message);
     await sender.smsCode({ ...message, to: '+17705550199' });
-    await sender.alreadyRegistered({ to: 'jane@example.com', businessName: 'LVP' });
-    await sender.signUpApproved({
+    await sender.alreadyRegistered({
       to: 'jane@example.com',
+      businessId,
       businessName: 'LVP',
       signInUrl: 'https://portal.example/lvp/sign-in',
     });
-    await sender.signUpDeclined({ to: 'jane@example.com', businessName: 'LVP' });
+    await sender.signUpApproved({
+      to: 'jane@example.com',
+      businessId,
+      businessName: 'LVP',
+      name: 'Jane',
+      signInUrl: 'https://portal.example/lvp/sign-in',
+    });
+    await sender.signUpDeclined({
+      to: 'jane@example.com',
+      businessId,
+      businessName: 'LVP',
+      name: 'Jane',
+    });
     const logged = JSON.stringify([...logger.log.mock.calls, ...logger.warn.mock.calls]);
     expect(logged).not.toContain('482913');
     expect(logged).not.toContain('jane@example.com');

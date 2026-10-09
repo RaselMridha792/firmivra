@@ -1,11 +1,13 @@
 import { Logger } from '@nestjs/common';
 
-/** Nest injection token for the ClientCodeSender. R6 provides the real email and SMS sender. */
+/** Nest injection token for the ClientCodeSender: R6's NotifyClientCodeSender (notify/adapters.ts). */
 export const CLIENT_CODE_SENDER = Symbol('CLIENT_CODE_SENDER');
 
-type CodeMessage = { to: string; code: string; businessName: string };
-type NoticeMessage = { to: string; businessName: string };
-type ApprovedMessage = NoticeMessage & { signInUrl: string };
+type CodeMessage = { to: string; code: string; businessId: string; businessName: string };
+type NoticeMessage = { to: string; businessId: string; businessName: string };
+type RegisteredMessage = NoticeMessage & { signInUrl: string };
+type DeclinedMessage = NoticeMessage & { name: string };
+type ApprovedMessage = DeclinedMessage & { signInUrl: string };
 
 export interface ClientCodeSender {
   /** The 6-digit email code for a portal sign-up. */
@@ -16,11 +18,11 @@ export interface ClientCodeSender {
    * Sent instead of a code when someone signs up with an email that already has an account at
    * this firm: the API answers the same either way, only the address owner learns which.
    */
-  alreadyRegistered(message: NoticeMessage): Promise<void>;
+  alreadyRegistered(message: RegisteredMessage): Promise<void>;
   /** The firm approved the sign-up: the portal is open (link to the firm's sign-in page). */
   signUpApproved(message: ApprovedMessage): Promise<void>;
   /** The firm declined the sign-up. The reason stays with the firm; it is not sent. */
-  signUpDeclined(message: NoticeMessage): Promise<void>;
+  signUpDeclined(message: DeclinedMessage): Promise<void>;
 }
 
 /**
@@ -43,7 +45,7 @@ export class LogClientCodeSender implements ClientCodeSender {
     return this.write(`Local SMS code for ${m.to}: ${m.code}`, 'SMS code');
   }
 
-  alreadyRegistered(m: NoticeMessage): Promise<void> {
+  alreadyRegistered(m: RegisteredMessage): Promise<void> {
     return this.write(`Local "already registered" email to ${m.to}`, '"already registered" email');
   }
 
@@ -51,7 +53,7 @@ export class LogClientCodeSender implements ClientCodeSender {
     return this.write(`Local "approved" email to ${m.to}: ${m.signInUrl}`, '"approved" email');
   }
 
-  signUpDeclined(m: NoticeMessage): Promise<void> {
+  signUpDeclined(m: DeclinedMessage): Promise<void> {
     return this.write(`Local "declined" email to ${m.to}`, '"declined" email');
   }
 
