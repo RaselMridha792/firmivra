@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
-  type Acknowledgment,
+  type AcknowledgmentView,
   type AgreementPdf,
   type AgreementVersion,
   type AgreementVersionSummary,
@@ -17,6 +17,8 @@ import {
   type FirmAgreementSummary,
   type IntakeAgreement,
   type IntakeAgreementBlock,
+  type IntakeFormKey,
+  MAX_SERVICE_AGREEMENTS,
   type PublishAgreementVersionRequest,
 } from '@firmivra/types';
 import { z } from 'zod';
@@ -59,6 +61,7 @@ const agreementSelect = {
   id: true,
   scope: true,
   sortOrder: true,
+  createdAt: true,
   archivedAt: true,
   service: { select: { id: true, name: true } },
   _count: { select: { versions: true } },
@@ -81,6 +84,7 @@ type AgreementRow = {
   id: string;
   scope: 'ALL_INTAKES' | 'SERVICE';
   sortOrder: number;
+  createdAt: Date;
   archivedAt: Date | null;
   service: { id: string; name: string } | null;
   _count: { versions: number };
@@ -95,8 +99,8 @@ const pdfOf = (row: VersionRow): AgreementPdf | null =>
     sha256: row.pdfFile.sha256,
   };
 /** The database checked the shape (app_valid_acknowledgments); only the four keys go out. */
-const acknowledgmentsOf = (value: unknown): Acknowledgment[] =>
-  (value as Acknowledgment[]).map(({ key, label, text, required }) => ({
+const acknowledgmentsOf = (value: unknown): AcknowledgmentView[] =>
+  (value as AcknowledgmentView[]).map(({ key, label, text, required }) => ({
     key,
     label,
     text,
@@ -137,9 +141,12 @@ function agreementOf(row: AgreementRow, names: Map<string, string>): FirmAgreeme
   };
 }
 
-/** The firm-wide agreement first, then service agreements by sort order. */
+/** The firm-wide agreement first, then service agreements by sort order, creation, then id. */
 const byPlace = (a: AgreementRow, b: AgreementRow) =>
-  Number(a.scope === 'SERVICE') - Number(b.scope === 'SERVICE') || a.sortOrder - b.sortOrder;
+  Number(a.scope === 'SERVICE') - Number(b.scope === 'SERVICE') ||
+  a.sortOrder - b.sortOrder ||
+  a.createdAt.getTime() - b.createdAt.getTime() ||
+  (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
  * The firm's intake agreements (docs/api/agreements.yaml). Versions are insert-only; the
@@ -213,7 +220,8 @@ export class AgreementsService {
     const firmWideExists = () =>
       conflict('FIRM_WIDE_EXISTS', 'The firm already has a firm-wide agreement');
     const row = await this.inFirm(businessId, async (tx) => {
-      // One create at a time per firm, so sort orders don't collide.
+      // One create at a time per firm (so per service too): sort orders don't collide, and two
+      // creates can't both pass the per-service count below.
       const key = `firm_agreements:${businessId}`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
       if (body.scope === 'ALL_INTAKES') {
@@ -227,6 +235,15 @@ export class AgreementsService {
           select: { id: true },
         });
         if (!service) throw notFound();
+        const open = await tx.firmAgreement.count({
+          where: { scope: 'SERVICE', serviceId: service.id, archivedAt: null },
+        });
+        if (open >= MAX_SERVICE_AGREEMENTS) {
+          throw conflict(
+            'SERVICE_AGREEMENT_LIMIT',
+            `This service already has ${MAX_SERVICE_AGREEMENTS} agreements`,
+          );
+        }
       }
       const count = await tx.firmAgreement.count();
       try {
@@ -342,26 +359,55 @@ export class AgreementsService {
   }
 
   /**
-   * The public block for Begin Online and the portal intake tab: the firm-wide agreement's
-   * current version, then the service's. Unknown firm, service or archived service: 404.
+   * Begin Online's block for a form: the firm's unarchived service of that kind, then the
+   * firm-wide agreement's current version and the service's. Unknown or inactive firm, or no
+   * such service: 404. `legal` only when both Terms and Privacy are published.
    */
-  async intakeBlock(
-    firmSlug: string,
-    serviceId: string | undefined,
-  ): Promise<IntakeAgreementBlock> {
+  async intakeBlock(firmSlug: string, form: IntakeFormKey): Promise<IntakeAgreementBlock> {
     const firm = await this.portal.activeFirm(firmSlug);
     const [block, terms, privacy] = await Promise.all([
-      this.inFirm(firm.id, (tx) => currentAgreements(tx, serviceId)),
+      this.inFirm(firm.id, async (tx) =>
+        currentAgreements(tx, (await beginOnlineService(tx, form)).id),
+      ),
       this.portal.currentVersion(firm.id, 'TERMS'),
       this.portal.currentVersion(firm.id, 'PRIVACY'),
     ]);
+    const { versionIds: _ids, ...shown } = block;
     return {
-      ...block,
-      legal: {
-        terms: terms && { version: terms.version },
-        privacy: privacy && { version: privacy.version },
-      },
+      ...shown,
+      legal:
+        terms && privacy
+          ? { terms: { version: terms.version }, privacy: { version: privacy.version } }
+          : null,
     };
+  }
+
+  /**
+   * The portal intake's block: the signed-in client's intake (theirs through its engagement;
+   * anything else 404), resolved from the intake's form. `legal` is null: the client accepted
+   * Terms and Privacy at sign-up.
+   */
+  async myIntakeBlock(
+    businessId: string,
+    clientAccountId: string,
+    intakeId: string,
+  ): Promise<IntakeAgreementBlock> {
+    const block = await this.inFirm(businessId, async (tx) => {
+      const account = await tx.clientAccount.findFirst({
+        where: { businessId, id: clientAccountId },
+        select: { clientId: true },
+      });
+      if (!account?.clientId) throw notFound();
+      const intake = await tx.intake.findFirst({
+        where: { id: intakeId, engagement: { clientId: account.clientId } },
+        select: { form: { select: { serviceId: true } } },
+      });
+      if (!intake) throw notFound();
+      return currentAgreements(tx, intake.form.serviceId);
+    });
+    await this.audit.log('portal.intake_agreements_viewed', { type: 'intake', id: intakeId });
+    const { versionIds: _ids, ...shown } = block;
+    return { ...shown, legal: null };
   }
 
   /** The file a version links, checked: none (PDF_REQUIRED when on), not found, or not CLEAN. */
@@ -382,20 +428,30 @@ export class AgreementsService {
 }
 
 /**
- * The current versions a signer must sign: the open firm-wide agreement, then the service's open
- * agreements by sort order. Shared with IntakeSignaturesService, which reads it under lock.
+ * The firm's Begin Online service for a form: its unarchived service of that kind (the first by
+ * sort order, creation, then id); none answers 404. Runs in the firm's scope. When R0's
+ * `services.begin_online` lands (one live Begin Online service per kind), filter on it here.
+ */
+export async function beginOnlineService(tx: TxClient, form: IntakeFormKey) {
+  const service = await tx.service.findFirst({
+    where: { kind: form, archivedAt: null },
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    select: { id: true },
+  });
+  if (!service) throw notFound();
+  return service;
+}
+
+/**
+ * The current versions a signer must sign: the open firm-wide agreement, then the service's open,
+ * published agreements by sort order, creation, then id. The caller resolves the service (Begin
+ * Online's form, or the intake's form). Shared with IntakeSignaturesService, which reads it under
+ * lock.
  */
 export async function currentAgreements(
   tx: TxClient,
-  serviceId: string | undefined,
+  serviceId: string | null | undefined,
 ): Promise<Omit<IntakeAgreementBlock, 'legal'> & { versionIds: Map<string, string> }> {
-  if (serviceId) {
-    const service = await tx.service.findFirst({
-      where: { id: serviceId, archivedAt: null },
-      select: { id: true },
-    });
-    if (!service) throw notFound();
-  }
   const rows = await tx.firmAgreement.findMany({
     where: {
       archivedAt: null,

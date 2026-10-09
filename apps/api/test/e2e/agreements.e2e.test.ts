@@ -1,6 +1,7 @@
 // End-to-end: R14 intake agreements (docs/api/agreements.yaml). Firm routes are for the Owner and
-// Admin; one firm never sees or changes another's; the public block reads only ACTIVE firms by
-// slug. Audit entries carry ids and version numbers, never the text.
+// Admin; one firm never sees or changes another's; the Begin Online block reads only ACTIVE firms
+// by slug and form; the portal intake block answers only the signed-in client's own intake.
+// Audit entries carry ids and version numbers, never the text.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -28,11 +29,23 @@ const people = {
   adminA: person('admin-a'),
   staffA: person('staff-a'),
   clientA: person('client-a'),
+  clientA2: person('client-a2'),
   ownerB: person('owner-b'),
+  clientB: person('client-b'),
 };
-type Firm = { id: string; slug: string; serviceId: string; cleanFile: string; files: string[] };
+type Firm = {
+  id: string;
+  slug: string;
+  serviceId: string;
+  cleanFile: string;
+  files: string[];
+  /** The first client's intake on the service (firm A: clientA's; firm B: clientB's). */
+  intakeId: string;
+};
 const firms = {} as Record<'a' | 'b' | 'pending', Firm>;
 const sha = (n: number) => n.toString(16).padStart(64, '0');
+/** clientA2's own intake in firm A. */
+let intakeA2 = '';
 
 let app: INestApplication;
 const tokens = new Map<string, string>();
@@ -65,10 +78,16 @@ async function call(
 }
 const asA = (method: 'get' | 'post', path: string, body?: object, who = people.ownerA) =>
   call(method, path, who, firms.a.id, body);
-const block = (slug: string, serviceId?: string) =>
+const block = (slug: string, form?: string) =>
   request(app.getHttpServer())
     .get(`/api/v1/portal/${slug}/intake-agreements`)
-    .query(serviceId ? { serviceId } : {});
+    .query(form ? { form } : {});
+const myBlock = async (slug: string, intakeId: string, who?: { email: string }) => {
+  const req = request(app.getHttpServer()).get(
+    `/api/v1/portal/${slug}/me/intakes/${intakeId}/agreements`,
+  );
+  return who ? req.set('authorization', `Bearer ${await tokenFor(who.email)}`) : req;
+};
 
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 const ack = { key: 'read_agreement', label: 'I read it', text: 'I have read it.', required: true };
@@ -94,7 +113,7 @@ beforeAll(async () => {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
-      const pool = key === 'clientA' ? 'CLIENT' : 'STAFF';
+      const pool = key.startsWith('client') ? 'CLIENT' : 'STAFF';
       await tx.user.create({
         data: { id: p.id, cognitoSub: p.id, pool, email: p.email, name: `Fake R14 ${key}` },
       });
@@ -106,7 +125,7 @@ beforeAll(async () => {
     ] as const) {
       const slug = `r14-${key}-${run}`;
       const firm = await tx.business.create({ data: { slug, name: slug, status } });
-      firms[key] = { id: firm.id, slug, serviceId: '', cleanFile: '', files: [] };
+      firms[key] = { id: firm.id, slug, serviceId: '', cleanFile: '', files: [], intakeId: '' };
     }
   });
   const members = [
@@ -127,14 +146,46 @@ beforeAll(async () => {
     const businessId = firm.id;
     const uploader = key === 'a' ? people.ownerA.id : people.ownerB.id;
     await runInScope(owner, { kind: 'business', businessId }, async (tx) => {
-      if (key === 'a') {
-        await tx.clientAccount.create({
-          data: { businessId, userId: people.clientA.id, email: people.clientA.email },
-        });
-      }
       firm.serviceId = (
         await tx.service.create({ data: { businessId, kind: 'BOOKKEEPING', name: 'Books' } })
       ).id;
+      // Clients with a login and an intake on the service (firm A: two, firm B: one).
+      const logins =
+        key === 'a' ? [people.clientA, people.clientA2] : key === 'b' ? [people.clientB] : [];
+      for (const login of logins) {
+        const client = await tx.client.create({
+          data: { businessId, displayName: `Fake ${login.email}`, email: login.email },
+        });
+        await tx.clientAccount.create({
+          data: {
+            businessId,
+            userId: login.id,
+            clientId: client.id,
+            email: login.email,
+            status: 'ACTIVE',
+          },
+        });
+        const engagement = await tx.engagement.create({
+          data: { businessId, clientId: client.id, serviceId: firm.serviceId, title: 'Books' },
+        });
+        const form =
+          (await tx.intakeForm.findFirst({ where: { serviceId: firm.serviceId } })) ??
+          (await tx.intakeForm.create({
+            data: {
+              businessId,
+              serviceId: firm.serviceId,
+              version: 1,
+              title: 'Fake bookkeeping intake',
+              status: 'PUBLISHED',
+              publishedAt: new Date(),
+            },
+          }));
+        const intake = await tx.intake.create({
+          data: { businessId, formId: form.id, engagementId: engagement.id },
+        });
+        if (!firm.intakeId) firm.intakeId = intake.id;
+        if (login === people.clientA2) intakeA2 = intake.id;
+      }
       for (const [n, scan] of (['CLEAN', 'PENDING', 'INFECTED', 'CLEAN'] as const).entries()) {
         const id = randomUUID();
         await tx.firmAgreementFile.create({
@@ -185,13 +236,13 @@ describe('firm agreements', () => {
   let firmWide: string;
   let service: string;
 
-  it('the public block is not ready before a firm-wide version', async () => {
-    const res = await block(firms.a.slug);
+  it('the Begin Online block is not ready before a firm-wide version', async () => {
+    const res = await block(firms.a.slug, 'BOOKKEEPING');
     expect(res.status).toBe(200);
     expect(IntakeAgreementBlock.parse(res.body)).toEqual({
       ready: false,
       agreements: [],
-      legal: { terms: null, privacy: null },
+      legal: null,
     });
   });
 
@@ -305,30 +356,142 @@ describe('firm agreements', () => {
     expect((await call('get', '', people.ownerB, firms.a.id)).status).toBe(404);
   });
 
-  it('the public block: current versions, the service extra, wrong slugs 404', async () => {
-    const res = await block(firms.a.slug.toUpperCase());
+  it('the Begin Online block: by form, firm-wide first, then the service in order', async () => {
+    // The first service agreement is archived; two new ones are published, a third is not.
+    const extras: string[] = [];
+    for (const n of [1, 2, 3]) {
+      const created = await asA('post', '', { scope: 'SERVICE', serviceId: firms.a.serviceId });
+      const id = FirmAgreementSummary.parse(created.body).id;
+      if (n < 3) {
+        const published = await asA('post', `/${id}/versions`, {
+          ...version(null, firms.a.cleanFile, { title: `Extra ${n}` }),
+          acknowledgments: [],
+        });
+        expect(published.status).toBe(201);
+        extras.push(id);
+      }
+    }
+    const res = await block(firms.a.slug.toUpperCase(), 'BOOKKEEPING');
     const parsed = IntakeAgreementBlock.parse(res.body);
     expect(parsed.ready).toBe(true);
-    expect(parsed.agreements).toHaveLength(1);
+    expect(parsed.agreements.map((a) => a.agreementId)).toEqual([firmWide, ...extras]);
     expect(parsed.agreements[0]).toMatchObject({
       agreementId: firmWide,
+      scope: 'ALL_INTAKES',
       version: 2,
       title: 'Version 2',
       pdf: { available: true, sha256: sha(4) },
     });
+    expect(parsed.agreements.slice(1).map((a) => a.title)).toEqual(['Extra 1', 'Extra 2']);
     expect(JSON.stringify(res.body)).not.toContain(firms.a.files[3]);
-    // The service agreement is archived, so its service shows only the firm-wide one.
-    const withService = IntakeAgreementBlock.parse(
-      (await block(firms.a.slug, firms.a.serviceId)).body,
-    );
-    expect(withService.agreements.map((a) => a.agreementId)).toEqual([firmWide]);
+    expect(JSON.stringify(res.body)).not.toContain('versionIds');
+  });
 
-    expect((await block(firms.a.slug, firms.b.serviceId)).status).toBe(404);
-    expect((await block(firms.a.slug, randomUUID())).status).toBe(404);
-    expect((await block(firms.a.slug, 'nope')).status).toBe(400);
-    expect((await block(`nobody-${run}`)).status).toBe(404);
-    expect((await block(firms.pending.slug)).status).toBe(404);
-    expect(IntakeAgreementBlock.parse((await block(firms.b.slug)).body).ready).toBe(false);
+  it('the Begin Online block: unknown forms 400, forms without a service and wrong slugs 404', async () => {
+    for (const form of [undefined, 'nope', 'OTHER', 'bookkeeping']) {
+      const res = await block(firms.a.slug, form);
+      expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    const extra = await request(app.getHttpServer())
+      .get(`/api/v1/portal/${firms.a.slug}/intake-agreements`)
+      .query({ form: 'BOOKKEEPING', serviceId: firms.a.serviceId });
+    expect(extra.status).toBe(400);
+    // Firm A offers no annual tax service.
+    expect((await block(firms.a.slug, 'ANNUAL_TAX')).status).toBe(404);
+    expect((await block(`nobody-${run}`, 'BOOKKEEPING')).status).toBe(404);
+    expect((await block(firms.pending.slug, 'BOOKKEEPING')).status).toBe(404);
+    // Firm B's own block: its service, none of firm A's agreements.
+    const b = await block(firms.b.slug, 'BOOKKEEPING');
+    expect(IntakeAgreementBlock.parse(b.body)).toEqual({
+      ready: false,
+      agreements: [],
+      legal: null,
+    });
+  });
+
+  it('legal is null unless both Terms and Privacy are published', async () => {
+    const legalOf = async () =>
+      IntakeAgreementBlock.parse((await block(firms.a.slug, 'BOOKKEEPING')).body).legal;
+    const publishLegal = async (kind: 'TERMS' | 'PRIVACY', v: number) => {
+      const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+      await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
+        tx.firmLegalDocument.create({
+          data: {
+            businessId: firms.a.id,
+            kind,
+            version: v,
+            body: `# Fake ${kind}`,
+            publishedByUserId: people.ownerA.id,
+          },
+        }),
+      );
+      await owner.$disconnect();
+    };
+    expect(await legalOf()).toBeNull();
+    await publishLegal('TERMS', 1);
+    await publishLegal('TERMS', 2);
+    expect(await legalOf()).toBeNull();
+    await publishLegal('PRIVACY', 1);
+    expect(await legalOf()).toEqual({ terms: { version: 2 }, privacy: { version: 1 } });
+  });
+
+  it("the portal intake block: the client's own intake only, legal null", async () => {
+    const res = await myBlock(firms.a.slug, firms.a.intakeId, people.clientA);
+    expect(res.status).toBe(200);
+    const mine = IntakeAgreementBlock.parse(res.body);
+    const begin = IntakeAgreementBlock.parse((await block(firms.a.slug, 'BOOKKEEPING')).body);
+    expect(mine).toEqual({ ...begin, legal: null });
+    expect(begin.legal).not.toBeNull();
+    const own2 = await myBlock(firms.a.slug, intakeA2, people.clientA2);
+    expect(own2.status).toBe(200);
+
+    // Another client's intake in the same firm, another firm's intake, a made-up one: 404.
+    for (const [slug, intakeId, who] of [
+      [firms.a.slug, firms.a.intakeId, people.clientA2],
+      [firms.a.slug, intakeA2, people.clientA],
+      [firms.a.slug, firms.b.intakeId, people.clientA],
+      [firms.a.slug, randomUUID(), people.clientA],
+      [firms.b.slug, firms.a.intakeId, people.clientA],
+      [firms.b.slug, firms.b.intakeId, people.clientA],
+      [firms.a.slug, firms.a.intakeId, people.clientB],
+    ] as const) {
+      const refused = await myBlock(slug, intakeId, who);
+      expect([refused.status, codeOf(refused)]).toEqual([404, 'NOT_FOUND']);
+    }
+    expect((await myBlock(firms.a.slug, 'nope', people.clientA)).status).toBe(400);
+    expect((await myBlock(firms.a.slug, firms.a.intakeId)).status).toBe(401);
+    // A firm manager is not a portal client.
+    expect([401, 403, 404]).toContain(
+      (await myBlock(firms.a.slug, firms.a.intakeId, people.ownerA)).status,
+    );
+    const audits = await auditRows(firms.a.id, 'portal.intake_agreements_viewed');
+    expect(audits.map((a) => a.entityId)).toEqual([firms.a.intakeId, intakeA2]);
+  });
+
+  it('a service holds at most 9 unarchived agreements, also under concurrency', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const payroll = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.service.create({ data: { businessId: firms.a.id, kind: 'PAYROLL', name: 'Payroll' } }),
+    );
+    await owner.$disconnect();
+    const create = () => asA('post', '', { scope: 'SERVICE', serviceId: payroll.id });
+    const made: string[] = [];
+    for (let n = 0; n < 8; n++) {
+      const res = await create();
+      expect(res.status).toBe(201);
+      made.push((res.body as { id: string }).id);
+    }
+    const pair = await Promise.all([create(), create()]);
+    expect(pair.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(pair.map(codeOf)).toContain('SERVICE_AGREEMENT_LIMIT');
+    const tenth = await create();
+    expect([tenth.status, codeOf(tenth)]).toEqual([409, 'SERVICE_AGREEMENT_LIMIT']);
+    // Another service is not limited by this one; archiving one frees a place.
+    expect((await asA('post', '', { scope: 'SERVICE', serviceId: firms.a.serviceId })).status).toBe(
+      201,
+    );
+    expect((await asA('post', `/${made[0]}/archive`)).status).toBe(201);
+    expect((await create()).status).toBe(201);
   });
 
   it('a client login is not a firm manager', async () => {

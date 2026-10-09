@@ -1,5 +1,6 @@
 // The firm's intake agreements (R14): Settings > Terms & Privacy. Firm-wide records, so no
-// client's portal walls them off; Begin Online and the portal intake read them publicly by slug.
+// client's portal walls them off; Begin Online reads them publicly by slug and form, and the
+// portal intake reads them for one of the client's own intakes.
 import { createHash, randomUUID } from 'node:crypto';
 import type { CaseModule, SeedContext } from '../world.js';
 
@@ -51,6 +52,31 @@ export const records: CaseModule['records'] = {
       return agreement.id;
     },
   },
+  /** Client X's intake on their engagement, with the service's published form. */
+  intake: {
+    clientPrivate: true,
+    async create({ tx, businessId, own, get }) {
+      const engagementId = await get('engagement');
+      const form =
+        (await tx.intakeForm.findFirst({
+          where: { serviceId: own.service, status: 'PUBLISHED' },
+          select: { id: true },
+        })) ??
+        (await tx.intakeForm.create({
+          data: {
+            businessId,
+            serviceId: own.service,
+            version: 1,
+            title: 'Fake intake form',
+            status: 'PUBLISHED',
+            publishedAt: new Date(),
+          },
+          select: { id: true },
+        }));
+      const row = await tx.intake.create({ data: { businessId, formId: form.id, engagementId } });
+      return row.id;
+    },
+  },
 };
 
 export const cases: CaseModule['cases'] = {
@@ -72,9 +98,12 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/agreements/:agreementId/archive': {
     params: { agreementId: 'agreement' },
   },
+  'GET /api/v1/portal/:firmSlug/me/intakes/:intakeId/agreements': {
+    params: { intakeId: 'intake' },
+  },
 };
 
 export const excluded: CaseModule['excluded'] = {
   'GET /api/v1/portal/:firmSlug/intake-agreements':
-    "Public: the firm's current intake agreements for Begin Online, from the slug only",
+    "Public: the firm's current intake agreements for a Begin Online form, from the slug only",
 };

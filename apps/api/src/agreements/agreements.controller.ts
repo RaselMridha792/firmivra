@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Module, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import {
+  AgreementPathId,
+  AgreementVersionNumber,
   type AgreementVersion,
   CreateAgreementRequest,
   type FirmAgreementDetail,
@@ -23,14 +25,14 @@ import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AGREEMENTS_CONFIG, agreementsConfig, AgreementsService } from './agreements.service.js';
 
-const idPipe = new ZodValidationPipe(z.uuid());
+const idPipe = new ZodValidationPipe(AgreementPathId);
 /** A version in the path: plain digits ("2", not "02" or "2e0"). */
 const versionPipe = new ZodValidationPipe(
   z
     .string()
     .regex(/^[1-9][0-9]{0,9}$/)
     .transform(Number)
-    .pipe(z.number().int().positive().max(2_147_483_647)),
+    .pipe(AgreementVersionNumber),
 );
 
 /**
@@ -95,7 +97,7 @@ export class AgreementsController {
   }
 }
 
-/** GET /api/v1/portal/{firmSlug}/intake-agreements: public, for Begin Online and portal intake. */
+/** GET /api/v1/portal/{firmSlug}/intake-agreements?form=: public, for Begin Online. */
 @Controller('portal/:firmSlug/intake-agreements')
 export class PublicAgreementsController {
   constructor(private readonly agreements: AgreementsService) {}
@@ -107,13 +109,32 @@ export class PublicAgreementsController {
     @Query(new ZodValidationPipe(IntakeAgreementsQuery))
     query: z.output<typeof IntakeAgreementsQuery>,
   ): Promise<IntakeAgreementBlock> {
-    return this.agreements.intakeBlock(firmSlug, query.serviceId);
+    return this.agreements.intakeBlock(firmSlug, query.form);
+  }
+}
+
+/**
+ * GET /api/v1/portal/{firmSlug}/me/intakes/{intakeId}/agreements: the signed-in client's portal
+ * intake. The client comes from the session, never the URL; another client's intake answers 404.
+ */
+@Controller('portal/:firmSlug/me/intakes')
+@Roles('CLIENT')
+export class MyIntakeAgreementsController {
+  constructor(private readonly agreements: AgreementsService) {}
+
+  @Get(':intakeId/agreements')
+  block(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('intakeId', idPipe) intakeId: string,
+  ): Promise<IntakeAgreementBlock> {
+    if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
+    return this.agreements.myIntakeBlock(tenant.businessId, tenant.clientAccountId, intakeId);
   }
 }
 
 @Module({
   imports: [PortalInfoModule],
-  controllers: [AgreementsController, PublicAgreementsController],
+  controllers: [AgreementsController, PublicAgreementsController, MyIntakeAgreementsController],
   providers: [
     AgreementsService,
     { provide: AGREEMENTS_CONFIG, useFactory: () => agreementsConfig() },
