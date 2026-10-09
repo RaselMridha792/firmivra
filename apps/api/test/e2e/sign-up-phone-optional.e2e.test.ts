@@ -23,7 +23,7 @@ const slug = `r6-sms-off-${randomUUID().slice(0, 8)}`;
 let firmId = '';
 // The firm's own owner, so the shared fixtures' owners keep exactly their memberships.
 const ownerId = randomUUID();
-const ownerEmail = `owner-${slug}@example.com`;
+const ownerEmail = `owner-${slug}@example.test`;
 const docIds: string[] = [];
 const outbox: { kind: 'email' | 'sms'; to: string }[] = [];
 let portalOrigin = '';
@@ -163,7 +163,7 @@ describe('SIGNUP_PHONE_VERIFICATION', () => {
 
 describe('sign-up with the phone code optional (SMS fallback)', () => {
   it('completes once the email is verified: no SMS, phone saved unverified, the firm can approve', async () => {
-    const email = `r6-fallback-${randomUUID().slice(0, 6)}@example.com`;
+    const email = `r6-fallback-${randomUUID().slice(0, 6)}@example.test`;
     const v = visitor();
     const res = await v.signUp({
       name: 'Jane Fallback',
@@ -181,6 +181,10 @@ describe('sign-up with the phone code optional (SMS fallback)', () => {
     });
     expect((await v.state()).body).toMatchObject({ step: 'DONE' });
     expect(codeOf(await v.post('/verify-phone', { code: '000000' }))).toBe('WRONG_STEP');
+    // A completed sign-up's phone is fixed: no rewrite of users.phone or Cognito, no SMS.
+    const changed = await v.post('/change-phone', { phone: '+17705550199' });
+    expect(changed.status).toBe(409);
+    expect(codeOf(changed)).toBe('ALREADY_VERIFIED');
     // Email verification stays required; no SMS goes out.
     expect(outbox.filter((m) => m.kind === 'sms')).toEqual([]);
     expect(outbox.filter((m) => m.to === email)).toEqual([{ kind: 'email', to: email }]);
@@ -228,7 +232,7 @@ describe('sign-up with the phone code optional (SMS fallback)', () => {
   });
 
   it('an unverified email is still not a sign-up: not in the queue, cannot sign in', async () => {
-    const email = `r6-halfway-${randomUUID().slice(0, 6)}@example.com`;
+    const email = `r6-halfway-${randomUUID().slice(0, 6)}@example.test`;
     await visitor().signUp({
       name: 'Half Way',
       email,

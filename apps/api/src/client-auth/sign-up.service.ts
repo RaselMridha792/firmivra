@@ -496,7 +496,7 @@ export class SignUpService {
         where: { userId: s.userId },
         select: ACCOUNT,
       });
-      if (owned?.phoneVerifiedAt) throw signUpErrors.alreadyVerified();
+      if (owned && completed(owned)) throw signUpErrors.alreadyVerified();
       // Every change is a request (IP limits, the attempt's count; the wait restarts).
       const sendNow = this.waitedOut(await this.admitRequest(s.userId));
       const user = await this.attemptUser(s.userId);
