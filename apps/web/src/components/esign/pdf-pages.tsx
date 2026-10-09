@@ -2,6 +2,7 @@
 
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { loadPdfjs } from './load-pdfjs';
+import { BundledDataFactory } from './pdf-assets';
 
 type PdfDocument = Awaited<
   ReturnType<Awaited<ReturnType<typeof loadPdfjs>>['pdfjs']['getDocument']>['promise']
@@ -22,13 +23,35 @@ interface PdfPagesProps {
   onLoad?: (pages: PageSize[]) => void;
   /** Drawn above each page at the page's on-screen size (FieldOverlay). */
   overlay?: (pageIndex: number, scale: number) => ReactNode;
+  /** Who is reading: a signer is told to switch devices before signing. Default 'view'. */
+  purpose?: 'sign' | 'view';
+}
+
+/** The smallest valid wasm module: its header. */
+const EMPTY_WASM = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+let wasmOk: boolean | undefined;
+
+/**
+ * Whether pdf.js's scanned-page decoders can run. WebAssembly can be missing (iOS Lockdown Mode)
+ * or present but blocked from compiling (a Content-Security-Policy without 'wasm-unsafe-eval'),
+ * so this compiles an empty module rather than only looking for WebAssembly.
+ */
+function canCompileWasm(): boolean {
+  if (wasmOk === undefined) {
+    try {
+      wasmOk = typeof WebAssembly === 'object' && !!new WebAssembly.Module(EMPTY_WASM);
+    } catch {
+      wasmOk = false;
+    }
+  }
+  return wasmOk;
 }
 
 /**
  * Every page of a PDF, as wide as its container. Pages draw when they scroll near the screen, so a
  * 100-page document opens fast. pdf.js runs in its worker (load-pdfjs.ts).
  */
-export function PdfPages({ source, label, onLoad, overlay }: PdfPagesProps) {
+export function PdfPages({ source, label, onLoad, overlay, purpose = 'view' }: PdfPagesProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   // Tagged with its source, so a new source shows "Loading" without resetting state in an effect.
   const [loaded, setLoaded] = useState<
@@ -46,11 +69,15 @@ export function PdfPages({ source, label, onLoad, overlay }: PdfPagesProps) {
       const { pdfjs, worker } = await loadPdfjs();
       if (!active) return;
       // pdf.js takes ownership of the bytes it is given, so it gets a copy.
-      task = pdfjs.getDocument(
-        typeof source === 'string'
-          ? { url: source, withCredentials: true, worker }
-          : { data: source.slice(), worker },
-      );
+      task = pdfjs.getDocument({
+        ...(typeof source === 'string'
+          ? { url: source, withCredentials: true }
+          : { data: source.slice() }),
+        worker,
+        // Scanned pages and unembedded fonts: their files come from the bundle (pdf-assets.ts).
+        BinaryDataFactory: BundledDataFactory,
+        useWorkerFetch: false,
+      });
       const doc = await task.promise;
       const sizes = await Promise.all(
         Array.from({ length: doc.numPages }, async (_, i) => {
@@ -93,6 +120,15 @@ export function PdfPages({ source, label, onLoad, overlay }: PdfPagesProps) {
         <p className="p-4 text-sm text-muted">Loading document…</p>
       ) : (
         <div className="flex flex-col gap-4">
+          {/* Only after loading, so the server render (which can compile wasm) always matches. */}
+          {!canCompileWasm() && (
+            <p data-testid="pdf-no-wasm" role="alert" className="text-sm text-danger">
+              This browser can&apos;t show scanned pages, so parts of this document may be blank.
+              {purpose === 'sign'
+                ? ' Open it on another device before you sign.'
+                : ' Open it on another device to see every page.'}
+            </p>
+          )}
           {width > 0 &&
             doc.sizes.map((size, i) => (
               <PdfPage
