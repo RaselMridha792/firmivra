@@ -1,7 +1,7 @@
 'use client';
 
 import type { ClientListItem, ListClientsQuery } from '@firmivra/types';
-import { Badge, Button, EmptyState, Table, type Column } from '@firmivra/ui';
+import { Badge, Button, EmptyState, Select, Table, type Column } from '@firmivra/ui';
 import { Search } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -16,9 +16,6 @@ const STATUSES: { value: Status; label: string }[] = [
   { value: 'archived', label: 'Archived' },
   { value: 'all', label: 'All clients' },
 ];
-
-const fieldClass =
-  'h-11 rounded-control border border-border bg-surface px-3 text-sm text-text focus:outline-2 focus:outline-focus';
 
 const columns: Column<ClientListItem>[] = [
   {
@@ -144,39 +141,37 @@ export function ClientsScreen() {
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="relative block sm:w-80">
-            <span className="sr-only">Search clients</span>
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted"
-            />
-            <input
-              type="search"
-              maxLength={100}
-              value={typed}
-              placeholder="Search by name, email or phone..."
+          <label className="flex flex-col gap-1 sm:w-80">
+            <span className="text-sm font-medium text-text">Search clients</span>
+            <span className="relative block">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted"
+              />
+              <input
+                type="search"
+                maxLength={100}
+                value={typed}
+                placeholder="Name, email or phone"
+                onChange={(event) => {
+                  setTyped(event.target.value);
+                  setCursors([]);
+                }}
+                className="w-full rounded-control border border-border bg-surface py-2 pl-11 pr-3 text-base text-text placeholder:text-muted focus:outline-2 focus:outline-accent-500"
+              />
+            </span>
+          </label>
+          <div className="sm:w-48">
+            <Select
+              label="Show"
+              value={status}
+              options={STATUSES}
               onChange={(event) => {
-                setTyped(event.target.value);
+                setStatus(event.target.value as Status);
                 setCursors([]);
               }}
-              className={`${fieldClass} w-full pl-11 placeholder:text-muted`}
             />
-          </label>
-          <select
-            aria-label="Show"
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value as Status);
-              setCursors([]);
-            }}
-            className={fieldClass}
-          >
-            {STATUSES.map(({ value, label }) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          </div>
         </div>
       </div>
       <PageState query={clients}>
