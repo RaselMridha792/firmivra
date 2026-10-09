@@ -16,7 +16,9 @@ const DateTime = z.iso.datetime({ offset: true });
 // Who approves: an APPROVER recipient is a STAFF member who is an Owner, Admin or Firm Sign
 // Manager and is not the request's sender. PUT recipients and `use` (template) answer 409
 // APPROVER_NOT_ALLOWED otherwise, and the rule is checked again on submit and on each decision
-// (a member whose role changed since answers 403 NOT_AN_APPROVER).
+// (a member whose role changed since answers 403 NOT_AN_APPROVER). An approver always opens, lists
+// (the NEEDS_MY_APPROVAL filter) and decides the requests they approve, whatever the client
+// assignment; they see nothing else of that client.
 
 /**
  * POST /esign/requests/{id}/submit-for-approval (the sender, Owner, Admin, Manager): a DRAFT whose
@@ -157,7 +159,7 @@ export const EsignInPersonSession = z.object({
    * An absolute URL on the portal site, `<PORTAL_BASE_URL>/<slug>/sign#t=<token>`: open it in a new
    * tab of the same browser. The signer starts at the consent step.
    */
-  signingUrl: z.string(),
+  signingUrl: z.url(),
   startedAt: DateTime,
   /** The link stops working after this (15 minutes) if signing has not started. */
   expiresAt: DateTime,

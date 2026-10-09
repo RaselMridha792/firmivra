@@ -139,6 +139,7 @@ export class FirmDocumentsService {
       clientAccountId: null,
       clientId,
       engagementId: body.serviceId,
+      requestId: null,
       categoryId: body.categoryId ?? null,
       direction: body.shareWithClient ? 'FIRM_TO_CLIENT' : 'INTERNAL',
       taxYear: body.taxYear ?? null,
