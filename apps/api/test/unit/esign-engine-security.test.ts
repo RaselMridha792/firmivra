@@ -1,9 +1,11 @@
 // Unit tests for R18 step 5, signer security: signature PNG checks (real PNG, 200 KB, 1600x600),
 // link tokens (only the SHA-256 kept), the code HMAC (bound to the recipient, constant-time
 // compare) and the sealed fv_sign_{slug} cookie (wrong slug, expired, tampered).
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 import { Test } from '@nestjs/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { deriveKey } from '../../src/auth/sealed.js';
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
 import { EsignEngineModule } from '../../src/esign/engine/engine.module.js';
@@ -15,13 +17,14 @@ import {
   type SignerSession,
 } from '../../src/esign/engine/engine.types.js';
 import {
+  ESIGN_CODE_KEY_LABEL,
   HmacCodeHasher,
   LOCAL_ESIGN_CODE,
   PngSignatureCheck,
   RandomLinkTokens,
   SealedSignerCookie,
 } from '../../src/esign/engine/signer-security.js';
-import { JPG_4X2, png } from './esign-engine-fixtures.js';
+import { JPG_4X2, png, rawPng } from './esign-engine-fixtures.js';
 
 const secrets = { CLIENT: 'fake-client-secret', STAFF: 'fake-staff-secret' };
 
@@ -39,7 +42,22 @@ describe('PngSignatureCheck', () => {
     tampered[40] = tampered[40]! ^ 0xff; // inside IDAT: its CRC no longer matches
     const cut = good.slice(0, good.length - 12); // no IEND
     const trailing = new Uint8Array([...good, 0]);
-    for (const bytes of [JPG_4X2, tampered, cut, trailing, new Uint8Array(), good.slice(0, 8)]) {
+    // CRCs right, but image data that is not zlib, or IHDR fields the spec doesn't allow.
+    const garbage = rawPng({ width: 1, height: 1, depth: 8, colour: 6 }, Buffer.from('xx'));
+    const badIhdr = rawPng(
+      { width: 2, height: 2, depth: 3, colour: 9 },
+      deflateSync(Buffer.alloc(8)),
+    );
+    for (const bytes of [
+      JPG_4X2,
+      tampered,
+      cut,
+      trailing,
+      garbage,
+      badIhdr,
+      new Uint8Array(),
+      good.slice(0, 8),
+    ]) {
       expect(check.check(bytes)).toEqual({ ok: false, reason: 'NOT_PNG' });
     }
   });
@@ -77,18 +95,29 @@ describe('HmacCodeHasher', () => {
   });
 
   it('verifies the right code for the right recipient only', () => {
-    const stored = codes.hash(recipient, '123456');
+    const stored = codes.hash(recipient, 'EMAIL', '123456');
     expect(stored).toMatch(/^[0-9a-f]{64}$/);
-    expect(codes.verify(recipient, '123456', stored)).toBe(true);
-    expect(codes.verify(recipient, '123457', stored)).toBe(false);
-    expect(codes.verify(randomUUID(), '123456', stored)).toBe(false);
-    expect(codes.verify(recipient, '123456', 'not-a-hash')).toBe(false);
-    expect(codes.verify(recipient, '123456', stored.toUpperCase())).toBe(false);
+    expect(codes.verify(recipient, 'EMAIL', '123456', stored)).toBe(true);
+    expect(codes.verify(recipient, 'EMAIL', '123457', stored)).toBe(false);
+    expect(codes.verify(randomUUID(), 'EMAIL', '123456', stored)).toBe(false);
+    expect(codes.verify(recipient, 'ACCESS', '123456', stored)).toBe(false);
+    expect(codes.verify(recipient, 'EMAIL', '123456', 'not-a-hash')).toBe(false);
+    expect(codes.verify(recipient, 'EMAIL', '123456', stored.toUpperCase())).toBe(false);
   });
 
   it('uses its own key: another secret or the sign-up label gives another hash', () => {
     const other = new HmacCodeHasher({ CLIENT: 'another-fake-secret' }, false);
-    expect(other.hash(recipient, '123456')).not.toBe(codes.hash(recipient, '123456'));
+    const mine = codes.hash(recipient, 'EMAIL', '123456');
+    expect(other.hash(recipient, 'EMAIL', '123456')).not.toBe(mine);
+    // The same input under client sign-up's code key (fv-client-code-v2) gives another hash.
+    const signUp = createHmac('sha256', deriveKey(secrets.CLIENT, 'CLIENT', 'fv-client-code-v2'))
+      .update(`${recipient}\nEMAIL\n123456`, 'utf8')
+      .digest('hex');
+    expect(signUp).not.toBe(mine);
+    const esign = createHmac('sha256', deriveKey(secrets.CLIENT, 'CLIENT', ESIGN_CODE_KEY_LABEL))
+      .update(`${recipient}\nEMAIL\n123456`, 'utf8')
+      .digest('hex');
+    expect(esign).toBe(mine);
     expect(() => new HmacCodeHasher({ STAFF: 'x' }, false)).toThrow();
   });
 });

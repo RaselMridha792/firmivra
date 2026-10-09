@@ -35,7 +35,10 @@ export class EsignEngineError extends Error {
   }
 }
 
-/** A page size in PDF points, before any rotation (EsignDocument.pageSizes). */
+/**
+ * A page size in PDF points as a viewer shows it: the visible box turned by the page's own
+ * /Rotate, before any plan rotation (EsignDocument.pageSizes).
+ */
 export type PageSize = EsignDocument['pageSizes'][number];
 
 /** One stored file of a request: a PDF, or a JPG or PNG that becomes one page. */
@@ -158,13 +161,16 @@ export interface LinkTokens {
   hash(token: string): string;
 }
 
+export type EsignCodeKind = 'EMAIL' | 'ACCESS';
+
 /** Email and access codes: an HMAC (HKDF label fv-esign-code-v1), bound to the recipient. */
 export interface CodeHasher {
   /** A random 6-digit code. */
   generate(): string;
-  hash(recipientId: string, code: string): string;
+  /** The kind is in the HMAC input, so an email code never passes as the access code. */
+  hash(recipientId: string, kind: EsignCodeKind, code: string): string;
   /** Constant-time comparison. */
-  verify(recipientId: string, code: string, storedHash: string): boolean;
+  verify(recipientId: string, kind: EsignCodeKind, code: string, storedHash: string): boolean;
 }
 
 /** What the sealed fv_sign_{slug} cookie holds once a signer opened their link. */
