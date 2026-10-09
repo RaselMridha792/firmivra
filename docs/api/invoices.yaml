@@ -227,7 +227,9 @@ info:
     - **Start** (`POST .../onboarding`): under a Postgres advisory lock per firm (two clicks wait
       for each other), read the firm's `stripe_accounts` row. None: create the account with the
       idempotency key `fv-connect-{businessId}` (a retry, or a second click, gets the same account
-      from Stripe) and insert the row (`PENDING`, from `toOnboardingState(account)`). Every
+      from Stripe; Stripe keeps a key only 24 hours, so a retry more than 24 hours after a create
+      whose row was never inserted makes a second account, and the first stays orphaned at
+      Stripe) and insert the row (`PENDING`, from `toOnboardingState(account)`). Every
       `stripe_accounts` write (here, refresh and `account.updated`) goes through the one
       platform-scope writer in `apps/api/src/payments/stripe` (`forPlatform()`), with the
       `businessId` from the tenant guard: the RLS lets only platform scope insert or update the
