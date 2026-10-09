@@ -16,7 +16,9 @@ import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { TEMPLATES, templateKey } from '../../_components/keys';
+import { DuplicateTemplate } from './duplicate-template';
 import { TemplateDetailsForm } from './template-details-form';
+import { TemplateVersions } from './template-versions';
 
 const AUTH: Record<EsignTemplateDetail['roles'][number]['authMethod'], string> = {
   EMAIL_CODE: 'a code sent by email',
@@ -76,6 +78,7 @@ function Template({ t, canUse }: { t: EsignTemplateDetail; canUse: boolean }) {
                 Use template
               </Link>
             )}
+            {canUse && <DuplicateTemplate t={t} />}
             {editable && (
               <>
                 <Button variant="secondary" onClick={() => setEditing(true)}>
@@ -126,6 +129,8 @@ function Template({ t, canUse }: { t: EsignTemplateDetail; canUse: boolean }) {
           ))}
         </ol>
       </Card>
+
+      <TemplateVersions t={t} editable={editable} />
 
       <section aria-label="Pages" className="flex flex-col gap-3">
         <h2 className="font-semibold text-heading">
