@@ -13,6 +13,16 @@ export const records: CaseModule['records'] = {
       return login.id;
     },
   },
+  /** An Admin of the firm: a task's assignee needs no assigned clients. */
+  adminUser: {
+    async create({ tx, businessId, person }) {
+      const login = await person('admin-p', 'STAFF');
+      await tx.membership.create({
+        data: { businessId, userId: login.id, role: 'ADMIN', status: 'ACTIVE' },
+      });
+      return login.id;
+    },
+  },
   staffMembership: {
     async create({ get }) {
       await get('staffUser');

@@ -4,6 +4,8 @@
 // - a member of firm Q gets 404 on firm P's records by id, on every route that takes one;
 // - a client of firm P gets 404 at firm Q's portal, on every client route;
 // - client Y gets 404 on client X's records in the same firm;
+// - a record id in a body (cases' `bodyIds`) is refused (4xx) when it is firm P's in firm Q, or
+//   client X's for client Y, with the rest of the request their own;
 // - none of those refusals changed a row of firm P;
 // - firm Q's lists and client Y's portal lists show none of firm P's or client X's records;
 // - the Super Admin routes refuse firm and client sessions, and the firm and portal routes
@@ -12,7 +14,8 @@
 //   case's `expect`), so a 404 above is the wall and not a broken case.
 //
 // Adding a route: put its case in test/isolation/cases/<module>.ts (one file per module; see
-// world.ts for the shapes). A route with a record param needs `cases`; a record it names that no
+// world.ts for the shapes). A route with a record param or a record id in its body schema needs
+// `cases`; a record it names that no
 // file creates yet needs `records`; a route that is neither a firm nor a portal route goes in
 // `excluded` with the reason.
 import { readdirSync } from 'node:fs';
@@ -107,6 +110,9 @@ const people = {
 const admin: Person = fx.users.admin;
 /** The world the refusal tests share: one of each record. */
 let base: World;
+/** One of each record in firm Q, and a second set in firm P (client Y's), for the body swaps. */
+let q: World;
+let peer: World;
 const tokens = new Map<string, string>();
 
 async function tokenFor(who: Person, pool: 'STAFF' | 'CLIENT' | 'ADMIN'): Promise<string> {
@@ -135,14 +141,14 @@ async function call(route: ApiRoute, path: string, actor: Actor, body?: object):
 
 const show = (res: Response) => `${res.status} ${JSON.stringify(res.body).slice(0, 300)}`;
 
-/** A world of firm P's records with at least `keys` in it. */
-function buildWorld(keys: string[]): Promise<World> {
-  return runInScope(db, { kind: 'business', businessId: firms.p.id }, async (tx) => {
+/** A world of firm P's (or Q's) records with at least `keys` in it. */
+function buildWorld(keys: string[], k: 'p' | 'q' = 'p'): Promise<World> {
+  return runInScope(db, { kind: 'business', businessId: firms[k].id }, async (tx) => {
     const world = new World(RECORDS, {
       tx,
-      businessId: firms.p.id,
-      owner: people.ownerP,
-      own: own.p,
+      businessId: firms[k].id,
+      owner: k === 'p' ? people.ownerP : people.ownerQ,
+      own: own[k],
     });
     await world.getAll(keys);
     return world;
@@ -213,11 +219,12 @@ beforeAll(async () => {
       own[k] = {
         service: await service('ANNUAL_TAX', 'Fake annual tax'),
         bookkeeping: await service('BOOKKEEPING', 'Fake bookkeeping'),
-        taxStatus: (await tx.taxStatus.create({ data: { businessId, name: 'Fake status' } })).id,
       };
     });
   }
   base = await buildWorld(Object.keys(RECORDS));
+  q = await buildWorld(Object.keys(RECORDS), 'q');
+  peer = await buildWorld(Object.keys(RECORDS));
 
   const env = loadEnv({
     ...process.env,
@@ -256,13 +263,61 @@ const ready = (r: ApiRoute) => {
 const recordsOf = (c: RecordCase, world: World) =>
   Object.fromEntries(Object.entries(c.params).map(([param, key]) => [param, world.rec[key]!]));
 
-const bodyOf = (c: RecordCase | undefined, ids: OwnIds, world: World) =>
-  typeof c?.body === 'function'
-    ? c.body({
-        own: ids,
-        rec: Object.fromEntries((c.bodyRecords ?? []).map((k) => [k, world.rec[k]!])),
-      })
-    : c?.body;
+/**
+ * The case's body, its `bodyIds` from `world`, except `swap.field`'s, from `swap.from`; with
+ * `swap.alone`, the other `bodyIds` are left out.
+ */
+function bodyOf(
+  c: RecordCase | undefined,
+  ids: OwnIds,
+  world: World,
+  swap?: { field: string; from: World; alone?: boolean },
+): object | undefined {
+  const body = typeof c?.body === 'function' ? c.body({ own: ids }) : c?.body;
+  if (!c?.bodyIds) return body;
+  const out: Record<string, unknown> = { ...body };
+  for (const [field, key] of Object.entries(c.bodyIds)) {
+    if (swap?.alone && field !== swap.field) continue;
+    const id = (field === swap?.field ? swap.from : world).rec[key]!;
+    out[field] = /Ids$|^ids$/.test(field) ? [id] : id;
+  }
+  return out;
+}
+
+/**
+ * Sends each record the cases' bodies name, one at a time, from firm P's base world, in a
+ * request otherwise all `other`'s (its path records and its other body records), and again
+ * without the other body records where they are optional (one check can't hide behind another),
+ * and expects a refusal: a 4xx, and not the case's `expect` (what P's people get for their own).
+ */
+async function bodySwaps(
+  list: ApiRoute[],
+  other: World,
+  actor: Actor,
+  slug: string,
+  ids: OwnIds,
+  only: (record: string) => boolean = () => true,
+) {
+  const failures: string[] = [];
+  let sent = 0;
+  for (const route of list.filter(ready)) {
+    const c = CASES[keyOf(route)];
+    for (const [field, record] of Object.entries(c?.bodyIds ?? {})) {
+      if (!c || !only(record)) continue;
+      for (const alone of [false, true]) {
+        const swap = { field, from: base, alone };
+        const path = fill(route, slug, recordsOf(c, other));
+        const res = await call(route, path, actor, bodyOf(c, ids, other, swap));
+        const code = (res.body as { error?: { code?: string } }).error?.code;
+        if (alone && code === 'VALIDATION_FAILED') continue; // another body id is required
+        sent++;
+        if (res.status < 400 || res.status >= 500 || res.status === c.expect)
+          failures.push(`${keyOf(route)} ${field}${alone ? ' alone' : ''}: ${show(res)}`);
+      }
+    }
+  }
+  return { failures, sent };
+}
 
 const HOW_TO_ADD =
   'Add it in test/isolation/cases/<module>.ts: `cases` maps "METHOD /api/v1/path" to ' +
@@ -289,21 +344,31 @@ describe('tenant isolation (R8 step 2)', () => {
       }
       if (key in EXCLUDED) problems.push(`${key}: a firm or portal route can't be excluded`);
       const params = recordParams(route);
+      const fields = route.bodyIdFields;
       const c = CASES[key];
-      if (params.length === 0) {
-        if (c) problems.push(`${key} (${c.file}): has no record param, so no case`);
+      if (params.length === 0 && fields.length === 0) {
+        if (c) problems.push(`${key} (${c.file}): has no record param or body id, so no case`);
         continue;
       }
       if (!c) {
-        problems.push(`${key}: no case for :${params.join(', :')}`);
+        problems.push(
+          `${key}: no case for ${[...params.map((p) => `:${p}`), ...fields].join(', ')}`,
+        );
         continue;
       }
+      const named = Object.keys(c.bodyIds ?? {})
+        .sort()
+        .join(',');
+      if (named !== [...fields].sort().join(','))
+        problems.push(
+          `${key} (${c.file}): bodyIds map ${named || 'nothing'}, the body has ${fields.join(',') || 'none'}`,
+        );
       const mapped = Object.keys(c.params).sort().join(',');
       if (mapped !== [...params].sort().join(','))
         problems.push(
           `${key} (${c.file}): params map ${mapped || 'nothing'}, the path has ${params.join(',')}`,
         );
-      for (const rec of [...Object.values(c.params), ...(c.bodyRecords ?? [])])
+      for (const rec of [...Object.values(c.params), ...Object.values(c.bodyIds ?? {})])
         if (!(rec in base.rec))
           problems.push(`${key} (${c.file}): no record "${rec}" in any records export`);
     }
@@ -342,16 +407,55 @@ describe('tenant isolation (R8 step 2)', () => {
       const failures: string[] = [];
       for (const route of routes.filter(isFirmRoute).filter(ready)) {
         const c = CASES[keyOf(route)];
-        if (!c) continue;
+        if (!c || recordParams(route).length === 0) continue;
         const res = await call(
           route,
           fill(route, firms.q.slug, recordsOf(c, base)),
           as.firm(people.ownerQ, firms.q.id),
-          bodyOf(c, own.q, base),
+          bodyOf(c, own.q, q),
         );
         if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
       }
       expect(failures).toEqual([]);
+    });
+
+    it("a member of firm Q is refused firm P's records named in a body, in firm Q", async () => {
+      const actor = as.firm(people.ownerQ, firms.q.id);
+      const { failures, sent } = await bodySwaps(
+        routes.filter(isFirmRoute),
+        q,
+        actor,
+        firms.q.slug,
+        own.q,
+      );
+      expect(failures).toEqual([]);
+      expect(sent).toBeGreaterThan(20);
+    });
+
+    it("a client of firm Q is refused firm P's records named in a body", async () => {
+      const portal = routes.filter(isPortalRoute);
+      const { failures, sent } = await bodySwaps(
+        portal,
+        q,
+        as.client(q.client!),
+        firms.q.slug,
+        own.q,
+      );
+      expect(failures).toEqual([]);
+      expect(sent).toBeGreaterThan(0);
+    });
+
+    it("client Y is refused client X's records named in a body, in the same firm", async () => {
+      const { failures, sent } = await bodySwaps(
+        routes.filter(isPortalRoute),
+        peer,
+        as.client(peer.client!),
+        firms.p.slug,
+        own.p,
+        (record) => RECORDS[record]?.clientPrivate === true,
+      );
+      expect(failures).toEqual([]);
+      expect(sent).toBeGreaterThan(0);
     });
 
     it("a client of firm P gets 404 at firm Q's portal, on every client route", async () => {
@@ -510,7 +614,11 @@ describe('tenant isolation (R8 step 2)', () => {
       const world =
         route.method === 'GET'
           ? base
-          : await buildWorld([...Object.values(c.params), ...(c.bodyRecords ?? []), 'client']);
+          : await buildWorld([
+              ...Object.values(c.params),
+              ...Object.values(c.bodyIds ?? {}),
+              'client',
+            ]);
       const portal = isPortalRoute(route);
       const res = await call(
         route,
