@@ -17,12 +17,11 @@ export class CheckoutController {
   @HttpCode(200)
   pay(
     @CurrentTenant() tenant: TenantContext,
-    @Param('firmSlug') firmSlug: string,
     @Param('id', new ZodValidationPipe(InvoiceId)) id: string,
     @Body(new ZodValidationPipe(PayInvoiceRequest)) _body: PayInvoiceRequest,
   ): Promise<CheckoutLink> {
     const me = portalLogin(tenant);
-    return this.checkout.start(me.businessId, me.clientAccountId, firmSlug, id);
+    return this.checkout.start(me.businessId, me.clientAccountId, id);
   }
 }
 

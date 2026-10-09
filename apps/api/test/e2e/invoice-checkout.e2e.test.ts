@@ -82,6 +82,26 @@ describe('Pay Now', () => {
     expect(audit).toBe(1);
   });
 
+  it('gives two clicks at once one checkout: one session, one PENDING row, the same URL', async () => {
+    const invoice = await open();
+    const before = creates().length;
+    const [a, b] = await Promise.all([pay(invoice.id), pay(invoice.id, t.people.spouse)]);
+    const [first, second] = [Link.parse(expectOk(a).body), Link.parse(expectOk(b).body)];
+    expect(second.url).toBe(first.url);
+    expect(creates().length).toBe(before + 1);
+    const rows = await paymentsOf(invoice.id);
+    expect(rows.map((r) => r.status)).toEqual(['PENDING']);
+  });
+
+  it("builds the way back from the firm's stored slug, whatever case the URL used", async () => {
+    const invoice = await open();
+    expectOk(await pay(invoice.id, t.people.primary, {}, t.ids.slugA.toUpperCase()));
+    const back = `${process.env.PORTAL_BASE_URL!.replace(/\/+$/, '')}/${t.ids.slugA}/invoices`;
+    expect(creates().at(-1)).toMatchObject({
+      params: { successUrl: `${back}?checkout=success&invoice=${invoice.id}` },
+    });
+  });
+
   it('replaces a checkout close to its end, and marks the old one expired', async () => {
     const invoice = await open();
     const first = Link.parse(expectOk(await pay(invoice.id)).body);

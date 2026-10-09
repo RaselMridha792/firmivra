@@ -51,7 +51,7 @@ export class InvoiceNotices {
             },
             select: { id: true, email: true, user: { select: { name: true } } },
           });
-          const portal = `${this.env.PORTAL_BASE_URL.replace(/\/$/, '')}/${firm.slug}/invoices`;
+          const portal = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/invoices`;
           const out = [];
           const to = account?.email ?? invoice.client.email;
           if (to) {
