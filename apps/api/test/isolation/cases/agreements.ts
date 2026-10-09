@@ -52,31 +52,6 @@ export const records: CaseModule['records'] = {
       return agreement.id;
     },
   },
-  /** Client X's intake on their engagement, with the service's published form. */
-  intake: {
-    clientPrivate: true,
-    async create({ tx, businessId, own, get }) {
-      const engagementId = await get('engagement');
-      const form =
-        (await tx.intakeForm.findFirst({
-          where: { serviceId: own.service, status: 'PUBLISHED' },
-          select: { id: true },
-        })) ??
-        (await tx.intakeForm.create({
-          data: {
-            businessId,
-            serviceId: own.service,
-            version: 1,
-            title: 'Fake intake form',
-            status: 'PUBLISHED',
-            publishedAt: new Date(),
-          },
-          select: { id: true },
-        }));
-      const row = await tx.intake.create({ data: { businessId, formId: form.id, engagementId } });
-      return row.id;
-    },
-  },
 };
 
 export const cases: CaseModule['cases'] = {
@@ -84,6 +59,12 @@ export const cases: CaseModule['cases'] = {
     params: {},
     body: { scope: 'SERVICE' },
     bodyIds: { serviceId: 'service' },
+  },
+  'GET /api/v1/business/agreements/files/:fileId': { params: { fileId: 'agreementFile' } },
+  // No file store in tests: found, then 503.
+  'GET /api/v1/business/agreements/files/:fileId/download': {
+    params: { fileId: 'agreementFile' },
+    expect: 503,
   },
   'GET /api/v1/business/agreements/:agreementId': { params: { agreementId: 'agreement' } },
   'GET /api/v1/business/agreements/:agreementId/versions/:version': {
@@ -102,6 +83,7 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/agreements/:agreementId/archive': {
     params: { agreementId: 'agreement' },
   },
+  // Client X's open intake (the `intake` record of intakes.ts).
   'GET /api/v1/portal/:firmSlug/me/intakes/:intakeId/agreements': {
     params: { intakeId: 'intake' },
   },
@@ -110,4 +92,6 @@ export const cases: CaseModule['cases'] = {
 export const excluded: CaseModule['excluded'] = {
   'GET /api/v1/portal/:firmSlug/intake-agreements':
     "Public: the firm's current intake agreements for a Begin Online form, from the slug only",
+  'GET /api/v1/portal/:firmSlug/intake-agreements/:agreementId/versions/:version/pdf':
+    "Public: the PDF of a firm's current agreement version, from the slug only",
 };

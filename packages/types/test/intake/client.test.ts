@@ -244,6 +244,15 @@ describe('the submit body and its errors', () => {
     expect(INTAKE_ERRORS.TOO_MANY_NUMBERS).toBe(BEGIN_ONLINE_ERRORS.TOO_MANY_NUMBERS);
   });
 
+  it('names the 409 race codes the APIs can answer, with a reload message', () => {
+    expect(BeginOnlineErrorCode.options).toContain('FORM_CHANGED');
+    expect(BeginOnlineErrorCode.options).toContain('INTAKE_CHANGED');
+    expect(IntakeErrorCode.options).toContain('INTAKE_CHANGED');
+    expect(IntakeErrorCode.options).not.toContain('FORM_CHANGED');
+    expect(INTAKE_ERRORS.INTAKE_CHANGED).toBe(BEGIN_ONLINE_ERRORS.INTAKE_CHANGED);
+    expect(BEGIN_ONLINE_ERRORS.FORM_CHANGED).toMatch(/reload/);
+  });
+
   it("reads AGREEMENT_OUTDATED's details as R14's current block", () => {
     const block = { ready: true, agreements: [], legal: null };
     expect(AgreementOutdatedDetails.parse(block)).toEqual(block);

@@ -10,3 +10,4 @@ export { BOOKKEEPING_FORM } from './forms/bookkeeping.js';
 export { PAYROLL_FORM } from './forms/payroll.js';
 export { TAX_PLANNING_FORM } from './forms/tax-planning.js';
 export { BUSINESS_DEVELOPMENT_FORM } from './forms/business-development.js';
+export * from './intakes.js';

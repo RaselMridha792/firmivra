@@ -1,5 +1,5 @@
-// What an invoice shows from its payments (R7 step 7): received, refunded, still to pay, and which
-// payments anyone sees.
+// What an invoice shows from its payments (R7 steps 7 and 11): received (Stripe and offline, as
+// the database's app_invoice_paid_cents), refunded, still to pay, and which payments anyone sees.
 import { describe, expect, it } from 'vitest';
 import {
   money,
@@ -21,8 +21,14 @@ const payment = (p: Partial<Payment> & Pick<Payment, 'status'>): Payment => ({
   refunds: [],
   ...p,
 });
-const invoice = (status: InvoiceRow['status'], payments: Payment[]) =>
-  ({ status, totalCents: 25_000, payments }) as unknown as InvoiceRow;
+type Offline = InvoiceRow['offlinePayments'][number];
+const offline = (amountCents: number, voided = false) =>
+  ({ id: crypto.randomUUID(), amountCents, voidedAt: voided ? new Date() : null }) as Offline;
+const invoice = (
+  status: InvoiceRow['status'],
+  payments: Payment[],
+  offlinePayments: Offline[] = [],
+) => ({ status, totalCents: 25_000, payments, offlinePayments }) as unknown as InvoiceRow;
 const refund = (amountCents: number, status: 'PENDING' | 'SUCCEEDED' | 'FAILED') => ({
   id: crypto.randomUUID(),
   amountCents,
@@ -33,7 +39,7 @@ const refund = (amountCents: number, status: 'PENDING' | 'SUCCEEDED' | 'FAILED')
 });
 
 describe('invoice money', () => {
-  it('counts succeeded and refunded payments, confirmed refunds only, and the balance', () => {
+  it('counts succeeded and refunded payments in full, confirmed refunds only, and the balance', () => {
     const row = invoice('OPEN', [
       payment({
         status: 'SUCCEEDED',
@@ -43,10 +49,17 @@ describe('invoice money', () => {
       payment({ status: 'FAILED' }),
       payment({ status: 'PENDING' }),
     ]);
+    // A refund never makes money owed again: the balance is the total less what was received.
     expect(money(row)).toEqual({
       amountPaidCents: 13_000,
       refundedCents: 5_000,
-      balanceDueCents: 17_000,
+      balanceDueCents: 12_000,
+    });
+    // Live offline payments count; a voided one does not.
+    expect(money(invoice('OPEN', row.payments, [offline(4_000), offline(9_000, true)]))).toEqual({
+      amountPaidCents: 17_000,
+      refundedCents: 5_000,
+      balanceDueCents: 8_000,
     });
     expect(money(invoice('PAID', row.payments)).balanceDueCents).toBe(0);
     expect(money(invoice('CANCELED', [])).balanceDueCents).toBe(0);
