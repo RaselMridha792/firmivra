@@ -26,6 +26,7 @@ import { NotificationsModule } from './notifications/notifications.controller.js
 import { NotifyModule } from './notify/notify.module.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
+import { TaxReturnsModule } from './tax-returns/tax-returns.controller.js';
 import { EngagementsModule } from './engagements/engagements.controller.js';
 import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
@@ -87,6 +88,7 @@ export class AppModule {
         FirmApplicationsModule,
         TaxStatusesModule,
         ClientsModule,
+        TaxReturnsModule,
         EngagementsModule,
         MessagesModule,
         SettingsModule,
