@@ -533,6 +533,7 @@ paths:
         '200':
           description: '`EsignEventList`'
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -1152,6 +1153,19 @@ paths:
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/approvers:
+    get:
+      tags: [esign]
+      operationId: esignApprovers
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: Who may approve a request, for the approver picker (`EsignApproverList`). Active Owners, Admins and Managers, without the caller; names only
+      responses:
+        '200':
+          description: '`EsignApproverList`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
 

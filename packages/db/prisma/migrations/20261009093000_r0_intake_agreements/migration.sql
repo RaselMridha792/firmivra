@@ -259,6 +259,33 @@ ALTER TABLE intake_signatures ADD CONSTRAINT intake_signatures_lead_or_client
 ALTER TABLE intake_signatures ADD CONSTRAINT intake_signatures_names
   CHECK (btrim(printed_name) <> '' AND char_length(printed_name) <= 200
          AND btrim(signature_text) <> '' AND char_length(signature_text) <= 200);
+-- No hidden characters in a signed name: packages/types clients/text.ts ONE_LINE. Controls,
+-- line and paragraph separators, invisible and bidi-override characters, blank-looking fillers,
+-- the byte order mark and the tag block. The zero-width non-joiner and joiner, the soft hyphen
+-- and the direction marks stay allowed: real names use them.
+CREATE FUNCTION app_no_hidden_characters(value text) RETURNS boolean
+  LANGUAGE sql
+  IMMUTABLE
+  AS $$
+  SELECT value IS NULL
+      OR value !~ '[\x01-\x1f\x7f-\x9f\u061c\u180e\u200b\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u206f\u115f\u1160\u2800\u3164\uffa0\ufeff\ufff9-\ufffb\U000e0000-\U000e007f]'
+$$;
+
+-- The comparison form of a signed name: NFC, runs of whitespace as one space, trimmed, lower case.
+CREATE FUNCTION app_signature_name_key(value text) RETURNS text
+  LANGUAGE sql
+  IMMUTABLE
+  AS $$
+  SELECT lower(btrim(regexp_replace(normalize(value, NFC), '\s+', ' ', 'g')))
+$$;
+
+ALTER TABLE intake_signatures ADD CONSTRAINT intake_signatures_visible_names
+  CHECK (app_no_hidden_characters(printed_name) AND app_no_hidden_characters(signature_text)
+         AND app_no_hidden_characters(signer_title));
+-- A typed signature is the printed name, typed again.
+ALTER TABLE intake_signatures ADD CONSTRAINT intake_signatures_typed_matches
+  CHECK (signature_method <> 'TYPED'
+         OR app_signature_name_key(signature_text) = app_signature_name_key(printed_name));
 -- Intake signing is typed until Firm Sign's signature pad; that migration relaxes this.
 ALTER TABLE intake_signatures ADD CONSTRAINT intake_signatures_typed
   CHECK (signature_method = 'TYPED');
@@ -327,6 +354,10 @@ BEGIN
     RAISE EXCEPTION 'firm agreements: an archived agreement stays archived'
       USING ERRCODE = 'check_violation';
   END IF;
+  -- The database's time, whatever the caller sent.
+  IF OLD.archived_at IS NULL AND NEW.archived_at IS NOT NULL THEN
+    NEW.archived_at := now();
+  END IF;
   RETURN NEW;
 END
 $$;
@@ -362,6 +393,10 @@ BEGIN
      AND (NEW.scan_status <> OLD.scan_status OR NEW.scanned_at IS DISTINCT FROM OLD.scanned_at) THEN
     RAISE EXCEPTION 'firm agreement files: a scan result cannot change'
       USING ERRCODE = 'check_violation';
+  END IF;
+  -- The database's time, whatever the caller sent.
+  IF OLD.scan_status = 'PENDING' AND NEW.scan_status <> 'PENDING' THEN
+    NEW.scanned_at := now();
   END IF;
   RETURN NEW;
 END
@@ -404,7 +439,9 @@ DECLARE
   series firm_agreements%ROWTYPE;
   last_version int;
 BEGIN
-  SELECT * INTO series FROM firm_agreements a WHERE a.id = NEW.agreement_id;
+  -- Locked: a publish or an archive at the same time waits, and so does a signature reading the
+  -- series FOR SHARE, so "the next version" and "the current version" are never stale.
+  SELECT * INTO series FROM firm_agreements a WHERE a.id = NEW.agreement_id FOR NO KEY UPDATE;
   IF series.archived_at IS NOT NULL THEN
     RAISE EXCEPTION 'firm agreement versions: the agreement is archived'
       USING ERRCODE = 'check_violation';
@@ -442,13 +479,17 @@ CREATE TRIGGER firm_agreement_versions_rules
 CREATE FUNCTION intake_signatures_rules() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
+DECLARE
+  sub intake_submissions%ROWTYPE;
 BEGIN
-  IF NOT EXISTS (
-       SELECT 1 FROM intake_submissions s
-       WHERE s.id = NEW.submission_id AND s.intake_id = NEW.intake_id AND s.submitted_at IS NULL) THEN
+  -- FOR UPDATE: the draft can't be submitted or changed by another transaction meanwhile.
+  SELECT * INTO sub FROM intake_submissions s WHERE s.id = NEW.submission_id FOR UPDATE;
+  IF sub.id IS NULL OR sub.intake_id <> NEW.intake_id OR sub.submitted_at IS NOT NULL THEN
     RAISE EXCEPTION 'intake signatures: only a draft version of this intake can be signed'
       USING ERRCODE = 'check_violation';
   END IF;
+  -- The database owns the hash of what is signed; the answers are frozen from here on.
+  NEW.answers_sha256 := encode(sha256(convert_to(sub.answers::text, 'UTF8')), 'hex');
   IF NEW.lead_id IS NOT NULL AND NOT EXISTS (
        SELECT 1 FROM intakes i WHERE i.id = NEW.intake_id AND i.lead_id = NEW.lead_id) THEN
     RAISE EXCEPTION 'intake signatures: the lead must be the intake''s lead'
@@ -458,8 +499,9 @@ BEGIN
        SELECT 1 FROM intakes i
        JOIN engagements e ON e.id = i.engagement_id
        JOIN client_accounts ca ON ca.client_id = e.client_id
-       WHERE i.id = NEW.intake_id AND ca.id = NEW.client_account_id) THEN
-    RAISE EXCEPTION 'intake signatures: the client login must belong to the engagement''s client'
+       WHERE i.id = NEW.intake_id AND ca.id = NEW.client_account_id
+         AND ca.status = 'ACTIVE' AND ca.user_id = app_current_actor_id()) THEN
+    RAISE EXCEPTION 'intake signatures: the signer must be the signed-in, active login of the engagement''s client'
       USING ERRCODE = 'check_violation';
   END IF;
   IF (NEW.terms_document_id IS NOT NULL AND NOT EXISTS (
@@ -491,14 +533,15 @@ DECLARE
 BEGIN
   SELECT * INTO sig FROM intake_signatures s WHERE s.id = NEW.signature_id;
   SELECT * INTO ver FROM firm_agreement_versions v WHERE v.id = NEW.agreement_version_id;
-  SELECT * INTO series FROM firm_agreements a WHERE a.id = ver.agreement_id;
+  SELECT * INTO series FROM firm_agreements a WHERE a.id = ver.agreement_id FOR SHARE;
   IF sig.id IS NULL OR ver.id IS NULL THEN
     RAISE EXCEPTION 'intake signature agreements: unknown signature or agreement version'
       USING ERRCODE = 'foreign_key_violation';
   END IF;
 
+  -- FOR SHARE: a submit that runs at the same time waits, then sees this row.
   IF NOT EXISTS (SELECT 1 FROM intake_submissions s
-                 WHERE s.id = sig.submission_id AND s.submitted_at IS NULL) THEN
+                 WHERE s.id = sig.submission_id AND s.submitted_at IS NULL FOR SHARE) THEN
     RAISE EXCEPTION 'intake signature agreements: the submission is already submitted'
       USING ERRCODE = 'check_violation';
   END IF;
@@ -541,9 +584,11 @@ CREATE TRIGGER intake_signature_agreements_rules
   FOR EACH ROW EXECUTE FUNCTION intake_signature_agreements_rules();
 
 -- ---------- Intake submissions: submitting needs the signature evidence ----------
--- Same as r0_intake, plus: a version is never inserted already submitted, and setting
--- submitted_at needs this version's intake_signatures row (covering the firm-wide agreement)
--- whose name, time, IP and browser equal the summary columns.
+-- Same as r0_intake, plus: a version is never inserted already submitted; once signed, its
+-- answers are frozen; and setting submitted_at needs this version's intake_signatures row, made
+-- in the same transaction, covering the firm-wide agreement and every current agreement of the
+-- form's service, whose name, time, IP and browser equal the summary columns. submitted_at is the
+-- database's time.
 CREATE OR REPLACE FUNCTION intake_submissions_rules() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
@@ -579,9 +624,20 @@ BEGIN
     RAISE EXCEPTION 'intake submissions: the intake and version cannot change'
       USING ERRCODE = 'check_violation';
   END IF;
-  IF NEW.submitted_at IS NOT NULL AND NOT EXISTS (
+  IF NEW.answers IS DISTINCT FROM OLD.answers
+     AND EXISTS (SELECT 1 FROM intake_signatures g WHERE g.submission_id = OLD.id) THEN
+    RAISE EXCEPTION 'intake submissions: signed answers cannot change'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.submitted_at IS NULL THEN
+    RETURN NEW;
+  END IF;
+  NEW.submitted_at := now();
+  IF NOT EXISTS (
        SELECT 1 FROM intake_signatures g
        WHERE g.submission_id = NEW.id
+         -- Signed in this transaction (signed_at is now(), stored to the millisecond).
+         AND g.signed_at = now()::timestamptz(3)
          AND g.printed_name = NEW.signer_name
          AND g.signed_at = NEW.signed_at
          AND g.ip IS NOT DISTINCT FROM NEW.signer_ip
@@ -590,8 +646,19 @@ BEGIN
            SELECT 1 FROM intake_signature_agreements ga
            JOIN firm_agreement_versions v ON v.id = ga.agreement_version_id
            JOIN firm_agreements a ON a.id = v.agreement_id
-           WHERE ga.signature_id = g.id AND a.scope = 'ALL_INTAKES')) THEN
-    RAISE EXCEPTION 'intake submissions: submitting needs the signature (with the firm-wide agreement) matching signer_name, signed_at, IP and browser'
+           WHERE ga.signature_id = g.id AND a.scope = 'ALL_INTAKES')
+         -- Every published, unarchived agreement of the form's service is signed too.
+         AND NOT EXISTS (
+           SELECT 1 FROM intakes i
+           JOIN intake_forms f ON f.id = i.form_id
+           JOIN firm_agreements a ON a.service_id = f.service_id
+           WHERE i.id = NEW.intake_id AND a.scope = 'SERVICE' AND a.archived_at IS NULL
+             AND EXISTS (SELECT 1 FROM firm_agreement_versions v WHERE v.agreement_id = a.id)
+             AND NOT EXISTS (
+               SELECT 1 FROM intake_signature_agreements ga
+               JOIN firm_agreement_versions v ON v.id = ga.agreement_version_id
+               WHERE ga.signature_id = g.id AND v.agreement_id = a.id))) THEN
+    RAISE EXCEPTION 'intake submissions: submitting needs the signature from this transaction (with the firm-wide and the service''s agreements) matching signer_name, signed_at, IP and browser'
       USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;

@@ -78,6 +78,19 @@ export const SetEsignMemberRoleBody = z.strictObject({
 });
 export type SetEsignMemberRoleBody = z.input<typeof SetEsignMemberRoleBody>;
 
+/**
+ * GET /esign/approvers (Owner, Admin, Manager, Staff; a Viewer gets 403 FORBIDDEN): who may approve
+ * a request, for the wizard's approver picker. Active Owners, Admins and Managers, by name, without
+ * the caller (a sender can't approve their own request). Names only, no emails.
+ */
+export const EsignApprover = z.object({
+  user: MemberRef,
+  esignRole: z.enum(['OWNER', 'ADMIN', 'MANAGER']),
+});
+export type EsignApprover = z.infer<typeof EsignApprover>;
+export const EsignApproverList = z.object({ items: z.array(EsignApprover) });
+export type EsignApproverList = z.infer<typeof EsignApproverList>;
+
 // ---------- Template versions ----------
 /**
  * One saved version of a template. Using a template copies its newest version; a request records

@@ -302,6 +302,18 @@ export function esignExtrasMock(
       },
     },
 
+    approvers: async () => {
+      await unlocked();
+      return {
+        items: ctx.members
+          .filter((m) => m.userId !== ctx.me.userId && mayApprove(m.userId))
+          .map((m) => ({
+            user: { userId: m.userId, name: m.name },
+            esignRole: m.firmRole === 'STAFF' ? ('MANAGER' as const) : m.firmRole,
+          })),
+      };
+    },
+
     roles: {
       list: async () => {
         await unlocked();

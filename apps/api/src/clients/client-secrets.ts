@@ -24,8 +24,9 @@ export interface SecretInput {
 }
 
 /**
- * 503 when the helper can't work right now (the firm has no key yet, KMS is down or refuses the
- * key). Never with a value or an AWS detail; anything else is a bug and stays a 500.
+ * 503 when the helper can't seal a value right now (the firm has no key yet, KMS is down or
+ * refuses the key). Only saves get here: reads answer `dateOfBirthUnavailable` instead (see
+ * `readDateOfBirth`). Never with a value or an AWS detail; anything else is a bug and stays a 500.
  */
 async function guarded<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -39,7 +40,7 @@ async function guarded<T>(work: () => Promise<T>): Promise<T> {
         {
           code: 'ENCRYPTION_UNAVAILABLE',
           message:
-            'SSN, EIN and date of birth cannot be saved or shown right now. Try again later.',
+            'SSN, EIN and date of birth cannot be saved right now, so nothing was saved. Viewing the record still works. Try again later.',
         },
         HttpStatus.SERVICE_UNAVAILABLE,
       );
@@ -97,8 +98,10 @@ export const NO_DATE_OF_BIRTH: DateOfBirthView = {
 /**
  * The date of birth in full (`YYYY-MM-DD`), for the firm's staff and the primary login only.
  * When the stored value can't be decrypted (the firm has no key, KMS is down or refuses, the value
- * is damaged), the page still loads (Rasel, Oct 8): null with `dateOfBirthUnavailable`, and the
- * screen asks for it again. The warning names the client and the error, never a value.
+ * is damaged), the page still loads (Rasel, Oct 8): null with `dateOfBirthUnavailable`. The firm's
+ * screen asks for it again; the portal shows it as unavailable and asks the client to contact the
+ * firm. The warning names the client and the error code, never a value or the
+ * error's message. Any other error is a bug and is rethrown (a 500).
  */
 export async function readDateOfBirth(
   fe: FieldEncryption,
@@ -111,13 +114,8 @@ export async function readDateOfBirth(
     const dateOfBirth = await fe.decrypt(context(businessId, clientId, 'date_of_birth'), dobEnc);
     return { dateOfBirth, dateOfBirthUnavailable: false };
   } catch (error) {
-    const name =
-      error instanceof FieldEncryptionError
-        ? error.code
-        : error instanceof Error
-          ? error.name
-          : 'UnknownError';
-    log.warn(`Date of birth not readable for client ${clientId}: ${name}`);
+    if (!(error instanceof FieldEncryptionError)) throw error;
+    log.warn(`Date of birth not readable for client ${clientId}: ${error.code}`);
     return { dateOfBirth: null, dateOfBirthUnavailable: true };
   }
 }
