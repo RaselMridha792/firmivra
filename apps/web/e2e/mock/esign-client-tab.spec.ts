@@ -7,7 +7,8 @@ const JAMIE = '0199b6a1-0000-7000-8000-000000000001';
 
 test("a client's Signatures tab lists only their requests", async ({ page }) => {
   await page.goto(app(`/clients/${JAMIE}/signatures`));
-  await expect(page.getByTestId('page-title')).toHaveText('Client signatures');
+  await expect(page).toHaveTitle('Client signatures');
+  await expect(page.getByRole('heading', { level: 2, name: 'Signatures' })).toBeVisible();
   const table = page.getByRole('table', { name: "This client's signature requests" });
   await expect(table).toContainText('Engagement Letter (in person)');
   // Other clients' requests stay off it (John Smith's letter is in the mock's first rows).

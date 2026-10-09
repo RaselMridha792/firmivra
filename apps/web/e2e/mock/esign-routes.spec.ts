@@ -17,7 +17,6 @@ const pages: [url: string, title: string][] = [
   [app('/firm-sign/reports'), 'Signing reports'],
   [app('/firm-sign/settings'), 'Signing settings'],
   [app('/firm-sign/in-person/req-1'), 'In-person signing'],
-  [app('/clients/0199b6a1-0000-7000-8000-000000000001/signatures'), 'Client signatures'],
   [portal('/lvp/signatures'), 'Signatures'],
   [portal('/lvp/sign'), 'Sign documents'],
 ];
@@ -29,6 +28,13 @@ for (const [url, title] of pages) {
     await expect(page.getByTestId('page-title')).toHaveText(title);
   });
 }
+
+test('Client signatures at /clients/{id}/signatures', async ({ page }) => {
+  // The client record's layout owns the page's h1; the tab has its own h2.
+  await page.goto(app('/clients/0199b6a1-0000-7000-8000-000000000001/signatures'));
+  await expect(page).toHaveTitle('Client signatures');
+  await expect(page.getByRole('heading', { level: 2, name: 'Signatures' })).toBeVisible();
+});
 
 test('signer and kiosk pages are not indexed, and the kiosk has no menu', async ({ page }) => {
   await page.goto(portal('/lvp/sign'));

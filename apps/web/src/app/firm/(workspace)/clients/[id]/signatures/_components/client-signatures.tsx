@@ -12,9 +12,8 @@ export function ClientSignatures({ clientId }: { clientId: string }) {
       {(role) => (
         <div className="flex flex-col gap-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 data-testid="page-title" className="text-2xl font-semibold text-heading">
-              Client signatures
-            </h1>
+            {/* The client record's layout owns the page's h1 (the client's name). */}
+            <h2 className="font-display text-2xl text-heading">Signatures</h2>
             {canCreate(role) && (
               // The primary button's look (the UI kit has no link button yet).
               <Link
