@@ -38,7 +38,7 @@ export function SignInPanel({ title, pool, homePath }: Props) {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 p-6">
+    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-4 py-6 sm:px-6">
       <h1 className="text-2xl font-semibold text-brand-900">{title}</h1>
       <Card title="Sign in">
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
