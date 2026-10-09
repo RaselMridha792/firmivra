@@ -1,4 +1,4 @@
-import type { EsignRequestStatus, SignatureMethod } from '@firmivra/types';
+import type { EsignContentType, EsignRequestStatus, SignatureMethod } from '@firmivra/types';
 import type { EsignCodeKind } from '../engine/engine.types.js';
 import type {
   EsignEventRecord,
@@ -15,7 +15,7 @@ export interface SignerLink {
   requestId: string;
   recipientId: string;
   tokenVersion: number;
-  /** SIGN: the invitation's link. COPY: the completed-copy link (slice 3). */
+  /** SIGN: the invitation's link. COPY: the completed-copy link (slice 3b). */
   purpose: 'SIGN' | 'COPY';
 }
 
@@ -28,6 +28,28 @@ export interface SignerRecord {
   /** What the signer adopted (never the signature itself); null before `adopt`. */
   adopted: { method: SignatureMethod; hasInitials: boolean } | null;
 }
+
+/**
+ * A signer's file for one of their ATTACHMENT fields, stored at keyFor(firm, request,
+ * `attachments/<id>`); never shown to the firm until the malware scan marks it CLEAN.
+ */
+export interface SignerAttachment {
+  fieldId: string;
+  key: string;
+  fileName: string;
+  contentType: EsignContentType;
+  sizeBytes: number;
+  sha256: string;
+  scanStatus: 'PENDING' | 'CLEAN' | 'INFECTED' | 'FAILED';
+  createdAt: Date;
+}
+
+/** An attachment upload started and not confirmed: the token's SHA-256, never the token. */
+export type SignerPendingAttachment = Omit<SignerAttachment, 'scanStatus'> & {
+  tokenHash: string;
+  requestId: string;
+  recipientId: string;
+};
 
 /** A typed mark's text, or a PNG that passed SIGNATURE_IMAGE_CHECK. */
 export type AdoptedMark = { method: SignatureMethod; text: string | null; png: Uint8Array | null };
@@ -58,6 +80,13 @@ export interface EsignSignerRepository {
   /** The SIGNER recipient a link token's SHA-256 belongs to. */
   findLink(businessId: string, tokenHash: string): Promise<SignerLink | null>;
   signer(businessId: string, requestId: string, recipientId: string): Promise<SignerRecord | null>;
+  /** The recipient's attachments (one per field at most). */
+  attachments(...a: Signer): Promise<SignerAttachment[]>;
+  saveAttachmentUpload(businessId: string, upload: SignerPendingAttachment): Promise<void>;
+  /** Deletes and returns the recipient's upload with this token hash: confirmed at most once. */
+  takeAttachmentUpload(
+    ...a: [...Signer, tokenHash: string]
+  ): Promise<SignerPendingAttachment | null>;
   /** Replaces the email code and its tries; TOO_SOON within a minute or after 5 an hour. */
   issueCode(
     businessId: string,
@@ -92,6 +121,10 @@ export interface EsignSignerRepository {
     ...a: [...Signer, write: { at: Date; status: EsignRequestStatus; event: EsignEventRecord }]
   ): Promise<boolean>;
   adopt(...a: [...Signer, adoption: SignerAdoption]): Promise<boolean>;
+  /** Sets the field's attachment, replacing any; null removes it. */
+  setAttachment(
+    ...a: [...Signer, fieldId: string, attachment: SignerAttachment | null]
+  ): Promise<boolean>;
   /** SIGNED and the rest of `write` (email ids answered); null unless lastActivityAt = `readAt`. */
   finish(...a: [...Signer, write: SignerFinishWrite, readAt: Date]): Promise<string[] | null>;
   /** The recipient and the request DECLINED, with the reason (timeline only) and the event. */

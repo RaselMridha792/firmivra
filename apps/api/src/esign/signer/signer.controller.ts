@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
@@ -15,20 +16,26 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import {
+  EsignFieldId,
   SignerAcceptConsentBody,
   SignerAccessCodeBody,
   type SignerCodeSent,
   type SignerConsent,
   SignerAdoptBody,
+  SignerAttachmentConfirmBody,
+  SignerAttachmentUploadBody,
   SignerDeclineBody,
   type SignerEnvelope,
+  type SignerField,
   SignerFinishBody,
   SignerSessionBody,
   type SignerState,
   SignerVerifyCodeBody,
+  type UploadTicket,
 } from '@firmivra/types';
 import { Public } from '../../auth/decorators.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { EsignSignerFilesService } from './signer-files.service.js';
 import { EsignSignerService } from './signer.service.js';
 
 /** Per viewer IP, like the sign-in routes; the per-recipient code limits are the repository's. */
@@ -40,7 +47,10 @@ type Out<S extends z.ZodType> = z.output<S>;
 @Controller('portal/:firmSlug/sign')
 @Public()
 export class EsignSignerController {
-  constructor(@Inject(EsignSignerService) private readonly signer: EsignSignerService) {}
+  constructor(
+    @Inject(EsignSignerService) private readonly signer: EsignSignerService,
+    @Inject(EsignSignerFilesService) private readonly files: EsignSignerFilesService,
+  ) {}
 
   @Post('session')
   @HttpCode(200)
@@ -158,5 +168,37 @@ export class EsignSignerController {
   ): Promise<SignerState> {
     const call = await this.signer.call(slug, req, 'CONSENT', 'SIGN');
     return this.signer.decline(call, body.reason ?? null);
+  }
+
+  @Post('attachments/uploads')
+  @HttpCode(200)
+  async attachmentUpload(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(SignerAttachmentUploadBody))
+    body: Out<typeof SignerAttachmentUploadBody>,
+    @Req() req: Request,
+  ): Promise<UploadTicket> {
+    return this.files.createUpload(await this.signer.call(slug, req, 'SIGN'), body);
+  }
+
+  @Post('attachments/uploads/confirm')
+  @HttpCode(200)
+  async attachmentConfirm(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(SignerAttachmentConfirmBody))
+    body: Out<typeof SignerAttachmentConfirmBody>,
+    @Req() req: Request,
+  ): Promise<SignerField> {
+    const call = await this.signer.call(slug, req, 'SIGN');
+    return this.files.confirmUpload(call, body.fieldId, body.uploadToken);
+  }
+
+  @Delete('attachments/:fieldId')
+  async attachmentRemove(
+    @Param('firmSlug') slug: string,
+    @Param('fieldId', new ZodValidationPipe(EsignFieldId)) fieldId: string,
+    @Req() req: Request,
+  ): Promise<SignerField> {
+    return this.files.remove(await this.signer.call(slug, req, 'SIGN'), fieldId);
   }
 }

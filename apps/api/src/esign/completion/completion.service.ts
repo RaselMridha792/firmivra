@@ -7,7 +7,8 @@ import type { Env } from '../../config/env.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../../notify/notify.types.js';
 import { safeTimeZone } from '../engine/certificate.js';
 import * as engine from '../engine/engine.types.js';
-import type { EsignStore, LinkTokens, PdfEngine, Stamp } from '../engine/engine.types.js';
+import type { EsignStore, LinkTokens, PdfEngine } from '../engine/engine.types.js';
+import type { SignaturePageSigner, Stamp } from '../engine/engine.types.js';
 import { sha256Hex } from '../engine/pdf-engine.js';
 import { ESIGN_DIRECTORY, type EsignDirectory } from '../requests/esign-directory.js';
 import { ESIGN_REPOSITORY, type EsignRepository } from '../requests/esign.repository.js';
@@ -144,8 +145,33 @@ export class EsignCompletionService {
     return 'COMPLETED';
   }
 
-  /** Every signer's marks and values, and the sender's own values, as stamps. */
-  private stamps(parts: EsignRequestParts, inputs: CompletionInputs, timeZone: string) {
+  /**
+   * The packet as it stands for a signer (GET .../sign/packet): the sender's own values and the
+   * marks and values of everyone who already signed, stamped by the engine; the packet as sent
+   * while there are none. Built on each read, never stored.
+   */
+  async stampedPacket(businessId: string, requestId: string, packet: Uint8Array) {
+    const [parts, inputs, firm] = await Promise.all([
+      this.requests.parts(businessId, requestId),
+      this.repo.inputs(businessId, requestId),
+      this.directory.firm(businessId),
+    ]);
+    const timeZone = safeTimeZone(firm.timeZone);
+    const { stamps } = this.stamps(parts, inputs, timeZone, true);
+    if (stamps.length === 0) return packet;
+    return this.pdf.finalize(packet, { stamps, signaturePages: [], timeZone });
+  }
+
+  /**
+   * Every signer's marks and values, and the sender's own values, as stamps. `signedOnly`: only
+   * the recipients who signed already, and no signature pages.
+   */
+  private stamps(
+    parts: EsignRequestParts,
+    inputs: CompletionInputs,
+    timeZone: string,
+    signedOnly = false,
+  ) {
     const values = new Map(inputs.values.map((v) => [v.fieldId, v.value]));
     const marks = new Map(inputs.adoptions.map((a) => [a.recipientId, a.adoption]));
     const people = new Map(parts.recipients.map((r) => [r.id, r]));
@@ -154,6 +180,7 @@ export class EsignCompletionService {
     for (const f of parts.fields) {
       const box = { pageIndex: f.pageIndex, x: f.x, y: f.y, w: f.w, h: f.h };
       const who = f.recipientId ? people.get(f.recipientId) : undefined;
+      if (signedOnly && f.recipientId && who?.status !== 'SIGNED') continue;
       const adopted = who && marks.get(who.id);
       const mark = { SIGNATURE: adopted?.signature, INITIALS: adopted?.initials }[f.type as string];
       const value = f.recipientId ? values.get(f.id) : (f.value ?? undefined);
@@ -166,16 +193,18 @@ export class EsignCompletionService {
       } else if (value && f.type !== 'ATTACHMENT')
         stamps.push({ ...box, kind: 'TEXT', text: value });
     }
-    if (parts.fields.length > 0) return { stamps, signaturePages: [] };
+    if (signedOnly || parts.fields.length > 0) return { stamps, signaturePages: [] };
     // No fields placed: a signature page per signer, in routing order.
     const signaturePages = parts.recipients
       .filter((r) => r.kind === 'SIGNER')
       .sort((x, y) => x.routingOrder - y.routingOrder)
-      .map((r) => {
-        const png = marks.get(r.id)?.signature.png;
-        // TODO(R18): SignaturePageSigner takes a PNG only; a typed signature can't be drawn yet.
-        if (!png || !r.signedAt) throw failure('SignaturePageNeedsImage');
-        return { name: r.name, signaturePng: png, signedAt: r.signedAt };
+      .map((r): SignaturePageSigner => {
+        const mark = marks.get(r.id)?.signature;
+        if (!r.signedAt) throw failure('SignaturePageNeedsSignature');
+        const at = { name: r.name, signedAt: r.signedAt };
+        if (mark?.png) return { ...at, signaturePng: mark.png };
+        if (mark?.text) return { ...at, typed: mark.text };
+        throw failure('SignaturePageNeedsSignature');
       });
     return { stamps, signaturePages };
   }

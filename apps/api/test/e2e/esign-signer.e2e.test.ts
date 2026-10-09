@@ -1,4 +1,4 @@
-// End-to-end: the Firm Sign signer routes, slices 1 and 2 (portal/{slug}/sign), through the real guard
+// End-to-end: the Firm Sign signer routes, slices 1 to 3 (portal/{slug}/sign), through the real guard
 // stack. The signer tables come with r0_esign, so this covers what answers before the
 // repository: 404 LINK_INVALID without a cookie, with a forged or other firm's cookie, for an
 // unknown or inactive firm and while Firm Sign is off (the contract's one answer for signer
@@ -22,6 +22,10 @@ const onSlug = `r13-sign-${randomUUID().slice(0, 8)}`;
 const TOKEN = 'A'.repeat(43);
 const FIELD = randomUUID();
 const TYPED = { printedName: 'Fake Signer', method: 'TYPED', typedSignature: 'Fake Signer' };
+const UPLOAD = {
+  ...{ fieldId: FIELD, fileName: 'id.pdf', contentType: 'application/pdf', sizeBytes: 10 },
+  sha256: 'a'.repeat(64),
+};
 /** Every signer route that reads the cookie, with a valid body (code/send: its own test). */
 const COOKIE_ROUTES = [
   ['get', 'state', undefined],
@@ -34,6 +38,9 @@ const COOKIE_ROUTES = [
   ['post', 'adopt', { signature: TYPED }],
   ['post', 'finish', { values: [] }],
   ['post', 'decline', {}],
+  ['post', 'attachments/uploads', UPLOAD],
+  ['post', 'attachments/uploads/confirm', { fieldId: FIELD, uploadToken: 'fake-token' }],
+  ['delete', `attachments/${FIELD}`, undefined],
 ] as const;
 
 beforeAll(async () => {
@@ -63,7 +70,13 @@ afterAll(async () => {
   await app.close();
 });
 
-function send(method: 'get' | 'post', slug: string, path: string, body?: object, cookie?: string) {
+function send(
+  method: 'get' | 'post' | 'delete',
+  slug: string,
+  path: string,
+  body?: object,
+  cookie?: string,
+) {
   const req = request(app.getHttpServer())[method](`/api/v1/portal/${slug}/sign/${path}`);
   if (cookie) req.set('cookie', cookie);
   return body ? req.send(body) : req;
@@ -135,10 +148,18 @@ describe('Firm Sign signer routes', () => {
         },
       ],
       ['finish', { values: [{ fieldId: FIELD, value: 'x'.repeat(1001) }] }],
+      ['attachments/uploads', { ...UPLOAD, contentType: 'application/msword' }],
+      ['attachments/uploads', { ...UPLOAD, fileName: 'id.png' }],
+      ['attachments/uploads', { ...UPLOAD, sizeBytes: 11 * 1024 * 1024 }],
+      ['attachments/uploads', { ...UPLOAD, sha256: 'nope' }],
+      ['attachments/uploads', { ...UPLOAD, fieldId: 'nope' }],
+      ['attachments/uploads/confirm', { fieldId: FIELD }],
+      ['attachments/uploads/confirm', { fieldId: FIELD, uploadToken: 'x', extra: 1 }],
     ] as const;
     for (const [path, body] of bad) {
       expect(answer(await send('post', onSlug, path, body))).toBe('400 VALIDATION_FAILED');
     }
+    expect(answer(await send('delete', onSlug, 'attachments/nope'))).toBe('400 VALIDATION_FAILED');
   });
 
   it('rate-limit code/send per IP (5 a minute), before anything else', async () => {

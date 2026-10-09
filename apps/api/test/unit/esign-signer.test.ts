@@ -136,7 +136,11 @@ beforeEach(() => {
     notify,
     w.audit,
     { APP_BASE_URL: APP },
-    { complete: () => Promise.resolve('NOT_DUE' as const) }, // esign-completion.test.ts
+    // Both in esign-completion.test.ts and esign-signer-files.test.ts.
+    {
+      complete: () => Promise.resolve('NOT_DUE' as const),
+      stampedPacket: (_b, _q, packet) => Promise.resolve(packet),
+    },
   );
   for (const [firm, n] of [
     [w.a, 1],
@@ -889,7 +893,7 @@ describe('finish', () => {
     expect(await refused(api(new Browser()).open(link(w.a, id, me.id)))).toBe('404 LINK_INVALID');
   });
 
-  it('a required attachment cannot be met until attachments land (slice 3)', async () => {
+  it('a required attachment blocks finish until uploaded (esign-signer-files.test.ts)', async () => {
     const me = linkSigner();
     const id = await sent(w.a, [me], { fields: [field(me.id, 'ATTACHMENT')] });
     const b = await atSign(id, me);

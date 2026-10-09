@@ -44,4 +44,8 @@ export const excluded: CaseModule['excluded'] = {
   'POST /api/v1/portal/:firmSlug/sign/adopt': SIGNER,
   'POST /api/v1/portal/:firmSlug/sign/finish': SIGNER,
   'POST /api/v1/portal/:firmSlug/sign/decline': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/attachments/uploads': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/attachments/uploads/confirm': SIGNER,
+  // The field is checked against the cookie's recipient (another's: 404, esign-signer-files.test.ts).
+  'DELETE /api/v1/portal/:firmSlug/sign/attachments/:fieldId': SIGNER,
 };

@@ -40,6 +40,7 @@ import { esignRefusal, invalid } from '../requests/requests.service.js';
 import { EsignSendService } from '../requests/send.service.js';
 import { SIGNER_REPOSITORY } from './signer.repository.js';
 import type { AdoptedMark, EsignSignerRepository, SignerRecord } from './signer.repository.js';
+import type { SignerAttachment } from './signer.repository.js';
 
 /** The signer cookie lives an hour from the last step that moved the signer on. */
 export const SIGNER_COOKIE_SECONDS = 60 * 60;
@@ -103,7 +104,7 @@ export class EsignSignerService {
     @Inject(AuditService) private readonly audit: Pick<AuditService, 'log'>,
     @Inject(ENV) private readonly env: Pick<Env, 'APP_BASE_URL'>,
     @Inject(EsignCompletionService)
-    private readonly completion: Pick<EsignCompletionService, 'complete'>,
+    private readonly completion: Pick<EsignCompletionService, 'complete' | 'stampedPacket'>,
   ) {}
 
   /** An ACTIVE firm with Firm Sign on, else LINK_INVALID. */
@@ -117,7 +118,7 @@ export class EsignSignerService {
   async open(slug: string, token: string, res: Response): Promise<SignerState> {
     const firm = await this.firm(slug);
     const link = await this.repo.findLink(firm.id, this.tokens.hash(token));
-    // The completed-copy link (purpose COPY) comes with slice 3.
+    // The completed-copy link (purpose COPY) comes with slice 3b.
     if (link?.purpose !== 'SIGN') throw linkInvalid();
     const signer = await this.repo.signer(firm.id, link.requestId, link.recipientId);
     if (!signer || signer.tokenVersion !== link.tokenVersion) throw linkInvalid();
@@ -238,7 +239,7 @@ export class EsignSignerService {
     return this.moveOn(c, res);
   }
 
-  /** GET packet: the packet as sent, CLEAN files only (earlier signatures: completion slice). */
+  /** GET packet: as it stands (the sender's values, earlier signatures), CLEAN files only. */
   async packet(c: SignerCall): Promise<Uint8Array> {
     const q = c.signer.request;
     const { documents } = await this.requests.parts(c.firm.id, q.id);
@@ -247,8 +248,9 @@ export class EsignSignerService {
     const key = this.store.keyFor(c.firm.id, q.id, `packet-${q.originalSha256}.pdf`);
     const bytes = q.originalSha256 ? await this.store.read(c.firm.id, key) : null;
     if (!bytes) throw esignRefusal('INVALID_STATE');
+    const stamped = await this.completion.stampedPacket(c.firm.id, q.id, bytes);
     await this.log(c, 'esign.signer_packet_read');
-    return bytes;
+    return stamped;
   }
 
   /** GET envelope: their own fields and everyone's progress; the first read records VIEWED. */
@@ -266,7 +268,10 @@ export class EsignSignerService {
         await this.log(c, 'esign.signer_viewed');
       }
     }
-    const sender = await this.directory.member(c.firm.id, q.senderUserId);
+    const [sender, attached] = await Promise.all([
+      this.directory.member(c.firm.id, q.senderUserId),
+      this.repo.attachments(c.firm.id, q.id, me.id),
+    ]);
     const pageSizes = parts.pagePlan.map((p) => {
       const size = parts.documents.find((d) => d.id === p.documentId)?.pageSizes[p.page];
       const { width = 0, height = 0 } = size ?? {};
@@ -282,7 +287,7 @@ export class EsignSignerService {
       packetUrl: `/api/v1/portal/${c.firm.slug}/sign/packet`,
       pageCount: Math.max(parts.pagePlan.length, 1),
       pageSizes,
-      fields: this.myFields(parts, me),
+      fields: this.myFields(parts, me, attached),
       autoSignaturePage: parts.fields.length === 0,
       adopted: c.signer.adopted,
       progress: parts.recipients
@@ -324,7 +329,8 @@ export class EsignSignerService {
   async finish(c: SignerCall, given: Value[]): Promise<SignerState> {
     const me = c.signer.recipient;
     let parts = await this.requests.parts(c.firm.id, c.signer.request.id);
-    const values = this.checkValues(c.signer, parts, given);
+    const attached = await this.repo.attachments(c.firm.id, c.signer.request.id, me.id);
+    const values = this.checkValues(c.signer, parts, given, attached);
     let q = c.signer.request;
     for (let tries = 0; tries < 3; tries++) {
       const signedAt = new Date();
@@ -387,19 +393,29 @@ export class EsignSignerService {
   }
 
   /** The signer's own fields; `value` suggests their name or email. */
-  private myFields(parts: EsignRequestParts, me: EsignRecipientRecord): SignerField[] {
+  myFields(
+    parts: EsignRequestParts,
+    me: EsignRecipientRecord,
+    attached: SignerAttachment[],
+  ): SignerField[] {
+    const names = new Map(attached.map((a) => [a.fieldId, a.fileName]));
     return parts.fields
       .filter((f) => f.recipientId === me.id)
       .map(({ id, type, pageIndex, x, y, w, h, required, label, options, groupKey }) => ({
         ...{ id, type, pageIndex, x, y, w, h, required, label, options, groupKey },
         value: type === 'PRINTED_NAME' ? me.name : type === 'EMAIL' ? me.email : null,
-        attachmentName: null,
+        attachmentName: names.get(id) ?? null,
       }));
   }
 
   /** Their values (suggestions fill the gaps): 400 for a field not theirs, 409 when short. */
-  private checkValues(signer: SignerRecord, parts: EsignRequestParts, given: Value[]): Value[] {
-    const mine = this.myFields(parts, signer.recipient);
+  private checkValues(
+    signer: SignerRecord,
+    parts: EsignRequestParts,
+    given: Value[],
+    attached: SignerAttachment[],
+  ): Value[] {
+    const mine = this.myFields(parts, signer.recipient, attached);
     const byId = new Map(mine.map((f) => [f.id, f]));
     for (const [i, v] of given.entries()) {
       const f = byId.get(v.fieldId);
@@ -423,8 +439,7 @@ export class EsignSignerService {
       ['CHECKBOX', 'RADIO'].includes(f.type) ? value.get(f.id) === 'true' : value.get(f.id) !== '';
     const missing = mine.some((f) => {
       if (!f.required || ['SIGNATURE', 'INITIALS', 'DATE_SIGNED'].includes(f.type)) return false;
-      // Attachments come with slice 3: until then a required one cannot be met.
-      if (f.type === 'ATTACHMENT') return true;
+      if (f.type === 'ATTACHMENT') return f.attachmentName === null;
       if (f.groupKey) return !mine.some((g) => g.groupKey === f.groupKey && set(g));
       return !set(f);
     });
@@ -453,7 +468,7 @@ export class EsignSignerService {
   }
 
   /** Ids only: never a code, a token, a name or an address. */
-  private log(c: SignerCall, action: string, extra: Record<string, string> = {}) {
+  log(c: SignerCall, action: string, extra: Record<string, string> = {}) {
     const entity = { type: 'esign_recipient', id: c.signer.recipient.id };
     const metadata = { requestId: c.signer.request.id, ...extra };
     return this.audit.log(action, entity, metadata, { businessId: c.firm.id });

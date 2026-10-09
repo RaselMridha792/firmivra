@@ -19,6 +19,7 @@ import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 import { EsignSendService } from './requests/send.service.js';
 import { EsignSignerController } from './signer/signer.controller.js';
+import { EsignSignerFilesService } from './signer/signer-files.service.js';
 import { SIGNER_REPOSITORY } from './signer/signer.repository.js';
 import { EsignSignerService } from './signer/signer.service.js';
 
@@ -43,6 +44,7 @@ import { EsignSignerService } from './signer/signer.service.js';
     EsignListService,
     EsignSendService,
     EsignSignerService,
+    EsignSignerFilesService,
     EsignCompletionService,
     EsignCompletionJob,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },

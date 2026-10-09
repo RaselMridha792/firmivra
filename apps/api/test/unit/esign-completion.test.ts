@@ -479,16 +479,19 @@ describe('completion from the last finish', () => {
     expect(warn.mock.calls.flat().join()).not.toContain('@client.test');
   });
 
-  it('without fields: a signature page per signer; a typed one waits for R18', async () => {
+  it('without fields: a signature page per signer, drawn or typed (R18 #286)', async () => {
     const one = person({ name: 'Fake One', routingOrder: 2 });
     const id = await sent(w.a, [one]);
     await sign(w.a, id, one, true);
     expect(pdf.finalized[0]!.stamps).toEqual([]);
     expect(pdf.finalized[0]!.signaturePages.map((p) => p.name)).toEqual(['Fake One']);
-    const typed = person();
+    expect(pdf.finalized[0]!.signaturePages[0]!.signaturePng).toBeInstanceOf(Uint8Array);
+    const typed = person({ name: 'Fake Typed' });
     const id2 = await sent(w.a, [typed]);
     await sign(w.a, id2, typed);
-    expect(await status(w.a, id2)).toBe('PARTIALLY_SIGNED');
+    expect(await status(w.a, id2)).toBe('COMPLETED');
+    const page = pdf.finalized[1]!.signaturePages[0]!;
+    expect([page.typed, page.signaturePng]).toEqual(['Fake Typed', undefined]);
   });
 
   it('not due: an open signer, another status, or no such request', async () => {

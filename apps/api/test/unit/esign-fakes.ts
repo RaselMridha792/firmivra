@@ -50,8 +50,10 @@ import type {
 import type {
   EsignSignerRepository,
   SignerAdoption,
+  SignerAttachment,
   SignerFinishWrite,
   SignerLink,
+  SignerPendingAttachment,
 } from '../../src/esign/signer/signer.repository.js';
 
 export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
@@ -472,6 +474,54 @@ export class InMemorySignerRepository implements EsignSignerRepository {
       ? { method: adoption.signature.method, hasInitials: adoption.initials !== null }
       : null;
     return { request, recipient, tokenVersion, consentVersionId, adopted };
+  }
+
+  /** Each firm's attachments, by `${recipientId}:${fieldId}`, and started uploads by token hash. */
+  readonly files = new PerFirm<SignerAttachment & { recipientId: string; requestId: string }>();
+  readonly attachmentUploads = new PerFirm<SignerPendingAttachment>();
+
+  attachments(businessId: string, requestId: string, recipientId: string) {
+    const all = [...this.files.of(businessId).values()];
+    const mine = all.filter((a) => a.requestId === requestId && a.recipientId === recipientId);
+    return Promise.resolve(
+      structuredClone(mine.map(({ recipientId: _r, requestId: _q, ...a }) => a)),
+    );
+  }
+
+  saveAttachmentUpload(businessId: string, upload: SignerPendingAttachment) {
+    this.attachmentUploads.of(businessId).set(upload.tokenHash, structuredClone(upload));
+    return Promise.resolve();
+  }
+
+  takeAttachmentUpload(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    tokenHash: string,
+  ) {
+    const uploads = this.attachmentUploads.of(businessId);
+    const found = uploads.get(tokenHash);
+    if (found?.requestId !== requestId || found.recipientId !== recipientId) {
+      return Promise.resolve(null);
+    }
+    uploads.delete(tokenHash);
+    return Promise.resolve(found);
+  }
+
+  setAttachment(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    fieldId: string,
+    attachment: SignerAttachment | null,
+  ) {
+    const ok = this.change(businessId, requestId, recipientId, () => {
+      const key = `${recipientId}:${fieldId}`;
+      const files = this.files.of(businessId);
+      if (attachment) files.set(key, { ...structuredClone(attachment), recipientId, requestId });
+      else files.delete(key);
+    });
+    return Promise.resolve(ok);
   }
 
   issueCode(
