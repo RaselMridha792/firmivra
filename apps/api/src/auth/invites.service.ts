@@ -343,6 +343,12 @@ export class InvitesService {
         { kind: 'platform' },
         async (tx) => {
           await lockStaffInvites(tx, businessId, userId);
+          // Counted again under the lock: two sends at once both passed the first count, and
+          // only now does each see the other's link (platform scope reads the links it sent).
+          const toThisPerson = await tx.invite.count({
+            where: { businessId, membershipId, createdAt: { gt: since } },
+          });
+          if (toThisPerson >= INVITE_LIMITS.perPerson) throw tooManyInvites();
           await tx.invite.updateMany({
             where: { businessId, membershipId, acceptedAt: null, revokedAt: null },
             data: { revokedAt: new Date() },
@@ -354,6 +360,7 @@ export class InvitesService {
           return row.id;
         },
         // It can wait on the per-person lock held by an invite transaction that may run 15 s.
+        // The database module's default is 15 s today too; this keeps it once that default goes.
         OUTSIDE_CALL_LIMITS,
       ));
 
@@ -452,8 +459,6 @@ export class InvitesService {
     businessId: string;
     membershipId: string;
     invitedBy: Inviter | null;
-    /** As CreateInviteInput's: a new owner link from Firmivra. */
-    fromPlatform?: boolean;
   }): Promise<InviteResult> {
     const membership = await this.db.forBusiness(input.businessId).membership.findUnique({
       where: { id: input.membershipId },
@@ -461,17 +466,13 @@ export class InvitesService {
     });
     if (!membership) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
     if (membership.status !== 'INVITED') throw notInvited();
-    if (input.fromPlatform && membership.role !== 'OWNER') {
-      throw new Error('Only an owner link is sent by the platform');
-    }
     // Checked again on the role the membership has in the invite transaction.
     assertMayInvite(input.invitedBy, membership.role);
-    return this.invite(
-      input.businessId,
-      input.invitedBy,
-      { kind: 'resend', membershipId: input.membershipId, userId: membership.userId },
-      input.fromPlatform,
-    );
+    return this.invite(input.businessId, input.invitedBy, {
+      kind: 'resend',
+      membershipId: input.membershipId,
+      userId: membership.userId,
+    });
   }
 
   /**

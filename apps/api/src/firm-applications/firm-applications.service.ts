@@ -272,20 +272,28 @@ export class FirmApplicationsService {
     };
   }
 
+  /**
+   * One statement, so the parts always add up to `all` (and a month's count never passes its
+   * status's), even while applications are submitted or decided.
+   */
   async counts(): Promise<FirmApplicationCounts> {
-    const db = this.admin.db;
     const since = startOfMonthIn(PLATFORM_TIME_ZONE);
-    const count = (where: Prisma.FirmApplicationWhereInput) => db.firmApplication.count({ where });
-    const [all, pendingReview, approved, declined, approvedThisMonth, declinedThisMonth] =
-      await Promise.all([
-        count({}),
-        count({ status: { in: [...PENDING] } }),
-        count({ status: 'APPROVED' }),
-        count({ status: 'DECLINED' }),
-        count({ status: 'APPROVED', reviewedAt: { gte: since } }),
-        count({ status: 'DECLINED', reviewedAt: { gte: since } }),
-      ]);
-    return { all, pendingReview, approved, declined, approvedThisMonth, declinedThisMonth };
+    const rows = await this.admin.transaction(
+      (tx) => tx.$queryRaw<{ status: string; total: number; month: number }[]>`
+        SELECT status::text AS status, count(*)::int AS total,
+               count(*) FILTER (WHERE reviewed_at >= ${since})::int AS month
+          FROM firm_applications GROUP BY status`,
+    );
+    const of = (statuses: readonly string[], key: 'total' | 'month' = 'total') =>
+      rows.filter((r) => statuses.includes(r.status)).reduce((sum, r) => sum + r[key], 0);
+    return {
+      all: rows.reduce((sum, r) => sum + r.total, 0),
+      pendingReview: of(PENDING),
+      approved: of(['APPROVED']),
+      declined: of(['DECLINED']),
+      approvedThisMonth: of(['APPROVED'], 'month'),
+      declinedThisMonth: of(['DECLINED'], 'month'),
+    };
   }
 
   /** The review page. Opening it is audited (it shows the applicant's personal details). */
@@ -551,7 +559,9 @@ export class FirmApplicationsService {
       }
     }
     const owner = await this.owner(firm.id);
-    if (owner?.status === 'ACTIVE') throw inviteNotNeeded();
+    // Only before the owner has joined: no membership yet, or an invite still open (or whose link
+    // step failed). An owner the firm deactivated is never brought back from here.
+    if (owner && owner.status !== 'INVITED') throw inviteNotNeeded();
     // Always to the name and email the applicant typed: an invite whose link step failed has no
     // invite row to read them from, and the person's user row may hold another firm's name. An
     // open invite is replaced (its old link stops working).

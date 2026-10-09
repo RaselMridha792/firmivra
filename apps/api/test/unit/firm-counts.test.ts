@@ -1,5 +1,5 @@
-// The firms page's counts come from one statement, so the total always equals the sum of the
-// parts, even while other requests add firms.
+// The firms page's and the applications page's counts come from one statement each, so the total
+// always equals the sum of the parts, even while other requests add or decide rows.
 import { describe, expect, it, vi } from 'vitest';
 import type { AdminPrisma } from '../../src/firm-applications/admin-prisma.js';
 import { FirmApplicationsService } from '../../src/firm-applications/firm-applications.service.js';
@@ -48,5 +48,35 @@ describe('firmCounts', () => {
       inactive: 0,
       total: 0,
     });
+  });
+});
+
+describe('application counts', () => {
+  it('reads one statement grouped by status; all is the sum, an information request is pending', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([
+      { status: 'PENDING_REVIEW', total: 4, month: 0 },
+      { status: 'INFO_REQUESTED', total: 2, month: 0 },
+      { status: 'APPROVED', total: 7, month: 3 },
+      { status: 'DECLINED', total: 5, month: 1 },
+    ]);
+    const transaction = vi.fn((fn: (tx: unknown) => unknown) => fn({ $queryRaw: queryRaw }));
+    const service = new FirmApplicationsService(
+      { transaction } as unknown as AdminPrisma,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    expect(await service.counts()).toEqual({
+      all: 18,
+      pendingReview: 6,
+      approved: 7,
+      declined: 5,
+      approvedThisMonth: 3,
+      declinedThisMonth: 1,
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
   });
 });

@@ -45,6 +45,7 @@ const ids = {
   copy: randomUUID(),
   resettle: randomUUID(),
   typed: randomUUID(),
+  removed: randomUUID(),
 };
 /** The primary administrator of `typed` already has a login, under the name another firm knows. */
 const existingLogin = { id: randomUUID(), name: 'Name At Another Firm' };
@@ -487,6 +488,40 @@ describe('After approve', () => {
       expect.objectContaining({ name: 'Jordan Sample 8', email: email(8), sentByPlatform: true }),
     ]);
     expect(sent.map((m) => [m.to, m.data.name])).toEqual([[email(8), 'Jordan Sample 8']]);
+  });
+
+  it('never brings back an owner the firm removed: 409 INVITE_NOT_NEEDED, nothing sent', async () => {
+    const firm = (await approve(ids.removed)).firm!;
+    const first = (await ownerOf(firm.id)).membership!;
+    // The applicant joined, made a co-owner, and that co-owner removed them.
+    const coOwner = randomUUID();
+    await asPlatform((tx) =>
+      tx.user.create({
+        data: {
+          id: coOwner,
+          cognitoSub: coOwner,
+          pool: 'STAFF',
+          email: `co-owner@${tag}.example.test`,
+          name: 'Co Owner',
+        },
+      }),
+    );
+    await asFirm(firm.id, async (tx) => {
+      await tx.membership.update({ where: { id: first.id }, data: { status: 'ACTIVE' } });
+      await tx.membership.create({
+        data: { businessId: firm.id, userId: coOwner, role: 'OWNER', status: 'ACTIVE' },
+      });
+      await tx.membership.update({ where: { id: first.id }, data: { status: 'DEACTIVATED' } });
+    });
+    sent.length = 0;
+    const res = await resend(ids.removed).expect(409);
+    expect(res.body.error.code).toBe('INVITE_NOT_NEEDED');
+    const after = await asFirm(firm.id, (tx) =>
+      tx.membership.findUniqueOrThrow({ where: { id: first.id } }),
+    );
+    expect(after.status).toBe('DEACTIVATED');
+    expect((await ownerOf(firm.id)).invites).toHaveLength(1);
+    expect(sent).toEqual([]);
   });
 
   it('is for Super Admins only: 401 for a firm login, 403 for an admins-pool login without the role', async () => {
