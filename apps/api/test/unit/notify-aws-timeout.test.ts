@@ -47,6 +47,7 @@ describe('AWS clients against a provider that never answers', () => {
     const logger = { log: vi.fn(), warn: vi.fn() };
     const firm = { ...FIRMIVRA_BRANDING, name: 'Sample Tax', isFirm: true };
     const notify = new SendingNotifyService({
+      preferences: { allows: () => Promise.resolve(true) },
       branding: { load: (id) => Promise.resolve(id ? firm : FIRMIVRA_BRANDING) },
       email: {
         from: { name: 'Firmivra', address: 'no-reply@dev.example.test' },
