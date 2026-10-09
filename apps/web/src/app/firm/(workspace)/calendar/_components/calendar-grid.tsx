@@ -59,16 +59,18 @@ const hourLabel = (hour: number) =>
   `${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}`;
 
 /** One day by the hour: 8 AM to 6 PM, wider when appointments fall outside. */
-export function DayGrid(grid: GridProps) {
+export function DayGrid({ date, ...grid }: GridProps & { date: string }) {
   const hourOf = (item: CalendarAppointment) =>
     Number(localParts(item.startsAt, grid.timeZone).time.slice(0, 2));
-  const hours = grid.items.map(hourOf);
+  // The list also returns an appointment that started the day before and runs into this one.
+  const today = grid.items.filter((item) => localParts(item.startsAt, grid.timeZone).date === date);
+  const hours = today.map(hourOf);
   const first = Math.min(8, ...hours);
   const last = Math.max(18, ...hours);
   return (
     <div className="rounded-card border border-border bg-surface">
       {Array.from({ length: last - first + 1 }, (_, i) => first + i).map((hour) => {
-        const items = grid.items.filter((item) => hourOf(item) === hour);
+        const items = today.filter((item) => hourOf(item) === hour);
         return (
           <div key={hour} className="flex gap-3 border-t border-border p-2 first:border-t-0">
             <span className="w-14 shrink-0 text-xs text-muted">{hourLabel(hour)}</span>
