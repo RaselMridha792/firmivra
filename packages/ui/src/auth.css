@@ -34,11 +34,11 @@
   --auth-description-width: 26.5rem;
   --auth-feature-copy-width: 15rem;
   --auth-logo-light-width: 24.25rem;
-  --auth-logo-light-height: 9.625rem;
+  --auth-logo-light-height: 8.625rem;
   --auth-logo-width: 22.9375rem;
   --auth-logo-height: 8.25rem;
   --auth-title-size: 2.125rem;
-  --auth-pitch-size: 2.375rem;
+  --auth-pitch-size: 2.25rem;
   --auth-card-radius: 1.5rem;
   --auth-control-height: 3.625rem;
   --auth-control-radius: 0.6875rem;
@@ -200,8 +200,6 @@
 .auth-form input[type='checkbox'] {
   width: var(--auth-checkbox-size);
   height: var(--auth-checkbox-size);
-  border-radius: var(--radius-sm);
-  border-color: var(--auth-line);
 }
 .auth-form label:has(input[type='checkbox']) {
   min-height: auto;

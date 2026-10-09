@@ -115,13 +115,13 @@ export function SignIn({
                 className="pointer-events-none absolute top-12 left-5 h-6 w-6 text-muted"
               />
               <Button
-                className="absolute top-10 right-2"
+                className="group absolute top-10 right-2"
                 variant="ghost"
                 aria-label={show ? 'Hide password' : 'Show password'}
                 aria-pressed={show}
                 onClick={() => setShow(!show)}
               >
-                <Eye aria-hidden="true" className="h-6 w-6 text-muted" />
+                <Eye aria-hidden="true" className="h-6 w-6 text-muted group-hover:text-text" />
               </Button>
             </div>
             <div className="flex items-center justify-between gap-2 text-base">
