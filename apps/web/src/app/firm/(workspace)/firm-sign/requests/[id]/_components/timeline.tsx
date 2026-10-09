@@ -39,8 +39,12 @@ const AUTH_LABELS: Record<EsignAuthMethod, string> = {
   EMAIL_CODE: 'an email code',
   ACCESS_CODE: 'an access code',
   PORTAL_SESSION: 'their portal sign-in',
-  IN_PERSON: 'in person',
+  IN_PERSON: 'a staff member, in person',
 };
+
+/** How the signer proved who they are, or tried to. */
+const authLine = (e: EsignEvent, method: EsignAuthMethod) =>
+  `${e.type === 'AUTH_FAILED' ? 'Tried' : 'Verified by'} ${AUTH_LABELS[method]}`;
 
 /** Events that went wrong or ended the request. */
 const WARN: readonly EsignEventType[] = [
@@ -52,10 +56,10 @@ const WARN: readonly EsignEventType[] = [
 ];
 
 /** Who did it, and for whom when that is someone else. */
-function who(e: EsignEvent) {
-  const by = e.actorKind === 'SYSTEM' ? 'Firmivra' : e.actorName;
-  return e.recipient && e.recipient.name !== e.actorName ? `${by}, for ${e.recipient.name}` : by;
-}
+const who = (e: EsignEvent) =>
+  e.recipient && e.recipient.name !== e.actorName
+    ? `${e.actorName}, for ${e.recipient.name}`
+    : e.actorName;
 
 /** The request's events, newest first: the spec's audit timeline. */
 export function Timeline({ id }: { id: string }) {
@@ -80,9 +84,7 @@ export function Timeline({ id }: { id: string }) {
                 <span className="text-sm text-text">{who(e)}</span>
                 {e.reason && <span className="text-sm text-text">Reason: {e.reason}</span>}
                 {e.authMethod && (
-                  <span className="text-sm text-muted">
-                    Verified by {AUTH_LABELS[e.authMethod]}
-                  </span>
+                  <span className="text-sm text-muted">{authLine(e, e.authMethod)}</span>
                 )}
                 <time dateTime={e.createdAt} className="text-sm text-muted">
                   {dateTime(e.createdAt)}

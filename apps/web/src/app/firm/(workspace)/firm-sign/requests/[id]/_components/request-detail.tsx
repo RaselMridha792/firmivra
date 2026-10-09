@@ -20,6 +20,8 @@ export function RequestDetail({ id }: { id: string }) {
 
 function Detail({ id }: { id: string }) {
   const request = useApiQuery(['esign', 'requests', id], () => api.esign.get(id));
+  // The timeline's data, loading alongside the request rather than after it.
+  useApiQuery(['esign', 'requests', id, 'events'], () => api.esign.events(id));
   return (
     <div className="flex flex-col gap-6">
       <Link
@@ -58,10 +60,11 @@ function Detail({ id }: { id: string }) {
 
 /** What the request waits on, in a sentence. */
 function nextStep(r: EsignRequestDetail): string | null {
+  const edit = r.allowedActions.includes('EDIT');
   const names = r.nextAction.waitingOn.join(', ');
   switch (r.nextAction.kind) {
     case 'FINISH_DRAFT':
-      return 'Not sent yet: finish preparing it.';
+      return edit ? 'Not sent yet: finish preparing it.' : 'Not sent yet.';
     case 'AWAIT_APPROVAL':
       return names ? `Waiting for approval from ${names}.` : 'Waiting for approval.';
     case 'AWAIT_SIGNATURE':
@@ -81,7 +84,9 @@ function Header({ r }: { r: EsignRequestDetail }) {
         <h1 data-testid="page-title" className="font-display text-3xl break-words text-heading">
           {r.title}
         </h1>
-        <StatusBadge status={r.status} />
+        <span data-testid="request-status">
+          <StatusBadge status={r.status} />
+        </span>
       </div>
       {next && <p className="text-text">{next}</p>}
       {(edit || inPerson) && (
@@ -102,8 +107,18 @@ function Header({ r }: { r: EsignRequestDetail }) {
   );
 }
 
+/** The look of the primary Button, for a link (packages/ui has no link button yet). */
 const LINK_BUTTON =
-  'inline-flex min-h-11 items-center rounded-control bg-platform-navy px-4 text-sm font-semibold text-white hover:bg-platform-navy-raised focus-visible:outline-2 focus-visible:outline-focus';
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action transition-colors hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus';
+
+/** When it ended, or when it will expire while open. */
+function ended(r: EsignRequestDetail): [string, string] {
+  if (r.completedAt) return ['Completed', shortDate(r.completedAt)];
+  if (r.voidedAt) return ['Voided', shortDate(r.voidedAt)];
+  if (r.declinedAt) return ['Declined', shortDate(r.declinedAt)];
+  if (r.expiredAt) return ['Expired', shortDate(r.expiredAt)];
+  return ['Expires', shortDate(r.expiresAt)];
+}
 
 function Facts({ r }: { r: EsignRequestDetail }) {
   const rows: [string, string][] = [
@@ -111,7 +126,7 @@ function Facts({ r }: { r: EsignRequestDetail }) {
     ['Sent by', r.sender.name],
     ['Created', shortDate(r.createdAt)],
     ['Sent', shortDate(r.sentAt)],
-    [r.completedAt ? 'Completed' : 'Expires', shortDate(r.completedAt ?? r.expiresAt)],
+    ended(r),
     ['Signing order', r.routing === 'SEQUENTIAL' ? 'One after another' : 'All at once'],
     ['Pages', String(r.pagePlan.length)],
   ];

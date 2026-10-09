@@ -1,6 +1,5 @@
 import type { EsignRecipient, EsignRecipientRole, EsignRecipientStatus } from '@firmivra/types';
 import { Badge, Card } from '@firmivra/ui';
-import type { ReactNode } from 'react';
 import { shortDate } from '../../../../../../../components/esign/format';
 
 const KIND: Record<EsignRecipient['kind'], string> = {
@@ -40,16 +39,25 @@ const STATUS: Record<
   DECLINED: ['Declined', 'danger'],
 };
 
-/** Each recipient in signing order, with where they are. `actions` adds a recipient's buttons. */
+/** What the recipient last did, and when. */
+function lastStep(r: EsignRecipient): string | null {
+  const [label, at] =
+    r.status === 'SIGNED' || r.status === 'APPROVED'
+      ? [r.status === 'SIGNED' ? 'Signed' : 'Approved', r.signedAt]
+      : r.status === 'DECLINED' || r.status === 'REJECTED'
+        ? [r.status === 'DECLINED' ? 'Declined' : 'Rejected', r.declinedAt]
+        : ['Viewed', r.viewedAt];
+  return at ? `${label} ${shortDate(at)}` : null;
+}
+
+/** Each recipient in signing order, with where they are. */
 export function Recipients({
   recipients,
   ordered,
-  actions,
 }: {
   recipients: EsignRecipient[];
   /** Sequential routing: show each one's turn. */
   ordered: boolean;
-  actions?: (r: EsignRecipient) => ReactNode;
 }) {
   const sorted = [...recipients].sort((a, b) => a.routingOrder - b.routingOrder);
   return (
@@ -58,7 +66,7 @@ export function Recipients({
       <ul className="flex flex-col divide-y divide-border">
         {sorted.map((r) => {
           const [label, tone] = STATUS[r.status];
-          const done = r.signedAt ?? r.declinedAt ?? r.viewedAt;
+          const step = lastStep(r);
           return (
             <li key={r.id} data-testid="recipient" className="flex flex-col gap-2 py-3 first:pt-0">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -75,11 +83,7 @@ export function Recipients({
                 {DELIVERY[r.delivery]}
                 {r.email && ` · ${r.email}`}
               </span>
-              {done && (
-                <span className="text-sm text-muted">
-                  {r.signedAt ? 'Signed' : r.declinedAt ? 'Declined' : 'Viewed'} {shortDate(done)}
-                </span>
-              )}
+              {step && <span className="text-sm text-muted">{step}</span>}
               {r.reminderCount > 0 && (
                 <span className="text-sm text-muted">
                   Reminded {r.reminderCount} {r.reminderCount === 1 ? 'time' : 'times'}, last{' '}
@@ -89,7 +93,6 @@ export function Recipients({
               {r.declineReason && (
                 <span className="text-sm text-danger">Reason: {r.declineReason}</span>
               )}
-              {actions?.(r)}
             </li>
           );
         })}
