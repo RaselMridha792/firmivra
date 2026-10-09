@@ -7,7 +7,9 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
@@ -21,6 +23,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE, OUTSIDE_CALL_LIMITS } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { ACTIVATION_MAILER, type ActivationMailer } from './activation-mailer.js';
 import { runFlow } from './auth-errors.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from './identity/identity-provider.js';
@@ -194,12 +197,18 @@ async function retryOnConflict<T>(fn: () => Promise<T>): Promise<T> {
  */
 @Injectable()
 export class InvitesService {
+  private readonly logger = new Logger(InvitesService.name);
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(IDENTITY_PROVIDER) private readonly identity: IdentityProvider,
     @Inject(ACTIVATION_MAILER) private readonly mailer: ActivationMailer,
     private readonly audit: AuditService,
     @Inject(ENV) private readonly env: Env,
+    // Absent in R4's own InvitesService (owner-invites.ts), which only creates invites: the
+    // link is used through this module's service, which writes the bell item. Without
+    // NotificationsModule in the importing module, `staff.joined` is skipped silently.
+    @Optional() private readonly notifier?: Notifier,
   ) {}
 
   /**
@@ -526,6 +535,7 @@ export class InvitesService {
       { type: 'membership', id: found.membership.id },
       { inviteId: found.inviteId, via: 'activate' },
     );
+    await this.joined(found.businessId, found.membership.id, user.id);
     return { userId: user.id, sub: user.cognitoSub };
   }
 
@@ -541,6 +551,26 @@ export class InvitesService {
       { type: 'membership', id: found.membership.id },
       { inviteId: found.inviteId, via: 'accept' },
     );
+    await this.joined(found.businessId, found.membership.id, auth.userId);
+  }
+
+  /**
+   * A new member joined: a bell item for the firm's Owners and Admins, never the joiner (R6,
+   * `staff.joined`, the membership's id only). The helper resolves on a database failure;
+   * anything else is logged with the id and never fails the join.
+   */
+  private async joined(businessId: string, membershipId: string, userId: string): Promise<void> {
+    if (!this.notifier) return;
+    try {
+      await this.notifier.notify({
+        businessId,
+        event: 'staff.joined',
+        recordId: membershipId,
+        actorUserId: userId,
+      });
+    } catch (e) {
+      this.logger.warn(`staff.joined for membership ${membershipId} not written (${errorName(e)})`);
+    }
   }
 
   private activationLink(token: string): string {
