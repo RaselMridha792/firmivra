@@ -208,6 +208,8 @@ export class UploadsService {
             sha256: claim.sha256,
             s3Key: claim.key,
             taxYear: claim.taxYear,
+            intakeId: claim.intakeId ?? null,
+            intakeSlot: claim.intakeSlot ?? null,
             // The category's retention from today; no category or no retention keeps it for good.
             retentionUntil: years === null ? null : yearsAfter(now, years),
             uploadedByUserId: claim.userId,
