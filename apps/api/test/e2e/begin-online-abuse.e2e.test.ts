@@ -1,6 +1,6 @@
 // End-to-end: abuse of the public Begin Online routes (R11, contract B). Per-IP rate limits per
 // route, body and answer size limits, file caps per slot and per draft, the silent per-firm resume
-// link limit, the per-firm and per-IP daily draft start limits, forged, lapsed and foreign draft
+// link limit, the per-firm and per-network daily draft start limits, forged, lapsed and foreign draft
 // cookies, unknown and suspended firms, and that no response or audit row holds answers, SSN
 // digits, draft cookies or resume tokens. Setup as in begin-online.e2e.test.ts. Synthetic data
 // only.
@@ -68,7 +68,8 @@ const SSN_DIGITS = /123-?45-?6789/;
 const MARKER = `zq${run}marker`;
 
 let lastViewer = 0;
-const newViewer = () => `198.20.${Math.floor(++lastViewer / 250)}.${lastViewer % 250}`;
+/** Each test on its own network: the start and resume limits count a /24 or /48 as one viewer. */
+const newViewer = () => `198.${20 + Math.floor(++lastViewer / 250)}.${lastViewer % 250}.1`;
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 const forgedKey = () => randomBytes(32).toString('base64url');
 const linksIdle = () => app.get(ResumeLinksService).idle();
@@ -362,12 +363,22 @@ describe('Begin Online size limits', () => {
     return Object.fromEntries(Array.from({ length }, (_, i) => [`big${i}`, long(9_999)]));
   }
 
-  it.each(refused)('start: %s is refused and stores nothing', async (_n, answers, status) => {
+  /** A start card has only its own fields (a strict object): the cases that are start fields. */
+  const startRefused = refused.filter(
+    ([, answers]) => 'firstName' in answers || 'notes' in answers,
+  );
+
+  it.each(startRefused)('start: %s is refused and stores nothing', async (_n, answers, status) => {
     const v = visitor(firms.a.slug);
     const address = email(`size${status}${Object.keys(answers).length}`);
     const res = await v.post(D, start('a', { email: address, ...answers }));
     expect(res.status).toBe(status);
     expect(codeOf(res)).toBe(status === 413 ? 'PAYLOAD_TOO_LARGE' : 'VALIDATION_FAILED');
+    if (status === 400) {
+      // Refused by the field's own limit, not as an unknown key.
+      const details = (res.body as { error: { details: { path: string }[] } }).error.details;
+      expect(details.map((d) => d.path)).toEqual(['firstName']);
+    }
     expectClean(res);
     expect(v.cookie).toBe('');
     expect(await leadsByEmail('a', address)).toBe(0);
@@ -460,6 +471,100 @@ describe('Begin Online caps', () => {
     expect([res.status, codeOf(res)]).toEqual([409, 'TOO_MANY_FILES']);
   });
 
+  it('tickets never confirmed count toward the slot (25 asked, 20 given) and go at expiry', async () => {
+    const { v, draft } = await startDraft('a');
+    const bytes = pdf('never confirmed');
+    const statuses: number[] = [];
+    const keys: string[] = [];
+    // From two networks of this browser (the upload limit is 30 a minute per IP).
+    const other = visitor(firms.a.slug);
+    other.cookie = v.cookie;
+    for (let i = 0; i < 25; i++) {
+      const res = await (i < 13 ? v : other).post(`${D}/uploads`, file(bytes));
+      statuses.push(res.status);
+      if (res.status !== 200) continue;
+      storage.put(res.body as { url: string }, bytes);
+      keys.push((res.body as { url: string }).url.slice('memory:'.length));
+    }
+    const max = INTAKE_LIMITS.maxFilesPerSlot;
+    expect(statuses).toEqual([
+      ...Array<number>(max).fill(200),
+      ...Array<number>(25 - max).fill(409),
+    ]);
+    expect(keys.every((k) => storage.objects.has(k))).toBe(true);
+    await asOwner(
+      firms.a.id,
+      (tx) =>
+        tx.$executeRaw`UPDATE leads SET draft_expires_at = now() - interval '1 minute'
+                    WHERE id = ${draft.leadId}::uuid`,
+    );
+    expect(codeOf(await v.get(D))).toBe('DRAFT_EXPIRED');
+    expect(keys.filter((k) => storage.objects.has(k))).toEqual([]);
+  });
+
+  it('a confirm refused because the draft ended or was replaced deletes its object', async () => {
+    const keyOf = (res: Response) => (res.body as { url: string }).url.slice('memory:'.length);
+    const bytes = pdf('refused confirm');
+    // Replaced: a new start in this browser (410 UPLOAD_EXPIRED).
+    const replaced = await startDraft('a');
+    const t1 = await replaced.v.post(`${D}/uploads`, file(bytes));
+    storage.put(t1.body as { url: string }, bytes);
+    expect((await replaced.v.post(D, start('a'))).status).toBe(201);
+    const r1 = await replaced.v.post(`${D}/uploads/confirm`, { uploadToken: t1.body.uploadToken });
+    expect([r1.status, codeOf(r1)]).toEqual([410, 'UPLOAD_EXPIRED']);
+    expect(storage.objects.has(keyOf(t1))).toBe(false);
+    // Expired: the PUT lands after the expiry (410 DRAFT_EXPIRED).
+    const expired = await startDraft('a');
+    const t2 = await expired.v.post(`${D}/uploads`, file(bytes));
+    await asOwner(
+      firms.a.id,
+      (tx) =>
+        tx.$executeRaw`UPDATE leads SET draft_expires_at = now() - interval '1 minute'
+                    WHERE id = ${expired.draft.leadId}::uuid`,
+    );
+    expect(codeOf(await expired.v.get(D))).toBe('DRAFT_EXPIRED');
+    storage.put(t2.body as { url: string }, bytes);
+    const r2 = await expired.v.post(`${D}/uploads/confirm`, { uploadToken: t2.body.uploadToken });
+    expect([r2.status, codeOf(r2)]).toEqual([410, 'DRAFT_EXPIRED']);
+    expect(storage.objects.has(keyOf(t2))).toBe(false);
+    // A refused key stays refused: the token never confirms after that.
+    storage.put(t2.body as { url: string }, bytes);
+    const again = await expired.v.post(`${D}/uploads/confirm`, {
+      uploadToken: t2.body.uploadToken,
+    });
+    expect(again.status).toBe(410);
+  });
+
+  it('parallel confirms at maxFiles - 1: one file is kept, the other is 409 and deleted', async () => {
+    const { v, draft } = await startDraft('a');
+    const max = INTAKE_LIMITS.maxFilesPerSlot;
+    await addFiles('a', draft.leadId, 'governmentId', max - 2);
+    const tickets = [];
+    for (const name of ['one', 'two']) {
+      const ticket = await v.post(`${D}/uploads`, file(pdf(name)));
+      expect(ticket.status).toBe(200);
+      storage.put(ticket.body as { url: string }, pdf(name));
+      tickets.push(ticket);
+    }
+    // Another tab fills one place meanwhile: the slot is at maxFiles - 1.
+    await addFiles('a', draft.leadId, 'governmentId', 1);
+    const results = await Promise.all(
+      tickets.map((t) => v.post(`${D}/uploads/confirm`, { uploadToken: t.body.uploadToken })),
+    );
+    expect(results.map((r) => [r.status, codeOf(r) ?? null]).sort()).toEqual([
+      [200, null],
+      [409, 'TOO_MANY_FILES'],
+    ]);
+    const loser = tickets[results.findIndex((r) => r.status === 409)]!;
+    expect(storage.objects.has((loser.body as { url: string }).url.slice('memory:'.length))).toBe(
+      false,
+    );
+    const files = await asOwner(firms.a.id, (tx) =>
+      tx.leadUpload.count({ where: { leadId: draft.leadId, slot: 'governmentId' } }),
+    );
+    expect(files).toBe(max);
+  });
+
   it('a ticket refuses an empty, negative, fractional or over 10 MB size (400)', async () => {
     const { v } = await startDraft('a');
     for (const sizeBytes of [0, -1, 1.5, 10 * 1024 * 1024 + 1]) {
@@ -508,16 +613,19 @@ describe('Begin Online caps', () => {
 });
 
 describe('Begin Online daily start limits (audit log, rolling 24 h)', () => {
-  const { perFirm, perIp, windowMs } = DRAFT_START_LIMITS;
-  /** `count` start rows in the window from `ip` and one older than the window that never counts. */
-  const seedStarts = (firm: FirmKey, count: number, ip: string | null) => {
+  const { perFirm, perNetwork, windowMs } = DRAFT_START_LIMITS;
+  /**
+   * `count` start rows in the window from `ip` (its network `net`, as a start records it) and one
+   * older than the window that never counts.
+   */
+  const seedStarts = (firm: FirmKey, count: number, ip: string | null, net?: string) => {
     const businessId = firms[firm].id;
     const row = (createdAt: Date) => ({
       businessId,
       action: 'begin_online.draft_started',
       entityType: 'lead',
       entityId: randomUUID(),
-      metadata: {},
+      metadata: net ? { net } : {},
       ip,
       createdAt,
     });
@@ -554,16 +662,25 @@ describe('Begin Online daily start limits (audit log, rolling 24 h)', () => {
     expect((await visitor(firms.f.slug).post(D, start('f'))).status).toBe(201);
   });
 
-  it(`at most ${perIp} a day per IP on a firm's site; another IP still starts`, async () => {
-    const viewer = newViewer();
-    await seedStarts('f', perIp - 1, viewer);
-    const v = visitor(firms.f.slug, viewer);
+  it(`at most ${perNetwork} a day per network on a firm's site; another network still starts`, async () => {
+    // Two addresses of one /24 are one viewer; the rows were seeded from a third.
+    await seedStarts('f', perNetwork - 1, '192.0.2.7', '192.0.2.0/24');
+    const v = visitor(firms.f.slug, '192.0.2.20');
     expect((await v.post(D, start('f'))).status).toBe(201);
     const stored = await asOwner(firms.f.id, (tx) =>
-      tx.auditLog.count({ where: { action: 'begin_online.draft_started', ip: viewer } }),
+      tx.auditLog.count({
+        where: {
+          businessId: firms.f.id,
+          action: 'begin_online.draft_started',
+          metadata: { path: ['net'], equals: '192.0.2.0/24' },
+        },
+      }),
     );
-    expect(stored).toBe(perIp + 1); // the start row records the viewer's IP
-    await expectRefused('f', viewer, 'ipcap');
+    expect(stored).toBe(perNetwork + 1); // the start row records the viewer's network
+    await expectRefused('f', '192.0.2.30', 'netcap');
+    // Not the address: an IPv6 /48 is one network too, and a new network still starts.
+    await seedStarts('f', perNetwork, '2001:db8:9:1::1', '2001:0db8:0009::/48');
+    await expectRefused('f', '2001:db8:9:2::1', 'netcap6');
     expect((await visitor(firms.f.slug).post(D, start('f'))).status).toBe(201);
   });
 });
