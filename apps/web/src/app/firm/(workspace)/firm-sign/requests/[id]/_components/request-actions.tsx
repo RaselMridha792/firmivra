@@ -193,8 +193,10 @@ function SubmitDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const submit = useApiMutation(() => api.esign.submitForApproval(id, { confirm: true }), {
     invalidate: ESIGN,
   });
-  const leave = () => {
-    if (!submit.isPending) onClose();
+  // Not while it runs; stopping Escape's cancel event keeps the dialog open.
+  const leave = (event?: { preventDefault?: () => void }) => {
+    if (submit.isPending) event?.preventDefault?.();
+    else onClose();
   };
   return (
     <Modal open title="Send for approval" onClose={leave}>
@@ -232,8 +234,9 @@ function ApproveDialog({ id, onClose }: { id: string; onClose: () => void }) {
       api.esign.decideApproval(id, { decision, ...(note.trim() && { note: note.trim() }) }),
     { invalidate: ESIGN },
   );
-  const leave = () => {
-    if (!decide.isPending) onClose();
+  const leave = (event?: { preventDefault?: () => void }) => {
+    if (decide.isPending) event?.preventDefault?.();
+    else onClose();
   };
   return (
     <Modal open title="Review and approve" onClose={leave}>
@@ -246,7 +249,12 @@ function ApproveDialog({ id, onClose }: { id: string; onClose: () => void }) {
           label="Note (needed when you ask for changes)"
           maxLength={500}
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          disabled={decide.isPending}
+          onChange={(e) => {
+            setNote(e.target.value);
+            setMissing(false);
+            decide.reset();
+          }}
           error={missing ? 'Say what needs to change.' : undefined}
         />
         {decide.error && (
