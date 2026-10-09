@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import {
+  CancelInvoiceRequest,
   CreateInvoiceRequest,
   type Invoice,
   InvoiceId,
@@ -80,6 +81,18 @@ export class InvoicesController {
     @Body(new ZodValidationPipe(SendInvoiceRequest)) _body: z.output<typeof SendInvoiceRequest>,
   ): Promise<Invoice> {
     return this.invoices.send(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @Roles(...FIRM_MANAGERS)
+  cancel(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(CancelInvoiceRequest)) body: z.output<typeof CancelInvoiceRequest>,
+  ): Promise<Invoice> {
+    return this.invoices.cancel(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   @Put(':id')

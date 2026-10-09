@@ -19,6 +19,7 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { STRIPE_GATEWAY, type StripeGateway } from '../../src/payments/stripe/stripe-gateway.js';
 
 // Strict copies of the contract's shapes: a leaked field fails the parse.
 const Item = z.strictObject({
@@ -55,7 +56,11 @@ export const nyDay = (n = 0) =>
     new Date(Date.now() + n * 86_400_000),
   );
 
-export async function startInvoiceApp(tag: string) {
+/**
+ * `stripe`: the Stripe the API talks to (a `FakeStripeGateway`); left out, the environment's (none
+ * in tests: payments answer 503).
+ */
+export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null) {
   const fx = inject('fixtures');
   const run = randomUUID().slice(0, 8);
   const person = (key: string) => ({ id: randomUUID(), email: `${tag}-${key}-${run}@r7.test` });
@@ -169,9 +174,9 @@ export async function startInvoiceApp(tag: string) {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot(env)],
-  }).compile();
+  const builder = Test.createTestingModule({ imports: [AppModule.forRoot(env)] });
+  if (stripe !== undefined) builder.overrideProvider(STRIPE_GATEWAY).useValue(stripe);
+  const moduleRef = await builder.compile();
   const app: INestApplication = moduleRef.createNestApplication<NestExpressApplication>({
     logger: false,
   });

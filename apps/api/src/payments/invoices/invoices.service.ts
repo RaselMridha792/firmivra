@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { INVOICE_ERRORS } from '@firmivra/types';
 import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@firmivra/db';
 import type {
+  CancelInvoiceRequest,
   CreateInvoiceRequest,
   Invoice,
   InvoiceList,
@@ -16,6 +18,14 @@ import {
   likeEscape,
 } from '../../clients/clients.service.js';
 import { DATABASE } from '../../database/database.module.js';
+import {
+  CHECKOUT_LIMITS,
+  expireCheckout,
+  openCheckouts,
+  paymentInProgress,
+  providerUnavailable,
+} from '../checkout/checkout-sessions.js';
+import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 import { InvoiceNotices } from './invoice-notices.js';
 import {
   conflict,
@@ -25,6 +35,7 @@ import {
   invoiceSelect,
   notFound,
   paymentsEnabled,
+  processing,
   toDate,
   toInvoice,
   toListItem,
@@ -51,6 +62,7 @@ export class InvoicesService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly notices: InvoiceNotices,
+    @Inject(STRIPE_GATEWAY) private readonly stripe: StripeGateway | null,
   ) {}
 
   inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -304,5 +316,53 @@ export class InvoicesService {
     });
     if (opened) await this.notices.send('invoice.sent', businessId, id);
     return invoice;
+  }
+
+  /**
+   * Cancels a draft, scheduled or open invoice. Its open Checkout Sessions are expired at Stripe
+   * first, so nobody can pay it afterwards; a payment Stripe is still settling is 409. A canceled
+   * draft loses `scheduled_for` (the portal never shows it); a canceled SCHEDULED one keeps it.
+   */
+  async cancel(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: z.output<typeof CancelInvoiceRequest>,
+  ): Promise<Invoice> {
+    return this.database.withScope(
+      { kind: 'business', businessId },
+      async (tx) => {
+        const current = await this.load(tx, businessId, actor, id, true);
+        if (current.status === 'PAID' || current.status === 'CANCELED') {
+          throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
+        }
+        if (processing(current)) throw paymentInProgress();
+        const unsettled = current.payments.some((p) => p.status === 'PENDING');
+        if (unsettled) {
+          if (!this.stripe) throw providerUnavailable();
+          for (const open of await openCheckouts(tx, this.stripe, businessId, id)) {
+            await expireCheckout(tx, this.stripe, businessId, open);
+          }
+        }
+        await tx.invoice.update({
+          where: { businessId_id: { businessId, id } },
+          data: {
+            status: 'CANCELED',
+            canceledAt: new Date(),
+            cancelReason: body.reason,
+            ...(current.status === 'DRAFT' ? { scheduledFor: null } : {}),
+          },
+        });
+        const row = await this.load(tx, businessId, actor, id);
+        await this.audit.logIn(
+          tx,
+          'invoice.canceled',
+          { type: 'invoice', id },
+          { fromStatus: current.status, totalCents: row.totalCents },
+        );
+        return toInvoice(row, (await firmToday(tx, businessId)).today);
+      },
+      CHECKOUT_LIMITS,
+    );
   }
 }

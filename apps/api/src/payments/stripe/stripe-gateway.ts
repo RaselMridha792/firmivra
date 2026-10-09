@@ -46,12 +46,41 @@ export interface OnboardingLink {
   expiresAt: Date;
 }
 
+export interface CheckoutParams {
+  /** The firm's connected account; the session runs on it (the Stripe-Account header). */
+  accountId: string;
+  invoiceId: string;
+  paymentId: string;
+  /** The line's name: the invoice number. */
+  description: string;
+  amountCents: number;
+  currency: string;
+  successUrl: string;
+  cancelUrl: string;
+  expiresAt: Date;
+}
+
+/** The fields of a Checkout Session Firmivra reads. */
+export interface CheckoutSession {
+  id: string;
+  /** Null once the session is complete or expired. */
+  url: string | null;
+  status: 'open' | 'complete' | 'expired';
+  amountTotal: number;
+  expiresAt: Date;
+}
+
 export interface StripeGateway {
   /** A Standard connected account. The same idempotency key answers the same account again. */
   createAccount(params: CreateAccountParams, idempotencyKey: string): Promise<ConnectedAccount>;
   retrieveAccount(accountId: string): Promise<ConnectedAccount>;
   /** A one-time Account Link to Stripe's hosted onboarding (`account_onboarding`). */
   createAccountLink(params: AccountLinkParams): Promise<OnboardingLink>;
+  /** Stripe Checkout (mode payment, one line) on the connected account. */
+  createCheckoutSession(params: CheckoutParams, idempotencyKey: string): Promise<CheckoutSession>;
+  retrieveCheckoutSession(accountId: string, sessionId: string): Promise<CheckoutSession>;
+  /** Ends an open session, so it can no longer be paid. */
+  expireCheckoutSession(accountId: string, sessionId: string): Promise<CheckoutSession>;
 }
 
 /** The SDK's error type and code (`StripeConnectionError`, `idempotency_key_in_use`), never its message. */
@@ -74,6 +103,14 @@ const pick = (account: Stripe.Account): ConnectedAccount => ({
         disabled_reason: account.requirements.disabled_reason,
       }
     : null,
+});
+
+const session = (s: Stripe.Checkout.Session): CheckoutSession => ({
+  id: s.id,
+  url: s.url ?? null,
+  status: s.status === 'complete' ? 'complete' : s.status === 'expired' ? 'expired' : 'open',
+  amountTotal: s.amount_total ?? 0,
+  expiresAt: new Date(s.expires_at * 1000),
 });
 
 /** The real Stripe, with the platform's key, a pinned API version and a 10 s timeout. */
@@ -107,5 +144,36 @@ export function createStripeGateway(secretKey: string): StripeGateway {
       });
       return { url: link.url, expiresAt: new Date(link.expires_at * 1000) };
     },
+    createCheckoutSession: async (p, idempotencyKey) => {
+      const metadata = { invoice_id: p.invoiceId, payment_id: p.paymentId };
+      return session(
+        await stripe.checkout.sessions.create(
+          {
+            mode: 'payment',
+            line_items: [
+              {
+                quantity: 1,
+                price_data: {
+                  currency: p.currency,
+                  unit_amount: p.amountCents,
+                  product_data: { name: p.description },
+                },
+              },
+            ],
+            client_reference_id: p.invoiceId,
+            metadata,
+            payment_intent_data: { metadata },
+            expires_at: Math.floor(p.expiresAt.getTime() / 1000),
+            success_url: p.successUrl,
+            cancel_url: p.cancelUrl,
+          },
+          { stripeAccount: p.accountId, idempotencyKey },
+        ),
+      );
+    },
+    retrieveCheckoutSession: async (accountId, sessionId) =>
+      session(await stripe.checkout.sessions.retrieve(sessionId, {}, { stripeAccount: accountId })),
+    expireCheckoutSession: async (accountId, sessionId) =>
+      session(await stripe.checkout.sessions.expire(sessionId, {}, { stripeAccount: accountId })),
   };
 }

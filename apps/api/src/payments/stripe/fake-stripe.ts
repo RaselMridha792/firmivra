@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import type {
   AccountLinkParams,
+  CheckoutParams,
+  CheckoutSession,
   ConnectedAccount,
   CreateAccountParams,
   OnboardingLink,
@@ -19,6 +21,12 @@ export class FakeStripeUnavailable extends Error {
  */
 export class FakeStripeGateway implements StripeGateway {
   readonly accounts = new Map<string, ConnectedAccount>();
+  /** Checkout Sessions with the account they run on and their params. */
+  readonly sessions = new Map<
+    string,
+    CheckoutSession & { accountId: string; params: CheckoutParams }
+  >();
+  private readonly sessionsByKey = new Map<string, string>();
   readonly calls: { method: keyof StripeGateway; accountId?: string; params?: unknown }[] = [];
   private readonly byKey = new Map<string, string>();
   down = false;
@@ -67,6 +75,58 @@ export class FakeStripeGateway implements StripeGateway {
       url: `https://connect.stripe.com/setup/s/${params.accountId}/${randomBytes(6).toString('hex')}`,
       expiresAt: new Date(Date.now() + 5 * 60_000),
     };
+  }
+
+  async createCheckoutSession(params: CheckoutParams, idempotencyKey: string) {
+    this.calls.push({ method: 'createCheckoutSession', accountId: params.accountId, params });
+    await this.answer();
+    const known = this.sessionsByKey.get(idempotencyKey);
+    if (known) return this.view(known);
+    const id = `cs_fake${randomBytes(8).toString('hex')}`;
+    this.sessions.set(id, {
+      id,
+      url: `https://checkout.stripe.com/c/pay/${id}`,
+      status: 'open',
+      amountTotal: params.amountCents,
+      expiresAt: params.expiresAt,
+      accountId: params.accountId,
+      params,
+    });
+    this.sessionsByKey.set(idempotencyKey, id);
+    return this.view(id);
+  }
+
+  async retrieveCheckoutSession(accountId: string, sessionId: string) {
+    this.calls.push({ method: 'retrieveCheckoutSession', accountId, params: { sessionId } });
+    await this.answer();
+    return this.view(sessionId, accountId);
+  }
+
+  async expireCheckoutSession(accountId: string, sessionId: string) {
+    this.calls.push({ method: 'expireCheckoutSession', accountId, params: { sessionId } });
+    await this.answer();
+    const s = this.sessions.get(sessionId);
+    if (!s || s.accountId !== accountId || s.status !== 'open') {
+      throw new Error('Only an open session can be expired (fake)');
+    }
+    this.sessions.set(sessionId, { ...s, status: 'expired', url: null });
+    return this.view(sessionId);
+  }
+
+  /** As if the client paid (or the session ran out) at Stripe. */
+  setSession(sessionId: string, changes: Partial<Pick<CheckoutSession, 'status' | 'expiresAt'>>) {
+    const s = this.sessions.get(sessionId);
+    if (!s) throw new Error('No such session (fake)');
+    const status = changes.status ?? s.status;
+    this.sessions.set(sessionId, { ...s, ...changes, url: status === 'open' ? s.url : null });
+  }
+
+  private view(sessionId: string, accountId?: string): CheckoutSession {
+    const s = this.sessions.get(sessionId);
+    // Stripe answers "no such session" for another account's session.
+    if (!s || (accountId && s.accountId !== accountId)) throw new Error('No such session (fake)');
+    const { accountId: _account, params: _params, ...session } = s;
+    return { ...session };
   }
 
   /** As if the Owner did something at Stripe. */
