@@ -119,7 +119,10 @@ export const ConvertLeadRequest = z.strictObject({
   accountType: ClientAccountType.optional(),
   title: text(200).optional(),
   assignedUserId: z.uuid().optional(),
-  /** Email the visitor an invitation to sign up on the client portal. Default true. */
+  /**
+   * Email the visitor an invitation to sign up on the client portal (a new client only; an
+   * existing client is never invited again). Default true.
+   */
   sendPortalInvite: z.boolean().optional().default(true),
 });
 export type ConvertLeadRequest = z.input<typeof ConvertLeadRequest>;

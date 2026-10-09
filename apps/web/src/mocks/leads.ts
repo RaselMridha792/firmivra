@@ -173,7 +173,7 @@ export function createLeadsMock(options: { role?: MockFirmRole } = {}): LeadsCli
         client: { id: clientId, displayName: `${lead.firstName} ${lead.lastName}` },
         engagementId,
       });
-      return { lead, clientId, engagementId, inviteSent: b.sendPortalInvite };
+      return { lead, clientId, engagementId, inviteSent: b.sendPortalInvite && !b.clientId };
     },
     async decline(leadId, body) {
       const b = parseInput(DeclineLeadRequest, body);
