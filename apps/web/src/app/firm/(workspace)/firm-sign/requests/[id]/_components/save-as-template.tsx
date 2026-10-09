@@ -8,7 +8,7 @@ import {
   SaveEsignTemplateBody,
   SaveEsignTemplateVersionBody,
 } from '@firmivra/types';
-import { Button, Input, Modal, Select } from '@firmivra/ui';
+import { Button, Checkbox, Input, Modal, Select } from '@firmivra/ui';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useFirm } from '../../../../../../../components/firm-context';
@@ -34,8 +34,9 @@ type Save =
 
 /**
  * Save as template: the request's pages, recipients (as roles), fields and settings become a new
- * template the caller owns, or the next version of one they may change. The client's own values
- * are not kept; merge fields stay merge fields.
+ * template the caller owns (private unless shared), or the next version of one they may change.
+ * The client's own values are not kept; merge fields stay merge fields. Text the sender typed is
+ * dropped unless the sender says it holds nothing of this client.
  */
 export function SaveAsTemplate({ r }: { r: EsignRequestDetail }) {
   const [open, setOpen] = useState(false);
@@ -53,10 +54,12 @@ export function SaveAsTemplate({ r }: { r: EsignRequestDetail }) {
 function SaveDialog({ r, onClose }: { r: EsignRequestDetail; onClose: () => void }) {
   const [name, setName] = useState(r.title);
   const [description, setDescription] = useState('');
-  const [visibility, setVisibility] = useState<EsignTemplateVisibility>('FIRM');
+  const [visibility, setVisibility] = useState<EsignTemplateVisibility>('PRIVATE');
   const [mode, setMode] = useState<Save['kind']>('new');
   const [templateId, setTemplateId] = useState(r.template?.id ?? '');
   const [note, setNote] = useState('');
+  const typed = r.fields.some((f) => f.value !== null && f.mergeKey === null);
+  const [keep, setKeep] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const [saved, setSaved] = useState<{ kind: Save['kind']; t: EsignTemplateDetail } | null>(null);
   const { role } = useFirm();
@@ -108,6 +111,7 @@ function SaveDialog({ r, onClose }: { r: EsignRequestDetail; onClose: () => void
         name,
         ...(description.trim() && { description }),
         visibility,
+        ...(typed && keep && { keepSenderValues: true }),
       });
       if (!parsed.success) return show(parsed.error.issues);
       save.mutate(
@@ -118,6 +122,7 @@ function SaveDialog({ r, onClose }: { r: EsignRequestDetail; onClose: () => void
       const parsed = SaveEsignTemplateVersionBody.safeParse({
         templateId: chosen,
         ...(note.trim() && { note }),
+        ...(typed && keep && { keepSenderValues: true }),
       });
       if (!parsed.success) return show(parsed.error.issues);
       save.mutate(
@@ -241,11 +246,21 @@ function SaveDialog({ r, onClose }: { r: EsignRequestDetail; onClose: () => void
                     edit('form');
                   }}
                   options={[
-                    { value: 'FIRM', label: 'Everyone in the firm' },
                     { value: 'PRIVATE', label: 'Only its owner' },
+                    { value: 'FIRM', label: 'Everyone in the firm' },
                   ]}
                 />
               </>
+            )}
+            {typed && (
+              <Checkbox
+                label="Keep the text I typed into fields. It holds nothing about this client."
+                checked={keep}
+                onChange={(e) => {
+                  setKeep(e.target.checked);
+                  edit('form');
+                }}
+              />
             )}
           </fieldset>
           {(errors.form || save.error) && (
