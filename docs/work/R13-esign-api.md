@@ -41,7 +41,7 @@ Target merge windows in brackets (Dhaka).
 
 ## Decisions in contract 1
 
-- Firm routes live at `/api/v1/esign/...`; `GET /esign/status` never answers MODULE_OFF. The portal's `GET /portal/{slug}/signatures/status` lets Nahid show 'Signatures' before contract 2.
+- Firm routes live at `/api/v1/esign/...`; `GET /esign/status` never answers MODULE_OFF. The portal's `GET /portal/{slug}/me/signatures/status` lets Nahid show 'Signatures' before contract 2.
 - `myEsignRole` is OWNER, ADMIN, MANAGER, STAFF or VIEWER (null when off). MANAGER and VIEWER arrive with the roles contract.
 - The 17 merge keys are the spec's 15 plus Staff Email and Staff Phone (spec section 5 lists them for the sender).
 - The page viewer reads a file's bytes from `GET .../documents/{documentId}/content` on the same site, so no bucket CORS is needed. CLEAN files only.
@@ -69,3 +69,4 @@ Target merge windows in brackets (Dhaka).
 ## Progress log
 
 - Oct 8: started in the cloud. Contract 1 on `rasel/R13-api-contract-firm` (#135); Scrum pre-review fixes applied the same evening.
+- Oct 9: docs PR (step 4) on rasel/R13-api-docs.

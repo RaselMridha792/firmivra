@@ -1,7 +1,7 @@
 # Firmivra authentication design (decided)
 
 Owner: Rasel (architecture). Builder: Tumit (API, Sprint 1 and 2). Consumers: Fahad and Nahid (sign-in screens).
-Status: decided Oct 4, 2026. Updated Oct 5 to match the R2 auth contract (`docs/api/auth.yaml`, `packages/types/src/auth`), and with one session per site (`GET /api/v1/admin/me`).
+Status: decided Oct 4, 2026. Updated Oct 5 to match the R2 auth contract (`docs/api/auth.yaml`, `packages/types/src/auth`), and with one session per site (`GET /api/v1/admin/me`). Updated Oct 8: password reset email. Updated Oct 9 with Firm Sign signers.
 
 ## Summary
 
@@ -68,11 +68,76 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 - **Staff:** invited by owner or admin; same activation flow.
 - **Clients:** self sign-up on the firm's portal (email and phone verified with 6-digit codes), then status `PENDING_APPROVAL` until the firm approves. A pending client can sign in only to see "waiting for approval".
 - **Forgot password:** our API wraps Cognito `ForgotPassword` / `ConfirmForgotPassword` so the flow stays inside the firm's portal. Same response whether or not the account exists. Rate-limited.
-- **Emails:** sent by our API through SES with Firmivra or firm branding (Cognito's own emails are turned off).
+- **Emails:** sent by our API through SES (NotifyService) with Firmivra or firm branding. The one exception is the password reset code: Cognito's `ForgotPassword` sends it, through our SES identity (next section).
+
+## Password reset email (decided Oct 8)
+
+Cognito keeps `ForgotPassword` and `ConfirmForgotPassword` and sends the code itself, through our SES identity. No API, contract or screen change, and no NotifyService template.
+
+- **Sending:** Cognito's DEVELOPER mode (`UserPoolEmail.withSES` in `infra/src/stacks/auth-stack.ts`), with the sender, SES domain identity and configuration set per environment in `infra/src/config.ts` (`cognitoEmail`). Dev: from `no-reply@dev.firmivra.com`, identity `dev.firmivra.com`, configuration set `firmivra-dev-email`. Cognito sends with its service-linked role `AWSServiceRoleForAmazonCognitoIdpEmailService`; no SES identity policy is needed. An environment without a custom domain uses Cognito's default sender (COGNITO_DEFAULT).
+- **Wording** (plain, no firm branding):
+
+  | Pool | Subject | Body |
+  | --- | --- | --- |
+  | staff, admins | Firmivra password reset code | Your Firmivra password reset code is {####} |
+  | clients | Client portal password reset code | Your client portal password reset code is {####}. Enter it on the page where you asked to reset your password. |
+
+- **What else uses this message:** Cognito sends the same verification message for self sign-up confirmation (`SignUp`, `ResendConfirmationCode`), attribute verification (`UpdateUserAttributes`, `AdminUpdateUserAttributes` on a pool that verifies changed attributes, `GetUserAttributeVerificationCode`) and `AdminResetUserPassword`. Our pools never send it for those: self sign-up is off, the API never calls `SignUp`, `ResendConfirmationCode`, `GetUserAttributeVerificationCode` or `AdminResetUserPassword`, the pools have no auto-verified attributes, and every `AdminUpdateUserAttributes` call sets `email_verified` or `phone_number_verified` itself (R3 verifies addresses with its own codes). The invitation message is separate and suppressed (`MessageAction: SUPPRESS`), MFA is TOTP only, and threat protection sends no notices. So the message only ever carries the reset code.
+- **Dev SES is in the sandbox:** a reset email reaches only SES-verified addresses (the team's), at most 200 emails a day shared with the API's own, one per second. For any other address the API still answers the same and logs `No reset code sent: <error name>`.
+- **Prod plan (R8):** prod pools get their own SES identity and From address. Without SES production access by Oct 17, prod stays on COGNITO_DEFAULT (sender `no-reply@verificationemail.com`, at most 50 such emails a day for the whole AWS account; dev no longer uses them). Firm-branded client reset emails come later through a custom message Lambda.
 
 ## Super Admin access to a firm
 
 Super Admin has **no** access to firm data by default. Access needs a `SupportAccessGrant` approved by the firm owner, limited in time and logged in the audit log (Tumit, Sprint 3).
+
+## Firm Sign signers
+
+Firm Sign is our built-in e-signature module (R13, decided Oct 8). Most signers have no portal login, so they prove who they are with the signing link plus an email code. The contract is `docs/api/esign.yaml`. All signer routes live under `/api/v1/portal/{slug}/sign` on the portal host, are `@Public` with a strict throttle, and answer 404 when the firm has the `esign` module off.
+
+**The link token**
+
+- Each recipient gets a link token: 32 random bytes. Only its SHA-256 is stored (`esign_recipients.token_hash`). The raw token is in the email and nowhere else.
+- The link is `portal.firmivra.com/{slug}/sign#t=<token>`. The token sits in the URL fragment, so the browser never sends it to CloudFront, the load balancer or our logs, and it never leaks through `Referer`.
+- The signing page reads the fragment, removes it from the address bar, and posts it once to `POST /api/v1/portal/{slug}/sign/session`. The API never logs request bodies on these routes.
+- Unknown, expired, used (signed, declined or voided) and wrong-firm tokens all get the same `LINK_INVALID` answer, with the same status and body. A token from another firm's link never reveals that the request exists.
+- Correcting a recipient rotates the token (new token, `token_version` goes up), so the old link and any cookie made from it stop working.
+
+**The signer cookie**
+
+`POST .../sign/session` swaps the token for a sealed cookie. Sealed means encrypted and authenticated with a server key, so the browser cannot read or change it.
+
+| Cookie | Path | Lifetime | Flags |
+| --- | --- | --- | --- |
+| `fv_sign_{slug}` | `/api/v1/portal/{slug}/sign` | 1 hour | `HttpOnly`, `Secure`, host-only, `SameSite=Strict` |
+
+- It holds the recipient id, the token version, the firm and what the signer has passed so far (code, access code, consent), never the token itself.
+- `Strict` works because the cookie is set by a same-site call from the signing page after the page loads; the email click itself never needs the cookie.
+- One cookie per firm slug, so signing for two firms in one browser never mixes. It is separate from the portal's sign-in cookies and grants nothing outside the signer routes.
+- When it expires the signer opens the link again and gets a new code.
+
+**Email code and access code**
+
+- `POST .../sign/code/send` emails a 6-digit code to the recipient's address on the request. Only an HMAC of the code is stored, with a key derived by HKDF under the label `fv-esign-code-v1`.
+- A code lasts 15 minutes and allows 5 tries. After 5 wrong tries it is locked (`CODE_LOCKED`) and the signer must ask for a new one. A new code replaces the old one.
+- If the sender set an access code (shared with the signer outside Firmivra), `POST .../sign/access-code` checks it after the email code. Only its hash is stored; wrong tries count the same way.
+- Throttling is per IP and per recipient: few session calls, few code sends (for example one a minute, five an hour per recipient), few verify tries. The code never appears in logs or SMS.
+- Then the signer accepts the firm's consent text. Its version is pinned on the recipient. Every pass and failure is an `esign_events` row (`AUTH_PASSED`, `AUTH_FAILED`, `CONSENTED`).
+
+**Signing from the portal**
+
+A client who is signed in to the firm's portal can sign from the Signature center without the email code (auth method `PORTAL_SESSION`). `POST /api/v1/portal/{slug}/me/signatures/{recipientId}/session` checks that the recipient belongs to the signed-in `ClientAccount`; the client id comes from the portal session, never the URL, and any other recipient gets 404. It then sets the same `fv_sign_{slug}` cookie, already past the code step. Consent is still required.
+
+**The completed-copy link**
+
+When a request completes, each external signer gets an email with a copy link. It carries a new token (32 bytes, only the SHA-256 stored on the recipient), valid 30 days. It goes through the same session call and an email code, and gives a read-only cookie that can only download the final PDF and the certificate.
+
+**In-person signing (kiosk)**
+
+- A staff member starts an in-person session for one recipient from the request (`POST /api/v1/esign/requests/{id}/in-person/{recipientId}/start`). The office computer or tablet then shows only that recipient's signing screens, with firm branding and no Firmivra or firm data.
+- While the kiosk is open, the API marks that staff sign-in session as locked, on the server, not only in the browser. Every firm route except the kiosk's own signing routes and the exit route answers 403, so a client at the kiosk cannot reach firm data by changing the address.
+- Leaving the kiosk back to the staff view needs the same staff member to type their password again. The API checks it against Cognito (`AdminInitiateAuth` on the staff pool), or against local auth when `AUTH_MODE=local`. Wrong tries are throttled; after 5, the session is signed out instead of unlocked.
+- If the kiosk is left alone it times out and the staff session is signed out, never unlocked.
+- Events record `IN_PERSON_STARTED`, `IN_PERSON_ENDED`, delivery `IN_PERSON` and the host staff member.
 
 ## Local development
 
@@ -94,3 +159,4 @@ Developers have no AWS access. With `AUTH_MODE=local` (only allowed when `NODE_E
 | Client sign-up, verify, approval, firm-scoped forgot/reset, team invites | Tumit | Sprint 2 |
 | Portal sign-up, sign-in, verify, forgot/reset screens | Nahid | Sprint 2 |
 | Support access grants | Tumit | Sprint 3 |
+| Firm Sign signer link, cookie, codes, copy link, kiosk lock | Rasel (R13) | Oct 12-14 |
