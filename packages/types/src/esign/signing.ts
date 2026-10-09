@@ -42,7 +42,7 @@ const DateTime = z.iso.datetime({ offset: true });
  * - CONSENT: read and accept the firm's e-signature consent (`consent`, `acceptConsent`).
  * - SIGN: the document is open to them (`envelope`, `adopt`, `finish`, `decline`).
  * - WAITING: someone before them signs first; they get an email when it is their turn.
- * - DONE: they signed or approved. The others may still be signing.
+ * - DONE: they signed. The others may still be signing.
  * - DECLINED: they declined.
  * - CLOSED: the request was completed without them, declined by someone else, expired or voided.
  * - COPY: a completed-copy link (`copy`, `downloadCopy`), after VERIFY_EMAIL.
@@ -69,7 +69,7 @@ export const SignerState = z.object({
   firmName: z.string(),
   /** The recipient's own name, as the sender entered it. */
   signerName: z.string(),
-  /** Where the code goes, masked (j***@example.com); null unless VERIFY_EMAIL. */
+  /** Where the code goes, masked (j***@example.test); null unless VERIFY_EMAIL. */
   codeSentTo: z.string().nullable(),
   /** The request's status when CLOSED or COPY; null otherwise. */
   requestStatus: EsignRequestStatus.nullable(),
