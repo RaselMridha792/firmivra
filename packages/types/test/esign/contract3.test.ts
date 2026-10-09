@@ -3,13 +3,19 @@ import {
   ApiRequestError,
   createEsignClient,
   createRequest,
+  ESIGN_MAX_FIELD_OPTIONS,
+  ESIGN_MAX_FIELDS,
   ESIGN_READINESS_TEXT,
   EsignApprovalBody,
   EsignBulkBatch,
   EsignBulkSendBody,
+  EsignExpiryDays,
+  EsignExpiryWarningDays,
   EsignReadinessCode,
+  EsignPutFieldsBody,
   EsignPutRecipient,
   EsignPutRecipientsBody,
+  EsignReminders,
   EsignReportQuery,
 } from '../../src/index.js';
 
@@ -189,6 +195,69 @@ describe('approvers in PUT recipients', () => {
     expect(EsignPutRecipientsBody.safeParse({ recipients: [approver] }).success).toBe(true);
     expect(EsignPutRecipientsBody.safeParse({ recipients: [approver, approver] }).success).toBe(
       false,
+    );
+  });
+});
+
+describe('PUT fields body size', () => {
+  // The API's JSON limit (apps/api/src/configure-app.ts JSON_BODY_LIMIT_BYTES).
+  const LIMIT = 2 * 1024 * 1024;
+  const big = (n: number) => '€'.repeat(n);
+  const fieldsWith = (optionsEach: number) =>
+    Array.from({ length: ESIGN_MAX_FIELDS }, (_, i) => ({
+      id: `0199b6e4-0000-7000-8000-${String(i).padStart(12, '0')}`,
+      recipientId: null,
+      type: 'DROPDOWN' as const,
+      pageIndex: 99,
+      x: 0.123456789,
+      y: 0.123456789,
+      w: 0.123456789,
+      h: 0.123456789,
+      required: true,
+      label: big(200),
+      options: Array.from({ length: optionsEach }, () => big(100)),
+      groupKey: 'g'.repeat(40),
+      value: big(500),
+    }));
+
+  it('keeps the largest valid body under the 2 MB limit', () => {
+    const body = { fields: fieldsWith(ESIGN_MAX_FIELD_OPTIONS / ESIGN_MAX_FIELDS) };
+    expect(EsignPutFieldsBody.safeParse(body).success).toBe(true);
+    expect(new TextEncoder().encode(JSON.stringify(body)).length).toBeLessThan(LIMIT);
+  });
+
+  it('refuses more than 2,000 choices across all fields', () => {
+    const body = { fields: fieldsWith(ESIGN_MAX_FIELD_OPTIONS / ESIGN_MAX_FIELDS + 1) };
+    expect(EsignPutFieldsBody.safeParse(body).success).toBe(false);
+  });
+});
+
+describe('approvers', () => {
+  it('lists who may approve', async () => {
+    const { fn, calls } = fakeFetch(200, {
+      items: [{ user: { userId: id, name: 'Owner' }, esignRole: 'OWNER' }],
+    });
+    const list = await createEsignClient(request(fn)).approvers();
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET /api/v1/esign/approvers']);
+    expect(list.items[0]!.esignRole).toBe('OWNER');
+  });
+});
+
+describe('friendly limits on expiry and reminders', () => {
+  const message = (r: { success: boolean; error?: { issues: { message: string }[] } }) =>
+    r.error?.issues[0]?.message;
+  it('says what is wrong', () => {
+    expect(message(EsignExpiryDays.safeParse(400))).toBe('The expiry can be at most 365 days');
+    expect(message(EsignExpiryDays.safeParse(0))).toBe('The expiry must be at least 1 day');
+    expect(message(EsignExpiryWarningDays.safeParse(31))).toBe(
+      'The warning can be at most 30 days',
+    );
+    expect(message(EsignExpiryDays.safeParse(2.5))).toBe('Enter the expiry in whole days');
+    expect(message(EsignReminders.safeParse({ firstAfterDays: 61, everyDays: 3, max: 3 }))).toBe(
+      'The first reminder can be at most 60 days',
+    );
+    expect(message(EsignReminders.safeParse({ firstAfterDays: 3, everyDays: 3, max: 11 }))).toBe(
+      'Send at most 10 reminders',
     );
   });
 });
