@@ -61,14 +61,21 @@ async function loadCases() {
 }
 const { records: RECORDS, cases: CASES, excluded: EXCLUDED, duplicates } = await loadCases();
 
-/** Path params that are not records: fixed values valid for any firm. */
-const FIXED_PARAMS: Record<string, string> = {
-  year: '2025',
-  kind: 'TERMS',
-  version: '1',
-  key: 'tax-bracket',
-  step: 'branding',
-};
+/**
+ * Path params that are not records, each tied to the routes that use it, with a value valid for
+ * any firm. The same name on any other route is a record param and needs a case.
+ */
+const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
+  { param: 'year', value: '2025', routes: /\/tax-years\/:year(\/history)?$/ },
+  { param: 'kind', value: 'terms', routes: /\/legal\/:kind(\/versions(\/:version)?)?$/ },
+  { param: 'version', value: '1', routes: /\/legal\/:kind\/versions\/:version$/ },
+  { param: 'key', value: 'tax-bracket', routes: /\/calculators\/:key$/ },
+  { param: 'step', value: 'branding', routes: /\/setup\/steps\/:step$/ },
+];
+const fixedOf = (path: string): Record<string, string> =>
+  Object.fromEntries(
+    FIXED_PARAMS.filter((f) => f.routes.test(path)).map((f) => [f.param, f.value]),
+  );
 
 const isFirmRoute = (r: ApiRoute) =>
   !r.isPublic &&
@@ -79,7 +86,7 @@ const isPortalRoute = (r: ApiRoute) =>
 const isAdminRoute = (r: ApiRoute) => !r.isPublic && r.roles.includes('SUPER_ADMIN');
 /** Every param but the firm's slug and the fixed ones names a record. */
 const recordParams = (r: ApiRoute) =>
-  paramsOf(r.path).filter((p) => p !== 'firmSlug' && !(p in FIXED_PARAMS));
+  paramsOf(r.path).filter((p) => p !== 'firmSlug' && !(p in fixedOf(r.path)));
 const keyOf = (r: ApiRoute) => `${r.method} ${r.path}`;
 const is2xx = (status: number) => status >= 200 && status < 300;
 
@@ -235,7 +242,16 @@ afterAll(async () => {
 });
 
 const fill = (route: ApiRoute, firmSlug: string, records: Record<string, string> = {}) =>
-  fillPath(route.path, { firmSlug, ...FIXED_PARAMS, ...records });
+  fillPath(route.path, { firmSlug, ...fixedOf(route.path), ...records });
+
+/**
+ * Routes whose record params all have a case. The sweeps run over these; a route without its
+ * case fails the coverage test instead.
+ */
+const ready = (r: ApiRoute) => {
+  const c = CASES[keyOf(r)];
+  return recordParams(r).every((p) => c?.params[p] !== undefined);
+};
 
 const recordsOf = (c: RecordCase, world: World) =>
   Object.fromEntries(Object.entries(c.params).map(([param, key]) => [param, world.rec[key]!]));
@@ -293,8 +309,10 @@ describe('tenant isolation (R8 step 2)', () => {
     }
     for (const [key, c] of Object.entries(CASES))
       if (!keys.has(key)) problems.push(`${key} (${c.file}): no such route`);
-    for (const key of Object.keys(EXCLUDED))
+    for (const [key, why] of Object.entries(EXCLUDED)) {
       if (!keys.has(key)) problems.push(`${key}: excluded, but no such route`);
+      if (why.trim().length < 10) problems.push(`${key}: excluded without a reason`);
+    }
     expect(problems, HOW_TO_ADD).toEqual([]);
   });
 
@@ -306,7 +324,7 @@ describe('tenant isolation (R8 step 2)', () => {
 
     it('a member of firm Q gets 404 naming firm P, on every firm route', async () => {
       const failures: string[] = [];
-      for (const route of routes.filter(isFirmRoute)) {
+      for (const route of routes.filter(isFirmRoute).filter(ready)) {
         const c = CASES[keyOf(route)];
         const path = fill(route, firms.p.slug, c ? recordsOf(c, base) : {});
         const res = await call(
@@ -322,7 +340,7 @@ describe('tenant isolation (R8 step 2)', () => {
 
     it("a member of firm Q gets 404 on firm P's records by id, in firm Q", async () => {
       const failures: string[] = [];
-      for (const route of routes.filter(isFirmRoute)) {
+      for (const route of routes.filter(isFirmRoute).filter(ready)) {
         const c = CASES[keyOf(route)];
         if (!c) continue;
         const res = await call(
@@ -338,7 +356,7 @@ describe('tenant isolation (R8 step 2)', () => {
 
     it("a client of firm P gets 404 at firm Q's portal, on every client route", async () => {
       const failures: string[] = [];
-      for (const route of routes.filter(isPortalRoute)) {
+      for (const route of routes.filter(isPortalRoute).filter(ready)) {
         const c = CASES[keyOf(route)];
         const res = await call(
           route,
@@ -353,9 +371,11 @@ describe('tenant isolation (R8 step 2)', () => {
 
     it("client Y gets 404 on client X's records in the same firm", async () => {
       const failures: string[] = [];
-      for (const route of routes.filter(isPortalRoute)) {
+      for (const route of routes.filter(isPortalRoute).filter(ready)) {
         const c = CASES[keyOf(route)];
         if (!c) continue;
+        // Only another client's own records are walled off; a firm-wide record is not.
+        if (!Object.values(c.params).some((key) => RECORDS[key]?.clientPrivate)) continue;
         const res = await call(
           route,
           fill(route, firms.p.slug, recordsOf(c, base)),
@@ -365,6 +385,13 @@ describe('tenant isolation (R8 step 2)', () => {
         if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
       }
       expect(failures).toEqual([]);
+    });
+
+    it("a client of firm P signed in at firm Q's portal is not a client there", async () => {
+      const route = routes.find((r) => keyOf(r) === 'GET /api/v1/portal/:firmSlug/me')!;
+      const res = await call(route, fill(route, firms.q.slug), as.client(base.client!));
+      expect([401, 403, 404]).toContain(res.status);
+      expect(JSON.stringify(res.body)).not.toContain(base.rec.client!);
     });
 
     it("no refused request changed a row of firm P's", async () => {
@@ -463,7 +490,7 @@ describe('tenant isolation (R8 step 2)', () => {
 
     it('every firm and portal route refuses a Super Admin', async () => {
       const failures: string[] = [];
-      for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r))) {
+      for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r)).filter(ready)) {
         const c = CASES[keyOf(route)];
         const path = fill(route, firms.p.slug, c ? recordsOf(c, base) : {});
         const actor = isPortalRoute(route) ? as.admin() : { ...as.admin(), firmId: firms.p.id };
@@ -476,7 +503,7 @@ describe('tenant isolation (R8 step 2)', () => {
 
   it("the positive control: firm P's Owner and client X reach every case", async () => {
     const failures: string[] = [];
-    for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r))) {
+    for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r)).filter(ready)) {
       const c = CASES[keyOf(route)];
       if (!c) continue;
       // Reads share the base world; each write gets a fresh one, so no case sees another's write.

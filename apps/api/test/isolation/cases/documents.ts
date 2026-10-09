@@ -32,6 +32,12 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
+  'GET /api/v1/portal/:firmSlug/me/documents/:id': { params: { id: 'document' } },
+  // No file store in tests: found, then 503.
+  'GET /api/v1/portal/:firmSlug/me/documents/:id/download': {
+    params: { id: 'document' },
+    expect: 503,
+  },
   'GET /api/v1/business/clients/:clientId/documents': { params: { clientId: 'client' } },
   'GET /api/v1/business/documents/:id': { params: { id: 'document' } },
   // No file store in tests: found, then 503.
