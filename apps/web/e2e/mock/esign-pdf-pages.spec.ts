@@ -64,5 +64,19 @@ test('a scanned page draws its picture', async ({ page }) => {
     return ctx?.getImageData(x, y, 1, 1).data[0] ?? 255;
   });
   expect(shade).toBeLessThan(100);
-  expect(warnings.filter((w) => /wasm|JpxError|decode/i.test(w))).toEqual([]);
+  expect(warnings.filter((w) => /instantiateWasm|JpxError|Jbig2Error|not bundled/.test(w))).toEqual(
+    [],
+  );
+  await expect(page.getByTestId('pdf-no-wasm')).toHaveCount(0);
+});
+
+test('without WebAssembly, the signer is told scanned pages may be blank', async ({ page }) => {
+  // iOS Lockdown Mode and some locked-down browsers turn WebAssembly off.
+  await page.addInitScript(() => {
+    // @ts-expect-error removing a built-in on purpose
+    delete globalThis.WebAssembly;
+  });
+  await page.goto(signPage);
+  await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
+  await expect(page.getByTestId('pdf-no-wasm')).toContainText('Open it in another browser');
 });

@@ -1,4 +1,37 @@
 /**
+ * Writes a PDF from its objects (object n is `objects[n - 1]`; object 1 is the catalog). Parts may
+ * be bytes, for image streams.
+ */
+function writePdf(objects: (string | Uint8Array)[][]): Uint8Array {
+  const parts: Uint8Array[] = [];
+  let length = 0;
+  const push = (part: string | Uint8Array) => {
+    const bytes = typeof part === 'string' ? new TextEncoder().encode(part) : part;
+    parts.push(bytes);
+    length += bytes.length;
+  };
+  const offsets: number[] = [];
+  push('%PDF-1.5\n');
+  objects.forEach((body, i) => {
+    offsets.push(length);
+    push(`${i + 1} 0 obj\n`);
+    body.forEach(push);
+    push('\nendobj\n');
+  });
+  const xref = length;
+  push(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`);
+  push(offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join(''));
+  push(`trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  const pdf = new Uint8Array(length);
+  let at = 0;
+  for (const p of parts) {
+    pdf.set(p, at);
+    at += p.length;
+  }
+  return pdf;
+}
+
+/**
  * A synthetic text-only PDF with `pages` pages, for mock mode and tests. Never real client data.
  */
 export function samplePdf(pages: number, title = 'Sample engagement letter'): Uint8Array {
@@ -22,17 +55,7 @@ export function samplePdf(pages: number, title = 'Sample engagement letter'): Ui
   }
   objs[0] = '<< /Type /Catalog /Pages 2 0 R >>';
   objs[1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${pages} >>`;
-  let pdf = '%PDF-1.4\n';
-  const offsets: number[] = [];
-  objs.forEach((o, i) => {
-    offsets.push(pdf.length);
-    pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
-  });
-  const xref = pdf.length;
-  pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
-  pdf += offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('');
-  pdf += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  return new TextEncoder().encode(pdf);
+  return writePdf(objs.map((o) => [o]));
 }
 
 /**
@@ -49,44 +72,19 @@ const SAMPLE_JPX =
 export function scannedSamplePdf(): Uint8Array {
   const image = Uint8Array.from(atob(SAMPLE_JPX), (c) => c.charCodeAt(0));
   const draw = 'q 468 0 0 234 72 486 cm /Im1 Do Q';
-  const parts: Uint8Array[] = [];
-  const offsets: number[] = [];
-  let length = 0;
-  const push = (part: string | Uint8Array) => {
-    const bytes = typeof part === 'string' ? new TextEncoder().encode(part) : part;
-    parts.push(bytes);
-    length += bytes.length;
-  };
-  const obj = (n: number, body: string | (string | Uint8Array)[]) => {
-    offsets[n - 1] = length;
-    push(`${n} 0 obj\n`);
-    for (const p of typeof body === 'string' ? [body] : body) push(p);
-    push('\nendobj\n');
-  };
-  push('%PDF-1.5\n');
-  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
-  obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-  obj(
-    3,
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R ' +
-      '/Resources << /XObject << /Im1 5 0 R >> >> >>',
-  );
-  obj(4, `<< /Length ${draw.length} >>\nstream\n${draw}\nendstream`);
-  obj(5, [
-    `<< /Type /XObject /Subtype /Image /Width 160 /Height 80 /Filter /JPXDecode ` +
-      `/Length ${image.length} >>\nstream\n`,
-    image,
-    '\nendstream',
+  return writePdf([
+    ['<< /Type /Catalog /Pages 2 0 R >>'],
+    ['<< /Type /Pages /Kids [3 0 R] /Count 1 >>'],
+    [
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R ' +
+        '/Resources << /XObject << /Im1 5 0 R >> >> >>',
+    ],
+    [`<< /Length ${draw.length} >>\nstream\n${draw}\nendstream`],
+    [
+      '<< /Type /XObject /Subtype /Image /Width 160 /Height 80 /Filter /JPXDecode ' +
+        `/Length ${image.length} >>\nstream\n`,
+      image,
+      '\nendstream',
+    ],
   ]);
-  const xref = length;
-  push(`xref\n0 6\n0000000000 65535 f \n`);
-  push(offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join(''));
-  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
-  const pdf = new Uint8Array(length);
-  let at = 0;
-  for (const p of parts) {
-    pdf.set(p, at);
-    at += p.length;
-  }
-  return pdf;
 }

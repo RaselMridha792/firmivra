@@ -98,6 +98,13 @@ export function PdfPages({ source, label, onLoad, overlay }: PdfPagesProps) {
         <p className="p-4 text-sm text-muted">Loading document…</p>
       ) : (
         <div className="flex flex-col gap-4">
+          {/* Only after loading, so the server render (which has WebAssembly) always matches. */}
+          {typeof WebAssembly !== 'object' && (
+            <p data-testid="pdf-no-wasm" role="alert" className="text-sm text-danger">
+              This browser can&apos;t show scanned pages, so parts of this document may be blank.
+              Open it in another browser before you sign.
+            </p>
+          )}
           {width > 0 &&
             doc.sizes.map((size, i) => (
               <PdfPage
