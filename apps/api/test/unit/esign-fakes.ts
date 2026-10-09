@@ -173,7 +173,7 @@ export class InMemoryEsignRepository implements EsignRepository {
   }
 
   saveFields(businessId: string, id: string, fields: EsignField[], readAt: Date) {
-    return this.write(
+    return this.written(
       businessId,
       id,
       (row) => Object.assign(row.parts, structuredClone({ fields })),
@@ -245,7 +245,7 @@ export class InMemoryEsignRepository implements EsignRepository {
     fields: EsignField[],
     readAt: Date,
   ) {
-    return this.write(
+    return this.written(
       businessId,
       id,
       (row) => Object.assign(row.parts, structuredClone({ pagePlan, fields })),
@@ -260,7 +260,7 @@ export class InMemoryEsignRepository implements EsignRepository {
     fields: EsignField[],
     readAt: Date,
   ) {
-    return this.write(
+    return this.written(
       businessId,
       id,
       (row) => Object.assign(row.parts, structuredClone({ recipients, fields })),
@@ -283,7 +283,7 @@ export class InMemoryEsignRepository implements EsignRepository {
     id: string,
     write: EsignSendWrite,
     readAt: Date,
-  ): Promise<string[] | null> {
+  ): Promise<{ request: EsignRequestRecord; emailIds: string[] } | null> {
     const row = this.rows.of(businessId).get(id);
     if (
       row?.record.status !== 'DRAFT' ||
@@ -296,7 +296,10 @@ export class InMemoryEsignRepository implements EsignRepository {
       sentAt: write.sentAt,
       expiresAt: write.expiresAt,
       originalSha256: write.originalSha256,
-      lastActivityAt: write.sentAt,
+      // Strictly later than the value it replaces, as every write.
+      lastActivityAt: new Date(
+        Math.max(write.sentAt.getTime(), row.record.lastActivityAt.getTime() + 1),
+      ),
     });
     for (const t of write.turn) {
       const r = row.parts.recipients.find((x) => x.id === t.recipientId);
@@ -310,7 +313,7 @@ export class InMemoryEsignRepository implements EsignRepository {
       this.outbox.of(businessId).set(emailId, { ...e, status: 'QUEUED', error: null });
       return emailId;
     });
-    return Promise.resolve(ids);
+    return Promise.resolve({ request: structuredClone(row.record), emailIds: ids });
   }
 
   emailOutcome(
@@ -367,7 +370,7 @@ export class InMemoryEsignRepository implements EsignRepository {
     fields: EsignField[],
     readAt: Date,
   ) {
-    return this.write(
+    return this.written(
       businessId,
       id,
       (row) => {
@@ -383,6 +386,18 @@ export class InMemoryEsignRepository implements EsignRepository {
     const row = this.rows.of(businessId).get(id);
     if (!row) throw new Error('no such request');
     change(row);
+  }
+
+  /** A write that answers the request as written, or null when refused. */
+  private async written(
+    businessId: string,
+    id: string,
+    change: (row: Row) => unknown,
+    readAt: Date,
+  ): Promise<EsignRequestRecord | null> {
+    if (!(await this.write(businessId, id, change, readAt))) return null;
+    const row = this.rows.of(businessId).get(id);
+    return row ? structuredClone(row.record) : null;
   }
 
   private write(

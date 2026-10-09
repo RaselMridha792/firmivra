@@ -88,7 +88,11 @@ function BookingForm({
             <Select
               label="Client"
               value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
+              onChange={(event) => {
+                setClientId(event.target.value);
+                // The client's own appointments leave times out: a picked one may be gone.
+                unpick();
+              }}
               options={[
                 { value: '', label: 'Choose a client' },
                 ...items.map((client) => ({ value: client.id, label: client.displayName })),
@@ -128,6 +132,7 @@ function BookingForm({
       <SlotPicker
         typeId={typeId}
         {...(staff ? { staffUserId: staff } : {})}
+        {...(clientId ? { clientId } : {})}
         timeZone={timeZone}
         date={date}
         picked={picked}

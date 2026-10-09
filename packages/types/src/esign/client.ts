@@ -74,6 +74,7 @@ import {
   DuplicateEsignTemplateBody,
   ESIGN_BULK_MAX,
   EsignApprovalBody,
+  EsignApproverList,
   EsignBulkBatch,
   EsignBulkSendBody,
   EsignInPersonSession,
@@ -276,6 +277,10 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
       exit: async (body: ExitEsignInPersonBody): Promise<OkResponse> =>
         post(OkResponse, `${BASE}/in-person/exit`, parseInput(ExitEsignInPersonBody, body)),
     },
+
+    /** Who may approve a request (see EsignApproverList). */
+    approvers: async (): Promise<EsignApproverList> =>
+      request(EsignApproverList, `${BASE}/approvers`),
 
     /** Firm Sign access per member (Owner and Admin only; 403 FORBIDDEN otherwise). */
     roles: {

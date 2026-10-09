@@ -122,7 +122,13 @@ export function clientFixtures(): readonly ClientRecord[] {
       portalStatus: 'PENDING_APPROVAL',
       profile: { businessName: 'Acme Widgets LLC', entityType: 'LLC', einLast4: '0002' },
     }),
-    fixture(3, { displayName: 'Riley Example', email: 'riley@example.test' }),
+    // A date of birth on file that can't be read right now (no firm key, KMS down): the screens
+    // show it as unavailable. Saving a date of birth clears it.
+    fixture(3, {
+      displayName: 'Riley Example',
+      email: 'riley@example.test',
+      profile: { dateOfBirthUnavailable: true },
+    }),
     fixture(4, { displayName: 'Pat Archived', archivedAt: at }),
   ];
   return fixtures;
@@ -195,6 +201,8 @@ export function createClientsMock(options: { role?: MockFirmRole } = {}): Client
       },
       ...(ssn !== undefined ? { ssnLast4: ssn === null ? null : ssn.slice(-4) } : {}),
       ...(ein !== undefined ? { einLast4: ein === null ? null : ein.slice(-4) } : {}),
+      // A new date of birth (or none) replaces the unreadable one.
+      ...(data.dateOfBirth !== undefined ? { dateOfBirthUnavailable: false } : {}),
       updatedAt: now(),
     };
     save({ ...row, profile, updatedAt: now() });
@@ -340,7 +348,7 @@ export function createMyProfileMock(
     portalRole,
     fullName: c.displayName,
     dateOfBirth: primary ? c.profile.dateOfBirth : null,
-    dateOfBirthUnavailable: false,
+    dateOfBirthUnavailable: primary && c.profile.dateOfBirthUnavailable,
     email: c.email,
     phone: nameOnly ? null : c.phone,
     address: nameOnly ? emptyAddress : c.profile.address,

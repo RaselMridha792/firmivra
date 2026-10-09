@@ -38,6 +38,8 @@ import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { EsignModule } from './esign/esign.module.js';
+import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
+import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
@@ -97,6 +99,8 @@ export class AppModule {
         WorkspacesModule,
         DocumentsModule,
         EsignModule,
+        StripeClientModule,
+        PaymentsSetupModule,
         InvoicesModule,
         SignInModule,
         PortalInfoModule,

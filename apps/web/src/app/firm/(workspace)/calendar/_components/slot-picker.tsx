@@ -12,10 +12,12 @@ import { isCalendarDate, timeLabel } from './time';
 /**
  * A day's free times for an appointment type (the API's slots). `round` asks again: after
  * SLOT_TAKEN the caller bumps it, so the list no longer offers the time someone just took.
+ * With `clientId` (booking), times when the client already has an appointment are left out.
  */
 export function SlotPicker({
   typeId,
   staffUserId,
+  clientId,
   excludeAppointmentId,
   timeZone,
   date,
@@ -26,6 +28,7 @@ export function SlotPicker({
 }: {
   typeId: string;
   staffUserId?: string;
+  clientId?: string;
   excludeAppointmentId?: string;
   timeZone: string;
   date: string;
@@ -35,13 +38,14 @@ export function SlotPicker({
   onPick: (slot: Slot) => void;
 }) {
   const slots = useApiQuery(
-    [...APPOINTMENTS, 'slots', typeId, staffUserId, excludeAppointmentId, date, round],
+    [...APPOINTMENTS, 'slots', typeId, staffUserId, clientId, excludeAppointmentId, date, round],
     () =>
       api.appointments.slots({
         typeId,
         from: date,
         to: date,
         ...(staffUserId ? { staffUserId } : {}),
+        ...(clientId ? { clientId } : {}),
         ...(excludeAppointmentId ? { excludeAppointmentId } : {}),
       }),
   );
