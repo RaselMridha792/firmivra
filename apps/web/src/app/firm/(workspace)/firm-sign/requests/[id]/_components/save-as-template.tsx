@@ -49,9 +49,11 @@ function SaveDialog({ r, onClose }: { r: EsignRequestDetail; onClose: () => void
       invalidate: TEMPLATES,
     },
   );
-  // Not while saving: the result would be lost with the dialog.
-  const leave = () => {
-    if (!save.isPending) onClose();
+  // Not while saving: the result would be lost with the dialog. Modal passes Escape's cancel
+  // event, and stopping it keeps the dialog open.
+  const leave = (event?: { preventDefault?: () => void }) => {
+    if (save.isPending) event?.preventDefault?.();
+    else onClose();
   };
   const edit = (field: keyof Errors) => {
     setErrors(({ [field]: _, form: __, ...rest }) => rest);
