@@ -95,7 +95,7 @@ export const record = (n: number, fields: Record<string, unknown> = {}) => ({
 
 /** Answers GET, archive and restore for one client, keeping its archived state. */
 export async function routeClientRecord(page: Page, start = record(1)) {
-  let current = start;
+  let current: Record<string, unknown> = start;
   await page.route(`**/api/v1/business/clients/${start.id}**`, (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/archive')) current = { ...current, archivedAt: '2026-10-09T21:00:00.000Z' };
