@@ -14,6 +14,11 @@ export class FakeStripeUnavailable extends Error {
   override name = 'StripeConnectionError';
 }
 
+/** What Stripe's SDK throws for a session it does not have (or another account's). */
+export class FakeStripeMissing extends Error {
+  override name = 'StripeInvalidRequestError:resource_missing';
+}
+
 /**
  * An in-memory Stripe for tests and STRIPE_MODE=fake: accounts keyed by idempotency key (the same
  * key answers the same account, as Stripe does), links on connect.stripe.com that open nothing.
@@ -139,7 +144,8 @@ export class FakeStripeGateway implements StripeGateway {
   private view(sessionId: string, accountId?: string): CheckoutSession {
     const s = this.sessions.get(sessionId);
     // Stripe answers "no such session" for another account's session.
-    if (!s || (accountId && s.accountId !== accountId)) throw new Error('No such session (fake)');
+    if (!s || (accountId && s.accountId !== accountId))
+      throw new FakeStripeMissing('No such session (fake)');
     const { accountId: _account, params: _params, ...session } = s;
     return { ...session };
   }
