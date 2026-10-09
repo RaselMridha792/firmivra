@@ -334,8 +334,14 @@ export class MessagesService {
         return this.add(tx, v, thread, body.body, body.attachmentDocumentIds);
       });
     } catch (e) {
-      // The firm closed replies at the same moment: the database refuses the message.
-      if (v.kind === 'client' && databaseErrorCode(e) === '23514') throw repliesDisabled();
+      // The firm closed replies at the same moment: the database refuses the message. The same
+      // check also refuses a login that is no longer active, which stays an error.
+      if (v.kind === 'client' && databaseErrorCode(e) === '23514') {
+        const now = await this.inFirm(v, (tx) =>
+          tx.messageThread.findFirst({ where: { id }, select: { repliesEnabled: true } }),
+        );
+        if (now && !now.repliesEnabled) throw repliesDisabled();
+      }
       throw e;
     }
     await this.audit.log(
