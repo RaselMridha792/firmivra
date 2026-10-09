@@ -37,6 +37,8 @@ import { ContentModule } from './content/content.controller.js';
 import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
+import { ScanQueueModule } from './storage/scan-queue/scan-queue.module.js';
+import { ScanRouterModule } from './storage/scan-queue/scan-router.js';
 import { EsignModule } from './esign/esign.module.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
@@ -98,6 +100,8 @@ export class AppModule {
         AuditViewerModule,
         WorkspacesModule,
         DocumentsModule,
+        ScanRouterModule,
+        ScanQueueModule,
         EsignModule,
         StripeClientModule,
         PaymentsSetupModule,

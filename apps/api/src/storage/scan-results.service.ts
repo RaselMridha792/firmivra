@@ -14,13 +14,19 @@ export interface ScanResult {
   key: string;
   status: 'NO_THREATS_FOUND' | 'THREATS_FOUND' | 'UNSUPPORTED' | 'ACCESS_DENIED' | 'FAILED';
   reasons?: readonly string[];
+  /**
+   * The scanned object's S3 version id: logged by the consumer, not stored (documents has no
+   * version column yet; R0's `s3_version_id` will pin it).
+   */
+  versionId?: string | null;
 }
 
 /**
  * What became of the document: its new scan status; UNSCANNED for a password-protected PDF,
  * accepted unscanned (CLEAN, q24); PENDING when the scan broke on our side (the alarm and a
  * rescan); UNKNOWN for a documents key with no document yet (the confirm may still come: the
- * handler leaves the message for redelivery, then dead-letters it to the alarm); IGNORED for a
+ * consumer leaves the message for redelivery; DocumentScanHandler makes it IGNORED once the
+ * confirm window has passed); IGNORED for a
  * key outside the documents prefixes, a document whose result is already set, or an upload the
  * confirm refused (its object is deleted; delete the message).
  */
@@ -41,8 +47,13 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** tenant/{businessId}/documents/{uploadId}, as uploads.service.ts names a new object. */
 const KEY = new RegExp(`^tenant/(${UUID})/documents/(${UUID})$`);
 
-/** The scan status a result gives a file of this type, or null for "our side, still PENDING". */
-function statusFor(
+/**
+ * The scan status a result gives a file of this type, or null for "our side, still PENDING". The
+ * one mapping for every scanned prefix (the handlers in storage/scan-queue/scan-router.ts):
+ * NO_THREATS_FOUND is CLEAN, THREATS_FOUND INFECTED, a file reason FAILED, except q24's PDF that
+ * only needs a password (CLEAN, `unscanned`).
+ */
+export function scanVerdict(
   result: ScanResult,
   contentType: string,
 ): { scan: ScanStatus; unscanned: boolean; reasons: string[] } | null {
@@ -60,8 +71,8 @@ function statusFor(
 
 /**
  * Records a malware scan result on its document (R5; the rules in docs/api/documents.yaml "Scan
- * results"). The GuardDuty result handler (the SQS consumer, with the infra) calls this; there is
- * no route. The document is found by its S3 key in the firm its prefix names, never by a firm id
+ * results"). DocumentScanHandler calls this for each GuardDuty result the SQS consumer
+ * (storage/scan-queue) routes to the documents prefix; there is no route. The document is found by its S3 key in the firm its prefix names, never by a firm id
  * in the message, and only a PENDING document takes a result (the database refuses to change one
  * once set). q22: a SUBMITTED request whose newest file becomes INFECTED or FAILED goes back to
  * REQUESTED, in the same transaction. q24: UNSUPPORTED with PASSWORD_PROTECTED on a PDF is
@@ -103,7 +114,7 @@ export class ScanResultsService {
         SELECT scan_status::text AS scan_status FROM documents
         WHERE business_id = ${businessId}::uuid AND id = ${doc.id}::uuid FOR UPDATE`;
       if (locked?.scan_status !== 'PENDING') return 'IGNORED';
-      const next = statusFor(result, doc.contentType);
+      const next = scanVerdict(result, doc.contentType);
       if (!next) {
         // Our side (UNSUPPORTED_STORAGE_CLASS, ACCESS_DENIED, FAILED): the alarm and a rescan.
         this.logger.warn(`Scan of document ${doc.id} did not finish: ${result.status}; PENDING`);

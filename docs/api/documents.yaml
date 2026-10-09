@@ -237,10 +237,11 @@ info:
         status and note.
       - GuardDuty scans the object as soon as the PUT ends, so a result can arrive before the
         confirm commits the document (a confirm may come up to the token's 15 minutes later,
-        after a `503`). Such a result is `UNKNOWN` (logged with the upload id): the handler
-        leaves the message on the queue for redelivery (a visibility timeout and a max receive
-        count that cover 30 minutes), then dead-letters it to the alarm (an upload never
-        confirmed or refused, its object deleted). `IGNORED` (delete the message) is for a
+        after a `503`). Such a result is `UNKNOWN` (logged with the upload id): the consumer
+        leaves the message on the queue for redelivery (after 20 s on its first 5 receives,
+        then 120 s; 20 receives, about 32 minutes). Once the confirm window has passed (the
+        event's `time` plus the token's 15 minutes plus 5) the upload is an orphan, never
+        confirmed: `IGNORED`, logged with the upload id. `IGNORED` (delete the message) is for a
         result already set, a key outside `tenant/{businessId}/documents/`, and an upload the
         confirm refused: GuardDuty scanned its PUT before the refusal deleted the object, so a
         key with no document but a `document.upload_refused` audit entry for its upload id, in
@@ -252,6 +253,20 @@ info:
         our side, `document_request.reopened`). A password-protected PDF becomes `CLEAN` with
         `unscanned: true` in its audit entry; the firm's document shows it once R0 adds a column
         for it (the contract field comes with that column).
+      - Built (R1 step 19, `apps/api/src/storage/scan-queue/`): the consumer long-polls the
+        queue (`SCAN_RESULTS_QUEUE_URL`, set by the infra app stack; unset locally and in CI,
+        where nothing is read; a production build with `SCAN_MODE=guardduty` refuses to start
+        without it), one message at a time. It checks the event's source, detail-type, result
+        status, account, region and bucket (else `SCAN_REJECTED` in the log and the message
+        deleted) and routes by the key's prefix (`ScanResultRouter`): the firm comes from
+        `tenant/{businessId}/`, and only that firm's business scope is opened.
+        `DocumentScanHandler` takes `documents` and calls `recordScanResult`. Every outcome but
+        `UNKNOWN` (and an error, such as the database down) deletes the message; `PENDING` logs
+        `SCAN_UNFINISHED` and a kept message on its 20th receive `SCAN_LAST_RECEIVE`, each an
+        alarm (docs/SETUP-LOG.md, step 19). Logs carry ids, status and reason codes and the
+        version id only. Other prefixes (`esign`, `agreements`, `leads`) register their own
+        handler with the same outcomes (the contract is in `scan-router.ts`); until they do,
+        their results are `UNKNOWN` and wait in the dead-letter queue for a redrive.
     - **Replays.** A presigned PUT can be replayed until it expires and the bucket is versioned,
       so a download pins the confirmed version (R0: `documents.s3_version_id`) or the API checks
       the checksum before signing the GET. Today it checks the size, S3's checksum and that no
@@ -300,7 +315,7 @@ info:
         uploads ("Leftovers"), and a bucket policy that refuses a PutObject without
         `aws:kms`. That policy must let GuardDuty's validation object through, or the plan
         stays in WARNING (`INSUFFICIENT_TEST_OBJECT_PERMISSIONS`).
-      - Until GuardDuty is deployed, new uploads on dev stay `PENDING`.
+      - Until GuardDuty is deployed (R1 step 19), new uploads on dev stay `PENDING`.
 
     ## Pages and calls
 
