@@ -273,11 +273,16 @@ export interface ReadinessInput {
 
 export interface EsignRules {
   readiness(input: ReadinessInput): EsignReadiness;
-  /** The recipients whose turn it is now (SIGNER and APPROVER not yet done). */
+  /** The signers whose turn it is now (approvers act before sending; CCs never sign). */
   currentTurn(routing: EsignRouting, recipients: RuleRecipient[]): string[];
   /** The request's status after a recipient's status changed (open requests only). */
   statusAfter(recipients: RuleRecipient[], current: EsignRequestStatus): EsignRequestStatus;
-  /** When the next automatic reminder is due; null when none is left before expiry. */
+  /**
+   * When the next automatic reminder to one recipient is due; null when none is left before
+   * expiry. `sentAt` is when that recipient's turn began (for a later group in SEQUENTIAL
+   * routing, when the group before it finished), and `sentCount` counts only the automatic
+   * reminders already sent to them: Remind Now doesn't use up the schedule.
+   */
   nextReminderAt(input: {
     sentAt: Date;
     reminders: EsignReminders;
