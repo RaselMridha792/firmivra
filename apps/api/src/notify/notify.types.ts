@@ -42,6 +42,21 @@ export interface NotifyTemplates {
   /** The firm declined it. No reason goes to the client (Rasel, q18). */
   'client.signup-declined': IgnoredFirmName & { name: string };
 
+  // ----- Begin Online, leads and messages (R11) -----
+  /**
+   * The visitor's link back to their Begin Online draft (`{PORTAL_BASE_URL}/{slug}/begin/resume
+   * #token=...`). Nothing the visitor typed goes in: the address is not verified.
+   */
+  'begin-online.resume-link': IgnoredFirmName & { link: string; expiresAt: Date };
+  /** To the visitor after they send a request. Fixed text and the firm's own service name only. */
+  'lead.confirmation': IgnoredFirmName & { serviceName: string };
+  /** To the firm's owner and admins: a new Begin Online request. No answers and no names. */
+  'lead.received': IgnoredFirmName & { serviceName: string; link: string };
+  /** The firm converted the lead: an invitation to sign up on the client portal. */
+  'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
+  /** A new message in a thread. Never the message text: the reader opens the link. */
+  'message.received': IgnoredFirmName & { name: string; link: string };
+
   // ----- Firm applications (R4; Firmivra's own messages, businessId null) -----
   /**
    * No data: the address is not verified yet, so nothing the applicant typed goes into this email
@@ -106,6 +121,11 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.reminder': 'email',
   'invoice.sent': 'email',
   'payment.received': 'email',
+  'begin-online.resume-link': 'email',
+  'lead.confirmation': 'email',
+  'lead.received': 'email',
+  'client.portal-invite': 'email',
+  'message.received': 'email',
 };
 
 /**
@@ -132,6 +152,11 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.reminder': 'firm',
   'invoice.sent': 'firm',
   'payment.received': 'firm',
+  'begin-online.resume-link': 'firm',
+  'lead.confirmation': 'firm',
+  'lead.received': 'firm',
+  'client.portal-invite': 'firm',
+  'message.received': 'firm',
 };
 
 /**
@@ -149,6 +174,10 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'firm-application.info-requested',
   'firm-application.approved',
   'firm-application.declined',
+  // A Begin Online visitor has no account, so no preferences; an invitation is a decision.
+  'begin-online.resume-link',
+  'lead.confirmation',
+  'client.portal-invite',
 ]);
 
 /**
@@ -172,6 +201,11 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.reminder': 'APPOINTMENTS',
   'invoice.sent': 'BILLING',
   'payment.received': 'BILLING',
+  'begin-online.resume-link': 'ACCOUNT',
+  'lead.confirmation': 'ACCOUNT',
+  'lead.received': 'INTAKE',
+  'client.portal-invite': 'ACCOUNT',
+  'message.received': 'MESSAGES',
 };
 
 export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
