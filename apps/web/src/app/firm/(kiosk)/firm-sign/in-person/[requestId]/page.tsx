@@ -1,8 +1,13 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { InPersonKiosk } from '../../../../../../components/esign/in-person';
 
 export const metadata: Metadata = { title: 'In-person signing' };
 
-export default function InPersonSigningPage() {
-  return <PagePlaceholder title="In-person signing" ticket="R13" owner="R13-web" />;
+export default async function InPersonSigningPage({
+  params,
+}: {
+  params: Promise<{ requestId: string }>;
+}) {
+  const { requestId } = await params;
+  return <InPersonKiosk requestId={requestId} />;
 }
