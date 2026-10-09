@@ -24,7 +24,7 @@ import {
   UseEsignTemplateBody,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
-import { RequiresModule } from '../../common/modules/requires-module.js';
+import { EsignRoute } from '../extras/esign-role.guard.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { actorOf } from '../requests/requests.controller.js';
@@ -37,7 +37,7 @@ export const templateIdPipe = new ZodValidationPipe(EsignTemplateId);
 /** Firm Sign templates (contract: packages/types/src/esign/admin.ts, docs/api/esign.yaml). */
 @Controller('esign/templates')
 @Roles(...FIRM_STAFF)
-@RequiresModule('esign')
+@EsignRoute()
 export class EsignTemplatesController {
   constructor(
     private readonly templates: EsignTemplatesService,
@@ -126,7 +126,7 @@ export class EsignTemplatesController {
 /** Templates made from a request (contract: SaveEsignTemplateBody). */
 @Controller('esign/requests/:id')
 @Roles(...FIRM_STAFF)
-@RequiresModule('esign')
+@EsignRoute()
 export class EsignTemplateSaveController {
   constructor(private readonly copies: EsignTemplateCopyService) {}
 

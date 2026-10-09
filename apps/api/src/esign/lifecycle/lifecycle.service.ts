@@ -48,7 +48,7 @@ const DONE: readonly EsignRecipientStatus[] = ['SIGNED', 'APPROVED', 'REJECTED',
 const entity = (id: string) => ({ type: 'esign_request', id });
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 /** An error's class name for the log and the outbox (never its message). */
-const errorName = (error: unknown) => {
+export const errorName = (error: unknown) => {
   const name = error instanceof Error ? error.name : '';
   return /^[A-Za-z][\w.]{0,63}$/.test(name) ? name : 'Error';
 };

@@ -8,7 +8,7 @@ import {
   SaveEsignTemplateVersionBody,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
-import { RequiresModule } from '../../common/modules/requires-module.js';
+import { EsignRoute } from '../extras/esign-role.guard.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { actorOf } from '../requests/requests.controller.js';
@@ -26,7 +26,7 @@ const versionPipe = new ZodValidationPipe(
 /** Template versions (contract 3: packages/types/src/esign/extras.ts). */
 @Controller('esign/templates/:templateId/versions')
 @Roles(...FIRM_STAFF)
-@RequiresModule('esign')
+@EsignRoute()
 export class EsignTemplateVersionsController {
   constructor(private readonly versions: EsignTemplateVersionsService) {}
 
@@ -57,7 +57,7 @@ export class EsignTemplateVersionsController {
 /** A request saved as a template's next version. */
 @Controller('esign/requests/:id')
 @Roles(...FIRM_STAFF)
-@RequiresModule('esign')
+@EsignRoute()
 export class EsignTemplateVersionSaveController {
   constructor(private readonly versions: EsignTemplateVersionsService) {}
 
