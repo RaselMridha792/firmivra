@@ -36,6 +36,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { CheckoutModule } from './payments/checkout/checkout.controller.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
+import { StripeWebhookModule } from './payments/webhooks/stripe-webhook.controller.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 
@@ -94,6 +95,7 @@ export class AppModule {
         DocumentsModule,
         InvoicesModule,
         CheckoutModule,
+        StripeWebhookModule,
         StripeClientModule,
         PaymentsSetupModule,
         SignInModule,

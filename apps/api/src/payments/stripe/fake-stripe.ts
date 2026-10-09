@@ -113,6 +113,15 @@ export class FakeStripeGateway implements StripeGateway {
     return this.view(sessionId);
   }
 
+  /** Failure codes by payment intent, for `paymentFailureCode`. */
+  readonly failureCodes = new Map<string, string>();
+
+  async paymentFailureCode(accountId: string, paymentIntentId: string) {
+    this.calls.push({ method: 'paymentFailureCode', accountId, params: { paymentIntentId } });
+    await this.answer();
+    return this.failureCodes.get(paymentIntentId) ?? null;
+  }
+
   /** As if the client paid (or the session ran out) at Stripe. */
   setSession(sessionId: string, changes: Partial<Pick<CheckoutSession, 'status' | 'expiresAt'>>) {
     const s = this.sessions.get(sessionId);

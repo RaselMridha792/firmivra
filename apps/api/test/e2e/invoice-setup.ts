@@ -19,7 +19,14 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
-import { STRIPE_GATEWAY, type StripeGateway } from '../../src/payments/stripe/stripe-gateway.js';
+import {
+  STRIPE_GATEWAY,
+  STRIPE_WEBHOOK_SECRET,
+  type StripeGateway,
+} from '../../src/payments/stripe/stripe-gateway.js';
+
+/** The webhook signing secret of the test apps that get a fake Stripe. */
+export const TEST_WEBHOOK_SECRET = 'whsec_testsecret0001';
 
 // Strict copies of the contract's shapes: a leaked field fails the parse.
 const Item = z.strictObject({
@@ -175,10 +182,14 @@ export async function startInvoiceApp(tag: string, stripe?: StripeGateway | null
     DATABASE_URL_APP: fx.appUrl,
   });
   const builder = Test.createTestingModule({ imports: [AppModule.forRoot(env)] });
-  if (stripe !== undefined) builder.overrideProvider(STRIPE_GATEWAY).useValue(stripe);
+  if (stripe !== undefined) {
+    builder.overrideProvider(STRIPE_GATEWAY).useValue(stripe);
+    builder.overrideProvider(STRIPE_WEBHOOK_SECRET).useValue(TEST_WEBHOOK_SECRET);
+  }
   const moduleRef = await builder.compile();
   const app: INestApplication = moduleRef.createNestApplication<NestExpressApplication>({
     logger: false,
+    rawBody: true,
   });
   configureApp(app as NestExpressApplication, env);
   await app.listen(0, '127.0.0.1');

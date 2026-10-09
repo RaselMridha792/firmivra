@@ -8,6 +8,8 @@ import Stripe from 'stripe';
  * answer or refuses; callers turn that into 503 and log only `stripeErrorName(error)`.
  */
 export const STRIPE_GATEWAY = Symbol('STRIPE_GATEWAY');
+/** The webhook signing secret (`whsec_`), or null when this environment has none. */
+export const STRIPE_WEBHOOK_SECRET = Symbol('STRIPE_WEBHOOK_SECRET');
 
 /** The Stripe API version every call uses. Change it only together with the code that reads answers. */
 export const STRIPE_API_VERSION = '2026-09-30.endive';
@@ -79,6 +81,8 @@ export interface StripeGateway {
   /** Stripe Checkout (mode payment, one line) on the connected account. */
   createCheckoutSession(params: CheckoutParams, idempotencyKey: string): Promise<CheckoutSession>;
   retrieveCheckoutSession(accountId: string, sessionId: string): Promise<CheckoutSession>;
+  /** Stripe's short code for why the payment intent's last attempt failed, if any. */
+  paymentFailureCode(accountId: string, paymentIntentId: string): Promise<string | null>;
   /** Ends an open session, so it can no longer be paid. */
   expireCheckoutSession(accountId: string, sessionId: string): Promise<CheckoutSession>;
 }
@@ -173,6 +177,16 @@ export function createStripeGateway(secretKey: string): StripeGateway {
     },
     retrieveCheckoutSession: async (accountId, sessionId) =>
       session(await stripe.checkout.sessions.retrieve(sessionId, {}, { stripeAccount: accountId })),
+    paymentFailureCode: async (accountId, paymentIntentId) => {
+      const intent = await stripe.paymentIntents.retrieve(
+        paymentIntentId,
+        {},
+        {
+          stripeAccount: accountId,
+        },
+      );
+      return intent.last_payment_error?.code ?? intent.last_payment_error?.decline_code ?? null;
+    },
     expireCheckoutSession: async (accountId, sessionId) =>
       session(await stripe.checkout.sessions.expire(sessionId, {}, { stripeAccount: accountId })),
   };
