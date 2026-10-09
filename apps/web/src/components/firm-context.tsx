@@ -7,6 +7,8 @@ export interface FirmValue {
   firm: BusinessSummary;
   /** The signed-in staff user's role in this firm (undefined without an active membership). */
   role: MembershipRole | undefined;
+  /** Reloads the firm (GET /business), e.g. after Settings > Profile renames it. */
+  refresh?: () => Promise<void>;
 }
 
 /** Set by the firm workspace layout, which loads the firm once (GET /business). */
