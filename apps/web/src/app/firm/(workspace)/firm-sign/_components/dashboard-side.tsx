@@ -18,7 +18,7 @@ interface Action {
   icon: LucideIcon;
   href: string;
   /** Who sees it: creating needs more than view access; settings are Owner and Admin. */
-  who: 'create' | 'managers' | 'all';
+  who: 'create' | 'managers';
   /** Its screen isn't there yet: shown, not a link. */
   soon?: true;
 }
@@ -46,47 +46,49 @@ const ACTIONS: Action[] = [
 ];
 
 const visible = (a: Action, role: EsignAccessRole | null) =>
-  a.who === 'all' ||
-  (a.who === 'create' && canCreate(role)) ||
-  (a.who === 'managers' && isOwnerOrAdmin(role));
+  (a.who === 'create' && canCreate(role)) || (a.who === 'managers' && isOwnerOrAdmin(role));
 
 /** The mockup's Quick Actions and Need Help panels. */
 export function QuickActions({ role }: { role: EsignAccessRole | null }) {
+  const actions = ACTIONS.filter((a) => visible(a, role));
   return (
     <div className="flex flex-col gap-6">
-      <Card>
-        <h2 className="mb-4 font-display text-2xl text-heading">Quick Actions</h2>
-        <ul className="flex flex-col gap-2">
-          {ACTIONS.filter((a) => visible(a, role)).map(({ label, icon: Icon, href, soon }) => {
-            const body = (
-              <>
-                <Icon aria-hidden className="size-5 text-brand-700" />
-                <span className="flex-1">{label}</span>
-                {soon && <span className="text-xs text-muted">Soon</span>}
-              </>
-            );
-            const look =
-              'flex min-h-11 items-center gap-3 rounded-control bg-brand-50 px-3 text-sm font-medium text-heading';
-            if (soon) {
+      {/* A Viewer has nothing to start: no empty card. */}
+      {actions.length > 0 && (
+        <Card>
+          <h2 className="mb-4 font-display text-2xl text-heading">Quick Actions</h2>
+          <ul className="flex flex-col gap-2">
+            {actions.map(({ label, icon: Icon, href, soon }) => {
+              const body = (
+                <>
+                  <Icon aria-hidden className="size-5 text-brand-700" />
+                  <span className="flex-1">{label}</span>
+                  {soon && <span className="text-xs text-muted">Soon</span>}
+                </>
+              );
+              const look =
+                'flex min-h-11 items-center gap-3 rounded-control bg-brand-50 px-3 text-sm font-medium text-heading';
+              if (soon) {
+                return (
+                  <li key={label}>
+                    <div className={look}>{body}</div>
+                  </li>
+                );
+              }
               return (
                 <li key={label}>
-                  <div className={look}>{body}</div>
+                  <Link
+                    href={href}
+                    className={`${look} hover:bg-brand-100 focus-visible:outline-2 focus-visible:outline-focus`}
+                  >
+                    {body}
+                  </Link>
                 </li>
               );
-            }
-            return (
-              <li key={label}>
-                <Link
-                  href={href}
-                  className={`${look} hover:bg-brand-100 focus-visible:outline-2 focus-visible:outline-focus`}
-                >
-                  {body}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </Card>
+            })}
+          </ul>
+        </Card>
+      )}
       <Card>
         <div className="flex gap-3">
           <CircleHelp aria-hidden className="size-8 shrink-0 text-platform-navy" />
