@@ -2,10 +2,13 @@
 
 **Goal:** Clients pay invoices by card and the invoice turns paid by itself.
 
+**Owner:** cloud thread R16 owns R7 from Oct 9 (docs/work/README.md; brief R16).
+
 **Owned paths (change only these):**
 - `apps/api/src/payments/**`
 - `packages/types/src/payments/**`, `packages/types/test/payments/**`
 - `apps/web/src/mocks/invoices.ts`, and the invoices lines in `apps/web/src/lib/api.ts`
+- `apps/web/src/mocks/payments-setup.ts`, the `paymentsSetup` lines in `apps/web/src/lib/api.ts`, `apps/web/src/app/firm/(workspace)/settings/payments/**` and the Payments line in `settings/layout.tsx` (R16 brief)
 - `docs/api/invoices.yaml`
 
 **Read first (nothing else):** CLAUDE.md, docs/work/README.md, this file, and:
@@ -49,6 +52,13 @@ Nahid's Invoices tab pays an invoice in test mode on dev and the firm sees it pa
 - Error codes: NOT_DRAFT, ZERO_TOTAL, DUE_DATE_PASSED, INVOICE_CLOSED, CLIENT_ARCHIVED, NOT_PAYABLE, PAYMENT_IN_PROGRESS, PAYMENTS_NOT_SET_UP, NOT_REFUNDABLE, REFUND_TOO_LARGE (409) and PAYMENT_PROVIDER_UNAVAILABLE (503), with the words users see in `INVOICE_ERRORS`.
 - Audit: every change, checkout started, refund and webhook-driven status change (ids and amounts only); reads are not audited.
 
+## Decisions (Oct 9, Stripe Connect setup, R16)
+
+- Settings > Payments contract in `packages/types/src/payments/setup.ts` (`api.paymentsSetup`: `get`, `start`, `refresh`): routes `/business/payments/setup`, `POST .../onboarding` (creates the account the first time) and `POST .../onboarding/refresh` (a new link only, after Stripe's `?stripe=refresh`; `409 PAYMENTS_NOT_SET_UP` when nothing was started). Owner and Admin read, the Owner alone connects, Staff 403 on every route (the page is hidden from them); an ACTIVE firm only.
+- One new 409 code, `PAYMENTS_ALREADY_SET_UP`, when the account is COMPLETE (the firm manages it in its own Stripe dashboard); the other errors reuse `PAYMENTS_NOT_SET_UP` and `PAYMENT_PROVIDER_UNAVAILABLE`.
+- `requirementsDue` and the page's stage come from the stored columns (no requirements column): not finished, or RESTRICTED, means the Owner has something to do; PENDING with details submitted is "In review at Stripe".
+- The onboarding link is Stripe's hosted onboarding only (https, host exactly `connect.stripe.com`), or `mock:stripe-onboarding/...` in mock mode.
+
 ## Open (Rasel)
 
 - Download on Past Invoices (Octavia's spec: "Download the permitted invoice/receipt PDF", logged): not in the contract. A server-made PDF (a route and a PDF library), Stripe's receipt (needs a `receipt_url` column from R0), or the browser's print of the View page for beta?
@@ -72,3 +82,4 @@ Nahid's Invoices tab pays an invoice in test mode on dev and the firm sees it pa
 (newest last: date, step, what changed, commit)
 - 2026-10-08, step 7 (contract): `packages/types/src/payments/` with `api.invoices` (firm: `list` with `clientId`, status, search and `paymentsEnabled`; `get`; `create`; `update`, the whole draft; `send`; `cancel` with a reason; `refund(id, paymentId, { amountCents, idempotencyKey })`) and `api.myInvoices(slug)` (portal: `list` with view, status, search and section; `get`; `pay`, an empty body answering a Stripe Checkout link). Shapes: `InvoiceListItem`, `Invoice` (lines, amounts, payments with refunds and `refundableCents`), `MyInvoice` (`status`, `section`, `canPay`, `paymentProcessing`), `MyInvoiceDetail`, `CheckoutLink`, `CheckoutReturn`; helpers `myInvoiceStatus()`, `isInvoiceOverdue()`, `lineAmountCents()`, `invoiceTotals()`; `InvoiceErrorCode` and `INVOICE_ERRORS`. Errors in the order the API checks them (415 and 403 ORIGIN_NOT_ALLOWED, 401, the tenant guard, 403 inactive or setup, 403 FORBIDDEN for Staff changes, 400, 404, 409, 503). Tests `packages/types/test/payments/` (both clients: every route, method, body, answer and refusal; amounts and client statuses). Mock `apps/web/src/mocks/invoices.ts` (lazy fixtures on R10's mock clients and services: one invoice of each state for the portal client, Staff see clients 1 and 2 only; one portal mock per firm; `pay` answers a `mock:` link and marks nothing paid; `refund` adds a PENDING refund). `docs/api/invoices.yaml` with the rules for the API (checkout, webhook events, refunds, audit). No apps/api code. Branch `rasel/R7-invoices-contract`.
 - 2026-10-08, step 7 (contract, review fixes): `payment_intent.payment_failed` no longer fails a payment (a declined card can be followed by a good one in the same Checkout Session; FAILED only on `checkout.session.async_payment_failed` or `checkout.session.expired`, with an e2e case); refund retries with the same `idempotencyKey` answer the invoice as it is, found through Stripe (no key column), and the mock keeps keys per payment; `charge.refunded` confirms exactly one refund per event (listed from Stripe), never re-linking a confirmed one; `myInvoiceStatus()` keeps an invoice canceled while SCHEDULED as Canceled (`scheduledFor` kept; cleared on a canceled draft), with tests and a mock fixture; Checkout Sessions last 60 minutes with Stripe's `expires_at`; offline payments listed under Open and ruled out in the yaml.
+- 2026-10-09, Stripe Connect setup contract (R16 brief step 3): `packages/types/src/payments/setup.ts` with `PaymentsSetup`, `StripeOnboardingLink` (https `connect.stripe.com` only), `StripeOnboardingReturn`, `paymentsSetupStage()`, `PaymentsSetupErrorCode` and `PAYMENTS_SETUP_ERRORS`; `api.paymentsSetup` in `apps/web/src/lib/api.ts`; mock `apps/web/src/mocks/payments-setup.ts` (roles, `start` connects, `mock:` links); the setup routes and rules in `docs/api/invoices.yaml` (and `account.updated` looks up in platform scope, writes in firm scope); tests `packages/types/test/payments/setup.test.ts`. Branch `rasel/R16-stripe-setup-contract`.

@@ -178,7 +178,10 @@ info:
       - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED` (its
         cents are refundable again). One already `SUCCEEDED` is final: logged and alarmed, not
         changed; one with no row never counted and is ignored.
-      - `account.updated`: update the firm's `stripe_accounts` row in platform scope.
+      - `account.updated`: find the firm from the `acct_` id in platform scope (`stripe_accounts`,
+        SELECT only: the RLS lets platform scope read and never write it), then update that firm's
+        row in its business scope (`forBusiness`) with `toOnboardingState(account)`, the same
+        function onboarding uses (`apps/api/src/payments/stripe`).
       Mark the event `processed_at` and answer `200` quickly; anything else is `200` and ignored.
       A payment of an invoice canceled meanwhile is still recorded (the money was taken); the
       firm refunds it.
@@ -207,6 +210,37 @@ info:
     - **Cursors** are opaque (the sort keys of the last item); a cursor the API did not make is
       `400 VALIDATION_FAILED`.
 
+    ## Stripe Connect setup (Settings > Payments)
+
+    Source of truth: `packages/types/src/payments/setup.ts` (`PaymentsSetup`,
+    `StripeOnboardingLink`, `paymentsSetupStage()`, `PAYMENTS_SETUP_ERRORS`; web:
+    `api.paymentsSetup`; mock: `apps/web/src/mocks/payments-setup.ts`, `NEXT_PUBLIC_API_MOCK=paymentsSetup`).
+
+    - **Who.** The Owner and Admins read (`GET`); only the Owner starts or refreshes onboarding
+      (Admin `403 FORBIDDEN`). Staff get `403 FORBIDDEN` on every setup route and never see the
+      page. An `ACTIVE` firm only.
+    - **Accounts.** Each firm gets one Stripe Connect **Standard** account, created by the API
+      (`accounts.create`, `type: standard`, the firm's contact email and country, metadata with the
+      firm id) and finished by the Owner on Stripe's hosted onboarding through an **Account Link**
+      (`type: account_onboarding`). Firmivra never sees the firm's bank or identity details.
+    - **Start** (`POST .../onboarding`): under a Postgres advisory lock per firm (two clicks wait
+      for each other), read the firm's `stripe_accounts` row in its business scope. None: create
+      the account with the idempotency key `fv-connect-{businessId}` (a retry, or a second click,
+      gets the same account from Stripe) and insert the row (`PENDING`, from
+      `toOnboardingState(account)`). Then make an Account Link with `return_url`
+      `{APP_BASE_URL}/settings/payments?stripe=return` and `refresh_url`
+      `{APP_BASE_URL}/settings/payments?stripe=refresh`, and answer `{ url, expiresAt }`. A
+      `COMPLETE` account: `409 PAYMENTS_ALREADY_SET_UP` (the firm manages it in its Stripe
+      dashboard).
+    - **Refresh** (`POST .../onboarding/refresh`, after Stripe's `?stripe=refresh`): a new link
+      for the account already made, never a new account. No account: `409 PAYMENTS_NOT_SET_UP`.
+      It also stores the account's current state from Stripe (`accounts.retrieve`).
+    - **Stripe errors**, or no `STRIPE_SECRET_KEY` in the environment: `503
+      PAYMENT_PROVIDER_UNAVAILABLE` on every setup route, nothing written. Calls to Stripe use a
+      pinned API version and a 10 s timeout.
+    - **Audit:** `payments.stripe_account_created` (the `acct_` id) and
+      `payments.onboarding_link_created`; reads are not audited.
+
     ## Pages and calls
 
     | Page | Calls |
@@ -214,6 +248,7 @@ info:
     | Firm: Invoices (`/invoices`) | `GET business/invoices` (status, search, paged), then the actions below |
     | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds` |
     | Portal: Receipts & Invoices (`/{firm}/invoices`) | `GET me/invoices` (`section=CURRENT` and `PAST`, view, status, search), `GET me/invoices/{id}` (View), `POST me/invoices/{id}/checkout` (Pay Now) |
+    | Firm: Settings > Payments (`/settings/payments`) | `GET business/payments/setup`, `POST .../onboarding` (Connect, Continue), `POST .../onboarding/refresh` (back from `?stripe=refresh`) |
     | Portal: Make a Payment, Home's Payments card | `GET me/invoices?view=DUE`, then Pay Now on the chosen invoice (`canPay`) |
 servers:
   - url: /api/v1
@@ -224,6 +259,8 @@ tags:
     description: Firm site (Owner and Admin; Staff read their clients' invoices).
   - name: portal
     description: The signed-in client, on their firm's portal.
+  - name: setup
+    description: Firm site, Settings > Payments (Owner connects, Admin reads).
   - name: webhook
     description: Stripe only. Not called by the web app.
 
@@ -405,6 +442,54 @@ paths:
         '409': { description: '`NOT_PAYABLE`, `PAYMENT_IN_PROGRESS` or `PAYMENTS_NOT_SET_UP`, in that order' }
         '503': { $ref: '#/components/responses/ProviderUnavailable' }
 
+  /business/payments/setup:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [setup]
+      operationId: getPaymentsSetup
+      summary: The firm's Stripe account as last stored (Owner and Admin)
+      responses:
+        '200':
+          description: PaymentsSetup
+          content: { application/json: { schema: { $ref: '#/components/schemas/PaymentsSetup' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /business/payments/setup/onboarding:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [setup]
+      operationId: startPaymentsOnboarding
+      summary: Creates the firm's Standard account the first time, then a Stripe onboarding link (Owner only)
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { $ref: '#/components/responses/OnboardingLink' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`PAYMENTS_ALREADY_SET_UP`' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /business/payments/setup/onboarding/refresh:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [setup]
+      operationId: refreshPaymentsOnboarding
+      summary: A new onboarding link for the account already made; never creates one (Owner only)
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { $ref: '#/components/responses/OnboardingLink' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`PAYMENTS_NOT_SET_UP` or `PAYMENTS_ALREADY_SET_UP`' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+
   /webhooks/stripe:
     post:
       tags: [webhook]
@@ -469,6 +554,9 @@ components:
     ProviderUnavailable:
       description: '`PAYMENT_PROVIDER_UNAVAILABLE`: Stripe did not answer; nothing was charged or refunded'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    OnboardingLink:
+      description: "Stripe's hosted onboarding (https, host exactly connect.stripe.com), or a mock link in mock mode, until expiresAt"
+      content: { application/json: { schema: { $ref: '#/components/schemas/StripeOnboardingLink' } } }
     UnsupportedMediaType:
       description: '`UNSUPPORTED_MEDIA_TYPE`: the body is not JSON'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
@@ -523,4 +611,21 @@ components:
       required: [url, expiresAt]
       properties:
         url: { type: string, description: "Stripe's hosted checkout (https), or a mock: link in mock mode" }
+        expiresAt: { type: string, format: date-time }
+    PaymentsSetup:
+      type: object
+      required: [connected, onboardingStatus, chargesEnabled, payoutsEnabled, detailsSubmitted, requirementsDue, updatedAt]
+      properties:
+        connected: { type: boolean }
+        onboardingStatus: { type: [string, 'null'], enum: [PENDING, RESTRICTED, COMPLETE, null] }
+        chargesEnabled: { type: boolean, description: Clients can pay online exactly when true }
+        payoutsEnabled: { type: boolean }
+        detailsSubmitted: { type: boolean }
+        requirementsDue: { type: boolean, description: The Owner has something to do at Stripe }
+        updatedAt: { type: [string, 'null'], format: date-time }
+    StripeOnboardingLink:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url: { type: string, description: "Stripe's hosted onboarding (https://connect.stripe.com/...), or a mock: link in mock mode" }
         expiresAt: { type: string, format: date-time }
