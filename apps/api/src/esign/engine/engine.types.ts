@@ -137,7 +137,8 @@ export interface EsignStore {
 
 export type SignatureImageResult =
   | { ok: true; width: number; height: number }
-  | { ok: false; reason: 'NOT_PNG' | 'TOO_LARGE' | 'TOO_BIG' };
+  /** NOT_PNG: not a well-formed PNG. TOO_MANY_BYTES: over 200 KB. TOO_MANY_PIXELS: over 1600x600. */
+  | { ok: false; reason: 'NOT_PNG' | 'TOO_MANY_BYTES' | 'TOO_MANY_PIXELS' };
 
 /** A signature or initials PNG: a real PNG, at most 200 KB and 1600x600 pixels. */
 export interface SignatureImageCheck {
@@ -174,14 +175,23 @@ export interface SignerSession {
   recipientId: string;
   /** esign_recipients.token_version: a corrected recipient's old cookie stops working. */
   tokenVersion: number;
-  /** True once the email or access code passed (or LINK needs none). */
-  authPassed: boolean;
+  /**
+   * SIGN: a signing session. COPY: the completed-copy link's read-only session, which may only
+   * download the final PDF and the certificate; every signing step refuses it.
+   */
+  purpose: 'SIGN' | 'COPY';
+  /** The email code passed (true from the start for a portal session or a LINK recipient). */
+  emailCodePassed: boolean;
+  /** The access code passed, after the email code (true when the recipient has none). */
+  accessCodePassed: boolean;
+  /** The consent version the signer accepted (pinned on the recipient); null until then. */
+  consentVersionId: string | null;
 }
 
 export interface SignerCookieOptions {
   httpOnly: true;
   secure: boolean;
-  sameSite: 'lax';
+  sameSite: 'strict';
   path: string;
   maxAge: number;
 }
@@ -190,7 +200,7 @@ export interface SignerCookieOptions {
 export interface SignerCookie {
   /** fv_sign_{slug}. */
   name(slug: string): string;
-  /** HttpOnly, path /api/v1/portal/{slug}/sign; maxAge in milliseconds (Express). */
+  /** HttpOnly, SameSite=Strict, path /api/v1/portal/{slug}/sign; maxAge in ms (Express). */
   options(slug: string, ttlSeconds: number): SignerCookieOptions;
   seal(session: SignerSession, ttlSeconds: number): Promise<string>;
   /** The session, or undefined when expired, tampered with or sealed for another slug. */
