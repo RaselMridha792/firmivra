@@ -57,6 +57,11 @@ import type {
   VoidWrite,
 } from '../../src/esign/lifecycle/lifecycle.repository.js';
 import type {
+  EsignBulkBatchRecord,
+  EsignBulkItemPatch,
+  EsignBulkRepository,
+} from '../../src/esign/bulk/bulk.repository.js';
+import type {
   EsignListedTemplate,
   EsignTemplateContent,
   EsignTemplateDraft,
@@ -1126,4 +1131,46 @@ export async function seedTemplate(
   };
   repo.insert(businessId, row);
   return structuredClone(row);
+}
+
+/** Bulk batches per firm; each write checks and writes in one synchronous step. */
+export class InMemoryBulkRepository implements EsignBulkRepository {
+  readonly batches = new PerFirm<EsignBulkBatchRecord>();
+  /** Set while another task holds bulk send's job lock. */
+  lockedElsewhere = false;
+
+  create(businessId: string, batch: EsignBulkBatchRecord): Promise<void> {
+    this.batches.of(businessId).set(batch.id, structuredClone(batch));
+    return Promise.resolve();
+  }
+
+  find(businessId: string, id: string): Promise<EsignBulkBatchRecord | null> {
+    const batch = this.batches.of(businessId).get(id);
+    return Promise.resolve(batch ? structuredClone(batch) : null);
+  }
+
+  updateItem(businessId: string, batchId: string, position: number, patch: EsignBulkItemPatch) {
+    const item = this.batches
+      .of(businessId)
+      .get(batchId)
+      ?.items.find((i) => i.position === position);
+    if (!item || item.state !== 'QUEUED') return Promise.resolve(false);
+    Object.assign(item, structuredClone(patch));
+    return Promise.resolve(true);
+  }
+
+  withJobLock<T>(work: () => Promise<T>): Promise<T | null> {
+    return this.lockedElsewhere ? Promise.resolve(null) : work();
+  }
+
+  queued(businessId: string, limit: number) {
+    const rows = [...this.batches.of(businessId).values()]
+      .sort((x, y) => +x.createdAt - +y.createdAt)
+      .flatMap((b) =>
+        b.items
+          .filter((i) => i.state === 'QUEUED')
+          .map((i) => ({ batchId: b.id, position: i.position })),
+      );
+    return Promise.resolve(rows.slice(0, limit));
+  }
 }

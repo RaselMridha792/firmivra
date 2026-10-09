@@ -1,5 +1,5 @@
 // End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send, step 8's
-// lifecycle and step 9's templates)
+// lifecycle, step 9's templates and step 10's bulk send)
 // through the real guard stack. The esign tables come with r0_esign, so this covers what answers
 // before the repository: 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module
 // is off, and 400 for a bad id or body where it is on. Synthetic data only.
@@ -65,6 +65,7 @@ const withTemplateId = (id: string): Route[] => [
   ['post', `${template(id)}/duplicate`, { name: 'Fake copy' }],
   ['get', `${template(id)}/versions`, undefined],
   ['post', `${template(id)}/versions/1/restore`, {}],
+  ['post', `${template(id)}/bulk-send`, { clients: [{ clientId: randomUUID() }], confirm: true }],
 ];
 const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
@@ -73,6 +74,7 @@ const ROUTES: Route[] = [
   ...withId(anyId),
   ['get', '/api/v1/esign/templates', undefined],
   ...withTemplateId(anyId),
+  ['get', `/api/v1/esign/bulk/${anyId}`, undefined],
 ];
 
 beforeAll(async () => {
@@ -185,6 +187,24 @@ describe('Firm Sign draft routes', () => {
     for (const [method, path, body] of badBodies) {
       expect(answer(await send(method, path, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
     }
+    const bulkSend = `${template(anyId)}/bulk-send`;
+    const client = () => ({ clientId: randomUUID() });
+    const bulkBodies = [
+      { clients: [client()] },
+      { clients: [], confirm: true },
+      { clients: [{ clientId: anyId }, { clientId: anyId }], confirm: true },
+      { clients: [client()], confirm: true, roles: [{ key: 'client', accessCode: 'FAKE1234' }] },
+      { clients: [client()], confirm: true, roles: [{ key: 'client', authMethod: 'ACCESS_CODE' }] },
+    ];
+    for (const body of bulkBodies) {
+      const res = await send('post', bulkSend, onOwner.email, body);
+      expect(answer(res)).toBe('400 VALIDATION_FAILED');
+    }
+    const over = { clients: Array.from({ length: 201 }, client), confirm: true };
+    expect(answer(await send('post', bulkSend, onOwner.email, over))).toBe('400 BULK_LIMIT');
+    expect(answer(await send('get', '/api/v1/esign/bulk/nope', onOwner.email))).toBe(
+      '400 VALIDATION_FAILED',
+    );
     for (const body of [{}, { confirm: false }]) {
       const res = await send('post', `${base(anyId)}/send`, onOwner.email, body);
       expect(answer(res)).toBe('400 VALIDATION_FAILED');

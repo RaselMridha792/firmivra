@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ModulesModule } from '../common/modules/requires-module.js';
+import { EsignBulkController } from './bulk/bulk.controller.js';
+import { BULK_REPOSITORY } from './bulk/bulk.repository.js';
+import { EsignBulkService } from './bulk/bulk.service.js';
 import { EsignEngineModule } from './engine/engine.module.js';
 import { EsignLifecycleController } from './lifecycle/lifecycle.controller.js';
 import { EsignLifecycleJob } from './lifecycle/lifecycle.job.js';
@@ -49,6 +52,7 @@ import { EsignTemplatesService } from './templates/templates.service.js';
     EsignTemplateSaveController,
     EsignTemplateVersionsController,
     EsignTemplateVersionSaveController,
+    EsignBulkController,
   ],
   providers: [
     EsignRequestsService,
@@ -62,10 +66,12 @@ import { EsignTemplatesService } from './templates/templates.service.js';
     EsignTemplateCopyService,
     EsignTemplateUseService,
     EsignTemplateVersionsService,
+    EsignBulkService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
     { provide: TEMPLATE_REPOSITORY, useValue: notMigrated('EsignTemplateRepository') },
+    { provide: BULK_REPOSITORY, useValue: notMigrated('EsignBulkRepository') },
   ],
 })
 export class EsignModule {}

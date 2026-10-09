@@ -36,4 +36,6 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'POST /api/v1/esign/requests/:id/save-as-version': OFF,
   'GET /api/v1/esign/templates/:templateId/versions': OFF,
   'POST /api/v1/esign/templates/:templateId/versions/:version/restore': OFF,
+  'POST /api/v1/esign/templates/:templateId/bulk-send': OFF,
+  'GET /api/v1/esign/bulk/:batchId': OFF,
 };

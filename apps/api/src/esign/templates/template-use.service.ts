@@ -44,6 +44,14 @@ const NOT_SENT = {
   ...{ replacesRequestId: null, replacedByRequestId: null, expiryWarnedAt: null },
 };
 
+/** 409 TEMPLATE_ROLES_UNFILLED naming each role still open (use and bulk send). */
+export const rolesUnfilled = (keys: string[]) =>
+  new ConflictException({
+    code: 'TEMPLATE_ROLES_UNFILLED',
+    message: ESIGN_ERRORS.TEMPLATE_ROLES_UNFILLED,
+    details: keys.map((key) => ({ path: `roles.${key}`, message: 'Choose who fills it' })),
+  });
+
 /**
  * POST /esign/templates/{id}/use (R13 step 9): a new DRAFT (source TEMPLATE) from the newest
  * version, sent by the caller; the template never changes. CLIENT, SPOUSE and PREPARER roles fill
@@ -177,13 +185,7 @@ export class EsignTemplateUseService {
         ...(code !== undefined && { accessCode: code }),
       };
     });
-    if (open.length > 0) {
-      throw new ConflictException({
-        code: 'TEMPLATE_ROLES_UNFILLED',
-        message: ESIGN_ERRORS.TEMPLATE_ROLES_UNFILLED,
-        details: open.map((key) => ({ path: `roles.${key}`, message: 'Choose who fills it' })),
-      });
-    }
+    if (open.length > 0) throw rolesUnfilled(open);
     // EsignPutRecipient's rules, with the role's key in the path (400).
     const parsed = EsignPutRecipientsBody.safeParse({ recipients: inputs });
     if (!parsed.success) {
