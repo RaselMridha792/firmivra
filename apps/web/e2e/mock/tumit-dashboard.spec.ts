@@ -50,6 +50,10 @@ test('dashboard uses the firm applications mock and fits a 375 px screen', async
   await expect(page.getByTestId('platform-growth').getByRole('img')).toHaveCount(1);
   await expect(page.getByTestId('platform-growth')).toContainText('Active Firms');
   await expect(page.getByLabel('Range')).toHaveValue('30');
+  const chart = page.getByTestId('platform-growth').getByRole('img');
+  await expect(chart).toHaveAttribute('aria-label', /last 30 days: [1-9]\d* in total/);
+  await page.getByLabel('Range').selectOption('7');
+  await expect(chart).toHaveAttribute('aria-label', /last 7 days: \d+ in total/);
   await expect(
     page.getByRole('button', { name: 'Notifications' }).locator('.bg-danger'),
   ).toHaveCount(0);

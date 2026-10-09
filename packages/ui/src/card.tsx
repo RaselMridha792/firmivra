@@ -7,8 +7,8 @@ export interface CardProps extends Omit<HTMLAttributes<HTMLElement>, 'title'> {
 }
 
 const variants = {
-  outlined: 'border border-border shadow-card',
-  elevated: 'shadow-md',
+  outlined: 'rounded-card border border-border shadow-card',
+  elevated: 'rounded-xl shadow-md',
 };
 
 export function Card({
@@ -19,7 +19,7 @@ export function Card({
   ...props
 }: CardProps) {
   return (
-    <section className={`rounded-card bg-surface p-6 ${variants[variant]} ${className}`} {...props}>
+    <section className={`bg-surface p-6 ${variants[variant]} ${className}`} {...props}>
       {title ? <h2 className="mb-4 text-lg font-semibold text-text">{title}</h2> : null}
       {children}
     </section>

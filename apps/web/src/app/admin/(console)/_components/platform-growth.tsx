@@ -1,13 +1,15 @@
 'use client';
 
 import type { ListFirmApplicationsResponse } from '@firmivra/types';
-import { useState } from 'react';
+import { ChartColumn } from 'lucide-react';
+import { useId, useState } from 'react';
+import { PageState } from '../../../../components/page-state';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
+import { SectionTitle } from './section-title';
 
 const RANGES = [7, 30, 90] as const;
 type Range = (typeof RANGES)[number];
-const DAY = 86_400_000;
 
 /** Chart area in SVG units; the SVG scales to the card's width. */
 const W = 420;
@@ -20,42 +22,51 @@ const SERIES = [
   { label: 'Revenue', line: 'stroke-purple', dot: 'fill-purple', swatch: 'bg-purple' },
 ] as const;
 
-/** Midnight (local) `n` days before today. */
-const daysAgo = (n: number) => {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return new Date(date.getTime() - n * DAY);
-};
+/** Local midnight `n` days after `from` (negative for before), by calendar day so DST is safe. */
+const dayFrom = (from: Date, n: number) =>
+  new Date(from.getFullYear(), from.getMonth(), from.getDate() + n);
 
 /**
  * Platform Growth (Beta): new applications per day over the range, from the applications list.
  * Firm activations and revenue have no daily history in the API yet, so they draw as zero.
+ * The list is read once for the longest range; the API's page limit of 100 caps it.
  */
 export function PlatformGrowth() {
+  const id = useId();
   const [range, setRange] = useState<Range>(30);
-  const [today] = useState(() => daysAgo(0));
-  const start = new Date(today.getTime() - 89 * DAY);
+  const [today] = useState(() => dayFrom(new Date(), 0));
   const applications = useApiQuery(['firm-applications', 'growth'], () =>
-    api.firmApplications.list({ from: start.toISOString(), pageSize: 100 }),
+    api.firmApplications.list({ from: dayFrom(today, -89).toISOString(), pageSize: 100 }),
   );
   return (
     <>
-      <label className="sr-only" htmlFor="growth-range">
-        Range
-      </label>
-      <select
-        id="growth-range"
-        value={range}
-        onChange={(event) => setRange(Number(event.target.value) as Range)}
-        className="absolute top-4 right-4 min-h-0 rounded-control border border-border bg-surface px-3 py-1.5 text-sm text-text"
+      <SectionTitle
+        icon={ChartColumn}
+        action={
+          <>
+            <label className="sr-only" htmlFor={id}>
+              Range
+            </label>
+            <select
+              id={id}
+              value={range}
+              onChange={(event) => setRange(Number(event.target.value) as Range)}
+              className="min-h-0 rounded-control border border-border bg-surface px-3 py-1.5 text-sm text-text"
+            >
+              {RANGES.map((days) => (
+                <option key={days} value={days}>
+                  Last {days} Days
+                </option>
+              ))}
+            </select>
+          </>
+        }
       >
-        {RANGES.map((days) => (
-          <option key={days} value={days}>
-            Last {days} Days
-          </option>
-        ))}
-      </select>
-      <Chart today={today} range={range} data={applications.data} />
+        Platform Growth <span className="text-sm font-normal text-muted">(Beta)</span>
+      </SectionTitle>
+      <PageState query={applications}>
+        {(data) => <Chart today={today} range={range} data={data} />}
+      </PageState>
     </>
   );
 }
@@ -67,30 +78,34 @@ function Chart({
 }: {
   today: Date;
   range: Range;
-  data: ListFirmApplicationsResponse | undefined;
+  data: ListFirmApplicationsResponse;
 }) {
-  const first = new Date(today.getTime() - (range - 1) * DAY);
-  const days = Array.from({ length: range }, (_, i) => new Date(first.getTime() + i * DAY));
-  const perDay = days.map(
-    (day) =>
-      (data?.items ?? []).filter((item) => {
-        const at = Date.parse(item.submittedAt);
-        return at >= day.getTime() && at < day.getTime() + DAY;
-      }).length,
-  );
+  const days = Array.from({ length: range }, (_, i) => dayFrom(today, i - range + 1));
+  const perDay = days.map((day, i) => {
+    const end = dayFrom(today, i - range + 2).getTime();
+    return data.items.filter((item) => {
+      const at = Date.parse(item.submittedAt);
+      return at >= day.getTime() && at < end;
+    }).length;
+  });
+  const total = perDay.reduce((a, b) => a + b, 0);
   const values = [perDay, days.map(() => 0), days.map(() => 0)];
-  const max = Math.max(4, ...perDay);
+  // A multiple of 4 keeps the five gridlines evenly spaced.
+  const max = Math.ceil(Math.max(4, ...perDay) / 4) * 4;
   const x = (i: number) => PAD.left + (i * (W - PAD.left - PAD.right)) / Math.max(1, range - 1);
   const y = (v: number) => H - PAD.bottom - (v * (H - PAD.top - PAD.bottom)) / max;
-  const yTicks = Array.from({ length: 5 }, (_, i) => Math.round((max * i) / 4));
-  const xTicks = Array.from({ length: 5 }, (_, i) => Math.round((i * (range - 1)) / 4));
+  const yTicks = Array.from({ length: 5 }, (_, i) => (max * i) / 4);
+  const xTicks =
+    range === 7
+      ? days.map((_, i) => i)
+      : Array.from({ length: 5 }, (_, i) => Math.round((i * (range - 1)) / 4));
   const label = (date: Date) => date.toLocaleString('en-US', { month: 'short', day: 'numeric' });
 
   return (
     <div className="mt-2">
       <svg
         role="img"
-        aria-label={`New applications per day, last ${range} days: ${perDay.reduce((a, b) => a + b, 0)} in total`}
+        aria-label={`New applications per day, last ${range} days: ${total} in total. Active firms and revenue: no history yet.`}
         viewBox={`0 0 ${W} ${H}`}
         className="h-auto w-full text-xs"
       >

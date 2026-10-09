@@ -10,7 +10,6 @@ import {
   ArrowRight,
   Building2,
   CalendarDays,
-  ChartColumn,
   ChevronRight,
   Database,
   FileText,
@@ -19,10 +18,9 @@ import {
   Settings,
   SquareCheckBig,
   Zap,
-  type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useSyncExternalStore, type ReactNode } from 'react';
+import { useSyncExternalStore } from 'react';
 import { PageState } from '../../../../components/page-state';
 import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
@@ -30,6 +28,7 @@ import { mocked } from '../../../../lib/mock';
 import { useApiQuery } from '../../../../lib/query';
 import { attentionItems, dashboardStats, platformModules, systemStatuses } from './dashboard-data';
 import { PlatformGrowth } from './platform-growth';
+import { SectionTitle } from './section-title';
 
 const subscribeToNothing = () => () => {};
 const localDateLabel = () =>
@@ -40,29 +39,6 @@ const localDateLabel = () =>
     year: 'numeric',
   }).format(new Date());
 const serverDateLabel = () => '';
-
-function SectionTitle({
-  icon: Icon,
-  iconClassName = 'text-brand-700',
-  children,
-  action,
-}: {
-  icon: LucideIcon;
-  /** The icon's colour; the mockup gives each card its own. */
-  iconClassName?: string;
-  children: ReactNode;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-xl font-semibold text-brand-900">
-        <Icon aria-hidden className={`size-6 ${iconClassName}`} />
-        {children}
-      </h2>
-      {action}
-    </div>
-  );
-}
 
 function StatCard({
   stat,
@@ -101,13 +77,16 @@ function StatCard({
             title={value === null ? 'Not available yet' : undefined}
             className="text-3xl font-semibold text-brand-900"
           >
-            {formattedValue}
+            {value === null ? <span aria-hidden>{formattedValue}</span> : formattedValue}
             {value === null ? <span className="sr-only"> Not available yet</span> : null}
           </p>
           <p className="flex items-center gap-1 text-base text-text">
             {stat.label}
             {stat.key === 'monthlyRevenueCents' ? (
-              <Info aria-label="Billed this month, before refunds" className="size-4 text-muted" />
+              <span title="Revenue billed this month" className="inline-flex">
+                <Info aria-hidden className="size-4 text-muted" />
+                <span className="sr-only">(Revenue billed this month)</span>
+              </span>
             ) : null}
           </p>
           {stat.href ? (
@@ -117,9 +96,10 @@ function StatCard({
             </Link>
           ) : (
             // Users and Billing pages come after the first release (Soon in the menu).
-            <span aria-disabled="true" title="Coming soon" className={linkClass}>
+            <span title="Coming soon" className={linkClass}>
               {stat.linkLabel}
               <ArrowRight aria-hidden className="size-4" />
+              <span className="sr-only"> (coming soon)</span>
             </span>
           )}
         </div>
@@ -144,9 +124,9 @@ function localSubmissionLabel(value: string) {
 
 /** The recent applications' columns from xl: spans of a 20-column grid, near the mockup's widths. */
 const COLUMNS = [
+  'xl:col-span-4',
   'xl:col-span-3',
-  'xl:col-span-3',
-  'xl:col-span-6',
+  'xl:col-span-5',
   'xl:col-span-3',
   'xl:col-span-3',
   'xl:col-span-2',
@@ -262,7 +242,7 @@ export function DashboardOverview() {
               action={
                 <Link
                   href="/applications"
-                  className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"
+                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm text-brand-700 hover:underline"
                 >
                   View All <ArrowRight aria-hidden className="size-4" />
                 </Link>
@@ -301,11 +281,8 @@ export function DashboardOverview() {
             </div>
           </Card>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card variant="elevated" data-testid="platform-growth" className="relative !p-4">
-              <SectionTitle icon={ChartColumn}>
-                Platform Growth <span className="text-sm font-normal text-muted">(Beta)</span>
-              </SectionTitle>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card variant="elevated" data-testid="platform-growth" className="!p-4">
               <PlatformGrowth />
             </Card>
             <Card variant="elevated" className="!p-4">
@@ -314,7 +291,7 @@ export function DashboardOverview() {
               </SectionTitle>
               <ul className="divide-y divide-border">
                 {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
-                  // Payments, support and renewals have nothing to count yet, so they show 0.
+                  // Payments, support and renewals have nothing to count yet, and an unknown count shows 0.
                   const count = key && dashboard.data ? (dashboard.data[key] ?? 0) : 0;
                   const canOpen = href && count > 0;
                   return (
