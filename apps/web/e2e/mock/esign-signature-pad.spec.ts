@@ -62,3 +62,47 @@ test('upload a picture of a signature', async ({ page }) => {
   await expect(input).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByTestId('signature-state')).toHaveText('Add your signature to continue.');
 });
+
+/** A synthetic JPEG drawn in the browser: grey-white paper with a dark stroke, or pure noise. */
+async function photo(page: Page, kind: 'signature' | 'noise') {
+  const base64 = await page.evaluate((k) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 900;
+    const ctx = canvas.getContext('2d')!;
+    const image = ctx.createImageData(canvas.width, canvas.height);
+    for (let i = 0; i < image.data.length; i += 4) {
+      const v = k === 'noise' ? Math.random() * 255 : 225 + Math.random() * 30;
+      image.data[i] = image.data[i + 1] = image.data[i + 2] = v;
+      image.data[i + 3] = 255;
+    }
+    ctx.putImageData(image, 0, 0);
+    if (k === 'signature') {
+      ctx.strokeStyle = '#1a1a2e';
+      ctx.lineWidth = 14;
+      ctx.beginPath();
+      ctx.moveTo(300, 600);
+      ctx.bezierCurveTo(600, 100, 900, 800, 1300, 350);
+      ctx.stroke();
+    }
+    return canvas.toDataURL('image/jpeg', 0.92).split(',')[1]!;
+  }, kind);
+  return { name: `${kind}.jpg`, mimeType: 'image/jpeg', buffer: Buffer.from(base64, 'base64') };
+}
+
+test('a photo of a signature becomes a small ink-only image', async ({ page }) => {
+  await page.goto(signPage);
+  await page.getByRole('tab', { name: 'Upload' }).click();
+  const input = page.getByTestId('signature-upload');
+  await input.setInputFiles(await photo(page, 'signature'));
+  await expect(page.getByTestId('signature-state')).toHaveText('Signature ready.');
+  const src = await page.locator('[data-testid="signature-pad-signature"] img').getAttribute('src');
+  expect(src?.startsWith('data:image/png')).toBeTruthy();
+  expect(src!.length).toBeLessThan(90_000);
+  // A picture that is all detail cannot be made small: refused, with a way forward.
+  await input.setInputFiles(await photo(page, 'noise'));
+  await expect(
+    page.getByText('This picture is too detailed. Try a closer photo on plain white paper.'),
+  ).toBeVisible();
+  await expect(page.getByTestId('signature-state')).toHaveText('Add your signature to continue.');
+});
