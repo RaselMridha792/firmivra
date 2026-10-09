@@ -19,18 +19,22 @@ export function AppointmentChip({
   onOpen: (id: string) => void;
 }) {
   const time = timeLabel(item.startsAt, timeZone);
+  const cancelled = item.status === 'CANCELLED';
   if (item.restricted) {
+    // A cancelled one means the person is free then: struck through, like a full entry.
     return (
       <li
         data-testid="appointment"
-        className="rounded-control bg-subtle px-2 py-1 text-xs text-muted"
+        className={`rounded-control bg-subtle px-2 py-1 text-xs text-muted ${cancelled ? 'line-through' : ''}`}
       >
-        <span className="block font-semibold">{time}</span>
+        <span className="block font-semibold">
+          {time}
+          {cancelled ? <span className="sr-only"> (cancelled)</span> : null}
+        </span>
         Busy · {item.staff.name}
       </li>
     );
   }
-  const cancelled = item.status === 'CANCELLED';
   return (
     <li data-testid="appointment">
       <button
