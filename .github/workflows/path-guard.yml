@@ -67,6 +67,8 @@ jobs:
                   'workspaces/',
                 ].map((p) => `${WEB}firm/(workspace)/${p}`),
               ],
+              // Firm Sign under a client is R13-web's (the Oct 18 plan).
+              except: [`${WEB}firm/(workspace)/clients/[id]/signatures/`],
             },
             tumit: {
               logins: ['tumit-h-r-75'],
@@ -76,6 +78,7 @@ jobs:
                 ...['welcome/', 'apply/', 'setup/'].map((p) => `${WEB}firm/${p}`),
                 ...[
                   'team/',
+                  'audit-log/',
                   'calendar/',
                   'settings/profile/',
                   'settings/branding/',
@@ -97,10 +100,14 @@ jobs:
                 `${WEB}portal/[firmSlug]/(public)/begin/`,
                 `${WEB}portal/[firmSlug]/(client)/appointments/`,
                 `${WEB}portal/[firmSlug]/(client)/home/`,
+                // R14's calculators and R13-web's Firm Sign (the Oct 18 plan).
+                `${WEB}portal/[firmSlug]/(client)/calculator/`,
+                `${WEB}portal/[firmSlug]/(public)/calculators/`,
+                `${WEB}portal/[firmSlug]/(client)/signatures/`,
               ],
             },
-            ibrahim: {
-              logins: [],
+            arfan: {
+              logins: ['arfan-ahmed-shohag'],
               files: [
                 `${WEB}portal/[firmSlug]/(public)/begin/`,
                 `${WEB}firm/(workspace)/leads/`,
@@ -143,7 +150,7 @@ jobs:
             Object.keys(DEVELOPERS).find((n) => branch.startsWith(`${n}/`));
           if (!name) {
             console.log(
-              `::error::${author}: start the branch with your name (fahad/, tumit/, nahid/ or ibrahim/).`,
+              `::error::${author}: start the branch with your name (fahad/, tumit/, nahid/ or arfan/).`,
             );
             process.exit(1);
           }

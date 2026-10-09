@@ -1,4 +1,5 @@
 import {
+  createAdminSupportAccessClient,
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
@@ -10,17 +11,24 @@ import {
   createContentClient,
   createDocumentsClient,
   createEngagementsClient,
+  createEsignClient,
   createFirmApplicationsClient,
+  createInvoicesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyInvoicesClient,
+  createMyNotificationsClient,
   createMyProfileClient,
   createMyReportsClient,
   createMyServicesClient,
+  createMySignaturesClient,
   createMyTaxReturnsClient,
+  createNotificationsClient,
   createRequest,
   createSettingsClient,
+  createSupportAccessClient,
   createTasksClient,
   createTaxReturnsClient,
   createTaxStatusesClient,
@@ -34,12 +42,17 @@ import {
   myAppointmentsMock,
 } from '../mocks/appointments';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
+import { createEsignMock, mySignaturesMock } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
+import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
+import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
+import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -87,11 +100,17 @@ export const api = {
       : createClientSignUpsClient(request),
   /** Client records (R10): firm side. */
   clients: createClientsClient(request),
-  engagements: createEngagementsClient(request),
+  engagements:
+    dev && mocked('engagements')
+      ? createEngagementsMock({ role: MOCK_ROLE })
+      : createEngagementsClient(request),
   taxReturns: createTaxReturnsClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
   myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
-  myServices: (firmSlug: string) => createMyServicesClient(request, firmSlug),
+  myServices: (firmSlug: string) =>
+    dev && mocked('myServices')
+      ? myServicesMock(firmSlug)
+      : createMyServicesClient(request, firmSlug),
   myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
   /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
   appointmentTypes:
@@ -152,9 +171,47 @@ export const api = {
     dev && mocked('auditLog')
       ? createAuditLogMock({ role: MOCK_ROLE })
       : createAuditLogClient(request),
+  /** Support access (R8): Firmivra Support's requests to the firm; Owner and Admin read, an Owner decides. */
+  supportAccess:
+    dev && mocked('supportAccess')
+      ? createSupportAccessMock({ role: MOCK_ROLE })
+      : createSupportAccessClient(request),
+  /** Support access (R8): a Super Admin's requests to firms (admin site). */
+  adminSupportAccess:
+    dev && mocked('adminSupportAccess')
+      ? createAdminSupportAccessMock()
+      : createAdminSupportAccessClient(request),
+  /** Notifications (R6): the signed-in member's bell and preferences (docs/api/notifications.yaml). */
+  notifications:
+    dev && mocked('notifications') ? createNotificationsMock() : createNotificationsClient(request),
+  /** Notifications (R6): the signed-in client's own, per firm (portal). Same calls as `notifications`. */
+  myNotifications: (firmSlug: string) =>
+    dev && mocked('myNotifications')
+      ? myNotificationsMock(firmSlug)
+      : createMyNotificationsClient(request, firmSlug),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:
     dev && mocked('firmApplications')
       ? createFirmApplicationsMock()
       : createFirmApplicationsClient(request),
+  /** Invoices (R7): the firm's invoices with lines; create, send, cancel (docs/api/invoices.yaml). */
+  invoices:
+    dev && mocked('invoices')
+      ? createInvoicesMock({ role: MOCK_ROLE })
+      : createInvoicesClient(request),
+  /** Invoices (R7): the signed-in client's invoices and Pay Now (Stripe checkout), per firm (portal). */
+  myInvoices: (firmSlug: string) =>
+    dev && mocked('myInvoices')
+      ? myInvoicesMock(firmSlug)
+      : createMyInvoicesClient(request, firmSlug),
+  /** Firm Sign (R13): signature requests for the firm; `status()` for the menu (docs/api/esign.yaml). */
+  esign:
+    dev && mocked('esign')
+      ? createEsignMock({ role: MOCK_ROLE })
+      : createEsignClient(request, options.baseUrl),
+  /** Firm Sign (R13): the signed-in client's Signature center, per firm (portal). */
+  mySignatures: (firmSlug: string) =>
+    dev && mocked('mySignatures')
+      ? mySignaturesMock(firmSlug)
+      : createMySignaturesClient(request, firmSlug),
 };

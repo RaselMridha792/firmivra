@@ -6,15 +6,21 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { type MeResponse, portalCookies, type SignInResult } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import { AuditService } from '../../src/audit/audit.service.js';
+import {
+  IDENTITY_PROVIDER,
+  type IdentityProvider,
+} from '../../src/auth/identity/identity-provider.js';
 import {
   LOCAL_PASSWORD,
   LOCAL_RESET_CODE,
 } from '../../src/auth/identity/local-identity.provider.js';
+import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -33,6 +39,7 @@ type Key =
   | 'declined'
   | 'disabled'
   | 'laterDeclined'
+  | 'laterDisabled'
   | 'reset'
   | 'otherFirm';
 const people = {} as Record<Key, Person>;
@@ -49,7 +56,7 @@ async function asOwner<T>(
   scope: Parameters<typeof runInScope>[1],
   work: Parameters<typeof runInScope<T>>[2],
 ) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   try {
     return await runInScope(owner, scope, work);
   } finally {
@@ -153,6 +160,7 @@ beforeAll(async () => {
   await client('declined', firmX, 'DECLINED');
   await client('disabled', firmX, 'DISABLED');
   await client('laterDeclined', firmX, 'ACTIVE');
+  await client('laterDisabled', firmX, 'ACTIVE');
   await client('reset', firmX, 'ACTIVE');
   await client('otherFirm', firmY, 'ACTIVE');
 
@@ -201,7 +209,8 @@ describe('portal sign-in', () => {
     expect(access).toMatch(new RegExp(`Path=${names.accessPath};.*HttpOnly.*SameSite=Lax`, 'i'));
     // 30 days; the clock is read twice, so under load a second may tick in between.
     expect(refresh).toMatch(
-      new RegExp(`Max-Age=(2592000|2591999); Path=${names.refreshPath};`, 'i'),
+      // Exactly 30 days: the cookie takes the session's full lifetime, not a second less.
+      new RegExp(`Max-Age=2592000; Path=${names.refreshPath};`, 'i'),
     );
     expect(refresh).toMatch(/HttpOnly.*SameSite=Strict/i);
     // Never the firm site's cookies, and never a Domain.
@@ -357,6 +366,127 @@ describe('portal session', () => {
     expect(setCookies(cleared).join('\n')).toMatch(
       new RegExp(`^${portalCookies(nowhere).refresh}=; Path=/api/v1/portal/${nowhere}/auth;`, 'm'),
     );
+  });
+
+  it('refreshes no more once the client is disabled (#62 follow-up)', async () => {
+    const b = browser();
+    signedIn(await b.signIn(firmX, people.laterDisabled));
+    expect((await b.post(`${firmX.slug}/auth/refresh`)).status).toBe(200);
+    await setStatus(firmX, people.laterDisabled, 'DISABLED');
+    const gone = await b.post(`${firmX.slug}/auth/refresh`);
+    expect([gone.status, codeOf(gone)]).toEqual([401, 'UNAUTHENTICATED']);
+  });
+
+  it('revokes the refresh token on sign-out after the firm is suspended (#62 follow-up)', async () => {
+    const b = browser();
+    signedIn(await b.signIn(firmX, people.active));
+    const identity = app.get<IdentityProvider>(IDENTITY_PROVIDER);
+    const revoke = vi.spyOn(identity, 'revoke');
+    const setFirm = (status: 'ACTIVE' | 'SUSPENDED') =>
+      asOwner({ kind: 'platform' }, (tx) =>
+        tx.business.update({ where: { id: firmX.id }, data: { status } }),
+      );
+    await setFirm('SUSPENDED');
+    try {
+      const out = await b.post(`${firmX.slug}/auth/sign-out`, {});
+      expect(out.body).toEqual({ ok: true });
+      expect(revoke).toHaveBeenCalledTimes(1);
+      expect(revoke.mock.calls[0]?.[0]).toBe('CLIENT');
+      // Audited in the firm's own log, like the sign-in.
+      const audit = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
+        tx.auditLog.findFirst({
+          where: { action: 'auth.signed_out', actorUserId: people.active.id },
+          select: { businessId: true, metadata: true },
+        }),
+      );
+      expect(audit).toEqual({
+        businessId: firmX.id,
+        metadata: { pool: 'CLIENT', everywhere: false },
+      });
+    } finally {
+      revoke.mockRestore();
+      await setFirm('ACTIVE');
+    }
+  });
+
+  it('signs out, clearing the cookies, even when the firm lookup or the audit fails (#84 review)', async () => {
+    const names = portalCookies(firmX.slug);
+    const signOutClears = async (b: ReturnType<typeof browser>) => {
+      const out = await b.post(`${firmX.slug}/auth/sign-out`, {});
+      expect([out.status, out.body]).toEqual([200, { ok: true }]);
+      expect(setCookies(out).join('\n')).toMatch(
+        new RegExp(`^${names.refresh}=; Path=${names.refreshPath}; Expires=Thu, 01 Jan 1970`, 'm'),
+      );
+      expect(b.jar[names.access]).toBeUndefined();
+    };
+
+    const lookup = vi
+      .spyOn(app.get(PortalInfoService), 'firmBySlug')
+      .mockRejectedValueOnce(new Error('The database is down for a moment'));
+    try {
+      const b = browser();
+      signedIn(await b.signIn(firmX, people.active));
+      await signOutClears(b);
+      expect(lookup).toHaveBeenCalledTimes(1);
+    } finally {
+      lookup.mockRestore();
+    }
+
+    const audit = app.get(AuditService);
+    const log = audit.log.bind(audit);
+    const failing = vi
+      .spyOn(audit, 'log')
+      .mockImplementation((...args: Parameters<AuditService['log']>) =>
+        args[0] === 'auth.signed_out'
+          ? Promise.reject(new Error('The audit insert failed'))
+          : log(...args),
+      );
+    const revoke = vi.spyOn(app.get<IdentityProvider>(IDENTITY_PROVIDER), 'revoke');
+    try {
+      const b = browser();
+      signedIn(await b.signIn(firmX, people.active));
+      await signOutClears(b);
+      expect(failing.mock.calls.some(([action]) => action === 'auth.signed_out')).toBe(true);
+      // The refresh token is revoked before the audit, so a failed audit leaves no session.
+      expect(revoke).toHaveBeenCalledTimes(1);
+    } finally {
+      failing.mockRestore();
+      revoke.mockRestore();
+    }
+  });
+
+  it('answers 404, not 500, for a slug that cannot be a firm address (#62 follow-up)', async () => {
+    const res = await browser().post('a%3Bb/auth/sign-out', {});
+    expect([res.status, codeOf(res)]).toEqual([404, 'NOT_FOUND']);
+  });
+
+  it("never takes a Super Admin's token on a portal route (#62 follow-up)", async () => {
+    const dev = await request(app.getHttpServer())
+      .post('/api/v1/dev/token')
+      .send({ email: fx.users.admin.email })
+      .expect(200);
+    const token = (dev.body as { token: string }).token;
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/portal/${firmX.slug}/me`)
+      .set('authorization', `Bearer ${token}`);
+    expect(res.status).toBe(401);
+  });
+
+  it("clears a portal's dev cookie on dev sign-out when told the firm (#62 follow-up)", async () => {
+    const names = portalCookies(firmX.slug);
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/dev/sign-out')
+      .set('origin', origins.portal)
+      .send({ firmSlug: firmX.slug })
+      .expect(200);
+    expect(setCookies(res).join('\n')).toMatch(
+      new RegExp(`^${names.access}=; Path=${names.accessPath}; Expires=Thu, 01 Jan 1970`, 'm'),
+    );
+    const bad = await request(app.getHttpServer())
+      .post('/api/v1/dev/sign-out')
+      .set('origin', origins.portal)
+      .send({ firmSlug: 'a;b' });
+    expect(bad.status).toBe(400);
   });
 
   it("takes changes only from the portal's own pages", async () => {

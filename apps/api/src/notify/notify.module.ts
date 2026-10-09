@@ -1,20 +1,21 @@
 import { Global, Module } from '@nestjs/common';
-import { ENV } from '../config/config.module.js';
-import type { Env } from '../config/env.js';
-import { LogNotifyService } from './log-notify.service.js';
+import type { Database } from '@firmivra/db';
+import { DATABASE } from '../database/database.module.js';
+import { loadNotifyConfig } from './config.js';
+import { createNotifyService } from './notify.service.js';
 import { NOTIFY_SERVICE } from './notify.types.js';
 
 /**
- * Provides NOTIFY_SERVICE everywhere (global, like AuditService). Until R6 step 2 it is the
- * log-only LogNotifyService; the real sender replaces it here, so callers never change.
+ * Provides NOTIFY_SERVICE everywhere (global, like AuditService). The email and SMS settings are
+ * checked when the app starts, so a bad EMAIL_MODE or SMS_MODE never reaches a request.
  */
 @Global()
 @Module({
   providers: [
     {
       provide: NOTIFY_SERVICE,
-      inject: [ENV],
-      useFactory: (env: Env) => new LogNotifyService(env.AUTH_MODE === 'local'),
+      inject: [DATABASE],
+      useFactory: (db: Database) => createNotifyService(loadNotifyConfig(), db),
     },
   ],
   exports: [NOTIFY_SERVICE],

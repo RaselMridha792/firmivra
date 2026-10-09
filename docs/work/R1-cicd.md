@@ -3,6 +3,7 @@
 **Goal:** A merge to main builds the images and runs api and web on dev automatically.
 
 **Owned paths (change only these):**
+
 - `infra/**`
 - `.github/workflows/**`
 - `apps/api/Dockerfile`
@@ -11,6 +12,7 @@
 - `docs/SETUP-LOG.md`
 
 **Read first (nothing else):** CLAUDE.md, docs/work/README.md, this file, and:
+
 - docs/SETUP-LOG.md
 - infra/src/config.ts
 - docs/AUTH-DESIGN.md is NOT needed
@@ -39,7 +41,55 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
 
 ## Needs from others
 
-(none yet)
+Questions for Rasel (Oct 8 evening; BOARD.md is closed, so they live here):
+
+- **Rasel: `aws sso login --profile firmivra-dev`, then tell R1.** R1 then:
+  - runs the real `cdk diff` for #101 (read-only), posts it on the PR, and checks that no user pool, client, database or bucket is replaced;
+  - runs R2's leaked-password dev test. It needs a dev account whose inbox Rasel reads: its password is reset to a known leaked one, the API must answer `RESET_CODE_INVALID` (docs/api/auth.yaml), and Cognito's auth events must show the compromised-credentials block.
+- **Rasel: #101's order after the diff.**
+  1. The two bootstrap policy versions (his commands in the PR).
+  2. The merge, which deploys `firmivra-dev-app`; R1 watches the run.
+  3. `cdk deploy firmivra-dev-auth` and one real password reset.
+  4. The LVP key one-off, then its `--check`.
+  5. One firm application on dev from a verified sandbox address: the received email must arrive, and `/firmivra/dev/api` must have no "could not be sent" line.
+- **Rasel, yes or no: workflow changes in R1's paths.**
+  - `path-guard.yml`: add `apps/web/src/app/firm/(workspace)/audit-log/` to Tumit's paths before he starts F12. PAGE-MAP already lists it (#99).
+  - `ci.yml`: an s3mock service, so the documents adapter's S3 round trip also runs in CI (today it is skipped there).
+- **Rasel, yes or no: infra, after #101.** `SCAN_MODE=local` on the dev API task. Without it, every dev upload stays "checking" until GuardDuty. The API allows local mode in production only when `APP_ENV=dev`.
+- **Rasel, later: R5's infra, each with a cdk diff first.**
+  - GuardDuty Malware Protection for S3, its EventBridge rule and SQS queue, and the alarm.
+  - Expiry for unconfirmed uploads: a tag on the PUT, `s3:PutObjectTagging` and `s3:DeleteObjectTagging` for the API, and a tag-filtered lifecycle rule.
+  - Per-firm KMS keys for S3 objects, each tied to its `tenant/{businessId}/` prefix.
+- **Rasel:** who gives a new firm its default document categories (R4's approve, or R0), plus a one-off for LVP on dev. Today only the seed makes them (from #118's review).
+
+## Handoff (R1 session, Oct 8 evening)
+
+Where R1 (also acting as R4, R5, R6 and R7) stands, for a fresh session or after a context reset. Newest state first.
+
+- **Open PRs:**
+  - #101: infra (firm keys, the LVP key command, the EIN-hash secret, Cognito reset emails through SES). The real `cdk diff` is posted on it, and Rasel did step 1 himself: both bootstrap policies are at v2, with `email.cognito-idp` in them. It waits for the cloud review and Rasel's merge. Steps 3 to 5 and R2's leaked-password test (with a throwaway staff user) come as Rasel's "From me, follow it." block. Merging it deploys `firmivra-dev-app`; R1 watches that run.
+  - #118: R5 documents API part 1, the firm side. The lead's review and the cloud review are fixed (head `22d1ee2`); it waits for the cloud OK.
+  - #124: this file's "Needs from others", the R4 approve plan and this handoff.
+- **Being built:** R5 part 2, branch `rasel/R5-documents-api-part2`, stacked on #118: the portal routes with the household rule, the request routes, the request path of confirm, and the scan-result method with q22 and q24. Its first commit, `MyDocument.uploadedBy`, goes out as its own contract PR from main after #124 merges. The API PR opens when a slot is free (at most 2 open).
+- **Next, in order (Scrum, Oct 8):**
+  1. R5 part 2.
+  2. R6's remaining NotifyService work: email and SMS for invites, document requests and reminders. A staff event never reaches Staff who aren't assigned to the client (q27).
+  3. R4 approve, from the plan in R4's file. It also creates the default document categories; LVP on dev gets them through a one-off task, after telling Rasel.
+- **After #101 merges** (Rasel's yes, Oct 8): four small PRs, one at a time, each with its real `cdk diff` where it touches AWS:
+  - (a) `audit-log/` under Tumit in `path-guard.yml`;
+  - (b) an s3mock service in `ci.yml`;
+  - (c) `SCAN_MODE=local` on the dev API task only;
+  - (d) R5's infra: GuardDuty with its result queue and alarm, expiry for unconfirmed uploads, and per-firm document keys.
+
+  Any AWS step or deploy outside Deploy dev goes to Rasel first.
+
+- **Answered by Rasel (Oct 8):** yes to (a) to (d); R4's approve makes the default categories; q22 to q24 for documents; q12 household logins.
+- **Local:**
+  - The R1 checkout `F:/firmivra-R1` uses database `firmivra_r1b`. Prisma refuses an AI-run `migrate reset` without Rasel's own consent, so the old `firmivra_r1` is left for Rasel to drop.
+  - `.env` has the `.env.example` `EIN_HASH_KEY`; local uploads need `SCAN_MODE=local`.
+  - One worktree only, one heavy command at a time, at most 2 agents (Rasel, Oct 8).
+- **Saved work:** `C:/Users/RASEL/firmivra-wip-patches/rasel_R4-api-approve.patch` (approve; adapt it to the plan in R4's file).
+- **Deploy dev:** R1 watches every run, and only R1 starts, cancels or re-runs one. A pending run cancelled by a newer push is normal; the newer run ships both.
 
 ## Progress log
 
@@ -80,6 +130,7 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   - how-to in SETUP-LOG.
 
   Tests: 6 new db tests (validation, first link, re-run, pool refusal with nothing written, firm isolation); infra test pins `APP_ENV`. Ran the script locally and inside the built image against local Postgres. Nothing ran in AWS: Rasel sees the Cognito and run-task commands first.
+
 - 2026-10-06, CSRF check live (after the #23 deploy, run 37448823378, green): sign-in POSTs with a made-up email and a wrong password. app.dev with `Origin: https://app.dev.firmivra.com` answered 401 INVALID_CREDENTIALS, and so did a request without `Origin` but with `Sec-Fetch-Site: same-origin`; admin.dev with its own Origin answered 401 INVALID_CREDENTIALS too. Controls answered 403 ORIGIN_NOT_ALLOWED: Origin https://evil.example, `Sec-Fetch-Site: cross-site`, and app's Origin on the admin sign-in. Both headers reach the API through CloudFront and the load balancer. The #20 deploy (run 37448607179) was green too.
 - 2026-10-06, step 13: switched to subs and roles only (Rasel), so no emails land in CloudTrail through the task overrides.
   - The task reads email and name from Cognito with `AdminGetUser`, the migrate task role's only Cognito permission, on the staff and admins pool ARNs.
@@ -136,7 +187,7 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
 - 2026-10-07, #45 merged (8be5b28) after two main merges (layout: ours; api.ts: both sides, with R10's lines). R4 contract #61 merged (848b43c); R4's progress is in R4-firm-onboarding.md.
 - 2026-10-07, reference screen: branch `rasel/R1-reference-screen` from main, with c687885 cherry-picked (the old local branch was never pushed). New `apps/web/e2e/cache.spec.ts`: two firm owners on one tab, and the second person's list held back. It shows loading, never the first firm's rows. With both cache clears switched off it fails, so it tests the fix. Local runs pass: cache, skeleton-firm, session, and the mock suite. CI runs no Playwright.
 - 2026-10-07, lazy mock fixtures (the follow-up Rasel and the lead agreed after #45). A production build showed fixtures in `.next/static`: tax-statuses (3 chunks) and client-auth's portal info and error bodies. They are parsed when the file loads, so the bundler kept them although `dev && mocked()` is false. Now every mock builds its fixtures on first use: `taxStatusFixtures()`, `clientFixtures()` (plus `firstClientId`), `engagementFixtures()`, `taxReturnFixtures()`, `clientAuthFixtures()`. `apps/web/eslint.config.mjs` refuses a call at a mock file's top level. After the change the build has no mock strings or code in `.next/static`. Branch `rasel/R1-lazy-mocks`.
-- 2026-10-07, developer path guard (kit plan: "own pull_request_target path guard"): `.github/workflows/path-guard.yml`. A PR by Fahad, Tumit, Nahid or Ibrahim may change only their "Your files" from `docs/junior/PAGE-MAP.md`, plus their own `e2e/mock/<name>-*.spec.ts`. It knows a developer by GitHub login (Fahad's and Tumit's so far), else by branch prefix. Rasel's PRs are skipped, and any other author fails. It reads only file names through the API: no checkout, no PR code. Tested locally on the script embedded in the YAML: the 7 real developer PRs pass, and 8 synthetic cases (outside files, exceptions, renames, unknown author) behave. It runs only once it is on main. Branch `rasel/R1-path-guard`.
+- 2026-10-07, developer path guard (kit plan: "own pull_request_target path guard"): `.github/workflows/path-guard.yml`. A PR by Fahad, Tumit, Nahid or Arfan may change only their "Your files" from `docs/junior/PAGE-MAP.md`, plus their own `e2e/mock/<name>-*.spec.ts`. It knows a developer by GitHub login (Fahad's and Tumit's so far), else by branch prefix. Rasel's PRs are skipped, and any other author fails. It reads only file names through the API: no checkout, no PR code. Tested locally on the script embedded in the YAML: the 7 real developer PRs pass, and 8 synthetic cases (outside files, exceptions, renames, unknown author) behave. It runs only once it is on main. Branch `rasel/R1-path-guard`.
 - 2026-10-07, portal session (R3's need "serve mocks/client-auth.ts in mock mode", plus a fix):
   - The portal's sign-in check read `GET /me`, but portal cookies reach only `/api/v1/portal/{slug}/` (client-auth.yaml), so on dev it would never see a session. After #62, local sign-in sets the same cookies. Now `SignedIn` reads `portalAuth(slug).me()` and signs out through `portalAuth(slug).signOut()`.
   - Mock mode: `portalAuth(slug)` is one `createPortalAuthMock` per firm (signed in as an active client; `NEXT_PUBLIC_API_MOCK_CLIENT` sets another start), and the `me` mock answers `api.portalBusiness`.
@@ -154,4 +205,17 @@ https://app.dev.firmivra.com, https://admin.dev.firmivra.com and https://portal.
   5. Then R4 submit (needs R0's ein columns; otherwise approve first), request info, decline and notes, then approve (KMS and invite: to Rasel before pushing).
   6. Open for Rasel: R5 file types and replacements; R6 password-reset email; the lead's other R5 questions (FAILED rescans, deferred deletes, uploads to PENDING engagements).
   7. Keep watching every Deploy dev run.
+
 - 2026-10-08: #75 merged (4a9f707) with main merged in first (36c4d02); its Deploy dev run succeeded, as did #71's and #77's. A watcher that died on a network error had only been waiting. Next step 2 above: the R6 PR, opened now from fresh main.
+- 2026-10-08, Super Admin mock session and skeleton checks by tab title (Rasel's answers to the review session's two questions; branch `rasel/R1-mock-admin-titles` from main, must merge before #58):
+  - Mock module `adminAuth`: `mocks/admin-auth.ts` (`createAdminAuthMock(real)`: `me`, `refresh`, `signOut`) starts signed in as the invented Morgan Admin, the same person as ADMIN in `mocks/firm-applications.ts` (not imported, so it stays out of the production bundle). After sign-out `me` and `refresh` answer 401; a reload signs back in. `lib/auth.ts` picks it behind the inline NODE_ENV guard; `SignedIn` signs out through it before the local dev sign-out. The portal mock's Map is now created on first use, so nothing of the mocks runs when lib/auth.ts loads. New `e2e/mock/admin-session.spec.ts`.
+  - Skeleton specs and `session.spec.ts` check each page by its tab title (`toHaveTitle`, from the page.tsx metadata) after nav "Main" and the URL, not the placeholder heading; `cache.spec.ts` keeps the reference screen's heading. The rule for page.tsx and what the tests read is in GUIDE.md step 2, AI-RULES.md and PAGE-MAP.md. Decisions: the root layout keeps its plain default title "Firmivra" (no template); a page's own title overrides it.
+  - The two index pages that called `redirect()` are gone. Decision b said to move them into `src/proxy.ts`, but Next 16.3.8 turns a proxy response with a relative Location into a 500 (`TypeError: Invalid URL` in the proxy adapter, which parses Location with `new NextURL()` and no base), and an absolute target would need the request's origin. So each is a two-line route handler at its own path: `firm/(workspace)/settings/route.ts` (307, Location `/settings/profile`) and `portal/[firmSlug]/(client)/home/route.ts` (307, Location `/{slug}/intake`). Targets are fixed strings plus the slug, which the proxy's PORTAL_SLUG check already passed (the handler checks it again); exact paths only (Next routes are case-sensitive); the query is dropped. A well-formed slug that is not a firm still goes to `/{slug}/intake` on this site, as the old page did: the route can't know which firms exist, and the portal layout shows not-found there (R3's lookup).
+  - Request-level tests: `/settings` and `/settings?next=//evil.example.test` give 307 to exactly `/settings/profile`; `/lvp/home` and `/no-such-firm/home` give `/lvp/intake` and `/no-such-firm/intake`; `/%2F%2Fevil.example.test/home` and `/%2Fevil.example.test/home` give 404 with no Location. A raw `//evil.example.test/home` never reaches the proxy: Next answers 308 to the same-site `/evil.example.test/home` first (its repeated-slash rule), which is a 404. That is not the "404 with no Location" the spec asked for (the app never sees the request), so the test checks the safety property instead of Next's exact answer: 308 or 404, any Location starts with one `/` (not `//` or a backslash), and following it gives 404. Needs Rasel's acceptance.
+  - Firm audit log (Rasel q11, Oct 8): `/audit-log` placeholder in `(workspace)`, menu item for Owner and Admin (`managers`), skeleton row, PAGE-MAP row under Tumit, ticket F12 at the end of TUMIT.md (R12's `api.auditLog` contract, #71). The path guard's list for Tumit (`.github/workflows/path-guard.yml`) still needs `audit-log/` (next to `team/` and `calendar/`), or CI fails Tumit's F12 PR: not changed here (this session may not edit `.github/workflows/`). Rasel: this PR or an R1 follow-up before F12 starts?
+  - Review follow-ups (same day): the branch is rebased onto main 6484b44 (after #81, #70 and #84). `admin-session.spec` now also goes back after sign-out and checks it lands on `/sign-in` again with no `me-email` (it fails if the mock's signOut stops ending the session). The raw `//` test checks the safety property (above). The settings layout comment names `settings/route.ts`; AI-RULES uses the same rule text as GUIDE and PAGE-MAP. Open for Rasel before merge: his yes for route handlers instead of `src/proxy.ts` (decision b, reason above), the raw `//` deviation, and the path guard line.
+  - Checks on this branch (on 6484b44): lint and typecheck clean; test:e2e 28/28 and test:e2e:mock 4/4. Some runs lost tests to Windows `EPERM` renames in `.next/dev` or to a cold first compile (session.spec, sites, skeleton-firm); each passes on a re-run, and the last full run passed.
+  - Checks on a local scratch merge with #58 (head 154b519, never pushed): lint and typecheck clean; test:e2e 30/30 (one earlier run lost sites' portal test to a cold compile; it passes alone and on the re-run). test:e2e:mock 4/5: #58's `tumit-dashboard` expects 3 pending applications, but R4's mock on main (#79) now has 4; it fails the same way on main + #58 without this branch, so #58 needs that update.
+  - `next build` with `NEXT_PUBLIC_API_MOCK=all`, on this branch and on the scratch merge: no `morgan.admin@example.test` and no `0199b6a2-0000-7000-8000-0000000000a1` in `.next/static`.
+- 2026-10-08, finding (not fixed here): a production build of main already carries sample text from mocks in a client chunk (Jamie Sample, Sam Staff, john@example.com, Mock User). It comes through imports between mock files (`mockMe` from appointments.ts in tasks.ts, `clientFixtures`, `taxStatusFixtures`) and the hoisted `portalAuthMock` in lib/auth.ts. Mock behaviour stays off and the data is invented, but it breaks the "no mock strings in .next/static" rule from the lazy-mocks work (Oct 7).
+- 2026-10-08 evening: Rasel's new setup: only R0 and R1 run, the cloud threads review on GitHub, and Rasel merges. BOARD.md is closed, so R1's questions for Rasel are now under "Needs from others" here. Merged today: #91, #99, #106, #107, #110, #112, #113 (and #79 and #81). #101 and #118 are open. Every Deploy dev run since #99 was green.

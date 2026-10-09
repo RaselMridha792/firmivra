@@ -59,14 +59,14 @@ export function AppShell({
         </div>
       ) : null}
 
-      <div className="flex min-h-screen flex-col md:pl-72">
+      <div className="flex min-h-screen flex-col md:pl-72 md:[&>header]:pr-4">
         <Header
           search={search}
           greeting={greeting}
           roleLabel={roleLabel}
           onOpenMenu={() => setDrawer(true)}
         />
-        <main className="flex-1 p-4 md:p-8">{children}</main>
+        <main className="flex-1 p-4 md:pb-8 md:pl-6 md:pr-4 md:pt-4">{children}</main>
         {footer}
       </div>
     </div>

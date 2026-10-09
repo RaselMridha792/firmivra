@@ -106,7 +106,8 @@ describe("a client's refresh envelope belongs to one firm", () => {
         cookies[name] = '';
       },
     } as unknown as ExpressResponse;
-    const service = new SessionService(identity as never, envelopes, db, env);
+    const audit = { log: vi.fn(() => Promise.resolve()) };
+    const service = new SessionService(identity as never, envelopes, db, audit as never, env);
     return { service, identity, findAccount, cookies, res };
   }
 

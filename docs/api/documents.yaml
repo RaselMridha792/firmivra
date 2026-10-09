@@ -27,19 +27,53 @@ info:
        API chooses; the API never streams it. Storage refuses bytes that don't match the signed
        type, length and checksum.
     3. `POST .../documents/uploads/confirm` with the `uploadToken`. The API checks the stored
-       object (size, magic bytes, checksum), saves the document and starts the malware scan.
-       `410 UPLOAD_EXPIRED` for an old or used token; `409 UPLOAD_MISMATCH` if the stored file is
-       not what step 1 described.
+       object (size, magic bytes, checksum; an Excel or Word file also as a package, see "Rules
+       for the API"), saves the document and starts the malware scan. `410 UPLOAD_EXPIRED` for
+       an old or used token; `409 UPLOAD_MISMATCH` if the stored file is not what step 1
+       described; `409 FILE_PASSWORD_PROTECTED` or `409 FILE_HAS_MACROS` for an Excel or Word
+       file saved with a password or holding macros; `503 SERVICE_UNAVAILABLE` (with
+       `Retry-After`) when storage fails or is busy: nothing is deleted, confirm again.
 
-    Limits: PDF, JPG or PNG, at most 10 MB (`UPLOAD_LIMITS`). Uploads are only for an open
-    service: the portal's pop-up reads `GET .../documents/upload-targets`; empty lists are its
-    STOP state, and the API refuses the rest with `409 NO_OPEN_SERVICE` however it is reached.
+    Limits (`UPLOAD_LIMITS`), the same for clients and staff: PDF, JPG, PNG, Excel (.xlsx) or
+    Word (.docx), at most 10 MB. Office files only without macros: `.xls`, `.xlsm`, `.doc`,
+    `.docm` and `.csv` are refused (their types are not in the list, and a name's ending must fit
+    its declared type, so a `Budget.xlsm` sent as an .xlsx is refused too). A browser may give an
+    .xlsx or .docx no type (`''` or `application/octet-stream`): `uploadFile()` then takes the
+    type from the name's ending (`uploadContentTypeFor`). It refuses a file of another type, an
+    empty one or one over 10 MB before anything is sent (`400 FILE_TYPE_NOT_ALLOWED`,
+    `FILE_EMPTY`, `FILE_TOO_LARGE`). Uploads are only for an open service (an ACTIVE
+    engagement; a PENDING one takes none): the portal's pop-up reads
+    `GET .../documents/upload-targets`; empty lists are its STOP state, and the API refuses the
+    rest with `409 NO_OPEN_SERVICE` however it is reached.
 
     ## Rules
 
     - **Scan before download.** A new file is `PENDING` (portal: `CHECKING`) until the malware
       scan finishes. `GET .../download` answers a 5-minute link only for a `CLEAN` file, else
-      `409 SCAN_PENDING` or `409 FILE_BLOCKED` (infected or failed).
+      `409 SCAN_PENDING` or `409 FILE_BLOCKED` (infected or failed). Every download is an
+      attachment, whatever the type: the browser saves the file and never opens it inline.
+    - **Scan results are final.** `INFECTED` and `FAILED` are final for users: they upload the
+      file again, as a new upload (for a request, see "Requests"). `FAILED` means only that the
+      file itself couldn't be scanned. When the scan breaks on our side, the file stays
+      `PENDING`, an alarm fires, and we rescan it with GuardDuty's on-demand scan, never
+      rewriting the object. Until GuardDuty is deployed, new uploads on dev stay `PENDING`
+      (portal: "checking").
+    - **What the client is told.** The portal never says a file failed the malware scan. It
+      shows a `BLOCKED` file (`INFECTED` or `FAILED`) by its source (`PORTAL_BLOCKED_TEXT`): the
+      client's own upload (`MINE`) as "This file couldn't be checked. Please upload it again.",
+      a file the firm shared (`FIRM`) as "This file couldn't be checked. Ask your firm to share
+      it again." The portal's `FILE_BLOCKED` for that file says the same. The firm sees the
+      exact `scanStatus`.
+    - **Error words.** `DOCUMENT_ERRORS` has what users see for every code of this module:
+      screens show errors with `errorMessage(error, DOCUMENT_ERRORS)`. `FILE_PASSWORD_PROTECTED`
+      is "Remove the password and upload the file again."; `FILE_HAS_MACROS` is "Save it as a
+      regular .xlsx or .docx without macros and upload again." A file whose bytes are not what
+      its type says stays `UPLOAD_MISMATCH`.
+    - **Replacements.** A replacement is a new upload for the same request; the old file stays,
+      and nothing links the two (no versions). A request takes uploads while it is `REQUESTED`
+      or `REJECTED`.
+    - **No deletes at launch.** There are no delete routes for documents or requests; the firm
+      cancels a request instead.
     - **What the portal sees.** Only the signed-in client's own documents; never `INTERNAL` ones
       (firm only), and never another client's (404). "My Uploaded Documents" is `source=MINE`
       (`CLIENT_TO_FIRM`); "Firm Uploaded Documents" is `source=FIRM` (`FIRM_TO_CLIENT`). The list
@@ -49,15 +83,25 @@ info:
     - **What the firm sees.** Staff reach only the clients they may see (as in R10's clients;
       others are 404). A file the firm uploads is `INTERNAL` unless `shareWithClient` is true.
     - **Requests.** The firm asks for a document within an open service. The client uploads for
-      it (`SUBMITTED`) or says "I don't have this" (`NOT_AVAILABLE`, with a reason). The firm
-      accepts (`ACCEPTED`) or marks it missing (`REJECTED`, with a reason the client sees; the
-      client is asked again), or cancels it. Requests are never deleted.
+      it (`SUBMITTED`) or says "I don't have this" (`NOT_AVAILABLE`, with a reason). A
+      `SUBMITTED` request takes no second upload. If its newest file comes back `INFECTED` or
+      `FAILED`, the API puts the request back to `REQUESTED` as it records that result: the
+      client is asked again (it is back in `upload-targets` and Your Next Steps) and uploads
+      again for it. The firm accepts (`ACCEPTED`) only when the newest file is `CLEAN`
+      (`409 SCAN_PENDING` while it is being checked), or marks it missing (`REJECTED`, with a
+      reason the client sees; the client is asked again), or cancels it. Requests are never
+      deleted.
     - **File names** are display only: no control or invisible formatting characters, no line
-      separators, no `/` or `\`, and the ending must fit the type (`.pdf` for a PDF). Storage
-      keys are never built from them.
-    - **Household logins.** How SPOUSE and AUTHORIZED portal logins use these routes (and what
-      "MINE" means for them) is pending Rasel's answer; until then the rules above are for the
-      client's primary login.
+      separators, no `/` or `\`, and the ending must fit the type (`.pdf` for a PDF, `.xlsx` for
+      Excel). Storage keys are never built from them.
+    - **Household logins (Rasel, q12).** PRIMARY and SPOUSE logins have the same access. An
+      AUTHORIZED login sees only what it uploaded itself as `MINE`, an empty `FIRM` list and only
+      open requests; it uploads only for an open request (403 without a `requestId`), never sees
+      `INTERNAL` files and never answers "I don't have this" (403). Every upload records the
+      login that made it, and portal items carry the uploader's name (`MyDocument.uploadedBy`:
+      the household login's name on a `MINE` file; null on the firm's files, so no staff names
+      reach the portal, and on a file with no known uploader). (The portal routes come in R5 API
+      part 2.)
     - **Audit and privacy.** Uploads, views (`get`), every download link issued and request
       changes are audited with ids only. File contents, names of other clients and storage URLs
       never reach logs, emails or SMS.
@@ -67,29 +111,150 @@ info:
 
     - **Ticket.** The `uploadToken` is sealed (or stored) by the API and binds the business, the
       uploader (user and side), the client, service, request, category, direction, the S3 key,
-      size, SHA-256 and an expiry of 5 minutes or less.
-    - **Presigned PUT.** `Content-Type`, `Content-Length`, `x-amz-checksum-sha256` and the SSE-KMS
-      headers are in `X-Amz-SignedHeaders`; expiry 5 minutes or less. (`Content-Length` is signed
-      but not in `ticket.headers`: the browser sends it.) s3mock does not check signatures, so a
-      unit test checks the presigned URL itself (signed headers, expiry).
-    - **Confirm** re-reads the object (size, checksum, magic bytes). Missing or different: `409
-      UPLOAD_MISMATCH`, and the API deletes the object. The unique `s3_key` makes confirm single
-      use (`410 UPLOAD_EXPIRED` the second time).
+      size, SHA-256 and an expiry of 15 minutes or less (a PUT that starts near the end of its
+      URL can run until the browser's 10-minute timeout, and the confirm comes after it).
+    - **Presigned PUT.** `Content-Type`, `Content-Length` and `x-amz-checksum-sha256` are in
+      `X-Amz-SignedHeaders`; expiry 4 minutes (the token's 15 cover a slow upload and the confirm). (`Content-Length`
+      is signed but not in `ticket.headers`: the browser sends it.) No SSE headers: objects take
+      the bucket's default SSE-KMS with the documents key (see "KMS"). s3mock does not check
+      signatures, so a unit test checks the presigned URL itself (signed headers, expiry).
+    - **Confirm** re-reads the object (size, checksum, magic bytes; Excel and Word as below).
+      Missing or different, or stored with a `Content-Encoding` (the PUT signs none, so a
+      repeated PUT could add one): `409 UPLOAD_MISMATCH`, and the API deletes the object. The
+      unique `s3_key` makes confirm single use (`410 UPLOAD_EXPIRED` the second time). Confirm's
+      HEAD never asks for S3's checksum (on SSE-KMS that needs `kms:Decrypt`, and a 403 must not
+      look like a missing file); it hashes the bytes itself. At most 4 confirms read a file at
+      once in each API task (each holds up to 10 MB); one more is `503 SERVICE_UNAVAILABLE`.
+    - **Storage failures.** Any S3 failure that isn't "no such object" (a 503 SlowDown, a
+      timeout, a 403 from KMS) is `503 SERVICE_UNAVAILABLE` with `Retry-After: 5` on the ticket,
+      confirm and the download, and deletes nothing; the log names the operation, the error's
+      name and its HTTP status only. Every S3 call has timeouts (3 s to connect, 5 s for the
+      answer's headers, 2 attempts; a GET has 30 s in all, its body included), and no S3 call
+      runs while the upload holds a client, service or category row.
+    - **Excel and Word (confirm).** An `.xlsx` or `.docx` must be an Office Open XML package
+      without macros. Read it in memory and never unpack it to disk; each refusal deletes the
+      object, as for a mismatch. The checks, in this order:
+      1. A file that starts with the OLE2/CFB signature `D0 CF 11 E0 A1 B1 1A E1` and whose
+         directory holds an `EncryptedPackage` stream is how Office saves a file with a
+         password: `409 FILE_PASSWORD_PROTECTED`, not UPLOAD_MISMATCH. Read that directory with
+         a bounded walk, not a general CFB library: sectors of 512 or 4096 bytes only; follow
+         the DIFAT, FAT and directory chains for at most (file size / sector size) sectors,
+         stopping at a sector seen twice or out of range; at most 10,000 directory entries;
+         compare the names as UTF-16LE. A malformed CFB, or any other file that doesn't start
+         with a ZIP header (`50 4B 03 04`), for example an old .xls or .doc renamed, is
+         `409 UPLOAD_MISMATCH`.
+      2. Read the ZIP's central directory (found from its end record, which must be there and
+         whose comment must finish at the end of the file; a ZIP64 record is held to the same caps, and its locator and
+         the end record must agree with it) without extracting anything, with a cap of 1 MB and
+         10,000 entries. Entry names are compared without case, after turning `\` into `/` and
+         dropping a leading `/`. A bigger or broken directory, an entry name with NUL or another
+         control character, two entries with the same name, an entry with ZIP encryption, or a
+         compression method other than 0 (stored) or 8 (deflate) is `409 UPLOAD_MISMATCH`. Then
+         a `vbaProject` or `vbaData` part in any folder is `409 FILE_HAS_MACROS` at once, before
+         `[Content_Types].xml` is read (step 4), so a macro file is FILE_HAS_MACROS whatever its
+         XML holds.
+      3. `[Content_Types].xml` must be at the root. Inflate only that entry, in memory: the 1 MB
+         cap counts the bytes the inflater puts out (stop at 1 MB + 1 byte, for example with
+         zlib's `maxOutputLength`), never the sizes in the headers, and an output whose size
+         differs from the directory's is `409 UPLOAD_MISMATCH`. Parse it with DTDs, entity
+         expansion and outside resolution off: a `<!DOCTYPE` (packages never have one) is
+         `409 UPLOAD_MISMATCH`, as are a NUL and an encoding declaration other than UTF-8 or
+         UTF-16. Compare the decoded `ContentType`, `Extension` and `PartName`
+         values without case, never the raw text. Read it as a parser does: comments, processing
+         instructions and CDATA end at their own terminators, and a `>` inside a quoted value
+         ends no tag. XML that is not well-formed, and a `Default` or `Override` with a prefix
+         or an attribute other than its own (Office writes neither), is `409 UPLOAD_MISMATCH`,
+         after the macro check (step 4) has seen every declaration.
+      4. Macros, before the main part: a `vbaProject` or `vbaData` part in any folder, or any
+         `Default` or `Override` content type containing `macroEnabled`, `vbaProject`,
+         `vbaData` or `macrosheet`, is `409 FILE_HAS_MACROS`. So an .xlsm or .docm renamed to
+         .xlsx or .docx (its main part is macro-enabled) is `FILE_HAS_MACROS`, not a mismatch.
+      5. The main part: `[Content_Types].xml` must name the declared type's main part, for .xlsx
+         `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml` and for
+         .docx `application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml`.
+         Anything else (an .xltx, a .dotx or a renamed .pptx, for example) is
+         `409 UPLOAD_MISMATCH`.
+    - **Active content without macros (Rasel q23, Oct 8: accepted).** Only macro files are
+      refused. Links to outside templates, objects or pictures (`TargetMode="External"`
+      relationships), embedded OLE objects, ActiveX controls, altChunk imports and DDE fields are
+      accepted: the malware scan reads what is inside the file, and Office opens a file
+      downloaded from the web in Protected View by default.
+    - **PDFs with a password (Rasel q24, Oct 8: accepted unscanned).** Confirm checks a PDF's
+      magic bytes only, so a PDF that needs a password to open is stored. When GuardDuty answers
+      `UNSUPPORTED` with the reason `PASSWORD_PROTECTED` for a PDF, the file is accepted
+      unscanned, not `FAILED`: the firm can download it and accept its request. The reason goes
+      into its audit entry, and the firm's document shows that it was not scanned (a contract
+      field that comes with the result handler).
+    - **Scan results (GuardDuty Malware Protection for S3).** Results reach the API only
+      through a private channel: an EventBridge rule (source `aws.guardduty`, detail-type
+      `GuardDuty Malware Protection Object Scan Result`, the documents bucket) to an SQS queue
+      that the API reads with its IAM role. There is no public route for them. The handler
+      finds the document by its S3 key (and the confirmed version id, once R0's
+      `s3_version_id` is there), never by a firm id in the message, and only moves a `PENDING`
+      document to a result (the `documents_rules` trigger refuses to change a result once set).
+      It maps the result and its `statusReasons`:
+      - `NO_THREATS_FOUND` is `CLEAN`; `THREATS_FOUND` is `INFECTED`.
+      - `UNSUPPORTED` because of the file itself (`PASSWORD_PROTECTED`,
+        `OBJECT_SIZE_LIMIT_EXCEEDED`, `EXTRACTED_*_LIMIT_EXCEEDED` or
+        `EXTRACTION_RATIO_LIMIT_EXCEEDED`) is `FAILED`; the reason goes into its audit entry, so
+        the firm can learn why. One exception (Rasel q24): `PASSWORD_PROTECTED` on a PDF is
+        accepted unscanned (see "PDFs with a password").
+      - Everything else is our side and leaves the file `PENDING`: `UNSUPPORTED` with
+        `UNSUPPORTED_STORAGE_CLASS` or no known reason, any `ACCESS_DENIED` (role, KMS key,
+        bucket, a changed ETag) and `FAILED`. The alarm fires and we rescan it with GuardDuty's
+        on-demand scan (`SendObjectMalwareScan` with the key and the confirmed version id); the
+        object is never rewritten or copied to rescan it.
+      - A request whose newest file becomes `INFECTED` or `FAILED` goes back to `REQUESTED` in
+        the same transaction (see "Requests"; kept, Rasel q22).
     - **Replays.** A presigned PUT can be replayed until it expires and the bucket is versioned,
       so a download pins the confirmed version (R0: `documents.s3_version_id`) or the API checks
-      the checksum before signing the GET.
-    - **Presigned GET.** `response-content-disposition=attachment` with an RFC 5987 file name,
-      `response-content-type` set to the stored type, expiry 5 minutes, and an audit entry for
-      every link.
+      the checksum before signing the GET. Today it checks the size, S3's checksum and that no
+      `Content-Encoding` is set (`409 FILE_BLOCKED` otherwise).
+    - **Presigned GET.** `response-content-disposition=attachment` for every file whatever its
+      type (never `inline`), with an RFC 5987 file name, `response-content-type` set to the
+      stored type, `response-content-encoding=identity` and `response-cache-control=private,
+      no-store` (signed, so a `Content-Encoding` a repeated PUT stores after the check never
+      reaches the browser), expiry 5 minutes, and an audit entry for every link.
     - **KMS (pending).** Today infra has one bucket key (data stack) and the API's IAM policy
-      covers only it; per-firm keys come with `businesses.kms_key_id` (#52) and R10 step 2's key
-      creation. Until then objects use the bucket key.
-    - **Leftovers.** The API deletes mismatched uploads; a bucket lifecycle rule expires objects
-      never confirmed (infra, with Rasel's yes).
-    - **Infra (each with Rasel's yes first):** KMS access on the firms' own keys (tag
-      conditioned), `s3:GetObjectVersion` if downloads pin versions, the lifecycle rule,
-      GuardDuty Malware Protection for S3 with its scan-result event, and a bucket policy that
-      refuses a PutObject without `aws:kms`.
+      covers only it; objects take the bucket's default encryption with it. Per-firm keys for S3
+      need their own IAM statement first: S3's encryption context is `aws:s3:arn` (the bucket or
+      object ARN), not the firm, so a tag-conditioned statement for the firms' keys must allow
+      `kms:GenerateDataKey` and `kms:Decrypt` through S3 (`kms:ViaService`) for objects under that
+      firm's `tenant/{businessId}/` prefix. Then the PUT signs `x-amz-server-side-encryption`
+      and the firm's key id.
+    - **Scan mode.** `SCAN_MODE=guardduty` (the default) leaves a confirmed file `PENDING` for
+      GuardDuty's result; `SCAN_MODE=local` marks it `CLEAN` at confirm and is refused by the
+      settings check unless `NODE_ENV` is development or test (like `AUTH_MODE=local`), or
+      `NODE_ENV` is production and `APP_ENV` is exactly `dev` (the dev environment, until
+      GuardDuty is deployed there; every other `APP_ENV` is refused).
+    - **Leftovers.** The API deletes every upload confirm refuses and audits it
+      (`document.upload_refused`): the byte checks (mismatch, password, macros) and the refusals
+      after the ticket (the caller no longer reaches the client, the service is no longer open,
+      the category is archived). A refusal takes the key's transaction lock (the one confirm
+      takes), finds no document with the key, audits itself and commits, and only then deletes
+      the object; a confirm that comes later finds that refusal under the lock and saves
+      nothing. So a refusal never deletes a saved document's file and no document is saved
+      without its file. A storage failure (a 403 from KMS, for example) is a 503 and deletes
+      nothing. An upload that is PUT but never
+      confirmed (a closed tab) stays in the bucket today: under one prefix and without a tag, no
+      lifecycle rule can tell it from a confirmed file. Planned (infra, with Rasel's yes): the
+      PUT signs `x-amz-tagging: state=unconfirmed` (needs `s3:PutObjectTagging`), confirm
+      removes the tag (`s3:DeleteObjectTagging`), and a lifecycle rule filtered on that tag
+      expires the rest after a day. The bucket is versioned; noncurrent versions (left by every
+      delete) already expire after 30 days (data stack).
+    - **Infra (Rasel's AWS list, each with his yes first):**
+      - GuardDuty Malware Protection for S3 on the documents bucket, its role as in AWS's
+        template: `kms:Decrypt` and `kms:GenerateDataKey` through S3 (`kms:ViaService`) on the
+        documents key and each per-firm key, and `s3:PutObject` on its
+        `malware-protection-resource-validation-object`.
+      - Its scan-result event: the EventBridge rule and the SQS queue the API reads (above).
+      - The alarm for a scan that breaks on our side.
+      - KMS access on the firms' own keys (tag conditioned), `s3:GetObjectVersion` if downloads
+        pin versions, the tagging actions and the tag-filtered lifecycle rule for unconfirmed
+        uploads ("Leftovers"), and a bucket policy that refuses a PutObject without
+        `aws:kms`. That policy must let GuardDuty's validation object through, or the plan
+        stays in WARNING (`INSUFFICIENT_TEST_OBJECT_PERMISSIONS`).
+      - Until GuardDuty is deployed, new uploads on dev stay `PENDING`.
 
     ## Pages and calls
 
@@ -120,6 +285,7 @@ paths:
         - { name: query, in: query, schema: { $ref: '#/components/schemas/ListFirmDocumentsQuery' } }
       responses:
         '200': { $ref: '#/components/responses/FirmDocumentList' }
+        '400': { description: 'VALIDATION_FAILED, for example a search with NUL, another control character or a lone surrogate' }
         '404': { $ref: '#/components/responses/NotFound' }
   /business/clients/{clientId}/documents/uploads:
     post:
@@ -140,7 +306,8 @@ paths:
       requestBody: { $ref: '#/components/requestBodies/ConfirmUploadRequest' }
       responses:
         '200': { description: FirmDocument }
-        '409': { description: UPLOAD_MISMATCH }
+        '409': { description: 'UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS' }
+        '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed or is busy; nothing is deleted' }
         '410': { description: UPLOAD_EXPIRED }
   /business/documents/{id}:
     get:
@@ -159,6 +326,7 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/DownloadLink' }
         '409': { description: SCAN_PENDING or FILE_BLOCKED }
+        '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed' }
         '404': { $ref: '#/components/responses/NotFound' }
   /business/document-categories:
     get:
@@ -175,7 +343,7 @@ paths:
         - { $ref: '#/components/parameters/ClientId' }
         - { name: query, in: query, schema: { $ref: '#/components/schemas/ListDocumentRequestsQuery' } }
       responses:
-        '200': { description: FirmDocumentRequestList, newest first }
+        '200': { description: 'FirmDocumentRequestList, newest first' }
     post:
       tags: [firm]
       operationId: createDocumentRequest
@@ -195,7 +363,7 @@ paths:
       parameters: [{ $ref: '#/components/parameters/Id' }]
       responses:
         '200': { description: FirmDocumentRequest }
-        '409': { description: NOTHING_SUBMITTED or REQUEST_CLOSED }
+        '409': { description: 'NOTHING_SUBMITTED, SCAN_PENDING or REQUEST_CLOSED' }
         '404': { $ref: '#/components/responses/NotFound' }
   /business/document-requests/{id}/reject:
     post:
@@ -230,6 +398,7 @@ paths:
         - { name: query, in: query, schema: { $ref: '#/components/schemas/ListMyDocumentsQuery' } }
       responses:
         '200': { description: MyDocumentList }
+        '400': { description: 'VALIDATION_FAILED, for example a search with NUL, another control character or a lone surrogate' }
   /portal/{firmSlug}/me/documents/{id}:
     get:
       tags: [portal]
@@ -248,6 +417,7 @@ paths:
         '200': { $ref: '#/components/responses/DownloadLink' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: SCAN_PENDING or FILE_BLOCKED }
+        '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed' }
   /portal/{firmSlug}/me/documents/upload-targets:
     get:
       tags: [portal]
@@ -267,7 +437,7 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/CreateMyUploadRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/UploadTicket' }
-        '409': { description: NO_OPEN_SERVICE, REQUEST_CLOSED or CATEGORY_ARCHIVED }
+        '409': { description: 'NO_OPEN_SERVICE, REQUEST_CLOSED or CATEGORY_ARCHIVED' }
         '404': { $ref: '#/components/responses/NotFound' }
   /portal/{firmSlug}/me/documents/uploads/confirm:
     post:
@@ -277,7 +447,8 @@ paths:
       requestBody: { $ref: '#/components/requestBodies/ConfirmUploadRequest' }
       responses:
         '200': { description: MyDocument (status CHECKING) }
-        '409': { description: UPLOAD_MISMATCH }
+        '409': { description: 'UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS' }
+        '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed or is busy; nothing is deleted' }
         '410': { description: UPLOAD_EXPIRED }
   /portal/{firmSlug}/me/document-categories:
     get:
@@ -285,7 +456,7 @@ paths:
       operationId: myDocumentCategories
       parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
       responses:
-        '200': { description: MyDocumentCategoryList (active categories, in order) }
+        '200': { description: 'MyDocumentCategoryList (active categories, in order)' }
   /portal/{firmSlug}/me/document-requests:
     get:
       tags: [portal]
@@ -298,13 +469,14 @@ paths:
     post:
       tags: [portal]
       operationId: myDocumentNotAvailable
-      summary: "I don't have this", with the client's reason
+      summary: The client's "I don't have this", with their reason
       parameters: [{ $ref: '#/components/parameters/FirmSlug' }, { $ref: '#/components/parameters/Id' }]
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/NotAvailableRequest' } } }
       responses:
         '200': { description: MyDocumentRequest }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: REQUEST_CLOSED }
 
 components:
@@ -340,4 +512,3 @@ components:
     ListMyDocumentsQuery: { type: object, description: 'zod ListMyDocumentsQuery' }
     CreateMyUploadRequest: { type: object, description: 'zod CreateMyUploadRequest' }
     NotAvailableRequest: { type: object, description: 'zod NotAvailableRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }

@@ -2,13 +2,19 @@
 
 Firmivra Phase 1 ships in 15 days: Oct 4 to Oct 18, 2026. Rasel builds the complex parts with several Claude Code sessions running at the same time, one per workstream. This folder is how those sessions stay out of each other's way and keep their context small.
 
+**From Oct 9 (the Oct 18 plan, Rasel):**
+- Two local sessions on Rasel's laptop: **R0** (schema, the DB lock) and **R1** (AWS, Stripe keys, CI/CD, documents).
+- Five cloud threads: **R13-api** and **R13-web** (Firm Sign), **R14** (calculators, intake agreements, meeting links), **R15** (the R11 API: Begin Online, intake, leads, messages) and **R16** (firm onboarding, notifications, Stripe payments and the Payments page).
+- The **Scrum thread** pre-reviews every PR and relays Rasel's decisions; Rasel merges.
+- The lead session and `BOARD.md` are closed: open questions for Rasel go under "Needs from others" in the session's own `Rn` file and in its reply.
+
 ## Files
 
 | File | What it is | Who edits it |
 | --- | --- | --- |
 | `README.md` | These rules | Rasel |
-| `BOARD.md` | Status of every workstream, DB lock, handoffs. Git-ignored: it lives only in the main checkout (`../Business-full-stack-project/docs/work/BOARD.md` from a worktree) | Only the lead session |
-| `R0-schema.md` ... `R12-calendar-content.md` | One workstream each: scope, owned paths, steps, progress log | Only that workstream's session |
+| `BOARD.md` | Closed on Oct 8 (it held the status, the DB lock and handoffs while a lead session ran) | Nobody |
+| `R0-schema.md` ... `R16-*.md` (R13 to R16 add theirs in their first PRs) | One workstream each: scope, owned paths, steps, progress log | Only that workstream's session or thread |
 
 ## How a workstream session runs
 
@@ -19,29 +25,34 @@ Firmivra Phase 1 ships in 15 days: Oct 4 to Oct 18, 2026. Rasel builds the compl
    `You are workstream R2. Read CLAUDE.md, docs/work/README.md and docs/work/R2-staff-auth.md only. Continue from the first unchecked step. Ask before anything that creates, deletes or deploys.`
 3. The session reads ONLY: `CLAUDE.md`, this README, its own `Rn-*.md`, and the files its `Rn` file links. It does not explore the whole repo.
 4. After each step: tick the step in its `Rn` file, add one line to its Progress log (date, what was done, commit), commit. This keeps context small: when the context gets big, run `/clear` and send the same first message again; the session resumes from the log.
-5. One PR per finished step or pair of steps, titled as a Conventional Commit with the stream at the end: `<type>: <what> (R2)`, for example `feat: staff sign-in with MFA (R2)`. The squash commit on `main` takes the PR title. PRs stay under ~600 changed lines where possible.
+5. One PR per finished step or pair of steps, titled as a Conventional Commit with the stream at the end: `<type>: <what> (R2)`, for example `feat: staff sign-in with MFA (R2)`. The squash commit on `main` takes the PR title. PRs stay under 400 changed lines of code; tests may take a PR to about 600 (this README wins over CLAUDE.md on PR size) where possible.
 6. Before opening a PR: `git fetch origin && git merge origin/main`, then `pnpm lint && pnpm typecheck && pnpm test`. Merge, never rebase: `main` takes squash merges only, so a rebase would replay commits that are already merged and then need a force-push. Never force-push. After a PR is squash-merged, merge `origin/main` into the branch the same way and continue.
 
 ## Limits
 
-- At most **3 workstream sessions active at once**, plus the lead session. Rasel reviews every diff.
-- **Open PRs:** at most **2 open PRs per session**. With two open, open nothing new until one merges: commit the next work locally and wait.
+- On Rasel's laptop: at most **two agents and one heavy command** (`pnpm test`, a build, Playwright) at a time, and one worktree per session.
+- **Merge windows:** Rasel merges at 09:00, 13:00, 17:00 and 21:00 Dhaka, after the Scrum thread's pre-review.
+- **Open PRs:** at most **2 open non-contract PRs per session or thread**. With two open, open nothing new until one merges: commit the next work locally and wait. A second open PR may be stacked on the first (branched from it; merge `origin/main` into the second after the first merges).
 - **Contract-only PRs** (`packages/types`, mocks, a module's lines in `apps/web/src/lib/api.ts`, docs) don't count toward the 2. A session opens them one at a time, each from fresh `main`, and they are reviewed first, so the developers never wait on a contract.
 - **Paths:** the owned paths in each `Rn` file are the expected layout. If the repo differs, the session maps them once and notes the real paths in its Progress log.
 - **Owned paths:** a session changes only the paths its `Rn` file owns. If it needs a change elsewhere, it writes a note under "Needs from others" in its own file and stops that step. One exception: it may add the lines that register its own code: its module import in `apps/api/src/app.module.ts`, its export in `packages/types/src/index.ts`, and its own dependencies in `apps/api/package.json` and `pnpm-lock.yaml` (`pnpm --filter @firmivra/api add <package>`). On a `pnpm-lock.yaml` conflict, take `main`'s version and run `pnpm install`.
-- **Database lock:** only the session holding the DB lock (see `../Business-full-stack-project/docs/work/BOARD.md`) changes `packages/db` (schema or migrations). Ask the lead session to hand over the lock. R0 holds it by default.
-- **Migrations:** create with `pnpm --filter @firmivra/db prisma migrate dev --name rN-short-name`. If `main` got a newer migration before you merge, merge `origin/main`, delete your migration folder, and generate it again.
-- **Local database per session:** each worktree uses its own database in the shared Docker Postgres (port 5433) so tests don't collide. In the worktree's `.env` set the database name to `firmivra_rN` (e.g. `firmivra_r2`) and run the migrate + seed commands from the README once.
+- **Database lock:** only the session holding the DB lock changes `packages/db` (schema or migrations) on `main`. **R0** holds it; `docs/work/R0-schema.md` records the lock and the migration queue (who is next and in what order). A cloud thread drafts only its own queued migration, on a `rasel/R0-*` branch, and R0 reviews it. One migration PR is open at a time, and it merges only in a merge window.
+- **Migrations:** create with `pnpm --filter @firmivra/db prisma migrate dev --name rN-short-name`. After each earlier migration lands on `main`, merge `origin/main`, delete your migration folder and generate it again, so the migration order on `main` stays the queue's order.
+- **Local database per session** (local sessions only; cloud threads use CI's): each worktree uses its own database in the shared Docker Postgres (port 5433) so tests don't collide. In the worktree's `.env` set the database name to `firmivra_rN` (e.g. `firmivra_r2`) and run the migrate + seed commands from the README once.
 - **Local ports per session:** web `33N0`, API `43N0` (R2 = 3320 / 4320). Main checkout keeps 3300 / 4300, so R0 uses 3390 / 4390 instead (slot 9 is free: R9 runs in the main checkout).
 - **Never:** commit `.env` or secrets (the repo is public), push to `main`, deploy to prod, run `cdk deploy` or any AWS create/delete without showing the command and getting Rasel's yes.
 
 ## The lead session (main checkout `Business-full-stack-project/`)
+
+Closed on Oct 8 (kept for the record): the Scrum thread pre-reviews, Rasel merges, and R0 holds the DB lock.
 
 - Keeps `BOARD.md` current, hands the DB lock, reviews and merges PRs (Rasel's own setup PRs via squash merge with admin bypass; developers' PRs through normal review and approve).
 - Creates worktrees for the next workstreams and removes finished ones: `git worktree remove ../firmivra-R2`.
 - Answers "what's next" from `BOARD.md` and the 15-day table below.
 
 ## 15-day calendar
+
+Superseded by the Oct 18 plan (Oct 8): the sessions and threads above and their briefs say what comes when. Kept for the record.
 
 | Day | Date | Rasel's workstreams | Gate |
 | --- | --- | --- | --- |

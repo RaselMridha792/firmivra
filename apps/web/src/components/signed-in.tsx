@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, use, useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { adminAuth, AUTH_MODE, portalAuth, signOut as devSignOut, staffAuth } from '../lib/auth';
+import { mocked } from '../lib/mock';
 import { claimCache, refreshSession, releaseCache, setSession } from '../lib/session';
 
 export type Site = 'admin' | 'firm' | 'portal';
@@ -99,6 +100,9 @@ export function SignedIn({
   const signOut = useCallback(async () => {
     // A portal session is that firm's own, locally too (its cookies reach only its routes).
     if (site === 'portal' && firmSlug) await portalAuth(firmSlug).signOut();
+    // The Super Admin mock (lib/auth.ts) ends its own session, also when AUTH_MODE is local.
+    else if (site === 'admin' && process.env.NODE_ENV !== 'production' && mocked('adminAuth'))
+      await adminAuth.signOut();
     else if (AUTH_MODE === 'local') await devSignOut();
     else if (site === 'admin') await adminAuth.signOut();
     else await staffAuth.signOut();

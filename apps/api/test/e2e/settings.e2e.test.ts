@@ -6,13 +6,18 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request, { type Response } from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
-import { testDatabaseUrls } from '@firmivra/db/testing';
+import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { FirmLegalOverview, FirmSettings, FirmSetup, LegalDocument } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import {
+  FieldEncryption,
+  FieldEncryptionError,
+} from '../../src/field-encryption/field-encryption.service.js';
+import { einContext } from '../../src/settings/settings.service.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -26,8 +31,12 @@ const people = {
   ownerPending: person('owner-pending'),
   ownerRace: person('owner-race'),
   ownerStuck: person('owner-stuck'),
+  ownerDetails: person('owner-details'),
 };
-const firms = {} as Record<'a' | 'b' | 'pending' | 'race' | 'stuck', { id: string; slug: string }>;
+const firms = {} as Record<
+  'a' | 'b' | 'pending' | 'race' | 'stuck' | 'details',
+  { id: string; slug: string }
+>;
 
 let app: INestApplication;
 const tokens = new Map<string, string>();
@@ -62,7 +71,7 @@ async function call(
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 
 async function auditRows(businessId: string, action: string) {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   const rows = await runInScope(owner, { kind: 'business', businessId }, (tx) =>
     tx.auditLog.findMany({ where: { businessId, action }, orderBy: { createdAt: 'asc' } }),
   );
@@ -71,7 +80,7 @@ async function auditRows(businessId: string, action: string) {
 }
 
 beforeAll(async () => {
-  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
       const pool = key === 'clientA' ? 'CLIENT' : 'STAFF';
@@ -91,6 +100,7 @@ beforeAll(async () => {
     await make('pending', 'PENDING_SETUP');
     await make('race', 'PENDING_SETUP');
     await make('stuck', 'PENDING_SETUP');
+    await make('details', 'PENDING_SETUP');
   });
   const members = [
     [firms.a.id, people.ownerA.id, 'OWNER'],
@@ -100,6 +110,7 @@ beforeAll(async () => {
     [firms.pending.id, people.ownerPending.id, 'OWNER'],
     [firms.race.id, people.ownerRace.id, 'OWNER'],
     [firms.stuck.id, people.ownerStuck.id, 'OWNER'],
+    [firms.details.id, people.ownerDetails.id, 'OWNER'],
   ] as const;
   for (const [businessId, userId, role] of members) {
     await runInScope(owner, { kind: 'business', businessId }, (tx) =>
@@ -403,6 +414,115 @@ describe('Terms and Privacy', () => {
       versions: [],
     });
     const outsider = await call('get', '/legal/terms/versions/1', people.ownerB, firms.a.id);
+    expect(outsider.status).toBe(404);
+  });
+});
+
+describe('business details (setup Step 2)', () => {
+  const details = (body: object) =>
+    call('patch', '/settings', people.ownerDetails, firms.details.id, body);
+  const storedRow = async (businessId: string) => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const row = await runInScope(owner, { kind: 'business', businessId }, (tx) =>
+      tx.businessSettings.findUnique({
+        where: { businessId },
+        select: { einEnc: true, einLast4: true, teamSize: true },
+      }),
+    );
+    await owner.$disconnect();
+    return row;
+  };
+
+  it("saves them; the EIN is sealed with the firm's key and only its last 4 come back", async () => {
+    const res = await details({
+      entityType: 'S_CORP',
+      ein: '12-3456789',
+      teamSize: 12,
+      services: ['PAYROLL', 'TAX_PREPARATION', 'PAYROLL'],
+      description: '  Tax and payroll for small businesses.\nSince 2010.  ',
+    });
+    expect(res.status).toBe(200);
+    const saved = FirmSettings.parse(res.body);
+    expect(saved).toMatchObject({
+      entityType: 'S_CORP',
+      einLast4: '6789',
+      teamSize: 12,
+      services: ['PAYROLL', 'TAX_PREPARATION'],
+      description: 'Tax and payroll for small businesses.\nSince 2010.',
+    });
+    expect(JSON.stringify(res.body)).not.toMatch(/123456789|12-3456789|"ein"/);
+    const read = await call('get', '/settings', people.ownerDetails, firms.details.id);
+    expect(FirmSettings.parse(read.body)).toEqual(saved);
+
+    const row = await storedRow(firms.details.id);
+    expect(row?.einLast4).toBe('6789');
+    const sealed = row?.einEnc;
+    if (!sealed) throw new Error('ein_enc not written');
+    expect(Buffer.from(sealed).includes('123456789')).toBe(false);
+    const encryption = app.get(FieldEncryption);
+    await expect(encryption.decrypt(einContext(firms.details.id), sealed)).resolves.toBe(
+      '123456789',
+    );
+    // Bound to this firm: under another firm's context it does not open.
+    await expect(encryption.decrypt(einContext(firms.b.id), sealed)).rejects.toMatchObject({
+      code: 'DECRYPTION_FAILED',
+    });
+
+    const audits = await auditRows(firms.details.id, 'settings.updated');
+    expect(audits.map((a) => a.metadata)).toEqual([
+      { fields: ['description', 'ein', 'entityType', 'services', 'teamSize'] },
+    ]);
+  });
+
+  it('removes the EIN with null, and refuses codes outside the lists and bad values', async () => {
+    const removed = FirmSettings.parse((await details({ ein: null })).body);
+    expect([removed.einLast4, removed.teamSize]).toEqual([null, 12]);
+    expect(await storedRow(firms.details.id)).toMatchObject({ einEnc: null, einLast4: null });
+
+    for (const body of [
+      { entityType: 'LLP' },
+      { entityType: null },
+      { services: ['TAXES'] },
+      { services: [] },
+      { teamSize: 0 },
+      { teamSize: 10_001 },
+      { teamSize: 2.5 },
+      { ein: '12345678' },
+      { ein: '12-345678A' },
+      { description: 'Tax‮services' },
+      { description: 'x'.repeat(2001) },
+      { einLast4: '1234' },
+      { einEnc: 'AAAA' },
+    ]) {
+      const res = await details(body);
+      expect([res.status, codeOf(res)], JSON.stringify(body)).toEqual([400, 'VALIDATION_FAILED']);
+    }
+  });
+
+  it('answers 503 ENCRYPTION_UNAVAILABLE and saves nothing when the EIN cannot be sealed', async () => {
+    const encryption = app.get(FieldEncryption);
+    const seal = vi
+      .spyOn(encryption, 'encrypt')
+      .mockRejectedValueOnce(new FieldEncryptionError('KEY_NOT_PROVISIONED', 'No key yet'));
+    try {
+      const res = await details({ teamSize: 30, ein: '987654321' });
+      expect([res.status, codeOf(res)]).toEqual([503, 'ENCRYPTION_UNAVAILABLE']);
+    } finally {
+      seal.mockRestore();
+    }
+    expect(await storedRow(firms.details.id)).toMatchObject({ teamSize: 12, einLast4: null });
+    // Without an EIN the same change goes through.
+    expect((await details({ teamSize: 30 })).status).toBe(200);
+  });
+
+  it("never shows one firm's details to another", async () => {
+    const other = FirmSettings.parse(
+      (await call('get', '/settings', people.ownerB, firms.b.id)).body,
+    );
+    expect(other).toMatchObject({ entityType: null, einLast4: null, teamSize: null, services: [] });
+    const outsider = await call('patch', '/settings', people.ownerB, firms.details.id, {
+      ein: '111111111',
+    });
     expect(outsider.status).toBe(404);
   });
 });
