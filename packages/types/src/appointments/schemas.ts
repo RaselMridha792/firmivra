@@ -323,12 +323,15 @@ export type SlotList = z.infer<typeof SlotList>;
  * GET /business/appointments/slots: free starts on a 15-minute grid for one type, from one
  * calendar date to another (firm timezone, at most 31 days); one member's or everyone's (Staff
  * too). When rescheduling, pass `excludeAppointmentId`: the moved appointment's own time counts
- * as free.
+ * as free, its own length is used, and its client's other appointments are taken. When booking,
+ * pass `clientId` to leave out times the client already has an appointment (Staff: their own
+ * clients, else 404).
  */
 export const SlotsQuery = z
   .strictObject({
     typeId: AppointmentTypeId,
     staffUserId: MemberId.optional(),
+    clientId: z.uuid().optional(),
     from: CalendarDate,
     to: CalendarDate,
     excludeAppointmentId: AppointmentId.optional(),
