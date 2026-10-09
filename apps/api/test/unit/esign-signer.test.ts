@@ -136,6 +136,7 @@ beforeEach(() => {
     notify,
     w.audit,
     { APP_BASE_URL: APP },
+    { complete: () => Promise.resolve('NOT_DUE' as const) }, // esign-completion.test.ts
   );
   for (const [firm, n] of [
     [w.a, 1],

@@ -44,7 +44,7 @@ export interface SignerFinishWrite {
   /** Their field values (esign_fields.value and filled). */
   values: { fieldId: string; value: string }[];
   status: EsignRequestStatus;
-  /** Completion hook: all signed. PARTIALLY_SIGNED, marked due, until the PDF is filed. */
+  /** All signed: sets completion_due_at; PARTIALLY_SIGNED until EsignCompletionService files it. */
   allSigned: boolean;
   /** The next signers: SENT, with their link token's hash (as EsignSendWrite). */
   turn: { recipientId: string; tokenHash: string | null }[];

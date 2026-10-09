@@ -16,6 +16,7 @@ import {
   type SignerStep,
 } from '@firmivra/types';
 import { AuditService } from '../../audit/audit.service.js';
+import { EsignCompletionService } from '../completion/completion.service.js';
 import { PortalInfoService } from '../../client-auth/portal-info.controller.js';
 import { BUSINESS_MODULES, type BusinessModules } from '../../common/modules/requires-module.js';
 import { ENV } from '../../config/config.module.js';
@@ -101,6 +102,8 @@ export class EsignSignerService {
     @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
     @Inject(AuditService) private readonly audit: Pick<AuditService, 'log'>,
     @Inject(ENV) private readonly env: Pick<Env, 'APP_BASE_URL'>,
+    @Inject(EsignCompletionService)
+    private readonly completion: Pick<EsignCompletionService, 'complete'>,
   ) {}
 
   /** An ACTIVE firm with Firm Sign on, else LINK_INVALID. */
@@ -315,7 +318,8 @@ export class EsignSignerService {
 
   /**
    * POST finish: values and signature checked, then SIGNED; the turn passes on as send does; the
-   * last signer marks the request for completion. A write that lost a race reads again (3 tries).
+   * last signer marks the request for completion and completes it at once (EsignCompletionService;
+   * the job retries a failure). A write that lost a race reads again (3 tries).
    */
   async finish(c: SignerCall, given: Value[]): Promise<SignerState> {
     const me = c.signer.recipient;
@@ -346,6 +350,8 @@ export class EsignSignerService {
           if (id) await this.sender.invite(c.firm.id, id, r, links.get(r.id)!, q, sender);
         }
         Object.assign(me, { status: 'SIGNED', signedAt });
+        // The job retries it; complete() never throws, so finish answers DONE either way.
+        if (allSigned) await this.completion.complete(c.firm.id, q.id);
         return this.state({ ...c, step: 'DONE' });
       }
       const fresh = await this.repo.signer(c.firm.id, q.id, me.id);

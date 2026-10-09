@@ -44,6 +44,10 @@ import type {
 import type { EsignRequestStatus } from '@firmivra/types';
 import type { EsignCodeKind } from '../../src/esign/engine/engine.types.js';
 import type {
+  CompletionWrite,
+  EsignCompletionRepository,
+} from '../../src/esign/completion/completion.repository.js';
+import type {
   EsignSignerRepository,
   SignerAdoption,
   SignerFinishWrite,
@@ -635,6 +639,160 @@ export class InMemorySignerRepository implements EsignSignerRepository {
     });
     if (ok) await this.addEvent(businessId, requestId, write.event);
     return ok;
+  }
+}
+
+/** A vault document filed by completion (the documents row's columns that matter here). */
+export interface FiledDocument {
+  id: string;
+  clientId: string;
+  engagementId: string;
+  categoryId: string;
+  direction: 'FIRM_TO_CLIENT';
+  scanStatus: 'CLEAN';
+  legalHold: true;
+  retentionUntil: null;
+  contentType: 'application/pdf';
+  key: string;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+/** Completion over the request and signer fakes: the vault, the copy links and the due marks. */
+export class InMemoryCompletionRepository implements EsignCompletionRepository {
+  /** The job's firms (ACTIVE with Firm Sign on). */
+  readonly firmIds: string[] = [];
+  /** Each firm's filed documents, by id, and its categories, by name. */
+  readonly documents = new PerFirm<FiledDocument>();
+  readonly categories = new PerFirm<string>();
+  /** Each firm's completed requests' hashes and document ids. */
+  readonly completed = new PerFirm<{
+    finalSha256: string;
+    certificateSha256: string;
+    finalDocumentId: string;
+    certificateDocumentId: string;
+  }>();
+  /** Each firm's copy-link expiry, by recipient id. */
+  readonly copyExpiry = new PerFirm<Date>();
+  /** Each request's next try after a failure. */
+  readonly retryAt = new Map<string, Date>();
+  /** Set to make `complete` throw once (a database failure mid-way). */
+  failNextComplete = false;
+  /** Set while another task holds the job's lock. */
+  lockedElsewhere = false;
+
+  constructor(
+    private readonly requests: InMemoryEsignRepository,
+    private readonly signers: InMemorySignerRepository,
+  ) {}
+
+  async withJobLock<T>(work: () => Promise<T>): Promise<T | null> {
+    return this.lockedElsewhere ? null : work();
+  }
+
+  firms() {
+    return Promise.resolve([...this.firmIds]);
+  }
+
+  async due(businessId: string, now: Date, limit: number) {
+    const ids: string[] = [];
+    for (const id of this.signers.completionDue) {
+      const q = await this.requests.findRequest(businessId, id);
+      const at = this.retryAt.get(id);
+      if (q?.status === 'PARTIALLY_SIGNED' && (!at || at <= now)) ids.push(id);
+    }
+    return ids.slice(0, limit);
+  }
+
+  async inputs(businessId: string, requestId: string) {
+    const { recipients, fields } = await this.requests.parts(businessId, requestId);
+    const values = this.signers.values.of(businessId);
+    const adoptions = this.signers.adoptions.of(businessId);
+    const consent = this.signers.consents.get(businessId);
+    const pinned = this.signers.pinned.of(businessId);
+    return {
+      values: fields.flatMap((f) =>
+        values.has(f.id) ? [{ fieldId: f.id, value: values.get(f.id)! }] : [],
+      ),
+      adoptions: recipients.flatMap((r) => {
+        const adoption = adoptions.get(r.id);
+        return adoption ? [{ recipientId: r.id, adoption }] : [];
+      }),
+      consentVersions: recipients.flatMap((r) =>
+        consent && pinned.get(r.id) === consent.id
+          ? [{ recipientId: r.id, version: consent.version }]
+          : [],
+      ),
+    };
+  }
+
+  async complete(businessId: string, requestId: string, write: CompletionWrite) {
+    if (this.failNextComplete) {
+      this.failNextComplete = false;
+      throw new Error('fake database failure');
+    }
+    // Checked and marked in one synchronous step, as under the FOR UPDATE lock.
+    let q: EsignRequestRecord | null = null;
+    if (!(await this.requests.findRequest(businessId, requestId))) return null;
+    this.requests.seed(businessId, requestId, (row) => {
+      const signers = row.parts.recipients.filter((r) => r.kind === 'SIGNER');
+      const due = this.signers.completionDue.has(requestId);
+      if (row.record.status !== 'PARTIALLY_SIGNED' || !due) return;
+      if (signers.some((r) => r.status !== 'SIGNED')) return;
+      const at = write.completedAt;
+      Object.assign(row.record, { status: 'COMPLETED', completedAt: at, lastActivityAt: at });
+      q = structuredClone(row.record);
+    });
+    if (!q) return null;
+    const { clientId, engagementId } = q as EsignRequestRecord;
+    const categories = this.categories.of(businessId);
+    if (!categories.has('Signed Documents')) categories.set('Signed Documents', randomUUID());
+    const file = (f: CompletionWrite['final']) => {
+      const doc: FiledDocument = {
+        id: randomUUID(),
+        clientId: clientId!,
+        engagementId: engagementId!,
+        categoryId: categories.get('Signed Documents')!,
+        direction: 'FIRM_TO_CLIENT',
+        scanStatus: 'CLEAN',
+        legalHold: true,
+        retentionUntil: null,
+        contentType: 'application/pdf',
+        ...f,
+      };
+      this.documents.of(businessId).set(doc.id, doc);
+      return doc.id;
+    };
+    const finalDocumentId = file(write.final);
+    const certificateDocumentId = file(write.certificate);
+    this.completed.of(businessId).set(requestId, {
+      finalSha256: write.final.sha256,
+      certificateSha256: write.certificate.sha256,
+      finalDocumentId,
+      certificateDocumentId,
+    });
+    this.signers.completionDue.delete(requestId);
+    for (const l of write.copyLinks) {
+      const { recipientId, tokenHash, expiresAt } = l;
+      const link = { requestId, recipientId, tokenVersion: 0, purpose: 'COPY' as const };
+      this.signers.links.of(businessId).set(tokenHash, link);
+      this.copyExpiry.of(businessId).set(recipientId, expiresAt);
+    }
+    const outbox = this.requests.outbox.of(businessId);
+    const emailIds = write.emails.map((e) => {
+      const id = randomUUID();
+      outbox.set(id, { ...e, status: 'QUEUED', error: null });
+      return id;
+    });
+    await this.signers.addEvent(businessId, requestId, write.event);
+    return { finalDocumentId, certificateDocumentId, emailIds };
+  }
+
+  async retryLater(businessId: string, requestId: string, retryAt: Date) {
+    if (await this.requests.findRequest(businessId, requestId)) {
+      this.retryAt.set(requestId, retryAt);
+    }
   }
 }
 

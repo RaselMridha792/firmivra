@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { ModulesModule } from '../common/modules/requires-module.js';
+import { COMPLETION_REPOSITORY } from './completion/completion.repository.js';
+import { EsignCompletionJob } from './completion/completion.job.js';
+import { EsignCompletionService } from './completion/completion.service.js';
 import { EsignEngineModule } from './engine/engine.module.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
 import { EsignDocumentsService } from './requests/documents.service.js';
@@ -40,9 +43,12 @@ import { EsignSignerService } from './signer/signer.service.js';
     EsignListService,
     EsignSendService,
     EsignSignerService,
+    EsignCompletionService,
+    EsignCompletionJob,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
+    { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
   ],
 })
 export class EsignModule {}
