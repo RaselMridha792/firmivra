@@ -34,6 +34,8 @@ export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/clients/:id/message-threads': { params: { id: 'client' } },
   'POST /api/v1/business/clients/:id/message-threads': {
     params: { id: 'client' },
+    // Not swept: `related.id`. It is stored as the thread's link and echoed, never looked up, so
+    // it can't reach another firm's record (NOT_RECORDS in body-ids.ts). Check it if that changes.
     bodyIds: { engagementId: 'engagement' },
     body: { subject: 'Fake subject', body: 'Fake message' },
   },

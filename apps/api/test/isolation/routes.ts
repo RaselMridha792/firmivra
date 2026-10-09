@@ -1,11 +1,11 @@
 // Every route the API serves, read from Nest's own metadata at test time, so a route added
 // later shows up here with no list to update (R8 step 2).
 import type { INestApplication, Type } from '@nestjs/common';
-import { METHOD_METADATA, PATH_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants.js';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
 import { RequestMethod } from '@nestjs/common';
-import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum.js';
 import { MetadataScanner, ModulesContainer, Reflector } from '@nestjs/core';
 import { isPublicRoute, rolesOfRoute } from '../../src/auth/decorators.js';
+import { type BodyIdField, bodyIdFields } from './body-ids.js';
 
 export interface ApiRoute {
   /** "FirmSupportAccessController.approve" */
@@ -19,47 +19,9 @@ export interface ApiRoute {
   handler: (...args: unknown[]) => unknown;
   controller: Type;
   /** The body fields that name a record (`clientId`, `staffUserId`, `ids`), from its zod pipe. */
-  bodyIdFields: string[];
-}
-
-const ID_FIELD = /(Id|Ids)$|^ids$/;
-
-/** The dotted paths of the fields of a zod schema that name a record. */
-export function idFields(schema: unknown, path = ''): string[] {
-  const def = (schema as { _zod?: { def?: Record<string, unknown> } } | undefined)?._zod?.def;
-  const at = (key: string) => (path ? `${path}.${key}` : key);
-  switch (def?.type) {
-    case 'object':
-      return Object.entries(def.shape as Record<string, unknown>).flatMap(([key, field]) =>
-        ID_FIELD.test(key) ? [at(key)] : idFields(field, at(key)),
-      );
-    case 'optional':
-    case 'nullable':
-    case 'default':
-    case 'prefault':
-    case 'readonly':
-      return idFields(def.innerType, path);
-    case 'pipe':
-      return [...new Set([...idFields(def.in, path), ...idFields(def.out, path)])];
-    case 'array':
-      return idFields(def.element, path);
-    case 'union':
-      return [...new Set((def.options as unknown[]).flatMap((o) => idFields(o, path)))];
-    default:
-      return [];
-  }
-}
-
-/** The record-id fields of the route's `@Body` schema (a ZodValidationPipe's `schema`). */
-function bodyIdFields(controller: Type, handlerName: string): string[] {
-  const args = (Reflect.getMetadata(ROUTE_ARGS_METADATA, controller, handlerName) ?? {}) as Record<
-    string,
-    { pipes?: unknown[] }
-  >;
-  return Object.entries(args)
-    .filter(([key]) => key.split(':')[0] === String(RouteParamtypes.BODY))
-    .flatMap(([, arg]) => arg.pipes ?? [])
-    .flatMap((pipe) => idFields((pipe as { schema?: unknown }).schema));
+  bodyIdFields: BodyIdField[];
+  /** Why the suite can't read the body's id fields, when it can't. */
+  bodyUnreadable?: string;
 }
 
 const parts = (value: unknown): string[] =>
@@ -86,15 +48,19 @@ export function apiRoutes(app: INestApplication): ApiRoute[] {
       if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(verb ?? '')) continue;
       for (const base of parts(Reflect.getMetadata(PATH_METADATA, controller))) {
         for (const tail of parts(sub)) {
+          const method = verb as ApiRoute['method'];
+          const path = `/api/v1/${[base, tail].filter(Boolean).join('/')}`;
+          const body = bodyIdFields(controller, handlerName, `${method} ${path}`);
           routes.push({
             name: `${controller.name}.${handlerName}`,
-            method: verb as ApiRoute['method'],
-            path: `/api/v1/${[base, tail].filter(Boolean).join('/')}`,
+            method,
+            path,
             roles: rolesOfRoute(reflector, handler, controller) ?? [],
             isPublic: isPublicRoute(reflector, handler, controller),
             handler: handler as ApiRoute['handler'],
             controller,
-            bodyIdFields: bodyIdFields(controller, handlerName),
+            bodyIdFields: body.fields,
+            bodyUnreadable: body.unreadable,
           });
         }
       }
