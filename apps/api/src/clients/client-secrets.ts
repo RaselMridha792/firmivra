@@ -98,8 +98,9 @@ export const NO_DATE_OF_BIRTH: DateOfBirthView = {
 /**
  * The date of birth in full (`YYYY-MM-DD`), for the firm's staff and the primary login only.
  * When the stored value can't be decrypted (the firm has no key, KMS is down or refuses, the value
- * is damaged), the page still loads (Rasel, Oct 8): null with `dateOfBirthUnavailable`, and the
- * screen asks for it again. The warning names the client and the error code, never a value or the
+ * is damaged), the page still loads (Rasel, Oct 8): null with `dateOfBirthUnavailable`. The firm's
+ * screen asks for it again; the portal shows it as unavailable and asks the client to contact the
+ * firm. The warning names the client and the error code, never a value or the
  * error's message. Any other error is a bug and is rethrown (a 500).
  */
 export async function readDateOfBirth(
