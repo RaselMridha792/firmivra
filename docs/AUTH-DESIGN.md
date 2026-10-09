@@ -119,7 +119,7 @@ Firm Sign is our built-in e-signature module (R13, decided Oct 8). Most signers 
 
 - `POST .../sign/code/send` emails a 6-digit code to the recipient's address on the request. Only an HMAC of the code is stored, with a key derived by HKDF under the label `fv-esign-code-v1`.
 - A code lasts 15 minutes and allows 5 tries. After 5 wrong tries it is locked (`CODE_LOCKED`) and the signer must ask for a new one. A new code replaces the old one.
-- If the sender set an access code (shared with the signer outside Firmivra), `POST .../sign/access-code` checks it after the email code. Only its hash is stored; wrong tries count the same way.
+- Each recipient has one auth method (`EsignChosenAuthMethod`): `LINK` (the link alone), `EMAIL_CODE` or `ACCESS_CODE`. They are alternatives, never both. An `ACCESS_CODE` signer gets no email code: the first step is `VERIFY_ACCESS_CODE`, and `POST .../sign/access-code` checks the code the sender shared with the signer outside Firmivra (`code/send` and `code/verify` answer `409 WRONG_STEP` for them). Only its hash is stored; wrong tries count the same way (after 5, `CODE_LOCKED`, and the signer asks the sender). An `IN_PERSON` signer is asked for neither (the staff member vouches).
 - Throttling is per IP and per recipient: few session calls, few code sends (for example one a minute, five an hour per recipient), few verify tries. The code never appears in logs or SMS.
 - Then the signer accepts the firm's consent text. Its version is pinned on the recipient. Every pass and failure is an `esign_events` row (`AUTH_PASSED`, `AUTH_FAILED`, `CONSENTED`).
 

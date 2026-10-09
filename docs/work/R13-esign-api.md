@@ -73,6 +73,15 @@ Target merge windows in brackets (Dhaka).
 - Bulk rows name their problem as a readiness or error code; ESIGN_READINESS_TEXT gives words for every readiness code. The client checks BULK_LIMIT before sending.
 - Storage the r0_esign draft needs for contract 3 (kiosk lock per staff session, approval notes, template versions, bulk batches) is listed on issue #156.
 
+## Decisions in the contract follow-ups (Scrum review of contract 2)
+
+- Save-as-template (and save-as-version) never takes anything of one client: a new template is PRIVATE unless saved as FIRM; files from the client's documents are refused (409 TEMPLATE_HAS_CLIENT_FILES: upload a blank copy); merge-filled and signer values are dropped (merge keys stay); only the sender's own typed values with no merge key are kept. `SaveEsignTemplateBody` lists what is copied.
+- `GET /esign/templates/{templateId}/packet`: the template's packet PDF on the same site, for anyone who may see the template; `api.esign.templates.packetUrl(id)`.
+- Using or bulk-sending a template fills roles with `EsignTemplateRoleFill` / `EsignBulkRoleFill`: optional `who`, `delivery`, `authMethod` and `accessCode`. An ACCESS_CODE role needs its code unless IN_PERSON (the body checks it when `authMethod` is given; the API counts a template ACCESS_CODE role without one as unfilled, 409 TEMPLATE_ROLES_UNFILLED). In bulk the code is the same for every client's request.
+- Status codes: a POST that creates something answers 201 (request, file, upload ticket, template, template version, consent version); a POST acting on something that exists answers 200 (`@HttpCode(200)`, as send does); bulk send 202. The API adds `@HttpCode(200)` to every action POST as it is built.
+- UPLOAD_EXPIRED stays a 410, documented as the yaml's `Gone` response on both confirm routes.
+- AUTH-DESIGN: the email code and the access code are alternatives (one auth method per recipient), as in the contract.
+
 ## Needs from others
 
 - R13-web: builds on `api.esign` and `mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures,signing`).
@@ -82,3 +91,4 @@ Target merge windows in brackets (Dhaka).
 
 - Oct 8: started in the cloud. Contract 1 on `rasel/R13-api-contract-firm` (#135); Scrum pre-review fixes applied the same evening.
 - Oct 9: docs PR (step 4) on rasel/R13-api-docs (#157, merged). Contract 2 is #185 (stacked on R14's #155). The engine moved to R18 (Rasel's card, 09:15 UTC); my engine 1 branch went to them. Contract 3 on rasel/R13-api-contract-extras, stacked on #185.
+- Oct 9: contract follow-ups from the Scrum review of contract 2 on rasel/R13-api-contract-fixes (from contract 3): template privacy and packet route, role fills with access codes, status-code rule, wording.
