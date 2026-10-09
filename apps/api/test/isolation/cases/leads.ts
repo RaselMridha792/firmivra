@@ -1,5 +1,6 @@
 // Begin Online leads in the firm's inbox: review, convert, decline and the visitor's files.
 import { createHash, randomUUID } from 'node:crypto';
+import { submitLeadVersion } from '../../submitted-lead.js';
 import type { CaseModule } from '../world.js';
 
 export const records: CaseModule['records'] = {
@@ -8,7 +9,7 @@ export const records: CaseModule['records'] = {
    * own. Files are added only while the lead is a draft, so the file is made here too.
    */
   lead: {
-    async create({ tx, businessId, own, get, set }) {
+    async create({ tx, businessId, owner, own, get, set }) {
       const tag = randomUUID();
       const lead = await tx.lead.create({
         data: {
@@ -28,7 +29,7 @@ export const records: CaseModule['records'] = {
           status: 'IN_PROGRESS',
         },
       });
-      await tx.intakeSubmission.create({
+      const v1 = await tx.intakeSubmission.create({
         data: { businessId, intakeId: intake.id, version: 1, answers: { firstName: 'Fake' } },
       });
       const upload = await tx.leadUpload.create({
@@ -49,10 +50,13 @@ export const records: CaseModule['records'] = {
         data: { scanStatus: 'CLEAN', scannedAt: new Date() },
       });
       set('leadUpload', upload.id);
-      // As Begin Online's submit leaves it.
-      await tx.lead.update({
-        where: { id: lead.id },
-        data: { status: 'SUBMITTED', submittedAt: new Date() },
+      // As Begin Online's submit leaves it: v1 signed and submitted, the intake and lead SUBMITTED.
+      await submitLeadVersion(tx, {
+        businessId,
+        ownerId: owner.id,
+        leadId: lead.id,
+        intakeId: intake.id,
+        submissionId: v1.id,
       });
       return lead.id;
     },

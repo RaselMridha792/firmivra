@@ -37,6 +37,7 @@ beforeAll(async () => {
       data: {
         businessId: firm.id,
         brandColor: '#123456',
+        accentColor: '#e8742c',
         portalName: 'R3 Portal',
         portalHeader: 'Welcome to R3',
         welcomeMessage: 'Your documents, in one place.',
@@ -90,7 +91,7 @@ describe('GET /portal/{firmSlug}/info', () => {
         branding: {
           logoUrl: null,
           primaryColor: '#123456',
-          accentColor: DEFAULT_ACCENT_COLOR,
+          accentColor: '#E8742C',
           portalName: 'R3 Portal',
           header: 'Welcome to R3',
           welcomeMessage: 'Your documents, in one place.',
@@ -109,7 +110,7 @@ describe('GET /portal/{firmSlug}/info', () => {
     }
   });
 
-  it('falls back to defaults, and keeps sign-up closed without Terms and Privacy', async () => {
+  it("falls back to defaults, never another firm's accent, and keeps sign-up closed without Terms and Privacy", async () => {
     const res = await get(`/api/v1/portal/${fx.firmB.slug}/info`).expect(200);
     expect(PortalInfo.parse(res.body)).toMatchObject({
       branding: {

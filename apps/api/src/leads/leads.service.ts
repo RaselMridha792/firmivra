@@ -53,8 +53,11 @@ const detailSelect = {
       id: true,
       status: true,
       form: { select: { version: true, definition: true } },
+      // The version the visitor sent: the first submitted one. A later version (an unlock or a
+      // correction after convert, or a portal draft) is the client's, not the lead's.
       submissions: {
-        orderBy: { version: 'desc' },
+        where: { submittedAt: { not: null } },
+        orderBy: { version: 'asc' },
         take: 1,
         select: { answers: true },
       },

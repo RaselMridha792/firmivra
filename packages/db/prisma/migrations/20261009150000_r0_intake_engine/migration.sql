@@ -126,7 +126,8 @@ ALTER TABLE leads ADD CONSTRAINT leads_draft_expiry
 -- Beside leads_rules (r0_intake): created_at is the database clock, so the 90 days count from
 -- it; a new draft runs 30 days unless the API says less, and a renewal reaches at most 30 days
 -- from now (1 minute of slack); the expiry is frozen once the lead leaves DRAFT, no lead goes
--- back to DRAFT, and an expired draft is neither renewed nor sent on (it only becomes EXPIRED);
+-- back to DRAFT, an expired draft is neither renewed nor sent on nor given a new resume link (it
+-- only becomes EXPIRED), and an EXPIRED lead stays EXPIRED;
 -- the tax year is set once, while a draft; a lead converts only into an ACTIVE engagement,
 -- held until commit so it is still ACTIVE when the carried-over files arrive.
 CREATE FUNCTION leads_draft_rules() RETURNS trigger
@@ -141,6 +142,8 @@ BEGIN
   ELSIF NEW.status = 'DRAFT' AND OLD.status <> 'DRAFT' THEN
     RAISE EXCEPTION 'leads: a lead never goes back to being a draft'
       USING ERRCODE = 'check_violation';
+  ELSIF OLD.status = 'EXPIRED' AND NEW.status <> 'EXPIRED' THEN
+    RAISE EXCEPTION 'leads: an expired lead stays EXPIRED' USING ERRCODE = 'check_violation';
   ELSIF NEW.status <> 'DRAFT' AND NEW.draft_expires_at IS DISTINCT FROM OLD.draft_expires_at THEN
     RAISE EXCEPTION 'leads: only a draft''s expiry can change' USING ERRCODE = 'check_violation';
   ELSIF OLD.status = 'DRAFT' AND OLD.draft_expires_at <= now()
@@ -151,6 +154,16 @@ BEGIN
   ELSIF NEW.tax_year IS DISTINCT FROM OLD.tax_year
         AND (OLD.tax_year IS NOT NULL OR OLD.status <> 'DRAFT') THEN
     RAISE EXCEPTION 'leads: the tax year is set once, while the lead is a draft'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- An expired draft, or an EXPIRED lead, takes no new resume link (clearing it stays allowed).
+  IF TG_OP = 'UPDATE'
+     AND (OLD.status = 'EXPIRED' OR (OLD.status = 'DRAFT' AND OLD.draft_expires_at <= now()))
+     AND NEW.resume_token_hash IS NOT NULL
+     AND (NEW.resume_token_hash IS DISTINCT FROM OLD.resume_token_hash
+          OR NEW.resume_expires_at IS DISTINCT FROM OLD.resume_expires_at) THEN
+    RAISE EXCEPTION 'leads: the draft expired; it takes no new resume link'
       USING ERRCODE = 'check_violation';
   END IF;
 
@@ -175,6 +188,57 @@ CREATE TRIGGER leads_draft_rules
   BEFORE INSERT OR UPDATE ON leads
   FOR EACH ROW EXECUTE FUNCTION leads_draft_rules();
 
+-- An expired draft takes no new data: no new upload, and its intake's answers and saved steps
+-- only clear (the API clears them and deletes the uploads, then marks the lead EXPIRED). The lead
+-- is held FOR SHARE, so its expiry or submit waits for the write, then sees it. Named to run
+-- after each table's own rules trigger, so their messages come first.
+CREATE FUNCTION lead_uploads_unexpired_draft() RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+BEGIN
+  PERFORM 1 FROM leads l
+    WHERE l.id = NEW.lead_id AND l.status = 'DRAFT' AND l.draft_expires_at > now()
+    FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'lead uploads: only an unexpired draft takes files'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER lead_uploads_unexpired_draft
+  BEFORE INSERT ON lead_uploads
+  FOR EACH ROW EXECUTE FUNCTION lead_uploads_unexpired_draft();
+
+CREATE FUNCTION intake_submissions_unexpired_draft() RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+DECLARE
+  expired boolean;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.answers::text IS NOT DISTINCT FROM OLD.answers::text
+     AND NEW.saved_steps IS NOT DISTINCT FROM OLD.saved_steps THEN
+    RETURN NEW;
+  END IF;
+  SELECT l.status = 'EXPIRED' OR (l.status = 'DRAFT' AND l.draft_expires_at <= now())
+    INTO expired
+    FROM intakes i JOIN leads l ON l.id = i.lead_id
+    WHERE i.id = NEW.intake_id
+    FOR SHARE OF l;
+  IF coalesce(expired, false)
+     AND (TG_OP = 'INSERT' OR NEW.answers <> '{}'::jsonb OR NEW.saved_steps <> '{}'::text[]) THEN
+    RAISE EXCEPTION 'intake submissions: the draft expired; its answers only clear'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER intake_submissions_unexpired_draft
+  BEFORE INSERT OR UPDATE ON intake_submissions
+  FOR EACH ROW EXECUTE FUNCTION intake_submissions_unexpired_draft();
+
 -- ---------- 5. One Begin Online service per kind ----------
 -- The six form kinds, never OTHER; an archived service doesn't count (SQL only: Prisma ignores
 -- partial indexes).
@@ -192,8 +256,10 @@ CREATE UNIQUE INDEX services_one_begin_online_per_kind ON services (business_id,
 --   IN_PROGRESS, NEEDS_CORRECTION) or, carried over, the intake of the upload's lead in the
 --   upload's slot;
 -- - a file leaves its intake (detached, both cleared; or deleted before its retention ends)
---   only while the intake is open. The intake is held each time, so a submit waits; a submit
---   detaches the files of hidden slots before it moves the status on.
+--   only while the intake is open. Each write holds the intake FOR SHARE, which alone does not
+--   protect a submit's reads or its detach: a submit must start with
+--   SELECT 1 FROM intakes WHERE id = $1 FOR NO KEY UPDATE before it counts or detaches files,
+--   then detach the files of hidden slots, then move the status on.
 CREATE FUNCTION documents_intake_rules() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
@@ -263,7 +329,10 @@ CREATE POLICY documents_delete ON documents FOR DELETE
 -- what [:space:] covers); at most 500 characters.
 ALTER TABLE memberships ADD CONSTRAINT memberships_meeting_url
   CHECK (char_length(meeting_url) <= 500
-         AND meeting_url ~ '^https://[^[:space:]\x01-\x20\x7F-\xA0\xAD\u034F\u061C\u115F\u1160\u1680\u17B4\u17B5\u180B-\u180F\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\U000E0000-\U000E007F]+$');
+         AND meeting_url ~ '^https://[^[:space:]\x01-\x20\x7F-\xA0\xAD\u034F\u061C\u115F\u1160\u1680\u17B4\u17B5\u180B-\u180F\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\U000E0000-\U000E0FFF]+$'
+         AND meeting_url ~ '^https://[^/]'
+         AND meeting_url !~ '^https://[^/?#]*@'
+         AND meeting_url !~ '["''<>\\`]');
 -- Hours before the start (0 = until the start), at most 30 days.
 ALTER TABLE appointment_types ADD CONSTRAINT appointment_types_cancel_cutoff_hours
   CHECK (cancel_cutoff_hours BETWEEN 0 AND 720);

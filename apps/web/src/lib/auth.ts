@@ -8,6 +8,7 @@ import {
 } from '@firmivra/types';
 import { createAdminAuthMock } from '../mocks/admin-auth';
 import { createPortalAuthMock, type PortalAuthMockOptions } from '../mocks/client-auth';
+import { createStaffAuthMock } from '../mocks/staff-auth';
 import { sharedTeamMock } from '../mocks/team';
 import { api } from './api';
 import { MOCK_ROLE, mocked } from './mock';
@@ -18,11 +19,16 @@ import { MOCK_ROLE, mocked } from './mock';
  */
 export const AUTH_MODE = process.env.NEXT_PUBLIC_AUTH_MODE === 'local' ? 'local' : 'cognito';
 
-const staffAuthApi = createStaffAuthClient({ baseUrl: '/api/v1' });
+const staffAuthReal = createStaffAuthClient({ baseUrl: '/api/v1' });
+const staffAuthApi =
+  process.env.NODE_ENV !== 'production' && mocked('staffAuth')
+    ? createStaffAuthMock(staffAuthReal)
+    : staffAuthReal;
 
 /**
  * Firm site: sign-in, MFA, forgot and reset password, activation, invites (/api/v1/auth). With
- * the `team` mock on, `createInvite` adds to the same mock team list that `api.team` reads.
+ * the `team` mock on, `createInvite` adds to the same mock team list that `api.team` reads; with
+ * the `staffAuth` mock on, the /activate links in mocks/staff-auth.ts work without the API.
  */
 export const staffAuth =
   process.env.NODE_ENV !== 'production' && mocked('team')
