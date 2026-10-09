@@ -119,9 +119,8 @@ export function money(row: InvoiceRow) {
   const amountPaidCents = received.reduce((s, p) => s + p.amountCents, 0);
   const refundedCents = received.reduce((s, p) => s + confirmedRefunds(p), 0);
   const closed = row.status === 'PAID' || row.status === 'CANCELED';
-  const balanceDueCents = closed
-    ? 0
-    : Math.max(0, row.totalCents - (amountPaidCents - refundedCents));
+  // A refund never makes money owed again (a refunded invoice stays PAID).
+  const balanceDueCents = closed ? 0 : Math.max(0, row.totalCents - amountPaidCents);
   return { amountPaidCents, refundedCents, balanceDueCents };
 }
 
@@ -210,6 +209,8 @@ export function toInvoice(row: InvoiceRow, today: string): Invoice {
     ...toListItem(row, today),
     ...amountDetail(row),
     payments: shownPayments(row).map(toFirmPayment),
+    // Check and cash payments come with R0's offline_payments table (R7 step 11).
+    offlinePayments: [],
     cancelReason: row.cancelReason,
     createdBy: row.createdBy
       ? { userId: row.createdBy.userId, name: row.createdBy.user.name }
@@ -251,5 +252,10 @@ export function toMyInvoice(
 }
 
 export function toMyInvoiceDetail(row: InvoiceRow, mine: MyInvoice): MyInvoiceDetail {
-  return { ...mine, ...amountDetail(row), payments: shownPayments(row).map(toPayment) };
+  return {
+    ...mine,
+    ...amountDetail(row),
+    payments: shownPayments(row).map(toPayment),
+    offlinePayments: [],
+  };
 }
