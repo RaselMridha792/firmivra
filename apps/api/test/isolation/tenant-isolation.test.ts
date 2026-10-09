@@ -32,7 +32,14 @@ import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { type ApiRoute, apiRoutes, fillPath, paramsOf } from './routes.js';
-import { type CaseModule, type OwnIds, type Person, type RecordCase, World } from './world.js';
+import {
+  type CaseModule,
+  type NewUser,
+  type OwnIds,
+  type Person,
+  type RecordCase,
+  World,
+} from './world.js';
 
 /** Every cases/<module>.ts, merged; the same key in two files is an error. */
 async function loadCases() {
@@ -154,15 +161,26 @@ async function call(route: ApiRoute, path: string, actor: Actor, body?: object):
 
 const show = (res: Response) => `${res.status} ${JSON.stringify(res.body).slice(0, 300)}`;
 
+/** One login, committed in its own transaction (see NewUser in world.ts for why). */
+const newUser: NewUser = async ({ id, email, pool, name }) => {
+  await runInScope(db, { kind: 'platform' }, (tx) =>
+    tx.user.create({ data: { id, cognitoSub: id, pool, email, name } }),
+  );
+};
+
 /** A world of firm P's (or Q's) records with at least `keys` in it. */
 function buildWorld(keys: string[], k: 'p' | 'q' = 'p'): Promise<World> {
   return runInScope(db, { kind: 'business', businessId: firms[k].id }, async (tx) => {
-    const world = new World(RECORDS, {
-      tx,
-      businessId: firms[k].id,
-      owner: k === 'p' ? people.ownerP : people.ownerQ,
-      own: own[k],
-    });
+    const world = new World(
+      RECORDS,
+      {
+        tx,
+        businessId: firms[k].id,
+        owner: k === 'p' ? people.ownerP : people.ownerQ,
+        own: own[k],
+      },
+      newUser,
+    );
     await world.getAll(keys);
     return world;
   });
@@ -198,13 +216,11 @@ async function fingerprint(): Promise<Record<string, string>> {
 }
 
 beforeAll(async () => {
+  for (const [key, p] of Object.entries(people)) {
+    const pool = key.startsWith('client') ? 'CLIENT' : 'STAFF';
+    await newUser({ ...p, pool, name: `Fake ${key}` });
+  }
   await runInScope(db, { kind: 'platform' }, async (tx) => {
-    for (const [key, p] of Object.entries(people)) {
-      const pool = key.startsWith('client') ? 'CLIENT' : 'STAFF';
-      await tx.user.create({
-        data: { id: p.id, cognitoSub: p.id, pool, email: p.email, name: `Fake ${key}` },
-      });
-    }
     for (const k of ['p', 'q'] as const) {
       firms[k] = await tx.business.create({
         data: { slug: `iso-${k}-${tag}`, name: `Fake Firm ${k} ${tag}`, status: 'ACTIVE' },
