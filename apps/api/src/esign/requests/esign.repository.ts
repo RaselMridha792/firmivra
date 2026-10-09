@@ -58,6 +58,8 @@ export interface EsignRequestRecord {
   replacedByRequestId: string | null;
   /** When the expiry warning went out (once per request); null before. */
   expiryWarnedAt: Date | null;
+  /** The template and version it was made from (source TEMPLATE); null otherwise. */
+  template: { id: string; version: number } | null;
 }
 
 export type NewEsignRequest = Omit<
@@ -77,6 +79,7 @@ export type NewEsignRequest = Omit<
   | 'replacesRequestId'
   | 'replacedByRequestId'
   | 'expiryWarnedAt'
+  | 'template'
 >;
 
 /** What PATCH may change. */

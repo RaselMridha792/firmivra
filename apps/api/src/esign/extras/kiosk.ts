@@ -13,6 +13,7 @@ import type { Request, Response } from 'express';
 import type { Observable } from 'rxjs';
 import { ESIGN_ERRORS, ESIGN_KIOSK_IDLE_MINUTES } from '@firmivra/types';
 import { httpError } from '../../auth/auth-errors.js';
+import { isPublic } from '../../auth/decorators.js';
 import {
   AuthFlowError,
   IDENTITY_PROVIDER,
@@ -97,7 +98,9 @@ export class EsignKioskInterceptor implements NestInterceptor {
     const http = ctx.switchToHttp();
     const req = http.getRequest<Request>();
     const tenant = req.tenant;
-    if (ctx.getType() !== 'http' || tenant?.kind !== 'staff' || !req.auth) return next.handle();
+    // Public routes (the signer pages, on the portal site) and client routes are never locked.
+    if (ctx.getType() !== 'http' || isPublic(this.reflector, ctx)) return next.handle();
+    if (tenant?.kind !== 'staff' || !req.auth) return next.handle();
     const lock = await this.extras.kioskLock(tenant.businessId, req.auth.userId);
     if (!lock) return next.handle();
     if (kioskIdle(lock, new Date())) {

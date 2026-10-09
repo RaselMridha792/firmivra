@@ -2,6 +2,7 @@
 // (every action POST is 200), the module switch and the 404s across firms and clients, with the
 // in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and role on the
 // request, as in esign-lifecycle-http.test.ts. Synthetic data only.
+import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
 import { randomUUID } from 'node:crypto';
 import { Global, type INestApplication, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -89,6 +90,9 @@ beforeAll(async () => {
     .useValue(w.store)
     .overrideProvider(PDF_ENGINE)
     .useValue(fakePdf)
+    // The signer routes' firm lookup (not used by these routes).
+    .overrideProvider(PortalInfoService)
+    .useValue({ activeFirm: () => Promise.reject(new Error('not used here')) })
     .compile();
   app = moduleRef.createNestApplication();
   app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -383,6 +387,13 @@ describe('Firm Sign in person over HTTP', () => {
     ] as const) {
       expect(errorOf(await call(method, path, ownerA()))).toEqual([403, 'KIOSK_LOCKED']);
     }
+    // The signer pages are public (the portal site): never locked, even with the staff session.
+    const signerPage = await request(app.getHttpServer())
+      .get('/api/v1/portal/fake-firm-a/sign/state')
+      .set('x-test-user', ownerA().user)
+      .set('x-test-firm', ownerA().firm)
+      .set('x-test-role', ownerA().role);
+    expect(errorOf(signerPage)[1]).not.toBe('KIOSK_LOCKED');
     const state = await call('get', 'in-person', ownerA());
     expect(EsignInPersonState.parse(state.body).session?.recipientId).toBe(signerId);
     // Only the member who started it is locked.
