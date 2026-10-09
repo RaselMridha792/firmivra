@@ -182,6 +182,7 @@ function Reschedule({
         slug={slug}
         typeId={typeId}
         excludeAppointmentId={item.id}
+        current={item.startsAt}
         date={date}
         min={first}
         picked={picked}

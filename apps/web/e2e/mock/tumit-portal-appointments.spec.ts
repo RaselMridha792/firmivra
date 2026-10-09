@@ -37,6 +37,7 @@ test('a client books after a taken time, then reschedules and cancels', async ({
   // Reschedule Tuesday's appointment to 3 PM the same day.
   const tuesday = mine.filter({ hasText: 'Tue' });
   await tuesday.getByRole('button', { name: 'Reschedule' }).click();
+  await expect(tuesday.getByRole('button', { name: '2:00 PM (current)' })).toBeDisabled();
   await tuesday.getByRole('button', { name: '3:00 PM' }).click();
   await tuesday.getByRole('button', { name: /^Move to/ }).click();
   await expect(page.getByText('Your appointment was moved.')).toBeVisible();
