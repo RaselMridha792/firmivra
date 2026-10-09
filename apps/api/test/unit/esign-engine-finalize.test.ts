@@ -2,12 +2,13 @@
 // every page rotation and on a page whose MediaBox doesn't start at 0,0; form fields are
 // flattened (also after compose); one signature page per signer; Noto Sans prints non-Latin names.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 import { PDFArray, PDFDocument, PDFName, PDFRawStream, type PDFPage } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
 import type { FieldBox } from '../../src/esign/engine/engine.types.js';
 import { compose } from '../../src/esign/engine/pdf-compose.js';
-import { finalize, placeBox } from '../../src/esign/engine/pdf-finalize.js';
+import { finalize, notoSans, placeBox } from '../../src/esign/engine/pdf-finalize.js';
 import { formPdf, pdf, png } from './esign-engine-fixtures.js';
 
 /** What a viewer does: a point of the page's own space to shown fractions, top-left origin. */
@@ -166,5 +167,22 @@ describe('finalize', () => {
       dateStyle: 'long',
     }).format(new Date('2026-10-09T02:30:00Z'));
     expect(date).toBe('October 8, 2026');
+  });
+});
+
+describe('the font', () => {
+  it('loads next to the code, and nest build ships it to dist', async () => {
+    expect((await notoSans()).byteLength).toBeGreaterThan(100_000);
+    const nest = JSON.parse(
+      readFileSync(new URL('../../nest-cli.json', import.meta.url), 'utf8'),
+    ) as {
+      sourceRoot: string;
+      compilerOptions: { assets?: { include: string; outDir: string }[] };
+    };
+    expect(nest.sourceRoot).toBe('src');
+    expect(nest.compilerOptions.assets).toContainEqual({
+      include: 'esign/engine/fonts/*',
+      outDir: 'dist',
+    });
   });
 });
