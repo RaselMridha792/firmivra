@@ -1,7 +1,8 @@
 // Test helper: a Begin Online version submitted the way the real submit leaves it. The database
 // takes submitted_at only with this version's signature from the same transaction, covering a
-// firm-wide agreement, so the helper publishes one for the firm when it has none, signs as the
-// lead, submits the version and marks the intake and the lead SUBMITTED with the version's time.
+// firm-wide agreement and every current agreement of the form's service, so the helper publishes
+// a firm-wide one when the firm has none, signs them all as the lead, submits the version and
+// marks the intake and the lead SUBMITTED with the version's time.
 // Synthetic text only.
 import { createHash, randomUUID } from 'node:crypto';
 import type { TxClient } from '@firmivra/db';
@@ -46,7 +47,17 @@ export async function submitLeadVersion(
   },
 ): Promise<Date> {
   const { businessId, leadId, intakeId, submissionId } = ids;
-  const version = await firmWideVersion(tx, businessId, ids.ownerId);
+  const firmWide = await firmWideVersion(tx, businessId, ids.ownerId);
+  // Every unarchived agreement of the form's service, at its current version, is signed too.
+  const { form } = await tx.intake.findUniqueOrThrow({
+    where: { id: intakeId },
+    select: { form: { select: { serviceId: true } } },
+  });
+  const services = await tx.firmAgreement.findMany({
+    where: { businessId, scope: 'SERVICE', serviceId: form.serviceId, archivedAt: null },
+    select: { versions: { orderBy: { version: 'desc' }, take: 1 } },
+  });
+  const versions = [firmWide, ...services.flatMap((a) => a.versions)];
   const sig = await tx.intakeSignature.create({
     data: {
       businessId,
@@ -55,15 +66,21 @@ export async function submitLeadVersion(
       leadId,
       printedName: 'Fake Visitor',
       signatureText: 'Fake Visitor',
-      acknowledgments: ACKS.map((a) => ({ agreementVersionId: version.id, ...a, checked: true })),
+      acknowledgments: versions.flatMap((v) =>
+        (v.acknowledgments as typeof ACKS).map((a) => ({
+          agreementVersionId: v.id,
+          ...a,
+          checked: true,
+        })),
+      ),
       answersSha256: '0'.repeat(64), // replaced by the database
       evidenceSha256: createHash('sha256').update(randomUUID()).digest('hex'),
       agreements: {
-        create: {
-          agreementVersionId: version.id,
-          bodySha256: version.bodySha256,
-          pdfSha256: version.pdfSha256,
-        },
+        create: versions.map((v) => ({
+          agreementVersionId: v.id,
+          bodySha256: v.bodySha256,
+          pdfSha256: v.pdfSha256,
+        })),
       },
     },
   });
