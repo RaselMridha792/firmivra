@@ -17,10 +17,10 @@ Not R20's: R15's intake, Begin Online and leads; `apps/api/src/notify` (R15's `m
 
 ## Steps
 - [x] 1. Contract: zod schemas and clients (`api.messages`, `api.clientNotes`, `api.myMessages(slug)`, `api.myNotes(slug)`), mocks, `docs/api/messages.yaml`
-- [ ] 2. Threads and messages, firm and portal
-- [ ] 3. Read receipts and unread counts
-- [ ] 4. Internal notes
-- [ ] 5. Private notes and reminders
+- [x] 2. Threads and messages, firm and portal
+- [x] 3. Read receipts and unread counts
+- [x] 4. Internal notes
+- [x] 5. Private notes and reminders
 - [ ] 6. Notices: `message.received` bell item and the `message.new` email (after #159 and #160)
 - [ ] 7. Isolation sweep; route list to R0 for R8's suite
 
@@ -35,4 +35,6 @@ Not R20's: R15's intake, Begin Online and leads; `apps/api/src/notify` (R15's `m
 - None yet.
 
 ## Progress log
-- Oct 9: contract (step 1) on `rasel/r20-messages-ui8jcx`.
+- Oct 9: contract (step 1) on `rasel/r20-messages-ui8jcx`, PR #168.
+- Oct 9: threads, read state and unread counts (steps 2-3) on `rasel/R20-threads`, PR #177.
+- Oct 9: internal notes and private notes with reminders (steps 4-5) on `rasel/R20-notes`.
