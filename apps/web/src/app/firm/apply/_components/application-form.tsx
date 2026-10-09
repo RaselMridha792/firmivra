@@ -73,7 +73,7 @@ const contactOptions = [
 /** A card's title with its icon, as on the Super Admin's application page. */
 function SectionTitle({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
   return (
-    <h2 className="flex items-center gap-2 text-xl font-semibold text-brand-900">
+    <h2 className="flex items-center gap-2 font-display text-xl font-bold text-heading">
       <Icon aria-hidden className="size-6 text-brand-700" />
       {children}
     </h2>

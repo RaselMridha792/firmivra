@@ -84,7 +84,8 @@ export function createInvoicesClient(request: ApiRequest) {
       }),
     /**
      * Voids a recorded check or cash payment; a PAID invoice it no longer covers reopens. 409
-     * ALREADY_VOIDED.
+     * ALREADY_VOIDED, or PAYMENT_IN_PROGRESS (retry) while another payment or cancel holds the
+     * invoice.
      */
     voidPayment: async (
       id: string,

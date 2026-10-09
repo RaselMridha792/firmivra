@@ -107,7 +107,7 @@ export class IntakeSignaturesService {
     const serviceId = input.serviceId ?? undefined;
     await tx.$executeRaw`
       SELECT 1 FROM firm_agreements
-      WHERE archived_at IS NULL
+      WHERE business_id = ${businessId}::uuid AND archived_at IS NULL
         AND (scope = 'ALL_INTAKES' OR service_id = ${serviceId ?? null}::uuid)
       FOR SHARE`;
     const block = await currentAgreements(tx, serviceId);
@@ -115,7 +115,7 @@ export class IntakeSignaturesService {
 
     // Begin Online's Terms and Privacy: both published, or none asked (the block's `legal`).
     const beginOnline = input.signer.kind === 'lead';
-    const legal = beginOnline ? await this.legalVersions(tx) : null;
+    const legal = beginOnline ? await this.legalVersions(tx, businessId) : null;
     const sent = new Map(signature.agreements.map((a) => [a.agreementId, a]));
     const outdated =
       sent.size !== block.agreements.length ||
@@ -348,10 +348,10 @@ export class IntakeSignaturesService {
   }
 
   /** The firm's current Terms and Privacy with their ids, or null unless both are published. */
-  private async legalVersions(tx: TxClient) {
+  private async legalVersions(tx: TxClient, businessId: string) {
     const latest = (kind: 'TERMS' | 'PRIVACY') =>
       tx.firmLegalDocument.findFirst({
-        where: { kind },
+        where: { businessId, kind },
         orderBy: { version: 'desc' },
         select: { id: true, version: true },
       });

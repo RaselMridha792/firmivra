@@ -27,6 +27,7 @@ import { api } from '../../../../lib/api';
 import { mocked } from '../../../../lib/mock';
 import { useApiQuery } from '../../../../lib/query';
 import { attentionItems, dashboardStats, platformModules, systemStatuses } from './dashboard-data';
+import { EmailText } from './list-parts';
 import { PlatformGrowth } from './platform-growth';
 import { SectionTitle } from './section-title';
 
@@ -61,13 +62,17 @@ function StatCard({
       : stat.key === 'monthlyRevenueCents'
         ? (value / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
         : value.toLocaleString('en-US');
-  const linkClass = 'mt-1 inline-flex items-center gap-1 text-sm text-brand-700';
+  const linkClass = 'mt-1 inline-flex items-center gap-1 whitespace-nowrap text-sm text-brand-700';
 
   return (
-    <Card variant="elevated" data-testid={stat.testId} className="!p-4">
-      <div className="flex items-center gap-4">
+    // Four cards share a row from xl; until 2xl a smaller icon keeps "View Applications" on one line.
+    <Card variant="elevated" data-testid={stat.testId} className="!p-4 xl:!p-3 2xl:!p-4">
+      <div className="flex items-center gap-4 xl:gap-3 2xl:gap-4">
         <span
-          className={'flex size-16 shrink-0 items-center justify-center rounded-card ' + iconTone}
+          className={
+            'flex size-16 shrink-0 xl:size-12 2xl:size-16 items-center justify-center rounded-card ' +
+            iconTone
+          }
         >
           <Icon aria-hidden className="size-7" />
         </span>
@@ -123,13 +128,14 @@ function localSubmissionLabel(value: string) {
 }
 
 /** The recent applications' columns from xl: spans of a 20-column grid, near the mockup's widths. */
+// Spans of 20. Below 2xl the email sits under the contact's name, so the pill and button fit.
 const COLUMNS = [
-  'xl:col-span-4',
+  'xl:col-span-5 2xl:col-span-4',
+  'xl:col-span-5 2xl:col-span-3',
+  'xl:hidden 2xl:block 2xl:col-span-5',
   'xl:col-span-3',
-  'xl:col-span-5',
-  'xl:col-span-3',
-  'xl:col-span-3',
-  'xl:col-span-2',
+  'xl:col-span-4 2xl:col-span-3',
+  'xl:col-span-3 2xl:col-span-2',
 ] as const;
 
 function statusPresentation(status: FirmApplicationListItem['status']) {
@@ -168,10 +174,13 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
       <span className={COLUMNS[1]}>
         <span className="text-xs text-muted xl:hidden">Contact: </span>
         {application.contactName}
+        <span className="hidden text-muted wrap-anywhere xl:block 2xl:hidden">
+          <EmailText value={application.contactEmail} />
+        </span>
       </span>
-      <span className={`break-words ${COLUMNS[2]}`}>
+      <span className={`wrap-anywhere ${COLUMNS[2]}`}>
         <span className="text-xs text-muted xl:hidden">Email: </span>
-        {application.contactEmail}
+        <EmailText value={application.contactEmail} />
       </span>
       <time dateTime={application.submittedAt} className={COLUMNS[3]}>
         <span className="text-xs text-muted xl:hidden">Submitted: </span>
@@ -179,7 +188,9 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
         <span className="block text-muted">{submittedTime}</span>
       </time>
       <span className={COLUMNS[4]}>
-        <span className={'rounded-full px-2 py-1 text-xs font-medium ' + status.tone}>
+        <span
+          className={'whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ' + status.tone}
+        >
           {status.label}
         </span>
       </span>
@@ -260,7 +271,7 @@ export function DashboardOverview() {
                   'Status',
                   'Actions',
                 ].map((label, index) => (
-                  <span key={label} className={COLUMNS[index]}>
+                  <span key={label} className={`whitespace-nowrap ${COLUMNS[index]}`}>
                     {label}
                   </span>
                 ))}

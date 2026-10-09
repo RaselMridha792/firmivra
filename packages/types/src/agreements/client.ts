@@ -60,7 +60,7 @@ export function createAgreementsClient(request: ApiRequest) {
       request(FirmAgreementSummary, `${series(agreementId)}/archive`, { method: 'POST' }),
 
     /**
-     * Step 1 of 3: a one-time PUT URL for the PDF (5 minutes). Takes `uploadFile()`'s facts as
+     * Step 1 of 3: a one-time PUT URL for the PDF (240 seconds). Takes `uploadFile()`'s facts as
      * they are; anything but a .pdf with contentType application/pdf answers 400 before sending.
      */
     createUpload: async (body: UploadFileFacts): Promise<UploadTicket> =>
