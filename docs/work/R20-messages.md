@@ -22,7 +22,7 @@ Not R20's: R15's intake, Begin Online and leads; `apps/api/src/notify` (R15's `m
 - [x] 4. Internal notes
 - [x] 5. Private notes and reminders
 - [x] 6. Notices: `message.received` bell item and the `message.new` email (after #159 and #160)
-- [ ] 7. Isolation sweep; route list to R0 for R8's suite
+- [x] 7. Isolation sweep; route list to R0 for R8's suite
 
 ## Defaults taken (open questions, sent to the Scrum thread with the contract PR)
 - Private notes in the audit log (Owner and Admin read it): the save and the reminder change are logged with no note id, text or date.
@@ -30,6 +30,19 @@ Not R20's: R15's intake, Begin Online and leads; `apps/api/src/notify` (R15's `m
 - SPOUSE and AUTHORIZED logins read and send messages, as the database allows.
 - Internal notes: the author edits and deletes; Owner and Admin may too.
 - Attachments: in the schema, not in the API until the Scrum thread asks.
+
+## Routes for R8's isolation suite
+Firm (`x-business-id`; Owner/Admin all clients, Staff assigned only, else 404):
+- `GET /business/message-threads`, `GET /business/message-threads/unread-count`
+- `GET|POST /business/clients/{id}/message-threads`
+- `GET|PATCH /business/message-threads/{id}`, `POST .../{id}/messages`, `POST .../{id}/read`, `POST .../{id}/unread`
+- `GET|POST /business/clients/{id}/notes`, `PATCH|DELETE /business/notes/{id}` (other Staff's note: 403)
+
+Portal (client and login from the session; another client's thread 404):
+- `GET|POST /portal/{slug}/me/messages`, `GET .../unread-count`, `GET .../{id}`, `POST .../{id}/messages`, `POST .../{id}/read`, `POST .../{id}/unread`
+- `GET|PUT /portal/{slug}/me/notes`, `PUT|DELETE /portal/{slug}/me/notes/reminder` (owner's actor scope only)
+
+Covered in `apps/api/test/e2e/messages.e2e.test.ts` and `notes.e2e.test.ts`: firm B by id and by client id, unassigned Staff, client Y in the same firm, a firm A client at firm B's portal, internal notes absent from every portal response, private notes invisible to staff routes, the spouse and the database with no actor.
 
 ## Needs from others
 - None yet.
@@ -39,3 +52,4 @@ Not R20's: R15's intake, Begin Online and leads; `apps/api/src/notify` (R15's `m
 - Oct 9: threads, read state and unread counts (steps 2-3) on `rasel/R20-threads`, PR #177.
 - Oct 9: internal notes and private notes with reminders (steps 4-5) on `rasel/R20-notes`.
 - Oct 9: notices (step 6) on `rasel/R20-notices`, built on #159 and #160 (merged into the branch); PR opens once both are on main.
+- Oct 9: isolation sweep (step 7): cases in the two e2e files; route list above, sent to R0 through the Scrum thread.
