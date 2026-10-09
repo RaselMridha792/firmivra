@@ -22,10 +22,13 @@ import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
 import { FirmApplicationsModule } from './firm-applications/firm-applications.controller.js';
 import { MeModule } from './me/me.controller.js';
+import { NotificationsModule } from './notifications/notifications.controller.js';
 import { NotifyModule } from './notify/notify.module.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
+import { TaxReturnsModule } from './tax-returns/tax-returns.controller.js';
 import { EngagementsModule } from './engagements/engagements.controller.js';
+import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
@@ -34,6 +37,9 @@ import { ContentModule } from './content/content.controller.js';
 import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
+import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
+import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
+import { InvoicesModule } from './payments/invoices/invoices.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -74,12 +80,15 @@ export class AppModule {
         AuthModule,
         AuditModule,
         NotifyModule,
+        NotificationsModule,
         HealthModule,
         MeModule,
         FirmApplicationsModule,
         TaxStatusesModule,
         ClientsModule,
+        TaxReturnsModule,
         EngagementsModule,
+        MessagesModule,
         SettingsModule,
         TeamModule,
         CalculatorsModule,
@@ -88,6 +97,9 @@ export class AppModule {
         AuditViewerModule,
         WorkspacesModule,
         DocumentsModule,
+        StripeClientModule,
+        PaymentsSetupModule,
+        InvoicesModule,
         SignInModule,
         PortalInfoModule,
         SignUpModule,
