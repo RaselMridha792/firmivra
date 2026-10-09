@@ -2,6 +2,8 @@
 
 **Goal:** A firm applies, Super Admin approves, requests info or declines, and the owner activates the workspace.
 
+**From Oct 9:** steps 2 to 6 are built by R16 (a cloud thread, Rasel's Oct 8 decision), which logs its work below.
+
 **Owned paths (change only these):**
 
 - `apps/api/src/firm-applications/**`
@@ -102,6 +104,7 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 - R6: four emails: application received (applicant), information requested (the message; reply-to support), approved (the owner's activation link, through R2's activation mailer), declined (with the reason, Rasel Oct 7).
 - R3: export `tryLock` (the advisory try-lock in `apps/api/src/client-auth/sign-up.service.ts`) from a shared place, for example `client-auth/network.ts` or a small `common/advisory-lock.ts`. R4's submit limits keep a copy in `submit.service.ts` until then, and switch to the import once it lands (review of `rasel/R4-api-submit`, Oct 8).
 - R2: an owner invite created by a Super Admin (no inviting member) through `InvitesService`, checked at step 3.
+- Tumit (F04b, application detail): show Approve also when the application is APPROVED and `firm` is null (an approval whose picked address was taken before the firm was created). Approving again finishes it; the page now hides the button (`canDecide`). Rare, and only with a picked address.
 - Not in the contract (Phase 1 is the approval path only): the "Edit" links on the review cards, "Add Firm Manually", "Add Firm", "Edit Firm Details", "Deactivate Firm" and "Open Firm Workspace" (the last needs the support-access design). The screens leave them out or mark them "Soon".
 
 ## Progress log
@@ -185,3 +188,11 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - The one-off `create-firm-key` command (`create-firm-key.ts`, `create-firm-key.cli.ts`) gives LVP its key on dev, in platform scope, with a `business.kms_key_set` platform audit row; `--check` proves the encryption-context rule on the real key.
   - Approve (step 3) reuses them, as the plan for step 3 says (#124, "For the API steps"): `CreateAlias` can wait up to 5 minutes on a new key, so the key is made outside the request, and a naming failure logs the unused key (`FirmKeyError` names it). Add approve to the source-scan test in `test/unit/firm-keys.test.ts`.
   - EIN-hash key: `firmivra/<env>/firm-applications/ein-hash-key`, 64 lower-case hex characters (32 bytes), injected as `EIN_HASH_KEY`. Submit reads it with its own settings loader (check `^[0-9a-f]{64}$`, decode, HMAC-SHA256 into `ein_hash`) and never rotates it. Locally, `.env` takes the dev-only `.env.example` value (#107, above).
+- 2026-10-09, step 2 (approve), R16, branch `rasel/R16-approve`:
+  - `POST /admin/firm-applications/{id}/approve` (`slug` optional; default the suggested address). Two transactions, since the database takes each half only in its own scope: the decision in admin scope (APPROVED as the acting admin, `firm_application.approved` audited in it), then the firm in platform scope (`PENDING_SETUP`, named after the legal name, `business_type` from the practice type or null, pack `TAX_ACCOUNTING`), linked to the application in the same transaction, with `business.created` audited (platform event, the acting admin, `{ applicationId }`).
+  - 409 `OWNER_NAME_TOO_LONG` (new contract code, also in the mock: a contact name the owner invite would refuse by R0's `invites_name`, over 120 characters, blank or with control characters; only rows from before #107) and a picked address another firm has (`SLUG_TAKEN`) are checked before the decision.
+  - With no picked address, one taken in between moves on to the next free one (insert with ON CONFLICT DO NOTHING, then the next). Only a picked address taken between the two halves leaves the application APPROVED with no firm: the record keeps `suggestedSlug`, and approving again finishes it without a second decision.
+  - Firms approved before step 3 merges get their settings, key and owner link from step 3's paths (settings are created on first save, the key job takes any firm without one, Resend owner invite sends a first link).
+  - Two approvals at once: the second waits on the row lock and creates nothing more (one firm, one decision).
+  - Not yet (step 3): business_settings from the application, the KMS key, the owner invite after commit and `resendOwnerInvite`, `ownerInvite` on the record. Approve sends no email until then.
+  - Tests: `apps/api/test/e2e/firm-application-approve.e2e.test.ts` (default and picked address, the audit rows, 409s before the decision, finishing an approved application without a firm, a double click, an unreadable form, 400/401/404).
