@@ -6,7 +6,6 @@ import {
   type EsignAccessRole,
   type EsignCounter,
 } from '@firmivra/types';
-import { EmptyState } from '@firmivra/ui';
 import {
   Ban,
   CircleCheck,
@@ -25,6 +24,7 @@ import {
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
+import { EsignGate } from '../../../../../components/esign/esign-gate';
 import { canCreate } from '../../../../../components/esign/esign-role';
 import { STATUS_TONE } from '../../../../../components/esign/status-badge';
 import { PageState } from '../../../../../components/page-state';
@@ -35,21 +35,7 @@ import { RecentDocuments } from './recent-documents';
 
 /** The Firm Sign dashboard (/firm-sign), from Octavia's mockup. */
 export function FirmSignDashboard() {
-  const status = useApiQuery(['esign', 'status'], () => api.esign.status());
-  return (
-    <PageState query={status} isEmpty={() => false}>
-      {(s) =>
-        s.enabled ? (
-          <Dashboard role={s.myEsignRole} />
-        ) : (
-          <EmptyState
-            title="Firm Sign is off"
-            description="Firm Sign isn't turned on for your firm. Ask Firmivra support to turn it on."
-          />
-        )
-      }
-    </PageState>
-  );
+  return <EsignGate>{(role) => <Dashboard role={role} />}</EsignGate>;
 }
 
 function Dashboard({ role }: { role: EsignAccessRole | null }) {
