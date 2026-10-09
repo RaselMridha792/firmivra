@@ -179,6 +179,7 @@ export class EsignSignerController {
 
   @Post('attachments/uploads')
   @HttpCode(200)
+  @Throttle(STEPS)
   async attachmentUpload(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerAttachmentUploadBody))
@@ -190,6 +191,7 @@ export class EsignSignerController {
 
   @Post('attachments/uploads/confirm')
   @HttpCode(200)
+  @Throttle(STEPS)
   async attachmentConfirm(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerAttachmentConfirmBody))
@@ -201,6 +203,7 @@ export class EsignSignerController {
   }
 
   @Delete('attachments/:fieldId')
+  @Throttle(STEPS)
   async attachmentRemove(
     @Param('firmSlug') slug: string,
     @Param('fieldId', new ZodValidationPipe(EsignFieldId)) fieldId: string,
