@@ -2,6 +2,7 @@
 // Test Firm B for isolation checks. Safe to run again. Runs as the owner role, inside the same
 // scopes the app uses, so it also works where the owner is not a superuser.
 import { createHash, randomBytes } from 'node:crypto';
+import { INTAKE_FORMS } from '@firmivra/types';
 import { config } from 'dotenv';
 import { createPrismaClient, runInScope, type TxClient } from '../src/client.js';
 import {
@@ -174,7 +175,12 @@ async function seedIntakeForms(
         serviceId,
         version: 1,
         title: `${name} intake`,
-        definition: seedFormDefinition(kind, `${name} intake`),
+        // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in until
+        // their real forms are on main (R15), so the seeded answers below always fit their form.
+        definition:
+          kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
+            ? INTAKE_FORMS.ANNUAL_TAX
+            : seedFormDefinition(kind, `${name} intake`),
         // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
         agreementText: null,
         status: 'PUBLISHED',
@@ -676,7 +682,8 @@ async function main() {
         id: SEED_INTAKE_IDS.taxSubmission,
         intakeId: SEED_INTAKE_IDS.taxIntake,
         version: 1,
-        answers: { fullName: SEED_USERS.lvpClient.name },
+        // The real Annual Tax form's own questions, partly answered (an IN_PROGRESS intake).
+        answers: { firstName: 'Chris', lastName: 'Client' },
       },
     });
 
@@ -740,7 +747,6 @@ async function main() {
           id: SEED_INTAKE_IDS.leadSubmission,
           intakeId: SEED_INTAKE_IDS.leadIntake,
           version: 1,
-          // Only the stored form's questions (fullName; priorReturn is the upload).
           answers,
         },
       });
