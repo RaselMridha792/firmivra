@@ -10,7 +10,7 @@ import { awsErrorName } from '../../firm-applications/firm-keys.js';
 import { errorName } from '../../notifications/notifier.js';
 import type { ScanOutcome } from '../scan-results.service.js';
 import { SCAN_QUEUE_CONFIG, type ScanQueueConfig } from './config.js';
-import { type ExpectedScanSource, parseScanEvent } from './scan-event.js';
+import { type ExpectedScanSource, KEPT_REJECTIONS, parseScanEvent } from './scan-event.js';
 import { type RoutedOutcome, ScanResultRouter } from './scan-router.js';
 import {
   type QueueMessage,
@@ -53,7 +53,9 @@ const version = (v: string | null) =>
  * Reads GuardDuty's scan results from the SQS queue (R1 step 19) and routes each one by its key's
  * prefix (ScanResultRouter). One message at a time, long polling; started at boot when
  * SCAN_RESULTS_QUEUE_URL is set (in AWS), never locally or in CI. What happens to a message:
- * - not a scan result for this account, region and bucket: SCAN_REJECTED, deleted;
+ * - not a scan result for this account, region and bucket: SCAN_REJECTED, deleted; but a
+ *   GuardDuty scan result this parser cannot read, or an unknown status: SCAN_REJECTED, kept, so
+ *   it dead-letters and can be redriven once the parser reads it;
  * - a final outcome (CLEAN, INFECTED, FAILED, UNSCANNED, IGNORED): logged, deleted (a repeat is
  *   IGNORED: results are set once);
  * - PENDING (our side): SCAN_UNFINISHED, deleted (the alarm and a rescan);
@@ -123,6 +125,13 @@ export class ScanResultConsumer implements OnApplicationBootstrap, BeforeApplica
       ? parseScanEvent(m.body, this.expected)
       : ({ ok: false, why: 'NOT_A_SCAN_RESULT' } as const);
     if (!parsed.ok) {
+      if (KEPT_REJECTIONS.has(parsed.why)) {
+        this.logger.warn(
+          `${SCAN_LOG_MARKERS.rejected} message ${messageId}: ${parsed.why}; kept for a redrive`,
+        );
+        await this.keep(m, parsed.why, false);
+        return { outcome: 'REJECTED', deleted: false };
+      }
       this.logger.warn(`${SCAN_LOG_MARKERS.rejected} message ${messageId}: ${parsed.why}; deleted`);
       return { outcome: 'REJECTED', deleted: await this.remove(m) };
     }

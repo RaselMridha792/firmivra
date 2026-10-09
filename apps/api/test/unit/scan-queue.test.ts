@@ -51,7 +51,7 @@ type Status = ScanResult['status'];
  */
 function event(
   status: Status,
-  reasons: string[] | null = null,
+  reasons: (string | { code: string })[] | null = null,
   over: { key?: string; account?: string; region?: string; bucket?: string; time?: Date } = {},
 ) {
   const scanStatus = {
@@ -125,6 +125,12 @@ describe('parseScanEvent', () => {
     expect(parsed.ok && [parsed.event.reasons, parsed.event.versionId]).toEqual([[], null]);
   });
 
+  it('reads reasons sent as [{ code }] (the shape of the plan-status events) as codes too', () => {
+    const e = event('UNSUPPORTED', [{ code: 'PASSWORD_PROTECTED' }]);
+    const parsed = parseScanEvent(body(e), expected);
+    expect(parsed.ok && parsed.event.reasons).toEqual(['PASSWORD_PROTECTED']);
+  });
+
   it('rejects anything else, each with its reason', () => {
     const e = event('NO_THREATS_FOUND');
     const why = (b: string) => {
@@ -138,11 +144,15 @@ describe('parseScanEvent', () => {
         body({ ...e, 'detail-type': 'GuardDuty Malware Protection Resource Status Active' }),
         'NOT_A_SCAN_RESULT',
       ],
-      [body({ ...e, detail: { ...e.detail, resourceType: 'EBS_VOLUME' } }), 'NOT_A_SCAN_RESULT'],
-      [body({ ...e, time: 'yesterday' }), 'NOT_A_SCAN_RESULT'],
-      [body({ ...e, id: 'id with spaces' }), 'NOT_A_SCAN_RESULT'],
-      [body(event('NO_THREATS_FOUND', null, { key: 'k'.repeat(1025) })), 'NOT_A_SCAN_RESULT'],
-      [body(event('NO_THREATS_FOUND', ['R'.repeat(101)])), 'NOT_A_SCAN_RESULT'],
+      // GuardDuty's scan result, but a shape this parser cannot read: kept for a redrive.
+      [
+        body({ ...e, detail: { ...e.detail, resourceType: 'EBS_VOLUME' } }),
+        'UNREADABLE_SCAN_RESULT',
+      ],
+      [body({ ...e, time: 'yesterday' }), 'UNREADABLE_SCAN_RESULT'],
+      [body({ ...e, id: 'id with spaces' }), 'UNREADABLE_SCAN_RESULT'],
+      [body(event('NO_THREATS_FOUND', null, { key: 'k'.repeat(1025) })), 'UNREADABLE_SCAN_RESULT'],
+      [body(event('NO_THREATS_FOUND', ['R'.repeat(101)])), 'UNREADABLE_SCAN_RESULT'],
       [body(event('MAYBE_CLEAN' as Status)), 'UNKNOWN_RESULT_STATUS'],
       [body(event('NO_THREATS_FOUND', null, { account: '111122223333' })), 'WRONG_ACCOUNT'],
       [body(event('NO_THREATS_FOUND', null, { region: 'eu-west-1' })), 'WRONG_REGION'],
@@ -393,7 +403,7 @@ describe('ScanResultConsumer', () => {
     );
   });
 
-  it('logs SCAN_REJECTED with the message id and reason only, and deletes the message', async () => {
+  it('logs SCAN_REJECTED with the message id and reason only, and deletes what is not ours', async () => {
     const { queue, consumer, docs } = setUp();
     const secretKey = docKey(firmA);
     const cases: [string, string][] = [
@@ -407,7 +417,6 @@ describe('ScanResultConsumer', () => {
         body(event('NO_THREATS_FOUND', null, { key: secretKey, account: '111122223333' })),
         'WRONG_ACCOUNT',
       ],
-      [body(event('NEW_STATUS' as Status, null, { key: secretKey })), 'UNKNOWN_RESULT_STATUS'],
     ];
     for (const [b, why] of cases) {
       const m = message(b);
@@ -420,6 +429,34 @@ describe('ScanResultConsumer', () => {
     expect(docs.calls).toEqual([]);
     expect(lines()).not.toContain(secretKey);
     expect(lines()).not.toContain('tenant/');
+  });
+
+  it('keeps a GuardDuty result it cannot read, or an unknown status, so it dead-letters for a redrive', async () => {
+    const { queue, consumer, docs } = setUp();
+    const secretKey = docKey(firmA);
+    const e = event('NO_THREATS_FOUND', null, { key: secretKey });
+    const cases: [string, string][] = [
+      [body({ ...e, time: 'yesterday' }), 'UNREADABLE_SCAN_RESULT'],
+      [body(event('NEW_STATUS' as Status, null, { key: secretKey })), 'UNKNOWN_RESULT_STATUS'],
+    ];
+    for (const [b, why] of cases) {
+      const m = message(b);
+      expect(await consumer.handle(m)).toEqual({ outcome: 'REJECTED', deleted: false });
+      expect(logs.warn).toHaveBeenLastCalledWith(
+        `${SCAN_LOG_MARKERS.rejected} message ${m.messageId}: ${why}; kept for a redrive`,
+      );
+    }
+    // Kept at the queue's 120 s, not the early 20 s of a result with no record yet.
+    expect([queue.deleted, queue.retried]).toEqual([[], []]);
+    const last = message(cases[0]![0], SCAN_QUEUE_TIMING.maxReceiveCount);
+    expect(await consumer.handle(last)).toEqual({ outcome: 'REJECTED', deleted: false });
+    expect(logs.warn).toHaveBeenLastCalledWith(
+      expect.stringContaining(
+        `${SCAN_LOG_MARKERS.lastReceive} UNREADABLE_SCAN_RESULT, message ${last.messageId}`,
+      ),
+    );
+    expect(docs.calls).toEqual([]);
+    expect(lines()).not.toContain(secretKey);
   });
 
   it('never logs a key outside the prefixes, a body or a threat name', async () => {

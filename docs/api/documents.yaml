@@ -262,9 +262,11 @@ info:
         queue (`SCAN_RESULTS_QUEUE_URL`, set by the infra app stack; unset locally and in CI,
         where nothing is read; a production build with `SCAN_MODE=guardduty` refuses to start
         without it), one message at a time. It checks the event's source, detail-type, result
-        status, account, region and bucket (else `SCAN_REJECTED` in the log and the message
-        deleted) and routes by the key's prefix (`ScanResultRouter`): the firm comes from
-        `tenant/{businessId}/`, and only that firm's business scope is opened.
+        status, account, region and bucket (else `SCAN_REJECTED` in the log: a GuardDuty result
+        it cannot read, or an unknown status, is kept so it dead-letters and can be redriven once
+        the parser reads it; anything else is deleted). Reasons are read as codes whether they
+        come as strings or as `{ code }`. It routes by the key's prefix (`ScanResultRouter`): the
+        firm comes from `tenant/{businessId}/`, and only that firm's business scope is opened.
         `DocumentScanHandler` takes `documents` and calls `recordScanResult`. Every outcome but
         `UNKNOWN` (and an error, such as the database down) deletes the message; `PENDING` logs
         `SCAN_UNFINISHED` and a kept message on its 20th receive `SCAN_LAST_RECEIVE`, each an

@@ -40,7 +40,17 @@ const ScanEvent = z.looseObject({
     scanResultDetails: z.looseObject({
       // Checked against the five below after the shape, so a new status has its own reason.
       scanResultStatus: z.string().max(50),
-      statusReasons: z.array(z.string().max(100)).max(20).nullish(),
+      // AWS's samples show codes as strings (["PASSWORD_PROTECTED"]); its plan-status events use
+      // [{ code }]. Both are read, as codes, so a shape change never loses a reason.
+      statusReasons: z
+        .array(
+          z.union([
+            z.string().max(100),
+            z.looseObject({ code: z.string().max(100) }).transform((r) => r.code),
+          ]),
+        )
+        .max(20)
+        .nullish(),
     }),
   }),
 });
@@ -55,10 +65,16 @@ export interface ParsedScanEvent {
   versionId: string | null;
 }
 
-/** Why a queue message is not a result the API takes (SCAN_REJECTED, then deleted). */
+/**
+ * Why a queue message is not a result the API takes (SCAN_REJECTED). UNREADABLE_SCAN_RESULT (a
+ * GuardDuty scan result this parser cannot read) and UNKNOWN_RESULT_STATUS are kept, so they
+ * dead-letter and can be redriven once the parser reads them (GuardDuty has tagged the object, so
+ * a rescan loop that skips tagged objects would miss it); the others are deleted.
+ */
 export type ScanEventRejection =
   | 'NOT_JSON'
   | 'NOT_A_SCAN_RESULT'
+  | 'UNREADABLE_SCAN_RESULT'
   | 'UNKNOWN_RESULT_STATUS'
   | 'WRONG_ACCOUNT'
   | 'WRONG_REGION'
@@ -70,6 +86,12 @@ export interface ExpectedScanSource {
   region: string;
   bucket: string;
 }
+
+/** The rejections whose message is kept for a redrive (see ScanEventRejection). */
+export const KEPT_REJECTIONS: ReadonlySet<ScanEventRejection> = new Set([
+  'UNREADABLE_SCAN_RESULT',
+  'UNKNOWN_RESULT_STATUS',
+]);
 
 const isStatus = (s: string): s is ScanResult['status'] =>
   (SCAN_RESULT_STATUSES as readonly string[]).includes(s);
@@ -86,7 +108,12 @@ export function parseScanEvent(
     return { ok: false, why: 'NOT_JSON' };
   }
   const parsed = ScanEvent.safeParse(json);
-  if (!parsed.success) return { ok: false, why: 'NOT_A_SCAN_RESULT' };
+  if (!parsed.success) {
+    const head = typeof json === 'object' && json !== null ? (json as Record<string, unknown>) : {};
+    const scanResult =
+      head['source'] === 'aws.guardduty' && head['detail-type'] === SCAN_RESULT_DETAIL_TYPE;
+    return { ok: false, why: scanResult ? 'UNREADABLE_SCAN_RESULT' : 'NOT_A_SCAN_RESULT' };
+  }
   const e = parsed.data;
   const { s3ObjectDetails: object, scanResultDetails: result } = e.detail;
   const status = result.scanResultStatus;
