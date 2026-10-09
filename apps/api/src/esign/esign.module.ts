@@ -12,7 +12,7 @@ import {
   type EsignRepository,
   notMigrated,
 } from './requests/esign.repository.js';
-import { EsignStatusController } from './requests/requests.controller.js';
+import { EsignRequestsController, EsignStatusController } from './requests/requests.controller.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 
 /**
@@ -22,7 +22,7 @@ import { EsignRequestsService } from './requests/requests.service.js';
  */
 @Module({
   imports: [ModulesModule],
-  controllers: [EsignStatusController],
+  controllers: [EsignStatusController, EsignRequestsController],
   providers: [
     EsignRequestsService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },

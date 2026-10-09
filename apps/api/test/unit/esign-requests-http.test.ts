@@ -1,12 +1,10 @@
-// R13 step 6, requests API part 1, over HTTP: EsignModule's status route and the module switch
+// R13 step 6, requests API part 1, over HTTP: EsignModule's controllers, pipes and module switch
 // with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
 // role on the request, as the global guards do in the app; the guards themselves are tested in
 // guards.test.ts and the e2e suite. Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import {
-  Controller,
   ExecutionContext,
-  Get,
   Global,
   type INestApplication,
   Module,
@@ -17,15 +15,13 @@ import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EsignStatus } from '@firmivra/types';
+import { EsignRequestDetail, EsignStatus } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
 import {
   BUSINESS_MODULES,
   ModuleGuard,
-  ModulesModule,
   ModulesNotMigrated,
-  RequiresModule,
 } from '../../src/common/modules/requires-module.js';
 import { CODE_HASHER, ESIGN_STORE } from '../../src/esign/engine/engine.types.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
@@ -39,23 +35,10 @@ const w = esignWorld();
 @Module({ providers: [{ provide: AuditService, useValue: w.audit }], exports: [AuditService] })
 class FakeAuditModule {}
 
-/** A route behind the module switch, as the requests routes are (part 1b). */
-@Controller('probe')
-@RequiresModule('esign')
-class ProbeController {
-  @Get()
-  probe() {
-    return { ok: true };
-  }
-}
-
 let app: INestApplication;
 
 beforeAll(async () => {
-  const metadata: ModuleMetadata = {
-    imports: [EsignModule, FakeAuditModule, ModulesModule],
-    controllers: [ProbeController],
-  };
+  const metadata: ModuleMetadata = { imports: [EsignModule, FakeAuditModule] };
   const moduleRef = await Test.createTestingModule(metadata)
     .overrideProvider(ESIGN_REPOSITORY)
     .useValue(w.repo)
@@ -92,54 +75,99 @@ afterAll(async () => {
   await app.close();
 });
 
-type Caller = { user: string; firm: string; role: 'OWNER' | 'STAFF' | 'CLIENT' };
+type Caller = { user: string; firm: string; role: 'OWNER' | 'STAFF' };
 const ownerA = (): Caller => ({ user: w.users.ownerA, firm: w.a, role: 'OWNER' });
 const staffA2 = (): Caller => ({ user: w.users.staffA2, firm: w.a, role: 'STAFF' });
 const ownerB = (): Caller => ({ user: w.users.ownerB, firm: w.b, role: 'OWNER' });
-const clientA = (): Caller => ({ user: randomUUID(), firm: w.a, role: 'CLIENT' });
 
-function call(path: string, who: Caller) {
-  return request(app.getHttpServer())
-    .get(`/api/v1${path}`)
+function call(
+  method: 'get' | 'post' | 'patch' | 'put' | 'delete',
+  path: string,
+  who: Caller,
+  body?: object,
+) {
+  const req = request(app.getHttpServer())
+    [method](`/api/v1/esign${path}`)
     .set('x-test-user', who.user)
     .set('x-test-firm', who.firm)
     .set('x-test-role', who.role);
+  return body === undefined ? req : req.send(body);
 }
 const errorOf = (res: request.Response) => [
   res.status,
   (res.body as { error?: { code: string } }).error?.code,
 ];
 
-describe('Firm Sign over HTTP', () => {
-  it('answers status in every case: on with the role, off with none (never MODULE_OFF)', async () => {
-    const on = await call('/esign/status', ownerA());
+describe('Firm Sign routes over HTTP', () => {
+  it('answers status in every case, and MODULE_OFF (403) on every firm route when off', async () => {
+    const on = await call('get', '/status', ownerA());
     expect(EsignStatus.parse(on.body)).toEqual({ enabled: true, myEsignRole: 'OWNER' });
-    const staff = await call('/esign/status', staffA2());
-    expect(staff.body).toEqual({ enabled: true, myEsignRole: 'STAFF' });
+    const created = await call('post', '/requests', ownerA(), { title: 'Fake letter' });
+    expect(created.status).toBe(201);
+    const { id } = EsignRequestDetail.parse(created.body);
+
     w.modules.set(w.a, 'esign', false);
     try {
-      const off = await call('/esign/status', ownerA());
+      const off = await call('get', '/status', ownerA());
       expect([off.status, off.body]).toEqual([200, { enabled: false, myEsignRole: null }]);
-      // Firm B's switch is its own.
-      expect((await call('/esign/status', ownerB())).body).toEqual({
-        enabled: true,
-        myEsignRole: 'OWNER',
-      });
+      for (const res of [
+        await call('post', '/requests', ownerA(), { title: 'Fake letter' }),
+        await call('get', `/requests/${id}`, ownerA()),
+        await call('patch', `/requests/${id}`, ownerA(), { title: 'x' }),
+        await call('delete', `/requests/${id}`, ownerA()),
+        await call('put', `/requests/${id}/page-plan`, ownerA(), { pages: [] }),
+        await call('put', `/requests/${id}/recipients`, ownerA(), { recipients: [] }),
+      ]) {
+        expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
+      }
     } finally {
       w.modules.set(w.a, 'esign', true);
     }
   });
 
-  it('closes @RequiresModule routes when off: 403 MODULE_OFF for staff, 404 for clients', async () => {
-    expect((await call('/probe', ownerA())).status).toBe(200);
-    w.modules.set(w.a, 'esign', false);
-    try {
-      expect(errorOf(await call('/probe', ownerA()))).toEqual([403, 'MODULE_OFF']);
-      expect(errorOf(await call('/probe', clientA()))).toEqual([404, 'NOT_FOUND']);
-      expect((await call('/probe', ownerB())).status).toBe(200);
-    } finally {
-      w.modules.set(w.a, 'esign', true);
-    }
+  it('runs a draft through create, update, recipients and get, validating bodies with the contract', async () => {
+    const created = await call('post', '/requests', ownerA(), {
+      title: 'Form 8879',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+      engagementId: w.ids.e1,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const bad = await call('post', '/requests', ownerA(), { title: 'x', source: 'CLIENT_RECORD' });
+    expect(errorOf(bad)).toEqual([400, 'VALIDATION_FAILED']);
+    expect(errorOf(await call('get', '/requests/not-a-uuid', ownerA()))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+
+    const patched = await call('patch', `/requests/${id}`, ownerA(), { emailSubject: 'Sign me' });
+    expect([patched.status, patched.body.emailSubject]).toEqual([200, 'Sign me']);
+    const recipients = await call('put', `/requests/${id}/recipients`, ownerA(), {
+      recipients: [
+        {
+          role: 'CLIENT',
+          routingOrder: 1,
+          who: { type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary },
+          delivery: 'PORTAL',
+        },
+      ],
+    });
+    expect(recipients.status).toBe(200);
+    const detail = EsignRequestDetail.parse((await call('get', `/requests/${id}`, ownerA())).body);
+    expect(detail.recipients.map((r) => [r.kind, r.delivery, r.authMethod])).toEqual([
+      ['SIGNER', 'PORTAL', 'EMAIL_CODE'],
+    ]);
+    // The pipe refuses an empty page plan before the service runs.
+    const empty = await call('put', `/requests/${id}/page-plan`, ownerA(), { pages: [] });
+    expect(errorOf(empty)).toEqual([400, 'VALIDATION_FAILED']);
+
+    // Another firm, and Staff not assigned to the client: 404 as if it did not exist.
+    expect(errorOf(await call('get', `/requests/${id}`, ownerB()))).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await call('get', `/requests/${id}`, staffA2()))).toEqual([404, 'NOT_FOUND']);
+
+    const gone = await call('delete', `/requests/${id}`, ownerA());
+    expect([gone.status, gone.body]).toEqual([200, { ok: true }]);
+    expect(errorOf(await call('get', `/requests/${id}`, ownerA()))).toEqual([404, 'NOT_FOUND']);
   });
 });
 
