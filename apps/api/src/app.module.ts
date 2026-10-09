@@ -41,6 +41,7 @@ import { CheckoutModule } from './payments/checkout/checkout.controller.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
 import { RefundsModule } from './payments/refunds/refunds.controller.js';
 import { StripeWebhookModule } from './payments/webhooks/stripe-webhook.controller.js';
+import { EsignModule } from './esign/esign.module.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 
@@ -104,6 +105,7 @@ export class AppModule {
         CheckoutModule,
         StripeWebhookModule,
         RefundsModule,
+        EsignModule,
         StripeClientModule,
         PaymentsSetupModule,
         SignInModule,
