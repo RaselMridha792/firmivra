@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import { MOCK_IN_PERSON_REQUEST_ID } from '../../src/mocks/esign';
 import { MOCK_KIOSK_PASSWORD } from '../../src/mocks/esign-extras';
 
@@ -48,4 +48,36 @@ test('start with the in-person signer, hand over, then unlock with the password'
   await password.fill(MOCK_KIOSK_PASSWORD);
   await page.getByRole('button', { name: 'Unlock' }).click();
   await expect(page).toHaveURL(new RegExp(`/firm-sign/requests/${MOCK_IN_PERSON_REQUEST_ID}$`));
+});
+
+/** In-app navigation, without a reload (the mock's open kiosk lives in the page). */
+const navigate = (page: Page, path: string) =>
+  page.evaluate((to) => {
+    (window as unknown as { next: { router: { push: (href: string) => void } } }).next.router.push(
+      to,
+    );
+  }, path);
+
+test('while the kiosk is open, the staff member can only get back to it', async ({ page }) => {
+  await page.goto(app(`/firm-sign/in-person/${MOCK_IN_PERSON_REQUEST_ID}`));
+  await page.getByRole('button', { name: 'Start signing with Taylor Sample' }).click();
+  const handOver = page.getByRole('heading', { name: 'Hand this device to Taylor Sample' });
+  await expect(handOver).toBeVisible();
+  const kiosk = new RegExp(`/firm-sign/in-person/${MOCK_IN_PERSON_REQUEST_ID}$`);
+  const visited: string[] = [];
+  page.on(
+    'framenavigated',
+    (f) => f === page.mainFrame() && visited.push(new URL(f.url()).pathname),
+  );
+  // Where a locked session lands: it resumes the open kiosk.
+  await navigate(page, '/firm-sign/in-person');
+  await expect.poll(() => visited).toEqual(['/firm-sign/in-person', expect.stringMatching(kiosk)]);
+  await expect(handOver).toBeVisible();
+  // Another request's kiosk: never two at once, so back to this one.
+  visited.length = 0;
+  await navigate(page, `/firm-sign/in-person/${emailOnly}`);
+  await expect
+    .poll(() => visited)
+    .toEqual([`/firm-sign/in-person/${emailOnly}`, expect.stringMatching(kiosk)]);
+  await expect(handOver).toBeVisible();
 });

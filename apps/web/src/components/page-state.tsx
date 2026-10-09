@@ -59,12 +59,13 @@ export function PageState<T>({
   children,
 }: PageStateProps<T>) {
   if (query.isPending) return <Loading />;
+  // Locked even with data in the cache: no firm data shows while an in-person signing is open.
+  if (query.isError && code(query.error) === 'KIOSK_LOCKED') return <ToKiosk />;
 
   // No data yet and an error: show the error. (A failed background refetch keeps the data.)
   if (query.isError && query.data === undefined) {
     const errorCode = code(query.error);
     if (errorCode === 'BUSINESS_SETUP_REQUIRED') return <ToSetup />;
-    if (errorCode === 'KIOSK_LOCKED') return <ToKiosk />;
     if (errorCode === 'FORBIDDEN') {
       return (
         <Card data-testid="page-forbidden">

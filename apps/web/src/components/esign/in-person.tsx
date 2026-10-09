@@ -1,8 +1,10 @@
 'use client';
 
 import {
+  ApiRequestError,
   ESIGN_ERRORS,
   ESIGN_KIOSK_IDLE_MINUTES,
+  ESIGN_KIOSK_PASSWORD_TRIES,
   type EsignInPersonSession,
   type EsignRecipient,
   type EsignRequestDetail,
@@ -21,6 +23,11 @@ const STATE_KEY = ['esign', 'in-person'];
 /** How often an open kiosk asks whether it is still open (the server ends a kiosk left alone). */
 const CHECK_MS = 60_000;
 const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
+/** Start errors in staff words: ESIGN_ERRORS speaks to the signer. */
+const STAFF_START_ERRORS = {
+  ...ESIGN_ERRORS,
+  NOT_YOUR_TURN: "It isn't this signer's turn yet.",
+};
 
 /** The caller's open in-person session. Answers while the staff session is locked. */
 const useInPersonState = () => useApiQuery(STATE_KEY, () => api.esign.inPerson.state());
@@ -99,11 +106,19 @@ function Start({ requestId }: { requestId: string }) {
 
   function startWith(recipientId: string) {
     start.mutate(recipientId, {
-      onSuccess: (session) => queryClient.setQueryData(STATE_KEY, { session }),
+      onSuccess: (session) => {
+        // Nothing this tab read before the lock stays in memory while the device is handed over.
+        queryClient.clear();
+        queryClient.setQueryData(STATE_KEY, { session });
+      },
       onError: (err) => {
         // Another tab opened a kiosk meanwhile: show that one (its unlock form) instead.
         if (errorCode(err) === 'KIOSK_LOCKED') {
           void queryClient.invalidateQueries({ queryKey: STATE_KEY });
+        }
+        // The request moved on (a signer signed, it was voided): show its statuses now.
+        if (err instanceof ApiRequestError && err.status === 409) {
+          void queryClient.invalidateQueries({ queryKey: ['esign', 'requests', requestId] });
         }
       },
     });
@@ -147,7 +162,7 @@ function Start({ requestId }: { requestId: string }) {
               )}
               {start.error && (
                 <p role="alert" className="text-sm text-danger">
-                  {message(start.error)}
+                  {errorMessage(start.error, STAFF_START_ERRORS)}
                 </p>
               )}
               <div>
@@ -197,7 +212,7 @@ function Locked({ session }: { session: EsignInPersonSession }) {
         queryClient.clear();
         router.replace(`/firm-sign/requests/${session.requestId}`);
       },
-      // A wrong password is typed again from scratch. (After 5 the API signs the staff member
+      // A wrong password is typed again from scratch. (After ESIGN_KIOSK_PASSWORD_TRIES the API signs the staff member
       // out; the session layer opens the sign-in page on that 401.)
       onError: () => setPassword(''),
     });
@@ -213,7 +228,9 @@ function Locked({ session }: { session: EsignInPersonSession }) {
             minutes, you are signed out.
           </p>
           <div>
-            <Button onClick={() => window.open(session.signingUrl, '_blank', 'noopener')}>
+            <Button
+              onClick={() => window.open(session.signingUrl, '_blank', 'noopener,noreferrer')}
+            >
               Open the signing pages
             </Button>
           </div>
@@ -222,8 +239,8 @@ function Locked({ session }: { session: EsignInPersonSession }) {
       <Card title="Return to the staff view">
         <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
           <p className="text-sm text-text">
-            Only the staff member who started this signing can return. After 5 wrong passwords you
-            are signed out.
+            Only the staff member who started this signing can return. After{' '}
+            {ESIGN_KIOSK_PASSWORD_TRIES} wrong passwords you are signed out.
           </p>
           <Input
             label="Your password"
