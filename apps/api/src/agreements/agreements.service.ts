@@ -29,8 +29,8 @@ import { day, isUniqueViolation, memberNames, memberRef } from '../workspaces/co
 
 /**
  * AGREEMENT_PDF_REQUIRED: every version needs a CLEAN PDF original (Rasel's decision 3, Oct 8).
- * Off by default until the PDF upload routes are on main, since no firm can make a CLEAN file
- * before then; R14's PDF originals PR turns the default back to true. Empty counts as unset.
+ * Off by default until a firm can upload and scan a PDF on dev end to end (the agreement editor's
+ * upload and the scan); then the default goes back to true. Empty counts as unset.
  */
 export interface AgreementsConfig {
   pdfRequired: boolean;
@@ -508,8 +508,7 @@ export async function currentAgreements(
       bodySha256: v.bodySha256,
       acknowledgments: acknowledgmentsOf(v.acknowledgments),
       pdf: {
-        // No PDF download route yet: R14's PDF originals PR sets this from the file.
-        available: false,
+        available: v.pdfFile !== null,
         sha256: v.pdfFile?.sha256 ?? null,
         fileName: v.pdfFile?.fileName ?? null,
         sizeBytes: v.pdfFile?.sizeBytes ?? null,

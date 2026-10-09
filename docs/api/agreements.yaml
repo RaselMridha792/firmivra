@@ -45,7 +45,7 @@ info:
       new version is current from the moment it is published). `expectedCurrentVersion` guards against two people publishing
       at once (`409 VERSION_CONFLICT`). The firm-wide agreement needs at least one required
       acknowledgment and can't be archived (`409 FIRM_WIDE_REQUIRED`).
-    - **PDF original:** with `AGREEMENT_PDF_REQUIRED` on (off by default until the PDF upload routes land) each version needs a PDF whose
+    - **PDF original:** with `AGREEMENT_PDF_REQUIRED` on (off by default until uploads and scans work end to end on dev) each version needs a PDF whose
       scan is CLEAN (`409 PDF_REQUIRED`, `FILE_NOT_READY`, `FILE_BLOCKED`). `PDF_REQUIRED` is a
       publish code only: a submit never answers it (the signature sends nothing for the PDF; the
       API pins the version's `pdf_sha256`). `createUpload` takes `uploadFile()`'s facts with

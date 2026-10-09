@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { agreementsConfig } from '../../src/agreements/agreements.service.js';
 
 describe('agreementsConfig', () => {
-  it('leaves the PDF rule off when unset or empty, until the PDF routes land', () => {
+  it('leaves the PDF rule off when unset or empty, until uploads work end to end on dev', () => {
     expect(agreementsConfig({})).toEqual({ pdfRequired: false });
     expect(agreementsConfig({ AGREEMENT_PDF_REQUIRED: '' })).toEqual({ pdfRequired: false });
   });

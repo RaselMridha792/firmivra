@@ -404,8 +404,7 @@ describe('firm agreements', () => {
       scope: 'ALL_INTAKES',
       version: 2,
       title: 'Version 2',
-      // No PDF download route yet, so never offered; the hash is still signed.
-      pdf: { available: false, sha256: sha(4) },
+      pdf: { available: true, sha256: sha(4) },
     });
     expect(parsed.agreements.slice(1).map((a) => a.title)).toEqual(['Extra 1', 'Extra 2']);
     expect(JSON.stringify(res.body)).not.toContain(firms.a.files[3]);
