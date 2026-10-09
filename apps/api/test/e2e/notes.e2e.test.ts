@@ -418,7 +418,77 @@ describe('private notes', () => {
   });
 
   it("a client of firm A has no note at firm B's portal", async () => {
-    const res = await portal('get', '/notes', people.primary, undefined, ids.slugB);
-    expect([401, 404]).toContain(res.status);
+    // A session with no place at that firm is 404 (401 is only for a browser with no session).
+    for (const [method, path, body] of [
+      ['get', '/notes', undefined],
+      ['put', '/notes', { body: 'x' }],
+      ['put', '/notes/reminder', { remindAt: future(3) }],
+      ['delete', '/notes/reminder', {}],
+    ] as const) {
+      const res = await portal(method, path, people.primary, body, ids.slugB);
+      expect(res.status, `${method} ${path}`).toBe(404);
+    }
+  });
+
+  it('two saves at once leave one waiting reminder', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        portal('put', '/notes', people.other, { body: `Parallel ${i}`, remindAt: future(4) }),
+      ),
+    );
+    for (const res of results) expectOk(res);
+    const waiting = await asApp(people.other.id, (tx) =>
+      tx.clientNoteReminder.count({
+        where: { businessId: ids.firmA, userId: people.other.id, remindedAt: null },
+      }),
+    );
+    expect(waiting).toBe(1);
+  });
+
+  it('a save keeps a reminder that is due but not sent yet, for the job to send', async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      // As the login itself (only it may move its reminder), then the clock passes it.
+      const scope = {
+        kind: 'business',
+        businessId: ids.firmA,
+        actorUserId: people.other.id,
+      } as const;
+      await runInScope(owner, scope, (tx) =>
+        tx.clientNoteReminder.updateMany({
+          where: { businessId: ids.firmA, userId: people.other.id, remindedAt: null },
+          data: { remindAt: new Date(Date.now() - 1_000) },
+        }),
+      );
+    } finally {
+      await owner.$disconnect();
+    }
+    expectOk(await portal('put', '/notes', people.other, { body: 'After due' }));
+    const due = await asApp(people.other.id, (tx) =>
+      tx.clientNoteReminder.count({
+        where: { businessId: ids.firmA, userId: people.other.id, remindedAt: null },
+      }),
+    );
+    expect(due).toBe(1);
+  });
+
+  it('logs a reminder change only when something changed', async () => {
+    const changes = () =>
+      asApp(undefined, (tx) =>
+        tx.auditLog.count({
+          where: {
+            businessId: ids.firmA,
+            action: 'private_note.reminder_changed',
+            actorUserId: people.spouse.id,
+          },
+        }),
+      );
+    const before = await changes();
+    expectOk(await portal('delete', '/notes/reminder', people.spouse, {}));
+    expectOk(await portal('put', '/notes', people.spouse, { body: 'No reminder', remindAt: null }));
+    expect(await changes()).toBe(before);
+    expectOk(await portal('put', '/notes/reminder', people.spouse, { remindAt: future(2) }));
+    expectOk(await portal('delete', '/notes/reminder', people.spouse, {}));
+    expect(await changes()).toBe(before + 2);
   });
 });
