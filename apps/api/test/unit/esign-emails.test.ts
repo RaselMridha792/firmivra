@@ -34,12 +34,17 @@ const WORKSPACE = 'https://app.example.test/esign/requests/synthetic-id';
 const HOSTILE = '<script>alert(1)</script> "Q" & <img src=x onerror=y>';
 
 describe('Firm Sign emails', () => {
-  it('has the nine templates, all firm emails; only the code ignores preferences', () => {
+  it('has the nine templates, all firm emails; the code, request and expiry always go out', () => {
     expect(esign).toHaveLength(9);
     for (const t of esign) expect(TEMPLATE_CHANNEL[t]).toBe('email');
-    expect(esign.filter((t) => ALWAYS_SENT.has(t))).toEqual(['esign.code']);
-    expect(TEMPLATE_CATEGORY['esign.code']).toBe('ACCOUNT');
-    expect(TEMPLATE_CATEGORY['esign.request']).toBe('DOCUMENTS');
+    expect(esign.filter((t) => ALWAYS_SENT.has(t)).sort()).toEqual([
+      'esign.code',
+      'esign.expiring',
+      'esign.request',
+    ]);
+    for (const t of ['esign.code', 'esign.request', 'esign.expiring'] as const)
+      expect(TEMPLATE_CATEGORY[t]).toBe('ACCOUNT');
+    expect(TEMPLATE_CATEGORY['esign.reminder']).toBe('DOCUMENTS');
   });
 
   it('esign.request: sender, title, escaped message and the signing link', () => {
@@ -138,7 +143,6 @@ describe('Firm Sign emails', () => {
     ['SIGNED', 'Robin Example signed "2025 Form 8879".'],
     ['COMPLETED', 'Everyone has signed "2025 Form 8879".'],
     ['EXPIRED', '"2025 Form 8879" expired before everyone signed.'],
-    ['BOUNCED', 'The email asking Robin Example to sign "2025 Form 8879" could not be delivered.'],
   ] as const)('esign.staff-update %s reads as plain words', (event, words) => {
     const out = email('esign.staff-update', { ...SAMPLE_DATA['esign.staff-update'], event });
     expect(out.subject).toBe('Update on "2025 Form 8879"');
@@ -147,11 +151,20 @@ describe('Firm Sign emails', () => {
   });
 
   it('esign.staff-update covers every event and refuses an unknown one', () => {
-    expect(ESIGN_STAFF_EVENTS).toEqual(['VIEWED', 'SIGNED', 'COMPLETED', 'EXPIRED', 'BOUNCED']);
+    expect(ESIGN_STAFF_EVENTS).toEqual(['VIEWED', 'SIGNED', 'COMPLETED', 'EXPIRED']);
     const data = { ...SAMPLE_DATA['esign.staff-update'], signerName: null, event: 'VIEWED' };
     expect(email('esign.staff-update', data as never).text).toContain('A recipient opened');
     const bad = { ...data, event: 'DECLINED' };
     expect(() => email('esign.staff-update', bad as never)).toThrow(NotifyTemplateError);
+  });
+
+  it('esign.staff-update says who is next after a signature', () => {
+    const data = { ...SAMPLE_DATA['esign.staff-update'], waitingOn: ['Pat Partner', 'Lee Lane'] };
+    expect(email('esign.staff-update', data).text).toContain(
+      'Now waiting on Pat Partner, Lee Lane.',
+    );
+    const viewed = { ...data, event: 'VIEWED' as const };
+    expect(email('esign.staff-update', viewed).text).not.toContain('Now waiting on');
   });
 
   it.each(esign)('%s escapes a hostile title and names in the HTML', (t) => {
@@ -175,6 +188,15 @@ describe('Firm Sign emails', () => {
     if (!key) return;
     const bad = { ...data, [key]: 'https://evil.example.org/sign#t=x' };
     expect(() => email(t, bad as never)).toThrow(NotifyTemplateError);
+  });
+
+  it('esign.completed refuses a portal link to another site', () => {
+    const data = {
+      name: 'Robin Example',
+      title: '2025 Form 8879',
+      portalLink: 'https://evil.example.org/x',
+    };
+    expect(() => email('esign.completed', data)).toThrow(NotifyTemplateError);
   });
 
   it('refuses a missing title', () => {

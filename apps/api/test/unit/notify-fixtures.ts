@@ -104,4 +104,18 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
     signerName: 'Robin Example',
     link: workspaceLink,
   },
+  'begin-online.resume-link': {
+    link: 'https://portal.example.test/sample/begin/resume#token=synthetic-token',
+    expiresAt: new Date('2026-10-30T13:00:00Z'),
+  },
+  'lead.confirmation': { serviceName: 'Annual Tax' },
+  'lead.received': { serviceName: 'Annual Tax', link: 'https://app.example.test/leads/1' },
+  'client.portal-invite': {
+    name: 'Robin Example',
+    signUpLink: 'https://portal.example.test/sample/sign-up',
+  },
+  'message.received': {
+    name: 'Robin Example',
+    link: 'https://portal.example.test/sample/messages',
+  },
 };

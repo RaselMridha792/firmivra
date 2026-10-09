@@ -1,10 +1,10 @@
-import type { NotificationCategory } from '@firmivra/types';
+import type { EsignEventType, NotificationCategory } from '@firmivra/types';
 
 /**
  * NotifyService (R6): the one way the API sends email and SMS. Every stream calls
  * `notify.send({ template, to, businessId, data })`; R6 renders the template with the firm's
  * branding and hands it to SES (Mailpit locally) or SNS (the API log until the number is
- * registered). Notification preferences apply once step 5 lands.
+ * registered). The recipient's notification preferences apply (step 5).
  *
  * What may go into `data` (CLAUDE.md hard rule 4, SYSTEM-DESIGN "Messaging"): names, the firm's
  * name, dates, titles and links. Never a password, a full SSN or EIN, a bank number, an amount,
@@ -42,6 +42,21 @@ export interface NotifyTemplates {
   /** The firm declined it. No reason goes to the client (Rasel, q18). */
   'client.signup-declined': IgnoredFirmName & { name: string };
 
+  // ----- Begin Online, leads and messages (R11) -----
+  /**
+   * The visitor's link back to their Begin Online draft (`{PORTAL_BASE_URL}/{slug}/begin/resume
+   * #token=...`). Nothing the visitor typed goes in: the address is not verified.
+   */
+  'begin-online.resume-link': IgnoredFirmName & { link: string; expiresAt: Date };
+  /** To the visitor after they send a request. Fixed text and the firm's own service name only. */
+  'lead.confirmation': IgnoredFirmName & { serviceName: string };
+  /** To the firm's owner and admins: a new Begin Online request. No answers and no names. */
+  'lead.received': IgnoredFirmName & { serviceName: string; link: string };
+  /** The firm converted the lead: an invitation to sign up on the client portal. */
+  'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
+  /** A new message in a thread. Never the message text: the reader opens the link. */
+  'message.received': IgnoredFirmName & { name: string; link: string };
+
   // ----- Firm applications (R4; Firmivra's own messages, businessId null) -----
   /**
    * No data: the address is not verified yet, so nothing the applicant typed goes into this email
@@ -74,7 +89,8 @@ export interface NotifyTemplates {
   'invoice.sent': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
   'payment.received': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
 
-  // ----- Firm Sign (R13; titles, names, dates and links only: no field value, no reason) -----
+  // ----- Firm Sign (R13): titles, names, dates, links and the sender's own note on a request;
+  // never a field value, document content or a decline or void reason -----
   /**
    * Asks a recipient to sign. `link` is `{PORTAL_BASE_URL}/{slug}/sign#t=<token>`: it carries the
    * token, so never log it. `message` is the sender's own note (capped at 1000 characters).
@@ -97,10 +113,14 @@ export interface NotifyTemplates {
   'esign.voided': EsignNamed;
   /** To an internal approver. `link`: the request in the workspace. */
   'esign.approval-requested': EsignNamed & { senderName: string; link: string };
-  /** To the sender: what happened. `signerName` for VIEWED, SIGNED and BOUNCED. */
+  /**
+   * To the sender: what happened. `signerName` for VIEWED and SIGNED; `waitingOn` (SIGNED only)
+   * names the signers whose turn it is now ("Waiting on Another Signer", spec section 23).
+   */
   'esign.staff-update': EsignNamed & {
     event: EsignStaffEvent;
     signerName?: string | null;
+    waitingOn?: string[] | null;
     link: string;
   };
 }
@@ -117,7 +137,13 @@ export interface EsignRecipientData extends EsignNamed {
   link: string;
 }
 
-export const ESIGN_STAFF_EVENTS = ['VIEWED', 'SIGNED', 'COMPLETED', 'EXPIRED', 'BOUNCED'] as const;
+/** The timeline events a sender is told about (declined has its own template). */
+export const ESIGN_STAFF_EVENTS = [
+  'VIEWED',
+  'SIGNED',
+  'COMPLETED',
+  'EXPIRED',
+] as const satisfies readonly EsignEventType[];
 export type EsignStaffEvent = (typeof ESIGN_STAFF_EVENTS)[number];
 
 export interface AppointmentData extends IgnoredFirmName {
@@ -160,6 +186,11 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'esign.voided': 'email',
   'esign.approval-requested': 'email',
   'esign.staff-update': 'email',
+  'begin-online.resume-link': 'email',
+  'lead.confirmation': 'email',
+  'lead.received': 'email',
+  'client.portal-invite': 'email',
+  'message.received': 'email',
 };
 
 /**
@@ -195,6 +226,11 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'esign.voided': 'firm',
   'esign.approval-requested': 'firm',
   'esign.staff-update': 'firm',
+  'begin-online.resume-link': 'firm',
+  'lead.confirmation': 'firm',
+  'lead.received': 'firm',
+  'client.portal-invite': 'firm',
+  'message.received': 'firm',
 };
 
 /**
@@ -212,7 +248,15 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'firm-application.info-requested',
   'firm-application.approved',
   'firm-application.declined',
+  // Firm Sign: the code, a request to sign and its expiry warning are part of a transaction the
+  // recipient is in the middle of; reminders and the rest follow preferences.
   'esign.code',
+  'esign.request',
+  'esign.expiring',
+  // A Begin Online visitor has no account, so no preferences; an invitation is a decision.
+  'begin-online.resume-link',
+  'lead.confirmation',
+  'client.portal-invite',
 ]);
 
 /**
@@ -236,16 +280,21 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.reminder': 'APPOINTMENTS',
   'invoice.sent': 'BILLING',
   'payment.received': 'BILLING',
-  // No e-sign category yet: Firm Sign notices are document notices; the code is part of signing in.
-  'esign.request': 'DOCUMENTS',
+  // No e-sign category yet: Firm Sign notices are document notices, except the always-sent ones.
+  'esign.request': 'ACCOUNT',
   'esign.code': 'ACCOUNT',
   'esign.reminder': 'DOCUMENTS',
-  'esign.expiring': 'DOCUMENTS',
+  'esign.expiring': 'ACCOUNT',
   'esign.completed': 'DOCUMENTS',
   'esign.declined': 'DOCUMENTS',
   'esign.voided': 'DOCUMENTS',
   'esign.approval-requested': 'DOCUMENTS',
   'esign.staff-update': 'DOCUMENTS',
+  'begin-online.resume-link': 'ACCOUNT',
+  'lead.confirmation': 'ACCOUNT',
+  'lead.received': 'INTAKE',
+  'client.portal-invite': 'ACCOUNT',
+  'message.received': 'MESSAGES',
 };
 
 export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
@@ -259,8 +308,9 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
    */
   businessId: string | null;
   /**
-   * Who it is for, when they have an account: their notification preferences apply (except for
-   * ALWAYS_SENT templates) once R6 step 5 lands; pass it already.
+   * Who it is for, when they have an account: the message is skipped (resolves, nothing sent)
+   * when they switched its category (TEMPLATE_CATEGORY) off on its channel. ALWAYS_SENT templates
+   * and ACCOUNT notices ignore preferences. Without it, nothing is skipped.
    */
   recipient?: { userId: string } | { clientAccountId: string };
   /** For example Firmivra support, for an information request. */
