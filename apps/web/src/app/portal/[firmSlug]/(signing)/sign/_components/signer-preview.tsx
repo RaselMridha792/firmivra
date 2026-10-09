@@ -3,7 +3,7 @@
 import { Button } from '@firmivra/ui';
 import { useMemo, useState } from 'react';
 import { PdfPages } from '../../../../../../components/esign/pdf-pages';
-import { samplePdf } from '../../../../../../components/esign/sample-pdf';
+import { samplePdf, scannedSamplePdf } from '../../../../../../components/esign/sample-pdf';
 import { SignaturePad } from '../../../../../../components/esign/signature-pad';
 
 /**
@@ -16,6 +16,7 @@ export function SignerPreview() {
     () => [
       { label: 'Sample engagement letter', pdf: samplePdf(3) },
       { label: 'Sample tax organizer', pdf: samplePdf(2, 'Sample tax organizer') },
+      { label: 'Sample scanned form', pdf: scannedSamplePdf() },
     ],
     [],
   );
