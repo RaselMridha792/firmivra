@@ -188,7 +188,8 @@ describe('intake versions', () => {
   const version = (intakeId: string, v: number, data: object = {}) =>
     firmA().intakeSubmission.create({ data: { ...A(), intakeId, version: v, ...data } });
 
-  it('one draft at a time; submitting locks it; versions follow in order', async () => {
+  // Signing, submitting and the lock after submit: agreements.test.ts.
+  it('one draft at a time; submitting needs the signature evidence', async () => {
     const i = await newIntake();
     const v1 = await version(i.id, 1);
     await expect(version(i.id, 2)).rejects.toThrow(/one draft at a time/);
@@ -196,17 +197,12 @@ describe('intake versions', () => {
       where: { id: v1.id },
       data: { answers: { fullName: 'Autosaved' } },
     });
-    await firmA().intakeSubmission.update({
-      where: { id: v1.id },
-      data: { submittedAt: new Date() },
-    });
-    for (const data of [{ answers: { fullName: 'Changed' } }, { submittedAt: null }]) {
-      await expect(firmA().intakeSubmission.update({ where: { id: v1.id }, data })).rejects.toThrow(
-        /locked/,
-      );
-    }
-    await expect(version(i.id, 3)).rejects.toThrow(/next version must be 2/);
-    await expect(version(i.id, 2)).resolves.toMatchObject({ version: 2 });
+    await expect(
+      firmA().intakeSubmission.update({
+        where: { id: v1.id },
+        data: { submittedAt: new Date(), signerName: 'Lena Lead', signedAt: new Date() },
+      }),
+    ).rejects.toThrow(/needs the signature/);
   });
 
   it('a signature is a name and a time; IP and browser only with a signature', async () => {
@@ -222,7 +218,7 @@ describe('intake versions', () => {
         signerIp: '203.0.113.5',
         submittedAt: new Date(),
       }),
-    ).resolves.toMatchObject({ signerIp: '203.0.113.5' });
+    ).rejects.toThrow(/starts as a draft/);
   });
 });
 
