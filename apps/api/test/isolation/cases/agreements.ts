@@ -80,6 +80,11 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
+  'POST /api/v1/business/agreements': {
+    params: {},
+    body: { scope: 'SERVICE' },
+    bodyIds: { serviceId: 'service' },
+  },
   'GET /api/v1/business/agreements/:agreementId': { params: { agreementId: 'agreement' } },
   'GET /api/v1/business/agreements/:agreementId/versions/:version': {
     params: { agreementId: 'agreement' },
