@@ -29,7 +29,7 @@ import { type EsignActor, EsignRequestsService } from './requests.service.js';
 const idPipe = new ZodValidationPipe(EsignRequestId);
 
 /** The firm comes from TenantGuard; firm roles only (see @Roles). */
-function actorOf(auth: AuthContext, tenant: TenantContext): EsignActor {
+export function actorOf(auth: AuthContext, tenant: TenantContext): EsignActor {
   if (tenant.kind !== 'staff') throw new NotFoundException({ code: 'NOT_FOUND' });
   return { userId: auth.userId, role: tenant.role };
 }

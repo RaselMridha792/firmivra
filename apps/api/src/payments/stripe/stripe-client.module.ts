@@ -1,8 +1,13 @@
 import { Global, Logger, Module } from '@nestjs/common';
-import { loadStripeConfig } from './config.js';
+import { loadStripeConfig, loadWebhookSecret } from './config.js';
 import { FakeStripeGateway } from './fake-stripe.js';
 import { StripeAccountsWriter } from './stripe-accounts.js';
-import { createStripeGateway, STRIPE_GATEWAY, type StripeGateway } from './stripe-gateway.js';
+import {
+  createStripeGateway,
+  STRIPE_GATEWAY,
+  STRIPE_WEBHOOK_SECRET,
+  type StripeGateway,
+} from './stripe-gateway.js';
 
 /**
  * Provides STRIPE_GATEWAY everywhere: the real Stripe with STRIPE_SECRET_KEY, the fake with
@@ -29,8 +34,9 @@ import { createStripeGateway, STRIPE_GATEWAY, type StripeGateway } from './strip
         return null;
       },
     },
+    { provide: STRIPE_WEBHOOK_SECRET, useFactory: () => loadWebhookSecret() },
     StripeAccountsWriter,
   ],
-  exports: [STRIPE_GATEWAY, StripeAccountsWriter],
+  exports: [STRIPE_GATEWAY, STRIPE_WEBHOOK_SECRET, StripeAccountsWriter],
 })
 export class StripeClientModule {}
