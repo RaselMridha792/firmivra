@@ -1,12 +1,23 @@
 'use client';
 
 import { FIRM_PLANS, type FirmStatusFilter } from '@firmivra/types';
-import { Button, Card, Input } from '@firmivra/ui';
-import { Building2, CircleCheck, Clock3, Search, UsersRound } from 'lucide-react';
+import { Button, Card } from '@firmivra/ui';
+import { Building2, Clock3, Search, UsersRound, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import {
+  cellClass,
+  EmailText,
+  emailCellClass,
+  firstCellClass,
+  formatPhone,
+  ListPager,
+  ListTable,
+  SearchBox,
+  StatCard,
+} from '../../_components/list-parts';
 
 const tabs: {
   value: FirmStatusFilter | undefined;
@@ -27,36 +38,8 @@ const dateText = (value: string) =>
     new Date(value),
   );
 
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: number;
-  icon: typeof Building2;
-  tone: 'blue' | 'green' | 'amber' | 'violet';
-}) {
-  const tones = {
-    blue: 'bg-info-soft text-info',
-    green: 'bg-success-soft text-success',
-    amber: 'bg-warning-soft text-warning',
-    violet: 'bg-accent-soft text-accent',
-  };
-  return (
-    <Card className="flex min-h-28 items-center gap-4 p-4 shadow-sm sm:p-5">
-      <span
-        className={`flex size-14 shrink-0 items-center justify-center rounded-2xl ${tones[tone]}`}
-      >
-        <Icon aria-hidden className="size-7" />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-2xl font-bold tracking-tight text-heading">{value}</span>
-        <span className="mt-1 block text-sm text-muted">{label}</span>
-      </span>
-    </Card>
-  );
+function ApprovedDate({ value }: { value: string | null }) {
+  return value ? <time dateTime={value}>{dateText(value)}</time> : <>—</>;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -65,10 +48,10 @@ function StatusBadge({ status }: { status: string }) {
       ? 'bg-success-soft text-success'
       : status === 'PENDING_SETUP'
         ? 'bg-warning-soft text-warning'
-        : 'bg-subtle text-muted';
+        : 'bg-danger-soft text-danger';
   return (
     <span
-      className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${tone}`}
+      className={`inline-flex whitespace-nowrap rounded-pill px-3 py-1 text-sm font-medium ${tone}`}
     >
       {statusText(status)}
     </span>
@@ -100,27 +83,57 @@ export function FirmsList() {
     setPage(1);
   }
 
+  function show(value: FirmStatusFilter | undefined) {
+    setStatus(value);
+    setPage(1);
+  }
+
   return (
-    <div className="flex w-full flex-col gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+    <div className="flex w-full flex-col gap-5">
+      <header className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
         <div>
-          <p className="text-sm font-semibold text-link">Super Admin Portal</p>
           <h1
             data-testid="page-title"
-            className="mt-1 font-serif text-4xl font-bold tracking-tight text-heading"
+            className="font-display text-4xl font-bold tracking-tight text-heading md:text-5xl"
           >
             Firms
           </h1>
-          <p className="mt-2 text-base text-muted">
-            Manage businesses and see their current platform status.
+          <p className="mt-1 text-lg text-muted">
+            Manage approved firms and their access to the platform.
           </p>
         </div>
+        <form onSubmit={searchFirms} className="flex flex-col gap-3 sm:flex-row 2xl:mt-2">
+          <SearchBox
+            label="Search firms"
+            className="sm:w-96"
+            placeholder="Search firms by name, owner, or email..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <Button type="submit" className="gap-2">
+            <Search aria-hidden className="size-4" /> Search
+          </Button>
+          {search || appliedSearch ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setSearch('');
+                setAppliedSearch('');
+                setPage(1);
+              }}
+            >
+              Clear
+            </Button>
+          ) : null}
+        </form>
       </header>
 
       <PageState query={query}>
         {(data) => {
           const first = data.total ? (page - 1) * data.pageSize + 1 : 0;
           const last = Math.min(page * data.pageSize, data.total);
+          const pageCount = Math.max(1, Math.ceil(data.total / data.pageSize));
           return (
             <>
               <section
@@ -128,111 +141,80 @@ export function FirmsList() {
                 className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
               >
                 <StatCard
-                  label="Total Firms"
-                  value={data.counts.total}
-                  icon={Building2}
-                  tone="blue"
-                />
-                <StatCard
                   label="Active Firms"
                   value={data.counts.active}
-                  icon={CircleCheck}
-                  tone="green"
+                  icon={Building2}
+                  tone="success"
+                  action={{ label: 'View Firms', onClick: () => show('ACTIVE') }}
                 />
                 <StatCard
                   label="Pending Setup"
                   value={data.counts.pendingSetup}
                   icon={Clock3}
-                  tone="amber"
+                  tone="warning"
+                  action={{ label: 'View Pending', onClick: () => show('PENDING_SETUP') }}
                 />
                 <StatCard
                   label="Inactive Firms"
                   value={data.counts.inactive}
+                  icon={X}
+                  tone="danger"
+                  action={{ label: 'View Inactive', onClick: () => show('INACTIVE') }}
+                />
+                <StatCard
+                  label="Total Firms"
+                  value={data.counts.total}
                   icon={UsersRound}
-                  tone="violet"
+                  tone="purple"
+                  action={{ label: 'View All', onClick: () => show(undefined) }}
                 />
               </section>
 
-              <Card className="overflow-hidden p-0 shadow-sm">
-                <div className="border-b border-border px-5 pt-2 sm:px-6">
-                  <div
-                    role="tablist"
-                    aria-label="Filter firms by status"
-                    className="flex gap-5 overflow-x-auto"
-                  >
-                    {tabs.map((tab) => {
-                      const selected = status === tab.value;
-                      return (
-                        <button
-                          key={tab.label}
-                          type="button"
-                          role="tab"
-                          aria-selected={selected}
-                          onClick={() => {
-                            setStatus(tab.value);
-                            setPage(1);
-                          }}
-                          className={`-mb-px min-h-12 shrink-0 border-b-2 px-1 text-sm font-semibold transition-colors ${selected ? 'border-action text-action' : 'border-transparent text-muted hover:text-heading'}`}
-                        >
-                          {tab.label} <span className="ml-1">({data.counts[tab.count]})</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <form
-                  onSubmit={searchFirms}
-                  className="flex flex-wrap items-end gap-3 border-b border-border p-4 sm:p-5"
-                >
-                  <div className="min-w-56 flex-1">
-                    <Input
-                      label="Search firms"
-                      type="search"
-                      placeholder="Business name, owner, or email"
-                      maxLength={100}
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                    />
-                  </div>
-                  <Button type="submit" className="gap-2">
-                    <Search aria-hidden className="size-4" /> Search
-                  </Button>
-                  {search || appliedSearch ? (
-                    <Button
+              <div
+                role="tablist"
+                aria-label="Filter firms by status"
+                className="flex gap-6 overflow-x-auto border-b border-border"
+              >
+                {tabs.map((tab) => {
+                  const selected = status === tab.value;
+                  return (
+                    <button
+                      key={tab.label}
                       type="button"
-                      variant="secondary"
-                      onClick={() => {
-                        setSearch('');
-                        setAppliedSearch('');
-                        setPage(1);
-                      }}
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => show(tab.value)}
+                      className={`-mb-px shrink-0 border-b-2 px-1 py-3 text-sm ${selected ? 'border-action font-semibold text-action' : 'border-transparent text-muted hover:text-heading'}`}
                     >
-                      Clear
-                    </Button>
-                  ) : null}
-                </form>
+                      {tab.label} ({data.counts[tab.count]})
+                    </button>
+                  );
+                })}
+              </div>
 
-                {data.items.length ? (
-                  <>
+              {data.items.length ? (
+                <>
+                  <Card variant="elevated" className="overflow-hidden !p-0">
                     <ul data-testid="firm-list" className="divide-y divide-border sm:hidden">
                       {data.items.map((firm) => (
                         <li key={firm.id} data-testid="firm-row" className="space-y-3 p-4">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="font-semibold text-heading">{firm.name}</p>
-                              <p className="mt-1 break-all text-xs text-muted">{firm.slug}</p>
-                            </div>
+                            <p className="min-w-0 font-semibold text-heading">{firm.name}</p>
                             <StatusBadge status={firm.status} />
                           </div>
                           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border pt-3 text-sm">
-                            <div>
-                              <dt className="text-xs text-muted">Owner / Contact</dt>
+                            <div className="col-span-2">
+                              <dt className="text-xs text-muted">Owner / Primary Contact</dt>
                               <dd className="mt-1 break-words font-medium text-text">
                                 {firm.owner?.name ?? 'Not assigned'}
                                 {firm.owner?.email ? (
-                                  <span className="block break-all font-normal text-muted">
-                                    {firm.owner.email}
+                                  <span className="block font-normal text-muted wrap-anywhere">
+                                    <EmailText value={firm.owner.email} />
+                                  </span>
+                                ) : null}
+                                {firm.owner?.phone ? (
+                                  <span className="block font-normal text-muted">
+                                    {formatPhone(firm.owner.phone)}
                                   </span>
                                 ) : null}
                               </dd>
@@ -240,103 +222,82 @@ export function FirmsList() {
                             <div>
                               <dt className="text-xs text-muted">Plan</dt>
                               <dd className="mt-1 text-text">
-                                {firm.plan ? FIRM_PLANS[firm.plan] : 'No plan'}
+                                {firm.plan ? FIRM_PLANS[firm.plan] : '—'}
                               </dd>
                             </div>
-                            <div className="col-span-2">
-                              <dt className="text-xs text-muted">Created</dt>
+                            <div>
+                              <dt className="text-xs text-muted">Date Approved</dt>
                               <dd className="mt-1 text-text">
-                                <time dateTime={firm.createdAt}>{dateText(firm.createdAt)}</time>
+                                <ApprovedDate value={firm.approvedAt} />
                               </dd>
                             </div>
                           </dl>
                         </li>
                       ))}
                     </ul>
-                    <div className="hidden overflow-x-auto sm:block">
-                      <table className="w-full min-w-4xl border-collapse text-left">
-                        <thead className="bg-canvas text-sm text-heading">
-                          <tr>
-                            <th scope="col" className="px-5 py-4 font-semibold">
-                              Business Name
+                    <div className="hidden sm:block">
+                      <ListTable
+                        head={[
+                          { label: '#', center: true },
+                          { label: 'Business Name' },
+                          { label: 'Owner / Primary Contact' },
+                          { label: 'Email' },
+                          { label: 'Plan' },
+                          { label: 'Status' },
+                          { label: 'Date Approved' },
+                        ]}
+                      >
+                        {data.items.map((firm, index) => (
+                          <tr key={firm.id} className="hover:bg-subtle">
+                            <td className={firstCellClass}>{first + index}</td>
+                            <th
+                              scope="row"
+                              className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
+                            >
+                              {firm.name}
                             </th>
-                            <th scope="col" className="px-5 py-4 font-semibold">
-                              Owner / Contact
-                            </th>
-                            <th scope="col" className="px-5 py-4 font-semibold">
-                              Plan
-                            </th>
-                            <th scope="col" className="px-5 py-4 font-semibold">
-                              Created
-                            </th>
-                            <th scope="col" className="px-5 py-4 font-semibold">
-                              Status
-                            </th>
+                            <td className={`${cellClass} break-words`}>
+                              {firm.owner?.name ?? 'Not assigned'}
+                              {firm.owner?.phone ? (
+                                <span className="block whitespace-nowrap text-muted">
+                                  {formatPhone(firm.owner.phone)}
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className={`${cellClass} ${emailCellClass}`}>
+                              {firm.owner?.email ? <EmailText value={firm.owner.email} /> : '—'}
+                            </td>
+                            <td className={cellClass}>{firm.plan ? FIRM_PLANS[firm.plan] : '—'}</td>
+                            <td className={cellClass}>
+                              <StatusBadge status={firm.status} />
+                            </td>
+                            <td className={`${cellClass} whitespace-nowrap`}>
+                              <ApprovedDate value={firm.approvedAt} />
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          {data.items.map((firm) => (
-                            <tr key={firm.id} className="transition-colors hover:bg-canvas/70">
-                              <td className="px-5 py-4">
-                                <p className="font-semibold text-heading">{firm.name}</p>
-                                <p className="mt-1 text-sm text-muted">{firm.slug}</p>
-                              </td>
-                              <td className="px-5 py-4">
-                                <p className="text-sm font-medium text-text">
-                                  {firm.owner?.name ?? 'Not assigned'}
-                                </p>
-                                {firm.owner?.email ? (
-                                  <p className="mt-1 text-sm text-muted">{firm.owner.email}</p>
-                                ) : null}
-                              </td>
-                              <td className="px-5 py-4 text-sm text-text">
-                                {firm.plan ? FIRM_PLANS[firm.plan] : 'No plan'}
-                              </td>
-                              <td className="px-5 py-4 text-sm text-text">
-                                <time dateTime={firm.createdAt}>{dateText(firm.createdAt)}</time>
-                              </td>
-                              <td className="px-5 py-4">
-                                <StatusBadge status={firm.status} />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                        ))}
+                      </ListTable>
                     </div>
-                    <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-4 sm:px-6">
-                      <p aria-live="polite" className="text-sm text-muted">
-                        Showing {first}–{last} of {data.total} firms
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="secondary"
-                          aria-label="Previous firms page"
-                          disabled={page === 1}
-                          onClick={() => setPage((value) => value - 1)}
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          aria-label="Next firms page"
-                          disabled={last >= data.total}
-                          onClick={() => setPage((value) => value + 1)}
-                        >
-                          Next
-                        </Button>
-                      </div>
-                    </footer>
-                  </>
-                ) : (
-                  <div data-testid="firms-empty" className="p-10 text-center">
-                    <Building2 aria-hidden className="mx-auto size-9 text-muted" />
-                    <p className="mt-3 font-semibold text-heading">No firms found</p>
-                    <p className="mt-1 text-sm text-muted">
-                      Try a different search or status filter.
-                    </p>
-                  </div>
-                )}
-              </Card>
+                  </Card>
+                  <ListPager
+                    noun="firms"
+                    first={first}
+                    last={last}
+                    total={data.total}
+                    page={page}
+                    pageCount={pageCount}
+                    onPage={setPage}
+                  />
+                </>
+              ) : (
+                <Card variant="elevated" data-testid="firms-empty" className="!p-10 text-center">
+                  <Building2 aria-hidden className="mx-auto size-9 text-muted" />
+                  <p className="mt-3 font-semibold text-heading">No firms found</p>
+                  <p className="mt-1 text-sm text-muted">
+                    Try a different search or status filter.
+                  </p>
+                </Card>
+              )}
             </>
           );
         }}

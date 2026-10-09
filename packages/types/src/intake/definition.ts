@@ -61,38 +61,64 @@ export const INTAKE_LIMITS = {
   maxFilesPerSlot: 20,
   /** The most files in one draft or intake, every file counted. */
   maxFiles: 50,
+  /**
+   * The most fields in one form, a group's own fields counted too (the largest built-in form,
+   * Bookkeeping, has 95 at the top level and 102 in all).
+   */
+  maxFields: 200,
+  /** The longest label, title, placeholder or button text (built-in: 246 characters). */
+  maxLabel: 300,
+  /** The longest help, subtitle, info text or option help (built-in: 285). */
+  maxHelp: 500,
+  /** The longest option label, card tag, card bullet or upload example (built-in: 66). */
+  maxOptionLabel: 200,
+  /** The most options of one choice field (built-in: 23), as many as an answer can tick. */
+  maxOptions: 100,
+  /** The most bullets on a card or examples next to a drop zone (built-in: 13). */
+  maxBullets: 30,
 } as const;
+
+/** A label, title, placeholder or button text. */
+const Label = z.string().max(INTAKE_LIMITS.maxLabel);
+/** A help line, subtitle or text to read. */
+const Help = z.string().max(INTAKE_LIMITS.maxHelp);
+/** An option's label, a card's tag or bullet, an upload example. */
+const OptionText = z.string().max(INTAKE_LIMITS.maxOptionLabel);
 
 export const IntakeOption = z.object({
   value: IntakeOptionValue,
-  label: z.string(),
+  label: OptionText,
   /** A line under the label: a card's description, a payment option's terms. */
-  help: z.string().optional(),
+  help: Help.optional(),
   /** Bullet points on a card (the bookkeeping packages). */
-  details: z.array(z.string()).optional(),
+  details: z.array(OptionText).max(INTAKE_LIMITS.maxBullets).optional(),
   /** A tag on a card, e.g. "Most Popular". */
-  badge: z.string().optional(),
+  badge: OptionText.optional(),
 });
 export type IntakeOption = z.infer<typeof IntakeOption>;
 
+/** The codes a condition lists: at least one, at most as many as a field has options. */
+const ConditionCodes = z.array(IntakeOptionValue).min(1).max(INTAKE_LIMITS.maxOptions);
+
 /**
  * Shown only while an earlier field (in the form, or in the same group row) has this answer:
- * `equals` a yes/no, checkbox or single choice; `oneOf` single-choice codes; `includesAny` of the
- * codes ticked in a multiple choice. A field that is itself hidden has no answer.
+ * `equals` a yes/no, checkbox or single choice (an option's code or a state code); `oneOf`
+ * single-choice codes; `includesAny` of the codes ticked in a multiple choice. A field that is
+ * itself hidden has no answer.
  */
 export const IntakeCondition = z.union([
-  z.object({ field: IntakeKey, equals: z.union([z.string(), z.boolean()]) }),
-  z.object({ field: IntakeKey, oneOf: z.array(IntakeOptionValue).min(1) }),
-  z.object({ field: IntakeKey, includesAny: z.array(IntakeOptionValue).min(1) }),
+  z.object({ field: IntakeKey, equals: z.union([IntakeOptionValue, z.boolean()]) }),
+  z.object({ field: IntakeKey, oneOf: ConditionCodes }),
+  z.object({ field: IntakeKey, includesAny: ConditionCodes }),
 ]);
 export type IntakeCondition = z.infer<typeof IntakeCondition>;
 
 const base = {
   key: IntakeKey,
-  label: z.string(),
+  label: Label,
   /** A hint under the label. */
-  help: z.string().optional(),
-  placeholder: z.string().optional(),
+  help: Help.optional(),
+  placeholder: Label.optional(),
   /** Checked on submit only, and only while the field is shown. */
   required: z.boolean(),
   showIf: IntakeCondition.optional(),
@@ -145,21 +171,23 @@ export const IntakeYesNoField = field('yesNo', {});
 export const IntakeCheckboxField = field('checkbox', {});
 /** One choice as radios (`display: 'cards'` for the bookkeeping packages). */
 export const IntakeRadioField = field('radio', {
-  options: z.array(IntakeOption).min(2),
+  options: z.array(IntakeOption).min(2).max(INTAKE_LIMITS.maxOptions),
   display: Display,
   /** Chosen when the form opens (the "Most Popular" package). */
   defaultValue: IntakeOptionValue.optional(),
 });
 /** One choice from a dropdown. */
-export const IntakeSelectField = field('select', { options: z.array(IntakeOption).min(1) });
+export const IntakeSelectField = field('select', {
+  options: z.array(IntakeOption).min(1).max(INTAKE_LIMITS.maxOptions),
+});
 /** Any number of choices ("Select all that apply"). */
 export const IntakeCheckboxesField = field('checkboxes', {
-  options: z.array(IntakeOption).min(1),
+  options: z.array(IntakeOption).min(1).max(INTAKE_LIMITS.maxOptions),
   display: Display,
   /** At least this many when required (1 if left out). */
   minItems: z.number().int().min(1).optional(),
   /** A "select all" shortcut's label, e.g. "Select All or Most". */
-  selectAll: z.string().optional(),
+  selectAll: Label.optional(),
 });
 
 const SCALAR_FIELDS = [
@@ -198,10 +226,10 @@ export const IntakeGridField = field('grid', {
     .array(
       z.object({
         key: IntakeKey,
-        label: z.string(),
-        help: z.string().optional(),
+        label: Label,
+        help: Help.optional(),
         /** The placeholder of this row's text cells ("e.g., physical products"). */
-        placeholder: z.string().optional(),
+        placeholder: Label.optional(),
       }),
     )
     .min(1)
@@ -210,7 +238,7 @@ export const IntakeGridField = field('grid', {
     .array(
       z.object({
         key: IntakeKey,
-        label: z.string(),
+        label: Label,
         type: z.enum(['currency', 'date', 'text']),
         /** Text columns: at most this many characters (200 if left out). */
         maxLength: z.number().int().min(1).max(1000).optional(),
@@ -218,7 +246,7 @@ export const IntakeGridField = field('grid', {
     )
     .min(1)
     .max(INTAKE_LIMITS.maxGridColumns),
-  totalLabel: z.string().optional(),
+  totalLabel: Label.optional(),
 });
 export type IntakeGridField = z.infer<typeof IntakeGridField>;
 
@@ -234,9 +262,9 @@ export const IntakeGroupField = field('group', {
   minItems: z.number().int().min(0).max(INTAKE_LIMITS.maxRows),
   maxItems: z.number().int().min(1).max(INTAKE_LIMITS.maxRows),
   /** "Dependent": the screen numbers the rows ("Dependent 1"). */
-  itemLabel: z.string(),
+  itemLabel: Label,
   /** "Add Another Dependent". */
-  addLabel: z.string(),
+  addLabel: Label,
 });
 export type IntakeGroupField = z.infer<typeof IntakeGroupField>;
 
@@ -250,7 +278,7 @@ export const IntakeUploadField = field('upload', {
   /** Offer "I don't have this document" with a "Please explain why" box. */
   notAvailable: z.boolean(),
   /** "Examples of Income Documents": shown next to the drop zone. */
-  examples: z.array(z.string()).optional(),
+  examples: z.array(OptionText).max(INTAKE_LIMITS.maxBullets).optional(),
   /**
    * The most files this slot takes (409 TOO_MANY_FILES after that): this limit applies, at most
    * INTAKE_LIMITS.maxFilesPerSlot. Every file counts, a blocked one too, until it is removed.
@@ -263,8 +291,8 @@ export type IntakeUploadField = z.infer<typeof IntakeUploadField>;
 export const IntakeInfoField = z.object({
   key: IntakeKey,
   type: z.literal('info'),
-  label: z.string(),
-  text: z.string(),
+  label: Label,
+  text: Help,
   required: z.literal(false),
   showIf: IntakeCondition.optional(),
 });
@@ -283,8 +311,8 @@ export type IntakeFieldType = IntakeField['type'];
 /** A numbered panel of a step. */
 export const IntakeSection = z.object({
   key: IntakeKey,
-  title: z.string(),
-  subtitle: z.string().optional(),
+  title: Label,
+  subtitle: Help.optional(),
   showIf: IntakeCondition.optional(),
   fields: z.array(IntakeField).min(1).max(100),
 });
@@ -293,8 +321,8 @@ export type IntakeSection = z.infer<typeof IntakeSection>;
 /** One step of the stepper. The review step is the last one. */
 export const IntakeStep = z.object({
   key: IntakeKey,
-  title: z.string(),
-  subtitle: z.string().optional(),
+  title: Label,
+  subtitle: Help.optional(),
   /** A hidden step is skipped (Annual Tax step 2 only for business returns). */
   showIf: IntakeCondition.optional(),
   review: z.boolean(),
@@ -407,11 +435,18 @@ export const IntakeFormDefinition = z
      */
     key: IntakeFormKey,
     version: z.number().int().min(1),
-    title: z.string(),
-    subtitle: z.string().optional(),
+    title: Label,
+    subtitle: Help.optional(),
     steps: z.array(IntakeStep).min(1).max(10),
   })
   .superRefine((definition, ctx) => {
+    const fields = definition.steps
+      .flatMap((step) => step.sections.flatMap((section) => section.fields))
+      .reduce((n, f) => n + 1 + (f.type === 'group' ? f.fields.length : 0), 0);
+    if (fields > INTAKE_LIMITS.maxFields) {
+      problem(ctx, ['steps'], `A form has at most ${String(INTAKE_LIMITS.maxFields)} fields`);
+      return;
+    }
     const earlier = new Map<string, IntakeField>();
     const stepKeys = new Set<string>();
     definition.steps.forEach((step, s) => {

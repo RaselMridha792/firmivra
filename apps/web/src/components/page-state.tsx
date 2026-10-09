@@ -38,10 +38,18 @@ function ToSetup() {
   return <Loading />;
 }
 
+/** An in-person signing locked this staff session (KIOSK_LOCKED): only the kiosk opens. */
+function ToKiosk() {
+  const router = useRouter();
+  useEffect(() => router.replace('/firm-sign/in-person'), [router]);
+  return <Loading />;
+}
+
 /**
  * The states every screen needs, in one place: loading, empty, error (with Try again), and by
  * error code: FORBIDDEN is "no permission", NOT_FOUND "not found", BUSINESS_INACTIVE its own
- * notice, BUSINESS_SETUP_REQUIRED opens /setup. Wrap each useApiQuery result:
+ * notice, BUSINESS_SETUP_REQUIRED opens /setup, KIOSK_LOCKED the in-person kiosk. Wrap each
+ * useApiQuery result:
  *   <PageState query={statuses} empty="No tax statuses yet">{(rows) => <Table rows={rows} />}</PageState>
  */
 export function PageState<T>({
@@ -51,6 +59,8 @@ export function PageState<T>({
   children,
 }: PageStateProps<T>) {
   if (query.isPending) return <Loading />;
+  // Locked even with data in the cache: no firm data shows while an in-person signing is open.
+  if (query.isError && code(query.error) === 'KIOSK_LOCKED') return <ToKiosk />;
 
   // No data yet and an error: show the error. (A failed background refetch keeps the data.)
   if (query.isError && query.data === undefined) {
