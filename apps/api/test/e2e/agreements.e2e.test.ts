@@ -150,7 +150,9 @@ beforeAll(async () => {
     const uploader = key === 'a' ? people.ownerA.id : people.ownerB.id;
     await runInScope(owner, { kind: 'business', businessId }, async (tx) => {
       firm.serviceId = (
-        await tx.service.create({ data: { businessId, kind: 'BOOKKEEPING', name: 'Books' } })
+        await tx.service.create({
+          data: { businessId, kind: 'BOOKKEEPING', name: 'Books', beginOnline: true },
+        })
       ).id;
       // Clients with a login and an intake on the service (firm A: two, firm B: one).
       const logins =
@@ -524,7 +526,7 @@ describe('firm agreements', () => {
     const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const other = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
       tx.service.create({
-        data: { businessId: firms.a.id, kind: 'TAX_PLANNING', name: 'Planning' },
+        data: { businessId: firms.a.id, kind: 'TAX_PLANNING', name: 'Planning', beginOnline: true },
       }),
     );
     await owner.$disconnect();
@@ -545,6 +547,17 @@ describe('firm agreements', () => {
     }
     const planning = IntakeAgreementBlock.parse((await block(firms.a.slug, 'TAX_PLANNING')).body);
     expect(planning.agreements.map((a) => a.agreementId)).toContain(id);
+
+    // A service not marked Begin Online is never the form's service.
+    const owner2 = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    await runInScope(owner2, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.service.create({
+        data: { businessId: firms.a.id, kind: 'BUSINESS_DEVELOPMENT', name: 'Not online' },
+      }),
+    );
+    await owner2.$disconnect();
+    const unmarked = await block(firms.a.slug, 'BUSINESS_DEVELOPMENT');
+    expect([unmarked.status, codeOf(unmarked)]).toEqual([404, 'NOT_FOUND']);
   });
 
   it('works on a Pending Setup firm: one firm-wide create wins a race, publish without a PDF when off', async () => {

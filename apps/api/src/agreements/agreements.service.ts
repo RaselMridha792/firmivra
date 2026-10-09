@@ -458,14 +458,14 @@ export class AgreementsService {
 }
 
 /**
- * The firm's Begin Online service for a form: its unarchived service of that kind (the first by
- * sort order, creation, then id); none answers 404. Runs in the firm's scope. When R0's
- * `services.begin_online` lands (one live Begin Online service per kind), filter on it here.
+ * The firm's Begin Online service for a form: its unarchived service of that kind marked
+ * `begin_online` (at most one, by R0's unique index); none answers 404. Runs in the firm's scope.
+ * Begin Online's submit resolves its service only through this, so the block and the signature
+ * always agree.
  */
 export async function beginOnlineService(tx: TxClient, form: IntakeFormKey) {
   const service = await tx.service.findFirst({
-    where: { kind: form, archivedAt: null },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    where: { kind: form, archivedAt: null, beginOnline: true },
     select: { id: true },
   });
   if (!service) throw notFound();
