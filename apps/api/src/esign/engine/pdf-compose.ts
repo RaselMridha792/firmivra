@@ -1,5 +1,5 @@
 import { degrees, PDFDict, PDFDocument, PDFName, type PDFPage } from 'pdf-lib';
-import { ESIGN_MAX_PAGES, type EsignPage } from '@firmivra/types';
+import { ESIGN_MAX_PAGES, type EsignPage, UPLOAD_LIMITS } from '@firmivra/types';
 import {
   EsignEngineError,
   type InspectedFile,
@@ -8,6 +8,9 @@ import {
 } from './engine.types.js';
 
 // Inspect and compose (R18 step 3). Everything runs in memory on files of at most 10 MB.
+
+/** More indirect objects than this is not a document a person sends for signature. */
+const MAX_OBJECTS = 200_000;
 
 /** An image page fits a US Letter page, portrait or landscape like the image. */
 const LETTER = { short: 612, long: 792 } as const;
@@ -54,8 +57,13 @@ async function unreadable<T>(work: () => Promise<T> | T): Promise<T> {
 /** Loads a PDF, refusing what Firm Sign can't sign: encrypted, unreadable or XFA files. */
 function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   return unreadable(async () => {
+    // Uploads are at most 10 MB; a bigger file here never came through an upload.
+    if (bytes.byteLength > UPLOAD_LIMITS.maxBytes) throw new EsignEngineError('PDF_UNREADABLE');
     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
     if (doc.isEncrypted) throw new EsignEngineError('PDF_ENCRYPTED');
+    if (doc.context.largestObjectNumber > MAX_OBJECTS) {
+      throw new EsignEngineError('PDF_UNREADABLE');
+    }
     // XFA forms render differently in every viewer and can't be flattened: refuse them.
     const acroForm = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
     if (acroForm?.has(PDFName.of('XFA'))) throw new EsignEngineError('PDF_UNREADABLE');
@@ -70,6 +78,7 @@ function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
 
 /** Embeds a JPG or PNG; a broken image is PDF_UNREADABLE. */
 async function embedImage(doc: PDFDocument, file: Pick<SourceFile, 'contentType' | 'bytes'>) {
+  if (file.bytes.byteLength > UPLOAD_LIMITS.maxBytes) throw new EsignEngineError('PDF_UNREADABLE');
   return unreadable(() =>
     file.contentType === 'image/png' ? doc.embedPng(file.bytes) : doc.embedJpg(file.bytes),
   );
