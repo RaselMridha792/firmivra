@@ -116,10 +116,10 @@ export function UpcomingAppointments({
               ) : null}
               {items.map((item) => (
                 <Upcoming
-                  key={item.id === request?.id ? `${item.id}-${request.n}` : item.id}
+                  key={item.id}
                   slug={slug}
                   item={item}
-                  initialAction={item.id === request?.id ? request.kind : null}
+                  ask={item.id === request?.id ? request : null}
                   onFinish={item.id === request?.id ? onRequestDone : undefined}
                   onNotice={onNotice}
                   onStale={(error) => {
@@ -190,7 +190,7 @@ function AppointmentRow({
           <Clock aria-hidden className="size-4 shrink-0 text-heading" />
           {timeRange(item.startsAt, item.endsAt)}
         </p>
-        <Place item={item} join={join} />
+        <Place item={item} join={join && status.label !== 'Past'} />
       </div>
     </div>
   );
@@ -227,7 +227,7 @@ function Place({ item, join }: { item: MyAppointment; join: boolean }) {
 function Upcoming({
   slug,
   item,
-  initialAction,
+  ask,
   onFinish,
   onNotice,
   onStale,
@@ -235,18 +235,25 @@ function Upcoming({
   slug: string;
   item: MyAppointment;
   /** Quick Actions asked for this row's Reschedule or Cancel: open it and bring it into view. */
-  initialAction: Action | null;
+  ask: ActionRequest | null;
   /** Quick Actions' panel on this row closed, finished or failed. */
   onFinish?: () => void;
   onNotice: (notice: Notice | null) => void;
   /** The cutoff passed or the firm changed it meanwhile: say why and refresh the list. */
   onStale: (error: unknown) => void;
 }) {
-  const [action, setAction] = useState<Action | null>(initialAction);
+  const [action, setAction] = useState<Action | null>(ask?.kind ?? null);
+  // A new Quick Actions ask (its `n` changes) opens that panel; the row keeps its key and focus.
+  const [askSeen, setAskSeen] = useState(ask?.n);
+  if (ask && ask.n !== askSeen) {
+    setAskSeen(ask.n);
+    setAction(ask.kind);
+  }
   const rowRef = useRef<HTMLLIElement>(null);
+  const askN = ask?.n;
   useEffect(() => {
-    if (initialAction) rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [initialAction]);
+    if (askN !== undefined) rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [askN]);
   const open = (next: Action) => {
     setAction(action === next ? null : next);
     if (action === next) onFinish?.();
@@ -346,7 +353,7 @@ function RowMenu({ item, onChoose }: { item: MyAppointment; onChoose: (action: A
       <button
         ref={triggerRef}
         type="button"
-        aria-label="Appointment actions"
+        aria-label={`Actions for ${when(item.startsAt)}`}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
@@ -361,7 +368,7 @@ function RowMenu({ item, onChoose }: { item: MyAppointment; onChoose: (action: A
             ref={menuRef}
             id={`${id}-menu`}
             role="menu"
-            aria-label="Appointment actions"
+            aria-label={`Actions for ${when(item.startsAt)}`}
             aria-describedby={`${id}-note`}
             onKeyDown={move}
             className="flex flex-col"
