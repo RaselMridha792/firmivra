@@ -4,6 +4,7 @@ import {
   type EsignAccessRole,
   type EsignBulkBatch,
   ESIGN_BULK_MAX,
+  ESIGN_KIOSK_PASSWORD_TRIES,
   EsignErrorCode,
   EsignBulkSendBody,
   type EsignClient,
@@ -286,7 +287,7 @@ export function esignExtrasMock(
         if (!k) return { ok: true as const };
         if (password !== MOCK_KIOSK_PASSWORD) {
           extras().wrongPasswords += 1;
-          if (extras().wrongPasswords >= 5) {
+          if (extras().wrongPasswords >= ESIGN_KIOSK_PASSWORD_TRIES) {
             extras().kiosk = null;
             extras().wrongPasswords = 0;
             throw fail(401, 'UNAUTHENTICATED', 'Signed out');

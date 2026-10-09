@@ -3,12 +3,16 @@ import {
   ApiRequestError,
   createEsignClient,
   createRequest,
+  ESIGN_MAX_FIELD_OPTIONS,
+  ESIGN_MAX_FIELDS,
   ESIGN_READINESS_TEXT,
   EsignApprovalBody,
   EsignBulkBatch,
   EsignBulkSendBody,
   EsignReadinessCode,
+  EsignPutFieldsBody,
   EsignPutRecipient,
+  EsignPutRecipientsBody,
   EsignReportQuery,
 } from '../../src/index.js';
 
@@ -174,5 +178,53 @@ describe('api.esign extras (contract 3)', () => {
         who,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('approvers in PUT recipients', () => {
+  it('takes a member as approver only once', () => {
+    const approver = {
+      kind: 'APPROVER',
+      role: 'MANAGER',
+      routingOrder: 1,
+      who: { type: 'STAFF', userId: '0199b6e0-0000-7000-8000-000000000009' },
+    } as const;
+    expect(EsignPutRecipientsBody.safeParse({ recipients: [approver] }).success).toBe(true);
+    expect(EsignPutRecipientsBody.safeParse({ recipients: [approver, approver] }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('PUT fields body size', () => {
+  // The API's JSON limit (apps/api/src/configure-app.ts JSON_BODY_LIMIT_BYTES).
+  const LIMIT = 2 * 1024 * 1024;
+  const big = (n: number) => '€'.repeat(n);
+  const fieldsWith = (optionsEach: number) =>
+    Array.from({ length: ESIGN_MAX_FIELDS }, (_, i) => ({
+      id: `0199b6e4-0000-7000-8000-${String(i).padStart(12, '0')}`,
+      recipientId: null,
+      type: 'DROPDOWN' as const,
+      pageIndex: 99,
+      x: 0.123456789,
+      y: 0.123456789,
+      w: 0.123456789,
+      h: 0.123456789,
+      required: true,
+      label: big(200),
+      options: Array.from({ length: optionsEach }, () => big(100)),
+      groupKey: 'g'.repeat(40),
+      value: big(500),
+    }));
+
+  it('keeps the largest valid body under the 2 MB limit', () => {
+    const body = { fields: fieldsWith(ESIGN_MAX_FIELD_OPTIONS / ESIGN_MAX_FIELDS) };
+    expect(EsignPutFieldsBody.safeParse(body).success).toBe(true);
+    expect(new TextEncoder().encode(JSON.stringify(body)).length).toBeLessThan(LIMIT);
+  });
+
+  it('refuses more than 2,000 choices across all fields', () => {
+    const body = { fields: fieldsWith(ESIGN_MAX_FIELD_OPTIONS / ESIGN_MAX_FIELDS + 1) };
+    expect(EsignPutFieldsBody.safeParse(body).success).toBe(false);
   });
 });
