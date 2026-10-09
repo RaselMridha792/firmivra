@@ -44,6 +44,9 @@
   --color-focus: #005fcc;
   --color-accent: #007f82;
   --color-accent-soft: #e1f5f2;
+  /* R25: the Super Admin mockup's purple (Total Users, Team, Tasks, Platform Settings). */
+  --color-purple: #6d28d9;
+  --color-purple-soft: #f1ebfe;
   --color-public-action: #005fcc;
   --color-public-action-hover: #004fa8;
   --color-public-action-pressed: #003d85;
