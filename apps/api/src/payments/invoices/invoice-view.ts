@@ -6,6 +6,9 @@ import {
   type InvoiceListItem,
   type InvoicePayment,
   isInvoiceOverdue,
+  MY_INVOICE_SECTIONS,
+  type MyInvoice,
+  type MyInvoiceDetail,
   myInvoiceStatus,
 } from '@firmivra/types';
 import { firmTimeZone } from '../../appointments/calendar-data.js';
@@ -47,7 +50,9 @@ const paymentSelect = {
   paidAt: true,
   refundReservedCents: true,
   createdAt: true,
-  _count: { select: { events: true } },
+  // Only a completed checkout means Stripe is still settling it (a bank debit); a declined card's
+  // payment_intent.payment_failed never blocks Pay Now.
+  _count: { select: { events: { where: { type: 'checkout.session.completed' } } } },
   refunds: {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
@@ -61,6 +66,23 @@ const paymentSelect = {
   },
 } satisfies Prisma.PaymentSelect;
 type PaymentRow = Prisma.PaymentGetPayload<{ select: typeof paymentSelect }>;
+
+const memberRef = { select: { userId: true, user: { select: { name: true } } } } as const;
+const offlineSelect = {
+  id: true,
+  method: true,
+  amountCents: true,
+  currency: true,
+  reference: true,
+  receivedOn: true,
+  note: true,
+  recordedAt: true,
+  voidedAt: true,
+  voidReason: true,
+  recordedBy: memberRef,
+  voidedBy: memberRef,
+} satisfies Prisma.OfflinePaymentSelect;
+type OfflineRow = Prisma.OfflinePaymentGetPayload<{ select: typeof offlineSelect }>;
 
 export const invoiceSelect = {
   id: true,
@@ -93,6 +115,7 @@ export const invoiceSelect = {
     },
   },
   payments: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: paymentSelect },
+  offlinePayments: { orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }], select: offlineSelect },
 } satisfies Prisma.InvoiceSelect;
 export type InvoiceRow = Prisma.InvoiceGetPayload<{ select: typeof invoiceSelect }>;
 
@@ -108,17 +131,53 @@ export const processing = (row: InvoiceRow) =>
 const confirmedRefunds = (p: PaymentRow) =>
   p.refunds.filter((r) => r.status === 'SUCCEEDED').reduce((s, r) => s + r.amountCents, 0);
 
-/** Received (refunded payments included), confirmed refunds, and what is still to pay. */
+const live = (row: InvoiceRow) => row.offlinePayments.filter((o) => o.voidedAt === null);
+
+/**
+ * Received, confirmed refunds, and what is still to pay. Received is the database's
+ * app_invoice_paid_cents: SUCCEEDED and REFUNDED Stripe payments in full (a refund never makes
+ * money owed again) plus live offline payments.
+ */
 export function money(row: InvoiceRow) {
   const received = row.payments.filter((p) => p.status === 'SUCCEEDED' || p.status === 'REFUNDED');
-  const amountPaidCents = received.reduce((s, p) => s + p.amountCents, 0);
+  const amountPaidCents =
+    received.reduce((s, p) => s + p.amountCents, 0) +
+    live(row).reduce((s, o) => s + o.amountCents, 0);
   const refundedCents = received.reduce((s, p) => s + confirmedRefunds(p), 0);
   const closed = row.status === 'PAID' || row.status === 'CANCELED';
-  const balanceDueCents = closed
-    ? 0
-    : Math.max(0, row.totalCents - (amountPaidCents - refundedCents));
+  const balanceDueCents = closed ? 0 : Math.max(0, row.totalCents - amountPaidCents);
   return { amountPaidCents, refundedCents, balanceDueCents };
 }
+
+/** The money paid toward an invoice now, by the database's one formula (for the PAID step). */
+export async function paidCents(tx: TxClient, invoiceId: string): Promise<number> {
+  const [row] = await tx.$queryRaw<{ paid: string }[]>`
+    SELECT app_invoice_paid_cents(${invoiceId}::uuid)::text AS paid`;
+  return Number(row?.paid ?? 0);
+}
+
+/** The invoice holds money: a live offline payment or a SUCCEEDED Stripe payment (no cancel). */
+export const holdsMoney = (row: InvoiceRow) =>
+  live(row).length > 0 || row.payments.some((p) => p.status === 'SUCCEEDED');
+
+const ref = (m: { userId: string; user: { name: string } }) => ({
+  userId: m.userId,
+  name: m.user.name,
+});
+const toOffline = (o: OfflineRow) => ({
+  id: o.id,
+  method: o.method,
+  amountCents: o.amountCents,
+  currency: o.currency,
+  reference: o.reference,
+  receivedOn: day(o.receivedOn) ?? '',
+  note: o.note,
+  recordedBy: ref(o.recordedBy),
+  recordedAt: o.recordedAt.toISOString(),
+  voidedAt: iso(o.voidedAt),
+  voidedBy: o.voidedBy ? ref(o.voidedBy) : null,
+  voidReason: o.voidReason,
+});
 
 /** The invoice's state as `myInvoiceStatus()` reads it. */
 export const stateOf = (row: InvoiceRow) => ({
@@ -205,9 +264,59 @@ export function toInvoice(row: InvoiceRow, today: string): Invoice {
     ...toListItem(row, today),
     ...amountDetail(row),
     payments: shownPayments(row).map(toFirmPayment),
+    offlinePayments: row.offlinePayments.map(toOffline),
     cancelReason: row.cancelReason,
     createdBy: row.createdBy
       ? { userId: row.createdBy.userId, name: row.createdBy.user.name }
       : null,
+  };
+}
+
+/** The client's view of an invoice, or null when the portal never shows it (a draft). */
+export function toMyInvoice(
+  row: InvoiceRow,
+  today: string,
+  timeZone: string,
+  paymentsOn: boolean,
+): MyInvoice | null {
+  const state = stateOf(row);
+  const status = myInvoiceStatus(state, today);
+  if (status === null) return null;
+  const { balanceDueCents } = money(row);
+  const isProcessing = processing(row);
+  const issuedOn = row.issuedAt ? dateIn(timeZone, row.issuedAt) : state.scheduledFor;
+  return {
+    id: row.id,
+    number: row.number,
+    service: row.engagement ? { id: row.engagement.id, title: row.engagement.title } : null,
+    title: titleOf(row),
+    status,
+    section: MY_INVOICE_SECTIONS.PAST.includes(status) ? 'PAST' : 'CURRENT',
+    currency: row.currency,
+    totalCents: row.totalCents,
+    balanceDueCents,
+    issuedOn: issuedOn ?? dateIn(timeZone, row.createdAt),
+    dueOn: state.dueOn,
+    overdue: isInvoiceOverdue(state, today),
+    paidAt: iso(row.paidAt),
+    canceledAt: iso(row.canceledAt),
+    paymentProcessing: isProcessing,
+    canPay: row.status === 'OPEN' && balanceDueCents > 0 && !isProcessing && paymentsOn,
+  };
+}
+
+export function toMyInvoiceDetail(row: InvoiceRow, mine: MyInvoice): MyInvoiceDetail {
+  return {
+    ...mine,
+    ...amountDetail(row),
+    payments: shownPayments(row).map(toPayment),
+    // Live ones only, and only their method, amount and day.
+    offlinePayments: live(row).map((o) => ({
+      id: o.id,
+      method: o.method,
+      amountCents: o.amountCents,
+      currency: o.currency,
+      receivedOn: day(o.receivedOn) ?? '',
+    })),
   };
 }
