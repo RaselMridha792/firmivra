@@ -63,9 +63,11 @@ const contactOptions = [
 
 function ReviewRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1 border-b border-border py-3 sm:grid-cols-[12rem_1fr]">
+    <div className="grid gap-1 border-b border-border py-3 sm:grid-cols-3 lg:grid-cols-5">
       <dt className="text-sm text-muted">{label}</dt>
-      <dd className="break-words text-sm text-text">{children || 'Not provided'}</dd>
+      <dd className="break-words text-sm text-text sm:col-span-2 lg:col-span-4">
+        {children || 'Not provided'}
+      </dd>
     </div>
   );
 }
@@ -227,7 +229,8 @@ export function ApplicationForm() {
               <Input label="Doing business as" {...form.register('business.dbaName')} />
               <Input
                 label="EIN"
-                type="password"
+                // Not a password field: browsers would offer to save it, or fill in a password.
+                type="text"
                 inputMode="numeric"
                 autoComplete="off"
                 data-testid="business-ein"
@@ -407,26 +410,25 @@ export function ApplicationForm() {
                 Professional credentials (optional)
               </legend>
               {credentials.fields.map((field, index) => (
-                <div
-                  key={field.id}
-                  className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
-                >
-                  <Select
-                    label="Credential"
-                    options={choices(CREDENTIAL_TYPES)}
-                    error={issues.credentials?.[index]?.type?.message}
-                    {...form.register(`credentials.${index}.type`)}
-                  />
-                  <Input
-                    label="Number"
-                    error={issues.credentials?.[index]?.number?.message}
-                    {...form.register(`credentials.${index}.number`)}
-                  />
-                  <Input
-                    label="Issued by"
-                    error={issues.credentials?.[index]?.issuedBy?.message}
-                    {...form.register(`credentials.${index}.issuedBy`)}
-                  />
+                <div key={field.id} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="grid flex-1 gap-3 sm:grid-cols-3">
+                    <Select
+                      label="Credential"
+                      options={choices(CREDENTIAL_TYPES)}
+                      error={issues.credentials?.[index]?.type?.message}
+                      {...form.register(`credentials.${index}.type`)}
+                    />
+                    <Input
+                      label="Number"
+                      error={issues.credentials?.[index]?.number?.message}
+                      {...form.register(`credentials.${index}.number`)}
+                    />
+                    <Input
+                      label="Issued by"
+                      error={issues.credentials?.[index]?.issuedBy?.message}
+                      {...form.register(`credentials.${index}.issuedBy`)}
+                    />
+                  </div>
                   <Button
                     variant="secondary"
                     aria-label="Remove credential"
@@ -443,6 +445,11 @@ export function ApplicationForm() {
               >
                 Add credential
               </Button>
+              {issues.credentials?.root?.message || issues.credentials?.message ? (
+                <p className="text-xs text-danger">
+                  {issues.credentials.root?.message ?? issues.credentials.message}
+                </p>
+              ) : null}
             </fieldset>
           </Card>
 
