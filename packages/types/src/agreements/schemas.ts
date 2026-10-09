@@ -18,8 +18,8 @@ import { IntakeFormKey } from '../intake/definition.js';
 // Begin Online (no sign-in, the firm from its slug): /api/v1/portal/{firmSlug}/intake-agreements
 // Portal intake (signed-in client): /api/v1/portal/{firmSlug}/me/intakes/{intakeId}/agreements
 // The PDF upload uses the documents pattern in three calls (createUpload, PUT, confirmUpload);
-// a version can link a PDF only once its scan is CLEAN. With AGREEMENT_PDF_REQUIRED on (the
-// default), publishing without a CLEAN PDF answers 409 PDF_REQUIRED (publish only: a submit
+// a version can link a PDF only once its scan is CLEAN. With AGREEMENT_PDF_REQUIRED on (off by
+// default for now), publishing without a CLEAN PDF answers 409 PDF_REQUIRED (publish only: a submit
 // never answers it, since the signature sends nothing for the PDF and the API pins the version's
 // pdf_sha256 itself).
 // Firm screens show errors with `errorMessage(error, AGREEMENT_ERRORS)`; the submit-time codes

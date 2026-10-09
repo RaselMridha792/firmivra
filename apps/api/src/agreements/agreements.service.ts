@@ -509,6 +509,8 @@ export async function currentAgreements(
       bodySha256: v.bodySha256,
       acknowledgments: acknowledgmentsOf(v.acknowledgments),
       pdf: {
+        // A version links only a CLEAN file (the versions trigger) and a scan result never
+        // changes once set, so a linked file stays downloadable unless its bytes change.
         available: v.pdfFile !== null,
         sha256: v.pdfFile?.sha256 ?? null,
         fileName: v.pdfFile?.fileName ?? null,

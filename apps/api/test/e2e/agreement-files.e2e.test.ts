@@ -50,7 +50,7 @@ class MemoryStorage implements DocumentStorage {
   }
 }
 const storage = new MemoryStorage();
-const config: DocumentsConfig = {
+const config: { -readonly [K in keyof DocumentsConfig]: DocumentsConfig[K] } = {
   bucket: 'unused',
   region: 'us-east-1',
   forcePathStyle: true,
@@ -70,9 +70,30 @@ async function pdfBytes(pages = 1, encrypted = false): Promise<Buffer> {
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
 const person = (key: string) => ({ id: randomUUID(), email: `r14f-${key}-${run}@r14.test` });
-const people = { ownerA: person('owner-a'), staffA: person('staff-a'), ownerB: person('owner-b') };
-const firms = {} as Record<'a' | 'b', { id: string; slug: string }>;
+const people = {
+  ownerA: person('owner-a'),
+  adminA: person('admin-a'),
+  staffA: person('staff-a'),
+  ownerB: person('owner-b'),
+};
+const firms = {} as Record<'a' | 'b' | 'pending', { id: string; slug: string }>;
+const keyOf = (t: UploadTicket) => t.url.slice('memory:'.length);
+const uploadIdOf = (t: UploadTicket) => keyOf(t).slice(keyOf(t).lastIndexOf('/') + 1);
 
+async function auditRows(action: string) {
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+  const rows = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
+    tx.auditLog.findMany({
+      where: { businessId: firms.a.id, action },
+      orderBy: { createdAt: 'asc' },
+      select: { entityId: true, metadata: true },
+    }),
+  );
+  await owner.$disconnect();
+  return rows;
+}
+
+let serviceA = '';
 let app: INestApplication;
 let files: AgreementFilesService;
 const tokens = new Map<string, string>();
@@ -131,16 +152,21 @@ beforeAll(async () => {
         data: { id: p.id, cognitoSub: p.id, pool: 'STAFF', email: p.email, name: key },
       });
     }
-    for (const key of ['a', 'b'] as const) {
+    for (const [key, status] of [
+      ['a', 'ACTIVE'],
+      ['b', 'ACTIVE'],
+      ['pending', 'PENDING_SETUP'],
+    ] as const) {
       const slug = `r14f-${key}-${run}`;
       firms[key] = await tx.business.create({
-        data: { slug, name: slug, status: 'ACTIVE' },
+        data: { slug, name: slug, status },
         select: { id: true, slug: true },
       });
     }
   });
   for (const [firm, p, role] of [
     ['a', people.ownerA, 'OWNER'],
+    ['a', people.adminA, 'ADMIN'],
     ['a', people.staffA, 'STAFF'],
     ['b', people.ownerB, 'OWNER'],
   ] as const) {
@@ -149,6 +175,13 @@ beforeAll(async () => {
       tx.membership.create({ data: { businessId, userId: p.id, role, status: 'ACTIVE' } }),
     );
   }
+  serviceA = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, async (tx) => {
+    const svc = await tx.service.create({
+      data: { businessId: firms.a.id, kind: 'BOOKKEEPING', name: 'Books' },
+      select: { id: true },
+    });
+    return svc.id;
+  });
   await owner.$disconnect();
   const env = loadEnv({
     ...process.env,
@@ -174,9 +207,23 @@ afterAll(async () => {
   await app.close();
 });
 
+const pub = (slug: string, agreementId: string, v: number) =>
+  request(app.getHttpServer()).get(
+    `/api/v1/portal/${slug}/intake-agreements/${agreementId}/versions/${v}/pdf`,
+  );
+const version = (pdfFileId: string, expectedCurrentVersion: number | null = null, acks = true) => ({
+  expectedCurrentVersion,
+  title: 'Sample',
+  bodyMarkdown: 'Not legal text.',
+  acknowledgments: acks ? [{ key: 'read', label: 'Read', text: 'I read it.', required: true }] : [],
+  pdfFileId,
+});
+
 describe('agreement PDF originals', () => {
   let fileId: string;
   let ticket: UploadTicket;
+  let agreementId: string;
+  let second: UploadTicket;
 
   it('uploads a PDF: PENDING until the scan, then publishable and downloadable', async () => {
     const bytes = await pdfBytes(2);
@@ -195,20 +242,34 @@ describe('agreement PDF originals', () => {
     const early = await call('get', `/files/${fileId}/download`);
     expect([early.status, codeOf(early)]).toEqual([409, 'SCAN_PENDING']);
     const created = await call('post', '', { scope: 'ALL_INTAKES' });
-    const agreementId = (created.body as { id: string }).id;
-    const version = (pdfFileId: string, expectedCurrentVersion: number | null = null) => ({
-      expectedCurrentVersion,
-      title: 'Sample',
-      bodyMarkdown: 'Not legal text.',
-      acknowledgments: [{ key: 'read', label: 'Read', text: 'I read it.', required: true }],
-      pdfFileId,
-    });
+    agreementId = (created.body as { id: string }).id;
     const notReady = await call('post', `/${agreementId}/versions`, version(fileId));
     expect([notReady.status, codeOf(notReady)]).toEqual([409, 'FILE_NOT_READY']);
 
-    expect(await files.recordScan(`tenant/${firms.a.id}/agreements/nope`, 'CLEAN')).toBe(false);
-    expect(await files.recordScan(ticket.url.slice('memory:'.length), 'CLEAN')).toBe(true);
-    expect(await files.recordScan(ticket.url.slice('memory:'.length), 'INFECTED')).toBe(false);
+    // Scan results: a key that isn't an agreement upload is IGNORED, one with no file yet is
+    // UNKNOWN (redeliver), our side stays PENDING, then the first result sticks.
+    const scan = (key: string, status: 'NO_THREATS_FOUND' | 'THREATS_FOUND' | 'ACCESS_DENIED') =>
+      files.recordScan({ key, status });
+    expect(await scan(`tenant/${firms.a.id}/agreements/nope`, 'NO_THREATS_FOUND')).toBe('IGNORED');
+    expect(
+      await scan(`tenant/${'-'.repeat(36)}/agreements/${'-'.repeat(36)}`, 'THREATS_FOUND'),
+    ).toBe('IGNORED');
+    expect(await scan(`tenant/${firms.a.id}/agreements/${randomUUID()}`, 'NO_THREATS_FOUND')).toBe(
+      'UNKNOWN',
+    );
+    expect(await scan(keyOf(ticket), 'ACCESS_DENIED')).toBe('PENDING');
+    expect(await scan(keyOf(ticket), 'NO_THREATS_FOUND')).toBe('CLEAN');
+    expect(await scan(keyOf(ticket), 'THREATS_FOUND')).toBe('IGNORED');
+    expect((await auditRows('agreement_file.uploaded')).at(-1)).toEqual({
+      entityId: fileId,
+      metadata: { scanMode: 'guardduty' },
+    });
+    expect(await auditRows('agreement_file.scanned')).toEqual([
+      { entityId: fileId, metadata: { scanStatus: 'CLEAN', result: 'NO_THREATS_FOUND' } },
+    ]);
+    expect(await auditRows('agreement_file.scan_unfinished')).toEqual([
+      { entityId: fileId, metadata: { result: 'ACCESS_DENIED' } },
+    ]);
     expect(AgreementFile.parse((await call('get', `/files/${fileId}`)).body).scanStatus).toBe(
       'CLEAN',
     );
@@ -218,23 +279,32 @@ describe('agreement PDF originals', () => {
 
     expect((await call('post', `/${agreementId}/versions`, version(fileId))).status).toBe(201);
     // The public link: the current version only, on this firm's slug only.
-    const pub = (slug: string, v: number, id = agreementId) =>
-      request(app.getHttpServer()).get(
-        `/api/v1/portal/${slug}/intake-agreements/${id}/versions/${v}/pdf`,
-      );
-    expect((await pub(firms.a.slug, 1)).status).toBe(200);
-    expect((await pub(firms.a.slug, 2)).status).toBe(404);
-    expect((await pub(firms.b.slug, 1)).status).toBe(404);
-    expect((await pub(`nobody-${run}`, 1)).status).toBe(404);
-    expect((await pub(firms.a.slug, 1, randomUUID())).status).toBe(404);
+    expect((await pub(firms.a.slug, agreementId, 1)).status).toBe(200);
+    expect((await pub(firms.a.slug, agreementId, 2)).status).toBe(404);
+    expect((await pub(firms.b.slug, agreementId, 1)).status).toBe(404);
+    expect((await pub(firms.pending.slug, agreementId, 1)).status).toBe(404);
+    expect((await pub(`nobody-${run}`, agreementId, 1)).status).toBe(404);
+    expect((await pub(firms.a.slug, randomUUID(), 1)).status).toBe(404);
+    expect((await pub(firms.a.slug, agreementId, 0)).status).toBe(400);
 
     // A second upload of v2 makes v1's link stop.
-    const second = await upload(await pdfBytes(1));
-    const secondId = (second.res.body as { fileId: string }).fileId;
-    await files.recordScan(second.ticket.url.slice('memory:'.length), 'CLEAN');
+    const up2 = await upload(await pdfBytes(1));
+    second = up2.ticket;
+    const secondId = (up2.res.body as { fileId: string }).fileId;
+    await files.recordScan({ key: keyOf(second), status: 'NO_THREATS_FOUND' });
     expect((await call('post', `/${agreementId}/versions`, version(secondId, 1))).status).toBe(201);
-    expect((await pub(firms.a.slug, 1)).status).toBe(404);
-    expect((await pub(firms.a.slug, 2)).status).toBe(200);
+    expect((await pub(firms.a.slug, agreementId, 1)).status).toBe(404);
+    expect((await pub(firms.a.slug, agreementId, 2)).status).toBe(200);
+
+    // An archived (service) agreement's PDF is gone from the public route.
+    const svc = await call('post', '', { scope: 'SERVICE', serviceId: serviceA });
+    const svcId = (svc.body as { id: string }).id;
+    expect((await call('post', `/${svcId}/versions`, version(secondId, null, false))).status).toBe(
+      201,
+    );
+    expect((await pub(firms.a.slug, svcId, 1)).status).toBe(200);
+    expect((await call('post', `/${svcId}/archive`)).status).toBe(200);
+    expect((await pub(firms.a.slug, svcId, 1)).status).toBe(404);
   });
 
   it('refuses what is not a PDF, encrypted, changed or reused, and deletes it', async () => {
@@ -242,12 +312,46 @@ describe('agreement PDF originals', () => {
       [Buffer.from('plain text, not a pdf'), 'NOT_A_PDF'],
       [Buffer.from('%PDF-1.7 broken'), 'NOT_A_PDF'],
       [await pdfBytes(1, true), 'FILE_PASSWORD_PROTECTED'],
+      [await pdfBytes(201), 'TOO_MANY_PAGES'],
       [await pdfBytes(1), 'UPLOAD_MISMATCH', await pdfBytes(3)],
     ];
+    const refusedTickets: UploadTicket[] = [];
     for (const [bytes, code, stored] of cases) {
       const { res, ticket: t } = await upload(bytes, 'Agreement.pdf', people.ownerA, stored);
       expect([res.status, codeOf(res)]).toEqual([409, code]);
-      expect(storage.objects.has(t.url.slice('memory:'.length))).toBe(false);
+      expect(storage.objects.has(keyOf(t))).toBe(false);
+      refusedTickets.push(t);
+    }
+    expect(
+      (await auditRows('agreement_file.upload_refused')).map((r) => r.metadata).slice(-5),
+    ).toEqual(cases.map(([, code], i) => ({ uploadId: uploadIdOf(refusedTickets[i]!), code })));
+    // GuardDuty's result for a refused (deleted) upload is IGNORED, never redelivered.
+    expect(
+      await files.recordScan({ key: keyOf(refusedTickets[0]!), status: 'THREATS_FOUND' }),
+    ).toBe('IGNORED');
+
+    // Another Owner or Admin of the same firm can't confirm someone else's upload.
+    const mine = await call('post', '/files/uploads', {
+      fileName: 'Agreement.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 10,
+      sha256: 'a'.repeat(64),
+    });
+    const theirs = await call(
+      'post',
+      '/files/confirm',
+      { uploadToken: (mine.body as UploadTicket).uploadToken },
+      people.adminA,
+    );
+    expect([theirs.status, codeOf(theirs)]).toEqual([410, 'UPLOAD_EXPIRED']);
+
+    // SCAN_MODE=local: CLEAN at once.
+    config.scanMode = 'local';
+    try {
+      const local = await upload(await pdfBytes(1));
+      expect(AgreementFile.parse(local.res.body).scanStatus).toBe('CLEAN');
+    } finally {
+      config.scanMode = 'guardduty';
     }
     const reused = await call('post', '/files/confirm', { uploadToken: ticket.uploadToken });
     expect([reused.status, codeOf(reused)]).toEqual([410, 'UPLOAD_EXPIRED']);
@@ -281,6 +385,10 @@ describe('agreement PDF originals', () => {
     storage.objects.set(ticket.url.slice('memory:'.length), await pdfBytes(5));
     const blocked = await call('get', `/files/${fileId}/download`);
     expect([blocked.status, codeOf(blocked)]).toEqual([409, 'FILE_BLOCKED']);
+    // The public route checks the stored bytes the same way.
+    storage.objects.set(keyOf(second), await pdfBytes(4));
+    const pubBlocked = await pub(firms.a.slug, agreementId, 2);
+    expect([pubBlocked.status, codeOf(pubBlocked)]).toEqual([409, 'FILE_BLOCKED']);
     expect((await call('get', `/files/${fileId}`, undefined, people.staffA)).status).toBe(403);
     expect(
       (

@@ -18,13 +18,14 @@ import {
   type DownloadLink,
   type UploadTicket,
 } from '@firmivra/types';
-import { PDFDocument } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, type PDFObject, PDFRef } from 'pdf-lib';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { type PoolSecrets, Sealer } from '../auth/sealed.js';
 import { PortalInfoService } from '../client-auth/portal-info.controller.js';
 import { DATABASE } from '../database/database.module.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../storage/config.js';
+import type { ScanOutcome, ScanResult } from '../storage/scan-results.service.js';
 import {
   DOCUMENT_STORAGE,
   type DocumentStorage,
@@ -55,7 +56,50 @@ export class AgreementUploadTokens extends Sealer<AgreementUploadClaim> {
   }
 }
 
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+/** tenant/{businessId}/agreements/{uploadId}, as ticket() names a new object. */
+const KEY = new RegExp(`^tenant/(${UUID})/agreements/(${UUID})$`);
+/** As documents: a late scan result still finds its upload's refusal. */
+const SCAN_REFUSALS_SINCE_MS = 24 * 60 * 60_000;
+/** UNSUPPORTED because of the file itself (as documents); anything else is our side. */
+const FILE_REASON =
+  /^(PASSWORD_PROTECTED|OBJECT_SIZE_LIMIT_EXCEEDED|EXTRACTED_[A-Z_]+_LIMIT_EXCEEDED|EXTRACTION_RATIO_LIMIT_EXCEEDED)$/;
+
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
+/** More indirect objects than this is not an agreement (as esign's pdf-compose.ts). */
+const MAX_OBJECTS = 200_000;
+/** At most this many confirms check stored bytes at once; one more is 503 (as documents). */
+export const AGREEMENT_CHECKS_AT_ONCE = 4;
+let checking = 0;
+
+class PdfRefused extends Error {
+  constructor(readonly code: 'NOT_A_PDF' | 'TOO_MANY_PAGES') {
+    super(code);
+  }
+}
+
+/**
+ * Counts the leaf pages without pdf-lib's own walk, which follows a node listed twice every time
+ * (a few KB can then take minutes), as esign's countPages: a node met twice or past depth 64 is
+ * NOT_A_PDF; past the page limit it stops with TOO_MANY_PAGES.
+ */
+function countPages(doc: PDFDocument): number {
+  const seen = new Set<PDFObject>();
+  let count = 0;
+  const walk = (ref: PDFObject | undefined, depth: number): void => {
+    if (!(ref instanceof PDFRef) || seen.has(ref) || depth > 64) throw new PdfRefused('NOT_A_PDF');
+    seen.add(ref);
+    const node = doc.context.lookup(ref, PDFDict);
+    const kids = node.lookupMaybe(PDFName.of('Kids'), PDFArray);
+    if (node.get(PDFName.of('Type')) === PDFName.of('Page') || !kids) {
+      if (++count > AGREEMENT_PDF_LIMITS.maxPages) throw new PdfRefused('TOO_MANY_PAGES');
+      return;
+    }
+    for (let i = 0; i < kids.size(); i++) walk(kids.get(i), depth + 1);
+  };
+  walk(doc.catalog.get(PDFName.of('Pages')), 0);
+  return count;
+}
 
 type PdfRefusal = Extract<
   AgreementErrorCode,
@@ -68,17 +112,15 @@ type PdfRefusal = Extract<
  */
 export async function inspectAgreementPdf(bytes: Uint8Array): Promise<PdfRefusal | null> {
   if (!PDF_MAGIC.every((b, i) => bytes[i] === b)) return 'NOT_A_PDF';
-  let pages: number;
   try {
     // Loaded with ignoreEncryption so an encrypted file is told apart from a broken one.
     const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
     if (pdf.isEncrypted) return 'FILE_PASSWORD_PROTECTED';
-    pages = pdf.getPageCount(); // throws on a file without a readable page tree
-  } catch {
-    return 'NOT_A_PDF';
+    if (pdf.context.largestObjectNumber > MAX_OBJECTS) return 'NOT_A_PDF';
+    return countPages(pdf) < 1 ? 'NOT_A_PDF' : null;
+  } catch (error) {
+    return error instanceof PdfRefused ? error.code : 'NOT_A_PDF';
   }
-  if (pages < 1) return 'NOT_A_PDF';
-  return pages > AGREEMENT_PDF_LIMITS.maxPages ? 'TOO_MANY_PAGES' : null;
 }
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
@@ -180,12 +222,20 @@ export class AgreementFilesService {
           select: fileSelect,
         });
         // A new file starts PENDING (the database insists); local mode scans it at once.
-        if (!local) return file;
-        return tx.firmAgreementFile.update({
-          where: { id: file.id },
-          data: { scanStatus: 'CLEAN', scannedAt: new Date() },
-          select: fileSelect,
-        });
+        const saved = local
+          ? await tx.firmAgreementFile.update({
+              where: { id: file.id },
+              data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+              select: fileSelect,
+            })
+          : file;
+        await this.audit.logIn(
+          tx,
+          'agreement_file.uploaded',
+          { type: 'firm_agreement_file', id: saved.id },
+          { scanMode: this.config.scanMode },
+        );
+        return saved;
       });
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') {
@@ -193,11 +243,6 @@ export class AgreementFilesService {
       }
       throw error;
     }
-    await this.audit.log(
-      'agreement_file.uploaded',
-      { type: 'firm_agreement_file', id: row.id },
-      { scanMode: this.config.scanMode },
-    );
     return view(row);
   }
 
@@ -231,17 +276,69 @@ export class AgreementFilesService {
   }
 
   /**
-   * The malware scan's result for an object under tenant/{businessId}/agreements/, for the scan
-   * router (R1): sets it once, on a PENDING file. Returns false when no such file waits for one.
+   * A GuardDuty result for an object under tenant/{businessId}/agreements/, for the scan router
+   * (R1), with ScanResultsService's outcomes: CLEAN or INFECTED; FAILED for a file the scan can't
+   * read (a file reason of UNSUPPORTED); PENDING when the scan broke on our side (the alarm and a
+   * rescan); UNKNOWN when no file has the key yet (the confirm may still come: redeliver);
+   * IGNORED for another key, a result already set, or an upload the confirm refused. The file is
+   * found by its key in the firm the key names. Audited with ids and codes only.
    */
-  async recordScan(key: string, result: 'CLEAN' | 'INFECTED' | 'FAILED'): Promise<boolean> {
-    const match = /^tenant\/([0-9a-f-]{36})\/agreements\/[0-9a-f-]{36}$/.exec(key);
-    if (!match) return false;
-    const { count } = await this.db.forBusiness(match[1]!).firmAgreementFile.updateMany({
-      where: { s3Key: key, scanStatus: 'PENDING' },
-      data: { scanStatus: result, scannedAt: new Date() },
+  async recordScan(result: ScanResult): Promise<ScanOutcome> {
+    const [, businessId, uploadId] = KEY.exec(result.key) ?? [];
+    if (!businessId || !uploadId) return 'IGNORED';
+    return this.db.withScope({ kind: 'business', businessId }, async (tx) => {
+      const [file] = await tx.$queryRaw<{ id: string; scan_status: string }[]>`
+        SELECT id, scan_status::text AS scan_status FROM firm_agreement_files
+        WHERE business_id = ${businessId}::uuid AND s3_key = ${result.key} FOR UPDATE`;
+      if (!file) {
+        const refused = await tx.auditLog.findFirst({
+          where: {
+            businessId,
+            createdAt: { gte: new Date(Date.now() - SCAN_REFUSALS_SINCE_MS) },
+            action: 'agreement_file.upload_refused',
+            metadata: { path: ['uploadId'], equals: uploadId },
+          },
+          select: { id: true },
+        });
+        if (refused) return 'IGNORED';
+        this.logger.warn(`Scan result for agreement upload ${uploadId} has no file yet; redeliver`);
+        return 'UNKNOWN';
+      }
+      if (file.scan_status !== 'PENDING') return 'IGNORED';
+      const fileReason = (result.reasons ?? []).some((r) => FILE_REASON.test(r));
+      const next =
+        result.status === 'NO_THREATS_FOUND'
+          ? 'CLEAN'
+          : result.status === 'THREATS_FOUND'
+            ? 'INFECTED'
+            : result.status === 'UNSUPPORTED' && fileReason
+              ? 'FAILED'
+              : null;
+      const entity = { type: 'firm_agreement_file', id: file.id };
+      if (!next) {
+        this.logger.warn(`Scan of agreement file ${file.id} did not finish: ${result.status}`);
+        await this.audit.logIn(
+          tx,
+          'agreement_file.scan_unfinished',
+          entity,
+          { result: result.status },
+          { businessId },
+        );
+        return 'PENDING';
+      }
+      await tx.firmAgreementFile.update({
+        where: { id: file.id },
+        data: { scanStatus: next, scannedAt: new Date() },
+      });
+      await this.audit.logIn(
+        tx,
+        'agreement_file.scanned',
+        entity,
+        { scanStatus: next, result: result.status },
+        { businessId },
+      );
+      return next;
     });
-    return count > 0;
   }
 
   private async find(businessId: string, fileId: string) {
@@ -282,7 +379,21 @@ export class AgreementFilesService {
     return { url, expiresAt: new Date(Date.now() + GET_URL_SECONDS * 1000).toISOString() };
   }
 
+  /** At most AGREEMENT_CHECKS_AT_ONCE at a time; one more is 503 (nothing deleted). */
   private async checkStored(claim: AgreementUploadClaim): Promise<PdfRefusal | null> {
+    if (checking >= AGREEMENT_CHECKS_AT_ONCE) {
+      this.logger.warn(`Confirm refused: ${AGREEMENT_CHECKS_AT_ONCE} checks already running; 503`);
+      throw unavailable();
+    }
+    checking += 1;
+    try {
+      return await this.inspectStored(claim);
+    } finally {
+      checking -= 1;
+    }
+  }
+
+  private async inspectStored(claim: AgreementUploadClaim): Promise<PdfRefusal | null> {
     const head = await this.s3(() => this.storage.head(claim.key));
     if (head?.sizeBytes !== claim.sizeBytes || head.contentEncoding !== null) {
       return 'UPLOAD_MISMATCH';

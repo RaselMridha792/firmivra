@@ -185,7 +185,7 @@ paths:
     post:
       tags: [agreement-files]
       operationId: createAgreementUpload
-      summary: Step 1 of 3, a one-time PUT URL for the PDF (5 minutes)
+      summary: Step 1 of 3, a one-time PUT URL for the PDF (240 seconds)
       requestBody: { $ref: '#/components/requestBodies/CreateAgreementUploadRequest' }
       responses:
         '201': { $ref: './documents.yaml#/components/responses/UploadTicket' }
@@ -204,10 +204,12 @@ paths:
         content: { application/json: { schema: { $ref: './documents.yaml#/components/schemas/ConfirmUploadRequest' } } }
       responses:
         '201': { $ref: '#/components/responses/AgreementFile' }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
         '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/AgreementConflict' }
         '410': { $ref: '#/components/responses/AgreementConflict' }
+        '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed, or 4 checks are already running; nothing is deleted' }
 
   /business/agreements/files/{fileId}:
     parameters:
@@ -287,9 +289,15 @@ paths:
       security: []
       operationId: downloadIntakeAgreementPdf
       summary: The current version's PDF original (an older version answers 404)
+      description: |
+        Any current, unarchived agreement of the firm, a service one included, whether or not its
+        service is marked Begin Online: the portal intake signs those too. Intended.
       responses:
         '200': { $ref: '#/components/responses/DownloadLink' }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+        '409': { description: 'FILE_BLOCKED: the stored file is no longer the confirmed one' }
+        '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed' }
 
 components:
   securitySchemes:
