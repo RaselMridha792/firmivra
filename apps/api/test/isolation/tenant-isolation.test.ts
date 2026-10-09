@@ -307,7 +307,12 @@ const leaked = (res: Response, ids: string[]) => {
   const text = JSON.stringify(res.body);
   return ids.filter((id) => text.includes(id));
 };
-const firmPIds = () => [firms.p.id, ...Object.values(base.rec), ...Object.values(own.p)];
+const firmPIds = () => [
+  firms.p.id,
+  ...Object.values(base.rec),
+  ...Object.values(peer.rec),
+  ...Object.values(own.p),
+];
 /** How many body ids the cases of these routes name (that `only` keeps). */
 const bodyIdCount = (pred: (r: ApiRoute) => boolean, only = (_: string) => true) =>
   routes
@@ -369,7 +374,10 @@ const HOW_TO_ADD =
   'record no file creates yet goes in ' +
   '`records` as { create(ctx) { ...return id } } (see world.ts); a route that is neither a firm ' +
   'nor a portal route goes in `excluded` with the reason; a firm or portal route behind a module ' +
-  'that is off in every firm goes in `moduleOff` with the reason until the module is on.';
+  'that is off in every firm goes in `moduleOff` with the reason until the module is on; a body ' +
+  'uuid or `...Id` field that names no record goes in NOT_RECORDS (body-ids.ts) with the reason. ' +
+  '"No zod schema the suite can read" and "nested body ids aren\'t swept yet" need the reader in ' +
+  'body-ids.ts or the sweep extended (R21), not a case.';
 
 describe('tenant isolation (R8 step 2)', () => {
   it('every route is covered: a case per record route, an excluded reason for the rest', () => {
@@ -397,7 +405,7 @@ describe('tenant isolation (R8 step 2)', () => {
         continue;
       }
       if (route.bodyUnreadable) problems.push(`${key}: ${route.bodyUnreadable}`);
-      for (const f of fields.filter((f) => f.includes('.')))
+      for (const f of fields.filter((f) => f.includes('.') || f.includes('*')))
         problems.push(`${key}: ${f}: nested body ids aren't swept yet`);
       if (params.length === 0 && fields.length === 0) {
         if (c) problems.push(`${key} (${c.file}): has no record param or body id, so no case`);

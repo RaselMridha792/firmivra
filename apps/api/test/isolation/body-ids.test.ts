@@ -41,6 +41,26 @@ describe('body ids (isolation suite)', () => {
     expect(paths(z.object({ extra: z.string() }).catchall(a))).toEqual(['*.clientId']);
   });
 
+  it('finds a uuid wherever it sits, not only as an object field', () => {
+    expect(paths(z.object({ owner: z.uuid().or(z.literal('')) }))).toEqual(['owner']);
+    expect(paths(z.object({ owner: z.uuid().or(z.null()) }))).toEqual(['owner']);
+    expect(paths(z.object({ assign: z.record(z.string(), z.uuid()) }))).toEqual(['assign.*']);
+    expect(paths(z.object({}).catchall(z.uuid()))).toEqual(['*']);
+    expect(paths(z.object({ pair: z.tuple([z.uuid(), z.uuid()]) }))).toEqual(['pair']);
+    expect(paths(z.object({ who: z.lazy(() => z.uuid()) }))).toEqual(['who']);
+    expect(paths(z.object({ grid: z.array(z.array(z.uuid())) }))).toEqual(['grid[]']);
+    expect(paths(z.object({ who: z.uuid().and(z.string()) }))).toEqual(['who']);
+  });
+
+  it('reads the shape behind a custom check, and still throws on a bare custom', () => {
+    const isObject = (v: unknown) => typeof v === 'object' && v !== null;
+    const answers = z
+      .custom<object>(isObject)
+      .pipe(z.record(z.string(), z.object({ clientId: z.uuid() })));
+    expect(paths(answers)).toEqual(['*.clientId']);
+    expect(() => idFields(z.object({ m: z.custom() }))).toThrow(/cannot read zod type custom/);
+  });
+
   it('throws on a type it cannot look inside', () => {
     const unreadable = [
       z.object({ x: z.any() }),

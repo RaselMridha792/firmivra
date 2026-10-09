@@ -29,6 +29,8 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
 ];
 
+// A uuid field not named like an id is found by its zod format (`z.uuid()`, `.uuid()`); one checked
+// only by a regex (`z.string().regex(...)`) is missed.
 const ID_NAME = /(Id|Ids)$|^ids$/;
 const UUID_FORMATS = new Set(['uuid', 'guid']);
 /** Types with nothing inside: no field, so no id field. */
@@ -88,9 +90,12 @@ export function idFields(schema: unknown, path = '', depth = 0): BodyIdField[] {
   const def = defOf(schema);
   const type = def?.type ?? String(schema);
   // A lazy schema that refers to itself ends here too: deeper than any body the API takes.
-  if (!def || depth > 20) throw new Error(`${path || 'body'}: cannot read zod type ${type}`);
+  if (!def) throw new Error(`${path || 'body'}: cannot read zod type ${type}`);
+  if (depth > 20) throw new Error(`${path || 'body'}: deeper than 20 levels (a recursive schema?)`);
   const inner = (s: unknown, p = path) => idFields(s, p, depth + 1);
   const at = (key: string) => (path ? `${path}.${key}` : key);
+  // A uuid anywhere (in a union, a record, a tuple, a list of lists) is a record id.
+  if (isUuid(schema)) return [{ path: path || '*', list: isList(schema) }];
   if (LEAVES.has(type)) return [];
   if (WRAPPERS.has(type)) return inner(def.innerType);
   switch (type) {
@@ -107,6 +112,8 @@ export function idFields(schema: unknown, path = '', depth = 0): BodyIdField[] {
       ]);
     }
     case 'pipe':
+      // A custom check in front of a readable shape (contract B's answers): the shape is the body.
+      if (defOf(def.in)?.type === 'custom') return inner(def.out);
       return dedupe([...inner(def.in), ...inner(def.out)]);
     case 'array':
       return inner(def.element);
