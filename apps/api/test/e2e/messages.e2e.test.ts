@@ -20,6 +20,7 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 
 // Strict copies of the contract's shapes: a leaked field fails the parse.
 const Message = z.strictObject({
@@ -59,6 +60,7 @@ const ids = {
 };
 
 let app: INestApplication;
+const outbox: NotifyMessage[] = [];
 const tokens = new Map<string, string>();
 
 async function tokenFor(email: string): Promise<string> {
@@ -189,9 +191,15 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot(env)],
-  }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (message: NotifyMessage) => {
+        outbox.push(message);
+        return Promise.resolve();
+      },
+    })
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -427,5 +435,68 @@ describe('reach and isolation', () => {
     } finally {
       await owner.$disconnect();
     }
+  });
+});
+
+describe('notices', () => {
+  const secret = randomUUID();
+  const mail = () => outbox.splice(0).filter((m) => m.template === 'message.new');
+
+  it('emails the primary login, with no text and once per unread run; a bell item too', async () => {
+    mail();
+    const t = await startThread({ subject: `Notice ${secret}`, body: `Body ${secret}` });
+    const first = mail();
+    expect(first.map((m) => m.to)).toEqual([people.primary.email]);
+    expect(first[0]).toMatchObject({
+      businessId: ids.firmA,
+      data: {
+        name: 'Fake R20 primary',
+        link: expect.stringMatching(new RegExp(`/${ids.slugA}/messages$`)),
+      },
+    });
+    expect(JSON.stringify(first)).not.toContain(secret);
+    // Still unread: no second email for the thread.
+    expectOk(
+      await firm('post', `/message-threads/${t.id}/messages`, people.ownerA, { body: 'More' }),
+      201,
+    );
+    expect(mail()).toEqual([]);
+    expectOk(await portal('post', `/${t.id}/read`, people.primary, {}));
+    expectOk(
+      await firm('post', `/message-threads/${t.id}/messages`, people.ownerA, { body: 'Again' }),
+      201,
+    );
+    expect(mail()).toHaveLength(1);
+
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      const bell = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.notification.findMany({
+          where: { businessId: ids.firmA, entityId: t.id },
+          select: { recipientUserId: true },
+        }),
+      );
+      const to = new Set(bell.map((b) => b.recipientUserId));
+      expect(to.has(people.primary.id)).toBe(true);
+      expect(to.has(people.ownerA.id)).toBe(false);
+      expect(to.has(people.spouse.id)).toBe(false);
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it("emails the client's assigned member and every Owner, never unassigned Staff", async () => {
+    const t = await startThread({ subject: 'Ask', body: 'Question?' });
+    mail();
+    expectOk(
+      await portal('post', `/${t.id}/messages`, people.spouse, { body: `Answer ${secret}` }),
+      201,
+    );
+    const sent = mail();
+    expect(sent.map((m) => m.to).sort()).toEqual([people.ownerA.email, people.staffA.email].sort());
+    expect(sent[0]?.data).toMatchObject({
+      link: expect.stringMatching(new RegExp(`/clients/${ids.one}/messages$`)),
+    });
+    expect(JSON.stringify(sent)).not.toContain(secret);
   });
 });

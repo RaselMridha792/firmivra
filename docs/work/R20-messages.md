@@ -21,7 +21,7 @@ Not R20's: R15's intake, Begin Online and leads; `apps/api/src/notify` (R15's `m
 - [x] 3. Read receipts and unread counts
 - [x] 4. Internal notes
 - [x] 5. Private notes and reminders
-- [ ] 6. Notices: `message.received` bell item and the `message.new` email (after #159 and #160)
+- [x] 6. Notices: `message.received` bell item and the `message.new` email (after #159 and #160)
 - [ ] 7. Isolation sweep; route list to R0 for R8's suite
 
 ## Defaults taken (open questions, sent to the Scrum thread with the contract PR)
@@ -38,3 +38,4 @@ Not R20's: R15's intake, Begin Online and leads; `apps/api/src/notify` (R15's `m
 - Oct 9: contract (step 1) on `rasel/r20-messages-ui8jcx`, PR #168.
 - Oct 9: threads, read state and unread counts (steps 2-3) on `rasel/R20-threads`, PR #177.
 - Oct 9: internal notes and private notes with reminders (steps 4-5) on `rasel/R20-notes`.
+- Oct 9: notices (step 6) on `rasel/R20-notices`, built on #159 and #160 (merged into the branch); PR opens once both are on main.

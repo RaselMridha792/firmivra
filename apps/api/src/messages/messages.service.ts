@@ -34,6 +34,7 @@ import {
   likeEscape,
 } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { MessageNotices } from './message-notices.js';
 
 type FirmListQuery = z.output<typeof ListMessageThreadsQuery>;
 type MyListQuery = z.output<typeof ListMyMessagesQuery>;
@@ -124,6 +125,7 @@ export class MessagesService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly notices: MessageNotices,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -369,7 +371,7 @@ export class MessagesService {
     clientId: string,
     body: CreateBody,
   ): Promise<MessageThreadDetail> {
-    return this.inFirm(businessId, async (tx) => {
+    const detail = await this.inFirm(businessId, async (tx) => {
       await tx.$queryRaw`
         SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid
         FOR SHARE`;
@@ -420,10 +422,12 @@ export class MessagesService {
       );
       return this.firmDetail(tx, businessId, await this.thread(tx, businessId, actor, thread.id));
     });
+    await this.notify(businessId, detail.id, detail.messages[0]?.id, actor.userId, 'client');
+    return detail;
   }
 
   async send(businessId: string, actor: ClientsActor, id: string, body: string): Promise<Message> {
-    return this.inFirm(businessId, async (tx) => {
+    const message = await this.inFirm(businessId, async (tx) => {
       const t = await this.thread(tx, businessId, actor, id);
       const row = await tx.message.create({
         data: {
@@ -446,6 +450,8 @@ export class MessagesService {
       );
       return this.toMessage(await this.people(tx, businessId, [actor.userId]), row);
     });
+    await this.notify(businessId, id, message.id, actor.userId, 'client');
+    return message;
   }
 
   async setReplies(
@@ -703,7 +709,7 @@ export class MessagesService {
     clientAccountId: string,
     body: MyCreateBody,
   ): Promise<MyMessageThreadDetail> {
-    return this.inFirm(businessId, async (tx) => {
+    const { detail, userId } = await this.inFirm(businessId, async (tx) => {
       const me = await this.writer(tx, businessId, clientAccountId);
       const thread = await tx.messageThread.create({
         data: {
@@ -733,13 +739,18 @@ export class MessagesService {
           messageId: message.id,
         },
       );
-      return this.myDetail(
-        tx,
-        businessId,
-        me.userId,
-        await this.myThread(tx, businessId, me.clientId, thread.id),
-      );
+      return {
+        userId: me.userId,
+        detail: await this.myDetail(
+          tx,
+          businessId,
+          me.userId,
+          await this.myThread(tx, businessId, me.clientId, thread.id),
+        ),
+      };
     });
+    await this.notify(businessId, detail.id, detail.messages[0]?.id, userId, 'staff');
+    return detail;
   }
 
   async myReply(
@@ -748,8 +759,9 @@ export class MessagesService {
     id: string,
     body: string,
   ): Promise<MyMessage> {
+    let sent: { message: MyMessage; userId: string };
     try {
-      return await this.inFirm(businessId, async (tx) => {
+      sent = await this.inFirm(businessId, async (tx) => {
         const me = await this.writer(tx, businessId, clientAccountId);
         // FOR SHARE: the firm can't close replies between this check and the insert.
         await tx.$queryRaw`
@@ -776,13 +788,27 @@ export class MessagesService {
             clientId: me.clientId,
           },
         );
-        return this.toMine(new Map(), me.userId, row);
+        return { message: this.toMine(new Map(), me.userId, row), userId: me.userId };
       });
     } catch (error) {
       // The database's own rule, should replies close in a race the lock above did not cover.
       if (databaseErrorCode(error) === CHECK_VIOLATION) throw repliesClosed();
       throw error;
     }
+    await this.notify(businessId, id, sent.message.id, sent.userId, 'staff');
+    return sent.message;
+  }
+
+  /** The new message's notices, after it committed; they never fail the request. */
+  private async notify(
+    businessId: string,
+    threadId: string,
+    messageId: string | undefined,
+    senderUserId: string,
+    toSide: 'client' | 'staff',
+  ): Promise<void> {
+    if (!messageId) return;
+    await this.notices.sent({ businessId, threadId, messageId, senderUserId, toSide });
   }
 
   async myMark(
