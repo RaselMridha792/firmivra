@@ -135,6 +135,41 @@ export function flatten(doc: PDFDocument): void {
   doc.catalog.delete(PDFName.of('AcroForm'));
 }
 
+/** Annotations that carry files, media or 3D content: never kept in a signed PDF. */
+const ACTIVE_ANNOTS = ['FileAttachment', 'Sound', 'Movie', 'Screen', 'RichMedia', '3D'];
+/** The only link actions a signed PDF keeps: a web address or a place in the document. */
+const SAFE_ACTIONS = ['URI', 'GoTo'];
+
+/**
+ * Removes what can run or hide content: document and page actions, JavaScript, embedded files,
+ * file and media annotations, and links whose action is not a web address or a page.
+ */
+export function stripActiveContent(doc: PDFDocument): void {
+  const name = (n: string) => PDFName.of(n);
+  doc.catalog.delete(name('OpenAction'));
+  doc.catalog.delete(name('AA'));
+  const names = doc.catalog.lookupMaybe(name('Names'), PDFDict);
+  names?.delete(name('JavaScript'));
+  names?.delete(name('EmbeddedFiles'));
+  for (const page of doc.getPages()) {
+    page.node.delete(name('AA'));
+    const annots = page.node.lookupMaybe(name('Annots'), PDFArray);
+    for (let i = (annots?.size() ?? 0) - 1; i >= 0; i--) {
+      const annot = doc.context.lookupMaybe(annots!.get(i), PDFDict);
+      if (!annot) continue;
+      const subtype = annot.lookupMaybe(name('Subtype'), PDFName)?.decodeText() ?? '';
+      if (ACTIVE_ANNOTS.includes(subtype)) {
+        annots!.remove(i);
+        continue;
+      }
+      annot.delete(name('AA'));
+      const action = annot.lookupMaybe(name('A'), PDFDict);
+      const kind = action?.lookupMaybe(name('S'), PDFName)?.decodeText();
+      if (action && !SAFE_ACTIONS.includes(kind ?? '')) annots!.remove(i);
+    }
+  }
+}
+
 const SIGNATURE_PAGE = { width: 612, height: 792 } as const;
 
 function signaturePage(
@@ -174,6 +209,7 @@ function signaturePage(
 export async function finalize(packet: Uint8Array, input: FinalizeInput): Promise<Uint8Array> {
   const doc = await PDFDocument.load(packet, { updateMetadata: false });
   flatten(doc);
+  stripActiveContent(doc);
   const font = await embedNoto(doc);
   const images = new Map<Uint8Array, PDFImage>();
   const pngs = [...input.stamps.flatMap((s) => (s.kind === 'IMAGE' ? [s.png] : []))];

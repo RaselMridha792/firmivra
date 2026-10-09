@@ -2,12 +2,21 @@
 // every page rotation and on a page whose MediaBox doesn't start at 0,0; form fields are
 // flattened (also after compose); one signature page per signer; Noto Sans prints non-Latin names.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
-import { PDFArray, PDFDocument, PDFName, PDFRawStream, type PDFPage } from 'pdf-lib';
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  PDFString,
+  type PDFPage,
+} from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
 import type { FieldBox } from '../../src/esign/engine/engine.types.js';
 import { compose } from '../../src/esign/engine/pdf-compose.js';
-import { finalize, placeBox } from '../../src/esign/engine/pdf-finalize.js';
+import { finalize, notoSans, placeBox } from '../../src/esign/engine/pdf-finalize.js';
 import { formPdf, pdf, png } from './esign-engine-fixtures.js';
 
 /** What a viewer does: a point of the page's own space to shown fractions, top-left origin. */
@@ -166,5 +175,63 @@ describe('finalize', () => {
       dateStyle: 'long',
     }).format(new Date('2026-10-09T02:30:00Z'));
     expect(date).toBe('October 8, 2026');
+  });
+});
+
+describe('the font', () => {
+  it('loads next to the code, and nest build ships it to dist', async () => {
+    expect((await notoSans()).byteLength).toBeGreaterThan(100_000);
+    const nest = JSON.parse(
+      readFileSync(new URL('../../nest-cli.json', import.meta.url), 'utf8'),
+    ) as {
+      sourceRoot: string;
+      compilerOptions: { assets?: { include: string; outDir: string }[] };
+    };
+    expect(nest.sourceRoot).toBe('src');
+    expect(nest.compilerOptions.assets).toContainEqual({
+      include: 'esign/engine/fonts/*',
+      outDir: 'dist',
+    });
+  });
+});
+
+describe('active content', () => {
+  it('is removed from the signed PDF; plain links stay', async () => {
+    const doc = await PDFDocument.load(await pdf([[612, 792]]));
+    const ctx = doc.context;
+    const js = ctx.obj({ S: 'JavaScript', JS: PDFString.of('app.alert(1)') });
+    doc.catalog.set(PDFName.of('OpenAction'), js);
+    doc.catalog.set(
+      PDFName.of('Names'),
+      ctx.obj({ JavaScript: ctx.obj({}), EmbeddedFiles: ctx.obj({}) }),
+    );
+    const page = doc.getPage(0);
+    page.node.set(PDFName.of('AA'), ctx.obj({ O: js }));
+    const annot = (extra: Record<string, unknown>) =>
+      ctx.register(ctx.obj({ Type: 'Annot', Rect: [0, 0, 10, 10], ...extra } as never));
+    const uri = annot({
+      Subtype: 'Link',
+      A: { S: 'URI', URI: PDFString.of('https://example.test') },
+    });
+    page.node.set(
+      PDFName.of('Annots'),
+      ctx.obj([
+        annot({ Subtype: 'FileAttachment' }),
+        annot({ Subtype: 'Link', A: { S: 'JavaScript', JS: PDFString.of('x') } }),
+        annot({ Subtype: 'Link', A: { S: 'Launch' } }),
+        uri,
+      ]),
+    );
+    const out = await PDFDocument.load(
+      await finalize(await doc.save(), { stamps: [], signaturePages: [], timeZone: 'UTC' }),
+    );
+    expect(out.catalog.get(PDFName.of('OpenAction'))).toBeUndefined();
+    const names = out.catalog.lookupMaybe(PDFName.of('Names'), PDFDict);
+    expect(names?.has(PDFName.of('JavaScript'))).toBe(false);
+    expect(names?.has(PDFName.of('EmbeddedFiles'))).toBe(false);
+    expect(out.getPage(0).node.get(PDFName.of('AA'))).toBeUndefined();
+    const left = out.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+    expect(left.size()).toBe(1);
+    expect(String(out.context.lookup(left.get(0)))).toContain('/URI');
   });
 });
