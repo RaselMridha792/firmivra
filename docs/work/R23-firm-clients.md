@@ -21,13 +21,14 @@ Not mine: the Documents, Messages, Invoices and Signatures tabs' pages, `compone
 ## Steps
 
 - [x] 1. `/clients`: list with search, Active/Archived/All and cursor paging; mock spec (api.clients has no mock, the spec answers the API)
-- [ ] 2. `/clients/[id]`: header and tabs in the layout; Overview with profile (SSN and EIN last 4 only), contact and portal logins; archive and restore (Owner and Admin)
+- [x] 2. `/clients/[id]`: header and tabs in the layout; Overview with profile (SSN and EIN last 4 only), contact and portal logins; archive and restore (Owner and Admin)
 - [ ] 3. `/sign-ups`: pending and declined sign-ups, approve (or link to an existing record) and decline with a reason; Staff see the no-permission state
 - [ ] 4. Profile and contact edit on the Overview
 
 ## Progress log
 
-- Oct 9: step 1.
+- Oct 9: step 1 (#372).
+- Oct 9: step 2.
 
 ## Needs from others
 
