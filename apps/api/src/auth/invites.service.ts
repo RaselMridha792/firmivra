@@ -54,6 +54,12 @@ export interface CreateInviteInput {
   name: string;
   role: MembershipRole;
   invitedBy: Inviter | null;
+  /**
+   * R4: a new firm's owner link from Firmivra (role OWNER, invitedBy null). The invite row is
+   * written in platform scope, so the database marks it `sent_by_platform` and keeps the
+   * Super Admin's token-free copy (`platform_owner_invites`); the membership stays in the firm's.
+   */
+  fromPlatform?: boolean;
 }
 
 export interface InviteResult {
@@ -207,12 +213,12 @@ export class InvitesService {
    */
   async createInvite(input: CreateInviteInput): Promise<InviteResult> {
     const { name, email } = typedRules.transform({ name: input.name, email: input.email });
-    return this.invite(input.businessId, input.invitedBy, {
-      kind: 'invite',
-      name,
-      email,
-      role: input.role,
-    });
+    return this.invite(
+      input.businessId,
+      input.invitedBy,
+      { kind: 'invite', name, email, role: input.role },
+      input.fromPlatform,
+    );
   }
 
   /**
@@ -223,8 +229,10 @@ export class InvitesService {
     businessId: string,
     invitedBy: Inviter | null,
     link: NewLink,
+    fromPlatform = false,
   ): Promise<InviteResult> {
     if (link.kind === 'invite') assertMayInvite(invitedBy, link.role);
+    if (fromPlatform && invitedBy) throw new Error('A platform invite has no inviting member');
 
     const firm = this.db.forBusiness(businessId);
     const business = await firm.business.findUnique({
@@ -247,7 +255,17 @@ export class InvitesService {
     const expiresAt = new Date(Date.now() + INVITE_DAYS * DAY_MS);
     // Retried once if a parallel invite created the membership first (then it is a resend), or
     // an activation or a deactivation changed it meanwhile (then the new state decides).
-    const { inviteId, membershipId, resent, name, email, role } = await retryOnConflict(() =>
+    // What the inviter typed (#52): the firm sees this, never the person's user row.
+    const inviteRow = (membershipId: string, details: InviteDetails) => ({
+      businessId,
+      membershipId,
+      tokenHash: sha256(token),
+      name: details.name,
+      email: details.email,
+      expiresAt,
+      invitedByUserId: invitedBy?.userId ?? null,
+    });
+    const made = await retryOnConflict(() =>
       this.db.withScope(
         { kind: 'business', businessId },
         async (tx) => {
@@ -291,21 +309,18 @@ export class InvitesService {
                 data: { businessId, userId, role: details.role, status: 'INVITED' },
                 select: { id: true },
               });
-          const invite = await tx.invite.create({
-            data: {
-              businessId,
-              membershipId: membership.id,
-              tokenHash: sha256(token),
-              // What the inviter typed (#52): the firm sees this, never the person's user row.
-              name: details.name,
-              email: details.email,
-              expiresAt,
-              invitedByUserId: invitedBy?.userId ?? null,
-            },
-            select: { id: true },
-          });
+          if (fromPlatform && details.role !== 'OWNER') {
+            throw new Error('Only an owner link is sent by the platform');
+          }
+          // A platform link is written after this commits, in platform scope (below).
+          const invite = fromPlatform
+            ? null
+            : await tx.invite.create({
+                data: inviteRow(membership.id, details),
+                select: { id: true },
+              });
           return {
-            inviteId: invite.id,
+            inviteId: invite?.id ?? null,
             membershipId: membership.id,
             resent: existing?.status === 'INVITED',
             ...details,
@@ -315,6 +330,23 @@ export class InvitesService {
         OUTSIDE_CALL_LIMITS,
       ),
     );
+    const { membershipId, resent, name, email, role } = made;
+    // Platform scope inserts invites but not memberships: the link follows the membership's
+    // commit, under the same per-person lock, revoking any link sent in between.
+    const inviteId =
+      made.inviteId ??
+      (await this.db.withScope({ kind: 'platform' }, async (tx) => {
+        await lockStaffInvites(tx, businessId, userId);
+        await tx.invite.updateMany({
+          where: { membershipId, acceptedAt: null, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        const row = await tx.invite.create({
+          data: inviteRow(membershipId, made),
+          select: { id: true },
+        });
+        return row.id;
+      }));
 
     // Audited before sending: a failed send still leaves the invite on record.
     await this.auditInFirm(
@@ -410,6 +442,8 @@ export class InvitesService {
     businessId: string;
     membershipId: string;
     invitedBy: Inviter | null;
+    /** As CreateInviteInput's: a new owner link from Firmivra. */
+    fromPlatform?: boolean;
   }): Promise<InviteResult> {
     const membership = await this.db.forBusiness(input.businessId).membership.findUnique({
       where: { id: input.membershipId },
@@ -419,11 +453,12 @@ export class InvitesService {
     if (membership.status !== 'INVITED') throw notInvited();
     // Checked again on the role the membership has in the invite transaction.
     assertMayInvite(input.invitedBy, membership.role);
-    return this.invite(input.businessId, input.invitedBy, {
-      kind: 'resend',
-      membershipId: input.membershipId,
-      userId: membership.userId,
-    });
+    return this.invite(
+      input.businessId,
+      input.invitedBy,
+      { kind: 'resend', membershipId: input.membershipId, userId: membership.userId },
+      input.fromPlatform,
+    );
   }
 
   /**
