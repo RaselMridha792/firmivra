@@ -8,7 +8,7 @@ const features = {
     ['settings', 'Control Settings', 'Manage platform features and configurations.'],
   ],
   firm: [
-    ['users', 'Serve Clients', 'Keep client details, documents and messages together.'],
+    ['users', 'Serve Clients', 'Keep client documents and messages together.'],
     ['firm', 'Run Your Firm', 'Manage your services, appointments and invoices.'],
     ['chart', 'Track Work', 'Follow tasks, requests and intake forms.'],
     ['settings', 'Control Access', 'Give each team member the right access.'],
