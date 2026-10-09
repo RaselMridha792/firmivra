@@ -1,11 +1,9 @@
 import { z } from 'zod';
+import { ONE_LINE, text } from '../clients/text.js';
 import { SignatureMethod } from '../db-enums.js';
 
 // Signature capture, shared by intake signing (R14) and Firm Sign (R13 owns this file once it
 // merges). The API's esign/core applies the same normalisation before it hashes the evidence.
-
-/** Control, format (zero-width, bidi) and line or paragraph separator characters. */
-const HIDDEN_CHARACTERS = /[\p{Cc}\p{Cf}\u2028\u2029]/u;
 
 /**
  * The comparison form of a signed name: Unicode NFC, runs of whitespace collapsed to one space,
@@ -15,12 +13,15 @@ export function signatureNameKey(value: string): string {
   return value.normalize('NFC').replace(/\s+/gu, ' ').trim().toLowerCase();
 }
 
-/** A printed name or typed signature: 1 to 200 characters, no hidden characters. */
-export const SignatureText = z
-  .string()
-  .max(200)
-  .refine((s) => !HIDDEN_CHARACTERS.test(s), { message: 'Remove hidden or control characters.' })
-  .refine((s) => signatureNameKey(s).length > 0, { message: 'Enter your name.' });
+/**
+ * True when a signed name is visible text on one line: the clients' ONE_LINE rule (no control,
+ * invisible, bidi-override or blank-looking filler characters, no lone surrogates; the
+ * zero-width joiners, soft hyphen and direction marks that real names use stay allowed).
+ */
+export const isVisibleSignatureText = (value: string): boolean => ONE_LINE.test(value);
+
+/** A printed name or typed signature: trimmed, 1 to 200 characters, visible text on one line. */
+export const SignatureText = text(200, 'one', 'Enter your name.');
 
 /** Intake signing is typed for Oct 18; Firm Sign adds DRAWN and UPLOADED with its own fields. */
 export const CaptureMethod = SignatureMethod.extract(['TYPED']);
