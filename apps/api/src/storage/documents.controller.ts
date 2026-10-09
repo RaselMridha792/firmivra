@@ -31,6 +31,7 @@ import { createS3Client, DOCUMENT_STORAGE, S3DocumentStorage } from './document-
 import { FirmDocumentsService } from './firm-documents.service.js';
 import { MyDocumentsController } from './my-documents.controller.js';
 import { MyDocumentsService } from './my-documents.service.js';
+import { ScanResultsService } from './scan-results.service.js';
 import { UploadTokens } from './upload-token.js';
 import { UploadsService } from './uploads.service.js';
 
@@ -192,6 +193,9 @@ export class DocumentsController {
     FirmDocumentsService,
     MyDocumentsService,
     DocumentRequestsService,
+    // For the GuardDuty result handler (the SQS consumer comes with the infra).
+    ScanResultsService,
   ],
+  exports: [ScanResultsService],
 })
 export class DocumentsModule {}

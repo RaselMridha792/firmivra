@@ -1,9 +1,8 @@
-// End-to-end: R5 part 2, built in three stacked PRs. The firm's document requests (PR 1); here
-// also the portal's documents (lists, view, download, categories, upload targets, uploads and
-// confirm) with the household rules (Rasel, q12), the client's side of the requests (its list,
-// "I don't have this", an upload that answers one), the request path of confirm, isolation
-// between clients, logins and firms, and the audit (ids only). The scan results (PR 3) add their
-// tests here. Storage is in memory here (CI has no s3mock).
+// End-to-end: R5 part 2. The portal's documents (lists, view, download, categories, upload
+// targets, uploads and confirm) with the household rules (Rasel, q12), the document requests on
+// both sides with their state machine, the request path of confirm, the scan results that reopen
+// a request (q22) or accept a password-protected PDF unscanned (q24), isolation between clients,
+// logins and firms, and the audit (ids only). Storage is in memory here (CI has no s3mock).
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -32,7 +31,8 @@ import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from '../../src/storage/config.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
-import { pdf, sha256 } from '../office-files.js';
+import { ScanResultsService, type ScanResult } from '../../src/storage/scan-results.service.js';
+import { DOCX, office, pdf, sha256 } from '../office-files.js';
 
 /** Storage in memory: `objects.set(key, bytes)` is the browser's PUT. */
 class MemoryStorage implements DocumentStorage {
@@ -104,6 +104,7 @@ const ids = {} as Record<
 const accounts = {} as Record<'primary' | 'spouse' | 'authorized', string>;
 
 let app: INestApplication;
+let scans: ScanResultsService;
 const tokens = new Map<string, string>();
 let viewers = 0;
 const viewer = () => `198.51.${100 + Math.floor(++viewers / 250)}.${viewers % 250}, 10.0.0.6`;
@@ -220,6 +221,8 @@ const requestRow = (id: string) =>
 const keyOf = async (documentId: string) =>
   (await asOwner(firms.a.id, (tx) => tx.document.findUniqueOrThrow({ where: { id: documentId } })))
     .s3Key;
+const scan = async (documentId: string, status: ScanResult['status'], reasons?: string[]) =>
+  scans.recordScanResult({ key: await keyOf(documentId), status, reasons });
 const auditOf = (entityId: string) =>
   asOwner(firms.a.id, (tx) =>
     tx.auditLog.findMany({ where: { entityId }, orderBy: { createdAt: 'asc' } }),
@@ -384,6 +387,7 @@ beforeAll(async () => {
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
   app = nest;
+  scans = nest.get(ScanResultsService);
 });
 
 afterAll(async () => {
@@ -651,6 +655,53 @@ describe('portal lists, views and downloads', () => {
     });
   });
 
+  it('downloads only CLEAN files and says BLOCKED in the words the client may see', async () => {
+    const { pending, failedFirm, changed } = await scanned(async () => ({
+      pending: await mine(people.primary, { fileName: 'Pending.pdf' }),
+      failedFirm: await firmFile({ shareWithClient: true }),
+      changed: await mine(people.primary, { fileName: 'Changed.pdf' }),
+    }));
+    expect(pending.status).toBe('CHECKING');
+    expectError(
+      await call('get', `/me/documents/${pending.id}/download`, people.primary),
+      409,
+      'SCAN_PENDING',
+    );
+    expect(await scan(pending.id, 'THREATS_FOUND')).toBe('INFECTED');
+    const blocked = await call('get', `/me/documents/${pending.id}/download`, people.primary);
+    expectError(blocked, 409, 'FILE_BLOCKED');
+    expect(codeOf(blocked)?.message).toBe(PORTAL_BLOCKED_TEXT.MINE);
+    expect(
+      exact(MyDocument, await call('get', `/me/documents/${pending.id}`, people.primary)).status,
+    ).toBe('BLOCKED');
+    expect(await scan(failedFirm.id, 'UNSUPPORTED', ['OBJECT_SIZE_LIMIT_EXCEEDED'])).toBe('FAILED');
+    const firmBlocked = await call('get', `/me/documents/${failedFirm.id}/download`, people.spouse);
+    expect(codeOf(firmBlocked)?.message).toBe(PORTAL_BLOCKED_TEXT.FIRM);
+    // The firm's own words stay the contract's; it sees the exact status.
+    expect(
+      exact(FirmDocument, await call('get', `/documents/${failedFirm.id}`, people.ownerA))
+        .scanStatus,
+    ).toBe('FAILED');
+    // A stored object that is no longer the confirmed one is FILE_BLOCKED, as on the firm side.
+    expect(await scan(changed.id, 'NO_THREATS_FOUND')).toBe('CLEAN');
+    const key = await keyOf(changed.id);
+    const original = storage.objects.get(key)!;
+    storage.objects.set(key, Buffer.concat([original, Buffer.from(' ')]));
+    expect(
+      codeOf(await call('get', `/me/documents/${changed.id}/download`, people.primary))?.message,
+    ).toBe(PORTAL_BLOCKED_TEXT.MINE);
+    storage.objects.set(key, original);
+    const link = await call('get', `/me/documents/${changed.id}/download`, people.spouse);
+    expect(link.status, JSON.stringify(link.body)).toBe(200);
+    const issued = (await auditOf(changed.id)).filter(
+      (a) => a.action === 'document.download_link_issued',
+    );
+    expect(issued.at(-1)?.metadata).toMatchObject({
+      clientId: ids.c1,
+      clientAccountId: accounts.spouse,
+    });
+  });
+
   it('filters, sorts by name, pages and lists the source years; 400 for a bad cursor or search', async () => {
     for (const fileName of ['b-sorted.pdf', 'a-sorted.pdf', 'c-sorted.pdf']) {
       await mine(people.spouse, { fileName, taxYear: 2024 });
@@ -836,6 +887,30 @@ describe('document requests', () => {
       'document_request.cancelled',
     ]);
     expect(entries[1]?.metadata).toEqual({ clientId: ids.c1, from: 'REQUESTED' });
+  });
+
+  it('accepts only a CLEAN newest file: NOTHING_SUBMITTED, SCAN_PENDING, then ACCEPTED and closed', async () => {
+    const r = await newRequest();
+    expectError(await decide(r.id, 'accept'), 409, 'NOTHING_SUBMITTED');
+    expectError(await decide(r.id, 'reject'), 409, 'NOTHING_SUBMITTED');
+    const doc = await scanned(() => mine(people.primary, { requestId: r.id }));
+    expectError(await decide(r.id, 'accept'), 409, 'SCAN_PENDING');
+    expect(await scan(doc.id, 'NO_THREATS_FOUND')).toBe('CLEAN');
+    const accepted = exact(FirmDocumentRequest, await decide(r.id, 'accept', people.staffA));
+    expect(accepted).toMatchObject({ status: 'ACCEPTED', documents: [{ id: doc.id }] });
+    expect(accepted.resolvedAt).not.toBeNull();
+    for (const action of ['accept', 'reject', 'cancel'] as const) {
+      expectError(await decide(r.id, action), 409, 'REQUEST_CLOSED');
+    }
+    expectError(
+      await call('post', `/me/document-requests/${r.id}/not-available`, people.primary, {
+        reason: 'x',
+      }),
+      409,
+      'REQUEST_CLOSED',
+    );
+    const entry = (await auditOf(r.id)).find((a) => a.action === 'document_request.accepted');
+    expect(entry?.metadata).toEqual({ clientId: ids.c1, from: 'SUBMITTED', documentId: doc.id });
   });
 
   it('marks missing (the client sees why and answers again), takes "I don\'t have this", cancels', async () => {
@@ -1039,5 +1114,153 @@ describe('document requests', () => {
       expect(actions).toEqual(['document_request.created', 'document_request.cancelled']);
       expect([saved, storage.objects.has(key)]).toEqual([0, false]);
     }
+  });
+});
+
+describe('scan results (q22, q24)', () => {
+  it('puts a request back to REQUESTED when its newest file ends INFECTED or FAILED', async () => {
+    const r = await newRequest();
+    const first = await scanned(() => mine(people.primary, { requestId: r.id }));
+    expect(await scan(first.id, 'THREATS_FOUND')).toBe('INFECTED');
+    expect(await requestRow(r.id)).toMatchObject({ status: 'REQUESTED' });
+    expectError(await decide(r.id, 'accept'), 409, 'NOTHING_SUBMITTED');
+    const reopened = (await auditOf(r.id)).find((a) => a.action === 'document_request.reopened');
+    expect(reopened?.metadata).toEqual({
+      clientId: ids.c1,
+      documentId: first.id,
+      scanStatus: 'INFECTED',
+    });
+    const targets = exact(
+      UploadTargets,
+      await call('get', '/me/documents/upload-targets', people.authorized),
+    );
+    expect(targets.tax[0]?.openRequests.map((o) => o.id)).toContain(r.id);
+    // A result is set once.
+    expect(await scan(first.id, 'NO_THREATS_FOUND')).toBe('IGNORED');
+
+    // An older file's result never reopens a request a newer file answers.
+    const second = await scanned(() => mine(people.primary, { requestId: r.id }));
+    exact(FirmDocumentRequest, await decide(r.id, 'reject'));
+    const third = await scanned(() => mine(people.primary, { requestId: r.id }));
+    expect(await scan(second.id, 'UNSUPPORTED', ['EXTRACTED_FILE_COUNT_LIMIT_EXCEEDED'])).toBe(
+      'FAILED',
+    );
+    expect((await requestRow(r.id)).status).toBe('SUBMITTED');
+    expect(await scan(third.id, 'UNSUPPORTED', ['PASSWORD_PROTECTED'])).toBe('UNSCANNED');
+    exact(FirmDocumentRequest, await decide(r.id, 'accept'));
+  });
+
+  it('reopens only a SUBMITTED request: cancelled, missing and "I don\'t have this" stay', async () => {
+    const [cancelled, missing, none] = [await newRequest(), await newRequest(), await newRequest()];
+    const files = await scanned(async () => [
+      await mine(people.primary, { requestId: cancelled.id }),
+      await mine(people.primary, { requestId: missing.id }),
+      await mine(people.primary, { requestId: none.id }),
+    ]);
+    exact(FirmDocumentRequest, await decide(cancelled.id, 'cancel'));
+    exact(FirmDocumentRequest, await decide(missing.id, 'reject'));
+    exact(FirmDocumentRequest, await decide(none.id, 'reject'));
+    exact(
+      MyDocumentRequest,
+      await call('post', `/me/document-requests/${none.id}/not-available`, people.primary, {
+        reason: 'We had none',
+      }),
+    );
+    for (const file of files) expect(await scan(file.id, 'THREATS_FOUND')).toBe('INFECTED');
+    expect(await requestRow(cancelled.id)).toMatchObject({ status: 'CANCELLED' });
+    expect(await requestRow(missing.id)).toMatchObject({
+      status: 'REJECTED',
+      statusNote: 'Pages are missing',
+    });
+    expect(await requestRow(none.id)).toMatchObject({
+      status: 'NOT_AVAILABLE',
+      statusNote: 'We had none',
+    });
+    for (const r of [cancelled, missing, none]) {
+      const actions = (await auditOf(r.id)).map((a) => a.action);
+      expect(actions).not.toContain('document_request.reopened');
+    }
+  });
+
+  it('answers UNKNOWN (for redelivery) to a result that comes before the confirm, then records it', async () => {
+    const r = await newRequest();
+    const bytes = pdf('early result');
+    const t = await scanned(async () =>
+      exact(
+        UploadTicket,
+        await call('post', '/me/documents/uploads', people.primary, {
+          ...facts(bytes),
+          serviceId: ids.e1,
+          requestId: r.id,
+        }),
+      ),
+    );
+    const key = t.url.slice('memory:'.length);
+    storage.objects.set(key, bytes);
+    expect(await scans.recordScanResult({ key, status: 'NO_THREATS_FOUND' })).toBe('UNKNOWN');
+    const doc = await scanned(async () =>
+      exact(
+        MyDocument,
+        await call('post', '/me/documents/uploads/confirm', people.primary, {
+          uploadToken: t.uploadToken,
+        }),
+      ),
+    );
+    expect(doc.status).toBe('CHECKING');
+    expectError(await decide(r.id, 'accept'), 409, 'SCAN_PENDING');
+    // The redelivered message.
+    expect(await scans.recordScanResult({ key, status: 'NO_THREATS_FOUND' })).toBe('CLEAN');
+    exact(FirmDocumentRequest, await decide(r.id, 'accept'));
+  });
+
+  it('accepts a password-protected PDF unscanned, fails other file reasons, and waits on our side', async () => {
+    const { pdfFile, docx, ours, denied } = await scanned(async () => ({
+      pdfFile: await mine(people.primary, {}),
+      docx: await mine(
+        people.primary,
+        { fileName: 'Lease.docx', contentType: DOCX },
+        office('docx'),
+      ),
+      ours: await mine(people.primary, {}),
+      denied: await mine(people.primary, {}),
+    }));
+    expect(await scan(pdfFile.id, 'UNSUPPORTED', ['PASSWORD_PROTECTED'])).toBe('UNSCANNED');
+    expect(
+      exact(MyDocument, await call('get', `/me/documents/${pdfFile.id}`, people.primary)).status,
+    ).toBe('READY');
+    const entry = (await auditOf(pdfFile.id)).find((a) => a.action === 'document.scanned');
+    expect(entry?.metadata).toEqual({
+      clientId: ids.c1,
+      scanStatus: 'CLEAN',
+      result: 'UNSUPPORTED',
+      reasons: ['PASSWORD_PROTECTED'],
+      unscanned: true,
+    });
+    expect(await scan(docx.id, 'UNSUPPORTED', ['PASSWORD_PROTECTED'])).toBe('FAILED');
+    expect(await scan(ours.id, 'UNSUPPORTED', ['UNSUPPORTED_STORAGE_CLASS'])).toBe('PENDING');
+    expect(await scan(denied.id, 'ACCESS_DENIED')).toBe('PENDING');
+    expect(await scan(denied.id, 'FAILED')).toBe('PENDING');
+    const pending = await asOwner(firms.a.id, (tx) =>
+      tx.document.findMany({
+        where: { id: { in: [ours.id, denied.id] } },
+        select: { scanStatus: true },
+      }),
+    );
+    expect(pending.map((d) => d.scanStatus)).toEqual(['PENDING', 'PENDING']);
+    // Found by the key in its own firm only: firm B's prefix with firm A's object has no
+    // document there (UNKNOWN, firm A's file untouched); a key outside the prefixes is IGNORED.
+    const key = await keyOf(ours.id);
+    const elsewhere = key.replace(firms.a.id, firms.b.id);
+    expect(await scans.recordScanResult({ key: elsewhere, status: 'THREATS_FOUND' })).toBe(
+      'UNKNOWN',
+    );
+    const ignored = ['not-a-key', `${key}/x`, key.replace('/documents/', '/other/')];
+    for (const k of ignored) {
+      expect(await scans.recordScanResult({ key: k, status: 'THREATS_FOUND' })).toBe('IGNORED');
+    }
+    const untouched = await asOwner(firms.a.id, (tx) =>
+      tx.document.findUniqueOrThrow({ where: { id: ours.id }, select: { scanStatus: true } }),
+    );
+    expect(untouched.scanStatus).toBe('PENDING');
   });
 });
