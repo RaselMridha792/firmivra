@@ -286,6 +286,21 @@ enum LegalDocumentKind {
   PRIVACY
 }
 
+/// Which intakes a firm agreement covers.
+enum AgreementScope {
+  /// The firm-wide agreement: every Begin Online form and every portal intake. One per firm.
+  ALL_INTAKES
+  /// An extra agreement for one service's intakes.
+  SERVICE
+}
+
+/// How a signature was captured. Intake signing is TYPED; DRAWN and UPLOADED are Firm Sign's.
+enum SignatureMethod {
+  TYPED
+  DRAWN
+  UPLOADED
+}
+
 /// A firm on Firmivra (the tenant).
 model Business {
   id           String         @id @default(uuid(7)) @db.Uuid
@@ -393,8 +408,8 @@ model Membership {
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business            Business       @relation(fields: [businessId], references: [id])
-  user                User           @relation(fields: [userId], references: [id])
+  business            Business               @relation(fields: [businessId], references: [id])
+  user                User                   @relation(fields: [userId], references: [id])
   invites             Invite[]
   assignedClients     Client[]
   assignedEngagements Engagement[]
@@ -404,6 +419,9 @@ model Membership {
   appointments        Appointment[]
   invoicesCreated     Invoice[]
   contentCreated      ContentItem[]
+  agreementsCreated   FirmAgreement[]
+  agreementFiles      FirmAgreementFile[]
+  agreementVersions   FirmAgreementVersion[]
 
   // Offline payments this member recorded or voided.
   offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
@@ -444,6 +462,7 @@ model ClientAccount {
   invites           Invite[]
   privateNotes      ClientPrivateNote[]
   legalAcceptances  LegalAcceptance[]
+  intakeSignatures  IntakeSignature[]
   verificationCodes VerificationCode[]
 
   @@unique([businessId, email])
@@ -595,8 +614,10 @@ model FirmLegalDocument {
   publishedByUserId String            @map("published_by_user_id") @db.Uuid
   publishedAt       DateTime          @default(now()) @map("published_at") @db.Timestamptz(3)
 
-  business    Business          @relation(fields: [businessId], references: [id])
-  acceptances LegalAcceptance[]
+  business          Business          @relation(fields: [businessId], references: [id])
+  termsSignatures   IntakeSignature[] @relation("IntakeSignatureTerms")
+  privacySignatures IntakeSignature[] @relation("IntakeSignaturePrivacy")
+  acceptances       LegalAcceptance[]
 
   @@unique([businessId, kind, version])
   // Target of same-firm foreign keys (legal acceptances).
@@ -799,9 +820,10 @@ model Service {
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business    Business     @relation(fields: [businessId], references: [id])
+  business    Business        @relation(fields: [businessId], references: [id])
   engagements Engagement[]
   intakeForms IntakeForm[]
+  agreements  FirmAgreement[]
   leads       Lead[]
 
   @@unique([businessId, name])
@@ -1078,7 +1100,8 @@ model IntakeForm {
   title           String
   /// The form engine's definition (I06 sets the shape).
   definition      Json             @default("{}")
-  /// The agreement the client signs at the end, as shown (markdown).
+  /// Deprecated (r0_intake_agreements): no longer written. The agreement the client signs now
+  /// comes from FirmAgreement. Kept until after delivery because the published-form rule reads it.
   agreementText   String?          @map("agreement_text")
   status          IntakeFormStatus @default(DRAFT)
   publishedAt     DateTime?        @map("published_at") @db.Timestamptz(3)
@@ -1111,6 +1134,7 @@ model Intake {
   form        IntakeForm         @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict)
   engagement  Engagement?        @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
   lead        Lead?              @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  signatures  IntakeSignature[]
   submissions IntakeSubmission[]
 
   @@unique([businessId, id])
@@ -1138,9 +1162,12 @@ model IntakeSubmission {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  intake Intake @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  intake    Intake           @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  signature IntakeSignature?
 
   @@unique([businessId, intakeId, version])
+  // Target of same-firm foreign keys (intake signatures).
+  @@unique([businessId, id])
   @@map("intake_submissions")
 }
 
@@ -1168,9 +1195,10 @@ model Lead {
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  service    Service      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement?  @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  service    Service           @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?       @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   intakes    Intake[]
+  signatures IntakeSignature[]
   uploads    LeadUpload[]
 
   @@unique([businessId, id])
@@ -1885,4 +1913,150 @@ model TaxReturn {
   @@index([businessId, clientId, taxYear])
   @@index([businessId, documentId])
   @@map("tax_returns")
+}
+
+/// One agreement a firm keeps for intakes (docs/SYSTEM-DESIGN.md, intake agreements): the
+/// firm-wide agreement (one unarchived per firm) or an extra one for a service. Its text lives in
+/// insert-only versions. Only sort_order and archived_at change (archived once); never deleted.
+model FirmAgreement {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  businessId      String         @map("business_id") @db.Uuid
+  scope           AgreementScope
+  /// Only for SERVICE agreements.
+  serviceId       String?        @map("service_id") @db.Uuid
+  sortOrder       Int            @default(0) @map("sort_order")
+  archivedAt      DateTime?      @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String         @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  service   Service?               @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership             @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  versions  FirmAgreementVersion[]
+
+  @@unique([businessId, id])
+  @@index([businessId, serviceId])
+  @@map("firm_agreements")
+}
+
+/// The PDF original of an agreement version, uploaded by the firm. Same file rules as a document:
+/// under `tenant/<business_id>/agreements/`, PDF only, at most 10 MB, starts unscanned, scan
+/// result set once, file fixed. A version may link it only once it is CLEAN. Never deleted.
+model FirmAgreementFile {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  businessId       String     @map("business_id") @db.Uuid
+  fileName         String     @map("file_name")
+  contentType      String     @default("application/pdf") @map("content_type")
+  sizeBytes        Int        @map("size_bytes")
+  /// SHA-256 of the file, hex.
+  sha256           String
+  s3Key            String     @unique @map("s3_key")
+  scanStatus       ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  uploadedByUserId String     @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  uploadedBy Membership             @relation(fields: [businessId, uploadedByUserId], references: [businessId, userId], onDelete: Restrict)
+  versions   FirmAgreementVersion[]
+
+  @@unique([businessId, id])
+  // Target of the version's (file, hash) foreign key, so a version's pdf_sha256 is the file's.
+  @@unique([businessId, id, sha256])
+  @@map("firm_agreement_files")
+}
+
+/// One published version of a firm agreement. Insert-only: a change is a new version, numbered
+/// 1, 2, 3… per agreement. The database sets body_sha256 from the Markdown, and refuses a PDF
+/// that is not CLEAN or an archived agreement. Clients sign a version; its hashes are pinned.
+model FirmAgreementVersion {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  agreementId       String    @map("agreement_id") @db.Uuid
+  version           Int
+  title             String
+  /// The text the client reads (Markdown, rendered with raw HTML off).
+  bodyMarkdown      String    @map("body_markdown")
+  /// SHA-256 of body_markdown in UTF-8, hex. Set by the database on insert; any value sent is replaced.
+  bodySha256        String    @default("") @map("body_sha256")
+  /// [{ key, label, text, required }], 0 to 8 with unique keys. The firm-wide agreement needs a required one.
+  acknowledgments   Json      @default("[]")
+  /// The PDF original (both set or both null).
+  pdfFileId         String?   @map("pdf_file_id") @db.Uuid
+  pdfSha256         String?   @map("pdf_sha256")
+  effectiveDate     DateTime? @map("effective_date") @db.Date
+  publishedByUserId String    @map("published_by_user_id") @db.Uuid
+  publishedAt       DateTime  @default(now()) @map("published_at") @db.Timestamptz(3)
+
+  agreement   FirmAgreement              @relation(fields: [businessId, agreementId], references: [businessId, id], onDelete: Restrict)
+  pdfFile     FirmAgreementFile?         @relation(fields: [businessId, pdfFileId, pdfSha256], references: [businessId, id, sha256], onDelete: Restrict)
+  publishedBy Membership                 @relation(fields: [businessId, publishedByUserId], references: [businessId, userId], onDelete: Restrict)
+  signatures  IntakeSignatureAgreement[]
+
+  @@unique([businessId, agreementId, version])
+  @@unique([businessId, id])
+  @@map("firm_agreement_versions")
+}
+
+/// The signature evidence for one submitted intake version (Begin Online lead or portal client).
+/// Insert-only. Written while the submission is a draft; setting the submission's submitted_at
+/// needs it, with the same name, time, IP and browser. signed_at is the database's time.
+/// acknowledgments copies each one shown: [{ agreementVersionId, key, label, text, required, checked }].
+model IntakeSignature {
+  id                String          @id @default(uuid(7)) @db.Uuid
+  businessId        String          @map("business_id") @db.Uuid
+  submissionId      String          @map("submission_id") @db.Uuid
+  intakeId          String          @map("intake_id") @db.Uuid
+  /// Begin Online: the intake's lead. Exactly one of leadId and clientAccountId.
+  leadId            String?         @map("lead_id") @db.Uuid
+  /// Portal: a login of the engagement's client.
+  clientAccountId   String?         @map("client_account_id") @db.Uuid
+  printedName       String          @map("printed_name")
+  signatureText     String          @map("signature_text")
+  signatureMethod   SignatureMethod @default(TYPED) @map("signature_method")
+  signerTitle       String?         @map("signer_title")
+  signerEmail       String?         @map("signer_email")
+  acknowledgments   Json            @default("[]")
+  /// Begin Online's Terms of Service and Privacy Policy tick: the versions accepted (both or neither).
+  termsDocumentId   String?         @map("terms_document_id") @db.Uuid
+  privacyDocumentId String?         @map("privacy_document_id") @db.Uuid
+  /// SHA-256 hex of the canonical answers, and of the canonical evidence (apps/api esign/core).
+  answersSha256     String          @map("answers_sha256")
+  evidenceSha256    String          @map("evidence_sha256")
+  /// Set by the database (transaction time); any value sent is replaced.
+  signedAt          DateTime        @default(now()) @map("signed_at") @db.Timestamptz(3)
+  ip                String?         @db.Inet
+  userAgent         String?         @map("user_agent")
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  submission    IntakeSubmission           @relation(fields: [businessId, submissionId], references: [businessId, id], onDelete: Restrict)
+  intake        Intake                     @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  lead          Lead?                      @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  clientAccount ClientAccount?             @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  terms         FirmLegalDocument?         @relation("IntakeSignatureTerms", fields: [businessId, termsDocumentId], references: [businessId, id], onDelete: Restrict)
+  privacy       FirmLegalDocument?         @relation("IntakeSignaturePrivacy", fields: [businessId, privacyDocumentId], references: [businessId, id], onDelete: Restrict)
+  agreements    IntakeSignatureAgreement[]
+
+  // One signature per submission version.
+  @@unique([businessId, submissionId])
+  @@unique([businessId, id])
+  @@index([businessId, intakeId])
+  @@map("intake_signatures")
+}
+
+/// One agreement version an intake signature covers, with the hashes the signer saw (they must
+/// equal the version's). Insert-only, only while the submission is a draft, and only the current
+/// version of an unarchived agreement.
+model IntakeSignatureAgreement {
+  businessId         String  @map("business_id") @db.Uuid
+  signatureId        String  @map("signature_id") @db.Uuid
+  agreementVersionId String  @map("agreement_version_id") @db.Uuid
+  bodySha256         String  @map("body_sha256")
+  pdfSha256          String? @map("pdf_sha256")
+
+  signature        IntakeSignature      @relation(fields: [businessId, signatureId], references: [businessId, id], onDelete: Restrict)
+  agreementVersion FirmAgreementVersion @relation(fields: [businessId, agreementVersionId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([signatureId, agreementVersionId])
+  @@index([businessId, agreementVersionId])
+  @@map("intake_signature_agreements")
 }

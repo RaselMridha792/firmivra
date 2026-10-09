@@ -204,7 +204,7 @@ beforeAll(async () => {
       const intake = await tx.intake.create({
         data: { businessId: firm, formId: form.id, leadId: lead.id },
       });
-      await tx.intakeSubmission.create({
+      const submission = await tx.intakeSubmission.create({
         data: { businessId: firm, intakeId: intake.id, version: 1 },
       });
       const leadUpload = await tx.leadUpload.create({
@@ -367,6 +367,47 @@ beforeAll(async () => {
       await tx.calculatorDefinition.create({
         data: { businessId: firm, key: 'tax_return', title: 'Tax', disclaimer: 'Estimate only' },
       });
+      await tx.firmAgreementFile.create({
+        data: {
+          businessId: firm,
+          fileName: 'agreement.pdf',
+          sizeBytes: 100,
+          sha256: 'b'.repeat(64),
+          s3Key: `tenant/${firm}/agreements/${randomUUID()}`,
+          uploadedByUserId: ownerId,
+        },
+      });
+      const agreement = await tx.firmAgreement.create({
+        data: { businessId: firm, scope: 'ALL_INTAKES', createdByUserId: ownerId },
+      });
+      const acknowledgment = { key: 'read', label: 'Read', text: 'Fake text.', required: true };
+      const version = await tx.firmAgreementVersion.create({
+        data: {
+          businessId: firm,
+          agreementId: agreement.id,
+          version: 1,
+          title: 'Agreement',
+          bodyMarkdown: 'Fake agreement. Not legal text.',
+          acknowledgments: [acknowledgment],
+          publishedByUserId: ownerId,
+        },
+      });
+      await tx.intakeSignature.create({
+        data: {
+          businessId: firm,
+          submissionId: submission.id,
+          intakeId: intake.id,
+          leadId: lead.id,
+          printedName: 'Fake Lead',
+          signatureText: 'Fake Lead',
+          acknowledgments: [{ agreementVersionId: version.id, ...acknowledgment, checked: true }],
+          answersSha256: 'c'.repeat(64),
+          evidenceSha256: 'd'.repeat(64),
+          agreements: {
+            create: { agreementVersionId: version.id, bodySha256: version.bodySha256 },
+          },
+        },
+      });
       const inv = await tx.invite.create({
         data: {
           businessId: firm,
@@ -479,6 +520,11 @@ describe('no scope set', () => {
     expect(await unscopedApp.offlinePayment.findMany()).toEqual([]);
     expect(await unscopedApp.contentItem.findMany()).toEqual([]);
     expect(await unscopedApp.calculatorDefinition.findMany()).toEqual([]);
+    expect(await unscopedApp.firmAgreement.findMany()).toEqual([]);
+    expect(await unscopedApp.firmAgreementFile.findMany()).toEqual([]);
+    expect(await unscopedApp.firmAgreementVersion.findMany()).toEqual([]);
+    expect(await unscopedApp.intakeSignature.findMany()).toEqual([]);
+    expect(await unscopedApp.intakeSignatureAgreement.findMany()).toEqual([]);
   });
 });
 
@@ -538,6 +584,11 @@ describe('business scope: firm B', () => {
       await b().offlinePayment.findMany(),
       await b().contentItem.findMany(),
       await b().calculatorDefinition.findMany(),
+      await b().firmAgreement.findMany(),
+      await b().firmAgreementFile.findMany(),
+      await b().firmAgreementVersion.findMany(),
+      await b().intakeSignature.findMany(),
+      await b().intakeSignatureAgreement.findMany(),
     ]) {
       expect(rows.length).toBeGreaterThan(0);
       expect(rows.every((r) => r.businessId === ids.firmB)).toBe(true);
@@ -815,6 +866,11 @@ describe('platform scope', () => {
     expect(await p.payment.findMany()).toEqual([]);
     expect(await p.paymentEvent.findMany()).toEqual([]);
     expect(await p.contentItem.findMany()).toEqual([]);
+    expect(await p.firmAgreement.findMany()).toEqual([]);
+    expect(await p.firmAgreementFile.findMany()).toEqual([]);
+    expect(await p.firmAgreementVersion.findMany()).toEqual([]);
+    expect(await p.intakeSignature.findMany()).toEqual([]);
+    expect(await p.intakeSignatureAgreement.findMany()).toEqual([]);
   });
 });
 
