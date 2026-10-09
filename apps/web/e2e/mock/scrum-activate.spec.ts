@@ -58,7 +58,7 @@ test('if setup cannot start after activating, the person signs in to finish', as
   await expect(page.getByTestId('activation-done')).toContainText('Your account is activated');
   const signIn = page.getByRole('link', { name: 'Go to sign in' });
   await expect(signIn).toHaveAttribute('href', '/sign-in');
-  await expect(signIn).toHaveCSS('font-weight', '500');
+  await expect(signIn).toHaveCSS('font-weight', '600');
   await expect(page.getByLabel('New password')).toHaveCount(0);
 });
 

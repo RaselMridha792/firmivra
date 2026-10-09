@@ -90,7 +90,7 @@ info:
     | `DUPLICATE_CHECK_NUMBER` | check whose number (any case) is live on this invoice already |
     | `ALREADY_VOIDED` | void of an offline payment voided already |
     | `CLIENT_ARCHIVED` | create, update or send for an archived client |
-    | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe, or while another one of these on the invoice still talks to Stripe (retry) |
+    | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe, or while another one of these on the invoice still talks to Stripe (retry); update or send of a draft a cancel holds |
     | `NOT_PAYABLE` | Pay Now on an invoice that is upcoming, paid, canceled or has nothing left to pay |
     | `PAYMENTS_NOT_SET_UP` | Pay Now while the firm's Stripe account cannot take charges |
     | `NOT_REFUNDABLE` | refund of a payment that is not `SUCCEEDED` (pending, failed, refunded in full) |
@@ -391,7 +391,7 @@ paths:
     put:
       tags: [firm]
       operationId: updateInvoice
-      summary: Replaces the whole draft, lines included (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED
+      summary: Replaces the whole draft, lines included (Owner and Admin). 409 NOT_DRAFT, PAYMENT_IN_PROGRESS (a cancel holds the draft), CLIENT_ARCHIVED, in that order
       requestBody: { $ref: '#/components/requestBodies/UpdateInvoiceRequest' }
       responses:
         '200': { $ref: '#/components/responses/Invoice' }
@@ -408,7 +408,7 @@ paths:
     post:
       tags: [firm]
       operationId: sendInvoice
-      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED, in that order
+      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, PAYMENT_IN_PROGRESS (a cancel holds the draft), CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED, in that order
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200': { $ref: '#/components/responses/Invoice' }
