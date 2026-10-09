@@ -731,14 +731,26 @@ export function createInvoicesMock(
       }
       const r = find(key);
       // A retry of a payment already recorded: the invoice as it is now, nothing recorded twice.
+      // The key is per firm: one already used on another invoice is 404, as the API answers.
       const recorded = s.offlineKeys.get(b.idempotencyKey);
-      if (recorded) return toInvoice(find(recorded), today());
+      if (recorded !== undefined) {
+        if (recorded !== r.id) throw notFound();
+        return toInvoice(r, today());
+      }
       if (r.status !== 'OPEN') throw fail(409, 'NOT_OPEN', 'Only an open invoice takes a payment');
       if (processing(r)) {
         throw fail(409, 'PAYMENT_IN_PROGRESS', 'A payment for this invoice is being processed');
       }
       if (b.amountCents > figures(r).balanceDueCents) {
         throw fail(409, 'AMOUNT_TOO_LARGE', 'The payment is more than the balance due');
+      }
+      // One live record of a check number per invoice, in any case (R0's unique index).
+      const number = b.reference?.toUpperCase();
+      if (
+        b.method === 'CHECK' &&
+        live(r).some((o) => o.method === 'CHECK' && o.reference?.toUpperCase() === number)
+      ) {
+        throw fail(409, 'DUPLICATE_CHECK_NUMBER', 'This check number is already recorded');
       }
       const at = now();
       s.offlineKeys.set(b.idempotencyKey, r.id);

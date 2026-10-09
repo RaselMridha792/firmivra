@@ -117,9 +117,8 @@ export function money(row: InvoiceRow) {
   const amountPaidCents = received.reduce((s, p) => s + p.amountCents, 0);
   const refundedCents = received.reduce((s, p) => s + confirmedRefunds(p), 0);
   const closed = row.status === 'PAID' || row.status === 'CANCELED';
-  const balanceDueCents = closed
-    ? 0
-    : Math.max(0, row.totalCents - (amountPaidCents - refundedCents));
+  // A refund never makes money owed again (a refunded invoice stays PAID).
+  const balanceDueCents = closed ? 0 : Math.max(0, row.totalCents - amountPaidCents);
   return { amountPaidCents, refundedCents, balanceDueCents };
 }
 

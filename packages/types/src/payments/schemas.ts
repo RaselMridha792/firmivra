@@ -473,22 +473,28 @@ export const OfflinePaymentId = z.uuid();
  * POST /business/invoices/{id}/offline-payments (Owner and Admin): records a check or cash payment
  * on an OPEN invoice, at most its balance due; the invoice turns PAID when the money received
  * covers the total. The API first ends an open Pay Now checkout the client left (409
- * PAYMENT_IN_PROGRESS when the client already paid on it). 409 NOT_OPEN, AMOUNT_TOO_LARGE or
- * PAYMENT_IN_PROGRESS; 400 for a day after the firm's today.
+ * PAYMENT_IN_PROGRESS when the client already paid on it). 409 NOT_OPEN, AMOUNT_TOO_LARGE,
+ * DUPLICATE_CHECK_NUMBER or PAYMENT_IN_PROGRESS; 400 for a day after the firm's today.
  */
 export const RecordOfflinePaymentRequest = z
   .strictObject({
     method: OfflineMethod,
     amountCents: Amount.min(1, 'Record at least $0.01'),
-    /** The check number (required for a check) or a cash receipt number: letters, digits, hyphens. */
+    /**
+     * The check number (required for a check) or a cash receipt number: up to 20 letters, digits
+     * and hyphens, starting with a letter or digit. Left out when there is none (empty is 400).
+     */
     reference: z
       .string()
       .trim()
-      .regex(/^[A-Za-z0-9-]{1,20}$/, 'Use up to 20 letters, digits or hyphens')
+      .regex(
+        /^[A-Za-z0-9][A-Za-z0-9-]{0,19}$/,
+        'Use up to 20 letters, digits or hyphens, starting with a letter or digit',
+      )
       .optional(),
-    /** The day the money arrived; not after the firm's today. */
-    receivedOn: CalendarDate,
-    /** For the firm only. */
+    /** The day the money arrived: from 2000-01-01, and not after the firm's today. */
+    receivedOn: CalendarDate.refine((d) => d >= '2000-01-01', 'Enter a date from 2000 on'),
+    /** For the firm only. Left out when there is none (empty is 400). */
     note: text(500, 'many', 'Add a note').optional(),
     /**
      * A new random id each time the dialog opens, sent again unchanged on a retry: a retry of a
@@ -637,10 +643,18 @@ export const InvoiceErrorCode = z.enum([
    * in full): void or refund it first.
    */
   'HAS_PAYMENTS',
-  /** 409 (offline payment): only an open invoice takes a payment (not a draft, upcoming, paid or canceled). */
+  /**
+   * 409 (offline payment): only an open invoice takes a payment (not a draft, upcoming, paid or
+   * canceled).
+   */
   'NOT_OPEN',
   /** 409 (offline payment): more than the balance due. */
   'AMOUNT_TOO_LARGE',
+  /**
+   * 409 (offline payment): this check number (any case) is already recorded on a live payment of
+   * this invoice; void that one first, or check the number.
+   */
+  'DUPLICATE_CHECK_NUMBER',
   /** 409 (void): the offline payment is voided already. */
   'ALREADY_VOIDED',
   /** 409: the client is archived; restore the client first (as in api.clients). */
@@ -680,6 +694,7 @@ export const INVOICE_ERRORS = {
     'This invoice has payments. Void its check or cash payments and refund its card payments first.',
   NOT_OPEN: 'Only an open invoice can take a payment. Reload to see its status.',
   AMOUNT_TOO_LARGE: 'The payment is more than the balance due on this invoice.',
+  DUPLICATE_CHECK_NUMBER: 'This check number is already recorded on this invoice.',
   ALREADY_VOIDED: 'This payment is voided already. Reload to see it.',
   CLIENT_ARCHIVED: 'This client is archived. Restore the client first.',
   NOT_PAYABLE: 'This invoice is not open for payment. Reload to see its status.',

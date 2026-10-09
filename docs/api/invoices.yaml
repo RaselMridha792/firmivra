@@ -87,6 +87,7 @@ info:
     | `HAS_PAYMENTS` | cancel of an invoice holding money (a live offline payment, or a Stripe payment not refunded in full) |
     | `NOT_OPEN` | offline payment on an invoice that is not `OPEN` |
     | `AMOUNT_TOO_LARGE` | offline payment of more than the balance due |
+    | `DUPLICATE_CHECK_NUMBER` | check whose number (any case) is live on this invoice already |
     | `ALREADY_VOIDED` | void of an offline payment voided already |
     | `CLIENT_ARCHIVED` | create, update or send for an archived client |
     | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe |
@@ -212,17 +213,26 @@ info:
       firm refunds it.
     - **Offline payments.** Record in one transaction with `withScope({ kind: 'business',
       businessId, actorUserId })` (the acting member; `recorded_by_user_id` is them, checked by the
-      database), after locking the invoice (`404` if not the firm's). A retry with a used
-      `idempotencyKey` fails as a duplicate key before any other check: answer the invoice as it
-      is (`200`, read the row by key). `receivedOn` after the firm's today is `400`. Then `409
-      NOT_OPEN` (not `OPEN`); end the invoice's open Checkout Sessions at Stripe as cancel does
-      (`409 PAYMENT_IN_PROGRESS` when the client already paid on one; `503` when Stripe does not
-      answer); `409 AMOUNT_TOO_LARGE` over the balance due (`total − app_invoice_paid_cents`). The
-      invoice turns `PAID` when covered (the API sets it, as the webhook does); notices
-      `payment.received` after commit. Void only with `app_void_offline_payment(id, reason)` as the
-      acting member (`404` for no such payment on this invoice, `409 ALREADY_VOIDED`); the
-      database reopens a `PAID` invoice it no longer covers. Both audited (ids, method and amount;
-      never the note). The portal's View lists live offline payments' method, amount and day only.
+      database). Checks in this order: `receivedOn` after the firm's today is `400` (before
+      2000-01-01, an empty `reference` or an empty `note` are `400` too: the form leaves out a
+      field it has no value for); lock the invoice (`404` if not the firm's). A used
+      `idempotencyKey` (keys are per firm) is a retry: when its payment is on this invoice, answer
+      the invoice as it is (`200`, nothing recorded twice); when it is on another invoice, `404
+      NOT_FOUND`. Then `409 NOT_OPEN` (not `OPEN`), `409 PAYMENT_IN_PROGRESS` (a submitted payment
+      waits for Stripe), `409 AMOUNT_TOO_LARGE` over the balance due (`total −
+      app_invoice_paid_cents`), `409 DUPLICATE_CHECK_NUMBER` (a live `CHECK` on this invoice with
+      the same `upper(reference)`: R0's `offline_payments_one_live_check`); then end the invoice's
+      open Checkout Sessions at Stripe as cancel does (`409 PAYMENT_IN_PROGRESS` when the client
+      already paid on one; `503` when Stripe does not answer). Of the unique violations, only the
+      idempotency key's (`offline_payments_business_id_idempotency_key_key`: two first-time
+      requests with one key at once) is answered as a retry; any other is `409
+      DUPLICATE_CHECK_NUMBER`. The invoice turns `PAID` when covered (the API sets it, as the
+      webhook does); notices `payment.received` after commit. Void only with
+      `app_void_offline_payment(id, reason)` as the acting member (`404` for no such payment on
+      this invoice, `409 ALREADY_VOIDED`); the database reopens a `PAID` invoice it no longer
+      covers. Audited as `invoice.offline_payment_recorded` and `invoice.offline_payment_voided`
+      (ids, method and amount only; never the note, the reference or the void reason). The
+      portal's View lists live offline payments' method, amount and day only.
     - **Refund.** Lock the payment row (`404` if it is not this invoice's; `409 NOT_REFUNDABLE`
       unless it is `SUCCEEDED` or `REFUNDED`). Get its payment intent from the session
       (`sessions.retrieve`) and list its refunds at Stripe (`refunds.list` by payment intent). One
@@ -246,7 +256,9 @@ info:
       `invoice.opened` (by the job), `invoice.canceled`, `invoice.checkout_started` (the client's
       user, invoice, payment and amount), `payment.succeeded`, `payment.failed`,
       `invoice.paid`, `payment.refund_requested` (who, payment, amount), `payment.refunded`,
-      `payment.refund_failed`. Webhook entries name Stripe as the actor. Reads are not audited.
+      `payment.refund_failed`, `invoice.offline_payment_recorded` and
+      `invoice.offline_payment_voided` (the payment's id, method and amount). Webhook entries name
+      Stripe as the actor. Reads are not audited.
     - **Cursors** are opaque (the sort keys of the last item); a cursor the API did not make is
       `400 VALIDATION_FAILED`.
 
@@ -435,7 +447,10 @@ paths:
     post:
       tags: [firm]
       operationId: recordOfflinePayment
-      summary: Records a check or cash payment on an OPEN invoice, at most its balance due; PAID once covered (Owner and Admin). The same idempotencyKey again answers the invoice as it is
+      summary: >-
+        Records a check or cash payment on an OPEN invoice, at most its balance due; PAID once
+        covered (Owner and Admin). The same idempotencyKey again answers the invoice as it is (404
+        when that key's payment is on another invoice)
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/RecordOfflinePaymentRequest' } } }
@@ -446,7 +461,10 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: '`NOT_OPEN`, `PAYMENT_IN_PROGRESS` or `AMOUNT_TOO_LARGE`' }
+        '409':
+          description: >-
+            `NOT_OPEN`, `PAYMENT_IN_PROGRESS`, `AMOUNT_TOO_LARGE` or `DUPLICATE_CHECK_NUMBER`, in
+            that order (then `PAYMENT_IN_PROGRESS` again from Stripe)
         '503': { $ref: '#/components/responses/ProviderUnavailable' }
   /business/invoices/{id}/offline-payments/{offlinePaymentId}/void:
     parameters:
@@ -503,7 +521,10 @@ paths:
       summary: View, with lines, totals and the payment history
       parameters: [{ $ref: '#/components/parameters/FirmSlug' }, { $ref: '#/components/parameters/Id' }]
       responses:
-        '200': { description: MyInvoiceDetail }
+        '200':
+          description: >-
+            zod MyInvoiceDetail (MyInvoice plus lines, amounts, payments, and offlinePayments: live
+            ones only, method, amount and day)
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -650,7 +671,11 @@ components:
     ApiError: { $ref: './auth.yaml#/components/schemas/ApiError' }
     InvoiceStatus: { type: string, enum: [DRAFT, SCHEDULED, OPEN, PAID, CANCELED] }
     MyInvoiceStatus: { type: string, enum: [PENDING, DUE_SOON, PAID, UPCOMING, CANCELED] }
-    Invoice: { type: object, description: 'zod Invoice (InvoiceListItem plus lines, amounts, payments with refunds, cancelReason, createdBy)' }
+    Invoice:
+      type: object
+      description: >-
+        zod Invoice (InvoiceListItem plus lines, amounts, payments with refunds, offlinePayments
+        with voided ones, cancelReason, createdBy)
     LineInput:
       type: object
       additionalProperties: false
@@ -698,9 +723,21 @@ components:
       properties:
         method: { type: string, enum: [CHECK, CASH] }
         amountCents: { type: integer, minimum: 1, maximum: 99999999, description: At most the balance due }
-        reference: { type: string, pattern: '^[A-Za-z0-9-]{1,20}$', description: The check number (required for CHECK) or a cash receipt number; never a bank number }
-        receivedOn: { type: string, format: date, description: "The day the money arrived; not after the firm's today" }
-        note: { type: string, minLength: 1, maxLength: 500, description: The firm's only; never shown to the client }
+        reference:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9-]{0,19}$'
+          description: >-
+            The check number (required for CHECK) or a cash receipt number; never a bank number.
+            Left out when there is none (empty is 400)
+        receivedOn:
+          type: string
+          format: date
+          description: "The day the money arrived: from 2000-01-01, not after the firm's today"
+        note:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: "The firm's only; never shown to the client. Left out when none (empty: 400)"
         idempotencyKey: { type: string, format: uuid, description: 'New per dialog, the same on a retry' }
     VoidOfflinePaymentRequest:
       type: object

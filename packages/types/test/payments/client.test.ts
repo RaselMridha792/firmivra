@@ -145,6 +145,11 @@ describe('api.invoices (firm)', () => {
     ['part of a cent', { ...cash, amountCents: 10.5 }],
     ['a reference with spaces', { ...cash, reference: '10 42' }],
     ['a reference over 20 characters', { ...cash, reference: '1'.repeat(21) }],
+    ['a reference starting with a hyphen', { ...cash, reference: '-12' }],
+    ['a reference of hyphens only', { ...cash, method: 'CHECK', reference: '---' }],
+    ['an empty reference', { ...cash, reference: '' }],
+    ['an empty note', { ...cash, note: ' ' }],
+    ['a day before 2000', { ...cash, receivedOn: '1999-12-31' }],
     ['a note over 500 characters', { ...cash, note: 'x'.repeat(501) }],
     ['no idempotency key', { ...cash, idempotencyKey: undefined }],
     ['a recorder from the browser', { ...cash, recordedByUserId: id }],
@@ -154,11 +159,25 @@ describe('api.invoices (firm)', () => {
     const api = createInvoicesClient(request(fn));
     const call = api.recordPayment(id, body as Parameters<typeof api.recordPayment>[1]);
     expect((await rejection(call)).code).toBe('VALIDATION_FAILED');
-    const voided = api.voidPayment(id, paymentId, { reason: ' ' });
+    expect(calls).toEqual([]);
+  });
+
+  it('takes the first day of 2000 and a reference with inner hyphens', async () => {
+    const { fn, calls } = fakeFetch(500, {});
+    const api = createInvoicesClient(request(fn));
+    const body = { ...cash, method: 'CHECK', reference: 'AB-1042-7', receivedOn: '2000-01-01' };
+    await api.recordPayment(id, body as Parameters<typeof api.recordPayment>[1]).catch(() => 0);
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([
+    ['a blank reason', paymentId, { reason: ' ' }],
+    ['a payment id that is not a uuid', '../x', { reason: 'x' }],
+  ])('refuses a void with %s before sending', async (_, offlinePaymentId, body) => {
+    const { fn, calls } = fakeFetch(200, {});
+    const api = createInvoicesClient(request(fn));
+    const voided = api.voidPayment(id, offlinePaymentId, body);
     expect((await rejection(voided)).code).toBe('VALIDATION_FAILED');
-    expect((await rejection(api.voidPayment(id, '../x', { reason: 'x' }))).code).toBe(
-      'VALIDATION_FAILED',
-    );
     expect(calls).toEqual([]);
   });
 
