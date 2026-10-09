@@ -63,11 +63,13 @@ describe('create and update a draft', () => {
       ['Schedule C', 1, 10_000],
     ]);
 
-    // Two at once still get the next numbers, one each.
-    const [a, b] = await Promise.all([create(t.ids.two), create(t.ids.two)]);
+    // Six at once still get the next numbers, one each (no 500 on a second collision).
+    const many = await Promise.all(Array.from({ length: 6 }, () => create(t.ids.two)));
     const n = (num: string) => Number(num.slice(-4));
-    expect([n(a.number), n(b.number)].sort()).toEqual([n(first.number) + 1, n(first.number) + 2]);
-    expect(a.title).toBe('Tax return'); // no service: the first line
+    expect(many.map((i) => n(i.number)).sort((x, y) => x - y)).toEqual(
+      [1, 2, 3, 4, 5, 6].map((k) => n(first.number) + k),
+    );
+    expect(many[0]!.title).toBe('Tax return'); // no service: the first line
 
     const audit = await t.inScope(t.ids.firmA, (tx) =>
       tx.auditLog.findFirst({ where: { action: 'invoice.created', entityId: first.id } }),

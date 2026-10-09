@@ -16,7 +16,9 @@ export const STRIPE_API_VERSION = '2026-09-30.endive';
 /**
  * Each call to Stripe gives up after this long, with no retry by the SDK: calls that hold an
  * invoice's row (Pay Now, cancel) make at most three of them inside a transaction capped at 30 s.
- * Every create carries an idempotency key, so the client's own retry is safe.
+ * A retry is the caller's: an account or refund create carries a key that repeats across the
+ * client's retries; a Checkout Session's key is new each attempt, and one left behind by a failed
+ * attempt is expired (see CheckoutService), never paid.
  */
 export const STRIPE_TIMEOUT_MS = 8_000;
 

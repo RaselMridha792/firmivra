@@ -16,11 +16,11 @@ import {
   openCheckouts,
   paymentInProgress,
   providerUnavailable,
+  SESSION_MS,
   stripeCall,
+  withStripeHold,
 } from './checkout-sessions.js';
 
-/** A Checkout Session lasts this long (Stripe takes 30 minutes to 24 hours). */
-const SESSION_MS = 60 * 60_000;
 /** An open session with less left than this is replaced, so the client never lands on a dead page. */
 const REUSE_MIN_MS = 10 * 60_000;
 
@@ -64,63 +64,73 @@ export class CheckoutService {
           if (!this.stripe) throw providerUnavailable();
           const stripe = this.stripe;
           const amountCents = mine.balanceDueCents;
+          return withStripeHold(async () => {
+            // One open checkout per invoice: the same amount with time left is answered again.
+            let reuse: { id: string; url: string; expiresAt: Date } | null = null;
+            for (const open of await openCheckouts(tx, stripe, this.audit, businessId, invoiceId)) {
+              const fits =
+                !reuse &&
+                open.session.url !== null &&
+                open.amountCents === amountCents &&
+                open.accountId === account.accountId &&
+                open.session.expiresAt.getTime() - Date.now() >= REUSE_MIN_MS;
+              if (fits) {
+                reuse = { id: open.id, url: open.session.url!, expiresAt: open.session.expiresAt };
+              } else await expireCheckout(tx, stripe, this.audit, businessId, invoiceId, open);
+            }
+            if (reuse) {
+              await this.audit.logIn(
+                tx,
+                'invoice.checkout_started',
+                { type: 'invoice', id: invoiceId },
+                { paymentId: reuse.id, amountCents, currency: row.currency, reused: true },
+              );
+              return { url: reuse.url, expiresAt: reuse.expiresAt.toISOString() };
+            }
 
-          // One open checkout per invoice: the same amount with time left is answered again.
-          let reuse: { url: string; expiresAt: Date } | null = null;
-          for (const open of await openCheckouts(tx, stripe, businessId, invoiceId)) {
-            const fits =
-              !reuse &&
-              open.session.url !== null &&
-              open.amountCents === amountCents &&
-              open.accountId === account.accountId &&
-              open.session.expiresAt.getTime() - Date.now() >= REUSE_MIN_MS;
-            if (fits) reuse = { url: open.session.url!, expiresAt: open.session.expiresAt };
-            else await expireCheckout(tx, stripe, businessId, open);
-          }
-          if (reuse) return { url: reuse.url, expiresAt: reuse.expiresAt.toISOString() };
-
-          const paymentId = randomUUID();
-          const firm = await tx.business.findUniqueOrThrow({
-            where: { id: businessId },
-            select: { slug: true },
-          });
-          const back = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/invoices`;
-          const session = await stripeCall('checkout.sessions.create', paymentId, () =>
-            stripe.createCheckoutSession(
-              {
-                accountId: account.accountId,
-                invoiceId,
+            const paymentId = randomUUID();
+            const firm = await tx.business.findUniqueOrThrow({
+              where: { id: businessId },
+              select: { slug: true },
+            });
+            const back = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/invoices`;
+            const session = await stripeCall('checkout.sessions.create', paymentId, () =>
+              stripe.createCheckoutSession(
+                {
+                  accountId: account.accountId,
+                  invoiceId,
+                  paymentId,
+                  description: `Invoice ${row.number}`,
+                  amountCents,
+                  currency: row.currency,
+                  successUrl: `${back}?checkout=success&invoice=${invoiceId}`,
+                  cancelUrl: `${back}?checkout=canceled&invoice=${invoiceId}`,
+                  expiresAt: new Date(Date.now() + SESSION_MS),
+                },
                 paymentId,
-                description: `Invoice ${row.number}`,
+              ),
+            );
+            created.session = { accountId: account.accountId, id: session.id };
+            if (!session.url) throw providerUnavailable();
+            await tx.payment.create({
+              data: {
+                id: paymentId,
+                businessId,
+                invoiceId,
                 amountCents,
                 currency: row.currency,
-                successUrl: `${back}?checkout=success&invoice=${invoiceId}`,
-                cancelUrl: `${back}?checkout=canceled&invoice=${invoiceId}`,
-                expiresAt: new Date(Date.now() + SESSION_MS),
+                processorRef: session.id,
+                accountId: account.accountId,
               },
-              paymentId,
-            ),
-          );
-          created.session = { accountId: account.accountId, id: session.id };
-          if (!session.url) throw providerUnavailable();
-          await tx.payment.create({
-            data: {
-              id: paymentId,
-              businessId,
-              invoiceId,
-              amountCents,
-              currency: row.currency,
-              processorRef: session.id,
-              accountId: account.accountId,
-            },
+            });
+            await this.audit.logIn(
+              tx,
+              'invoice.checkout_started',
+              { type: 'invoice', id: invoiceId },
+              { paymentId, amountCents, currency: row.currency },
+            );
+            return { url: session.url, expiresAt: session.expiresAt.toISOString() };
           });
-          await this.audit.logIn(
-            tx,
-            'invoice.checkout_started',
-            { type: 'invoice', id: invoiceId },
-            { paymentId, amountCents, currency: row.currency },
-          );
-          return { url: session.url, expiresAt: session.expiresAt.toISOString() };
         },
         CHECKOUT_LIMITS,
       )
