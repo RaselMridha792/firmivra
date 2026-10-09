@@ -37,12 +37,7 @@ export function TeamScreen() {
   const deactivate = useApiMutation((id: string) => api.team.deactivate(id), { invalidate: TEAM });
   const [leaving, setLeaving] = useState<TeamMember | null>(null);
   const [now] = useState(() => Date.now());
-  // Only the latest action's result shows: an older error never sits next to a newer success.
-  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
-  const report = (done: string) => ({
-    onSuccess: () => setFeedback({ ok: true, text: done }),
-    onError: (error: Error) => setFeedback({ ok: false, text: errorMessage(error, TEAM_ERRORS) }),
-  });
+  const error = change.error ?? resend.error ?? deactivate.error;
   const manages = (member: TeamMember) =>
     !member.isYou && (role === 'OWNER' || (role === 'ADMIN' && member.role === 'STAFF'));
 
@@ -57,12 +52,14 @@ export function TeamScreen() {
       <RequireRole roles={['OWNER', 'ADMIN']}>
         <InviteForm roles={role === 'OWNER' ? ['ADMIN', 'STAFF'] : ['STAFF']} />
       </RequireRole>
-      {feedback ? (
-        <p
-          role={feedback.ok ? 'status' : 'alert'}
-          className={`text-sm ${feedback.ok ? 'text-success' : 'text-danger'}`}
-        >
-          {feedback.text}
+      {resend.isSuccess ? (
+        <p role="status" className="text-sm text-success">
+          Invite sent again.
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {errorMessage(error, TEAM_ERRORS)}
         </p>
       ) : null}
       <PageState query={team} empty="No one on the team yet">
@@ -94,10 +91,10 @@ export function TeamScreen() {
                       value={member.role}
                       disabled={change.isPending}
                       onChange={(event) =>
-                        change.mutate(
-                          { id: member.id, next: MembershipRole.parse(event.target.value) },
-                          report(`${member.user.name}'s role changed.`),
-                        )
+                        change.mutate({
+                          id: member.id,
+                          next: MembershipRole.parse(event.target.value),
+                        })
                       }
                     />
                   ) : (
@@ -105,21 +102,12 @@ export function TeamScreen() {
                   )}
                   <StatusBadge member={member} now={now} />
                   {manages(member) && member.status === 'INVITED' && member.role !== 'OWNER' ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() => resend.mutate(member.id, report('Invite sent again.'))}
-                    >
+                    <Button variant="ghost" onClick={() => resend.mutate(member.id)}>
                       Resend invite
                     </Button>
                   ) : null}
                   {manages(member) && member.status !== 'DEACTIVATED' ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        deactivate.reset();
-                        setLeaving(member);
-                      }}
-                    >
+                    <Button variant="ghost" onClick={() => setLeaving(member)}>
                       Deactivate
                     </Button>
                   ) : null}
@@ -137,12 +125,6 @@ export function TeamScreen() {
         <p className="text-sm text-muted">
           They lose access to the firm workspace at once. You can invite them again later.
         </p>
-        {/* Inside the dialog: the page behind it is inert while it is open. */}
-        {deactivate.error ? (
-          <p role="alert" className="mt-3 text-sm text-danger">
-            {errorMessage(deactivate.error, TEAM_ERRORS)}
-          </p>
-        ) : null}
         <div className="mt-6 flex justify-end gap-3">
           <Button variant="secondary" onClick={() => setLeaving(null)}>
             Cancel
@@ -150,13 +132,7 @@ export function TeamScreen() {
           <Button
             disabled={deactivate.isPending}
             onClick={() =>
-              leaving &&
-              deactivate.mutate(leaving.id, {
-                onSuccess: () => {
-                  setFeedback({ ok: true, text: `${leaving.user.name} was deactivated.` });
-                  setLeaving(null);
-                },
-              })
+              leaving && deactivate.mutate(leaving.id, { onSuccess: () => setLeaving(null) })
             }
           >
             Deactivate

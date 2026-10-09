@@ -425,7 +425,7 @@ describe('the answer after a change', () => {
     ]);
   });
 
-  it('an unreadable stored date of birth: reads and saves answer 200, null and flagged', async () => {
+  it('a saved change answers 200 when the stored date of birth cannot be read (null)', async () => {
     const a = await create({
       displayName: `Unreadable ${run}`,
       profile: { dateOfBirth: '1980-01-02' },
@@ -436,19 +436,14 @@ describe('the answer after a change', () => {
       const { dobEnc } = await tx.clientProfile.findUniqueOrThrow({ where: { clientId: b.id } });
       await tx.clientProfile.update({ where: { clientId: a.id }, data: { dobEnc } });
     });
-    const read = await call('get', `/${a.id}`, people.ownerA);
-    expect(read.status, JSON.stringify(read.body)).toBe(200);
-    expect(Record_.parse(read.body).profile).toMatchObject({
-      dateOfBirth: null,
-      dateOfBirthUnavailable: true,
-    });
+    expect((await call('get', `/${a.id}`, people.ownerA)).status).toBe(500);
     const res = await call('patch', `/${a.id}`, people.ownerA, 'a', {
       displayName: `Still saved ${run}`,
     });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(Record_.parse(res.body)).toMatchObject({
       displayName: `Still saved ${run}`,
-      profile: { dateOfBirth: null, dateOfBirthUnavailable: true },
+      profile: { dateOfBirth: null },
     });
   });
 });

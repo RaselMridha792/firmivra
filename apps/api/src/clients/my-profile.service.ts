@@ -11,7 +11,7 @@ import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
-import { changedFields, NO_DATE_OF_BIRTH, readDateOfBirth } from './client-secrets.js';
+import { changedFields, readDateOfBirth, readDateOfBirthAfterWrite } from './client-secrets.js';
 
 type UpdateBody = z.output<typeof UpdateMyProfileRequest>;
 type NameChangeBody = z.output<typeof RequestNameChangeRequest>;
@@ -95,6 +95,7 @@ export class MyProfileService {
   private async view(
     businessId: string,
     { account, client }: Awaited<ReturnType<MyProfileService['mine']>>,
+    afterWrite = false,
   ): Promise<MyProfile> {
     const p = client.profile;
     const name = [p?.firstName, p?.middleName, p?.lastName].filter(Boolean).join(' ');
@@ -108,7 +109,7 @@ export class MyProfileService {
     if (account.portalRole === 'AUTHORIZED') {
       return {
         ...named,
-        ...NO_DATE_OF_BIRTH,
+        dateOfBirth: null,
         phone: null,
         address: NO_ADDRESS,
         preferredContactMethod: null,
@@ -119,9 +120,11 @@ export class MyProfileService {
     const primary = account.portalRole === 'PRIMARY';
     return {
       ...named,
-      ...(primary
-        ? await readDateOfBirth(this.fe, businessId, client.id, p?.dobEnc)
-        : NO_DATE_OF_BIRTH),
+      dateOfBirth: !primary
+        ? null
+        : afterWrite
+          ? await readDateOfBirthAfterWrite(this.fe, businessId, client.id, p?.dobEnc)
+          : await readDateOfBirth(this.fe, businessId, client.id, p?.dobEnc),
       phone: client.phone,
       address: {
         line1: p?.addressLine1 ?? null,
@@ -184,7 +187,7 @@ export class MyProfileService {
       { type: 'client', id: mine.client.id },
       { fields: changedFields(body) },
     );
-    return this.view(businessId, mine);
+    return this.view(businessId, mine, true);
   }
 
   /**

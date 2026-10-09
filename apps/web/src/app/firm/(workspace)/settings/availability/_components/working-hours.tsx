@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
-import { CALENDAR, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
+import { AVAILABILITY, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** Monday first; Weekday 0 is Sunday. */
@@ -36,15 +36,10 @@ export function WorkingHours({
   const [problem, setProblem] = useState('');
   const save = useApiMutation(
     (body: SetWorkingHoursRequest) => api.availability.setWorkingHours(member.member.userId, body),
-    { invalidate: CALENDAR },
+    { invalidate: AVAILABILITY },
   );
-  // An edit after a save makes "Working hours saved." untrue until the next save.
-  const edit = (next: WorkingHoursRange[]) => {
-    save.reset();
-    setHours(next);
-  };
   const change = (index: number, patch: Partial<WorkingHoursRange>) =>
-    edit(hours.map((range, i) => (i === index ? { ...range, ...patch } : range)));
+    setHours(hours.map((range, i) => (i === index ? { ...range, ...patch } : range)));
   const submit = () => {
     const checked = SetWorkingHoursRequest.safeParse({ hours });
     setProblem(checked.success ? '' : (checked.error.issues[0]?.message ?? 'Check the hours.'));
@@ -90,7 +85,7 @@ export function WorkingHours({
                       />
                       <Button
                         variant="ghost"
-                        onClick={() => edit(hours.filter((_, i) => i !== index))}
+                        onClick={() => setHours(hours.filter((_, i) => i !== index))}
                       >
                         Remove
                       </Button>
@@ -107,7 +102,7 @@ export function WorkingHours({
                     className="self-start"
                     aria-label={`Add hours on ${day}`}
                     onClick={() =>
-                      edit([...hours, { weekday, startsAt: '09:00', endsAt: '17:00' }])
+                      setHours([...hours, { weekday, startsAt: '09:00', endsAt: '17:00' }])
                     }
                   >
                     Add hours

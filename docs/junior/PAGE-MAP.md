@@ -54,11 +54,11 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/clients` | `(workspace)/clients/page.tsx` | Fahad | F06 | none |
 | `/clients/[id]` | `(workspace)/clients/[id]/layout.tsx` (client header and tabs) and `page.tsx` (overview, contact, profile) | Fahad | F06 | none |
 | `/clients/[id]/documents` | `(workspace)/clients/[id]/documents/page.tsx` | Fahad | F07 | none |
-| `/clients/[id]/messages` | `(workspace)/clients/[id]/messages/page.tsx` (messages and internal notes) | Nahid | F10 | `client-portal/Messages and notes.png` for style |
-| `/clients/[id]/invoices` | `(workspace)/clients/[id]/invoices/page.tsx` | Nahid | F10 | `client-portal/invoices tab.png` for style |
+| `/clients/[id]/messages` | `(workspace)/clients/[id]/messages/page.tsx` (messages and internal notes) | Fahad | F10 | `client-portal/Messages and notes.png` for style |
+| `/clients/[id]/invoices` | `(workspace)/clients/[id]/invoices/page.tsx` | Fahad | F10 | `client-portal/invoices tab.png` for style |
 | `/sign-ups` | `(workspace)/sign-ups/page.tsx` | Fahad | F06 | none |
-| `/messages` | `(workspace)/messages/page.tsx` | Nahid | F10 | none |
-| `/invoices` | `(workspace)/invoices/page.tsx` | Nahid | F10 | none |
+| `/messages` | `(workspace)/messages/page.tsx` | Fahad | F10 | none |
+| `/invoices` | `(workspace)/invoices/page.tsx` | Fahad | F10 | none |
 | `/workspaces` | `(workspace)/workspaces/page.tsx` | Fahad | F11 | none |
 | `/workspaces/[engagementId]` | `(workspace)/workspaces/[engagementId]/page.tsx` | Fahad | F11 | none |
 | `/leads` | `(workspace)/leads/page.tsx` | Arfan | F08 | none |
@@ -183,7 +183,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/components/auth/`, `apps/web/src/components/sign-in-panel.tsx`, `apps/web/src/components/notification-bell.tsx`
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
-- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/` and `clients/[id]/invoices/`, Nahid's), `sign-ups/`, `workspaces/`
+- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's), `sign-ups/`, `messages/`, `invoices/`, `workspaces/`
 - `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
 **Tumit**
@@ -194,9 +194,10 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
 - `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
-**Nahid** (F10, from Oct 9; the portal pages moved to R17)
-- `apps/web/src/app/firm/(workspace)/messages/`, `(workspace)/invoices/`
-- `apps/web/src/app/firm/(workspace)/clients/[id]/messages/`, `clients/[id]/invoices/`
+**Nahid**
+- `apps/web/src/app/portal/[firmSlug]/layout.tsx`
+- `apps/web/src/app/portal/[firmSlug]/(public)/`, except `begin/` and `calculators/` (R14's)
+- `apps/web/src/app/portal/[firmSlug]/(client)/`, except `appointments/`, `home/`, `calculator/` (R14's) and `signatures/` (R13-web's)
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
 **Arfan**

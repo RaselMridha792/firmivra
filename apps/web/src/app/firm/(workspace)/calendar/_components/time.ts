@@ -17,26 +17,12 @@ function wallClock(ms: number, timeZone: string) {
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((p) => p.type === type)?.value ?? '00';
   return {
-    date: `${part('year').padStart(4, '0')}-${part('month')}-${part('day')}`,
+    date: `${part('year')}-${part('month')}-${part('day')}`,
     time: `${part('hour')}:${part('minute')}`,
   };
 }
 
 const asUtc = (date: string, time: string) => Date.parse(`${date}T${time}:00Z`);
-
-/**
- * A whole 'YYYY-MM-DD' date in the API's range (2000 to 2100). A date input reports half-typed
- * years such as 0202-10-12 while someone types: check before using one.
- */
-export const isCalendarDate = (value: string) => {
-  const year = Number(value.slice(0, 4));
-  return (
-    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-    year >= 2000 &&
-    year <= 2100 &&
-    !Number.isNaN(asUtc(value, '00:00'))
-  );
-};
 
 /** How far the zone's clock is ahead of UTC at an instant, in ms. */
 const offsetAt = (ms: number, timeZone: string) => {

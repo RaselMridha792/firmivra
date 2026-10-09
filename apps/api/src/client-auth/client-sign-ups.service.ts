@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { z } from 'zod';
-import type { Database, ScopedClient, TxClient } from '@firmivra/db';
+import type { Database, Prisma, ScopedClient, TxClient } from '@firmivra/db';
 import {
   type ApproveSignUpResponse,
   type ClientSignUp,
@@ -30,7 +30,14 @@ import {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A sign-up is in the queue once both email and phone are verified. */
-const VERIFIED = { emailVerifiedAt: { not: null }, phoneVerifiedAt: { not: null } } as const;
+/**
+ * A completed sign-up: email verified, and the phone verified or (SIGNUP_PHONE_VERIFICATION=
+ * optional) its legal acceptances written when it completed at the email step (sign-up.service.ts).
+ */
+const VERIFIED: Prisma.ClientAccountWhereInput = {
+  emailVerifiedAt: { not: null },
+  AND: [{ OR: [{ phoneVerifiedAt: { not: null } }, { legalAcceptances: { some: {} } }] }],
+};
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const notPending = () =>
@@ -273,11 +280,17 @@ export class ClientSignUpsService {
         accountType: true,
         emailVerifiedAt: true,
         phoneVerifiedAt: true,
+        legalAcceptances: { select: { id: true }, take: 1 },
         user: { select: { name: true, phone: true, cognitoSub: true } },
       },
     });
     if (!account || account.businessId !== businessId) throw notFound();
-    if (!account.emailVerifiedAt || !account.phoneVerifiedAt) throw notFound();
+    if (
+      !account.emailVerifiedAt ||
+      (!account.phoneVerifiedAt && account.legalAcceptances.length === 0)
+    ) {
+      throw notFound();
+    }
     if (account.status !== 'PENDING_APPROVAL') throw notPending();
     return account;
   }

@@ -4,7 +4,7 @@ import type { NotificationCategory } from '@firmivra/types';
  * NotifyService (R6): the one way the API sends email and SMS. Every stream calls
  * `notify.send({ template, to, businessId, data })`; R6 renders the template with the firm's
  * branding and hands it to SES (Mailpit locally) or SNS (the API log until the number is
- * registered). The recipient's notification preferences apply (step 5).
+ * registered). Notification preferences apply once step 5 lands.
  *
  * What may go into `data` (CLAUDE.md hard rule 4, SYSTEM-DESIGN "Messaging"): names, the firm's
  * name, dates, titles and links. Never a password, a full SSN or EIN, a bank number, an amount,
@@ -185,9 +185,8 @@ export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {
    */
   businessId: string | null;
   /**
-   * Who it is for, when they have an account: the message is skipped (resolves, nothing sent)
-   * when they switched its category (TEMPLATE_CATEGORY) off on its channel. ALWAYS_SENT templates
-   * and ACCOUNT notices ignore preferences. Without it, nothing is skipped.
+   * Who it is for, when they have an account: their notification preferences apply (except for
+   * ALWAYS_SENT templates) once R6 step 5 lands; pass it already.
    */
   recipient?: { userId: string } | { clientAccountId: string };
   /** For example Firmivra support, for an information request. */

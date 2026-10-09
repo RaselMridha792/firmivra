@@ -38,7 +38,6 @@ const profile = {
   businessName: null,
   entityType: null,
   dateOfBirth: '1985-04-12',
-  dateOfBirthUnavailable: false,
   ssnLast4: '0001',
   einLast4: null,
   address: { line1: null, line2: null, city: null, state: null, postalCode: null, country: 'US' },

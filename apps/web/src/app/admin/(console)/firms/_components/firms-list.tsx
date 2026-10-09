@@ -95,8 +95,7 @@ export function FirmsList() {
 
   function searchFirms(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // The API refuses control characters and more than 100 characters (SearchText).
-    setAppliedSearch(search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim());
+    setAppliedSearch(search.trim());
     setPage(1);
   }
 
@@ -190,7 +189,6 @@ export function FirmsList() {
                       label="Search firms"
                       type="search"
                       placeholder="Business name, owner, or email"
-                      maxLength={100}
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                     />

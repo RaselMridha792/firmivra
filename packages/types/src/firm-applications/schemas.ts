@@ -484,10 +484,7 @@ export const FirmApplicationRecord = z.object({
   decision: z
     .object({ by: AdminRef.nullable(), at: DateTime, reason: z.string().nullable() })
     .nullable(),
-  /**
-   * The free portal address approve uses unless the Super Admin picks another: PENDING_REVIEW, or
-   * APPROVED while `firm` is null.
-   */
+  /** PENDING_REVIEW: the free portal address approve uses unless the Super Admin picks another. */
   suggestedSlug: z.string().nullable(),
   /** APPROVED: the firm it created. */
   firm: BusinessSummary.nullable(),
@@ -535,9 +532,7 @@ export const NewFirmSlug = z
 /**
  * POST /admin/firm-applications/{id}/approve. Creates the firm (PENDING_SETUP, named after the
  * legal name) at `slug` (default `suggestedSlug`) and emails the primary administrator an owner
- * activation link. 409 APPLICATION_DECIDED, SLUG_TAKEN or OWNER_NAME_TOO_LONG. If the firm could
- * not be created (its address was taken in between: SLUG_TAKEN after the decision), the
- * application is APPROVED with `firm` null and `suggestedSlug` set; approving it again finishes.
+ * activation link. 409 APPLICATION_DECIDED or SLUG_TAKEN.
  */
 export const ApproveFirmApplicationRequest = z.strictObject({ slug: NewFirmSlug.optional() });
 export type ApproveFirmApplicationRequest = z.input<typeof ApproveFirmApplicationRequest>;
@@ -651,11 +646,5 @@ export const FirmApplicationErrorCode = z.enum([
   'SLUG_TAKEN',
   /** 409: no owner link to send (not approved, or the owner has already signed in). */
   'INVITE_NOT_NEEDED',
-  /**
-   * 409 on approve: the primary administrator's name can't be used for the owner invite (over 120
-   * characters, or characters the invite refuses). Only applications from before Oct 8 can hold
-   * one; Phase 1 has no edit, so the applicant applies again.
-   */
-  'OWNER_NAME_TOO_LONG',
 ]);
 export type FirmApplicationErrorCode = z.infer<typeof FirmApplicationErrorCode>;

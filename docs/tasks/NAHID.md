@@ -1,13 +1,13 @@
 # Nahid: tasks
 
-N02-N10 moved to R17 (Rasel), Oct 9. From Oct 9 you build F10 in the firm workspace (Rasel's decision; it was Fahad's).
+N02-N10 moved to R17 (Rasel), Oct 9.
 
 Firmivra Phase 1 · updated Oct 6, 2026 (evening) by Rasel · delivery Oct 18, 2026.
 Read `docs/junior/GUIDE.md`, `docs/junior/AI-RULES.md` and `docs/junior/PAGE-MAP.md` first. Your page files already exist as placeholders: PAGE-MAP.md lists them.
 
 ## Your role
 
-Frontend. From Oct 9 you build F10 in the firm workspace (app.dev.firmivra.com): messages, internal notes and invoices. The client portal pages moved to R17, Rasel's own session; N01 stays yours.
+Frontend. You own the client portal (portal.dev.firmivra.com/{firm}), shown in each firm's branding.
 
 From Oct 7, Tumit and Arfan build screens too, and Rasel's sessions build every API, so your list is shorter. Begin Online moved to Arfan; portal appointments and the public firm application form moved to Tumit.
 
@@ -25,12 +25,11 @@ From Oct 7, Tumit and Arfan build screens too, and Rasel's sessions build every 
 | N06 | Oct 11-12 | My Services, Taxes and Intake form tabs | R10, R11 |
 | N09 | Oct 13-14 | Messages and notes, Invoices with Pay, Business tab, External links | R11, R7, R12 |
 | N10 | Oct 15 | Resource pages, calculators and notifications | R12, R6 |
-| F10 | Oct 9-12 | Firm messages, internal notes and invoices (from Fahad) | R20 (messages), R19 (invoices) |
 | - | Oct 16 | Pixel check of all your screens | |
 | - | Oct 17 | Fixes from Octavia's review | |
 | - | Oct 18 | Production smoke test | |
 
-Moved to others: N04 and N08 went to Tumit; N07 went to Arfan; N02-N10 went to R17 (Rasel), Oct 9.
+Moved to others: N04 and N08 went to Tumit; N07 went to Arfan.
 
 ## Ticket cards
 
@@ -101,14 +100,6 @@ Checklist:
 - **Mockups:** `Business Startup Guide Dashboard.png`, `Record Keeping Best Practices Dashboard.png`, `payroll_resources_dashboard.png`, `LVP_Tax_Deductions_Small_Businesses.png`.
 - **API:** R12 (content and calculators), R6 (notifications).
 - **Build:** the three resource pages from content data; the Tax Return Calculator with its disclaimer; the notification center with Fahad's bell.
-
-### F10 · Oct 9-12 · Firm messages, internal notes and invoices (from Fahad, Oct 9)
-
-- **Pages:** in `firm/(workspace)/`: `messages/`, `invoices/`, `clients/[id]/messages/` (messages and internal notes) and `clients/[id]/invoices/`.
-- **Mockups (client side, for style):** `docs/mockups/client-portal/Messages and notes.png`, `invoices tab.png`.
-- **API:** R20's messages contract (#168: `api.messages`, internal notes, unread counts) and R19's invoices (`api.invoices`). Build in mock mode first; start with `/messages` and the client's Messages tab while the invoices contract lands.
-- **Ask:** the Scrum thread in Rasel's project, through Rasel, when a contract field is missing. Never change `packages/types`, `apps/web/src/lib/api.ts` or `apps/web/src/mocks/`.
-- **Build:** message threads per client with unread counts, compose and reply. Internal notes, visible only to the firm. Invoices: create with lines, send, statuses.
 
 ## Dev sites
 

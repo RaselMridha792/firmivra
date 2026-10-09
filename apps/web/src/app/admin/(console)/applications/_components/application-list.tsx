@@ -60,13 +60,11 @@ export function ApplicationList() {
   const [dates, setDates] = useState<Pick<ListFirmApplicationsQuery, 'from' | 'to'>>({});
   const [page, setPage] = useState(1);
   const counts = useApiQuery(applicationCountsKey, () => api.firmApplications.counts());
-  // The API refuses control characters and more than 100 characters (SearchText).
-  const searchText = search.replace(/[\p{Cc}\p{Cs}]/gu, ' ').trim();
   const query: ListFirmApplicationsQuery = {
     page,
     pageSize,
     order: 'newest',
-    ...(searchText ? { search: searchText } : {}),
+    ...(search.trim() ? { search: search.trim() } : {}),
     ...(statusFilter || (tab === 'all' ? undefined : tab)
       ? { status: statusFilter || (tab === 'all' ? undefined : tab) }
       : {}),
@@ -139,7 +137,6 @@ export function ApplicationList() {
           <Input
             label="Search applications"
             type="search"
-            maxLength={100}
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);

@@ -74,7 +74,6 @@ const service = new FirmApplicationsService(
   { db } as unknown as AdminPrisma,
   { log: vi.fn().mockResolvedValue(undefined) } as never,
   { send: vi.fn().mockResolvedValue(undefined) } as never,
-  {} as never,
 );
 
 /** Nothing reaches the console; each test reads what would have been logged. */

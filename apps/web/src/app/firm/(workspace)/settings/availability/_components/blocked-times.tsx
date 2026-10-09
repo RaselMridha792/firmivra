@@ -11,10 +11,9 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
-import { AVAILABILITY, CALENDAR, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
+import { AVAILABILITY, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
 import {
   dayLabel,
-  isCalendarDate,
   localParts,
   timeLabel,
   todayIn,
@@ -47,7 +46,7 @@ export function BlockedTimes({
     api.availability.blockedTimes(range),
   );
   const unblock = useApiMutation((id: string) => api.availability.unblock(id), {
-    invalidate: CALENDAR,
+    invalidate: AVAILABILITY,
   });
   const when = (iso: string) =>
     `${dayLabel(localParts(iso, timeZone).date)}, ${timeLabel(iso, timeZone)}`;
@@ -115,11 +114,11 @@ function AddBlock({
   const [reason, setReason] = useState('');
   const [problem, setProblem] = useState('');
   const block = useApiMutation((body: CreateBlockedTimeRequest) => api.availability.block(body), {
-    invalidate: CALENDAR,
+    invalidate: AVAILABILITY,
   });
   const submit = () => {
-    if (![start.time, end.time].every(Boolean) || ![start.date, end.date].every(isCalendarDate)) {
-      setProblem('Choose when the block starts and ends, from 2000 to 2100.');
+    if (![start.date, start.time, end.date, end.time].every(Boolean)) {
+      setProblem('Choose when the block starts and ends.');
       return;
     }
     const body = {
@@ -129,16 +128,8 @@ function AddBlock({
       reason,
     };
     const checked = CreateBlockedTimeRequest.safeParse(body);
-    // The API also refuses a block that has already ended; say so before asking it.
-    const ended = Date.parse(body.endsAt) <= Date.now();
-    setProblem(
-      ended
-        ? 'A block must end in the future.'
-        : checked.success
-          ? ''
-          : (checked.error.issues[0]?.message ?? 'Check the times.'),
-    );
-    if (checked.success && !ended) block.mutate(body, { onSuccess: () => setReason('') });
+    setProblem(checked.success ? '' : (checked.error.issues[0]?.message ?? 'Check the times.'));
+    if (checked.success) block.mutate(body, { onSuccess: () => setReason('') });
   };
 
   return (

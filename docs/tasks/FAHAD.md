@@ -23,12 +23,13 @@ You are the only one who adds to `packages/ui`. The others ask you for component
 | F03 | Oct 8 | Firm dashboard and menu | `/me` and `/business`, on main |
 | F06 | Oct 9-10 | Clients, client record and pending sign-ups | R10, R3 |
 | F07 | Oct 11 | Firm documents and the notification bell | R5, R6 |
+| F10 | Oct 12-13 | Messages, internal notes and invoices | R11, R7 |
 | F11 | Oct 14-15 | Service workspaces | R12 |
 | - | Oct 16 | Pixel check of all your screens | |
 | - | Oct 17 | Fixes from Octavia's review | |
 | - | Oct 18 | Production smoke test | |
 
-Moved to others: F04, F05, F09 and the team page went to Tumit; F08 went to Arfan; F10 went to Nahid (Rasel, Oct 9).
+Moved to others: F04, F05, F09 and the team page went to Tumit; F08 went to Arfan.
 
 ## Ticket cards
 
@@ -101,6 +102,13 @@ Checklist:
 - **Pages:** `firm/(workspace)/clients/[id]/documents/`; the bell's wiring in `apps/web/src/components/notification-bell.tsx`.
 - **API:** R5's `api.documents.*` and document requests; R6's `api.notifications.*`. Contracts arrive by Oct 10.
 - **Build:** client record > Documents tab: list, filter by category and year, download, request a document, request status (Requested, Received, Accepted, Missing with the client's reason). The bell: unread count, list, mark read, open the related record. Put the bell's look in `packages/ui` and its data wiring in one file in `apps/web/src/components/`, so Nahid reuses it in the portal.
+
+### F10 · Oct 12-13 · Messages, internal notes and invoices
+
+- **Pages:** in `firm/(workspace)/`: `messages/`, `invoices/`, `clients/[id]/messages/` (messages and internal notes) and `clients/[id]/invoices/`.
+- **Mockups (client side, for style):** `docs/mockups/client-portal/Messages and notes.png`, `invoices tab.png`.
+- **API:** R11's `api.messages.*` and internal notes, R7's `api.invoices.*`. Contracts arrive by Oct 11-12.
+- **Build:** message threads per client with unread counts, compose and reply. Internal notes, visible only to the firm. Invoices: create with lines, send, statuses.
 
 ### F11 · Oct 14-15 · Service workspaces
 

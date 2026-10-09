@@ -78,8 +78,7 @@ export function BusinessFields({ form, firm }: { form: StepForm; firm: FirmSetti
           min={1}
           error={errors.teamSize?.message}
           {...form.register('teamSize', {
-            // Cleared (or not a number): null, so the schema says "Enter the team size".
-            setValueAs: (value: string) => (value === '' ? null : Number(value)),
+            setValueAs: (value: string) => (value === '' ? undefined : Number(value)),
           })}
         />
       </div>

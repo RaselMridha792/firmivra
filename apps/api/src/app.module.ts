@@ -22,7 +22,6 @@ import { DevModule } from './dev/dev.controller.js';
 import { HealthModule } from './health/health.controller.js';
 import { FirmApplicationsModule } from './firm-applications/firm-applications.controller.js';
 import { MeModule } from './me/me.controller.js';
-import { NotificationsModule } from './notifications/notifications.controller.js';
 import { NotifyModule } from './notify/notify.module.js';
 import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
@@ -75,7 +74,6 @@ export class AppModule {
         AuthModule,
         AuditModule,
         NotifyModule,
-        NotificationsModule,
         HealthModule,
         MeModule,
         FirmApplicationsModule,

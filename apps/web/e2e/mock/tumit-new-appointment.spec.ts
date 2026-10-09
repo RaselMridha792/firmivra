@@ -35,10 +35,6 @@ test('a new appointment explains a taken time, then books a free one', async ({ 
   await page.getByRole('button', { name: 'New appointment' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Client', { exact: true }).selectOption({ label: 'Jamie Sample' });
-  // A new search clears the chosen client, then it is chosen again.
-  await dialog.getByLabel('Find a client').fill('Jamie');
-  await expect(dialog.getByRole('button', { name: 'Choose a client' })).toBeDisabled();
-  await dialog.getByLabel('Client', { exact: true }).selectOption({ label: 'Jamie Sample' });
   await dialog.getByLabel('Staff').selectOption({ label: 'Mock User' });
   await dialog.getByLabel('Date').fill(nextMonday());
 

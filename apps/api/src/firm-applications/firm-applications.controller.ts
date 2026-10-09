@@ -3,7 +3,6 @@ import { Throttle } from '@nestjs/throttler';
 import type { z } from 'zod';
 import {
   type AdminDashboard,
-  ApproveFirmApplicationRequest,
   DeclineFirmApplicationRequest,
   FirmApplicationId,
   type FirmApplicationCounts,
@@ -80,21 +79,6 @@ export class AdminFirmApplicationsController {
     @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
   ): Promise<FirmApplicationRecord> {
     return this.applications.get(id);
-  }
-
-  /**
-   * Approve: creates the firm and links it. 409 APPLICATION_DECIDED, SLUG_TAKEN or
-   * OWNER_NAME_TOO_LONG. Approving an approved application that has no firm yet finishes it.
-   */
-  @Post(':id/approve')
-  @HttpCode(200)
-  @Roles('SUPER_ADMIN')
-  approve(
-    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
-    @Body(new ZodValidationPipe(ApproveFirmApplicationRequest))
-    body: z.output<typeof ApproveFirmApplicationRequest>,
-  ): Promise<FirmApplicationRecord> {
-    return this.applications.approve(id, body.slug);
   }
 
   /** Request Information: emails the applicant; stays pending. 409 APPLICATION_DECIDED. */
