@@ -747,7 +747,6 @@ async function main() {
           id: SEED_INTAKE_IDS.leadSubmission,
           intakeId: SEED_INTAKE_IDS.leadIntake,
           version: 1,
-          // Only the stored form's questions (fullName; priorReturn is the upload).
           answers,
         },
       });
