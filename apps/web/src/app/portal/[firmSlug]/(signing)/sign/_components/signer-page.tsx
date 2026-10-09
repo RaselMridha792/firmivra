@@ -161,7 +161,10 @@ export function SignerPage() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6" data-step={state.step}>
       <header className="flex flex-col gap-1">
-        <h1 data-testid="page-title" className="text-2xl font-semibold text-heading">
+        <h1
+          data-testid="page-title"
+          className="min-w-0 font-display text-3xl wrap-anywhere text-heading"
+        >
           {state.title}
         </h1>
         <p className="text-sm text-muted">
