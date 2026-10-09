@@ -53,6 +53,14 @@ Target merge windows in brackets (Dhaka).
 - Merge values give the client's values only while the caller may still see the client; otherwise they are null and flagged missing.
 - Rows carry `allowedActions` for the Actions menu; events carry `authMethod`.
 
+## Decisions in contract 2
+
+- Signers: one `SignerState` with a `step` (VERIFY_EMAIL, VERIFY_ACCESS_CODE, CONSENT, SIGN, WAITING, DONE, DECLINED, CLOSED, COPY); a call out of order answers 409 WRONG_STEP. The packet comes from `GET .../sign/packet` (same-site, read with the cookie).
+- Signatures: TYPED is R14's `SignatureCaptureInput` (the typed signature matches the printed name); DRAWN and UPLOADED add a base64 PNG (at most 200 KB; the API checks 1600x600). Initials are typed (1 to 10 characters) or an image.
+- Signature center rows are keyed by the recipient (the client's login on that request), at `/portal/{slug}/me/signatures`.
+- Templates (contract 2): save as template, use, list, get, rename, archive; FIRM or PRIVATE. Roles CLIENT, SPOUSE and PREPARER fill themselves on use; the others need `roles[].who` (409 TEMPLATE_ROLES_UNFILLED). Versions and duplicate come in contract 3.
+- Settings: Owner and Admin change the defaults and publish consent versions; any member sets their own job title (`PUT /esign/me/profile`).
+
 ## Needs from others
 
 - R13-web: builds on `api.esign` and `mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures`).

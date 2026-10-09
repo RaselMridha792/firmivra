@@ -5,15 +5,18 @@ info:
   description: |
     Firm Sign, Firmivra's built-in e-signature module (R13): signature requests prepared, sent
     and tracked by the firm (the Firm Sign dashboard, All requests, the prepare wizard, request
-    detail, and the client record's Signatures tab). This file covers contract 1, the firm side.
-    Contract 2 adds the signer routes (`/portal/{slug}/sign/...`), the portal Signature center,
-    signing settings and consent versions, and templates.
+    detail, and the client record's Signatures tab), signed by recipients on the portal host
+    (`/{slug}/sign`), and listed in the portal's Signature center. Contract 1 is the firm side;
+    contract 2 adds the signer routes, the Signature center, Signing Settings and consent
+    versions, and templates (save as template, use a template). Contract 3 adds the extras.
 
     **Source of truth:** the zod schemas in `packages/types/src/esign/` (`enums.ts`,
     `schemas.ts`, `errors.ts`), with typed calls in `createEsignClient` (web: `api.esign`) and
-    `createMySignaturesClient` (web: `api.mySignatures(slug)`). Mock mode:
-    `apps/web/src/mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures`), with the mockup's
-    counters and rows. Schemas below name their zod schema; if this file and the zod schemas
+    `createMySignaturesClient` (web: `api.mySignatures(slug)`) and `createSigningClient` (web:
+    `api.signing(slug)`); contract 2's schemas are in `admin.ts` and `signing.ts`. Mock mode:
+    `apps/web/src/mocks/esign.ts` and `esign-signing.ts`
+    (`NEXT_PUBLIC_API_MOCK=esign,mySignatures,signing`), with the mockup's counters and rows and
+    a token for every signer step (`MOCK_SIGNING_TOKENS`). Schemas below name their zod schema; if this file and the zod schemas
     differ, the zod schemas win.
 
     ## The module switch
@@ -86,6 +89,38 @@ info:
       request's timeline and the firm's audit log, never with field values or document content.
     - **Errors** show with `errorMessage(error, ESIGN_ERRORS)`.
 
+    ## Signers (contract 2)
+
+    A recipient opens `portal.firmivra.com/{slug}/sign#t=<token>` (docs/AUTH-DESIGN.md, Firm Sign
+    signers). The page posts the token once to `POST /portal/{slug}/sign/session`, which sets the
+    HttpOnly cookie `fv_sign_{slug}`; every other signer call uses the cookie. Any unknown,
+    expired, used or other firm's link, a missing cookie, or Firm Sign off answers the one
+    `404 LINK_INVALID`. Each call that moves the signer on answers `SignerState`, whose `step` is
+    VERIFY_EMAIL (6-digit code, 15 minutes, 5 tries) or VERIFY_ACCESS_CODE, then CONSENT (the
+    firm's consent text, its version pinned), then SIGN (`envelope`, `adopt`, `finish`,
+    `decline`), or WAITING, DONE, DECLINED, CLOSED, or COPY (a completed-copy link, 30 days,
+    after an email code). A call out of order answers `409 WRONG_STEP`. A signer sees only their
+    own fields, never the internal note or another signer's values. The document comes from
+    `GET .../sign/packet`, with the sender's values and earlier signatures stamped in.
+
+    ## Signature center (contract 2)
+
+    A signed-in client lists the requests where one of their logins is a recipient
+    (`GET /portal/{slug}/me/signatures?tab=PENDING|SIGNED`), opens an ACTION_NEEDED one without
+    an email code (`POST .../{recipientId}/session`, which sets the same signer cookie; then the
+    signer routes from CONSENT on), and downloads a COMPLETED one's files. The client comes from
+    the portal session, never the URL; another login's recipient answers 404.
+
+    ## Settings and templates (contract 2)
+
+    `GET/PUT /esign/settings` holds the firm's defaults (expiry, reminders, warning, auth method,
+    approval switch, email message); only Owner and Admin change them. Consent texts are
+    insert-only versions; nothing is sent before the first one (readiness `NO_CONSENT`). Any
+    member sets their own job title (the Staff Title merge field). A template copies a request's
+    packet, recipients (as roles) and fields; using one makes a new DRAFT and never changes the
+    template. CLIENT, SPOUSE and PREPARER roles fill themselves; the others need `roles[].who`
+    (`409 TEMPLATE_ROLES_UNFILLED`).
+
 servers:
   - url: /api/v1
 
@@ -94,13 +129,15 @@ security: [{ firmCookie: [] }]
 tags:
   - name: esign
   - name: esign-portal
+  - name: esign-signer
+  - name: esign-admin
 
 paths:
   /esign/status:
     get:
       tags: [esign]
       operationId: esignStatus
-      summary: Whether Firm Sign is on for the firm, and the caller's access in it. Off is 200 `{ enabled: false, myEsignRole: null }`, never MODULE_OFF
+      summary: 'Whether Firm Sign is on for the firm, and the caller''s access in it. Off is 200 `{ enabled: false, myEsignRole: null }`, never MODULE_OFF'
       responses:
         '200':
           description: '`EsignStatus`'
@@ -257,7 +294,7 @@ paths:
       summary: The file's bytes, for the page viewer on the same site (CLEAN files only)
       responses:
         '200':
-          description: The file, `Cache-Control: no-store`
+          description: 'The file, `Cache-Control: no-store`'
           content:
             application/pdf: { schema: { type: string, format: binary } }
             image/jpeg: { schema: { type: string, format: binary } }
@@ -455,7 +492,7 @@ paths:
     get:
       tags: [esign-portal]
       operationId: mySignaturesStatus
-      summary: Whether the portal shows 'Signatures' (`MySignaturesStatus`); a signed-in client of the firm. Off is 200 `{ enabled: false }`; 404 only for an unknown or inactive firm
+      summary: 'Whether the portal shows ''Signatures'' (`MySignaturesStatus`); a signed-in client of the firm. Off is 200 `{ enabled: false }`; 404 only for an unknown or inactive firm'
       security: [{ portalCookie: [] }]
       responses:
         '200':
@@ -463,6 +500,478 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /portal/{firmSlug}/sign/session:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerSession
+      summary: Trade the link token for the signer cookie (`SignerSessionBody` → `SignerState`)
+      security: []
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooMany' }
+
+  /portal/{firmSlug}/sign/session/end:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerSessionEnd
+      summary: 'Clear the signer cookie (`{ ok: true }`)'
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+
+  /portal/{firmSlug}/sign/state:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [esign-signer]
+      operationId: signerState
+      summary: Where the signer is (`SignerState`)
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /portal/{firmSlug}/sign/code/send:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerSendCode
+      summary: Email a new 6-digit code (`SignerCodeSent`); 429 CODE_TOO_SOON
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooMany' }
+
+  /portal/{firmSlug}/sign/code/verify:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerVerifyCode
+      summary: Check the email code (`SignerVerifyCodeBody` → `SignerState`); 400 CODE_INVALID, 429 CODE_LOCKED
+      security: [{ signerCookie: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooMany' }
+
+  /portal/{firmSlug}/sign/access-code:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerAccessCode
+      summary: Check the access code (`SignerAccessCodeBody` → `SignerState`)
+      security: [{ signerCookie: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooMany' }
+
+  /portal/{firmSlug}/sign/consent:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [esign-signer]
+      operationId: signerConsent
+      summary: The firm’s consent text (`SignerConsent`)
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    post:
+      tags: [esign-signer]
+      operationId: signerAcceptConsent
+      summary: Accept it (`SignerAcceptConsentBody` → `SignerState`); 409 CONSENT_OUTDATED
+      security: [{ signerCookie: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/envelope:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [esign-signer]
+      operationId: signerEnvelope
+      summary: The document and the signer’s own fields (`SignerEnvelope`)
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/packet:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [esign-signer]
+      operationId: signerPacket
+      summary: The document’s bytes (application/pdf), as it stands
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/adopt:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerAdopt
+      summary: Adopt a signature and initials (`SignerAdoptBody` → `SignerEnvelope`); 400 IMAGE_INVALID
+      security: [{ signerCookie: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/finish:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerFinish
+      summary: Sign (`SignerFinishBody` → `SignerState`); 409 REQUIRED_FIELDS_MISSING, SIGNATURE_REQUIRED, NOT_YOUR_TURN
+      security: [{ signerCookie: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/decline:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerDecline
+      summary: Decline (`SignerDeclineBody` → `SignerState`)
+      security: [{ signerCookie: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/attachments/uploads:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerAttachmentUpload
+      summary: Upload ticket for an ATTACHMENT field (`SignerAttachmentUploadBody` → `UploadTicket`)
+      security: [{ signerCookie: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/attachments/uploads/confirm:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [esign-signer]
+      operationId: signerAttachmentConfirm
+      summary: Confirm it (`SignerAttachmentConfirmBody` → `SignerField`); 410 UPLOAD_EXPIRED
+      security: [{ signerCookie: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/copy:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [esign-signer]
+      operationId: signerCopy
+      summary: A completed-copy link’s files (`SignerCopy`)
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/sign/copy/download:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+      - { name: file, in: query, required: true, schema: { type: string, enum: [final, certificate] } }
+    get:
+      tags: [esign-signer]
+      operationId: signerCopyDownload
+      summary: A 5-minute link to the final PDF or certificate (`DownloadLink`)
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /portal/{firmSlug}/me/signatures:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+      - { name: tab, in: query, schema: { type: string, enum: [PENDING, SIGNED], default: PENDING } }
+    get:
+      tags: [esign-portal]
+      operationId: mySignatures
+      summary: The client’s requests (`MySignatureList`), tab PENDING or SIGNED
+      security: [{ portalCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /portal/{firmSlug}/me/signatures/{recipientId}/session:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+      - { name: recipientId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [esign-portal]
+      operationId: mySignatureSession
+      summary: Open the signer pages without a code (`SignerState`); sets the signer cookie
+      security: [{ portalCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /portal/{firmSlug}/me/signatures/{recipientId}/download:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+      - { name: recipientId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: file, in: query, required: true, schema: { type: string, enum: [final, certificate] } }
+    get:
+      tags: [esign-portal]
+      operationId: mySignatureDownload
+      summary: A COMPLETED request’s file (`DownloadLink`)
+      security: [{ portalCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/settings:
+    get:
+      tags: [esign-admin]
+      operationId: esignSettings
+      summary: Signing Settings (`EsignSettings`)
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [esign-admin]
+      operationId: updateEsignSettings
+      summary: Change the defaults (`UpdateEsignSettingsBody` → `EsignSettings`); Owner and Admin
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/settings/consent-versions:
+    get:
+      tags: [esign-admin]
+      operationId: esignConsentVersions
+      summary: Every consent version, newest first (`EsignConsentVersionList`)
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [esign-admin]
+      operationId: publishEsignConsent
+      summary: Publish a new version (`PublishEsignConsentBody` → `EsignConsentVersion`); Owner and Admin
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/me/profile:
+    put:
+      tags: [esign-admin]
+      operationId: updateEsignProfile
+      summary: The caller’s job title (`UpdateEsignProfileBody` → `EsignSettings`)
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/templates:
+    parameters:
+      - { name: q, in: query, schema: { type: string } }
+      - { name: archived, in: query, schema: { type: boolean, default: false } }
+    get:
+      tags: [esign-admin]
+      operationId: esignTemplates
+      summary: Templates the caller may use (`EsignTemplateList`)
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/templates/{templateId}:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-admin]
+      operationId: esignTemplate
+      summary: One template (`EsignTemplateDetail`)
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [esign-admin]
+      operationId: updateEsignTemplate
+      summary: Rename or change it (`UpdateEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_NAME_TAKEN, TEMPLATE_ARCHIVED
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/templates/{templateId}/archive:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [esign-admin]
+      operationId: archiveEsignTemplate
+      summary: Archive it (`EsignTemplateDetail`)
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/templates/{templateId}/use:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [esign-admin]
+      operationId: useEsignTemplate
+      summary: A new DRAFT from it (`UseEsignTemplateBody` → `EsignRequestDetail`); 409 TEMPLATE_ROLES_UNFILLED, TEMPLATE_ARCHIVED, ENGAGEMENT_MISMATCH
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/save-as-template:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-admin]
+      operationId: saveEsignTemplate
+      summary: A template from the request (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_NAME_TAKEN, SCAN_PENDING
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
 components:
   parameters:
@@ -482,6 +991,7 @@ components:
   securitySchemes:
     firmCookie: { type: apiKey, in: cookie, name: fv_access }
     portalCookie: { type: apiKey, in: cookie, name: 'fv_portal_{slug}_access' }
+    signerCookie: { type: apiKey, in: cookie, name: 'fv_sign_{slug}' }
 
   requestBodies:
     Zod:
@@ -510,6 +1020,9 @@ components:
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no such request, file, recipient or client, or one the caller may not see'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    TooMany:
+      description: '`CODE_LOCKED`, `CODE_TOO_SOON` or `RATE_LIMITED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Conflict:
       description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`'

@@ -32,7 +32,6 @@ import {
   ESIGN_RECENT_DAYS,
   ListEsignRequestsQuery,
   type MemberRef,
-  type MySignaturesClient,
   parseInput,
   EsignPutFieldsBody,
   EsignPutPagePlanBody,
@@ -49,6 +48,7 @@ import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { documentFixtures } from './documents';
 import { engagementFixtures } from './engagements';
+import { esignAdminMock } from './esign-signing';
 import { mockBusiness } from './me';
 
 /**
@@ -723,7 +723,7 @@ export function createEsignMock(
     return { ready: problems.length === 0, problems, autoSignaturePage: r.fields.length === 0 };
   };
 
-  return {
+  const client: Omit<EsignClient, 'saveAsTemplate' | 'settings' | 'templates'> = {
     status: async () => {
       await mockDelay();
       return { enabled, myEsignRole: enabled ? role : null };
@@ -1255,6 +1255,19 @@ export function createEsignMock(
       return { items: copy(esignStore().events.get(r.id) ?? []) };
     },
   };
+  return {
+    ...client,
+    ...esignAdminMock({
+      client,
+      on,
+      find: (requestId) => view(find(requestId)),
+      stored: find,
+      record,
+      me,
+      manager: role !== 'STAFF',
+      newId,
+    }),
+  };
 }
 
 /**
@@ -1272,15 +1285,5 @@ function remapFields(r: EsignRequestDetail, pages: EsignRequestDetail['pagePlan'
   r.pagePlan = pages.map((p) => ({ ...p }));
 }
 
-/**
- * An in-memory `api.mySignatures(slug)`: Firm Sign is on for `lvp` only, and off everywhere with
- * NEXT_PUBLIC_API_MOCK_ESIGN=off. Off is `{ enabled: false }`, not an error.
- */
-export function mySignaturesMock(firmSlug: string): MySignaturesClient {
-  return {
-    status: async () => {
-      await mockDelay();
-      return { enabled: !ESIGN_OFF && firmSlug.toLowerCase() === mockBusiness.slug };
-    },
-  };
-}
+/** `api.mySignatures(slug)` and `api.signing(slug)`: see mocks/esign-signing.ts. */
+export { createMySignaturesMock as mySignaturesMock, createSigningMock } from './esign-signing';
