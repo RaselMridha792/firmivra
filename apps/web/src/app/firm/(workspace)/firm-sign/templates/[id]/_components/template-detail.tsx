@@ -113,7 +113,7 @@ function Template({ t, canUse }: { t: EsignTemplateDetail; canUse: boolean }) {
       </Card>
 
       <Card className="flex flex-col gap-3">
-        <h2 className="font-semibold text-heading">Roles</h2>
+        <h2 className="font-display text-2xl text-heading">Roles</h2>
         <p className="text-sm text-muted">
           Who fills each role is chosen when the template is used. The client and spouse come from
           the client&apos;s portal logins, the preparer is the person sending.

@@ -24,7 +24,7 @@ export function TemplateVersions({ t, editable }: { t: EsignTemplateDetail; edit
   const [restoring, setRestoring] = useState<EsignTemplateVersion | null>(null);
   return (
     <Card className="flex flex-col gap-3">
-      <h2 className="font-semibold text-heading">Versions</h2>
+      <h2 className="font-display text-2xl text-heading">Versions</h2>
       <p className="text-sm text-muted">
         A new request copies the current version. Requests already made keep the version they came
         from.

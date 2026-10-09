@@ -70,7 +70,7 @@ export function TemplateDetailsForm({
           submit();
         }}
       >
-        <h2 className="font-semibold text-heading">Template details</h2>
+        <h2 className="font-display text-2xl text-heading">Template details</h2>
         <fieldset disabled={save.isPending} className="flex min-w-0 flex-col gap-4">
           <Input
             label="Name"
