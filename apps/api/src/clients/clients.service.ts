@@ -26,8 +26,8 @@ import { reassignClientTasks } from '../workspaces/tasks.service.js';
 import { uuidv7 } from './client-ids.js';
 import {
   changedFields,
+  type DateOfBirthView,
   readDateOfBirth,
-  readDateOfBirthAfterWrite,
   secretColumns,
 } from './client-secrets.js';
 
@@ -116,8 +116,8 @@ function toListItem(row: ListRow): ClientListItem {
   };
 }
 
-/** `dateOfBirth`: decrypted by the caller (firm staff see it in full). */
-function toRecord(row: RecordRow, dateOfBirth: string | null): ClientRecord {
+/** `dob`: decrypted by the caller (firm staff see it in full), or flagged unavailable. */
+function toRecord(row: RecordRow, dob: DateOfBirthView): ClientRecord {
   const p = row.profile;
   const primary = row.accounts.find((a) => a.portalRole === 'PRIMARY');
   return {
@@ -129,7 +129,7 @@ function toRecord(row: RecordRow, dateOfBirth: string | null): ClientRecord {
       preferredName: p?.preferredName ?? null,
       businessName: p?.businessName ?? null,
       entityType: p?.entityType ?? null,
-      dateOfBirth,
+      ...dob,
       ssnLast4: p?.ssnLast4 ?? null,
       einLast4: p?.einLast4 ?? null,
       address: {
@@ -185,19 +185,19 @@ export class ClientsService {
   ) {}
 
   /**
-   * The record as the firm sees it: SSN and EIN as last 4 only, the date of birth in full. After a
-   * committed write (`written`), the date of birth is the one just written when the request set
-   * it, and an unreadable one answers null, never an error for a change that was saved.
+   * The record as the firm sees it: SSN and EIN as last 4 only, the date of birth in full (or null
+   * with `dateOfBirthUnavailable` when it can't be read). After a write that set the date of birth
+   * (`written.dateOfBirth`), the one just written, without decrypting it again.
    */
   private async record(
     businessId: string,
     row: RecordRow,
     written?: { dateOfBirth?: string | null },
   ): Promise<ClientRecord> {
-    const dobEnc = row.profile?.dobEnc;
-    if (!written) return toRecord(row, await readDateOfBirth(this.fe, businessId, row.id, dobEnc));
-    if (written.dateOfBirth !== undefined) return toRecord(row, written.dateOfBirth);
-    return toRecord(row, await readDateOfBirthAfterWrite(this.fe, businessId, row.id, dobEnc));
+    if (written?.dateOfBirth !== undefined) {
+      return toRecord(row, { dateOfBirth: written.dateOfBirth, dateOfBirthUnavailable: false });
+    }
+    return toRecord(row, await readDateOfBirth(this.fe, businessId, row.id, row.profile?.dobEnc));
   }
 
   /** Which clients the actor may reach. */

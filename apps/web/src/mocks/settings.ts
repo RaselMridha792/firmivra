@@ -11,6 +11,7 @@ import {
   type SettingsClient,
   UpdateFirmSettingsRequest,
 } from '@firmivra/types';
+import { renameMockBusiness } from './me';
 
 /**
  * Mock data for `api.settings`. The web kit's mock mode (NEXT_PUBLIC_API_MOCK) swaps the real
@@ -143,6 +144,8 @@ export function createSettingsMock(
       // The EIN is write-only: only its last 4 digits are kept, as in the API.
       if (ein !== undefined) changes.einLast4 = ein === null ? null : ein.slice(-4);
       settings = { ...settings, ...changes, updatedAt: now() };
+      // GET /business reads the same row.
+      if (typeof changes.name === 'string') renameMockBusiness(changes.name);
       return copySettings();
     },
 

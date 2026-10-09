@@ -1,6 +1,7 @@
 import { Validations } from 'aws-cdk-lib';
 import type { IConstruct } from 'constructs';
 import { type EnvConfig, resourceName } from './config';
+import { firmKeyArns } from './firm-key-policy';
 import type { createStacks } from './stacks';
 
 /**
@@ -74,9 +75,20 @@ export function addNagSuppressions(
     ack(
       task,
       'IAM5[Resource::*]',
-      'ecr:GetAuthorizationToken has no resource-level permissions; on the API role also sns:Publish to a phone number (SMS), which has no resource ARN.',
+      'ecr:GetAuthorizationToken has no resource-level permissions; on the API role also sns:Publish to a phone number (SMS), which has no resource ARN, and kms:CreateKey (no key exists yet; limited by request tags, key spec, origin and single Region).',
     );
   }
+  const firmKeys = firmKeyArns(config.envName, config.region, config.account);
+  ack(
+    apiTask,
+    `IAM5[Resource::${firmKeys.keys}]`,
+    `Firm keys are found by tag: reads need firmivra:env=${config.envName}; alias and use also need firmivra:purpose=firm-data, KMS key material and a single-Region key, and use needs the encryption context's businessId to equal the key's firmivra:businessId tag; tagging never rewrites a firm tag and never touches a key with an alias or a CDK key.`,
+  );
+  ack(
+    apiTask,
+    `IAM5[Resource::${firmKeys.aliases}]`,
+    'One alias per firm, named by its id; CreateAlias only, no update or delete.',
+  );
   ack(
     apiTask,
     `IAM5[Resource::arn:aws:s3:::${resourceName(config, 'documents')}-${config.account}/tenant/*]`,
@@ -86,6 +98,11 @@ export function addNagSuppressions(
     app.node.findChild('OriginVerifySecret'),
     'SMG4',
     'Rotating the CloudFront origin header needs CloudFront and the listener updated together; done by redeploying the app stack.',
+  );
+  ack(
+    app.node.findChild('EinHashKey'),
+    'SMG4',
+    'Never rotated: the full EIN is never stored, so hashes cannot be recomputed; a new key would break the duplicate-EIN check.',
   );
   ack(
     app.node.findChild('AlbLogs'),
