@@ -17,6 +17,7 @@ import {
   FirmAgreementSummary,
   IntakeAgreementBlock,
 } from '@firmivra/types';
+import { AGREEMENTS_CONFIG } from '../../src/agreements/agreements.service.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -48,6 +49,8 @@ const sha = (n: number) => n.toString(16).padStart(64, '0');
 let intakeA2 = '';
 
 let app: INestApplication;
+/** On for these tests (PDF rules); the Pending Setup firm's test turns it off. */
+const pdfConfig = { pdfRequired: true };
 const tokens = new Map<string, string>();
 
 async function tokenFor(email: string): Promise<string> {
@@ -221,7 +224,10 @@ beforeAll(async () => {
   });
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule.forRoot(env)],
-  }).compile();
+  })
+    .overrideProvider(AGREEMENTS_CONFIG)
+    .useValue(pdfConfig)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -302,6 +308,7 @@ describe('firm agreements', () => {
       [0, 1].map(() => publish(version(1, firms.a.files[3]!, { title: 'Version 2' }))),
     );
     expect(pair.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(pair.map(codeOf)).toContain('VERSION_CONFLICT');
 
     const detail = FirmAgreementDetail.parse((await asA('get', `/${firmWide}`)).body);
     expect(detail.versions.map((v) => v.version)).toEqual([2, 1]);
@@ -336,9 +343,9 @@ describe('firm agreements', () => {
     const fw = await asA('post', `/${firmWide}/archive`);
     expect([fw.status, codeOf(fw)]).toEqual([409, 'FIRM_WIDE_REQUIRED']);
     const archived = await asA('post', `/${service}/archive`);
-    expect(archived.status).toBe(201);
+    expect(archived.status).toBe(200);
     expect((archived.body as { archivedAt: string | null }).archivedAt).not.toBeNull();
-    expect((await asA('post', `/${service}/archive`)).status).toBe(201);
+    expect((await asA('post', `/${service}/archive`)).status).toBe(200);
     expect(await auditRows(firms.a.id, 'agreement.archived')).toHaveLength(1);
     const late = await asA('post', `/${service}/versions`, version(1, firms.a.cleanFile));
     expect([late.status, codeOf(late)]).toEqual([409, 'AGREEMENT_ARCHIVED']);
@@ -347,6 +354,14 @@ describe('firm agreements', () => {
   it('staff get 403; another firm gets 404 for every route', async () => {
     expect((await asA('get', '', undefined, people.staffA)).status).toBe(403);
     expect((await asA('post', '', { scope: 'ALL_INTAKES' }, people.staffA)).status).toBe(403);
+    for (const [method, path, body] of [
+      ['get', `/${firmWide}`],
+      ['get', `/${firmWide}/versions/1`],
+      ['post', `/${firmWide}/versions`, version(2, firms.a.cleanFile)],
+      ['post', `/${service}/archive`],
+    ] as const) {
+      expect((await asA(method, path, body, people.staffA)).status).toBe(403);
+    }
     const asB = (method: 'get' | 'post', path: string, body?: object) =>
       call(method, path, people.ownerB, firms.b.id, body);
     const listB = FirmAgreementList.parse((await asB('get', '')).body);
@@ -389,7 +404,8 @@ describe('firm agreements', () => {
       scope: 'ALL_INTAKES',
       version: 2,
       title: 'Version 2',
-      pdf: { available: true, sha256: sha(4) },
+      // No PDF download route yet, so never offered; the hash is still signed.
+      pdf: { available: false, sha256: sha(4) },
     });
     expect(parsed.agreements.slice(1).map((a) => a.title)).toEqual(['Extra 1', 'Extra 2']);
     expect(JSON.stringify(res.body)).not.toContain(firms.a.files[3]);
@@ -470,9 +486,7 @@ describe('firm agreements', () => {
     expect((await myBlock(firms.a.slug, 'nope', people.clientA)).status).toBe(400);
     expect((await myBlock(firms.a.slug, firms.a.intakeId)).status).toBe(401);
     // A firm manager is not a portal client.
-    expect([401, 403, 404]).toContain(
-      (await myBlock(firms.a.slug, firms.a.intakeId, people.ownerA)).status,
-    );
+    expect((await myBlock(firms.a.slug, firms.a.intakeId, people.ownerA)).status).toBe(401);
     const audits = await auditRows(firms.a.id, 'portal.intake_agreements_viewed');
     expect(audits.map((a) => a.entityId)).toEqual([firms.a.intakeId, intakeA2]);
   });
@@ -499,12 +513,61 @@ describe('firm agreements', () => {
     expect((await asA('post', '', { scope: 'SERVICE', serviceId: firms.a.serviceId })).status).toBe(
       201,
     );
-    expect((await asA('post', `/${made[0]}/archive`)).status).toBe(201);
+    expect((await asA('post', `/${made[0]}/archive`)).status).toBe(200);
     expect((await create()).status).toBe(201);
+  });
+
+  it("another service's agreements stay out of the Begin Online and portal blocks", async () => {
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const other = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.service.create({
+        data: { businessId: firms.a.id, kind: 'TAX_PLANNING', name: 'Planning' },
+      }),
+    );
+    await owner.$disconnect();
+    const created = await asA('post', '', { scope: 'SERVICE', serviceId: other.id });
+    const id = FirmAgreementSummary.parse(created.body).id;
+    const published = await asA('post', `/${id}/versions`, {
+      ...version(null, firms.a.cleanFile, { title: 'Planning only' }),
+      acknowledgments: [],
+    });
+    expect(published.status).toBe(201);
+    const begin = IntakeAgreementBlock.parse((await block(firms.a.slug, 'BOOKKEEPING')).body);
+    const mine = IntakeAgreementBlock.parse(
+      (await myBlock(firms.a.slug, firms.a.intakeId, people.clientA)).body,
+    );
+    for (const b of [begin, mine]) {
+      expect(b.ready).toBe(true);
+      expect(b.agreements.map((a) => a.agreementId)).not.toContain(id);
+    }
+    const planning = IntakeAgreementBlock.parse((await block(firms.a.slug, 'TAX_PLANNING')).body);
+    expect(planning.agreements.map((a) => a.agreementId)).toContain(id);
+  });
+
+  it('works on a Pending Setup firm: one firm-wide create wins a race, publish without a PDF when off', async () => {
+    const asP = (method: 'get' | 'post', path: string, body?: object) =>
+      call(method, path, people.ownerB, firms.pending.id, body);
+    expect(FirmAgreementList.parse((await asP('get', '')).body).items).toEqual([]);
+    const pair = await Promise.all([0, 1].map(() => asP('post', '', { scope: 'ALL_INTAKES' })));
+    expect(pair.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(pair.map(codeOf)).toContain('FIRM_WIDE_EXISTS');
+    const id = FirmAgreementSummary.parse(pair.find((r) => r.status === 201)!.body).id;
+
+    pdfConfig.pdfRequired = false;
+    try {
+      const res = await asP('post', `/${id}/versions`, version(null, null));
+      expect(res.status).toBe(201);
+      expect(AgreementVersion.parse(res.body)).toMatchObject({ version: 1, pdf: null });
+    } finally {
+      pdfConfig.pdfRequired = true;
+    }
+    const again = await asP('post', `/${id}/versions`, version(1, null));
+    expect([again.status, codeOf(again)]).toEqual([409, 'PDF_REQUIRED']);
+    expect((await asP('get', `/${id}/versions/1`)).status).toBe(200);
   });
 
   it('a client login is not a firm manager', async () => {
     const res = await call('get', '', people.clientA, firms.a.id);
-    expect([401, 403, 404]).toContain(res.status);
+    expect(res.status).toBe(403);
   });
 });
