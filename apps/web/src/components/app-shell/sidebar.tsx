@@ -44,7 +44,7 @@ export function Sidebar({
               const body = (
                 <>
                   <Icon aria-hidden className="size-6 shrink-0" />
-                  <span className="flex-1 whitespace-nowrap">{item.label}</span>
+                  <span className="min-w-0 flex-1">{item.label}</span>
                   {item.soon ? (
                     <span className="rounded-pill bg-platform-navy-raised px-3 py-0.5 text-xs text-brand-100">
                       Soon
