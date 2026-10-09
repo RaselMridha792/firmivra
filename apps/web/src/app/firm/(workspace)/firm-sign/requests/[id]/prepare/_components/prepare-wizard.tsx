@@ -10,6 +10,7 @@ import { PageState } from '../../../../../../../../components/page-state';
 import { api } from '../../../../../../../../lib/api';
 import { DocumentsStep } from './documents-step';
 import { RecipientsStep } from './recipients-step';
+import { SettingsStep } from './settings-step';
 import { requestKey, stepHref, type StepId } from './steps';
 
 const STEPS: { id: StepId; label: string }[] = [
@@ -122,6 +123,7 @@ function StepNav({ id, current }: { id: string; current: StepId }) {
 function Step({ r, step }: { r: EsignRequestDetail; step: StepId }) {
   if (step === 'documents') return <DocumentsStep r={r} />;
   if (step === 'recipients') return <RecipientsStep key={r.id} r={r} />;
+  if (step === 'settings') return <SettingsStep key={r.id} r={r} />;
   return (
     <Card>
       <p className="text-text">{STEPS.find((s) => s.id === step)?.label} is being built.</p>

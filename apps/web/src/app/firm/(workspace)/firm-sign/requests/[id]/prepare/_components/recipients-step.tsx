@@ -8,7 +8,6 @@ import {
 } from '@firmivra/types';
 import { Button, Card, Select } from '@firmivra/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
@@ -23,7 +22,8 @@ import {
   toBody,
 } from './recipient-draft';
 import { type Choice, RecipientRow } from './recipient-row';
-import { requestKey, stepHref } from './steps';
+import { NextStepLink } from './next-step-link';
+import { requestKey } from './steps';
 
 /** Step 2: who signs, who approves first and who gets a copy, and in what order. */
 export function RecipientsStep({ r }: { r: EsignRequestDetail }) {
@@ -180,12 +180,7 @@ export function RecipientsStep({ r }: { r: EsignRequestDetail }) {
           {save.isPending ? 'Saving…' : 'Save recipients'}
         </Button>
         {!dirty && signers > 0 ? (
-          <Link
-            href={stepHref(r.id, 'fields')}
-            className="inline-flex min-h-11 items-center justify-center rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-          >
-            Next: Fields
-          </Link>
+          <NextStepLink id={r.id} step="fields" label="Next: Fields" />
         ) : (
           <p className="text-sm text-muted">
             {dirty ? 'Save your changes to continue.' : 'Add a signer to continue.'}

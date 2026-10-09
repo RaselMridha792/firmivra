@@ -13,7 +13,7 @@ async function draft(page: Page) {
     .getByRole('navigation', { name: 'Steps' })
     .getByRole('link', { name: 'Recipients' })
     .click();
-  await expect(page.getByRole('heading', { name: 'Recipients' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recipients', exact: true })).toBeVisible();
 }
 
 test('add two outside signers, fix a missing email, reorder and save', async ({ page }) => {

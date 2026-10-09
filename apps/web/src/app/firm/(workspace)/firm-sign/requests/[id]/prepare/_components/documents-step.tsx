@@ -13,7 +13,6 @@ import {
 import { Button, Card, Input, Select } from '@firmivra/ui';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText } from 'lucide-react';
-import Link from 'next/link';
 import { useEffect, useId, useState } from 'react';
 import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
@@ -21,7 +20,8 @@ import { useApiMutation } from '../../../../../../../../lib/query';
 import { uploadFile } from '../../../../../../../../lib/upload';
 import { closeThumbFile } from '../../../../../../../../components/esign/page-thumb';
 import { PagePlan } from './page-plan';
-import { requestKey, stepHref } from './steps';
+import { NextStepLink } from './next-step-link';
+import { requestKey } from './steps';
 
 const ERRORS = { ...DOCUMENT_ERRORS, ...ESIGN_ERRORS };
 const ACCEPT = Object.entries(ESIGN_UPLOAD_TYPES)
@@ -98,12 +98,7 @@ export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
       <PagePlan r={r} locked={remove.isPending} />
       <div className="flex flex-wrap gap-3">
         {ready ? (
-          <Link
-            href={stepHref(r.id, 'recipients')}
-            className="inline-flex min-h-11 items-center justify-center rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-          >
-            Next: Recipients
-          </Link>
+          <NextStepLink id={r.id} step="recipients" label="Next: Recipients" />
         ) : (
           <p className="text-sm text-muted">
             {r.documents.length === 0
