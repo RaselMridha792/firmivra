@@ -566,16 +566,21 @@ export class Notifier {
    * off again, so texts start only after they opt in for the new number (the contract's rule).
    * Called by whoever owns the phone change.
    */
-  async phoneChanged(businessId: string, userId: string): Promise<{ cleared: number }> {
+  async phoneChanged(
+    businessId: string,
+    userId: string,
+    /** The caller's transaction in this firm, so the clearing commits with the number's change. */
+    tx?: TxClient,
+  ): Promise<{ cleared: number }> {
     if (!UUID.test(businessId) || !UUID.test(userId)) {
       throw new NotificationInputError('phoneChanged: ids must be UUIDs');
     }
-    const { count } = await this.database
-      .forBusiness(businessId)
-      .notificationPreference.updateMany({
-        where: { businessId, userId: userId.toLowerCase(), sms: true },
-        data: { sms: false },
-      });
+    const { count } = await (
+      tx ?? this.database.forBusiness(businessId)
+    ).notificationPreference.updateMany({
+      where: { businessId, userId: userId.toLowerCase(), sms: true },
+      data: { sms: false },
+    });
     return { cleared: count };
   }
 
