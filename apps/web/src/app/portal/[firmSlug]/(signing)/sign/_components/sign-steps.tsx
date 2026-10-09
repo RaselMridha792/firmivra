@@ -1,57 +1,35 @@
 'use client';
 
-import {
-  ESIGN_ERRORS,
-  type SignerCopy,
-  type SignerCopyFile,
-  type SignerEnvelope,
-} from '@firmivra/types';
+import { ESIGN_ERRORS, type SignerCopyFile, type SignerEnvelope } from '@firmivra/types';
 import { Button, Card, EmptyState } from '@firmivra/ui';
-import { useEffect, useEffectEvent, useState } from 'react';
 import { FieldOverlay, type OverlayField } from '../../../../../../components/esign/field-overlay';
 import { PdfPages } from '../../../../../../components/esign/pdf-pages';
+import { PageState } from '../../../../../../components/page-state';
 import { errorMessage } from '../../../../../../lib/errors';
+import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import type { StepProps } from './signer-page';
 
-const message = (e: unknown) => errorMessage(e, ESIGN_ERRORS);
-
-/** Loads something from the signer API once per step; `null` while loading. */
-function useLoad<T>(signing: StepProps['signing'], load: (s: StepProps['signing']) => Promise<T>) {
-  const [value, setValue] = useState<{ ok: T } | { error: string } | null>(null);
-  const run = useEffectEvent(() => load(signing));
-  useEffect(() => {
-    let active = true;
-    run()
-      .then((ok) => {
-        if (active) setValue({ ok });
-      })
-      .catch((e: unknown) => {
-        if (active) setValue({ error: message(e) });
-      });
-    return () => {
-      active = false;
-    };
-  }, [signing]);
-  return value;
-}
+const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
 
 /**
  * SIGN: the document with the signer's own fields. Adopting a signature, filling the fields,
  * finishing and declining come in signer flow 2.
  */
-export function SignStep({ signing }: StepProps) {
-  const loaded = useLoad(signing, (s) => s.envelope());
-  if (!loaded) return <p className="text-sm text-muted">Loading the document…</p>;
-  if ('error' in loaded) {
-    return (
-      <p role="alert" className="text-sm text-danger">
-        {loaded.error}
-      </p>
-    );
-  }
-  const envelope = loaded.ok;
+export function SignStep({ signing, firmSlug, opening }: StepProps) {
+  const envelope = useApiQuery(['signing', firmSlug, opening, 'envelope'], () =>
+    signing.envelope(),
+  );
+  return (
+    <PageState query={envelope} isEmpty={() => false}>
+      {(e) => <SignView envelope={e} />}
+    </PageState>
+  );
+}
+
+function SignView({ envelope }: { envelope: SignerEnvelope }) {
   const fields = envelope.fields.map((f) => toOverlay(f, envelope));
   const recipients = [{ id: envelope.me.recipientId, name: envelope.me.name, colorIndex: 0 }];
+  const count = envelope.fields.length;
   return (
     <div className="flex flex-col gap-4">
       {envelope.message && (
@@ -60,8 +38,8 @@ export function SignStep({ signing }: StepProps) {
         </Card>
       )}
       <p className="text-sm text-text">
-        {envelope.fields.length
-          ? `You have ${envelope.fields.length} ${envelope.fields.length === 1 ? 'field' : 'fields'} to fill in, marked on the pages.`
+        {count
+          ? `You have ${count} ${count === 1 ? 'field' : 'fields'} to fill in, marked on the pages.`
           : 'You sign on the signature page at the end of the document.'}
       </p>
       <PdfPages
@@ -99,60 +77,44 @@ function toOverlay(f: SignerEnvelope['fields'][number], envelope: SignerEnvelope
 }
 
 /** COPY: a completed request's signed document and certificate, from the copy link. */
-export function CopyStep({ signing }: StepProps) {
-  const loaded = useLoad(signing, (s) => s.copy());
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<SignerCopyFile | null>(null);
-
-  async function download(file: SignerCopyFile) {
-    setBusy(file);
-    setError(null);
-    try {
-      const link = await signing.downloadCopy(file);
-      window.location.assign(link.url);
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  if (!loaded) return <p className="text-sm text-muted">Loading…</p>;
-  if ('error' in loaded) {
-    return (
-      <p role="alert" className="text-sm text-danger">
-        {loaded.error}
-      </p>
-    );
-  }
-  const copy: SignerCopy = loaded.ok;
+export function CopyStep({ signing, firmSlug, opening }: StepProps) {
+  const copy = useApiQuery(['signing', firmSlug, opening, 'copy'], () => signing.copy());
+  const download = useApiMutation((file: SignerCopyFile) => signing.downloadCopy(file));
   return (
     <Card title="Your signed copy">
-      <div className="flex flex-col gap-4">
-        <p className="text-sm text-text">
-          Everyone has signed. Completed on{' '}
-          {new Date(copy.completedAt).toLocaleDateString(undefined, { dateStyle: 'long' })}.
-        </p>
-        <ul className="flex flex-col gap-2">
-          {copy.files.map((f) => (
-            <li key={f.file} className="flex flex-wrap items-center justify-between gap-3">
-              <span className="text-sm text-text">{f.fileName}</span>
-              <Button
-                variant="secondary"
-                onClick={() => void download(f.file)}
-                disabled={busy !== null}
-              >
-                {f.file === 'final' ? 'Download the document' : 'Download the certificate'}
-              </Button>
-            </li>
-          ))}
-        </ul>
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
+      <PageState query={copy} isEmpty={() => false}>
+        {(c) => (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-text">
+              Everyone has signed. Completed on{' '}
+              {new Date(c.completedAt).toLocaleDateString(undefined, { dateStyle: 'long' })}.
+            </p>
+            <ul className="flex flex-col gap-2">
+              {c.files.map((f) => (
+                <li key={f.file} className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-sm text-text">{f.fileName}</span>
+                  <Button
+                    variant="secondary"
+                    disabled={download.isPending}
+                    onClick={() =>
+                      download.mutate(f.file, {
+                        onSuccess: (link) => window.location.assign(link.url),
+                      })
+                    }
+                  >
+                    {f.file === 'final' ? 'Download the document' : 'Download the certificate'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            {download.error && (
+              <p role="alert" className="text-sm text-danger">
+                {message(download.error)}
+              </p>
+            )}
+          </div>
         )}
-      </div>
+      </PageState>
     </Card>
   );
 }
