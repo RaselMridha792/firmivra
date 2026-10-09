@@ -46,6 +46,8 @@ export function createStacks(app: App, config: EnvConfig) {
         description: 'Firmivra: SES domain identity, DKIM, MAIL FROM, DMARC',
       })
     : undefined;
+  // Cognito sends its reset codes through the email stack's SES identity (by name, see config).
+  if (email) auth.addStackDependency(email, 'Cognito sends through the email stack SES identity');
   const appStack = new AppStack(app, id('app'), {
     ...common,
     config,

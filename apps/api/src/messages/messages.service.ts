@@ -751,10 +751,12 @@ export class MessagesService {
     try {
       return await this.inFirm(businessId, async (tx) => {
         const me = await this.writer(tx, businessId, clientAccountId);
-        // FOR SHARE: the firm can't close replies between this check and the insert.
+        // FOR NO KEY UPDATE: the firm can't close replies between this check and the insert,
+        // and two replies queue instead of deadlocking on the thread row the insert's trigger
+        // updates (two FOR SHARE locks would both wait on each other).
         await tx.$queryRaw`
           SELECT 1 FROM message_threads WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
-          FOR SHARE`;
+          FOR NO KEY UPDATE`;
         const t = await this.myThread(tx, businessId, me.clientId, id);
         if (!t.repliesEnabled) throw repliesClosed();
         const row = await tx.message.create({
