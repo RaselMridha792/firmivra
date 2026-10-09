@@ -347,6 +347,10 @@ export const SEED_BILLING_IDS = {
   transcriptLink: '00000000-0000-4006-8000-000000000022',
   recordKeeping: '00000000-0000-4006-8000-000000000023',
   receiptsTip: '00000000-0000-4006-8000-000000000024',
+  /** INV-1002, part paid by check (an offline payment). */
+  offlineInvoice: '00000000-0000-4006-8000-000000000031',
+  offlinePayment: '00000000-0000-4006-8000-000000000032',
+  offlinePaymentKey: '00000000-0000-4006-8000-000000000033',
 } as const;
 
 /** LVP's Stripe connected account for local development: fake, never a real account id. */
