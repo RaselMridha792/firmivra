@@ -2,11 +2,15 @@
 
 **Goal:** A firm applies, Super Admin approves, requests info or declines, and the owner activates the workspace.
 
+**From Oct 9:** steps 2 to 6 are built by R16 (a cloud thread, Rasel's Oct 8 decision), which logs its work below.
+
 **Owned paths (change only these):**
+
 - `apps/api/src/firm-applications/**`
 - `packages/types/src/firm-applications/**`
 
 **Read first (nothing else):** CLAUDE.md, docs/work/README.md, this file, and:
+
 - docs/specs (Super Admin Phase 1 scope)
 - docs/work/R2-staff-auth.md (invites)
 
@@ -14,9 +18,9 @@
 
 - [x] 1. Public application submit (rate limited, no account needed)
 - [ ] 2. Super Admin actions: approve, request info (message to applicant), decline with reason; status history
-- [ ] 3. Approve creates the business with a unique slug and invites the owner (R2 invite flow)
-- [ ] 4. Owner activation ends at first-time setup; business status active
-- [ ] 5. Emails through NotifyService (log until R6 merges)
+- [x] 3. Approve creates the business with a unique slug and invites the owner (R2 invite flow)
+- [x] 4. Owner activation ends at first-time setup; business status active
+- [x] 5. Emails through NotifyService (log until R6 merges)
 - [ ] 6. Audit every action; e2e test of the whole path
 - [x] 7. Plus T05 (Oct 6): applications list with filters and paging, detail and status history (Super Admin through `forAdmin()`), dashboard counts, firms list (Active, Pending Setup, Inactive). Contract by Oct 8 (Tumit F04b, N04)
 
@@ -56,6 +60,13 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - Approve copies the entity type, services, team size and description into the new firm's `business_settings` in a business-scope transaction, never the EIN.
   - `data` may hold no key starting with "ein".
 
+## Decisions (R16, Oct 9, where the docs are silent)
+
+- Step 3: the settings copy is entity type, services and team size. The application has no firm description (`additionalInfo` is a note to Firmivra), so `description` stays empty. A firm that already has settings keeps them.
+- Step 3: the owner invite uses R2's `InvitesService` class through a second instance in this module (`OWNER_INVITES`) whose activation mailer sends `firm-application.approved` through NotifyService, so the owner gets the approval email with the link. Everything else (login, membership, token, limits) is R2's.
+- Step 3: the KMS key job (`FirmKeyJob`) starts after approve's commits without being awaited, and a sweep every 5 minutes (KMS_MODE=kms only, under `pg_try_advisory_xact_lock`) retries firms in setup or active without a key. The firm stays `PENDING_SETUP` until setup Finish; until its key is stored, saving the EIN answers 503 ENCRYPTION_UNAVAILABLE (the settings API's existing answer).
+- Step 3: Resend owner invite is a platform audit event `firm_application.owner_invite_resent` (ids only); R2's invite writes `membership.invited` in the firm.
+
 ## For the API steps (lead's #61 review, Oct 7)
 
 - History is #52's `firm_application_status_history`, written by the trigger on `firm_applications`, not `audit_logs`.
@@ -92,7 +103,7 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 - R0 (seed): LVP's seeded firm application has `data: { businessType }`, not the stored form (`StoredApplication` in `apps/api/src/firm-applications/firm-applications.service.ts`: the review page's business, primaryAdmin, account and credentials groups). Since the #79 fixes the API answers it from the table's own columns (`formReadable` false) instead of 500, and the contract now takes its hand-written id (next note), so the pages list and open it. The seed should still write the stored shape (synthetic values), so local review pages show a full form. Dev has no applications, so it is not affected.
 - R0 (seed): the seed's fixed ids should be RFC 9562 UUIDs (the contracts check ids with `z.uuid()`). Done in #89 (Oct 8); `FirmApplicationId` is `z.uuid()` again since #79.
 - R0: admin scope reads only the signed-in admin's own user row, so another Super Admin's name in a decision or the history shows as "Firmivra admin". Let admin scope read platform admins' names (users of `platform_admins`). Done in #80 (Oct 8): `users_admin_platform_admins`; R4 uses it in a later PR.
-- R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API. In R1's #101 (`firmivra/<env>/firm-applications/ein-hash-key` as `EIN_HASH_KEY`); submit answers 503 on dev until it deploys.
+- R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API. Done for dev in R1 step 14 (#101, Oct 8): `firmivra/dev/firm-applications/ein-hash-key` as `EIN_HASH_KEY`; submit answers 503 on dev until #101 deploys; prod with R8.
 - Lead: an `EIN_HASH_KEY` placeholder in `.env.example` (dev-only value, 64 hex characters). Done (the lead's yes, Oct 8): `.env.example` has a dev-only key, and production refuses that exact value.
 - R8: alarm on the warnings "Firm application <id>: the <template> email could not be sent" (received, info-requested, declined; the id only) and "Firm application submit refused: EIN_HASH_KEY ..." (the key is missing or malformed: no application can be received). Optionally also "Firm application submits for one email (key <first 12 of the keyed hash>) reached <n> in a day" (one email named by many networks; once a day per email, never a block).
 - Firmivra's own terms version: submit can't store "the version of Firmivra's terms in force" (For the API steps) until one exists; the application keeps only the two ticks the contract requires.
@@ -100,6 +111,8 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 - R6: four emails: application received (applicant), information requested (the message; reply-to support), approved (the owner's activation link, through R2's activation mailer), declined (with the reason, Rasel Oct 7).
 - R3: export `tryLock` (the advisory try-lock in `apps/api/src/client-auth/sign-up.service.ts`) from a shared place, for example `client-auth/network.ts` or a small `common/advisory-lock.ts`. R4's submit limits keep a copy in `submit.service.ts` until then, and switch to the import once it lands (review of `rasel/R4-api-submit`, Oct 8).
 - R2: an owner invite created by a Super Admin (no inviting member) through `InvitesService`, checked at step 3.
+- Tumit (F04b, application detail): show Approve also when the application is APPROVED and `firm` is null (an approval whose picked address was taken before the firm was created). Approving again finishes it; the page now hides the button (`canDecide`). Rare, and only with a picked address.
+- R2 (InvitesService, `apps/api/src/auth/invites.service.ts`; R16, Oct 9): the owner's link must be inserted in platform scope with no inviter, so the database marks it `sent_by_platform` and keeps the token-free copy in `platform_owner_invites` (R0's #80 design). `InvitesService` writes every invite in the firm's business scope, and platform scope may insert invites but not memberships, so R4 can't do it from its own paths. Needed: for `invitedBy: null` and role OWNER, the `invites` row inserted in platform scope (the membership stays in business scope, in the same lock order), for example an option on `createInvite` / `resendInvite`. R16 makes it (Oct 9, the thread's go: R2's session is closed) on its own small branch `rasel/R16-owner-invite-platform`, so it can be reviewed or dropped alone; approve and resend switch to it in a later commit once it is in. Until then approve and Resend owner invite work (business-scope invite, email through NotifyService), but the review page's `ownerInvite` stays null and the history has no OWNER_INVITED. R4's read side (`platform_owner_invites`) is in and tested with a platform-scope invite.
 - Not in the contract (Phase 1 is the approval path only): the "Edit" links on the review cards, "Add Firm Manually", "Add Firm", "Edit Firm Details", "Deactivate Firm" and "Open Firm Workspace" (the last needs the support-access design). The screens leave them out or mark them "Soon".
 
 ## Progress log
@@ -178,3 +191,36 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - `.env.example` has `EIN_HASH_KEY` with a dev-only 64-hex value (the lead's yes for that file), so a local submit works. `loadEinHashKey` refuses that exact value when `NODE_ENV` is production ("EIN_HASH_KEY is the .env.example value"), so a deploy that copied `.env.example` never hashes EINs with a public key; a unit test keeps the constant and `.env.example` the same.
   - Submit is wrapped in R3's `atLeast`: in AWS (`AUTH_MODE=cognito`) every answer, a 429 or 503 included, takes at least `SUBMIT_MIN_RESPONSE_MS` (1 s), so a dropped honeypot and a real submit can't be told apart by time. Local and test runs don't wait.
   - Tests: unit (the production refusal, `.env.example` in step, the minimum time for a honeypot and a 503 in AWS, none locally).
+- 2026-10-08, from R1 step 14 (branch `rasel/R1-kms-secret-ses`):
+  - `firm-keys.ts` exists: `FirmKeys`, `AwsFirmKeys`, `LocalFirmKeys`, `loadFirmKeysConfig`, `createFirmKeys`, `FIRM_KEYS`, `firmKeyAlias`, `FirmKeyError`. Keys are tagged `firmivra:env`, `firmivra:businessId` (the lower-case id) and `firmivra:purpose=firm-data`, named `alias/firmivra/<env>/business/<id>`, and made with KMS's default key policy (none sent). A repeat finds the key by its alias; a race uses the key named first; either way the adapter adopts the key only if it is exactly one it makes (enabled customer key of this account, KMS key material, one Region, symmetric, exactly the firm's three tags, KMS's default key policy, no grants), else `FirmKeyError` and nothing is stored; naming a new key is retried for up to five minutes (tags take that long to reach authorization).
+  - The one-off `create-firm-key` command (`create-firm-key.ts`, `create-firm-key.cli.ts`) gives LVP its key on dev, in platform scope, with a `business.kms_key_set` platform audit row; `--check` proves the encryption-context rule on the real key.
+  - Approve (step 3) reuses them, as the plan for step 3 says (#124, "For the API steps"): `CreateAlias` can wait up to 5 minutes on a new key, so the key is made outside the request, and a naming failure logs the unused key (`FirmKeyError` names it). Add approve to the source-scan test in `test/unit/firm-keys.test.ts`.
+  - EIN-hash key: `firmivra/<env>/firm-applications/ein-hash-key`, 64 lower-case hex characters (32 bytes), injected as `EIN_HASH_KEY`. Submit reads it with its own settings loader (check `^[0-9a-f]{64}$`, decode, HMAC-SHA256 into `ein_hash`) and never rotates it. Locally, `.env` takes the dev-only `.env.example` value (#107, above).
+- 2026-10-09, step 2 (approve), R16, branch `rasel/R16-approve`:
+  - `POST /admin/firm-applications/{id}/approve` (`slug` optional; default the suggested address). Two transactions, since the database takes each half only in its own scope: the decision in admin scope (APPROVED as the acting admin, `firm_application.approved` audited in it), then the firm in platform scope (`PENDING_SETUP`, named after the legal name, `business_type` from the practice type or null, pack `TAX_ACCOUNTING`), linked to the application in the same transaction, with `business.created` audited (platform event, the acting admin, `{ applicationId }`).
+  - 409 `OWNER_NAME_TOO_LONG` (new contract code, also in the mock: a contact name the owner invite would refuse by R0's `invites_name`, over 120 characters, blank or with control characters; only rows from before #107) and a picked address another firm has (`SLUG_TAKEN`) are checked before the decision.
+  - With no picked address, one taken in between moves on to the next free one (insert with ON CONFLICT DO NOTHING, then the next). Only a picked address taken between the two halves leaves the application APPROVED with no firm: the record keeps `suggestedSlug`, and approving again finishes it without a second decision.
+  - Firms approved before step 3 merges get their settings, key and owner link from step 3's paths (settings are created on first save, the key job takes any firm without one, Resend owner invite sends a first link).
+  - Two approvals at once: the second waits on the row lock and creates nothing more (one firm, one decision).
+  - Not yet (step 3): business_settings from the application, the KMS key, the owner invite after commit and `resendOwnerInvite`, `ownerInvite` on the record. Approve sends no email until then.
+  - Tests: `apps/api/test/e2e/firm-application-approve.e2e.test.ts` (default and picked address, the audit rows, 409s before the decision, finishing an approved application without a firm, a double click, an unreadable form, 400/401/404).
+- 2026-10-09, step 3, R16, branch `rasel/R16-firm-setup` (on `rasel/R16-approve`): after approve's commits, each on its own (a failure warns with ids only and the approval stands):
+  - the firm's `business_settings` from the application (entity type, services, team size; never the EIN) in the firm's business scope, audited `settings.copied_from_application` in the firm;
+  - the firm's KMS key through `FirmKeys` (#101's `firm-keys.ts`; the job is in its source-scan test, and a `FirmKeyError` naming an unused key is logged as is), made by `FirmKeyJob` outside the request, stored on `businesses.kms_key_id` in platform scope, audited `business.key_created` (no ARN);
+  - the owner invite through R2's `InvitesService` (`invitedBy` null), emailed as `firm-application.approved` through NotifyService.
+  - `POST /admin/firm-applications/{id}/owner-invite` (contract's `resendOwnerInvite`, already in the contract and mock): a new link (R2's resend) or a first one; 409 INVITE_NOT_NEEDED before the firm exists, for a suspended or closed firm, or once the owner is active.
+  - The record's `ownerInvite` and OWNER_INVITED history come from `platform_owner_invites` (R2 need above).
+  - Tests: `apps/api/test/e2e/firm-setup.e2e.test.ts` (settings without the EIN and isolation, key stored, invite and email, email and key failures then resend and retry, 409s, ownerInvite from the copy, 401/403), `firm-application-approve.e2e.test.ts` updated, unit `firm-key-job.test.ts`, `firm-keys.test.ts`.
+- 2026-10-09, steps 4 and 5, R16, branch `rasel/R16-firm-activation` (on `rasel/R16-firm-setup`):
+  - Activation ends at first-time setup with what is on main: the owner's link (R2's `/auth/activate`) joins the firm in setup, the setup wizard's Finish (`POST /business/setup/complete`, the settings API) makes it ACTIVE (`businesses.activated_at` set by the database). No change outside R4 was needed.
+  - The review page's history has FIRM_ACTIVATED at `activated_at` (by null), and the firm summary stays the four contract fields.
+  - Step 5: every firm-application email already goes through NotifyService (received, information requested, declined since step 2; approved with the owner's link since step 3); there are no log-only calls left in the module. There is no separate "firm activated" email template; none is sent.
+  - Tests: `apps/api/test/e2e/firm-activation.e2e.test.ts` (approve, the link from the approval email, activation with a password, setup in PENDING_SETUP, resend 409 once joined, the four steps and Finish, FIRM_ACTIVATED, the firms list ACTIVE).
+- 2026-10-09, #164 pre-review fixes (branch `rasel/R16-firm-setup`):
+  - The key sweep's timer catches a failed sweep (a warning; the next one runs), so a database error can't stop the API task.
+  - A `FirmKeyError` (a key made but not named, or an alias naming a key the adapter won't adopt) is recorded once as the platform event `business.key_needs_person` and logged once; the sweep never retries that firm, so no more unused keys are made. A person runs `create-firm-key`, which stores the key.
+  - The sweep leaves firms created in the last 10 minutes to approve's own call (its try-lock ends with the list, and naming a new key can take 5 minutes).
+  - Resend owner invite also copies settings an approval could not copy (idempotent; a firm with settings keeps them).
+  - A revoked newest owner link reads EXPIRED, not SENT.
+  - Tests: unit (sweep age and held firms, the error recorded once, a failing sweep), e2e (settings copied on resend, once).
+- 2026-10-09, #183 pre-review fixes (branch `rasel/R16-firm-activation`): the activation e2e signs the owner in with the password the link set (sign-in, then the authenticator step with the local code) and runs setup with that session's cookies, not a dev token; it checks the audit rows of activation, the four steps and Finish (by the owner); the firm summary is built with `satisfies`, not `as`.

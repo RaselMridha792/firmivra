@@ -126,6 +126,8 @@ Checklist:
 - **API:** R12 (types, free slots, book, reschedule, cancel).
 - **Build:** pick a type, then a free slot, then confirm; upcoming appointments with reschedule and cancel where allowed; in the firm's branding.
 
+**Status (Oct 9, 2026):** Two stacked PRs under 400 lines: `tumit/FIR-N08-appointments` (pick a kind, a day and a free time, then confirm) and `tumit/FIR-N08-change-appointments` (upcoming appointments with Reschedule and Cancel until `changeableUntil`). A time someone just took (409 `SLOT_TAKEN` or `SLOT_UNAVAILABLE`) shows a clear message and reloads the free times. Times show in the client's own time zone with its short name: the portal has no firm time zone.
+
 ### Q03 · Oct 15-16 · Full test pass on dev (with Arfan)
 
 You take the Super Admin site and the firm workspace; Arfan takes the portal and Begin Online. For every screen:
