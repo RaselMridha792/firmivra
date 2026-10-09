@@ -2,14 +2,15 @@
 
 import { type FirmSettings, UpdateFirmSettingsRequest } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, use, useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { FirmContext } from '../../../../components/firm-context';
 import { PageState } from '../../../../components/page-state';
 import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../lib/query';
 import { FIRM_SETTINGS, SETUP_ERRORS } from './shared';
-import { settingsResolver, type StepForm } from './step-form';
+import { changedOnly, settingsResolver, type StepForm } from './step-form';
 
 /** A Settings page (Profile, Branding, Client portal): the setup wizard's fields, saved at once. */
 export function SettingsScreen({
@@ -46,17 +47,28 @@ export function SettingsForm({
     resolver: settingsResolver,
     defaultValues: defaults,
   });
+  // Read during render: react-hook-form only tracks dirtyFields once something reads it.
+  const { dirtyFields } = form.formState;
   const [saved, setSaved] = useState(false);
+  // In the workspace (not the setup wizard): the header's firm name follows a saved new name.
+  const firmArea = use(FirmContext);
   const save = useApiMutation((values: UpdateFirmSettingsRequest) => api.settings.update(values), {
     invalidate: FIRM_SETTINGS,
   });
   const submit = form.handleSubmit((values) => {
     setSaved(false);
-    save.mutate(values, {
+    const changes = changedOnly(values, dirtyFields);
+    if (!Object.keys(changes).length) {
+      setSaved(true);
+      return;
+    }
+    save.mutate(changes, {
       onSuccess: () => {
         setSaved(true);
-        // The EIN is write-only: clear it once saved (only its last 4 come back).
-        form.resetField('ein');
+        if ('name' in changes) void firmArea?.refresh?.();
+        // Saved values are the new starting point; the write-only EIN is cleared (only its last 4
+        // come back).
+        form.reset({ ...form.getValues(), ein: undefined });
       },
     });
   });

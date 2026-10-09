@@ -2,6 +2,8 @@
 
 **Goal:** Clients pay invoices by card and the invoice turns paid by itself.
 
+**From Oct 9:** all of R7 is built by R16 (a cloud thread, Rasel's Oct 8 decision), which logs its work below.
+
 **Owned paths (change only these):**
 - `apps/api/src/payments/**`
 - `packages/types/src/payments/**`, `packages/types/test/payments/**`
