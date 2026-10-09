@@ -1055,6 +1055,7 @@ paths:
     post:
       tags: [esign-extras]
       operationId: submitEsignApproval
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: "DRAFT to NEEDS_APPROVAL; approvers are emailed (`SubmitEsignApprovalBody` → `EsignRequestDetail`). 409 NOT_READY, INVALID_STATE"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1072,6 +1073,7 @@ paths:
     post:
       tags: [esign-extras]
       operationId: decideEsignApproval
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: "An approver approves or rejects (`EsignApprovalBody` → `EsignRequestDetail`); the last approval sends it. 403 NOT_AN_APPROVER; 409 INVALID_STATE, RECIPIENT_DONE"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1089,6 +1091,7 @@ paths:
     post:
       tags: [esign-extras]
       operationId: saveEsignTemplateVersion
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: "The request becomes the template’s next version (`SaveEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_ARCHIVED, SCAN_PENDING"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1106,6 +1109,7 @@ paths:
     post:
       tags: [esign-extras]
       operationId: startEsignInPerson
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: "Hand this device to an IN_PERSON signer and lock the staff session (`StartEsignInPersonBody` → `EsignInPersonSession`). 409 NOT_IN_PERSON, NOT_YOUR_TURN, RECIPIENT_DONE, REQUEST_CLOSED"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1121,6 +1125,7 @@ paths:
     get:
       tags: [esign-extras]
       operationId: getEsignInPerson
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: "The caller’s open in-person session (→ `EsignInPersonState`); allowed while locked"
       responses:
         '200':
@@ -1132,6 +1137,7 @@ paths:
     post:
       tags: [esign-extras]
       operationId: exitEsignInPerson
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: "Unlock with the staff password (`ExitEsignInPersonBody` → `OkResponse`); allowed while locked. 400 PASSWORD_WRONG; 401 after 5 wrong"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1146,6 +1152,7 @@ paths:
     get:
       tags: [esign-extras]
       operationId: listEsignRoles
+      x-roles: [OWNER, ADMIN]
       summary: "Every active member’s Firm Sign access, Owner and Admin only (→ `EsignMemberRoleList`)"
       responses:
         '200':
@@ -1159,6 +1166,7 @@ paths:
     put:
       tags: [esign-extras]
       operationId: setEsignRole
+      x-roles: [OWNER, ADMIN]
       summary: "A Staff member’s Firm Sign access (`SetEsignMemberRoleBody` → `EsignMemberRole`). 409 ROLE_FIXED, NOT_A_MEMBER"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1175,6 +1183,7 @@ paths:
     get:
       tags: [esign-extras]
       operationId: listEsignTemplateVersions
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: "Every saved version, newest first (→ `EsignTemplateVersionList`)"
       responses:
         '200':
@@ -1190,6 +1199,7 @@ paths:
     post:
       tags: [esign-extras]
       operationId: restoreEsignTemplateVersion
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: "Copies an older version into a new newest one (`RestoreEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_ARCHIVED"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1207,6 +1217,7 @@ paths:
     post:
       tags: [esign-extras]
       operationId: duplicateEsignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: "A copy the caller owns, at version 1 (`DuplicateEsignTemplateBody` → `EsignTemplateDetail`). 409 TEMPLATE_NAME_TAKEN"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1224,6 +1235,7 @@ paths:
     post:
       tags: [esign-extras]
       operationId: bulkSendEsignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: "One separate request per client (`EsignBulkSendBody` → 202 `EsignBulkBatch`). 400 BULK_LIMIT; 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1241,6 +1253,7 @@ paths:
     get:
       tags: [esign-extras]
       operationId: getEsignBulkBatch
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: "A bulk send’s rows (→ `EsignBulkBatch`)"
       responses:
         '200':
@@ -1258,6 +1271,7 @@ paths:
     get:
       tags: [esign-extras]
       operationId: getEsignReport
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: "Totals and activity by sender for requests sent in a range of at most a year (`EsignReportQuery` → `EsignReport`)"
       responses:
         '200':
@@ -1318,7 +1332,7 @@ components:
       description: '`CODE_LOCKED`, `CODE_TOO_SOON` or `RATE_LIMITED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Conflict:
-      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`'
+      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`, `ROLE_FIXED`, `NOT_IN_PERSON`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
   schemas:
