@@ -46,7 +46,7 @@ export class BundledDataFactory {
       // A failed fetch is tried again by the next document.
       bytes.catch(() => fetched.delete(url.href));
     }
-    // pdf.js transfers what it gets to the worker, so each caller gets its own copy.
-    return (await bytes).slice();
+    // pdf.js copies what it gets into its message to the worker, so the cached bytes are shared.
+    return bytes;
   }
 }

@@ -875,6 +875,7 @@ describe('CognitoIdentityProvider: invites and activation (step 6)', () => {
 describe('LogActivationMailer (until R6)', () => {
   const email = {
     inviteId: 'invite-1',
+    businessId: '0190a000-0000-7000-8000-000000000001',
     to: 'new@lvp.test',
     name: 'New',
     businessName: 'LVP',

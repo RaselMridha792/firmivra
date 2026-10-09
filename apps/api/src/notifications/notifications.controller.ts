@@ -14,6 +14,7 @@ import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorator
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { Notifier } from './notifier.js';
+import { ReminderJobs } from './reminder-jobs.js';
 import { type Me, NotificationsService } from './notifications.service.js';
 
 const idPipe = new ZodValidationPipe(NotificationId.transform((v) => v.toLowerCase()));
@@ -118,12 +119,12 @@ export class MyNotificationsController extends NotificationRoutes {
 }
 
 /**
- * The notification center's routes and `Notifier`, the helper other modules import to write a
- * bell item (and its email copy) for an event.
+ * The notification center's routes, `Notifier` (the helper other modules import to write a bell
+ * item and its email copy for an event) and the reminder jobs.
  */
 @Module({
   controllers: [NotificationsController, MyNotificationsController],
-  providers: [NotificationsService, Notifier],
+  providers: [NotificationsService, Notifier, ReminderJobs],
   exports: [Notifier],
 })
 export class NotificationsModule {}
