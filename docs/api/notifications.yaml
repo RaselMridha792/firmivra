@@ -116,10 +116,28 @@ info:
       `{ written: 0, failed: true }` when the bell items could not be written, so a job retries
       the same call. `eventKey` makes a retry write nothing new (and send no second email). The
       bell item never depends on preferences (there is no in-app switch).
+    - Reminder jobs (q30): `ReminderJobs` (`apps/api/src/notifications/reminder-jobs.ts`) runs in
+      every API task each minute; each job holds its Postgres advisory lock
+      (`pg_try_advisory_xact_lock`) for the run, so a second task skips it. `appointment.reminder`
+      (both sides) for a SCHEDULED appointment starting within 24 hours, not within 2 hours of
+      its booking or last change; then `appointments.reminder_sent_at` (a reschedule clears it,
+      so the new time gets its own). `client-note.reminder` (the note's owner only) once
+      `remind_at` has passed; then `client_note_reminders.reminded_at`. The `eventKey` is the
+      record and its time, so a retried run sends nothing twice. `NOTIFY_JOBS=off` stops them
+      (off by default in tests).
     - Email copies: events named like a NotifyService template (`document.requested`,
       `appointment.*`, `invoice.sent`, `payment.received`) send that email to each new client
       recipient's login address, with a portal link built by `notificationLink`. The templates are
-      written for clients, so staff get bell items only. NotifyService skips the email when the
+      written for clients, so staff get bell items only. Each copy has an outbox row
+      (`notification_deliveries`, EMAIL, written with its bell item): tried once inline, then the
+      `email-retries` job (same lock rule as the reminders) tries a FAILED one, or a QUEUED one a
+      stopped task left, every 5 minutes, fewest attempts first, at most 5 attempts in all; SENT
+      and SKIPPED (the login is no longer ACTIVE, or the record no longer stands: an appointment
+      cancelled or moved since, an invoice canceled, a record gone) are final. A retry claims the
+      row first (`attempts` must still match), so two tasks never send the same copy; a task that
+      stops between the send and the status update leaves the row unsent, so it is sent again
+      after 5 minutes (at least once). `last_error` holds the error's name only. The actor's own
+      confirmation has no bell item, so no row: one attempt. NotifyService skips the email when the
       person switched the category off (step 5). An email says "You can turn off emails like
       this" only when it names a `recipient` (an account with preferences) and is not
       `ALWAYS_SENT`; NotifyService checks the firm (UnknownFirmError) before it reads them.
