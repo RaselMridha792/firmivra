@@ -8,11 +8,18 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
-import { createPrismaClient, runInScope, type Scope, type TxClient } from '@firmivra/db';
+import {
+  createPrismaClient,
+  type Database,
+  runInScope,
+  type Scope,
+  type TxClient,
+} from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { FirmApplicationRecord } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
+import { DATABASE } from '../../src/database/database.module.js';
 import { loadEnv } from '../../src/config/env.js';
 import { FirmApplicationsService } from '../../src/firm-applications/firm-applications.service.js';
 import { FirmKeyJob } from '../../src/firm-applications/firm-key-job.js';
@@ -37,7 +44,10 @@ const ids = {
   pending: randomUUID(),
   copy: randomUUID(),
   resettle: randomUUID(),
+  typed: randomUUID(),
 };
+/** The primary administrator of `typed` already has a login, under the name another firm knows. */
+const existingLogin = { id: randomUUID(), name: 'Name At Another Firm' };
 const adminPoolOnly = { id: randomUUID(), email: `admins-pool-${tag}@firmivra.test` };
 const email = (n: number) => `owner${n}@${tag}.example.test`;
 
@@ -161,6 +171,15 @@ beforeAll(async () => {
         },
       });
     }
+    await tx.user.create({
+      data: {
+        id: existingLogin.id,
+        cognitoSub: existingLogin.id,
+        pool: 'STAFF',
+        email: email(8),
+        name: existingLogin.name,
+      },
+    });
     await tx.user.create({
       data: {
         id: adminPoolOnly.id,
@@ -416,6 +435,55 @@ describe('After approve', () => {
       }),
     );
     expect(audit).toBe(1);
+  });
+
+  it("resends to the typed name after the link's platform step failed, not the login's name", async () => {
+    // The owner's link fails once after the membership committed (the platform step).
+    const database = app.get<Database>(DATABASE, { strict: false });
+    const withScope = database.withScope.bind(database);
+    let failNext = true;
+    const spy = vi.spyOn(database, 'withScope').mockImplementation((scope, fn, limits) =>
+      withScope(
+        scope,
+        (tx) => {
+          if (scope.kind !== 'platform' || !failNext) return fn(tx);
+          const invite = new Proxy(tx.invite, {
+            get: (target, key) => {
+              if (key === 'create') {
+                failNext = false;
+                return () => Promise.reject(new Error('connection lost'));
+              }
+              const value: unknown = Reflect.get(target, key);
+              return typeof value === 'function' ? value.bind(target) : value;
+            },
+          });
+          return fn(
+            new Proxy(tx, {
+              get: (target, key) => {
+                if (key === 'invite') return invite;
+                const value: unknown = Reflect.get(target, key);
+                return typeof value === 'function' ? value.bind(target) : value;
+              },
+            }),
+          );
+        },
+        limits,
+      ),
+    );
+    const firm = (await approve(ids.typed)).firm!;
+    spy.mockRestore();
+    expect(failNext).toBe(false);
+    const failed = await ownerOf(firm.id);
+    expect(failed.membership).toMatchObject({ status: 'INVITED', userId: existingLogin.id });
+    expect(failed.invites).toEqual([]);
+    expect(sent).toEqual([]);
+
+    await resend(ids.typed).expect(200);
+    const { invites } = await ownerOf(firm.id);
+    expect(invites).toEqual([
+      expect.objectContaining({ name: 'Jordan Sample 8', email: email(8), sentByPlatform: true }),
+    ]);
+    expect(sent.map((m) => [m.to, m.data.name])).toEqual([[email(8), 'Jordan Sample 8']]);
   });
 
   it('is for Super Admins only: 401 for a firm login, 403 for an admins-pool login without the role', async () => {

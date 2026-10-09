@@ -317,15 +317,17 @@ export class FirmApplicationsService {
     };
   }
 
+  /** One statement, so the total is always the sum of the parts, even while firms are added. */
   async firmCounts(): Promise<FirmCounts> {
-    const db = this.admin.db;
-    const [active, pendingSetup, inactive, total] = await Promise.all([
-      db.business.count({ where: { status: 'ACTIVE' } }),
-      db.business.count({ where: { status: 'PENDING_SETUP' } }),
-      db.business.count({ where: { status: { in: ['SUSPENDED', 'CLOSED'] } } }),
-      db.business.count(),
-    ]);
-    return { active, pendingSetup, inactive, total };
+    const groups = await this.admin.db.business.groupBy({ by: ['status'], _count: { _all: true } });
+    const of = (...statuses: string[]) =>
+      groups.filter((g) => statuses.includes(g.status)).reduce((sum, g) => sum + g._count._all, 0);
+    return {
+      active: of('ACTIVE'),
+      pendingSetup: of('PENDING_SETUP'),
+      inactive: of('SUSPENDED', 'CLOSED'),
+      total: groups.reduce((sum, g) => sum + g._count._all, 0),
+    };
   }
 
   async getFirm(id: string): Promise<FirmRecord> {
@@ -550,22 +552,17 @@ export class FirmApplicationsService {
     }
     const owner = await this.owner(firm.id);
     if (owner?.status === 'ACTIVE') throw inviteNotNeeded();
-    const invite =
-      owner?.status === 'INVITED'
-        ? await this.invites.resendInvite({
-            businessId: firm.id,
-            membershipId: owner.id,
-            invitedBy: null,
-            fromPlatform: true,
-          })
-        : await this.invites.createInvite({
-            businessId: firm.id,
-            email: row.contactEmail,
-            name: row.contactName,
-            role: 'OWNER',
-            invitedBy: null,
-            fromPlatform: true,
-          });
+    // Always to the name and email the applicant typed: an invite whose link step failed has no
+    // invite row to read them from, and the person's user row may hold another firm's name. An
+    // open invite is replaced (its old link stops working).
+    const invite = await this.invites.createInvite({
+      businessId: firm.id,
+      email: row.contactEmail,
+      name: row.contactName,
+      role: 'OWNER',
+      invitedBy: null,
+      fromPlatform: true,
+    });
     await this.audit.log(
       'firm_application.owner_invite_resent',
       { type: 'firm_application', id },

@@ -7,14 +7,21 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createPrismaClient, runInScope, type Scope, type TxClient } from '@firmivra/db';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
+import {
+  createPrismaClient,
+  type Database,
+  runInScope,
+  type Scope,
+  type TxClient,
+} from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { ACTIVATION_MAILER, type ActivationEmail } from '../../src/auth/activation-mailer.js';
 import { InvitesService } from '../../src/auth/invites.service.js';
+import { DATABASE, OUTSIDE_CALL_LIMITS } from '../../src/database/database.module.js';
 
 const fx = inject('fixtures');
 let app: INestApplication;
@@ -138,6 +145,12 @@ describe('Owner links from the platform', () => {
         invitedBy: null,
       }),
     ).rejects.toThrow(/Only an owner link/);
+    // Refused before any login was made for the address.
+    expect(
+      await as({ kind: 'platform' }, (tx) =>
+        tx.user.count({ where: { email: `staff@${tag}.example.test` } }),
+      ),
+    ).toBe(0);
     await expect(
       invites.createInvite({
         ...base,
@@ -146,5 +159,62 @@ describe('Owner links from the platform', () => {
         invitedBy: { userId: fx.users.ownerA.id, role: 'OWNER' },
       }),
     ).rejects.toThrow(/no inviting member/);
+  });
+
+  it('gives the platform step the 15 s limits: it can wait on an invite transaction', async () => {
+    const database = app.get<Database>(DATABASE, { strict: false });
+    const spy = vi.spyOn(database, 'withScope');
+    try {
+      await invites.createInvite({
+        businessId: firmId,
+        email: `limits@${tag}.example.test`,
+        name: 'Lee Sample',
+        role: 'OWNER',
+        invitedBy: null,
+        fromPlatform: true,
+      });
+      const platform = spy.mock.calls.filter(([scope]) => scope.kind === 'platform');
+      expect(platform.map(([, , limits]) => limits)).toEqual([OUTSIDE_CALL_LIMITS]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("never resends another firm's membership: 404, and no link or copy", async () => {
+    const firmB = await as({ kind: 'business', businessId: fx.firmB.id }, (tx) =>
+      tx.membership.findFirstOrThrow({ where: { userId: fx.users.ownerB.id } }),
+    );
+    const res = invites.resendInvite({
+      businessId: firmId,
+      membershipId: firmB.id,
+      invitedBy: null,
+      fromPlatform: true,
+    });
+    await expect(res).rejects.toMatchObject({ response: { code: 'NOT_FOUND' } });
+    expect(await copies(firmB.id)).toEqual([]);
+    expect(
+      await as({ kind: 'business', businessId: fx.firmB.id }, (tx) =>
+        tx.invite.count({ where: { membershipId: firmB.id } }),
+      ),
+    ).toBe(0);
+  });
+
+  it("refuses a platform resend of a membership that isn't an owner's", async () => {
+    const made = await invites.createInvite({
+      businessId: firmId,
+      email: `resend-admin@${tag}.example.test`,
+      name: 'Sam Sample',
+      role: 'ADMIN',
+      invitedBy: null,
+    });
+    await expect(
+      invites.resendInvite({
+        businessId: firmId,
+        membershipId: made.membershipId,
+        invitedBy: null,
+        fromPlatform: true,
+      }),
+    ).rejects.toThrow(/Only an owner link/);
+    expect(await invitesOf(made.membershipId)).toHaveLength(1);
   });
 });
