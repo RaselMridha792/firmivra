@@ -315,7 +315,7 @@ export class InvoicesService {
       );
       return { invoice: toInvoice(row, today), opened: !later };
     });
-    if (opened) await this.notices.send('invoice.sent', businessId, id);
+    if (opened) await this.notices.send('invoice.sent', businessId, id, actor.userId);
     return invoice;
   }
 }

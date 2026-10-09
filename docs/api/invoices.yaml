@@ -195,9 +195,11 @@ info:
       NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE`. So a double click or a retry after
       a timeout or a `503` refunds once and answers `200`, as the mock does (keys per payment).
       No column keeps the key: Stripe does. Stripe errors: `503`, nothing inserted.
-    - **Notifications** (R6's helper): `invoice.sent` to the client when an invoice opens;
-      `payment.received` to the client and the firm when a payment succeeds. No amounts or card
-      details in SMS; emails name the invoice number.
+    - **Notifications** (R6's `Notifier.notify`, after the change commits): `invoice.sent` to the
+      client when an invoice opens (not when it is scheduled); `payment.received` to the client
+      and the firm when a payment succeeds. The Notifier picks the recipients (the client's ACTIVE
+      PRIMARY login, q27) and writes the bell items; emails carry the name, the invoice number and
+      a link only, never an amount. A failed notice never fails the change.
     - **Audit** (`AuditService.log`, ids and amounts only, never card or bank data):
       `invoice.created`, `invoice.updated`, `invoice.sent` (or `invoice.scheduled`),
       `invoice.opened` (by the job), `invoice.canceled`, `invoice.checkout_started` (the client's
