@@ -96,8 +96,10 @@ export class UploadsService {
       {
         uploadId: uploadIdOf(key),
         serviceId: claim.engagementId,
+        requestId: claim.requestId,
         categoryId: claim.categoryId,
         direction: claim.direction,
+        clientAccountId: claim.clientAccountId,
       },
     );
     const expiresAt = new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString();
@@ -109,9 +111,11 @@ export class UploadsService {
    * before the transaction. In the transaction, under the key's advisory lock: no document has
    * the key yet (else 410) and no refusal of it was audited (else 409 UPLOAD_MISMATCH: its file
    * was deleted); then `recheck` locks the client (FOR SHARE) and the caller must still reach it.
-   * Every refusal (the byte checks, 404, NO_OPEN_SERVICE, CATEGORY_ARCHIVED) goes through
-   * `refuse`: audited, then the object deleted, never while a document has the key.
-   * Returns the new document's id.
+   * An upload for a request locks it FOR UPDATE last (client, engagement, category, request),
+   * must find it open (409 REQUEST_CLOSED) and makes it SUBMITTED in the same transaction.
+   * Every refusal (the byte checks, 403, 404, NO_OPEN_SERVICE, REQUEST_CLOSED,
+   * CATEGORY_ARCHIVED) goes through `refuse`: audited, then the object deleted, never while a
+   * document has the key. Returns the new document's id.
    */
   async confirm(
     uploader: Uploader,
@@ -145,13 +149,14 @@ export class UploadsService {
         // Another confirm of this key refused it while this one checked the file: its file is
         // deleted (or being deleted), so nothing is saved for it.
         if (await this.refusedBefore(tx, claim)) throw refusal('UPLOAD_MISMATCH');
-        // Lock order: the client (in recheck), the engagement, then the category (findTarget).
+        // Lock order: the client (in recheck), the engagement, the category, the request.
         const { archived } = await recheck(tx, claim);
         // The service stays as checked until the document is saved.
         await holdEngagement(tx, businessId, claim.engagementId);
         const target = await findTarget(tx, businessId, claim.clientId, {
           serviceId: claim.engagementId,
           categoryId: claim.categoryId,
+          requestId: claim.requestId,
           clientArchived: archived,
         });
         const now = new Date();
@@ -161,6 +166,7 @@ export class UploadsService {
             businessId,
             clientId: claim.clientId,
             engagementId: claim.engagementId,
+            requestId: claim.requestId,
             categoryId: claim.categoryId,
             direction: claim.direction,
             fileName: claim.fileName,
@@ -197,6 +203,25 @@ export class UploadsService {
           },
           { businessId },
         );
+        if (target.request) {
+          // Answered: the client's own note or the firm's reason no longer applies.
+          await tx.documentRequest.update({
+            where: { id: target.request.id },
+            data: { status: 'SUBMITTED', statusNote: null },
+          });
+          await this.audit.logIn(
+            tx,
+            'document_request.submitted',
+            { type: 'document_request', id: target.request.id },
+            {
+              clientId: claim.clientId,
+              documentId: doc.id,
+              from: target.request.status,
+              clientAccountId: claim.clientAccountId,
+            },
+            { businessId },
+          );
+        }
         return doc.id;
       });
     } catch (error) {
@@ -213,11 +238,16 @@ export class UploadsService {
   /**
    * A 5-minute link for a CLEAN file (409 SCAN_PENDING or FILE_BLOCKED otherwise). No version id
    * is kept yet, so the stored object must still have the confirmed size and checksum and no
-   * Content-Encoding: anything else is FILE_BLOCKED.
+   * Content-Encoding: anything else is FILE_BLOCKED. The portal passes its own FILE_BLOCKED
+   * words (PORTAL_BLOCKED_TEXT) and the login, for the audit.
    */
-  async downloadLink(doc: DocumentRow): Promise<DownloadLink> {
+  async downloadLink(
+    doc: DocumentRow,
+    portal?: { blocked: string; clientAccountId: string },
+  ): Promise<DownloadLink> {
+    const blocked = () => refusal('FILE_BLOCKED', portal?.blocked);
     if (doc.scanStatus === 'PENDING') throw refusal('SCAN_PENDING');
-    if (doc.scanStatus !== 'CLEAN') throw refusal('FILE_BLOCKED');
+    if (doc.scanStatus !== 'CLEAN') throw blocked();
     const stored = await this.s3('HEAD', () => this.storage.head(doc.s3Key, { checksum: true }));
     if (
       stored?.sizeBytes !== doc.sizeBytes ||
@@ -225,7 +255,7 @@ export class UploadsService {
       stored.contentEncoding !== null
     ) {
       this.logger.warn(`Document ${doc.id}: the stored file is not the confirmed one`); // ids only
-      throw refusal('FILE_BLOCKED');
+      throw blocked();
     }
     const url = await this.s3('presign GET', () =>
       this.storage.presignDownload({
@@ -238,7 +268,11 @@ export class UploadsService {
     await this.audit.log(
       'document.download_link_issued',
       { type: 'document', id: doc.id },
-      { clientId: doc.clientId, expiresAt },
+      {
+        clientId: doc.clientId,
+        expiresAt,
+        ...(portal && { clientAccountId: portal.clientAccountId }),
+      },
     );
     return { url, expiresAt };
   }
