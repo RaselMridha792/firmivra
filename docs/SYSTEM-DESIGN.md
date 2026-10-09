@@ -422,7 +422,7 @@ Dots mark the "many" end. Authorization is always the same two questions: does t
 | intake\_submissions | tenant | tenant\_id, engagement\_id, form\_type, form\_version, answers (JSONB), state, version | New row on every change |
 | esign\_requests | tenant | tenant\_id, client\_id, engagement\_id, status, original\_sha256, final\_sha256, certificate\_sha256, final\_document\_id | Frozen once sent; never deleted after send |
 | esign\_events | tenant | tenant\_id, request\_id, recipient\_id, type, actor, ip, at | Append-only; UPDATE and DELETE denied |
-| invoices, payments, refunds, payment\_events | tenant | tenant\_id, amount\_cents, status, processor\_ref; event id unique | Paid only by a verified webhook (or a recorded offline payment); amounts computed by the database |
+| invoices, payments, payment\_refunds, payment\_events | tenant | tenant\_id, amount\_cents, status, processor\_ref; event id unique | Paid only by a verified webhook; amounts computed by the database |
 | stripe\_accounts | tenant (written by platform) | tenant\_id, account id, charges and payouts enabled, onboarding status | One per business; written only through the platform-scope writer |
 | audit\_events | both | tenant\_id (null = platform), actor, action, target, ip, at | UPDATE and DELETE denied |
 
@@ -529,7 +529,7 @@ Payments & e-sign
 
 **Stripe; Firm Sign (built in)**
 
-Stripe decided 4 Oct, with hosted Checkout. Stripe Connect with Standard accounts (Oct 9): each business connects its own account from Settings > Payments through Stripe's hosted onboarding and is paid into it; checkouts and refunds run on that account, and its webhook events are matched to the business by the connected account. A daily job opens scheduled invoices on their day in the firm's time zone. Firm Sign decided 8 Oct: our own engine on pdf-lib, no e-signature vendor.
+Stripe decided 4 Oct, with hosted Checkout. Stripe Connect with Standard accounts (Oct 9): each business connects its own account from Settings > Payments through Stripe's hosted onboarding and is paid into it; checkouts and refunds run on that account, and its webhook events are matched to the business by the connected account. A job every 15 minutes opens scheduled invoices on their day in the firm's time zone. Firm Sign decided 8 Oct: our own engine on pdf-lib, no e-signature vendor.
 
 Ops
 
