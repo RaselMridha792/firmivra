@@ -72,6 +72,7 @@ import {
 } from './signing.js';
 import {
   DuplicateEsignTemplateBody,
+  ESIGN_BULK_MAX,
   EsignApprovalBody,
   EsignBulkBatch,
   EsignBulkSendBody,
@@ -359,13 +360,20 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
           `${template(templateId)}/duplicate`,
           parseInput(DuplicateEsignTemplateBody, body),
         ),
-      /** One request per client; answers the batch (202). 400 BULK_LIMIT. */
-      bulkSend: async (templateId: string, body: EsignBulkSendBody): Promise<EsignBulkBatch> =>
-        post(
+      /**
+       * One request per client; answers the batch (202). More than ESIGN_BULK_MAX clients rejects
+       * here with 400 BULK_LIMIT before anything is sent.
+       */
+      bulkSend: async (templateId: string, body: EsignBulkSendBody): Promise<EsignBulkBatch> => {
+        if (Array.isArray(body.clients) && body.clients.length > ESIGN_BULK_MAX) {
+          throw new ApiRequestError(400, 'BULK_LIMIT', ESIGN_ERRORS.BULK_LIMIT);
+        }
+        return post(
           EsignBulkBatch,
           `${template(templateId)}/bulk-send`,
           parseInput(EsignBulkSendBody, body),
-        ),
+        );
+      },
       /** A new DRAFT from the template. */
       use: async (templateId: string, body: UseEsignTemplateBody): Promise<EsignRequestDetail> =>
         post(

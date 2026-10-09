@@ -24,6 +24,8 @@ const MESSAGES: Record<string, string> = {
   BUSINESS_REQUIRED: 'Choose a firm first.',
   KIOSK_LOCKED: 'An in-person signing is open. Enter your password to return.',
   NOT_FOUND: "We couldn't find that. It may have been removed.",
+  // Firm Sign in-person signing: every firm call while this device is handed to a signer.
+  KIOSK_LOCKED: 'An in-person signing is open. Enter your password to return.',
   // Input and conflicts
   VALIDATION_FAILED: 'Some details need fixing. Check the highlighted fields.',
   BAD_REQUEST: 'Something in this request is not right. Check it and try again.',

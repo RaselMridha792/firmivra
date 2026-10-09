@@ -5,6 +5,10 @@ import { ApiRequestError } from '@firmivra/types';
 
 /** NEXT_PUBLIC_API_MOCK_ESIGN=off shows Firm Sign turned off (menus hide it; calls answer 403). */
 export const ESIGN_OFF = process.env.NEXT_PUBLIC_API_MOCK_ESIGN === 'off';
+const esignRole = process.env.NEXT_PUBLIC_API_MOCK_ESIGN_ROLE;
+/** NEXT_PUBLIC_API_MOCK_ESIGN_ROLE=MANAGER or VIEWER: Sam Staff with that Firm Sign role. */
+export const MOCK_ESIGN_ROLE =
+  esignRole === 'MANAGER' || esignRole === 'VIEWER' ? esignRole : undefined;
 export const MINUTE = 60 * 1000;
 export const HOUR = 60 * MINUTE;
 export const DAY = 24 * HOUR;

@@ -80,6 +80,11 @@ export const EsignErrorCode = z.enum([
   'PASSWORD_WRONG',
   /** 409 (in-person): this recipient does not sign in person. */
   'NOT_IN_PERSON',
+  /**
+   * 409 (recipients, use template): an approver is never the request's sender, and is an Owner,
+   * Admin or Firm Sign Manager.
+   */
+  'APPROVER_NOT_ALLOWED',
 ]);
 export type EsignErrorCode = z.infer<typeof EsignErrorCode>;
 
@@ -123,4 +128,6 @@ export const ESIGN_ERRORS = {
   KIOSK_LOCKED: 'An in-person signing is open. Enter your password to return.',
   PASSWORD_WRONG: 'That password is not right.',
   NOT_IN_PERSON: 'This recipient does not sign in person.',
+  APPROVER_NOT_ALLOWED:
+    'An approver must be an Owner, Admin or Firm Sign Manager, and not the person sending it.',
 } as const satisfies Record<EsignErrorCode, string>;

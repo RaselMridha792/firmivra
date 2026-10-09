@@ -54,6 +54,8 @@ import { mockBusiness } from './me';
  * - accessCode: an access code (MOCK1234) instead of the email code.
  * - autoPage: no placed fields, so they sign on the added signature page.
  * - waiting: someone signs first (WAITING). DONE comes after `finish`.
+ * - inPerson: the link `inPerson.start` gives (signing on the staff member's device): it starts
+ *   at the consent step, with no email code.
  * - copy: a completed-copy link (email code, then COPY). used and expired: LINK_INVALID (a link
  *   that was already used to sign, or ran out).
  * Any other token, another firm's slug, or NEXT_PUBLIC_API_MOCK_ESIGN=off answers 404 LINK_INVALID.
@@ -71,6 +73,7 @@ export const MOCK_SIGNING_TOKENS = {
   accessCode: 'mock-access-code000000000000000000000000000',
   autoPage: 'mock-auto-page00000000000000000000000000000',
   waiting: 'mock-waiting0000000000000000000000000000000',
+  inPerson: 'mock-in-person00000000000000000000000000000',
   used: 'mock-used0000000000000000000000000000000000',
   copy: 'mock-copy0000000000000000000000000000000000',
   expired: 'mock-expired0000000000000000000000000000000',
@@ -113,6 +116,7 @@ const FIRST_STEP: Record<Scenario, SignerStep> = {
   accessCode: 'VERIFY_ACCESS_CODE',
   autoPage: 'VERIFY_EMAIL',
   waiting: 'WAITING',
+  inPerson: 'CONSENT',
   used: 'DONE',
   copy: 'VERIFY_EMAIL',
   expired: 'CLOSED',
@@ -490,7 +494,10 @@ export interface EsignAdminContext {
   stored: (requestId: string) => EsignRequestDetail;
   record: (r: EsignRequestDetail, type: EsignEventType, extra?: Partial<EsignEvent>) => void;
   me: MemberRef;
+  /** Owner or Admin: settings, and every template, PRIVATE ones too. */
   manager: boolean;
+  /** Owner, Admin or Firm Sign Manager: changes any template they can see. */
+  templateManager: boolean;
   newId: (prefix: string) => string;
 }
 
@@ -657,13 +664,13 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
       (t) => !t.archivedAt && t.id !== except && t.name.toLowerCase() === name.toLowerCase(),
     );
   const editable = (t: EsignTemplateDetail) => {
-    if (!(ctx.manager || t.owner.userId === ctx.me.userId)) throw forbidden();
+    if (!(ctx.templateManager || t.owner.userId === ctx.me.userId)) throw forbidden();
     if (t.archivedAt) throw fail(409, 'TEMPLATE_ARCHIVED', 'This template is archived');
   };
   const rowOf = (t: EsignTemplateDetail) => {
     const { packetUrl: _p, pageSizes: _s, roles: _r, fields: _f, ...rest } = t;
     void [_p, _s, _r, _f];
-    return { ...copy(rest), canEdit: ctx.manager || t.owner.userId === ctx.me.userId };
+    return { ...copy(rest), canEdit: ctx.templateManager || t.owner.userId === ctx.me.userId };
   };
 
   return {
