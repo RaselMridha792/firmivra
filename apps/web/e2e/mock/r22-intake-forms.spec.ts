@@ -131,11 +131,11 @@ for (const f of FORMS) {
     await fillStep(page);
     // R14's agreement block: its required boxes (ticked by fillStep), then the typed signature.
     await expect(page.getByRole('region', { name: /agreement/i }).first()).toBeVisible();
-    await page.getByLabel('Printed Name *').fill('Avery Example');
-    await page.getByLabel('Signature (type your name exactly as printed) *').fill('Avery Exampel');
+    await page.getByLabel('Full Name *', { exact: true }).fill('Avery Example');
+    await page.getByLabel('Signature (type your full name) *').fill('Avery Exampel');
     await page.getByRole('button', { name: 'Submit Intake Form' }).click();
     await expect(page.getByText('Type your name exactly as printed.')).toBeVisible();
-    await page.getByLabel('Signature (type your name exactly as printed) *').fill('Avery Example');
+    await page.getByLabel('Signature (type your full name) *').fill('Avery Example');
     await page.getByRole('button', { name: 'Submit Intake Form' }).click();
     await expect(page).toHaveURL(`${origin}/lvp/begin/done?form=${f.path}`, { timeout: 20_000 });
   });
@@ -191,4 +191,63 @@ test('a resume link opens the saved form; an expired one asks for a new link', a
   await expect(page.getByTestId('begin-resume').getByRole('status')).toContainText(
     'avery@example.test',
   );
+});
+
+test('a field the answers hide never blocks the save (a leftover spouse SSN)', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page, 'annual-tax');
+  await page.getByRole('radio', { name: 'Married Filing Jointly' }).check();
+  await page.getByLabel('Spouse SSN *').fill('123');
+  await page.getByLabel('Spouse Email Address').fill('jane@');
+  await page.getByRole('radio', { name: 'Single', exact: true }).check();
+  await expect(page.getByLabel('Spouse SSN *')).toHaveCount(0);
+  await fillStep(page);
+  await continueTo(page, 2);
+});
+
+test('leaving and reopening a form loads the saved answers, not the first ones', async ({
+  page,
+}) => {
+  // Open the form from the Begin Online page, so Back is a client navigation.
+  await page.goto(`${origin}/lvp/begin`);
+  await page.getByRole('link', { name: /Tax Planning Intake Form/ }).click();
+  await page.getByLabel('First Name *').fill('Avery');
+  await page.getByLabel('Last Name *').fill('Example');
+  await page.getByLabel('Email Address *').fill('avery@example.test');
+  await page.getByRole('button', { name: 'Start My Form' }).click();
+  const first = form(page).locator('form input[data-type="text"]:visible').first();
+  await fillStep(page);
+  await first.fill('Saved Name');
+  await continueTo(page, 2);
+  // Client navigation away and back (the cached draft would bring back the empty first answers).
+  await page.goBack();
+  await expect(page).toHaveURL(`${origin}/lvp/begin`);
+  await page.getByRole('link', { name: /Tax Planning Intake Form/ }).click();
+  await expect(current(page).getByRole('button')).toHaveText('2', { timeout: 20_000 });
+  await page.getByRole('button', { name: 'Previous' }).click();
+  await expect(form(page).locator('form input[data-type="text"]:visible').first()).toHaveValue(
+    'Saved Name',
+  );
+});
+
+test('after a submit, opening the service again starts a new form with a notice', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page, 'payroll');
+  for (let step = 1; step < 3; step += 1) {
+    await fillStep(page);
+    await continueTo(page, step + 1);
+  }
+  await fillStep(page);
+  await page.getByLabel('Full Name *', { exact: true }).fill('Avery Example');
+  await page.getByLabel('Signature (type your full name) *').fill('Avery Example');
+  await page.getByRole('button', { name: 'Submit Intake Form' }).click();
+  await expect(page).toHaveURL(`${origin}/lvp/begin/done?form=payroll`, { timeout: 20_000 });
+  await page.getByRole('link', { name: 'Back to Begin Online' }).click();
+  await page.getByRole('link', { name: /Payroll Intake Form/ }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'was sent' })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByRole('button', { name: 'Start My Form' })).toBeVisible();
 });

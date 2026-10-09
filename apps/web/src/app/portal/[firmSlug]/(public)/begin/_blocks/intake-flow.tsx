@@ -9,6 +9,7 @@ import {
   fillIntakeText,
   type IntakeFormKey,
   type IntakeSignatureInput,
+  type IntakeStep,
   type IntakeUpload,
   shownIntakeKeys,
   StartBeginDraftRequest,
@@ -16,6 +17,7 @@ import {
 import { Button, Input, PageContainer } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, LockKeyhole, Save } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { PageState } from '../../../../../../components/page-state';
@@ -40,6 +42,7 @@ import {
   screenValues,
   type ScreenValue,
   type ScreenValues,
+  saveIssues,
   stepAnswers,
   stepIssues,
 } from './intake-values';
@@ -89,11 +92,16 @@ function FormHeader({
  */
 export function IntakePage({ firmSlug, form }: { firmSlug: string; form: IntakeFormKey }) {
   const client = api.beginOnline(firmSlug);
-  const draft = useApiQuery(draftKey(firmSlug, form), async () => {
+  const draft = useApiQuery(draftKey(firmSlug, form), async (): Promise<DraftState> => {
     try {
       return await client.get(form);
     } catch (e) {
-      if (e instanceof ApiRequestError && e.status === 404 && e.code === 'NOT_FOUND') return null;
+      // No draft in this browser, or the one it has was sent or has expired: start a new one.
+      if (e instanceof ApiRequestError) {
+        if (e.status === 404 && e.code === 'NOT_FOUND') return null;
+        if (e.code === 'DRAFT_SUBMITTED') return 'SUBMITTED';
+        if (e.code === 'DRAFT_EXPIRED') return 'EXPIRED';
+      }
       throw e;
     }
   });
@@ -106,10 +114,10 @@ export function IntakePage({ firmSlug, form }: { firmSlug: string; form: IntakeF
       <PageContainer>
         <PageState query={draft} isEmpty={() => false}>
           {(found) =>
-            found ? (
+            found && typeof found === 'object' ? (
               <IntakeFlow key={found.form} firmSlug={firmSlug} draft={found} />
             ) : (
-              <StartCard firmSlug={firmSlug} form={form} />
+              <StartCard firmSlug={firmSlug} form={form} ended={found} />
             )
           }
         </PageState>
@@ -118,19 +126,75 @@ export function IntakePage({ firmSlug, form }: { firmSlug: string; form: IntakeF
   );
 }
 
+/** The firm's current agreements for this form (R14): signed on the review step. */
+function useAgreements(firmSlug: string, form: IntakeFormKey) {
+  return useApiQuery(['begin-online', firmSlug, form, 'agreements'], () =>
+    api.publicAgreements(firmSlug).block({ form }),
+  );
+}
+
+/** Shown before any step when the firm has no published agreement (submit would refuse). */
+function UnavailableNote() {
+  return (
+    <p
+      role="alert"
+      className="mx-auto mb-3 max-w-2xl rounded-control border border-danger bg-danger-soft p-3 text-sm text-danger"
+    >
+      This form isn&apos;t available to submit online yet. Please contact the firm.
+    </p>
+  );
+}
+
+/** The draft this browser has for the form, or why it has none to continue. */
+type DraftState = BeginDraft | 'SUBMITTED' | 'EXPIRED' | null;
+
+const ENDED_NOTICE = {
+  SUBMITTED:
+    'Your earlier form for this service was sent. Thank you! You can start a new one below.',
+  EXPIRED: 'Your saved form has expired. Start again below, or ask for a new link',
+} as const;
+
 function useFill(taxYear: number): Fill {
   const { business } = usePortal();
   return (text: string) => fillIntakeText(text, { taxYear, firmName: business.name });
 }
 
-function StartCard({ firmSlug, form }: { firmSlug: string; form: IntakeFormKey }) {
+function StartCard({
+  firmSlug,
+  form,
+  ended,
+}: {
+  firmSlug: string;
+  form: IntakeFormKey;
+  ended: 'SUBMITTED' | 'EXPIRED' | null;
+}) {
   const client = api.beginOnline(firmSlug);
   const queryClient = useQueryClient();
   const definition = useApiQuery(['begin-online', firmSlug, form, 'form'], () => client.form(form));
+  const agreements = useAgreements(firmSlug, form);
+  const notice = ended && (
+    <p
+      role="status"
+      className="mx-auto mb-3 max-w-2xl rounded-control border border-folder-border bg-folder-surface p-3 text-sm text-heading"
+    >
+      {ENDED_NOTICE[ended]}
+      {ended === 'EXPIRED' && (
+        <>
+          {' '}
+          <Link href={`/${firmSlug}/begin/resume`} className="font-semibold underline">
+            to continue
+          </Link>
+          .
+        </>
+      )}
+    </p>
+  );
   return (
     <PageState query={definition} isEmpty={() => false}>
       {(found) => (
         <StartForm
+          notice={notice}
+          unavailable={agreements.data?.ready === false}
           found={found}
           onStart={async (body) => {
             const started = await client.start(form, body);
@@ -144,9 +208,13 @@ function StartCard({ firmSlug, form }: { firmSlug: string; form: IntakeFormKey }
 
 function StartForm({
   found,
+  notice,
+  unavailable,
   onStart,
 }: {
   found: BeginOnlineForm;
+  notice: ReactNode;
+  unavailable: boolean;
   onStart: (body: StartBeginDraftRequest) => Promise<void>;
 }) {
   const fill = useFill(found.taxYear);
@@ -178,6 +246,8 @@ function StartForm({
         subtitle={found.definition.subtitle ? fill(found.definition.subtitle) : undefined}
       />
       <IntakeStepper steps={steps} current={0} onEdit={() => undefined} />
+      {notice}
+      {unavailable && <UnavailableNote />}
       <form noValidate onSubmit={submit} className="mx-auto max-w-2xl">
         <SectionPanel
           number={1}
@@ -236,8 +306,9 @@ function StartForm({
 
 function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }) {
   const { definition, form } = draft;
-  const client = api.beginOnline(firmSlug);
+  const client = useMemo(() => api.beginOnline(firmSlug), [firmSlug]);
   const router = useRouter();
+  const queryClient = useQueryClient();
   const fill = useFill(draft.taxYear);
   const [values, setValues] = useState<ScreenValues>(() => screenValues(definition, draft.answers));
   const [uploads, setUploads] = useState<IntakeUpload[]>(draft.uploads);
@@ -247,14 +318,31 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   const [agreementError, setAgreementError] = useState('');
   const topRef = useRef<HTMLDivElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const answers = useMemo(() => allAnswers(definition, values), [definition, values]);
   const shown = useMemo(() => shownIntakeKeys(definition, answers), [definition, answers]);
   const steps = definition.steps.filter((s) => shown.steps.has(s.key));
   const [stepKey, setStepKey] = useState(() => {
     const open = steps.find((s) => !draft.savedSteps.includes(s.key));
-    return (open ?? steps[0])?.key ?? '';
+    return (open ?? steps.at(-1))?.key ?? '';
   });
+
+  // The cached draft is only what the page opened with: once the person leaves, drop it, so a
+  // return within the cache's lifetime loads the saved answers instead of overwriting them.
+  useEffect(() => {
+    const key = draftKey(firmSlug, form);
+    return () => {
+      // After this render's unmounts: only when nothing shows the draft any more (React's
+      // development double mount keeps the page's own observer, so the draft stays).
+      queueMicrotask(() => {
+        const query = queryClient.getQueryCache().find({ queryKey: key, exact: true });
+        if (query && query.getObserversCount() === 0) {
+          queryClient.removeQueries({ queryKey: key, exact: true });
+        }
+      });
+    };
+  }, [queryClient, firmSlug, form]);
   const index = Math.max(
     0,
     steps.findIndex((s) => s.key === stepKey),
@@ -266,28 +354,74 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   useEffect(() => {
     if (!checking) return;
     const timer = setTimeout(() => {
-      client.uploads(form).then(setUploads, () => undefined);
+      // Merge by id: a file confirmed while this was in flight stays in the list.
+      client.uploads(form).then(
+        (fresh) =>
+          setUploads((list) => {
+            const byId = new Map(fresh.map((u) => [u.id, u]));
+            const known = new Set(list.map((u) => u.id));
+            return [
+              ...list.map((u) => byId.get(u.id) ?? u),
+              ...fresh.filter((u) => !known.has(u.id)),
+            ];
+          }),
+        () => undefined,
+      );
     }, 3000);
     return () => clearTimeout(timer);
-  }, [checking, uploads, client, form]);
+  }, [checking, client, form]);
 
   const save = useApiMutation((key: string) => {
     const s = definition.steps.find((x) => x.key === key)!;
-    return client.saveStep(form, key, { answers: stepAnswers(s, values) });
+    return client.saveStep(form, key, { answers: stepAnswers(s, values, shown.fields) });
   });
   // The firm's current agreements for this form (R14), signed on the review step.
-  const agreements = useApiQuery(['begin-online', firmSlug, form, 'agreements'], () =>
-    api.publicAgreements(firmSlug).block({ form }),
-  );
+  const agreements = useAgreements(firmSlug, form);
   const submit = useApiMutation((signature: IntakeSignatureInput) =>
-    client.submit(form, { answers: stepAnswers(step, values), signature }),
+    client.submit(form, { answers: stepAnswers(step, values, shown.fields), signature }),
   );
   const resumeLink = useApiMutation(() => client.emailResumeLink({ email: draft.contact.email }));
 
   const onChange = (key: string, value: ScreenValue) => {
     setValues((v) => ({ ...v, [key]: value }));
-    if (errors[key]) setErrors(({ [key]: _, ...rest }) => rest);
+    // Clear the field's messages, its cells' and rows' included.
+    setErrors((all) => {
+      const left = Object.entries(all).filter(([k]) => k !== key && !k.startsWith(`${key}.`));
+      return left.length === Object.keys(all).length ? all : Object.fromEntries(left);
+    });
   };
+
+  /** A sent or expired draft: show the start card with its notice. */
+  function draftEnded(error: unknown) {
+    if (
+      error instanceof ApiRequestError &&
+      (error.code === 'DRAFT_SUBMITTED' || error.code === 'DRAFT_EXPIRED')
+    ) {
+      void queryClient.refetchQueries({ queryKey: draftKey(firmSlug, form), exact: true });
+    }
+  }
+
+  /** Saves the step on screen; false (with the problems shown) when it can't be saved. */
+  async function saveStep(): Promise<boolean> {
+    const issues = saveIssues(definition, step, values, shown.fields);
+    if (issues.length) {
+      showIssues(issues);
+      return false;
+    }
+    try {
+      await save.mutateAsync(step.key);
+      return true;
+    } catch (error) {
+      draftEnded(error);
+      return false;
+    }
+  }
+
+  /** Opens another step (the stepper, Edit on the review), saving this one first. */
+  async function jump(key: string) {
+    if (key === step.key) return;
+    if (await saveStep()) go(key);
+  }
 
   function go(key: string) {
     setStepKey(key);
@@ -303,17 +437,17 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     const map: Record<string, string> = {};
     for (const issue of list) map[issueKey(issue.path)] ??= issue.message;
     setErrors(map);
-    requestAnimationFrame(() => summaryRef.current?.focus());
+    // Focus the first field with a problem (its message is tied to it); else the summary.
+    requestAnimationFrame(() => {
+      const first = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+      (first ?? summaryRef.current)?.focus();
+    });
   }
 
   async function next() {
     const issues = stepIssues(definition, step, values, uploads);
     if (issues.length) return showIssues(issues);
-    try {
-      await save.mutateAsync(step.key);
-    } catch {
-      return;
-    }
+    if (!(await saveStep())) return;
     const following = steps[index + 1];
     if (following) go(following.key);
   }
@@ -321,12 +455,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   async function back() {
     const previous = steps[index - 1];
     if (!previous) return;
-    try {
-      await save.mutateAsync(step.key);
-    } catch {
-      return;
-    }
-    go(previous.key);
+    if (await saveStep()) go(previous.key);
   }
 
   async function send() {
@@ -353,6 +482,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
       const done = await submit.mutateAsync(signed.signature);
       router.push(`/${firmSlug}/begin/done?form=${BEGIN_ONLINE_SERVICES[done.form].path}`);
     } catch (error) {
+      draftEnded(error);
       // A newer agreement or Terms version: show the current one to read and sign again.
       if (
         error instanceof ApiRequestError &&
@@ -366,29 +496,55 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   }
 
   async function later() {
+    if (!(await saveStep())) return;
     try {
-      await save.mutateAsync(step.key);
       await resumeLink.mutateAsync();
       setNotice(
         `Your answers are saved. We've sent a link to ${draft.contact.email} so you can continue later.`,
       );
-    } catch {
-      // Shown below the buttons.
+    } catch (error) {
+      draftEnded(error);
     }
   }
 
   const failure = save.error ?? submit.error ?? resumeLink.error;
-  // Until the firm's agreements can be signed online the API answers a submit with 503.
+  // Until R14's signing is live the API answers a submit with 503 SIGNING_UNAVAILABLE.
   const failureText =
-    failure === submit.error &&
-    submit.error instanceof ApiRequestError &&
-    submit.error.status === 503 &&
-    submit.error.code !== 'ENCRYPTION_UNAVAILABLE'
+    failure instanceof ApiRequestError && failure.code === 'SIGNING_UNAVAILABLE'
       ? "Online submission isn't open yet. Your answers are saved: choose Save and Continue Later and we'll email you a link to finish."
       : failure
         ? errorMessage(failure, BEGIN_ONLINE_ERRORS)
         : '';
   const nextStep = steps[index + 1];
+  // The review step's info-only panels ("Review Your Information...") come before the answers.
+  const infoOnly = (sec: IntakeStep['sections'][number]) =>
+    sec.fields.every((f) => f.type === 'info');
+  const intro = { ...step, sections: step.review ? step.sections.filter(infoOnly) : [] };
+  const rest = {
+    ...step,
+    sections: step.review ? step.sections.filter((sec) => !infoOnly(sec)) : step.sections,
+  };
+  const sectionProps = {
+    values,
+    shown: shown.fields,
+    onChange,
+    errors,
+    fill,
+    actions: {
+      uploads,
+      upload: async (slot: string, file: File) => {
+        const saved = await uploadFile(file, {
+          start: (facts) => client.createUpload(form, { slot, ...facts }),
+          finish: (uploadToken) => client.confirmUpload(form, { uploadToken }),
+        });
+        setUploads((list) => [...list, saved]);
+      },
+      remove: async (id: string) => {
+        await client.removeUpload(form, id);
+        setUploads((list) => list.filter((u) => u.id !== id));
+      },
+    },
+  };
   return (
     <div ref={topRef} tabIndex={-1} className="outline-none">
       <FormHeader
@@ -400,11 +556,13 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         current={index + 1}
         onEdit={(id) => {
           const target = steps[id - 1];
-          if (target) go(target.key);
+          if (target) void jump(target.key);
         }}
       />
       {step.subtitle && <p className="mb-2 text-center text-xs">{fill(step.subtitle)}</p>}
+      {agreements.data?.ready === false && <UnavailableNote />}
       <form
+        ref={formRef}
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
@@ -421,6 +579,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
             Please complete the highlighted fields before continuing.
           </div>
         )}
+        {step.review && intro.sections.length > 0 && (
+          <div className="mb-3">
+            <StepSections {...sectionProps} step={intro} />
+          </div>
+        )}
         {step.review && (
           <IntakeReview
             definition={definition}
@@ -429,32 +592,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
             shownFields={shown.fields}
             uploads={uploads}
             fill={fill}
-            onEdit={go}
+            onEdit={(key) => void jump(key)}
           />
         )}
         <div className={step.review ? 'mt-3' : ''}>
-          <StepSections
-            step={step}
-            values={values}
-            shown={shown.fields}
-            onChange={onChange}
-            errors={errors}
-            fill={fill}
-            actions={{
-              uploads,
-              upload: async (slot, file) => {
-                const saved = await uploadFile(file, {
-                  start: (facts) => client.createUpload(form, { slot, ...facts }),
-                  finish: (uploadToken) => client.confirmUpload(form, { uploadToken }),
-                });
-                setUploads((list) => [...list, saved]);
-              },
-              remove: async (id) => {
-                await client.removeUpload(form, id);
-                setUploads((list) => list.filter((u) => u.id !== id));
-              },
-            }}
-          />
+          <StepSections {...sectionProps} step={rest} />
         </div>
         {step.review && (
           <AgreementPanel

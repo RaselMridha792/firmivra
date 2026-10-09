@@ -155,7 +155,7 @@ export function DoneScreen({ firmSlug, formPath }: { firmSlug: string; formPath:
             icon={<Mail className="size-7" />}
             title={tax ? 'Keep an Eye on Your Inbox' : 'Check Your Inbox'}
           >
-            You&apos;ll receive a confirmation email with a copy of your submission.
+            You&apos;ll receive a confirmation email.
           </Tile>
           <Tile
             icon={<PhoneCall className="size-7" />}
@@ -181,15 +181,6 @@ export function DoneScreen({ firmSlug, formPath }: { firmSlug: string; formPath:
             Back to Begin Online
           </Link>
         </div>
-
-        <p className="mt-6 font-display text-2xl italic text-heading">
-          {tax
-            ? 'Your Goals. Our Expertise. A Brighter Tomorrow.'
-            : 'Small Business. Big Possibilities.'}
-        </p>
-        <p className="mt-1 text-xs font-semibold tracking-eyebrow uppercase">
-          {tax ? 'Plan | Prepare | Prosper' : 'People | Purpose | Prosperity'}
-        </p>
       </PageContainer>
     </div>
   );

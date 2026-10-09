@@ -1,3 +1,4 @@
+import { BEGIN_ONLINE_SERVICES, type IntakeFormKey } from '@firmivra/types';
 import { Card, PageContainer } from '@firmivra/ui';
 import * as Icons from 'lucide-react';
 import Image from 'next/image';
@@ -6,60 +7,49 @@ import type { ReactNode } from 'react';
 import hero from './begin-hero.png';
 import styles from './begin-online.module.css';
 
-const services = [
+// The cards' order, descriptions and icons; the path, title, tagline and button come from the
+// contract (BEGIN_ONLINE_SERVICES), so the screen and the API name each service the same way.
+const cards = [
   {
-    slug: 'annual-tax',
-    title: 'Tax Preparation',
-    subtitle: 'Individual & Business Tax Returns',
+    form: 'ANNUAL_TAX',
     description: 'Complete your tax intake form to get started with your TAX_YEAR tax return.',
-    button: 'Tax Intake Form',
     icon: Icons.FilePenLine,
   },
   {
-    slug: 'bookkeeping',
-    title: 'Business Bookkeeping',
-    subtitle: 'Keep Your Business on Track',
+    form: 'BOOKKEEPING',
     description: 'Complete the bookkeeping intake form so we can set up your customized solution.',
-    button: 'Bookkeeping Intake Form',
     icon: Icons.Calculator,
   },
   {
-    slug: 'payroll',
-    title: 'Payroll Services',
-    subtitle: 'Simple. Accurate. On Time.',
+    form: 'PAYROLL',
     description:
       'Complete the payroll intake form to get started with your payroll setup or support.',
-    button: 'Payroll Intake Form',
     icon: Icons.UsersRound,
   },
   {
-    slug: 'business-development',
-    title: 'Business Development',
-    subtitle: 'Plan. Grow. Succeed.',
+    form: 'BUSINESS_DEVELOPMENT',
     description:
       'Complete the business development intake form to tell us about your goals and how we can help.',
-    button: 'Business Development Intake Form',
     icon: Icons.ChartNoAxesCombined,
   },
   {
-    slug: 'quarterly-tax',
-    title: 'File Business Quarterly Taxes',
-    subtitle: 'Stay Compliant. Avoid Penalties.',
+    form: 'QUARTERLY_TAX',
     description:
       'Complete the quarterly tax intake form for your business so we can prepare and file your quarterly taxes.',
-    button: 'Quarterly Tax Intake Form',
     icon: Icons.CalendarDays,
   },
   {
-    slug: 'tax-planning',
-    title: 'Tax Planning',
-    subtitle: 'Strategize Today for a Brighter Tomorrow.',
+    form: 'TAX_PLANNING',
     description:
       'Tell us about your goals so we can create a personalized tax planning strategy for you or your business.',
-    button: 'Tax Planning Intake Form',
     icon: Icons.Lightbulb,
   },
-] as const;
+] as const satisfies readonly { form: IntakeFormKey; description: string; icon: unknown }[];
+
+const services = cards.map(({ form, description, icon }) => {
+  const s = BEGIN_ONLINE_SERVICES[form];
+  return { slug: s.path, title: s.title, subtitle: s.tagline, button: s.button, description, icon };
+});
 
 const steps = [
   {

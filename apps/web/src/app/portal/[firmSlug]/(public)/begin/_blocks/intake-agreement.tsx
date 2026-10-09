@@ -5,16 +5,22 @@ import {
   type IntakeAgreement,
   type IntakeAgreementBlock,
   type IntakeFormKey,
+  type LegalKind,
 } from '@firmivra/types';
-import { Button, Checkbox, Input } from '@firmivra/ui';
+import { Button, Checkbox, Input, Modal } from '@firmivra/ui';
 import { Download } from 'lucide-react';
 import { useState } from 'react';
+import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
+import { portalAuth } from '../../../../../../lib/auth';
+import { useApiQuery } from '../../../../../../lib/query';
+import { AgreementText } from './agreement-text';
 import { SectionPanel } from './form-blocks';
+import { localToday } from './intake-values';
 
 /** What the signer has entered so far; the block itself comes from R14's public agreements. */
 export interface AgreementState {
-  /** `${agreementId}:${key}` of each ticked acknowledgment. */
+  /** `${agreementId}:${version}:${key}` of each ticked box (a newer version needs new ticks). */
   ticked: string[];
   acceptLegal: boolean;
   printedName: string;
@@ -30,7 +36,11 @@ export const emptyAgreement: AgreementState = {
   title: '',
 };
 
-const tickKey = (agreementId: string, key: string) => `${agreementId}:${key}`;
+const tickKey = (a: { agreementId: string; version: number }, key: string) =>
+  `${a.agreementId}:${a.version}:${key}`;
+
+/** One space between words, as the API compares names (a no-break space counts as a space). */
+const oneLine = (name: string) => name.replace(/\s+/gu, ' ').trim();
 
 /**
  * The signature the submit sends (R14's IntakeSignatureInput), or the message to show when it is
@@ -44,7 +54,7 @@ export function agreementSignature(
   if (!block.ready)
     return { error: "This form can't be signed right now. Please contact the firm." };
   const missing = block.agreements.some((g) =>
-    g.acknowledgments.some((k) => k.required && !a.ticked.includes(tickKey(g.agreementId, k.key))),
+    g.acknowledgments.some((k) => k.required && !a.ticked.includes(tickKey(g, k.key))),
   );
   if (missing) return { error: 'Please tick each required box to continue.' };
   if (block.legal && !a.acceptLegal) {
@@ -58,7 +68,7 @@ export function agreementSignature(
     })),
     acknowledgments: block.agreements.flatMap((g) =>
       g.acknowledgments
-        .filter((k) => a.ticked.includes(tickKey(g.agreementId, k.key)))
+        .filter((k) => a.ticked.includes(tickKey(g, k.key)))
         .map((k) => ({ agreementId: g.agreementId, key: k.key })),
     ),
     acceptLegal:
@@ -66,9 +76,9 @@ export function agreementSignature(
         ? { termsVersion: block.legal.terms.version, privacyVersion: block.legal.privacy.version }
         : null,
     signer: {
-      printedName: a.printedName.trim(),
+      printedName: oneLine(a.printedName),
       method: 'TYPED',
-      typedSignature: a.typedSignature.trim(),
+      typedSignature: oneLine(a.typedSignature),
     },
     title: a.title.trim() || null,
   };
@@ -83,39 +93,6 @@ const usDate = (iso: string) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return m ? `${m[2]}/${m[3]}/${m[1]}` : iso;
 };
-
-/**
- * The agreement text as plain text, paragraph by paragraph. React escapes it, so no HTML runs;
- * R14's `<Markdown>` (packages/ui, pending) replaces this once it is on main.
- */
-function AgreementText({ body }: { body: string }) {
-  // Each paragraph keyed by its text (and its count, for a repeated paragraph).
-  const seen = new Map<string, number>();
-  const blocks = body
-    .split(/\n\s*\n/)
-    .filter((b) => b.trim())
-    .map((b) => {
-      const n = (seen.get(b) ?? 0) + 1;
-      seen.set(b, n);
-      return { b, key: `${n}:${b}` };
-    });
-  return (
-    <>
-      {blocks.map(({ b, key }) => {
-        const heading = /^#{1,6}\s+(.*)$/.exec(b.trim());
-        return heading ? (
-          <p key={key} className="mt-2 font-semibold text-heading first:mt-0">
-            {heading[1]?.replace(/\*\*/g, '')}
-          </p>
-        ) : (
-          <p key={key} className="mt-1 whitespace-pre-line">
-            {b.replace(/\*\*/g, '')}
-          </p>
-        );
-      })}
-    </>
-  );
-}
 
 function AgreementCard({
   firmSlug,
@@ -172,7 +149,7 @@ function AgreementCard({
         <AgreementText body={agreement.bodyMarkdown} />
       </div>
       {agreement.acknowledgments.map((k) => {
-        const id = tickKey(agreement.agreementId, k.key);
+        const id = tickKey(agreement, k.key);
         return (
           <div key={k.key}>
             <Checkbox
@@ -222,10 +199,11 @@ export function AgreementPanel({
   onChange: (value: AgreementState) => void;
   error: string;
 }) {
-  const [today] = useState(() => usDate(new Date().toISOString().slice(0, 10)));
+  const [today] = useState(() => usDate(localToday()));
+  const [legalKind, setLegalKind] = useState<LegalKind | null>(null);
   if (!block && failed) {
     return (
-      <SectionPanel title="Agreement and Signature" className="mt-3">
+      <SectionPanel title="Service Agreement" className="mt-3">
         <p role="alert" className="text-sm text-danger">
           The agreement couldn&apos;t be loaded.
         </p>
@@ -237,7 +215,7 @@ export function AgreementPanel({
   }
   if (!block) {
     return (
-      <SectionPanel title="Agreement and Signature" className="mt-3">
+      <SectionPanel title="Service Agreement" className="mt-3">
         <p className="text-xs text-muted" role="status">
           Loading the agreement…
         </p>
@@ -246,7 +224,7 @@ export function AgreementPanel({
   }
   if (!block.ready) {
     return (
-      <SectionPanel title="Agreement and Signature" className="mt-3">
+      <SectionPanel title="Service Agreement" className="mt-3">
         <p role="alert" className="text-sm text-danger">
           This form isn&apos;t available yet. Your answers are saved: please contact the firm.
         </p>
@@ -255,8 +233,8 @@ export function AgreementPanel({
   }
   return (
     <SectionPanel
-      title="Agreement and Signature"
-      subtitle="Please read the agreement, then sign below."
+      title="Service Agreement"
+      subtitle="Please read the agreement in full, then sign below."
       className="mt-3"
     >
       <div className="space-y-4">
@@ -270,29 +248,49 @@ export function AgreementPanel({
           />
         ))}
         {block.legal && (
-          <Checkbox
-            label="I accept the Terms of Service and Privacy Policy. *"
-            className="gap-2! text-xs! sm:min-h-6!"
-            checked={value.acceptLegal}
-            onChange={(event) => onChange({ ...value, acceptLegal: event.target.checked })}
-          />
+          <div>
+            <Checkbox
+              label="I accept the Terms of Service and Privacy Policy. *"
+              className="gap-2! text-xs! sm:min-h-6!"
+              checked={value.acceptLegal}
+              onChange={(event) => onChange({ ...value, acceptLegal: event.target.checked })}
+            />
+            <p className="ml-6 text-xs">
+              Read the{' '}
+              <button type="button" className="underline" onClick={() => setLegalKind('terms')}>
+                Terms of Service
+              </button>{' '}
+              and the{' '}
+              <button type="button" className="underline" onClick={() => setLegalKind('privacy')}>
+                Privacy Policy
+              </button>
+              .
+            </p>
+            <Modal
+              open={legalKind !== null}
+              title={legalKind === 'privacy' ? 'Privacy Policy' : 'Terms of Service'}
+              onClose={() => setLegalKind(null)}
+            >
+              {legalKind && <LegalText firmSlug={firmSlug} kind={legalKind} />}
+            </Modal>
+          </div>
         )}
         <div className="grid gap-2 sm:grid-cols-2 [&_label]:text-xs">
           <Input
-            label="Printed Name *"
+            label="Full Name *"
             autoComplete="name"
             value={value.printedName}
             onChange={(event) => onChange({ ...value, printedName: event.target.value })}
           />
           <Input
-            label="Signature (type your name exactly as printed) *"
+            label="Signature (type your full name) *"
             value={value.typedSignature}
             onChange={(event) => onChange({ ...value, typedSignature: event.target.value })}
             className="font-display text-lg italic"
           />
           {form !== 'ANNUAL_TAX' && (
             <Input
-              label="Title or Position"
+              label="Title / Position"
               autoComplete="organization-title"
               value={value.title}
               onChange={(event) => onChange({ ...value, title: event.target.value })}
@@ -310,5 +308,26 @@ export function AgreementPanel({
         )}
       </div>
     </SectionPanel>
+  );
+}
+
+/** The firm's Terms or Privacy Policy, as the portal footer shows them (the current version). */
+function LegalText({ firmSlug, kind }: { firmSlug: string; kind: LegalKind }) {
+  const query = useApiQuery(['portal-legal', firmSlug, kind], () =>
+    portalAuth(firmSlug).legal(kind),
+  );
+  return (
+    <PageState
+      query={query}
+      empty="No policy has been published."
+      isEmpty={(doc) => !doc.body.trim()}
+    >
+      {(doc) => (
+        <div className="text-sm">
+          <p className="text-xs text-muted">Version {doc.version}</p>
+          <AgreementText body={doc.body} />
+        </div>
+      )}
+    </PageState>
   );
 }

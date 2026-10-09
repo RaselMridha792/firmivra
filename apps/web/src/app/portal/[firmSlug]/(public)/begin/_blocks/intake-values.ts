@@ -8,6 +8,7 @@ import {
   type IntakeScalarField,
   type IntakeStep,
   type IntakeUpload,
+  intakeConditionHolds,
   intakeStepFields,
   intakeUploadCounts,
   type MaskedNumber,
@@ -159,6 +160,8 @@ export function toAnswer(f: IntakeField, v: ScreenValue | undefined): unknown {
       const out = rows.map((row) => {
         const answer: Record<string, unknown> = { id: row.id };
         for (const sub of f.fields) {
+          // A row's field its own answers hide is not sent (a leftover would fail the save).
+          if (!intakeConditionHolds(sub.showIf, row)) continue;
           const value = scalarToAnswer(sub, row[sub.key]);
           if (value !== null) answer[sub.key] = value;
         }
@@ -171,10 +174,21 @@ export function toAnswer(f: IntakeField, v: ScreenValue | undefined): unknown {
   }
 }
 
-/** A step's answers for a save: every field of the step (null clears it). */
-export function stepAnswers(step: IntakeStep, values: ScreenValues): IntakeAnswers {
+/**
+ * A step's answers for a save: every field of the step (null clears it). With `shown`, a field
+ * the answers hide is sent as null, so a leftover (a spouse's part SSN) never blocks the save.
+ */
+export function stepAnswers(
+  step: IntakeStep,
+  values: ScreenValues,
+  shown?: ReadonlySet<string>,
+): IntakeAnswers {
   const out: Record<string, unknown> = {};
   for (const f of intakeStepFields(step)) {
+    if (shown && !shown.has(f.key)) {
+      if (f.type !== 'info') out[f.key] = null;
+      continue;
+    }
     const v = toAnswer(f, values[f.key]);
     if (v !== undefined) out[f.key] = v;
   }
@@ -207,9 +221,30 @@ export function stepIssues(
   const { issues } = checkIntakeAnswers(definition, allAnswers(definition, values), {
     mode: 'submit',
     uploads: counts,
-    today: new Date().toISOString().slice(0, 10),
+    today: localToday(),
   });
   return issues.filter((issue) => issue.step === step.key);
+}
+
+/** The problems a save of this step would find (formats and limits; nothing is required). */
+export function saveIssues(
+  definition: IntakeFormDefinition,
+  step: IntakeStep,
+  values: ScreenValues,
+  shown: ReadonlySet<string>,
+): IntakeIssue[] {
+  return checkIntakeAnswers(definition, stepAnswers(step, values, shown), {
+    mode: 'save',
+    step: step.key,
+    today: localToday(),
+  }).issues;
+}
+
+/** Today's date where the person is (toISOString would give tomorrow late in the US evening). */
+export function localToday(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /** The message for a field (or a cell or row inside it), keyed by its path. */
