@@ -37,15 +37,15 @@ test('the next document opens after the first one has drawn', async ({ page }) =
   await expect(page.getByTestId('pdf-error')).toHaveCount(0);
   // On to the third and back to the first, on the same worker.
   await page.getByRole('button', { name: 'Next document' }).click();
-  await expect(page.getByTestId('pdf-page')).toHaveCount(1);
+  await expect(page.getByRole('document', { name: 'Sample scanned form' })).toBeVisible();
   await page.getByRole('button', { name: 'Next document' }).click();
   await expect(page.getByTestId('pdf-page')).toHaveCount(3);
   await page.locator('[data-page="1"]').scrollIntoViewIfNeeded();
   await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
 });
 
-test('a scanned page draws its picture', async ({ page }) => {
-  // The page is a JPEG 2000 picture: blank unless pdf.js loads its bundled image decoder.
+test('scanned pages draw their pictures: JPEG 2000 and CCITT fax', async ({ page }) => {
+  // Each page is a picture: blank unless pdf.js loads its bundled image decoders.
   const warnings: string[] = [];
   page.on('console', (m) => warnings.push(m.text()));
   await page.goto(signPage);
@@ -53,17 +53,19 @@ test('a scanned page draws its picture', async ({ page }) => {
   await next.click();
   await next.click();
   await expect(page.getByRole('document', { name: 'Sample scanned form' })).toBeVisible();
-  const scan = page.locator('[data-page="1"]');
-  await scan.scrollIntoViewIfNeeded();
-  await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
-  // The dark block in the middle of the picture (page point 306, 189 from the top).
-  const shade = await scan.locator('canvas').evaluate((canvas: HTMLCanvasElement) => {
-    const ctx = canvas.getContext('2d');
-    const x = Math.round(canvas.width * (306 / 612));
-    const y = Math.round(canvas.height * (189 / 792));
-    return ctx?.getImageData(x, y, 1, 1).data[0] ?? 255;
-  });
-  expect(shade).toBeLessThan(100);
+  for (const n of [1, 2]) {
+    const scan = page.locator(`[data-page="${n}"]`);
+    await scan.scrollIntoViewIfNeeded();
+    await expect(page.locator(`[data-page="${n}"][data-drawn]`)).toBeVisible();
+    // The dark block in the middle of the picture (page point 306, 189 from the top).
+    const shade = await scan.locator('canvas').evaluate((canvas: HTMLCanvasElement) => {
+      const ctx = canvas.getContext('2d');
+      const x = Math.round(canvas.width * (306 / 612));
+      const y = Math.round(canvas.height * (189 / 792));
+      return ctx?.getImageData(x, y, 1, 1).data[0] ?? 255;
+    });
+    expect(shade, `page ${n}`).toBeLessThan(100);
+  }
   expect(warnings.filter((w) => /instantiateWasm|JpxError|Jbig2Error|not bundled/.test(w))).toEqual(
     [],
   );
@@ -78,7 +80,7 @@ test('without WebAssembly, the signer is told scanned pages may be blank', async
   });
   await page.goto(signPage);
   await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
-  await expect(page.getByTestId('pdf-no-wasm')).toContainText('Open it in another browser');
+  await expect(page.getByTestId('pdf-no-wasm')).toContainText('on another device');
 });
 
 test("fields sit on the page in their recipient's colour, other signers' faded", async ({

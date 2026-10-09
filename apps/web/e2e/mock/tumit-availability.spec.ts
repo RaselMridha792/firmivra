@@ -32,6 +32,8 @@ test('working hours are checked, then saved', async ({ page }) => {
   await mockUser.getByLabel('Saturday to').fill('12:00');
   await mockUser.getByRole('button', { name: 'Save working hours' }).click();
   await expect(mockUser.getByText('Working hours saved.')).toBeVisible();
+  await mockUser.getByLabel('Saturday to').fill('13:00');
+  await expect(mockUser.getByText('Working hours saved.')).toHaveCount(0);
 
   // One person at a time: yours first, then anyone else's.
   await page.getByLabel('Whose hours').selectOption({ label: 'Sam Staff' });

@@ -44,6 +44,7 @@ function SignView({ envelope }: { envelope: SignerEnvelope }) {
       </p>
       <PdfPages
         source={envelope.packetUrl}
+        purpose="sign"
         label={envelope.title}
         overlay={(pageIndex) => (
           <FieldOverlay
