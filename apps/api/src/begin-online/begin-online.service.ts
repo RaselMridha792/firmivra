@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import type { Database, Prisma, ScopedClient } from '@firmivra/db';
+import type { Database, Prisma, ScopedClient, TxClient } from '@firmivra/db';
 import {
   BeginDraft,
   DraftUpload,
@@ -19,6 +19,7 @@ import {
   type StartDraftRequest,
 } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
+import { requestContext } from '../common/request-context.js';
 import { PortalInfoService } from '../client-auth/portal-info.controller.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -38,6 +39,15 @@ type Firm = { id: string; slug: string; name: string };
 type Values = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * New drafts a day (rolling 24 h), counted in the audit log like RESUME_LINK_LIMITS: per firm, and
+ * per viewer IP on that firm's site (a firm's scope sees only its own rows; the in-memory
+ * BEGIN_ONLINE_THROTTLE.start counts an IP across firms). Here, not next to BEGIN_ONLINE_THROTTLE
+ * or RESUME_LINK_LIMITS, because both of those files import this one.
+ */
+export const DRAFT_START_LIMITS = { perFirm: 500, perIp: 50, windowMs: 24 * 60 * 60_000 };
+const STARTED = 'begin_online.draft_started';
 
 /** A live draft, found by its key: the lead, its service, form and open answers. */
 export interface Draft {
@@ -139,6 +149,7 @@ export class BeginOnlineService {
     const draftExpiresAt = await this.database.withScope(
       { kind: 'business', businessId },
       async (tx) => {
+        await this.checkStartLimits(tx, businessId);
         if (form.formId === null) {
           // The built-in form becomes the firm's version 1 (a parallel start inserts nothing).
           await tx.intakeForm.createMany({
@@ -197,7 +208,7 @@ export class BeginOnlineService {
         });
         await this.audit.logIn(
           tx,
-          'begin_online.draft_started',
+          STARTED,
           { type: 'lead', id: ids.lead },
           { serviceId: service.id, formVersion: form.version, step: body.step },
           { businessId },
@@ -218,6 +229,39 @@ export class BeginOnlineService {
       submission: { id: ids.submission, answers: toStore, savedSteps: [body.step] },
       uploads: [],
     });
+  }
+
+  /**
+   * 429 RATE_LIMITED past either start limit, before the lead is written (so no lead, no cookie).
+   * Retry-After is when enough counted rows leave the window to allow one more (the global filter
+   * caps it at an hour). Starts of one firm count one after the other, under a lock.
+   */
+  private async checkStartLimits(tx: TxClient, businessId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`begin-online-start:${businessId}`}, 0))`;
+    const { perFirm, perIp, windowMs } = DRAFT_START_LIMITS;
+    const firmWide = { action: STARTED, createdAt: { gt: new Date(Date.now() - windowMs) } };
+    const ip = requestContext.getStore()?.ip;
+    const limits: [Prisma.AuditLogWhereInput, number][] = [[firmWide, perFirm]];
+    if (ip) limits.push([{ ...firmWide, ip }, perIp]);
+    for (const [where, max] of limits) {
+      const count = await tx.auditLog.count({ where });
+      if (count < max) continue;
+      const leaving = await tx.auditLog.findFirst({
+        where,
+        orderBy: { createdAt: 'asc' },
+        skip: count - max,
+        select: { createdAt: true },
+      });
+      const freeAt = (leaving?.createdAt.getTime() ?? Date.now()) + windowMs;
+      throw new HttpException(
+        {
+          code: 'RATE_LIMITED',
+          message: 'Too many forms were started. Please try again later.',
+          retryAfter: Math.max(1, Math.ceil((freeAt - Date.now()) / 1000)),
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   async current(slug: string, req: Request): Promise<BeginDraft> {

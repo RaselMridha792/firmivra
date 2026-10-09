@@ -1,5 +1,6 @@
 // End-to-end: abuse of the public Begin Online routes (R11). Per-IP rate limits per route, body and
-// answer size limits, file caps per slot and per draft, the per-firm resume link limit, forged and
+// answer size limits, file caps per slot and per draft, the per-firm resume link limit, the per-firm
+// and per-IP daily draft start limits, forged and
 // foreign draft cookies, unknown and suspended firms, and that no response or audit row holds
 // answers, SSN digits or draft keys. Setup as in begin-online.e2e.test.ts. Synthetic data only.
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -13,6 +14,7 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { BeginDraft, beginOnlineCookie, INTAKE_LIMITS } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { BEGIN_ONLINE_THROTTLE } from '../../src/begin-online/begin-online.controller.js';
+import { DRAFT_START_LIMITS } from '../../src/begin-online/begin-online.service.js';
 import { RESUME_LINK_LIMITS } from '../../src/begin-online/resume-links.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -52,7 +54,7 @@ const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
 let app: INestApplication;
 let portalOrigin = '';
-type FirmKey = 'a' | 'b' | 'c' | 'd';
+type FirmKey = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
 const firms = {} as Record<FirmKey, { id: string; slug: string }>;
 const services = {} as Record<FirmKey, string>;
 /** Every draft key a response set: none may show up in a body or an audit row. */
@@ -200,7 +202,7 @@ const leadsByEmail = (firm: FirmKey | 'suspended', address: string) => {
 beforeAll(async () => {
   process.env['KMS_MODE'] ??= 'local';
   process.env['LOCAL_KMS_KEY'] ??= randomBytes(32).toString('base64');
-  for (const key of ['a', 'b', 'c', 'd'] as const) {
+  for (const key of ['a', 'b', 'c', 'd', 'e', 'f'] as const) {
     firms[key] = await asOwner(null, (tx) =>
       tx.business.create({
         data: { slug: `r11-abuse-${key}-${run}`, name: `R11 Abuse ${key}`, status: 'ACTIVE' },
@@ -478,6 +480,67 @@ describe('Begin Online caps', () => {
     expect(second.v.cookie).toBe(cookie);
     expect(outbox.length).toBe(mails);
     expect((await second.v.get('/drafts/current')).status).toBe(200);
+  });
+});
+
+describe('Begin Online daily start limits (audit log, rolling 24 h)', () => {
+  const { perFirm, perIp, windowMs } = DRAFT_START_LIMITS;
+  /** `count` start rows in the window from `ip` and one older than the window that never counts. */
+  const seedStarts = (firm: FirmKey, count: number, ip: string | null) => {
+    const businessId = firms[firm].id;
+    const row = (createdAt: Date) => ({
+      businessId,
+      action: 'begin_online.draft_started',
+      entityType: 'lead',
+      entityId: randomUUID(),
+      metadata: {},
+      ip,
+      createdAt,
+    });
+    // The oldest counted row leaves the window in about an hour.
+    const oldest = new Date(Date.now() - windowMs + 3_600_000);
+    return asOwner(businessId, (tx) =>
+      tx.auditLog.createMany({
+        data: [
+          row(oldest),
+          ...Array.from({ length: count - 1 }, () => row(new Date())),
+          row(new Date(Date.now() - windowMs - 60_000)),
+        ],
+      }),
+    );
+  };
+  const expectRefused = async (firm: FirmKey, viewer: string, tag: string) => {
+    const v = visitor(firms[firm].slug, viewer);
+    const res = await v.post('/drafts', start(firm, { email: email(tag) }));
+    expect([res.status, codeOf(res)]).toEqual([429, 'RATE_LIMITED']);
+    const retryAfter = Number(res.headers['retry-after']);
+    expect(retryAfter).toBeGreaterThan(3_500);
+    expect(retryAfter).toBeLessThanOrEqual(3_600);
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect(await leadsByEmail(firm, email(tag))).toBe(0);
+  };
+
+  it(`at most ${perFirm} a day per firm, from any IP; rows older than 24 h do not count`, async () => {
+    await seedStarts('e', perFirm - 1, null);
+    // One more fits (the old row is not counted); the next, from another IP, does not.
+    const v = visitor(firms.e.slug);
+    expect((await v.post('/drafts', start('e'))).status).toBe(201);
+    await expectRefused('e', newViewer(), 'firmcap');
+    // Another firm is not limited.
+    expect((await visitor(firms.f.slug).post('/drafts', start('f'))).status).toBe(201);
+  });
+
+  it(`at most ${perIp} a day per IP on a firm's site; another IP still starts`, async () => {
+    const viewer = newViewer();
+    await seedStarts('f', perIp - 1, viewer);
+    const v = visitor(firms.f.slug, viewer);
+    expect((await v.post('/drafts', start('f'))).status).toBe(201);
+    const stored = await asOwner(firms.f.id, (tx) =>
+      tx.auditLog.count({ where: { action: 'begin_online.draft_started', ip: viewer } }),
+    );
+    expect(stored).toBe(perIp + 1); // the start row records the viewer's IP
+    await expectRefused('f', viewer, 'ipcap');
+    expect((await visitor(firms.f.slug).post('/drafts', start('f'))).status).toBe(201);
   });
 });
 
