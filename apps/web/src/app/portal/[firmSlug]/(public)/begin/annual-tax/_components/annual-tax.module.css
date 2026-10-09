@@ -1,0 +1,16 @@
+.panel {
+  background: linear-gradient(
+    135deg,
+    var(--color-surface),
+    color-mix(in srgb, var(--color-accent-soft) 20%, var(--color-surface))
+  );
+}
+
+.form {
+  color: var(--color-firm-primary);
+  font-size: var(--text-xs);
+}
+
+.form :disabled {
+  cursor: not-allowed;
+}

@@ -1,15 +1,20 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { AnnualTaxForm } from './_components/annual-tax-form';
 
 export const metadata: Metadata = { title: 'Annual tax preparation' };
 
-export default function AnnualTaxPreparationPage() {
+export default async function AnnualTaxPreparationPage({
+  params,
+}: {
+  params: Promise<{ firmSlug: string }>;
+}) {
+  const { firmSlug } = await params;
+  const now = new Date();
   return (
-    <PagePlaceholder
-      title="Annual tax preparation"
-      ticket="N07a"
-      owner="Arfan"
-      mockup="begin-online/Annual Intake Form 1.png to Annual Tax Intake Form 4.png"
+    <AnnualTaxForm
+      key={firmSlug}
+      taxYear={now.getFullYear()}
+      today={now.toISOString().slice(0, 10)}
     />
   );
 }
