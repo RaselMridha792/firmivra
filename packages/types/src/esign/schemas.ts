@@ -219,7 +219,10 @@ export const EsignDocument = z.object({
   contentType: EsignContentType,
   sizeBytes: z.number().int(),
   pageCount: z.number().int().min(1),
-  /** Each page's size in PDF points, before any rotation. An image is one page. */
+  /**
+   * Each page's size in PDF points as the page shows, after its own /Rotate and before the page
+   * plan's rotation. An image is one page.
+   */
   pageSizes: z.array(z.object({ width: z.number(), height: z.number() })),
   /** The client's document it was copied from, when picked from the vault. */
   sourceDocumentId: z.uuid().nullable(),
