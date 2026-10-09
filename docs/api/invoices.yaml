@@ -199,15 +199,19 @@ info:
       NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE`. So a double click or a retry after
       a timeout or a `503` refunds once and answers `200`, as the mock does (keys per payment).
       No column keeps the key: Stripe does. Stripe errors: `503`, nothing inserted.
-    - **Notifications** (R6's helper): `invoice.sent` to the client when an invoice opens;
-      `payment.received` to the client and the firm when a payment succeeds. No amounts or card
-      details in SMS; emails name the invoice number.
+    - **Notifications** (R6's `Notifier.notify`, after the change commits): `invoice.sent` to the
+      client when an invoice opens (not when it is scheduled); `payment.received` to the client
+      and the firm when a payment succeeds. The Notifier picks the recipients (the client's ACTIVE
+      PRIMARY login, q27) and writes the bell items; emails carry the name, the invoice number and
+      a link only, never an amount. A failed notice never fails the change.
     - **Audit** (`AuditService.log`, ids and amounts only, never card or bank data):
       `invoice.created`, `invoice.updated`, `invoice.sent` (or `invoice.scheduled`),
       `invoice.opened` (by the job), `invoice.canceled`, `invoice.checkout_started` (the client's
       user, invoice, payment and amount), `payment.succeeded`, `payment.failed`,
       `invoice.paid`, `payment.refund_requested` (who, payment, amount), `payment.refunded`,
-      `payment.refund_failed`. Webhook entries name Stripe as the actor. Reads are not audited.
+      `payment.refund_failed`. Webhook entries name Stripe as the actor. Reads are audited too
+      (CLAUDE.md rule 8): `invoices.listed` (count, the client filter) and `invoice.viewed` (id,
+      client), after the read; the portal's `my_invoices.listed` and `my_invoice.viewed` the same.
     - **Cursors** are opaque (the sort keys of the last item); a cursor the API did not make is
       `400 VALIDATION_FAILED`.
 
@@ -343,7 +347,7 @@ paths:
     post:
       tags: [firm]
       operationId: sendInvoice
-      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, ZERO_TOTAL, DUE_DATE_PASSED, CLIENT_ARCHIVED
+      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED, in that order
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200': { $ref: '#/components/responses/Invoice' }

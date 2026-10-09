@@ -1,9 +1,10 @@
-// Test stand-ins around intake signing until R14's sign() is on main: a published firm-wide
-// agreement for a firm, and a signer that writes the intake_signatures row the database needs
-// for a submit (the placeholder writes none). Synthetic text only.
+// Test helpers around intake signing: a published firm-wide agreement for a firm, the contract B
+// signature for it, and a stand-in signer (INTAKE_SIGNING's interface) that writes the
+// intake_signatures row the database needs without R14's checks. The e2e tests sign with R14's
+// real IntakeSignaturesService. Synthetic text only.
 import { createHash, randomUUID } from 'node:crypto';
 import type { TxClient } from '@firmivra/db';
-import type { IntakeSigner } from '../src/begin-online/signing.js';
+import type { IntakeSigner } from '../src/intake/intake-signing.js';
 
 const ACKS = [
   { key: 'read', label: 'I read it', text: 'Synthetic acknowledgment.', required: true },
@@ -33,11 +34,14 @@ export async function publishFirmWideAgreement(
 }
 
 /**
- * Signs a Begin Online version as its lead: the current firm-wide version, every acknowledgment
- * ticked, the name and source the request gave. Answers the stored evidence.
+ * Stand-in signer for a Begin Online version, as its lead: the current firm-wide version, every
+ * acknowledgment ticked, the names and source the submit gave, none of R14's checks. Answers the
+ * stored evidence.
  */
 export const TEST_LEAD_SIGNING: IntakeSigner = {
-  async sign(tx, ids, signature) {
+  async sign(tx, input) {
+    const { signature } = input;
+    const ids = input;
     const intake = await tx.intake.findUniqueOrThrow({
       where: { id: ids.intakeId },
       select: { leadId: true },
@@ -53,13 +57,13 @@ export const TEST_LEAD_SIGNING: IntakeSigner = {
         submissionId: ids.submissionId,
         intakeId: ids.intakeId,
         leadId: intake.leadId,
-        printedName: signature.printedName,
-        signatureText: signature.typedSignature,
+        printedName: signature.signer.printedName,
+        signatureText: signature.signer.typedSignature,
         acknowledgments: acks.map((a) => ({ agreementVersionId: version.id, ...a, checked: true })),
         answersSha256: '0'.repeat(64), // replaced by the database
         evidenceSha256: createHash('sha256').update(randomUUID()).digest('hex'),
-        ip: signature.ip,
-        userAgent: signature.userAgent,
+        ip: input.ip,
+        userAgent: input.userAgent,
         agreements: {
           create: {
             agreementVersionId: version.id,
@@ -72,3 +76,28 @@ export const TEST_LEAD_SIGNING: IntakeSigner = {
     return { name: sig.printedName, signedAt: sig.signedAt, ip: sig.ip, userAgent: sig.userAgent };
   },
 };
+
+/** The firm's current firm-wide version: what a contract B signature names. */
+export async function firmWideVersion(tx: TxClient, businessId: string) {
+  return tx.firmAgreementVersion.findFirstOrThrow({
+    where: { businessId, agreement: { scope: 'ALL_INTAKES', archivedAt: null } },
+    orderBy: { version: 'desc' },
+    select: { agreementId: true, version: true, bodySha256: true },
+  });
+}
+
+/**
+ * Contract B's `signature` for a firm-wide version: every acknowledgment ticked, the typed
+ * signature `typed` (the printed name by default).
+ */
+export function signatureFor(
+  v: { agreementId: string; version: number; bodySha256: string },
+  printedName: string,
+  typed = printedName,
+) {
+  return {
+    agreements: [{ agreementId: v.agreementId, version: v.version, bodySha256: v.bodySha256 }],
+    acknowledgments: ACKS.map((a) => ({ agreementId: v.agreementId, key: a.key })),
+    signer: { printedName, method: 'TYPED' as const, typedSignature: typed },
+  };
+}

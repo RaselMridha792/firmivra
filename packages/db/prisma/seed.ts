@@ -175,8 +175,8 @@ async function seedIntakeForms(
         serviceId,
         version: 1,
         title: `${name} intake`,
-        // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in until
-        // their real forms are on main (R15), so the seeded answers below always fit their form.
+        // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
+        // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
         definition:
           kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
             ? INTAKE_FORMS.ANNUAL_TAX

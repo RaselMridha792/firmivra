@@ -31,6 +31,7 @@ import { EngagementsModule } from './engagements/engagements.controller.js';
 import { IntakesModule } from './intake/intakes.controller.js';
 import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
+import { AgreementsModule } from './agreements/agreements.controller.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
@@ -39,6 +40,7 @@ import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
 import { BeginOnlineModule } from './begin-online/begin-online.controller.js';
+import { EsignModule } from './esign/esign.module.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
@@ -93,6 +95,7 @@ export class AppModule {
         IntakesModule,
         MessagesModule,
         SettingsModule,
+        AgreementsModule,
         TeamModule,
         CalculatorsModule,
         ContentModule,
@@ -100,6 +103,7 @@ export class AppModule {
         AuditViewerModule,
         WorkspacesModule,
         DocumentsModule,
+        EsignModule,
         StripeClientModule,
         PaymentsSetupModule,
         InvoicesModule,

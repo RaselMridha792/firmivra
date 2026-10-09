@@ -6,8 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import type { TxClient } from '@firmivra/db';
-import { beginOnlineCookie, type IntakeIssue } from '@firmivra/types';
+import { databaseErrorCode, type TxClient } from '@firmivra/db';
+import { type IntakeIssue } from '@firmivra/types';
+import { beginOnlineCookie } from './wire.js';
 
 /** A new draft key: 32 random bytes, base64url (43 characters). Only its SHA-256 is stored. */
 export function newDraftToken(): { token: string; hash: string } {
@@ -92,4 +93,26 @@ export const draftErrors = {
       message: 'Check the highlighted answers',
       details: { issues },
     }),
+};
+
+/**
+ * R0's refusal of new data on a draft past its expiry (SQLSTATE 23514 from leads_draft_rules,
+ * lead_uploads_unexpired_draft or intake_submissions_unexpired_draft) as 410 DRAFT_EXPIRED, or
+ * undefined. The API checks the expiry first; this covers a draft that ran out in between.
+ */
+export function expiredDraftRefusal(error: unknown) {
+  if (databaseErrorCode(error) !== '23514') return undefined;
+  const meta = (error as { meta?: { driverAdapterError?: { cause?: unknown } } } | null)?.meta;
+  const cause = meta?.driverAdapterError?.cause as { originalMessage?: unknown } | undefined;
+  const text = [cause?.originalMessage, (error as Error | null)?.message]
+    .filter((t): t is string => typeof t === 'string')
+    .join(' ');
+  return /the draft expired|only an unexpired draft takes files/.test(text)
+    ? draftErrors.expired()
+    : undefined;
+}
+
+/** Rethrows R0's expired-draft refusal as 410 DRAFT_EXPIRED; anything else as it is. */
+export const rethrowExpired = (error: unknown): never => {
+  throw expiredDraftRefusal(error) ?? error;
 };

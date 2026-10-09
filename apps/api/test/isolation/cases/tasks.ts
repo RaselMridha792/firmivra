@@ -19,8 +19,14 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
+  'POST /api/v1/business/tasks': {
+    params: {},
+    bodyIds: { clientId: 'client', engagementId: 'engagement', assignedUserId: 'adminUser' },
+    body: { title: 'Fake task' },
+  },
   'PATCH /api/v1/business/tasks/:id': {
     params: { id: 'task' },
+    bodyIds: { assignedUserId: 'adminUser' },
     body: { title: 'Fake renamed task' },
   },
 };

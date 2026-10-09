@@ -1,316 +1,429 @@
 import {
   ApiRequestError,
-  type BeginDraft,
   BEGIN_ONLINE_ERRORS,
-  beginOnlineContact,
-  beginOnlineTaxYear,
+  BEGIN_ONLINE_FORM_ORDER,
+  BEGIN_ONLINE_LIMITS,
+  type BeginContact,
+  type BeginDraft,
   type BeginOnlineClient,
-  type BeginOnlineErrorCode,
-  type BeginOnlineService,
-  checkIntakeAnswers,
+  beginOnlinePrefill,
   ConfirmUploadRequest,
-  CreateDraftUploadRequest,
-  type DraftUpload,
-  hiddenSlotUploads,
-  intakeUploadCounts,
-  INTAKE_LIMITS,
-  intakeFields,
+  CreateIntakeUploadRequest,
+  EmailResumeLinkRequest,
+  FirmSlug,
   INTAKE_FORMS,
-  type IntakeFormDefinition,
-  type IntakeIssue,
+  type IntakeAnswers,
+  IntakeFormKey,
   IntakeKey,
-  intakeStepFields,
+  IntakeUploadId,
   maskIntakeAnswers,
   parseInput,
-  restoreMaskedNumbers,
-  ResumeDraftRequest,
-  SaveDraftStepRequest,
-  StartDraftRequest,
-  SubmitDraftRequest,
+  ResumeBeginDraftRequest,
+  SaveIntakeStepRequest,
+  StartBeginDraftRequest,
+  SubmitIntakeRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
+import {
+  answersOrFail,
+  checkFixture,
+  checkMockSignature,
+  createMockSlotUploads,
+  fileView,
+  keptFiles,
+  mockForm,
+  type MockSlotFile,
+  mockSubmitBlock,
+  slotCounts,
+  storeStep,
+} from './intake';
+import { mockBusiness } from './me';
 
 /**
- * Mock data for `api.beginOnline(slug)` (R11). Synthetic data only. The six built-in forms, one
- * draft per firm slug (the API keeps it in an HttpOnly cookie; here it lives in memory until the
- * page reloads), and the API's checks and error codes: the first step must carry the contact,
- * answers are checked with `checkIntakeAnswers`, SSNs and EINs come back as `{ last4 }`, a draft
- * runs 30 days from its last save. Nothing is built until the first call.
+ * Mock data for `api.beginOnline(slug)` (R11): Begin Online on the `lvp` portal, without an
+ * account (any other firm is 404). Synthetic data only. Same input checks, answer checks
+ * (`checkIntakeAnswers`, `restoreMaskedNumbers`) and error codes as the API; the "browser's
+ * draft" (the API's signed HttpOnly cookie) is kept in memory, so a page reload starts over. Only
+ * the forms in INTAKE_FORMS are offered (another answers 404). No form carries an agreement: the
+ * review step shows the form's block from R14's `api.publicAgreements(slug).block({ form })`
+ * (its mock's `legal` is Terms 2 and Privacy 1, so a submit sends `acceptLegal`). Nothing is
+ * built until the first call, and the fixture draft's answers are checked against its form then.
+ * To see each state on a screen:
+ *   - Resume links: open `/lvp/begin/resume#token=` + one of MOCK_RESUME_TOKENS: `saved` (a
+ *     half-filled Annual Tax for Avery Example: step 1 saved, one file), `expired` (410
+ *     DRAFT_EXPIRED; any unknown token answers the same) or `submitted` (409 DRAFT_SUBMITTED).
+ *   - "Save and Continue Later" sends nothing in mock mode and renews nothing; it always answers
+ *     `{ received: true }`, and the fourth request within a minute answers 429 RATE_LIMITED (the
+ *     API's per-IP limit; its silent per-address limit answers the same `{ received: true }`).
+ *   - Starting with an email that contains "ratelimit" answers 429 RATE_LIMITED.
+ *   - A start, a save or an upload renews the draft to 30 days, never past 90 days after the
+ *     start. An expired draft is never renewed: it loses its answers and files and only becomes
+ *     expired (410 DRAFT_EXPIRED).
+ *   - Uploads: a new file is CHECKING (scan PENDING) for 4 s, then READY (CLEAN); a name with
+ *     "virus" ends BLOCKED (INFECTED), one with "unreadable" BLOCKED (FAILED); an .xlsx or .docx
+ *     named "password" or "macro" is refused as the API would. Only CLEAN and PENDING files
+ *     answer a required slot; every file counts toward the slot's `maxFiles` and the draft's
+ *     limit, at step 1 and again at step 3 (409 TOO_MANY_FILES). The ticket URL starts with
+ *     `mock:`, so `uploadFile()` skips the PUT. A ticket belongs to the draft that asked for it:
+ *     once a start or a resume has replaced this browser's draft, it answers 410 UPLOAD_EXPIRED.
+ *   - `forms` lists the services in the page's order (BEGIN_ONLINE_FORM_ORDER); `start` fills
+ *     the form's contact fields with `beginOnlinePrefill`, as the API does.
+ *   - A save (or a submit's answers) with a new SSN or EIN ending in 0503 (MOCK_KEY_DOWN_LAST4
+ *     in ./intake) answers 503 ENCRYPTION_UNAVAILABLE and saves nothing.
+ *   - Submit needs `signature` (400 VALIDATION_FAILED without it) and checks the whole form: 400
+ *     VALIDATION_FAILED names the first problem. Then the signature is checked against the
+ *     form's block as the API does (`checkMockSignature` in ./intake): an agreement left out or
+ *     at an older version or bodySha256 409 AGREEMENT_OUTDATED; `acceptLegal` missing 400
+ *     VALIDATION_FAILED, other Terms or Privacy versions 409 TERMS_OUTDATED; a required box not
+ *     ticked 400 ACKNOWLEDGMENT_REQUIRED; a name with a no-break space 400 SIGNATURE_MISMATCH.
+ *     "noagreement" in a text answer answers 409 NO_INTAKE_AGREEMENT (the start's email fills the
+ *     form's email, so starting as `noagreement@lvp.test` works too). A submit deletes the files
+ *     whose slot is not a shown upload field, keeps only the answers of shown fields, then locks
+ *     the draft: it answers 409 DRAFT_SUBMITTED, and `start` begins a new one.
  */
+export const MOCK_RESUME_TOKENS = {
+  saved: 'mockSavedAnnualTaxDraft00000000000000000001',
+  expired: 'mockExpiredBookkeepingDraft0000000000000002',
+  submitted: 'mockSubmittedPayrollDraft000000000000000003',
+} as const;
+
 const DAY = 86_400_000;
-const today = () => new Date().toISOString().slice(0, 10);
-const fail = (status: number, code: BeginOnlineErrorCode, details?: IntakeIssue[]) => {
-  const error = new ApiRequestError(status, code, BEGIN_ONLINE_ERRORS[code]);
-  return details ? Object.assign(error, { details: { issues: details } }) : error;
+const fail = (status: number, code: string, message: string) =>
+  new ApiRequestError(status, code, message);
+const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
+const rateLimited = () => fail(429, 'RATE_LIMITED', 'Too many requests');
+const now = () => new Date().toISOString();
+const inDays = (days: number, from = Date.now()) => new Date(from + days * DAY).toISOString();
+/** The tax year the mock firm prepares: the current one, as the mockups show it. */
+const taxYear = () => new Date().getFullYear();
+let draftIds = 0;
+/** A new draft's lead id. */
+const newDraftId = () => `0199b6ab-0000-7000-8000-${String(100 + draftIds++).padStart(12, '0')}`;
+
+/** A draft as the mock stores it (the API's leads row and its answers). */
+export interface MockBeginDraft {
+  /** The lead's id: upload tickets belong to it. */
+  id: string;
+  form: IntakeFormKey;
+  contact: BeginContact;
+  answers: IntakeAnswers;
+  files: MockSlotFile[];
+  savedSteps: string[];
+  taxYear: number;
+  startedAt: string;
+  expiresAt: string;
+  updatedAt: string;
+  submitted: boolean;
+}
+
+/** The visitor's own activity renews a draft: 30 days from now, never past 90 days from start. */
+const renew = (d: MockBeginDraft) => {
+  const cap = Date.parse(d.startedAt) + BEGIN_ONLINE_LIMITS.maxDraftDays * DAY;
+  d.expiresAt = new Date(
+    Math.min(Date.now() + BEGIN_ONLINE_LIMITS.draftDays * DAY, cap),
+  ).toISOString();
+  d.updatedAt = now();
 };
 
-const SERVICES: readonly (Omit<BeginOnlineService, 'id'> & { n: number })[] = [
-  {
-    n: 1,
-    kind: 'ANNUAL_TAX',
-    name: 'Tax Preparation',
-    description: 'Individual & Business Tax Returns',
-    packages: [],
-  },
-  {
-    n: 2,
-    kind: 'BOOKKEEPING',
-    name: 'Business Bookkeeping',
-    description: 'Keep Your Business on Track',
-    packages: ['Starter', 'Growth', 'Premium'],
-  },
-  {
-    n: 3,
-    kind: 'PAYROLL',
-    name: 'Payroll Services',
-    description: 'Simple. Accurate. On Time.',
-    packages: [],
-  },
-  {
-    n: 4,
-    kind: 'BUSINESS_DEVELOPMENT',
-    name: 'Business Development',
-    description: 'Plan. Grow. Succeed.',
-    packages: [],
-  },
-  {
-    n: 5,
-    kind: 'QUARTERLY_TAX',
-    name: 'File Business Quarterly Taxes',
-    description: 'Stay Compliant. Avoid Penalties.',
-    packages: [],
-  },
-  {
-    n: 6,
-    kind: 'TAX_PLANNING',
-    name: 'Tax Planning',
-    description: 'Strategize Today for a Brighter Tomorrow',
-    packages: [],
-  },
-];
-
-/** The mock firm's Begin Online services, in its order. */
-export function beginOnlineFixtures(): BeginOnlineService[] {
-  return SERVICES.map(({ n, ...s }) => ({ id: `0199b6a3-0000-7000-8000-00000000000${n}`, ...s }));
-}
-
-interface MockDraft {
-  leadId: string;
-  service: BeginOnlineService;
-  definition: IntakeFormDefinition;
-  taxYear: number | null;
-  answers: Record<string, unknown>;
-  savedSteps: string[];
-  expiresAt: number;
-  uploads: DraftUpload[];
-}
-
-function createBeginOnlineMock(): BeginOnlineClient {
-  const services = beginOnlineFixtures();
-  let draft: MockDraft | null = null;
-
-  const serviceOf = (id: string) => {
-    const found = services.find((s) => s.id === id);
-    const definition = found && INTAKE_FORMS[found.kind];
-    if (!found || !definition) throw fail(404, 'NOT_FOUND');
-    return { service: found, definition };
+/** The drafts behind the mock's resume links. Built on first use: importing this runs nothing. */
+function resumeFixtures(): Map<string, MockBeginDraft> {
+  const avery: BeginContact = {
+    firstName: 'Avery',
+    lastName: 'Example',
+    email: 'avery.example@lvp.test',
+    phone: '+14045550147',
   };
-  const view = (d: MockDraft): BeginDraft => ({
-    leadId: d.leadId,
-    service: { id: d.service.id, kind: d.service.kind, name: d.service.name },
-    definition: d.definition,
-    taxYear: d.taxYear,
-    answers: maskIntakeAnswers(d.definition, d.answers),
-    savedSteps: [...d.savedSteps],
-    draftExpiresAt: new Date(d.expiresAt).toISOString(),
-    uploads: d.uploads.map((u) => ({ ...u })),
+  const draft = (form: IntakeFormKey, data: Partial<MockBeginDraft>): MockBeginDraft => ({
+    id: newDraftId(),
+    form,
+    contact: avery,
+    answers: { firstName: avery.firstName, lastName: avery.lastName, email: avery.email },
+    files: [],
+    savedSteps: [],
+    taxYear: taxYear(),
+    startedAt: inDays(-5),
+    expiresAt: inDays(25),
+    updatedAt: inDays(-5),
+    submitted: false,
+    ...data,
   });
-  const live = (): MockDraft => {
-    if (!draft) throw fail(404, 'DRAFT_NOT_FOUND');
-    if (draft.expiresAt <= Date.now()) throw fail(410, 'DRAFT_EXPIRED');
-    return draft;
+  const saved = draft('ANNUAL_TAX', {
+    answers: {
+      firstName: 'Avery',
+      lastName: 'Example',
+      dateOfBirth: '1988-02-14',
+      phone: '+14045550147',
+      email: 'avery.example@lvp.test',
+      ssn: { last4: '0147' },
+      street: '200 Sample Street',
+      city: 'Decatur',
+      state: 'GA',
+      zip: '30030',
+      filingStatus: 'MARRIED_FILING_JOINTLY',
+      spouseFirstName: 'Jordan',
+      spouseLastName: 'Example',
+      spouseSsn: { last4: '0148' },
+      spouseDateOfBirth: '1989-07-30',
+      claimedAsDependent: false,
+      returnTypes: ['PERSONAL'],
+      legalStatus: 'US_CITIZEN',
+      armedForces: false,
+      hasDependents: true,
+      dependents: [
+        {
+          id: 'dependent-1',
+          firstName: 'Riley',
+          lastName: 'Example',
+          dateOfBirth: '2016-05-03',
+          relationship: 'DAUGHTER',
+          ssn: { last4: '0149' },
+          livesWithYou: true,
+          childTaxCredit: true,
+        },
+      ],
+      incomeWages: true,
+    },
+    files: [
+      {
+        upload: {
+          id: '0199b6a9-0000-7000-8000-000000000051',
+          slot: 'governmentId',
+          fileName: 'Drivers_License.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 182_400,
+          uploadedAt: inDays(-5),
+        },
+        scan: 'CLEAN',
+        readyAt: 0,
+      },
+    ],
+    savedSteps: ['personal'],
+  });
+  checkFixture('resume draft "saved"', mockForm(saved.form), saved.answers, null);
+  return new Map([
+    [MOCK_RESUME_TOKENS.saved, saved],
+    // These two answer before their form is needed.
+    [MOCK_RESUME_TOKENS.expired, draft('BOOKKEEPING', { expiresAt: inDays(-1) })],
+    [MOCK_RESUME_TOKENS.submitted, draft('PAYROLL', { submitted: true })],
+  ]);
+}
+
+let mocks: Map<string, BeginOnlineClient> | undefined;
+
+/**
+ * `api.beginOnline(slug)` in mock mode: one mock per firm, so a draft (and an upload's three
+ * steps) reach the same mock however often the page calls `api.beginOnline(slug)`.
+ */
+export function beginOnlineMock(firmSlug: string): BeginOnlineClient {
+  mocks ??= new Map();
+  const slug = firmSlug.trim().toLowerCase();
+  let mock = mocks.get(slug);
+  if (!mock) {
+    mock = createBeginOnlineMock(firmSlug);
+    mocks.set(slug, mock);
+  }
+  return mock;
+}
+
+/**
+ * An in-memory `api.beginOnline(slug)`: only `lvp` (the mock firm) offers Begin Online. `drafts`
+ * holds this browser's draft per service (the API's draft cookie); a test passes its own map to
+ * read what a submit stored, which no route shows once the draft is submitted.
+ */
+export function createBeginOnlineMock(
+  firmSlug: string,
+  drafts = new Map<IntakeFormKey, MockBeginDraft>(),
+): BeginOnlineClient {
+  const current = drafts;
+  let tokens: Map<string, MockBeginDraft> | undefined;
+  const byToken = () => (tokens ??= resumeFixtures());
+  const uploads = createMockSlotUploads();
+  let linkRequests: number[] = [];
+
+  /** The firm, checked first like the API's route: a bad slug is 400, another firm 404. */
+  const firm = () => {
+    if (parseInput(FirmSlug, firmSlug) !== mockBusiness.slug) throw notFound();
   };
-  /** One step's answers, checked and with `{ last4 }` matched to the stored numbers. */
-  const checked = (d: IntakeFormDefinition, step: string, answers: object, stored: object) => {
-    const result = checkIntakeAnswers(d, answers as Record<string, unknown>, {
-      mode: 'save',
-      step,
-      today: today(),
-    });
-    if (result.issues.length) throw fail(400, 'VALIDATION_FAILED', result.issues);
-    const masked = maskIntakeAnswers(d, stored as Record<string, unknown>);
-    const restored = restoreMaskedNumbers(d, result.answers, masked);
-    if (restored.issues.length) throw fail(400, 'VALIDATION_FAILED', restored.issues);
-    if (d.steps[0]?.key === step) {
-      const { issues } = beginOnlineContact(d, restored.answers);
-      if (issues.length) throw fail(400, 'VALIDATION_FAILED', issues);
+  const usable = (d: MockBeginDraft) => {
+    if (d.submitted) throw fail(409, 'DRAFT_SUBMITTED', BEGIN_ONLINE_ERRORS.DRAFT_SUBMITTED);
+    if (Date.parse(d.expiresAt) <= Date.now()) {
+      // As the API: the answers and files go, and the lead only becomes EXPIRED.
+      d.answers = {};
+      d.files = [];
+      throw fail(410, 'DRAFT_EXPIRED', BEGIN_ONLINE_ERRORS.DRAFT_EXPIRED);
     }
-    // The mock keeps numbers as `{ last4 }`, as a screen would see them.
-    return maskIntakeAnswers(d, restored.answers);
+    return d;
+  };
+  /** This browser's draft for the service: 404 when there is none. */
+  const mine = (form: IntakeFormKey) => {
+    const d = current.get(form);
+    if (!d) throw notFound();
+    return usable(d);
+  };
+  const view = (d: MockBeginDraft): BeginDraft => {
+    const definition = mockForm(d.form);
+    return structuredClone({
+      form: d.form,
+      version: definition.version,
+      title: definition.title,
+      definition,
+      taxYear: d.taxYear,
+      contact: d.contact,
+      answers: maskIntakeAnswers(definition, d.answers),
+      uploads: d.files.map(fileView),
+      savedSteps: definition.steps.map((s) => s.key).filter((k) => d.savedSteps.includes(k)),
+      expiresAt: d.expiresAt,
+      updatedAt: d.updatedAt,
+    });
+  };
+  const saveStep = (d: MockBeginDraft, step: string, answers: Record<string, unknown>) => {
+    const definition = mockForm(d.form);
+    const clean = answersOrFail(definition, answers, { mode: 'save', step });
+    d.answers = storeStep(definition, step, clean, d.answers);
+    if (!d.savedSteps.includes(step)) d.savedSteps.push(step);
+    renew(d);
   };
 
   return {
-    services: async () => {
+    forms: async () => {
       await mockDelay();
-      return services.map((s) => ({ ...s, packages: [...s.packages] }));
+      firm();
+      return BEGIN_ONLINE_FORM_ORDER.flatMap((form) => {
+        const definition = INTAKE_FORMS[form];
+        return definition ? [{ form, title: definition.title, version: definition.version }] : [];
+      });
     },
-    form: async (serviceId) => {
+    form: async (form) => {
       await mockDelay();
-      const { definition } = serviceOf(serviceId);
-      return { formId: null, version: definition.version, definition };
-    },
-    startDraft: async (body) => {
-      const input = parseInput(StartDraftRequest, body);
-      await mockDelay();
-      const { service, definition } = serviceOf(input.serviceId);
-      if (input.step !== definition.steps[0]?.key) {
-        const issue = {
-          step: input.step,
-          path: [],
-          label: '',
-          message: 'Start with the first step',
-        };
-        throw fail(400, 'VALIDATION_FAILED', [issue]);
-      }
-      draft = {
-        leadId: crypto.randomUUID(),
-        service,
+      const key = parseInput(IntakeFormKey, form);
+      firm();
+      const definition = mockForm(key);
+      return structuredClone({
+        form: key,
+        version: definition.version,
+        title: definition.title,
         definition,
-        taxYear: beginOnlineTaxYear(definition, today()),
-        answers: checked(definition, input.step, input.answers, {}),
-        savedSteps: [input.step],
-        expiresAt: Date.now() + 30 * DAY,
-        uploads: [],
-      };
-      return view(draft);
+        taxYear: taxYear(),
+      });
     },
-    current: async () => {
+    start: async (form, body) => {
       await mockDelay();
-      return view(live());
-    },
-    saveStep: async (stepKey, body) => {
-      const step = parseInput(IntakeKey, stepKey);
-      const input = parseInput(SaveDraftStepRequest, body);
-      await mockDelay();
-      const d = live();
-      const answers = checked(d.definition, step, input.answers, d.answers);
-      const own = d.definition.steps.find((s) => s.key === step);
-      const keys = new Set(own ? intakeStepFields(own).map((f) => f.key) : []);
-      d.answers = {
-        ...Object.fromEntries(Object.entries(d.answers).filter(([k]) => !keys.has(k))),
-        ...answers,
+      const key = parseInput(IntakeFormKey, form);
+      const contact = parseInput(StartBeginDraftRequest, body);
+      firm();
+      const definition = mockForm(key);
+      if (contact.email.includes('ratelimit')) throw rateLimited();
+      const d: MockBeginDraft = {
+        id: newDraftId(),
+        form: key,
+        contact: { ...contact, phone: contact.phone ?? null },
+        // The form's own contact fields start filled in, as the API does.
+        answers: beginOnlinePrefill(definition, contact),
+        files: [],
+        savedSteps: [],
+        taxYear: taxYear(),
+        startedAt: now(),
+        expiresAt: now(),
+        updatedAt: now(),
+        submitted: false,
       };
-      if (!d.savedSteps.includes(step)) d.savedSteps.push(step);
-      d.expiresAt = Date.now() + 30 * DAY;
+      renew(d);
+      current.set(key, d);
       return view(d);
     },
-    // As the API: the whole form, files of hidden slots out; then the draft is gone (no email).
-    submit: async (body) => {
-      parseInput(SubmitDraftRequest, body);
+    get: async (form) => {
       await mockDelay();
-      const d = live();
-      const hidden = hiddenSlotUploads(d.definition, d.answers, d.uploads);
-      const kept = d.uploads.filter((u) => !hidden.includes(u));
-      const result = checkIntakeAnswers(d.definition, d.answers, {
-        mode: 'submit',
-        uploads: intakeUploadCounts(kept.map((u) => ({ slot: u.slot, status: u.scanStatus }))),
-        today: today(),
-      });
-      if (result.issues.length) throw fail(400, 'VALIDATION_FAILED', result.issues);
-      draft = null;
-      const { id, kind, name } = d.service;
-      return {
-        leadId: d.leadId,
-        service: { id, kind, name },
-        submittedAt: new Date().toISOString(),
-      };
+      const key = parseInput(IntakeFormKey, form);
+      firm();
+      return view(mine(key));
     },
-    // The mock sends no email: the link is "sent" and the draft renewed.
-    sendResumeLink: async () => {
+    saveStep: async (form, step, body) => {
       await mockDelay();
-      const d = live();
-      d.expiresAt = Date.now() + 30 * DAY;
-      return { draftExpiresAt: new Date(d.expiresAt).toISOString() };
+      const key = parseInput(IntakeFormKey, form);
+      const stepKey = parseInput(IntakeKey, step);
+      const { answers } = parseInput(SaveIntakeStepRequest, body);
+      firm();
+      const d = mine(key);
+      saveStep(d, stepKey, answers);
+      return { step: stepKey, savedAt: d.updatedAt };
     },
-    // Any well-formed token reopens this firm's draft (the API checks the token's hash).
+    emailResumeLink: async (body) => {
+      await mockDelay();
+      parseInput(EmailResumeLinkRequest, body);
+      firm();
+      // Per IP address (this browser): the fourth within a minute is 429. Nothing is renewed.
+      const minuteAgo = Date.now() - 60_000;
+      linkRequests = linkRequests.filter((t) => t > minuteAgo);
+      if (linkRequests.length >= 3) throw rateLimited();
+      linkRequests.push(Date.now());
+      return { received: true };
+    },
     resume: async (body) => {
-      parseInput(ResumeDraftRequest, body);
       await mockDelay();
-      if (!draft || draft.expiresAt <= Date.now()) throw fail(410, 'RESUME_LINK_EXPIRED');
-      return view(draft);
+      const { token } = parseInput(ResumeBeginDraftRequest, body);
+      firm();
+      const d = byToken().get(token);
+      if (!d) throw fail(410, 'DRAFT_EXPIRED', BEGIN_ONLINE_ERRORS.DRAFT_EXPIRED);
+      usable(d);
+      current.set(d.form, d);
+      return view(d);
     },
-    // A mock ticket URL starts with `mock:`, so `uploadFile()` skips the PUT.
-    createUpload: async (body) => {
-      const input = parseInput(CreateDraftUploadRequest, body);
+    uploads: async (form) => {
       await mockDelay();
-      const d = live();
-      const field = intakeFields(d.definition).find((f) => f.key === input.slot);
-      if (field?.type !== 'upload') {
-        const issue = {
-          step: '',
-          path: ['slot'],
-          label: 'slot',
-          message: 'Not an upload of this form',
-        };
-        throw fail(400, 'VALIDATION_FAILED', [issue]);
-      }
-      const inSlot = d.uploads.filter((u) => u.slot === input.slot).length;
-      if (inSlot >= field.maxFiles || d.uploads.length >= INTAKE_LIMITS.maxFiles) {
-        throw fail(409, 'TOO_MANY_FILES');
-      }
-      const uploadToken = JSON.stringify(input);
-      const expiresAt = new Date(Date.now() + 4 * 60_000).toISOString();
-      return {
-        uploadToken,
-        url: `mock:${crypto.randomUUID()}`,
-        method: 'PUT',
-        headers: {},
-        expiresAt,
-      };
+      const key = parseInput(IntakeFormKey, form);
+      firm();
+      return mine(key).files.map(fileView);
     },
-    confirmUpload: async (body) => {
+    createUpload: async (form, body) => {
+      await mockDelay();
+      const key = parseInput(IntakeFormKey, form);
+      const b = parseInput(CreateIntakeUploadRequest, body);
+      firm();
+      const d = mine(key);
+      return uploads.ticket(d.id, mockForm(key), d.files, b);
+    },
+    confirmUpload: async (form, body) => {
+      await mockDelay();
+      const key = parseInput(IntakeFormKey, form);
       const { uploadToken } = parseInput(ConfirmUploadRequest, body);
-      await mockDelay();
-      const d = live();
-      let claim: unknown = null;
-      try {
-        claim = JSON.parse(uploadToken);
-      } catch {
-        // not a mock ticket
-      }
-      const parsed = CreateDraftUploadRequest.safeParse(claim);
-      if (!parsed.success) throw fail(410, 'UPLOAD_EXPIRED');
-      const { slot, fileName, contentType, sizeBytes } = parsed.data;
-      const upload: DraftUpload = {
-        id: crypto.randomUUID(),
-        slot,
-        fileName,
-        contentType,
-        sizeBytes,
-        scanStatus: 'CLEAN',
-        createdAt: new Date().toISOString(),
-      };
-      d.uploads.push(upload);
-      return { ...upload };
+      firm();
+      const d = mine(key);
+      const file = uploads.confirm(d.id, uploadToken, mockForm(key), d);
+      renew(d);
+      return fileView(file);
     },
-    deleteUpload: async (id) => {
+    removeUpload: async (form, id) => {
       await mockDelay();
-      const d = live();
-      const before = d.uploads.length;
-      d.uploads = d.uploads.filter((u) => u.id !== id);
-      if (d.uploads.length === before) throw fail(404, 'NOT_FOUND');
-      return { ok: true as const };
+      const key = parseInput(IntakeFormKey, form);
+      const fileId = parseInput(IntakeUploadId, id);
+      firm();
+      const d = mine(key);
+      if (!d.files.some((f) => f.upload.id === fileId)) throw notFound();
+      d.files = d.files.filter((f) => f.upload.id !== fileId);
+      renew(d);
+      return { ok: true };
+    },
+    submit: async (form, body) => {
+      await mockDelay();
+      const key = parseInput(IntakeFormKey, form);
+      const { answers, signature } = parseInput(SubmitIntakeRequest, body);
+      firm();
+      const d = mine(key);
+      const definition = mockForm(key);
+      if (answers) saveStep(d, definition.steps.at(-1)!.key, answers);
+      const kept = keptFiles(definition, d.answers, d.files);
+      const clean = answersOrFail(definition, d.answers, {
+        mode: 'submit',
+        uploads: slotCounts(kept),
+      });
+      checkMockSignature(mockSubmitBlock(firmSlug, key, 'begin', clean), signature, 'begin');
+      // As the API, in one transaction: the files of hidden slots are deleted and the answers of
+      // hidden fields dropped, then the lead leaves DRAFT.
+      d.files = kept;
+      d.answers = clean;
+      d.submitted = true;
+      d.updatedAt = now();
+      return { received: true, form: key, submittedAt: d.updatedAt };
     },
   };
-}
-
-let byFirm: Map<string, BeginOnlineClient> | undefined;
-
-/** One mock per firm slug, kept while the page lives (like the draft cookie per firm). */
-export function beginOnlineMock(firmSlug: string): BeginOnlineClient {
-  byFirm ??= new Map();
-  const key = firmSlug.toLowerCase();
-  const found = byFirm.get(key) ?? createBeginOnlineMock();
-  byFirm.set(key, found);
-  return found;
 }

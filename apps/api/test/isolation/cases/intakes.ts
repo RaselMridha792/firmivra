@@ -78,9 +78,17 @@ export const records: CaseModule['records'] = {
       });
       // Submitting needs client X's signature of the firm-wide agreement in this transaction,
       // made as client X's login (the database checks the actor), as R14's sign() will.
-      const version = await tx.firmAgreementVersion.findUniqueOrThrow({
-        where: { id: await get('firmWideAgreement') },
+      // Every current agreement of the intake: the firm-wide one and any of its service.
+      await get('firmWideAgreement');
+      const current = await tx.firmAgreement.findMany({
+        where: {
+          businessId,
+          archivedAt: null,
+          OR: [{ scope: 'ALL_INTAKES' }, { serviceId: own.service }],
+        },
+        select: { versions: { orderBy: { version: 'desc' }, take: 1 } },
       });
+      const versions = current.flatMap((a) => a.versions);
       const account = await tx.clientAccount.findFirstOrThrow({
         where: { businessId, userId: await get('clientUser') },
       });
@@ -93,19 +101,21 @@ export const records: CaseModule['records'] = {
           clientAccountId: account.id,
           printedName: 'Fake Client X',
           signatureText: 'Fake Client X',
-          acknowledgments: ACKS.map((a) => ({
-            agreementVersionId: version.id,
-            ...a,
-            checked: true,
-          })),
+          acknowledgments: versions.flatMap((v) =>
+            (v.acknowledgments as typeof ACKS).map((a) => ({
+              agreementVersionId: v.id,
+              ...a,
+              checked: true,
+            })),
+          ),
           answersSha256: '0'.repeat(64),
           evidenceSha256: createHash('sha256').update(randomUUID()).digest('hex'),
           agreements: {
-            create: {
-              agreementVersionId: version.id,
-              bodySha256: version.bodySha256,
-              pdfSha256: version.pdfSha256,
-            },
+            create: versions.map((v) => ({
+              agreementVersionId: v.id,
+              bodySha256: v.bodySha256,
+              pdfSha256: v.pdfSha256,
+            })),
           },
         },
       });
@@ -145,6 +155,22 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
+  'POST /api/v1/portal/:firmSlug/me/intakes': {
+    params: {},
+    bodyIds: { engagementId: 'engagement' },
+  },
+  // Found, then already sent: 409 INTAKE_LOCKED (the signature's agreement ids are NOT_RECORDS).
+  'POST /api/v1/portal/:firmSlug/me/intakes/:id/submit': {
+    params: { id: 'submittedIntake' },
+    body: {
+      signature: {
+        agreements: [{ agreementId: randomUUID(), version: 1, bodySha256: 'a'.repeat(64) }],
+        acknowledgments: [],
+        signer: { printedName: 'Fake Client X', method: 'TYPED', typedSignature: 'Fake Client X' },
+      },
+    },
+    expect: 409,
+  },
   'GET /api/v1/portal/:firmSlug/me/intakes/:id': { params: { id: 'intake' } },
   'PUT /api/v1/portal/:firmSlug/me/intakes/:id/steps/:stepKey': {
     params: { id: 'intake' },

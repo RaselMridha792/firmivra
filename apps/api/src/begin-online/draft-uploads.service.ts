@@ -10,14 +10,8 @@ import {
 import type { Request } from 'express';
 import { z } from 'zod';
 import type { Database, TxClient } from '@firmivra/db';
-import {
-  type CreateDraftUploadRequest,
-  type DraftUpload,
-  INTAKE_LIMITS,
-  intakeFields,
-  type UploadTicket,
-  UploadContentType,
-} from '@firmivra/types';
+import { INTAKE_LIMITS, intakeFields, type UploadTicket, UploadContentType } from '@firmivra/types';
+import { type CreateDraftUploadRequest, type DraftUpload } from './wire.js';
 import { AuditService } from '../audit/audit.service.js';
 import { type PoolSecrets, poolSecrets, Sealer } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
@@ -36,7 +30,7 @@ import { checkFile, type FileRefusal } from '../storage/file-checks.js';
 import { UPLOAD_TOKEN_SECONDS } from '../storage/upload-token.js';
 import { CHECKS_AT_ONCE } from '../storage/uploads.service.js';
 import { BeginOnlineService, type Draft, draftUpload } from './begin-online.service.js';
-import { draftErrors } from './drafts.js';
+import { draftErrors, expiredDraftRefusal } from './drafts.js';
 
 /** What `createUpload` decided, sealed into the ticket: confirm takes everything from here. */
 const LeadUploadClaim = z.object({
@@ -191,6 +185,8 @@ export class DraftUploadsService {
       );
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') throw refusal('UPLOAD_EXPIRED');
+      const expired = expiredDraftRefusal(error);
+      if (expired) throw expired;
       const code = codeOf(error);
       if (code === 'TOO_MANY_FILES') return this.refuse(claim, tooMany());
       throw error;

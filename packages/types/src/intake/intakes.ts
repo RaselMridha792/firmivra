@@ -2,17 +2,11 @@ import { z } from 'zod';
 import { IntakeStatus, ScanStatus } from '../db-enums.js';
 import { type ApiRequest, parseInput } from '../client.js';
 import { CalendarDate } from '../clients/schemas.js';
-import {
-  ConfirmUploadRequest,
-  CreateMyUploadRequest,
-  fileNameFitsType,
-  UPLOAD_LIMITS,
-  UploadTicket,
-} from '../documents/index.js';
 import { text } from '../clients/text.js';
 import { ServiceRef } from '../engagements/schemas.js';
-import { IntakeAnswers, IntakeAnswersInput } from './answers.js';
-import { IntakeFormDefinition, IntakeKey } from './definition.js';
+import { IntakeAnswers } from './answers.js';
+import { IntakeFormDefinition } from './definition.js';
+import { IntakeId } from './schemas.js';
 
 // Portal intake forms (R11 step 5) and the firm's side of them. An intake is one form, for one of
 // the client's engagements; its answers are versioned. The client fills the current version
@@ -25,10 +19,11 @@ import { IntakeFormDefinition, IntakeKey } from './definition.js';
 
 const DateTime = z.iso.datetime({ offset: true });
 
-export const IntakeId = z.uuid();
-
-/** A file the client uploaded into one of the form's upload slots. */
-export const IntakeUpload = z.object({
+/**
+ * A file the client uploaded into one of the form's upload slots, as the API's IntakeView carries
+ * it (contract B's portal shape is IntakeUpload in schemas.ts).
+ */
+export const IntakeFile = z.object({
   documentId: z.uuid(),
   slot: z.string(),
   fileName: z.string(),
@@ -37,7 +32,7 @@ export const IntakeUpload = z.object({
   scanStatus: ScanStatus,
   createdAt: DateTime,
 });
-export type IntakeUpload = z.infer<typeof IntakeUpload>;
+export type IntakeFile = z.infer<typeof IntakeFile>;
 
 /** One intake in a list. */
 export const IntakeSummary = z.object({
@@ -67,7 +62,7 @@ export const IntakeView = IntakeSummary.extend({
   savedSteps: z.array(z.string()),
   /** False while the client can change the answers (SENT, IN_PROGRESS, NEEDS_CORRECTION). */
   locked: z.boolean(),
-  uploads: z.array(IntakeUpload),
+  uploads: z.array(IntakeFile),
 });
 export type IntakeView = z.infer<typeof IntakeView>;
 
@@ -89,10 +84,6 @@ export type IntakeChoiceList = z.infer<typeof IntakeChoiceList>;
 export const StartIntakeRequest = z.strictObject({ engagementId: z.uuid() });
 export type StartIntakeRequest = z.input<typeof StartIntakeRequest>;
 
-/** PUT .../intakes/{id}/steps/{stepKey}: that step's answers (autosave). */
-export const SaveIntakeStepRequest = z.strictObject({ answers: IntakeAnswersInput });
-export type SaveIntakeStepRequest = z.input<typeof SaveIntakeStepRequest>;
-
 /** POST /business/engagements/{id}/intakes: send the client the service's intake form. */
 export const SendIntakeRequest = z.strictObject({ dueOn: CalendarDate.optional() });
 export type SendIntakeRequest = z.input<typeof SendIntakeRequest>;
@@ -100,94 +91,6 @@ export type SendIntakeRequest = z.input<typeof SendIntakeRequest>;
 /** POST /business/intakes/{id}/request-correction (Owner and Admin): what to change. */
 export const RequestIntakeCorrectionRequest = z.strictObject({ note: text(2000, 'many') });
 export type RequestIntakeCorrectionRequest = z.input<typeof RequestIntakeCorrectionRequest>;
-
-const { fileName, contentType, sizeBytes, sha256 } = CreateMyUploadRequest.shape;
-
-/**
- * POST .../intakes/{id}/uploads: a file for one of the form's upload slots, while the intake is
- * open (PDF, JPG, PNG, .xlsx or .docx, at most 10 MB). PUT it to the ticket's URL, then
- * `confirmUpload`. The file becomes one of the client's documents of that service.
- */
-export const CreateIntakeUploadRequest = z
-  .strictObject({ slot: IntakeKey, fileName, contentType, sizeBytes, sha256 })
-  .superRefine((body, ctx) => {
-    if (!fileNameFitsType(body.fileName, body.contentType)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['fileName'],
-        message: `The file name must end in ${UPLOAD_LIMITS.types[body.contentType].join(' or ')}`,
-      });
-    }
-  });
-export type CreateIntakeUploadRequest = z.input<typeof CreateIntakeUploadRequest>;
-
-export const IntakeErrorCode = z.enum([
-  'NOT_FOUND',
-  'VALIDATION_FAILED',
-  /** The intake is not open for changes (submitted, under review, completed). */
-  'INTAKE_LOCKED',
-  /** The action needs another status (e.g. a correction of an intake that was never submitted). */
-  'INVALID_STATUS',
-  /** The engagement is not ACTIVE. */
-  'ENGAGEMENT_NOT_ACTIVE',
-  /** The engagement's service has no intake form (e.g. OTHER). */
-  'NO_INTAKE_FORM',
-  /** An intake of this engagement is still open: finish or correct that one. */
-  'INTAKE_OPEN',
-  'ENCRYPTION_UNAVAILABLE',
-  /** A save or an upload landed while the form was being sent: review it and send again. */
-  'INTAKE_CHANGED',
-  /** The slot (or the form) already has its most files: remove one first. */
-  'TOO_MANY_FILES',
-  /** Upload refusals as for documents: UPLOAD_EXPIRED, UPLOAD_MISMATCH, FILE_* ... */
-]);
-export type IntakeErrorCode = z.infer<typeof IntakeErrorCode>;
-
-const step = (key: string) => parseInput(IntakeKey, key);
-
-/**
- * `api.myIntakes(slug)` (apps/web/src/lib/api.ts): the signed-in client's intake forms at this
- * firm. Another client's or another firm's intake is 404. A save checks the answers like
- * `checkIntakeAnswers(definition, answers, { mode: 'save', step })` and answers 400
- * VALIDATION_FAILED with `details.issues`.
- */
-export function createMyIntakesClient(request: ApiRequest, firmSlug: string) {
-  const base = `/portal/${encodeURIComponent(firmSlug)}/me/intakes`;
-  const one = (id: string) => `${base}/${parseInput(IntakeId, id)}`;
-  return {
-    list: async (): Promise<IntakeSummary[]> => (await request(IntakeList, base)).items,
-    /** The cards of the intake tab: each ACTIVE engagement with a form, and its intake. */
-    choices: async (): Promise<IntakeChoice[]> =>
-      (await request(IntakeChoiceList, `${base}/choices`)).items,
-    /** 409 ENGAGEMENT_NOT_ACTIVE, NO_INTAKE_FORM; an open intake comes back as it is. */
-    start: async (body: StartIntakeRequest): Promise<IntakeView> =>
-      request(IntakeView, base, { method: 'POST', body: parseInput(StartIntakeRequest, body) }),
-    get: async (id: string): Promise<IntakeView> => request(IntakeView, one(id)),
-    /** 409 INTAKE_LOCKED once submitted; 400 for a step key not in the form. */
-    saveStep: async (id: string, stepKey: string, body: SaveIntakeStepRequest) =>
-      request(IntakeView, `${one(id)}/steps/${step(stepKey)}`, {
-        method: 'PUT',
-        body: parseInput(SaveIntakeStepRequest, body),
-      }),
-    /** 409 INTAKE_LOCKED, TOO_MANY_FILES; 400 for a slot that is not an upload field. */
-    createUpload: async (id: string, body: CreateIntakeUploadRequest): Promise<UploadTicket> =>
-      request(UploadTicket, `${one(id)}/uploads`, {
-        method: 'POST',
-        body: parseInput(CreateIntakeUploadRequest, body),
-      }),
-    /** The intake with the new file in its slot. */
-    confirmUpload: async (id: string, body: ConfirmUploadRequest): Promise<IntakeView> =>
-      request(IntakeView, `${one(id)}/uploads/confirm`, {
-        method: 'POST',
-        body: parseInput(ConfirmUploadRequest, body),
-      }),
-    /** Takes the file out of its slot (it stays one of the client's documents). */
-    removeUpload: async (id: string, documentId: string): Promise<IntakeView> =>
-      request(IntakeView, `${one(id)}/uploads/${parseInput(IntakeId, documentId)}`, {
-        method: 'DELETE',
-      }),
-  };
-}
 
 /**
  * `api.intakes` (apps/web/src/lib/api.ts): the firm's side. Owner, Admin and Staff (Staff: their
@@ -224,5 +127,4 @@ export function createIntakesClient(request: ApiRequest) {
   };
 }
 
-export type MyIntakesClient = ReturnType<typeof createMyIntakesClient>;
 export type IntakesClient = ReturnType<typeof createIntakesClient>;

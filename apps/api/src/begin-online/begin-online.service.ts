@@ -3,21 +3,23 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type { Database, Prisma, ScopedClient } from '@firmivra/db';
 import {
-  BeginDraft,
-  DraftUpload,
   type ScanStatus,
-  beginOnlineContact,
-  type BeginOnlineForm,
-  type BeginOnlineService as ServiceCard,
-  beginOnlineTaxYear,
   checkIntakeAnswers,
   INTAKE_FORMS,
   IntakeFormDefinition,
   type IntakeFormKey,
   intakeStepFields,
   restoreMaskedNumbers,
-  type StartDraftRequest,
 } from '@firmivra/types';
+import {
+  type BeginOnlineService as ServiceCard,
+  BeginDraft,
+  DraftUpload,
+  beginOnlineContact,
+  type BeginOnlineForm,
+  beginOnlineTaxYear,
+  type StartDraftRequest,
+} from './wire.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PortalInfoService } from '../client-auth/portal-info.controller.js';
 import { ENV } from '../config/config.module.js';
@@ -32,6 +34,7 @@ import {
   newDraftToken,
   renewDraft,
   writeDraftCookie,
+  rethrowExpired,
 } from './drafts.js';
 
 type Firm = { id: string; slug: string; name: string };
@@ -251,9 +254,8 @@ export class BeginOnlineService {
 
     const step = definition.steps.find((s) => s.key === stepKey)!;
     const stepKeys = new Set(intakeStepFields(step).map((f) => f.key));
-    const saved = await this.database.withScope(
-      { kind: 'business', businessId: firm.id },
-      async (tx) => {
+    const saved = await this.database
+      .withScope({ kind: 'business', businessId: firm.id }, async (tx) => {
         const expiresAt = await renewDraft(tx, draft.leadId, draft.hash);
         if (!expiresAt) throw draftErrors.noDraft();
         if (first) {
@@ -284,8 +286,8 @@ export class BeginOnlineService {
           { businessId: firm.id },
         );
         return { expiresAt, merged, savedSteps };
-      },
-    );
+      })
+      .catch(rethrowExpired);
     return this.view({
       ...draft,
       draftExpiresAt: saved.expiresAt,
