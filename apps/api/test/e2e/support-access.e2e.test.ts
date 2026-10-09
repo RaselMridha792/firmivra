@@ -279,6 +279,21 @@ describe('a Super Admin asks', () => {
     asked.super2A = await ask('a', people.super2);
   });
 
+  it('a firm that is not active is never asked: 409 FIRM_NOT_ACTIVE', async () => {
+    const db = owner();
+    const suspended = await runInScope(db, { kind: 'platform' }, (tx) =>
+      tx.business.create({
+        data: { slug: `r8sa-s-${run}`, name: `Fake Firm S ${run}`, status: 'SUSPENDED' },
+        select: { id: true },
+      }),
+    );
+    await db.$disconnect();
+    const res = await adminCall('post', `/firms/${suspended.id}/support-access`, people.super1, {
+      reason: 'Fake reason',
+    });
+    expect([res.status, codeOf(res)]).toEqual([409, 'FIRM_NOT_ACTIVE']);
+  });
+
   it("refuses bad input (400), an unknown firm (404) and a firm's session (401)", async () => {
     const path = `/firms/${firms.b.id}/support-access`;
     for (const body of [
@@ -310,6 +325,35 @@ describe('a Super Admin asks', () => {
 });
 
 describe("the firm's side", () => {
+  it('a Super Admin session is refused on the firm side (AUTH-DESIGN: pool must match)', async () => {
+    for (const path of ['', `/${asked.super1A.id}/approve`]) {
+      const res = await firmCall(
+        path ? 'post' : 'get',
+        path,
+        people.super1,
+        'a',
+        path ? {} : undefined,
+      );
+      expect(res.status, path).toBe(401);
+    }
+  });
+
+  it("the firm's log shows the ask as Firmivra Support, with no IP or user agent", async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/business/audit-log?action=support.requested')
+      .set('x-business-id', firms.a.id)
+      .set('authorization', `Bearer ${await tokenFor(people.ownerA.email)}`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const items = (res.body as { items: { entity: { id: string }; actor: unknown; ip: unknown }[] })
+      .items;
+    const row = items.find((i) => i.entity.id === asked.super1A.id);
+    expect(row).toMatchObject({
+      actor: { kind: 'PLATFORM', userId: null, name: 'Firmivra Support' },
+      ip: null,
+    });
+    expect(JSON.stringify(row)).not.toContain(people.super1.id);
+  });
+
   it('Owner and Admin see the requests without the person; Staff 403; firm B only its own', async () => {
     for (const who of [people.ownerA, people.adminA]) {
       const { items } = await firmList('', who);
@@ -335,8 +379,10 @@ describe("the firm's side", () => {
         expect([res.status, codeOf(res)], action).toEqual([403, 'FORBIDDEN']);
       }
     }
-    const other = await firmCall('post', `/${id}/approve`, people.ownerB, 'b', {});
-    expect([other.status, codeOf(other)]).toEqual([404, 'NOT_FOUND']);
+    for (const action of ['approve', 'decline', 'revoke']) {
+      const other = await firmCall('post', `/${id}/${action}`, people.ownerB, 'b', {});
+      expect([other.status, codeOf(other)], action).toEqual([404, 'NOT_FOUND']);
+    }
     const unknown = await firmCall('post', `/${randomUUID()}/approve`, people.ownerA, 'a', {});
     expect([unknown.status, codeOf(unknown)]).toEqual([404, 'NOT_FOUND']);
     const bad = await firmCall('post', '/nope/approve', people.ownerA, 'a', {});
