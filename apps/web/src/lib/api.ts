@@ -6,6 +6,7 @@ import {
   createAuditLogClient,
   createAvailabilityClient,
   createCalculatorsClient,
+  createClientNotesClient,
   createClientsClient,
   createClientSignUpsClient,
   createContentClient,
@@ -14,11 +15,15 @@ import {
   createEsignClient,
   createFirmApplicationsClient,
   createInvoicesClient,
+  createLeadsClient,
+  createMessagesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
   createMyInvoicesClient,
+  createMyMessagesClient,
+  createMyNotesClient,
   createMyNotificationsClient,
   createMyProfileClient,
   createMyReportsClient,
@@ -51,10 +56,17 @@ import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createEsignMock, mySignaturesMock } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
+import { createLeadsMock } from '../mocks/leads';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
+import {
+  createClientNotesMock,
+  createMessagesMock,
+  myMessagesMock,
+  myNotesMock,
+} from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
-import { createPaymentsSetupMock } from '../mocks/payments-setup';
+import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -107,6 +119,8 @@ export const api = {
       ? createEngagementsMock({ role: MOCK_ROLE })
       : createEngagementsClient(request),
   taxReturns: createTaxReturnsClient(request),
+  /** Begin Online leads (R11): the firm's inbox, convert and decline. */
+  leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
   myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
   myServices: (firmSlug: string) =>
@@ -209,7 +223,7 @@ export const api = {
   /** Payments (R7): Settings > Payments, the firm's Stripe Connect onboarding (docs/api/invoices.yaml). */
   paymentsSetup:
     dev && mocked('paymentsSetup')
-      ? createPaymentsSetupMock({ role: MOCK_ROLE })
+      ? createPaymentsSetupMock({ role: MOCK_ROLE, stage: MOCK_PAYMENTS_STAGE })
       : createPaymentsSetupClient(request),
   /** Firm Sign (R13): signature requests for the firm; `status()` for the menu (docs/api/esign.yaml). */
   esign:
@@ -221,4 +235,22 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** Messages (R20): the firm's threads with its clients; read state and unread counts (docs/api/messages.yaml). */
+  messages:
+    dev && mocked('messages')
+      ? createMessagesMock({ role: MOCK_ROLE })
+      : createMessagesClient(request),
+  /** Messages (R20): the firm's internal notes on a client. Never shown in the portal. */
+  clientNotes:
+    dev && mocked('clientNotes')
+      ? createClientNotesMock({ role: MOCK_ROLE })
+      : createClientNotesClient(request),
+  /** Messages (R20): the signed-in client's messages with the firm, per firm (portal). */
+  myMessages: (firmSlug: string) =>
+    dev && mocked('myMessages')
+      ? myMessagesMock(firmSlug)
+      : createMyMessagesClient(request, firmSlug),
+  /** Messages (R20): the signed-in login's private note and its reminder, per firm (portal). */
+  myNotes: (firmSlug: string) =>
+    dev && mocked('myNotes') ? myNotesMock(firmSlug) : createMyNotesClient(request, firmSlug),
 };
