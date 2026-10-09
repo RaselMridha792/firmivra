@@ -20,8 +20,8 @@ info:
       their assigned clients'. Anything else, and anything of another firm, is `404 NOT_FOUND`,
       by thread id, note id and client id alike. Portal routes answer only the signed-in client's
       threads: the client and the login come from the session, never from the path or the body.
-      Another client's thread, also at the same firm, is `404`; at another firm the client is
-      signed out (`401`).
+      Another client's thread, also at the same firm, is `404`. At another firm's portal the
+      browser has no session for that firm (`401`); a session with no place there is `404`.
     - **Every login of the client** (primary, spouse, authorized) reads and writes the same
       threads, as the database allows.
     - **Messages never change.** No edit and no delete. The firm may close the client's replies
@@ -307,7 +307,8 @@ paths:
       description: |
         `remindAt`: a future time sets or moves the reminder, `null` removes it, and leaving it
         out carries the current reminder to the new version only while it is unsent and still in
-        the future; a reminder already sent is never sent again.
+        the future; a reminder already sent is never sent again, and one already due but not sent yet
+        still goes out.
       requestBody: { $ref: '#/components/requestBodies/Json' }
       responses:
         '200': { description: '`MyNoteResponse`.' }
