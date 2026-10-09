@@ -2,7 +2,40 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { CaseModule } from '../world.js';
 
+const ACKS = [
+  { key: 'read', label: 'I read it', text: 'Synthetic acknowledgment.', required: true },
+];
+
 export const records: CaseModule['records'] = {
+  /**
+   * Firm P's published firm-wide intake agreement (its current version's id). One per firm, so
+   * every world shares the first one.
+   */
+  firmWideAgreement: {
+    async create({ tx, businessId, owner }) {
+      const current = await tx.firmAgreementVersion.findFirst({
+        where: { businessId, agreement: { scope: 'ALL_INTAKES', archivedAt: null } },
+        orderBy: { version: 'desc' },
+        select: { id: true },
+      });
+      if (current) return current.id;
+      const agreement = await tx.firmAgreement.create({
+        data: { businessId, scope: 'ALL_INTAKES', createdByUserId: owner.id },
+      });
+      const version = await tx.firmAgreementVersion.create({
+        data: {
+          businessId,
+          agreementId: agreement.id,
+          version: 1,
+          title: 'Fake intake agreement',
+          bodyMarkdown: '# Fake intake agreement\n\nNot legal text.',
+          acknowledgments: ACKS,
+          publishedByUserId: owner.id,
+        },
+      });
+      return version.id;
+    },
+  },
   /** Client X's intake of their annual tax engagement, open (IN_PROGRESS) with its draft. */
   intake: {
     clientPrivate: true,
@@ -40,16 +73,46 @@ export const records: CaseModule['records'] = {
           status: 'IN_PROGRESS',
         },
       });
-      await tx.intakeSubmission.create({
+      const draft = await tx.intakeSubmission.create({
+        data: { businessId, intakeId: row.id, version: 1, answers: { firstName: 'Fake' } },
+      });
+      // Submitting needs client X's signature of the firm-wide agreement in this transaction,
+      // made as client X's login (the database checks the actor), as R14's sign() will.
+      const version = await tx.firmAgreementVersion.findUniqueOrThrow({
+        where: { id: await get('firmWideAgreement') },
+      });
+      const account = await tx.clientAccount.findFirstOrThrow({
+        where: { businessId, userId: await get('clientUser') },
+      });
+      await tx.$executeRaw`SELECT set_config('app.current_actor_id', ${account.userId}, true)`;
+      const sig = await tx.intakeSignature.create({
         data: {
           businessId,
+          submissionId: draft.id,
           intakeId: row.id,
-          version: 1,
-          answers: { firstName: 'Fake' },
-          submittedAt: new Date(),
-          signerName: 'Fake Client X',
-          signedAt: new Date(),
+          clientAccountId: account.id,
+          printedName: 'Fake Client X',
+          signatureText: 'Fake Client X',
+          acknowledgments: ACKS.map((a) => ({
+            agreementVersionId: version.id,
+            ...a,
+            checked: true,
+          })),
+          answersSha256: '0'.repeat(64),
+          evidenceSha256: createHash('sha256').update(randomUUID()).digest('hex'),
+          agreements: {
+            create: {
+              agreementVersionId: version.id,
+              bodySha256: version.bodySha256,
+              pdfSha256: version.pdfSha256,
+            },
+          },
         },
+      });
+      await tx.$executeRaw`SELECT set_config('app.current_actor_id', '', true)`;
+      await tx.intakeSubmission.update({
+        where: { id: draft.id },
+        data: { submittedAt: new Date(), signerName: sig.printedName, signedAt: sig.signedAt },
       });
       await tx.intake.update({ where: { id: row.id }, data: { status: 'SUBMITTED' } });
       return row.id;

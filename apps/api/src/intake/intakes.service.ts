@@ -20,6 +20,7 @@ import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { requireFirmWideAgreement } from './intake-agreement.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
 import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
 import { lockVersion, prepareSubmit, type SignedBy, type SlotFile } from './intake-submit.js';
@@ -461,7 +462,8 @@ export class IntakesService {
   /**
    * The client sends the open version (portal): the whole form checked, the files in slots the
    * answers hide taken out of it, the agreements signed (`sign`), then the version locked and the
-   * intake SUBMITTED, in one transaction. A save or an upload that lands in between is 409
+   * intake SUBMITTED, in one transaction. 409 NO_INTAKE_AGREEMENT, with nothing changed, while the
+   * firm has no published firm-wide agreement to sign. A save or an upload that lands in between is 409
    * INTAKE_CHANGED, so what was checked is what is locked.
    */
   async submit(
@@ -485,7 +487,9 @@ export class IntakesService {
       answersOf(draft.answers),
       before.files,
     );
-    const view = await this.inFirm(businessId, async (tx) => {
+    // As the signed-in client: the database checks that the signature is that login's.
+    const asSigner = { kind: 'business' as const, businessId, actorUserId: submittedByUserId };
+    const view = await this.database.withScope(asSigner, async (tx) => {
       const row = await this.lockRow(tx, businessId, reach, id);
       const current = row.submissions[0];
       if (!OPEN_STATUSES.includes(row.status) || current?.id !== draft.id || current.submittedAt) {
@@ -497,6 +501,7 @@ export class IntakesService {
         JSON.stringify(b.map((f) => [f.id, f.slot, f.status]));
       if (JSON.stringify(current.answers) !== JSON.stringify(draft.answers)) throw changed();
       if (!same(files, before.files)) throw changed();
+      await requireFirmWideAgreement(tx, businessId);
       if (hidden.length > 0) {
         await tx.document.updateMany({
           where: { businessId, id: { in: hidden.map((f) => f.id) } },
