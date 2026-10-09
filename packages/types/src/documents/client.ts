@@ -163,7 +163,7 @@ export function createMyDocumentsClient(request: ApiRequest, firmSlug: string) {
     /** The client's document requests, open ones first. */
     requests: async (): Promise<MyDocumentRequest[]> =>
       (await request(MyDocumentRequestList, `${portalMe(firmSlug)}/document-requests`)).items,
-    /** "I don't have this". 409 REQUEST_CLOSED. */
+    /** "I don't have this". 409 NO_OPEN_SERVICE (an archived client) or REQUEST_CLOSED. */
     notAvailable: async (id: string, body: NotAvailableRequest): Promise<MyDocumentRequest> =>
       request(
         MyDocumentRequest,

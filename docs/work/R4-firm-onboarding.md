@@ -18,10 +18,10 @@
 
 - [x] 1. Public application submit (rate limited, no account needed)
 - [ ] 2. Super Admin actions: approve, request info (message to applicant), decline with reason; status history
-- [ ] 3. Approve creates the business with a unique slug and invites the owner (R2 invite flow)
-- [ ] 4. Owner activation ends at first-time setup; business status active
-- [ ] 5. Emails through NotifyService (log until R6 merges)
-- [ ] 6. Audit every action; e2e test of the whole path
+- [x] 3. Approve creates the business with a unique slug and invites the owner (R2 invite flow)
+- [x] 4. Owner activation ends at first-time setup; business status active
+- [x] 5. Emails through NotifyService (log until R6 merges)
+- [x] 6. Audit every action; e2e test of the whole path
 - [x] 7. Plus T05 (Oct 6): applications list with filters and paging, detail and status history (Super Admin through `forAdmin()`), dashboard counts, firms list (Active, Pending Setup, Inactive). Contract by Oct 8 (Tumit F04b, N04)
 
 ## Done when
@@ -59,6 +59,13 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - The owner invite on approval is inserted in platform scope and read only through the token-free `platform_owner_invites` copy.
   - Approve copies the entity type, services, team size and description into the new firm's `business_settings` in a business-scope transaction, never the EIN.
   - `data` may hold no key starting with "ein".
+
+## Decisions (R16, Oct 9, where the docs are silent)
+
+- Step 3: the settings copy is entity type, services and team size. The application has no firm description (`additionalInfo` is a note to Firmivra), so `description` stays empty. A firm that already has settings keeps them.
+- Step 3: the owner invite uses R2's `InvitesService` class through a second instance in this module (`OWNER_INVITES`) whose activation mailer sends `firm-application.approved` through NotifyService, so the owner gets the approval email with the link. Everything else (login, membership, token, limits) is R2's.
+- Step 3: the KMS key job (`FirmKeyJob`) starts after approve's commits without being awaited, and a sweep every 5 minutes (KMS_MODE=kms only, under `pg_try_advisory_xact_lock`) retries firms in setup or active without a key. The firm stays `PENDING_SETUP` until setup Finish; until its key is stored, saving the EIN answers 503 ENCRYPTION_UNAVAILABLE (the settings API's existing answer).
+- Step 3: Resend owner invite is a platform audit event `firm_application.owner_invite_resent` (ids only); R2's invite writes `membership.invited` in the firm.
 
 ## For the API steps (lead's #61 review, Oct 7)
 
@@ -105,6 +112,7 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 - R3: export `tryLock` (the advisory try-lock in `apps/api/src/client-auth/sign-up.service.ts`) from a shared place, for example `client-auth/network.ts` or a small `common/advisory-lock.ts`. R4's submit limits keep a copy in `submit.service.ts` until then, and switch to the import once it lands (review of `rasel/R4-api-submit`, Oct 8).
 - R2: an owner invite created by a Super Admin (no inviting member) through `InvitesService`, checked at step 3.
 - Tumit (F04b, application detail): show Approve also when the application is APPROVED and `firm` is null (an approval whose picked address was taken before the firm was created). Approving again finishes it; the page now hides the button (`canDecide`). Rare, and only with a picked address.
+- R2 (InvitesService, `apps/api/src/auth/invites.service.ts`; R16, Oct 9): the owner's link must be inserted in platform scope with no inviter, so the database marks it `sent_by_platform` and keeps the token-free copy in `platform_owner_invites` (R0's #80 design). `InvitesService` writes every invite in the firm's business scope, and platform scope may insert invites but not memberships, so R4 can't do it from its own paths. Needed: for `invitedBy: null` and role OWNER, the `invites` row inserted in platform scope (the membership stays in business scope, in the same lock order), for example an option on `createInvite` / `resendInvite`. R16 makes it (Oct 9, the thread's go: R2's session is closed) on its own small branch `rasel/R16-owner-invite-platform`, so it can be reviewed or dropped alone; approve and resend switch to it in a later commit once it is in. Until then approve and Resend owner invite work (business-scope invite, email through NotifyService), but the review page's `ownerInvite` stays null and the history has no OWNER_INVITED. R4's read side (`platform_owner_invites`) is in and tested with a platform-scope invite. Done: `fromPlatform` on `createInvite` and `resendInvite` (#194, `rasel/R16-owner-invite-platform`); approve and resend use it since `rasel/R16-onboarding-e2e`.
 - Not in the contract (Phase 1 is the approval path only): the "Edit" links on the review cards, "Add Firm Manually", "Add Firm", "Edit Firm Details", "Deactivate Firm" and "Open Firm Workspace" (the last needs the support-access design). The screens leave them out or mark them "Soon".
 
 ## Progress log
@@ -196,3 +204,38 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - Two approvals at once: the second waits on the row lock and creates nothing more (one firm, one decision).
   - Not yet (step 3): business_settings from the application, the KMS key, the owner invite after commit and `resendOwnerInvite`, `ownerInvite` on the record. Approve sends no email until then.
   - Tests: `apps/api/test/e2e/firm-application-approve.e2e.test.ts` (default and picked address, the audit rows, 409s before the decision, finishing an approved application without a firm, a double click, an unreadable form, 400/401/404).
+- 2026-10-09, step 3, R16, branch `rasel/R16-firm-setup` (on `rasel/R16-approve`): after approve's commits, each on its own (a failure warns with ids only and the approval stands):
+  - the firm's `business_settings` from the application (entity type, services, team size; never the EIN) in the firm's business scope, audited `settings.copied_from_application` in the firm;
+  - the firm's KMS key through `FirmKeys` (#101's `firm-keys.ts`; the job is in its source-scan test, and a `FirmKeyError` naming an unused key is logged as is), made by `FirmKeyJob` outside the request, stored on `businesses.kms_key_id` in platform scope, audited `business.key_created` (no ARN);
+  - the owner invite through R2's `InvitesService` (`invitedBy` null), emailed as `firm-application.approved` through NotifyService.
+  - `POST /admin/firm-applications/{id}/owner-invite` (contract's `resendOwnerInvite`, already in the contract and mock): a new link (R2's resend) or a first one; 409 INVITE_NOT_NEEDED before the firm exists, for a suspended or closed firm, or once the owner is active.
+  - The record's `ownerInvite` and OWNER_INVITED history come from `platform_owner_invites` (R2 need above).
+  - Tests: `apps/api/test/e2e/firm-setup.e2e.test.ts` (settings without the EIN and isolation, key stored, invite and email, email and key failures then resend and retry, 409s, ownerInvite from the copy, 401/403), `firm-application-approve.e2e.test.ts` updated, unit `firm-key-job.test.ts`, `firm-keys.test.ts`.
+- 2026-10-09, steps 4 and 5, R16, branch `rasel/R16-firm-activation` (on `rasel/R16-firm-setup`):
+  - Activation ends at first-time setup with what is on main: the owner's link (R2's `/auth/activate`) joins the firm in setup, the setup wizard's Finish (`POST /business/setup/complete`, the settings API) makes it ACTIVE (`businesses.activated_at` set by the database). No change outside R4 was needed.
+  - The review page's history has FIRM_ACTIVATED at `activated_at` (by null), and the firm summary stays the four contract fields.
+  - Step 5: every firm-application email already goes through NotifyService (received, information requested, declined since step 2; approved with the owner's link since step 3); there are no log-only calls left in the module. There is no separate "firm activated" email template; none is sent.
+  - Tests: `apps/api/test/e2e/firm-activation.e2e.test.ts` (approve, the link from the approval email, activation with a password, setup in PENDING_SETUP, resend 409 once joined, the four steps and Finish, FIRM_ACTIVATED, the firms list ACTIVE).
+- 2026-10-09, step 6, R16, branch `rasel/R16-onboarding-e2e` (on `rasel/R16-firm-activation`, with #194 merged in):
+  - Approve and Resend owner invite send the owner's link with `fromPlatform` (#194): the database marks it `sent_by_platform`, so the review page's `ownerInvite` and OWNER_INVITED come from `platform_owner_invites` in the real flow.
+  - Audit: every action writes its row; each is asserted in a test. `firm-onboarding.e2e.test.ts` checks, on one walk, `firm_application.submitted`, `firm_application.viewed`, `firm_application.info_requested`, `firm_application.notes_saved`, `firm_application.approved`, `business.created`, `business.viewed_by_admin` (platform), and `settings.copied_from_application`, `membership.invited`, `membership.activated`, `setup.step_completed`, `setup.finished` (the firm); no EIN, note, message, password or activation token in any row. The others are checked elsewhere: `firm_application.declined` in `firm-application-review.e2e.test.ts`; `business.key_created` and `firm_application.owner_invite_resent` in `firm-setup.e2e.test.ts`; `business.key_needs_person` in the unit `firm-key-job.test.ts`.
+  - Tests: `apps/api/test/e2e/firm-onboarding.e2e.test.ts` (the public form, list, open, information request, notes, approve, activation from the approval email, setup and Finish, ACTIVE with FIRM_ACTIVATED and ACCEPTED, the three emails, the audit rows in the platform's log and the firm's, and firm B: reads none of the new firm's rows, and each side's people get 404 in the other firm); `firm-setup.e2e.test.ts` reads `ownerInvite` and OWNER_INVITED from approve and resend.
+- 2026-10-09, #164 pre-review fixes (branch `rasel/R16-firm-setup`):
+  - The key sweep's timer catches a failed sweep (a warning; the next one runs), so a database error can't stop the API task.
+  - A `FirmKeyError` (a key made but not named, or an alias naming a key the adapter won't adopt) is recorded once as the platform event `business.key_needs_person` and logged once; the sweep never retries that firm, so no more unused keys are made. A person runs `create-firm-key`, which stores the key.
+  - The sweep leaves firms created in the last 10 minutes to approve's own call (its try-lock ends with the list, and naming a new key can take 5 minutes).
+  - Resend owner invite also copies settings an approval could not copy (idempotent; a firm with settings keeps them).
+  - A revoked newest owner link reads EXPIRED, not SENT.
+  - Tests: unit (sweep age and held firms, the error recorded once, a failing sweep), e2e (settings copied on resend, once).
+- 2026-10-09, #183 pre-review fixes (branch `rasel/R16-firm-activation`): the activation e2e signs the owner in with the password the link set (sign-in, then the authenticator step with the local code) and runs setup with that session's cookies, not a dev token; it checks the audit rows of activation, the four steps and Finish (by the owner); the firm summary is built with `satisfies`, not `as`.
+- 2026-10-09, #203 pre-review fixes (branch `rasel/R16-onboarding-e2e`): the onboarding e2e signs the owner in through `POST /auth/sign-in` with the password the link set (a wrong one is 401 INVALID_CREDENTIALS) and runs setup with that session's cookies, not a dev token; it opens the firm's admin page (`business.viewed_by_admin`) and checks no audit row holds the activation token; the step 6 log line now names which test checks each audit row.
+- 2026-10-09, R4 follow-ups (Scrum review of #194 and the flaky counts), branch `rasel/R16-r4-followups` (on #203, main merged):
+  - Resend owner invite always calls `createInvite` with the applicant's typed name and email (`fromPlatform`), never `resendInvite`: after a platform step that failed there is no invite row, and `resendInvite` would fall back to the user row's name (another firm's, for an existing login).
+  - `InvitesService` (#194's option): the platform step passes `OUTSIDE_CALL_LIMITS` (it can wait on the per-person lock of a 15 s invite transaction); a non-owner `fromPlatform` call is refused before any login is made (create) or link (resend); the platform revoke names the firm too. `apps/api/README.md` describes `fromPlatform` and its two steps.
+  - `GET /admin/firms/counts` is one `groupBy` on status (the total is the sum), so it can't read a firm added between two counts (the flaky "total 58 vs 57").
+  - Tests: `firm-setup.e2e.test.ts` (the platform step fails once on approve; the resend sends the typed name, not the existing login's), `owner-invite-platform.e2e.test.ts` (another firm's membership: 404 and no link or copy; a non-owner refused before a login and on resend; the 15 s limits), unit `firm-counts.test.ts`.
+- 2026-10-09, #234 review fixes (branch `rasel/R16-r4-followups`):
+  - Resend owner invite answers 409 INVITE_NOT_NEEDED whenever the firm's first owner membership is anything but INVITED: an owner the firm deactivated is never re-invited from the Super Admin site (it still sends when there is no owner membership, or an open or broken invite).
+  - `GET /admin/firm-applications/counts` is one statement (grouped by status, with the month's decisions as a filtered count): `all` is the sum of the parts.
+  - `InvitesService`: the platform step counts the per-person cap again under the lock (two sends at once could pass the first count); `resendInvite` no longer takes `fromPlatform` (no caller: R4 resends through `createInvite`); the 15 s comment says it outlives the module's default.
+  - Tests: `firm-setup.e2e.test.ts` (a deactivated owner: 409, still DEACTIVATED, nothing sent; fails on the old guard), `owner-invite-platform.e2e.test.ts` (a link landing between the counts is counted: 429 and nothing added; a firm-B person invited as owner here leaves firm B untouched; the re-send through `createInvite`), unit `firm-counts.test.ts` (application counts).

@@ -10,7 +10,7 @@ import type { Database, TxClient } from '@firmivra/db';
 import type { SubmitFirmApplicationRequest, SubmitFirmApplicationResponse } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
-import { canonicalIp, networkOf } from '../client-auth/network.js';
+import { canonicalIp, networkOf } from '../common/network.js';
 import { atLeast } from '../client-auth/sign-up.service.js';
 import { requestContext } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';

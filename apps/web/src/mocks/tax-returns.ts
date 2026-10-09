@@ -88,13 +88,24 @@ const documentRef = (documentId: string | null | undefined, current: TaxReturn['
       ? null
       : { id: documentId, fileName: 'Tax Return.pdf' };
 
-/** An in-memory `api.taxReturns`. `role: 'STAFF'` reaches only Sam Staff's clients. */
+/**
+ * An in-memory `api.taxReturns`. `role: 'STAFF'` reaches only Sam Staff's clients. An archived
+ * client's returns are read, never changed (409 CLIENT_ARCHIVED).
+ */
 export function createTaxReturnsMock(options: { role?: MockFirmRole } = {}): TaxReturnsClient {
   const clients = new Set(
     clientFixtures()
       .filter((c) => options.role !== 'STAFF' || c.assignedTo?.userId === mockStaff.userId)
       .map((c) => c.id),
   );
+  const archived = new Set(
+    clientFixtures()
+      .filter((c) => c.archivedAt)
+      .map((c) => c.id),
+  );
+  const notArchived = (clientId: string) => {
+    if (archived.has(clientId)) throw fail(409, 'CLIENT_ARCHIVED', 'Restore the client first');
+  };
   let rows: TaxReturn[] = taxReturnFixtures().map((r) => structuredClone(r));
   /** Returns that ever left IN_PROGRESS (the database's first_filed_at). */
   const everFiled = new Set(rows.filter((r) => r.status !== 'IN_PROGRESS').map((r) => r.id));
@@ -127,6 +138,7 @@ export function createTaxReturnsMock(options: { role?: MockFirmRole } = {}): Tax
       const id = parseInput(ClientId, clientId);
       const { documentId, ...data } = parseInput(CreateTaxReturnRequest, body);
       if (!clients.has(id)) throw notFound();
+      notArchived(id);
       return save(
         fixture(nextId++, {
           formType: null,
@@ -143,6 +155,7 @@ export function createTaxReturnsMock(options: { role?: MockFirmRole } = {}): Tax
       const rid = parseInput(TaxReturnId, id);
       const { documentId, ...data } = parseInput(UpdateTaxReturnRequest, body);
       const row = find(rid);
+      notArchived(row.clientId);
       if (
         data.status === 'IN_PROGRESS' &&
         (row.status === 'FILED' || row.status === 'ACCEPTED' || row.status === 'COMPLETED')
@@ -160,6 +173,7 @@ export function createTaxReturnsMock(options: { role?: MockFirmRole } = {}): Tax
     remove: async (id) => {
       await pause();
       const row = find(parseInput(TaxReturnId, id));
+      notArchived(row.clientId);
       if (row.status !== 'IN_PROGRESS' || everFiled.has(row.id)) {
         throw fail(409, 'RETURN_LOCKED', 'A return that was filed is never deleted');
       }
@@ -195,9 +209,4 @@ export function createMyTaxReturnsMock(): MyTaxReturnsClient {
         );
     },
   };
-}
-
-/** `api.myTaxReturns(slug)` in mock mode (read-only, so one client serves every firm). */
-export function myTaxReturnsMock(_firmSlug: string): MyTaxReturnsClient {
-  return createMyTaxReturnsMock();
 }
