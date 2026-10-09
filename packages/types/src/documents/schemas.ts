@@ -130,23 +130,25 @@ const Ref = z.object({ id: z.uuid(), name: z.string() });
 const ServiceRef = z.object({ id: z.uuid(), title: z.string() });
 
 // ---------- Upload (both sides) ----------
+/**
+ * An uploaded file's name, shown to staff and the client, and the download's name. No control or
+ * invisible formatting characters (such as a right-to-left override or a zero-width space), no
+ * lone surrogates, no line or paragraph separators, no / or \. Shared with agreement PDFs (R14).
+ */
+export const FileName = z
+  .string()
+  .trim()
+  .min(1, 'The file needs a name')
+  .max(255, 'Use a file name of at most 255 characters')
+  .regex(
+    /^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]+$/u,
+    'Rename the file: its name has characters that are not allowed',
+  );
+
 /** What `uploadFile()` learns from the file itself and adds to every `createUpload`. */
 const FileFacts = {
-  /**
-   * Shown to staff and the client, and the download's name. No control or invisible formatting
-   * characters (such as a right-to-left override or a zero-width space), no lone surrogates, no
-   * line or paragraph separators, no / or \. It must end in an ending of its content type
-   * (checked with the type).
-   */
-  fileName: z
-    .string()
-    .trim()
-    .min(1, 'The file needs a name')
-    .max(255, 'Use a file name of at most 255 characters')
-    .regex(
-      /^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]+$/u,
-      'Rename the file: its name has characters that are not allowed',
-    ),
+  /** FileName; it must end in an ending of its content type (checked with the type). */
+  fileName: FileName,
   contentType: UploadContentType,
   sizeBytes: z
     .number()
@@ -292,7 +294,10 @@ export const FirmDocumentRequest = z.object({
   status: RequestStatus,
   /** Shown to both: the client's reason (NOT_AVAILABLE) or the firm's (REJECTED). */
   statusNote: z.string().nullable(),
-  /** The files uploaded for it, newest first. */
+  /**
+   * The files uploaded for it, newest first: at most the newest 20 (the client's document list
+   * has them all).
+   */
   documents: z.array(z.object({ id: z.uuid(), fileName: z.string(), createdAt: DateTime })),
   requestedBy: MemberRef.nullable(),
   createdAt: DateTime,
@@ -467,11 +472,16 @@ export type NotAvailableRequest = z.input<typeof NotAvailableRequest>;
 export const DocumentErrorCode = z.enum([
   /** 409: the service is not open (ACTIVE), so nothing can be uploaded or requested for it. */
   'NO_OPEN_SERVICE',
-  /** 409: the request is not open (accepted, cancelled, or the client said not available). */
+  /**
+   * 409: the request is closed to this change. The firm's accept, "Mark missing" and cancel: it
+   * was accepted or cancelled. The client's upload and "I don't have this": it is not open
+   * (REQUESTED or REJECTED), so also once answered (SUBMITTED, or NOT_AVAILABLE).
+   */
   'REQUEST_CLOSED',
   /**
-   * 409: accept or "Mark missing" needs an uploaded file (status SUBMITTED). A request whose
-   * newest file came back INFECTED or FAILED is REQUESTED again.
+   * 409: accept or "Mark missing" needs an uploaded file (status SUBMITTED), so also for a request
+   * the client answered "I don't have this" (cancel it instead). A request whose newest file came
+   * back INFECTED or FAILED is REQUESTED again.
    */
   'NOTHING_SUBMITTED',
   /** 409: the category is archived. */
@@ -530,7 +540,7 @@ export type DocumentErrorCode = z.infer<typeof DocumentErrorCode>;
 export const DOCUMENT_ERRORS = {
   NO_OPEN_SERVICE: 'This service is not open, so nothing can be uploaded or requested for it.',
   REQUEST_CLOSED: 'This request is no longer open. Reload and try again.',
-  NOTHING_SUBMITTED: 'Nothing has been uploaded for this request yet.',
+  NOTHING_SUBMITTED: 'Nothing new has been uploaded for this request.',
   CATEGORY_ARCHIVED: 'This category is archived. Choose another one.',
   UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
   UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
