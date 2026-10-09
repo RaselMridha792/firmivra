@@ -1,4 +1,14 @@
-import { degrees, PDFDict, PDFDocument, PDFName, type PDFPage } from 'pdf-lib';
+import {
+  degrees,
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFNull,
+  type PDFObject,
+  type PDFPage,
+  PDFRef,
+} from 'pdf-lib';
 import { ESIGN_MAX_PAGES, type EsignPage, UPLOAD_LIMITS } from '@firmivra/types';
 import {
   EsignEngineError,
@@ -28,21 +38,81 @@ export function imagePageSize(width: number, height: number): PageSize {
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
-/** A page's own /Rotate, normalised to 0, 90, 180 or 270. */
+/** A page's own /Rotate, normalised to 0, 90, 180 or 270; any other angle is refused. */
 export function ownRotation(page: PDFPage): number {
-  return ((page.getRotation().angle % 360) + 360) % 360;
+  const angle = page.getRotation().angle;
+  if (!Number.isInteger(angle) || angle % 90 !== 0) throw new EsignEngineError('PDF_UNREADABLE');
+  return ((angle % 360) + 360) % 360;
+}
+
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A PDF rectangle with its corners in either order, as [x0, y0, x1, y1] lower-left first. */
+function normalised({ x, y, width, height }: Box): [number, number, number, number] {
+  return [
+    Math.min(x, x + width),
+    Math.min(y, y + height),
+    Math.max(x, x + width),
+    Math.max(y, y + height),
+  ];
 }
 
 /**
- * A page's size as a viewer shows it at plan rotation 0: its CropBox, turned by the page's own
- * /Rotate. Fields are placed on this view, so pageSizes describe it.
+ * The part of the page a viewer shows, as pdf.js does: the CropBox (or the MediaBox) with its
+ * corners normalised and clipped to the MediaBox. An empty box is unreadable.
+ */
+export function visibleBox(page: PDFPage): Box {
+  const [mx0, my0, mx1, my1] = normalised(page.getMediaBox());
+  const [cx0, cy0, cx1, cy1] = normalised(page.getCropBox());
+  const x0 = Math.max(mx0, cx0);
+  const y0 = Math.max(my0, cy0);
+  const x1 = Math.min(mx1, cx1);
+  const y1 = Math.min(my1, cy1);
+  if (![x0, y0, x1, y1].every(Number.isFinite) || x1 - x0 < 1 || y1 - y0 < 1) {
+    throw new EsignEngineError('PDF_UNREADABLE');
+  }
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
+
+/**
+ * A page's size as a viewer shows it at plan rotation 0: its visible box, turned by the page's
+ * own /Rotate. Fields are placed on this view, so pageSizes describe it.
  */
 export function shownSize(page: PDFPage): PageSize {
-  const { width, height } = page.getCropBox();
+  const { width, height } = visibleBox(page);
   const turned = ownRotation(page) % 180 !== 0;
   return turned
     ? { width: round(height), height: round(width) }
     : { width: round(width), height: round(height) };
+}
+
+/**
+ * Counts the leaf pages without pdf-lib's walk, which follows a node listed twice every time
+ * (a few KB can then take minutes). A node met twice is unreadable; past the limit it stops.
+ */
+function countPages(doc: PDFDocument): number {
+  const seen = new Set<PDFObject>();
+  let count = 0;
+  const walk = (ref: PDFObject | undefined, depth: number): void => {
+    if (!(ref instanceof PDFRef) || seen.has(ref) || depth > 64) {
+      throw new EsignEngineError('PDF_UNREADABLE');
+    }
+    seen.add(ref);
+    const node = doc.context.lookup(ref, PDFDict);
+    const kids = node.lookupMaybe(PDFName.of('Kids'), PDFArray);
+    if (node.get(PDFName.of('Type')) === PDFName.of('Page') || !kids) {
+      if (++count > ESIGN_MAX_PAGES) throw new EsignEngineError('TOO_MANY_PAGES');
+      return;
+    }
+    for (let i = 0; i < kids.size(); i++) walk(kids.get(i), depth + 1);
+  };
+  walk(doc.catalog.get(PDFName.of('Pages')), 0);
+  return count;
 }
 
 /** Anything but our own refusal becomes PDF_UNREADABLE: a broken file throws all sorts. */
@@ -68,10 +138,9 @@ function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
     // XFA forms render differently in every viewer and can't be flattened: refuse them.
     const acroForm = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
     if (acroForm?.has(PDFName.of('XFA'))) throw new EsignEngineError('PDF_UNREADABLE');
-    const count = doc.getPageCount();
-    if (count < 1) throw new EsignEngineError('PDF_UNREADABLE');
-    if (count > ESIGN_MAX_PAGES) throw new EsignEngineError('TOO_MANY_PAGES');
-    // Every page must have a readable box: the sizes are needed later anyway.
+    const count = countPages(doc);
+    if (count < 1 || doc.getPageCount() !== count) throw new EsignEngineError('PDF_UNREADABLE');
+    // Every page must have a readable box and rotation: the sizes are needed later anyway.
     doc.getPages().forEach(shownSize);
     return doc;
   });
@@ -178,5 +247,69 @@ export async function compose(files: SourceFile[], plan: EsignPage[]): Promise<U
     }
     page.setRotation(degrees((ownRotation(page) + entry.rotation) % 360));
   }
+  dropLeftOutPages(out);
   return out.save({ useObjectStreams: false });
+}
+
+/**
+ * copyPages follows every reference, so a link's destination or a form field shared with another
+ * page brings pages the plan left out (content and all) into the packet. This cuts every
+ * reference to a page outside the packet, or to a widget not on a packet page, and deletes every
+ * object the packet no longer reaches, so what a signer receives holds only the planned pages.
+ */
+export function dropLeftOutPages(doc: PDFDocument): void {
+  const { context } = doc;
+  const pages = new Set<PDFObject>(doc.getPages().map((p) => p.ref));
+  const widgets = new Set<PDFObject>();
+  for (const page of doc.getPages()) {
+    const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+    for (let i = 0; i < (annots?.size() ?? 0); i++) widgets.add(annots!.get(i));
+  }
+  const leftOut = (ref: PDFRef) => {
+    const dict = context.lookup(ref);
+    if (!(dict instanceof PDFDict)) return false;
+    if (dict.get(PDFName.of('Type')) === PDFName.of('Page')) return !pages.has(ref);
+    return dict.get(PDFName.of('Subtype')) === PDFName.of('Widget') && !widgets.has(ref);
+  };
+  const reached = new Set<PDFRef>();
+  const queue: PDFObject[] = [context.trailerInfo.Root!];
+  if (context.trailerInfo.Info) queue.push(context.trailerInfo.Info);
+  const visit = (value: PDFObject) => {
+    if (value instanceof PDFRef) {
+      if (reached.has(value)) return;
+      reached.add(value);
+      const target = context.lookup(value);
+      if (target) queue.push(target);
+      return;
+    }
+    if (value instanceof PDFArray || value instanceof PDFDict) queue.push(value);
+    else if ('dict' in value && value.dict instanceof PDFDict) queue.push(value.dict);
+  };
+  for (let item = queue.pop(); item; item = queue.pop()) {
+    if (item instanceof PDFArray) {
+      for (let i = item.size() - 1; i >= 0; i--) {
+        const value = item.get(i);
+        if (value instanceof PDFRef && leftOut(value)) item.set(i, PDFNull);
+        else visit(value);
+      }
+    } else if (item instanceof PDFDict) {
+      // A field's /Kids keeps only widgets still in the packet.
+      const kids = item.lookupMaybe(PDFName.of('Kids'), PDFArray);
+      if (kids && item.get(PDFName.of('Type')) !== PDFName.of('Pages')) {
+        for (let i = kids.size() - 1; i >= 0; i--) {
+          const kid = kids.get(i);
+          if (kid instanceof PDFRef && leftOut(kid)) kids.remove(i);
+        }
+      }
+      for (const [key, value] of item.entries()) {
+        if (value instanceof PDFRef && leftOut(value)) item.delete(key);
+        else visit(value);
+      }
+    } else {
+      visit(item);
+    }
+  }
+  for (const [ref] of context.enumerateIndirectObjects()) {
+    if (!reached.has(ref)) context.delete(ref);
+  }
 }
