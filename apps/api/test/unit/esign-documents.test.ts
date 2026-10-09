@@ -286,7 +286,7 @@ describe('from the vault', () => {
     const detail = await requests.get(w.a, owner, id);
     expect(detail.pagePlan).toHaveLength(2);
     expect(w.store.objects.has(`tenant/${w.a}/esign/${id}/source/${doc.id}`)).toBe(true);
-    expect(w.audit.entries.at(-1)).toEqual({
+    expect(w.audit.entries.find((e) => e.action === 'esign.document_added')).toEqual({
       action: 'esign.document_added',
       entity: { type: 'esign_request', id },
       metadata: { documentId: doc.id, sourceDocumentId: source, pageCount: 2 },
@@ -332,6 +332,31 @@ describe('from the vault', () => {
     const own = await draft(staff2, null);
     await requests.update(w.a, owner, own, { clientId: w.ids.c1 });
     expect(await refused(docs.addFromVault(w.a, staff2, own, source))).toEqual([404, 'NOT_FOUND']);
+  });
+
+  it('lets an approver read a file’s bytes, but not copy from the vault (a write: 404)', async () => {
+    const id = await draft();
+    const content = bytesOf('pdf:1');
+    const doc = await confirm(id, (await uploaded(id, content)).ticket.uploadToken);
+    w.repo.seed(w.a, id, (row) => {
+      for (const d of row.parts.documents) d.scanStatus = 'CLEAN';
+    });
+    await requests.putRecipients(w.a, owner, id, {
+      recipients: [
+        {
+          kind: 'APPROVER',
+          role: 'MANAGER',
+          routingOrder: 1,
+          who: { type: 'STAFF', userId: w.users.managerA },
+          delivery: 'EMAIL',
+          authMethod: 'EMAIL_CODE',
+        },
+      ],
+    });
+    const manager: EsignActor = { userId: w.users.managerA, role: 'MANAGER' };
+    expect((await docs.content(w.a, manager, id, doc.id)).bytes).toEqual(content);
+    const fromVault = docs.addFromVault(w.a, manager, id, vault(w.ids.c1));
+    expect(await refused(fromVault)).toEqual([404, 'NOT_FOUND']);
   });
 });
 
