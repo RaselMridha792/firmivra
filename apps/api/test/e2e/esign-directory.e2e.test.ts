@@ -1,4 +1,4 @@
-// PrismaEsignDirectory (R13, parts 1b and 1e, and the templates' client logins) on the real database: firm A's reader finds firm
+// PrismaEsignDirectory (R13, parts 1b and 1e, the templates' client logins and bulk send's open services) on the real database: firm A's reader finds firm
 // A's client, service, portal login, member and vault document, and never firm B's (forBusiness, row-level
 // security), even when asked for firm B's ids. Synthetic data only.
 import { randomUUID } from 'node:crypto';
@@ -103,6 +103,9 @@ describe('PrismaEsignDirectory', () => {
         name: 'Fake',
       },
     ]);
+    expect((await dir.openEngagements(a, ids.a.client)).map((e) => e.id)).toEqual([
+      ids.a.engagement,
+    ]);
     expect(await dir.member(a, ids.a.member)).toMatchObject({ active: true });
     const document = await dir.document(a, ids.a.document);
     expect(document).toEqual({
@@ -121,6 +124,8 @@ describe('PrismaEsignDirectory', () => {
     expect(await dir.clientLogin(a, ids.b.login)).toBeNull();
     expect(await dir.clientLogins(a, ids.b.client)).toEqual([]);
     expect(await dir.clientLogins(fx.firmB.id, ids.a.client)).toEqual([]);
+    expect(await dir.openEngagements(a, ids.b.client)).toEqual([]);
+    expect(await dir.openEngagements(fx.firmB.id, ids.a.client)).toEqual([]);
     expect(await dir.member(a, ids.b.member)).toBeNull();
     expect(await dir.document(a, ids.b.document)).toBeNull();
     // Firm B's reader, the other way round.

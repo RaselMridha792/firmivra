@@ -106,6 +106,8 @@ export interface DirectoryDocument {
 export interface EsignDirectory {
   client(businessId: string, clientId: string): Promise<DirectoryClient | null>;
   engagement(businessId: string, engagementId: string): Promise<DirectoryEngagement | null>;
+  /** The client's PENDING and ACTIVE services (bulk send files under the only one). */
+  openEngagements(businessId: string, clientId: string): Promise<DirectoryEngagement[]>;
   clientLogin(businessId: string, clientAccountId: string): Promise<DirectoryLogin | null>;
   /** The client's portal logins, oldest first (a template's CLIENT and SPOUSE roles). */
   clientLogins(businessId: string, clientId: string): Promise<DirectoryLogin[]>;
@@ -133,6 +135,14 @@ export class PrismaEsignDirectory implements EsignDirectory {
   engagement(businessId: string, id: string): Promise<DirectoryEngagement | null> {
     return this.database.forBusiness(businessId).engagement.findFirst({
       where: { businessId, id },
+      select: { id: true, clientId: true, title: true, status: true },
+    });
+  }
+
+  openEngagements(businessId: string, clientId: string): Promise<DirectoryEngagement[]> {
+    return this.database.forBusiness(businessId).engagement.findMany({
+      where: { businessId, clientId, status: { in: ['PENDING', 'ACTIVE'] } },
+      orderBy: { createdAt: 'asc' },
       select: { id: true, clientId: true, title: true, status: true },
     });
   }

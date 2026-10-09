@@ -631,6 +631,11 @@ export class InMemoryDirectory implements EsignDirectory {
   engagement(businessId: string, id: string) {
     return Promise.resolve(this.engagements.of(businessId).get(id) ?? null);
   }
+  openEngagements(businessId: string, clientId: string) {
+    const all = [...this.engagements.of(businessId).values()];
+    const open = (e: DirectoryEngagement) => e.status === 'PENDING' || e.status === 'ACTIVE';
+    return Promise.resolve(all.filter((e) => e.clientId === clientId && open(e)));
+  }
   clientLogin(businessId: string, id: string) {
     return Promise.resolve(this.logins.of(businessId).get(id) ?? null);
   }

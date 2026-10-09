@@ -52,6 +52,13 @@ export const rolesUnfilled = (keys: string[]) =>
     details: keys.map((key) => ({ path: `roles.${key}`, message: 'Choose who fills it' })),
   });
 
+/** Bulk send's DRAFTs: the id chosen with the batch, source BULK and the batch's version. */
+export interface UseOptions {
+  id?: string;
+  source?: 'TEMPLATE' | 'BULK';
+  version?: number;
+}
+
 /**
  * POST /esign/templates/{id}/use (R13 step 9): a new DRAFT (source TEMPLATE) from the newest
  * version, sent by the caller; the template never changes. CLIENT, SPOUSE and PREPARER roles fill
@@ -78,11 +85,16 @@ export class EsignTemplateUseService {
     actor: EsignActor,
     templateId: string,
     body: z.output<typeof UseEsignTemplateBody>,
+    options: UseOptions = {},
   ): Promise<EsignRequestDetail> {
     const t = await this.templateAccess.reach(businessId, actor, templateId);
     if (actor.role === 'VIEWER') throw forbidden();
     if (t.archivedAt) throw esignRefusal('TEMPLATE_ARCHIVED');
-    const v = await this.templateAccess.current(businessId, t);
+    const v = options.version
+      ? await this.templates.version(businessId, t.id, options.version)
+      : await this.templateAccess.current(businessId, t);
+    if (!v) throw new Error(`esign template ${t.id} has no version ${options.version}`);
+    const source = options.source ?? 'TEMPLATE';
     const client = body.clientId
       ? await this.requests.reachableClient(businessId, actor, body.clientId)
       : null;
@@ -91,7 +103,7 @@ export class EsignTemplateUseService {
     const engagementId = await this.requests.openService(businessId, clientId, service);
     const recipients = await this.recipients(businessId, actor, clientId, v, body.roles);
     const bytes = await this.copies.packet(businessId, v);
-    const [id, docId, now] = [randomUUID(), randomUUID(), new Date()];
+    const [id, docId, now] = [options.id ?? randomUUID(), randomUUID(), new Date()];
     const s3Key = this.store.keyFor(businessId, id, `source/${docId}`);
     const roleOf = new Map(v.roles.map((role, i) => [role.key, recipients[i]!.id]));
     const caller = await this.directory.member(businessId, actor.userId);
@@ -101,14 +113,14 @@ export class EsignTemplateUseService {
       id,
       title: body.title ?? t.name,
       status: 'DRAFT' as const,
-      source: 'TEMPLATE' as const,
+      source,
       clientId,
       engagementId,
       senderUserId: actor.userId,
       internalNote: null,
       createdAt: now,
       lastActivityAt: now,
-      template: { id: t.id, version: t.version },
+      template: { id: t.id, version: v.version },
     };
     const document = {
       id: docId,
@@ -143,7 +155,7 @@ export class EsignTemplateUseService {
     await this.audit.log(
       'esign.request_created',
       { type: 'esign_request', id },
-      { clientId, engagementId, source: 'TEMPLATE', templateId: t.id, templateVersion: t.version },
+      { clientId, engagementId, source, templateId: t.id, templateVersion: v.version },
     );
     return this.requests.answer(businessId, written);
   }
