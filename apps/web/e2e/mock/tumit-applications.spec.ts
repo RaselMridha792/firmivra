@@ -145,3 +145,15 @@ test('application list stays within a 375px viewport', async ({ page }) => {
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(375);
 });
+
+test('pending and approved application pages stay within a 375px viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  for (const name of ['Sample Ledger Advisors', 'Sample Riverside Tax Co']) {
+    await page.goto(admin('/applications'));
+    await page.getByRole('link', { name: `Open application for ${name}` }).click();
+    await expect(page.getByTestId('page-title')).toHaveText(name);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual(375);
+  }
+});

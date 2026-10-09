@@ -168,36 +168,43 @@ function ApplicationRecord({
       ];
   const firm = application.firm;
   const account = application.account;
+  // The firm's own rows come from the firm, decision and invite, so they show even when the form
+  // can't be read (LVP's seeded application).
+  const firmFields: Field[] = firm
+    ? [
+        ['Start Date', application.decision ? dateParts(application.decision.at)[0] : null],
+        [
+          'Status',
+          <span
+            key="status"
+            className={`rounded-pill px-2 py-0.5 text-xs font-semibold ${firmStatus(firm.status).tone}`}
+          >
+            {firmStatus(firm.status).label}
+          </span>,
+        ],
+        ['Portal Address', `/${firm.slug}`],
+        // Only while the owner has not accepted: the timeline already records the invite.
+        ...(application.ownerInvite && application.ownerInvite.status !== 'ACCEPTED'
+          ? [
+              [
+                'Owner Invite',
+                application.ownerInvite.status === 'EXPIRED'
+                  ? `Expired ${dateParts(application.ownerInvite.expiresAt)[0]}`
+                  : `${humanize(application.ownerInvite.status)}, expires ${dateParts(application.ownerInvite.expiresAt)[0]}`,
+              ] as const,
+            ]
+          : []),
+      ]
+    : [];
   const accountFields: Field[] = !account
-    ? [['Details', unreadable]]
+    ? [['Details', unreadable], ...firmFields]
     : firm
       ? [
           ['Plan', FIRM_PLANS[account.requestedPlan]],
           ['Team Size (Estimated)', String(account.teamSize)],
           ['Estimated Client Volume', `${CLIENT_VOLUMES[account.clientVolume]} (per year)`],
           ['How They Heard About Us', account.heardFrom],
-          ['Start Date', application.decision ? dateParts(application.decision.at)[0] : null],
-          [
-            'Status',
-            <span
-              key="status"
-              className={`rounded-pill px-2 py-0.5 text-xs font-semibold ${firmStatus(firm.status).tone}`}
-            >
-              {firmStatus(firm.status).label}
-            </span>,
-          ],
-          ['Portal Address', `/${firm.slug}`],
-          // Only while the owner has not accepted: the timeline already records the invite.
-          ...(application.ownerInvite && application.ownerInvite.status !== 'ACCEPTED'
-            ? [
-                [
-                  'Owner Invite',
-                  application.ownerInvite.status === 'EXPIRED'
-                    ? `Expired ${dateParts(application.ownerInvite.expiresAt)[0]}`
-                    : `${humanize(application.ownerInvite.status)}, expires ${dateParts(application.ownerInvite.expiresAt)[0]}`,
-                ] as const,
-              ]
-            : []),
+          ...firmFields,
           ['Additional Information', account.additionalInfo],
         ]
       : [
@@ -277,8 +284,8 @@ function ApplicationRecord({
             Notes saved.
           </p>
         )}
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="min-w-0 flex-1 text-xs text-muted">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="min-w-0 grow basis-40 text-xs text-muted">
             Notes are only visible to Firmivra administrators.
           </p>
           <Button
@@ -320,8 +327,9 @@ function ApplicationRecord({
           {notice}
         </p>
       ) : null}
-      <header className="flex flex-wrap items-start justify-between gap-4 xl:flex-nowrap">
-        <div className="min-w-0 flex-1">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        {/* Below 2xl the buttons drop under a one-line title. */}
+        <div className="min-w-0 grow basis-full 2xl:basis-96">
           <div className="flex flex-wrap items-center gap-4">
             <h1
               data-testid="page-title"
@@ -352,7 +360,7 @@ function ApplicationRecord({
           )}
         </div>
         {canDecide && (
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               disabled={busy}
               className="enabled:!bg-success enabled:hover:!bg-success/90"
@@ -372,7 +380,7 @@ function ApplicationRecord({
             </Button>
             <Button
               variant="outline"
-              className="enabled:!border-danger enabled:!bg-danger-soft enabled:!text-danger enabled:hover:!bg-danger/15"
+              className="enabled:!border-danger enabled:!bg-danger-soft enabled:!text-danger enabled:hover:!bg-danger/10"
               disabled={busy}
               onClick={() => openAction('decline')}
             >
@@ -396,13 +404,13 @@ function ApplicationRecord({
         )}
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <FieldCard icon={Building2} title="Business Information" fields={businessFields} />
         <FieldCard icon={UserRound} title="Primary Administrator" fields={adminFields} />
         <FieldCard icon={FileText} title="Account Details" fields={accountFields} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {firm ? (
           <>
             <Card className="!p-4">
@@ -422,7 +430,7 @@ function ApplicationRecord({
       </div>
 
       {/* Not in the mockups, but the review needs them (PROJECT-DRAFT-v2: automated checks). */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {firm ? documentsCard : null}
         <Card className="!p-4">
           <CardHeading icon={IdCard}>Credentials</CardHeading>

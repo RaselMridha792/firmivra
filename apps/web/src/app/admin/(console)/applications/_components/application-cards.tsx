@@ -30,7 +30,7 @@ export function FieldCard({
   fields: readonly Field[];
 }) {
   return (
-    <Card className="!p-3">
+    <Card className="!p-4">
       <CardHeading icon={icon}>{title}</CardHeading>
       <dl className="mt-4 overflow-hidden rounded-control bg-canvas text-sm">
         {fields.map(([label, value]) => (
@@ -55,7 +55,7 @@ export function formatPhone(value: string | null | undefined) {
 /** The documents table; "No documents uploaded." in its body when there are none. */
 export function DocumentsTable({ documents }: { documents: FirmApplicationRecord['documents'] }) {
   return (
-    <div className="mt-4 overflow-hidden rounded-control border border-border">
+    <div className="mt-4 overflow-x-auto rounded-control border border-border">
       <table className="w-full text-left text-sm">
         <thead className="bg-folder-surface text-text">
           <tr>
@@ -111,7 +111,7 @@ export function Timeline({ application }: { application: FirmApplicationRecord }
     if (event.type === 'SUBMITTED')
       return `Application received from ${application.contactName} (${application.contactEmail}).`;
     if (event.type === 'OWNER_INVITED')
-      return `Activation link sent to ${application.primaryAdmin?.email ?? application.contactEmail}.`;
+      return `Activation link sent to ${application.contactEmail}.`;
     if (event.type === 'FIRM_ACTIVATED') return 'The owner finished setup; the firm is active.';
     return event.by ? `Recorded by ${event.by.name}.` : 'Recorded by a Firmivra administrator.';
   };
@@ -122,14 +122,14 @@ export function Timeline({ application }: { application: FirmApplicationRecord }
         return (
           <li
             key={`${event.at}-${event.type}-${event.by?.userId ?? 'applicant'}-${event.message ?? ''}`}
-            className="relative grid grid-cols-7 gap-3 pb-4 pl-6 text-sm before:absolute before:top-2 before:bottom-0 before:left-1.5 before:border-l-2 before:border-folder-border last:before:hidden"
+            className="relative flex gap-3 pb-4 pl-6 text-sm before:absolute before:top-2 before:bottom-0 before:left-1.5 before:border-l-2 before:border-folder-border last:before:hidden"
           >
             <span aria-hidden className="absolute top-1 left-0 size-3 rounded-pill bg-link" />
-            <time dateTime={event.at} className="col-span-2 whitespace-nowrap text-muted">
+            <time dateTime={event.at} className="w-24 shrink-0 text-muted">
               {day}
               <span className="block">{time}</span>
             </time>
-            <span className="col-span-5">
+            <span className="min-w-0 flex-1 break-words">
               <span className="block font-semibold text-text">{EVENT_TITLES[event.type]}</span>
               <span className="text-muted">{describe(event)}</span>
             </span>
