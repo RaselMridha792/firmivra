@@ -2,6 +2,7 @@ import {
   ApiRequestError,
   type PaymentsSetup,
   type PaymentsSetupClient,
+  PaymentsSetupStage,
   setupRequirementsDue,
   StripeOnboardingLink,
 } from '@firmivra/types';
@@ -12,26 +13,31 @@ import { mockDelay } from '../lib/mock';
  * as the API: the Owner and Admins read, only the Owner starts or refreshes onboarding (Admin 403),
  * Staff get 403 on every call. `start` connects the firm (setup not finished) and answers a
  * `mock:` link that opens nothing; no Stripe here, so the account never finishes by itself.
- * `stage` starts the firm at another point, to try each state of the page.
+ * `stage` starts the firm at another point (a `PaymentsSetupStage`, the same values the page reads
+ * from `paymentsSetupStage()`), to try each state of the page. In apps/web/.env.local set
+ * NEXT_PUBLIC_API_MOCK_PAYMENTS_STAGE=IN_REVIEW (for example); anything else starts NOT_CONNECTED.
  */
-export type MockSetupStage =
-  'NOT_CONNECTED' | 'ONBOARDING' | 'IN_REVIEW' | 'RESTRICTED' | 'COMPLETE';
+const stageSetting = process.env.NEXT_PUBLIC_API_MOCK_PAYMENTS_STAGE;
+
+/** Stage the mock firm starts at: NEXT_PUBLIC_API_MOCK_PAYMENTS_STAGE if valid, else NOT_CONNECTED. */
+export const MOCK_PAYMENTS_STAGE: PaymentsSetupStage =
+  PaymentsSetupStage.options.find((stage) => stage === stageSetting) ?? 'NOT_CONNECTED';
 
 const at = '2026-10-09T09:00:00.000Z';
 
-function setupAt(stage: MockSetupStage): PaymentsSetup {
+function setupAt(stage: PaymentsSetupStage): PaymentsSetup {
   const connected = stage !== 'NOT_CONNECTED';
-  const complete = stage === 'COMPLETE';
+  const complete = stage === 'CONNECTED';
   const setup = {
     connected,
     onboardingStatus: !connected
       ? null
       : complete
         ? ('COMPLETE' as const)
-        : stage === 'RESTRICTED'
+        : stage === 'NEEDS_ATTENTION'
           ? ('RESTRICTED' as const)
           : ('PENDING' as const),
-    chargesEnabled: complete || stage === 'RESTRICTED',
+    chargesEnabled: complete || stage === 'NEEDS_ATTENTION',
     payoutsEnabled: complete,
     detailsSubmitted: connected && stage !== 'ONBOARDING',
     updatedAt: connected ? at : null,
@@ -43,7 +49,7 @@ const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 
 export function createPaymentsSetupMock(
-  options: { role?: 'OWNER' | 'ADMIN' | 'STAFF'; stage?: MockSetupStage } = {},
+  options: { role?: 'OWNER' | 'ADMIN' | 'STAFF'; stage?: PaymentsSetupStage } = {},
 ): PaymentsSetupClient {
   let setup = setupAt(options.stage ?? 'NOT_CONNECTED');
   let links = 0;
