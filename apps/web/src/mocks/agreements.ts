@@ -201,7 +201,8 @@ const link = () => ({
 
 /**
  * An in-memory `api.agreements`. `role: 'STAFF'` gets 403 FORBIDDEN on every call, as in the API.
- * `pdfRequired: false` lets a version publish without a PDF (AGREEMENT_PDF_REQUIRED off).
+ * `pdfRequired: true` refuses a version without a PDF (AGREEMENT_PDF_REQUIRED on; off by default,
+ * as in the API).
  */
 export function createAgreementsMock(
   options: { role?: MockFirmRole; pdfRequired?: boolean } = {},
@@ -303,7 +304,7 @@ export function createAgreementsMock(
         file = fileView(input.pdfFileId);
         if (file.scanStatus === 'PENDING') throw fail(409, 'FILE_NOT_READY', 'Still checking');
         if (file.scanStatus !== 'CLEAN') throw fail(409, 'FILE_BLOCKED', 'File blocked');
-      } else if (options.pdfRequired !== false) {
+      } else if (options.pdfRequired === true) {
         throw fail(409, 'PDF_REQUIRED', 'Upload the PDF original first');
       }
       const v: AgreementVersion = {

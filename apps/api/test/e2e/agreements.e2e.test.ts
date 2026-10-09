@@ -150,7 +150,9 @@ beforeAll(async () => {
     const uploader = key === 'a' ? people.ownerA.id : people.ownerB.id;
     await runInScope(owner, { kind: 'business', businessId }, async (tx) => {
       firm.serviceId = (
-        await tx.service.create({ data: { businessId, kind: 'BOOKKEEPING', name: 'Books' } })
+        await tx.service.create({
+          data: { businessId, kind: 'BOOKKEEPING', name: 'Books', beginOnline: true },
+        })
       ).id;
       // Clients with a login and an intake on the service (firm A: two, firm B: one).
       const logins =
@@ -290,6 +292,10 @@ describe('firm agreements', () => {
       const res = await publish(body);
       expect([res.status, codeOf(res)]).toEqual([status, code]);
     }
+    const noBox = await publish(version(null, firms.a.cleanFile, { acknowledgments: [] }));
+    expect((noBox.body as { error: { details: { path: string }[] } }).error.details[0]?.path).toBe(
+      'acknowledgments',
+    );
 
     const v1 = await publish(version(null, firms.a.cleanFile, { effectiveDate: '2026-10-01' }));
     expect(v1.status).toBe(201);
@@ -404,8 +410,7 @@ describe('firm agreements', () => {
       scope: 'ALL_INTAKES',
       version: 2,
       title: 'Version 2',
-      // No PDF download route yet, so never offered; the hash is still signed.
-      pdf: { available: false, sha256: sha(4) },
+      pdf: { available: true, sha256: sha(4) },
     });
     expect(parsed.agreements.slice(1).map((a) => a.title)).toEqual(['Extra 1', 'Extra 2']);
     expect(JSON.stringify(res.body)).not.toContain(firms.a.files[3]);
@@ -521,7 +526,7 @@ describe('firm agreements', () => {
     const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
     const other = await runInScope(owner, { kind: 'business', businessId: firms.a.id }, (tx) =>
       tx.service.create({
-        data: { businessId: firms.a.id, kind: 'TAX_PLANNING', name: 'Planning' },
+        data: { businessId: firms.a.id, kind: 'TAX_PLANNING', name: 'Planning', beginOnline: true },
       }),
     );
     await owner.$disconnect();
@@ -542,6 +547,17 @@ describe('firm agreements', () => {
     }
     const planning = IntakeAgreementBlock.parse((await block(firms.a.slug, 'TAX_PLANNING')).body);
     expect(planning.agreements.map((a) => a.agreementId)).toContain(id);
+
+    // A service not marked Begin Online is never the form's service.
+    const owner2 = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    await runInScope(owner2, { kind: 'business', businessId: firms.a.id }, (tx) =>
+      tx.service.create({
+        data: { businessId: firms.a.id, kind: 'BUSINESS_DEVELOPMENT', name: 'Not online' },
+      }),
+    );
+    await owner2.$disconnect();
+    const unmarked = await block(firms.a.slug, 'BUSINESS_DEVELOPMENT');
+    expect([unmarked.status, codeOf(unmarked)]).toEqual([404, 'NOT_FOUND']);
   });
 
   it('works on a Pending Setup firm: one firm-wide create wins a race, publish without a PDF when off', async () => {
@@ -564,6 +580,19 @@ describe('firm agreements', () => {
     const again = await asP('post', `/${id}/versions`, version(1, null));
     expect([again.status, codeOf(again)]).toEqual([409, 'PDF_REQUIRED']);
     expect((await asP('get', `/${id}/versions/1`)).status).toBe(200);
+    expect(FirmAgreementDetail.parse((await asP('get', `/${id}`)).body).versionCount).toBe(1);
+    // A service agreement on the Pending Setup firm archives too.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const svc = await runInScope(owner, { kind: 'business', businessId: firms.pending.id }, (tx) =>
+      tx.service.create({
+        data: { businessId: firms.pending.id, kind: 'BOOKKEEPING', name: 'Pending books' },
+      }),
+    );
+    await owner.$disconnect();
+    const created = await asP('post', '', { scope: 'SERVICE', serviceId: svc.id });
+    const archived = await asP('post', `/${FirmAgreementSummary.parse(created.body).id}/archive`);
+    expect(archived.status).toBe(200);
+    expect(FirmAgreementSummary.parse(archived.body).archivedAt).not.toBeNull();
   });
 
   it('a client login is not a firm manager', async () => {

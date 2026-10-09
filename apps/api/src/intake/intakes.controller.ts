@@ -12,8 +12,10 @@ import {
 } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  ClientId,
   ConfirmUploadRequest,
   CreateIntakeUploadRequest,
+  EngagementId,
   IntakeId,
   IntakeKey,
   type IntakeList,
@@ -42,11 +44,14 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { DocumentsModule } from '../storage/documents.controller.js';
 import { AgreementsModule } from '../agreements/agreements.controller.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { INTAKE_SIGNING, INTAKE_SIGNING_PROVIDER, type IntakeSigner } from './intake-signing.js';
 import { type IntakeUploader, IntakeUploadsService } from './intake-uploads.service.js';
 import { type IntakeReach, IntakesService, type PortalClient } from './intakes.service.js';
 
 const idPipe = new ZodValidationPipe(IntakeId);
+const clientIdPipe = new ZodValidationPipe(ClientId);
+const engagementIdPipe = new ZodValidationPipe(EngagementId);
 const uploadIdPipe = new ZodValidationPipe(IntakeUploadId);
 const stepPipe = new ZodValidationPipe(IntakeKey);
 /** Contract B's body; a portal signature carries no Terms and Privacy acceptance. */
@@ -145,6 +150,7 @@ export class MyIntakesController {
 
   /** `createUpload(id, body)`. */
   @Post(':id/uploads')
+  @HttpCode(200)
   async createUpload(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
@@ -189,7 +195,7 @@ export class ClientIntakesController {
   async list(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
-    @Param('id', idPipe) clientId: string,
+    @Param('id', clientIdPipe) clientId: string,
   ): Promise<IntakeList> {
     return { items: await this.intakes.list(tenant.businessId, staff(auth, tenant), clientId) };
   }
@@ -198,7 +204,7 @@ export class ClientIntakesController {
   send(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
-    @Param('id', idPipe) engagementId: string,
+    @Param('id', engagementIdPipe) engagementId: string,
     @Body(new ZodValidationPipe(SendIntakeRequest)) body: z.output<typeof SendIntakeRequest>,
   ): Promise<IntakeView> {
     return this.intakes.start(tenant.businessId, staff(auth, tenant), engagementId, {
@@ -269,7 +275,7 @@ export class IntakesController {
 }
 
 @Module({
-  imports: [FieldEncryptionModule, DocumentsModule, AgreementsModule],
+  imports: [FieldEncryptionModule, DocumentsModule, AgreementsModule, NotificationsModule],
   controllers: [MyIntakesController, ClientIntakesController, IntakesController],
   providers: [IntakesService, IntakeUploadsService, INTAKE_SIGNING_PROVIDER],
   exports: [IntakesService, INTAKE_SIGNING],

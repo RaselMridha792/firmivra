@@ -1,13 +1,13 @@
-import { PageContainer } from '@firmivra/ui';
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { ResumeScreen } from './_components/resume-screen';
 
 export const metadata: Metadata = { title: 'Resume your form' };
 
-export default function ResumeYourFormPage() {
-  return (
-    <PageContainer className="py-8">
-      <PagePlaceholder title="Resume your form" ticket="N07c" owner="Arfan" />
-    </PageContainer>
-  );
+export default async function ResumeYourFormPage({
+  params,
+}: {
+  params: Promise<{ firmSlug: string }>;
+}) {
+  const { firmSlug } = await params;
+  return <ResumeScreen firmSlug={firmSlug} />;
 }
