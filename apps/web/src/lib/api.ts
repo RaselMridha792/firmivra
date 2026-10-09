@@ -31,6 +31,7 @@ import {
   createMyReportsClient,
   createMyServicesClient,
   createMySignaturesClient,
+  createSigningClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
   createPaymentsSetupClient,
@@ -56,7 +57,12 @@ import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
-import { createEsignMock, mySignaturesMock } from '../mocks/esign';
+import {
+  createEsignMock,
+  createSigningMock,
+  MOCK_ESIGN_ROLE,
+  mySignaturesMock,
+} from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
@@ -240,7 +246,7 @@ export const api = {
   /** Firm Sign (R13): signature requests for the firm; `status()` for the menu (docs/api/esign.yaml). */
   esign:
     dev && mocked('esign')
-      ? createEsignMock({ role: MOCK_ROLE })
+      ? createEsignMock({ role: MOCK_ESIGN_ROLE ?? MOCK_ROLE })
       : createEsignClient(request, options.baseUrl),
   /** Firm Sign (R13): the signed-in client's Signature center, per firm (portal). */
   mySignatures: (firmSlug: string) =>
@@ -255,6 +261,11 @@ export const api = {
   /** Intake forms (R11): the signed-in client's Intake Forms tab, per firm (portal). */
   myIntakes: (firmSlug: string) =>
     dev && mocked('myIntakes') ? myIntakesMock(firmSlug) : createMyIntakesClient(request, firmSlug),
+  /** Firm Sign (R13): the signer pages at /{slug}/sign, no account (a link plus a code). */
+  signing: (firmSlug: string) =>
+    dev && mocked('signing')
+      ? createSigningMock(firmSlug)
+      : createSigningClient(request, firmSlug, options.baseUrl),
   /** Messages (R20): the firm's threads with its clients; read state and unread counts (docs/api/messages.yaml). */
   messages:
     dev && mocked('messages')

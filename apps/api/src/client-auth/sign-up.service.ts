@@ -183,6 +183,12 @@ export async function atLeast<T>(ms: number, work: () => Promise<T>): Promise<T>
  *   Any other existing account: the attempt goes nowhere, and the owner gets one email saying so.
  * The pages store nothing: the sealed cookie says which attempt and account.
  */
+/** What `attemptState` reads, from a transaction or the platform client. */
+type AttemptReader = {
+  user: Pick<TxClient['user'], 'findUnique'>;
+  auditLog: Pick<TxClient['auditLog'], 'count' | 'findFirst'>;
+};
+
 @Injectable()
 export class SignUpService {
   private readonly secure: boolean;
@@ -839,7 +845,8 @@ export class SignUpService {
    * the login is gone (taken over and retired).
    */
   private async attemptState(userId: string, tx?: TxClient): Promise<AttemptState | null> {
-    const platform = tx ?? this.db.forPlatform();
+    // One narrow type for both clients: the union of the two Prisma clients is too deep for tsc.
+    const platform: AttemptReader = tx ?? (this.db.forPlatform() as unknown as AttemptReader);
     const user = await platform.user.findUnique({
       where: { id: userId },
       select: { createdAt: true },
