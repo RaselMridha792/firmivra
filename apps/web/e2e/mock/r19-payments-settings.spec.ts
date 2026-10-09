@@ -167,6 +167,40 @@ test.describe('answers from the API', () => {
     expect(started).toBe(0);
   });
 
+  test('set up in another tab meanwhile: the 409 shows the status as it is now', async ({
+    page,
+  }) => {
+    let complete = false;
+    await page.route(SETUP_API, (route) =>
+      route.fulfill({
+        json: {
+          connected: true,
+          onboardingStatus: complete ? 'COMPLETE' : 'PENDING',
+          chargesEnabled: complete,
+          payoutsEnabled: complete,
+          detailsSubmitted: complete,
+          requirementsDue: !complete,
+          updatedAt: '2026-10-09T09:00:00.000Z',
+        },
+      }),
+    );
+    await page.route(`${SETUP_API}/onboarding`, (route) => {
+      complete = true;
+      return route.fulfill({
+        status: 409,
+        json: { error: { code: 'PAYMENTS_ALREADY_SET_UP', message: 'x' } },
+      });
+    });
+    await page.goto(payments(port));
+    await expect(page.getByTestId('payments-stage')).toHaveText('Setup not finished');
+    const reread = page.waitForRequest(
+      (r) => r.url().endsWith('/api/v1/business/payments/setup') && r.method() === 'GET',
+    );
+    await page.getByRole('button', { name: 'Continue setup' }).click();
+    await reread;
+    await expect(page.getByTestId('payments-stage')).toHaveText('Connected');
+  });
+
   test('a 503 from the setup API says payments are not available yet', async ({ page }) => {
     await page.route(SETUP_API, (route) =>
       route.fulfill({

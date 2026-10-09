@@ -9,6 +9,7 @@ import {
   type StripeOnboardingReturn,
 } from '@firmivra/types';
 import { Badge, Button, Card } from '@firmivra/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { RequireRole } from '../../../../../../components/require-role';
@@ -126,15 +127,18 @@ function SetupCard({ setup, expired }: { setup: PaymentsSetup; expired: boolean 
 function ConnectButton({ label, refresh }: { label: string; refresh: boolean }) {
   const [leaving, setLeaving] = useState(false);
   const [mockLink, setMockLink] = useState(false);
+  const client = useQueryClient();
   // Back from Stripe via the browser's Back button: the page may come from the back-forward
-  // cache with `leaving` still set, so make the button usable again.
+  // cache with `leaving` still set and an old status, so make the button usable and ask again.
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) setLeaving(false);
+      if (!event.persisted) return;
+      setLeaving(false);
+      void client.invalidateQueries({ queryKey: PAYMENTS_SETUP });
     };
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
-  }, []);
+  }, [client]);
   const connect = useApiMutation(
     () => (refresh ? api.paymentsSetup.refresh() : api.paymentsSetup.start()),
     { invalidate: PAYMENTS_SETUP },
@@ -147,6 +151,12 @@ function ConnectButton({ label, refresh }: { label: string; refresh: boolean }) 
         if (url.startsWith('mock:')) return setMockLink(true);
         setLeaving(true);
         window.location.assign(url);
+      },
+      // Set up already (finished in another tab, say): show the status as it is now.
+      onError: (error) => {
+        if (errorCode(error) === 'PAYMENTS_ALREADY_SET_UP') {
+          void client.invalidateQueries({ queryKey: PAYMENTS_SETUP });
+        }
       },
     });
 
