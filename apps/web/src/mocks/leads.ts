@@ -5,13 +5,14 @@ import {
   INTAKE_FORMS,
   type LeadDetail,
   LeadId,
+  LeadUploadId,
   type LeadListItem,
   type LeadsClient,
   ListLeadsQuery,
   parseInput,
   type ServiceRef,
 } from '@firmivra/types';
-import { mockStaff, type MockFirmRole } from './clients';
+import { clientFixtures, mockStaff, type MockFirmRole } from './clients';
 
 /**
  * Mock data for `api.leads` (R11): the firm's Begin Online inbox. Synthetic data only. Same input
@@ -53,7 +54,19 @@ function fixture(
       status: 'SUBMITTED',
       formVersion: 1,
       definition,
-      answers: { email: data.email, firstName: data.firstName, lastName: data.lastName },
+      // SSNs come back as their last 4 only, as from the API.
+      answers: {
+        email: data.email,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        ...(service.kind === 'ANNUAL_TAX'
+          ? {
+              ssn: { last4: '6789' },
+              spouseSsn: { last4: '1234' },
+              dependents: [{ id: 'd1', firstName: 'Riley', ssn: { last4: '4321' } }],
+            }
+          : {}),
+      },
       uploads: [
         {
           id: id(200 + n),
@@ -163,6 +176,12 @@ export function createLeadsMock(options: { role?: MockFirmRole } = {}): LeadsCli
       if (staff && b.assignedUserId && b.assignedUserId !== mockStaff.userId) {
         throw fail(403, 'FORBIDDEN', 'This action is not permitted');
       }
+      if (b.clientId) {
+        // As the API: Staff only into their own clients (404 otherwise); never an archived one.
+        const into = clientFixtures().find((c) => c.id === b.clientId);
+        if (!into || (staff && into.assignedTo?.userId !== mockStaff.userId)) throw notFound();
+        if (into.archivedAt) throw fail(409, 'CLIENT_ARCHIVED', 'Restore the client first');
+      }
       if (!b.clientId && lead.email === TAKEN_EMAIL) {
         throw fail(409, 'DUPLICATE_EMAIL', 'Another client has this email');
       }
@@ -185,7 +204,9 @@ export function createLeadsMock(options: { role?: MockFirmRole } = {}): LeadsCli
     },
     async downloadUpload(leadId, uploadId) {
       await pause();
-      const file = find(leadId).intake?.uploads.find((u) => u.id === parseInput(LeadId, uploadId));
+      const file = find(leadId).intake?.uploads.find(
+        (u) => u.id === parseInput(LeadUploadId, uploadId),
+      );
       if (!file) throw notFound();
       if (file.scanStatus !== 'CLEAN') {
         throw fail(409, 'FILE_NOT_AVAILABLE', 'This file is not available');

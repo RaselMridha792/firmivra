@@ -54,11 +54,11 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/clients` | `(workspace)/clients/page.tsx` | Fahad | F06 | none |
 | `/clients/[id]` | `(workspace)/clients/[id]/layout.tsx` (client header and tabs) and `page.tsx` (overview, contact, profile) | Fahad | F06 | none |
 | `/clients/[id]/documents` | `(workspace)/clients/[id]/documents/page.tsx` | Fahad | F07 | none |
-| `/clients/[id]/messages` | `(workspace)/clients/[id]/messages/page.tsx` (messages and internal notes) | Fahad | F10 | `client-portal/Messages and notes.png` for style |
-| `/clients/[id]/invoices` | `(workspace)/clients/[id]/invoices/page.tsx` | Fahad | F10 | `client-portal/invoices tab.png` for style |
+| `/clients/[id]/messages` | `(workspace)/clients/[id]/messages/page.tsx` (messages and internal notes) | Nahid | F10 | `client-portal/Messages and notes.png` for style |
+| `/clients/[id]/invoices` | `(workspace)/clients/[id]/invoices/page.tsx` | Nahid | F10 | `client-portal/invoices tab.png` for style |
 | `/sign-ups` | `(workspace)/sign-ups/page.tsx` | Fahad | F06 | none |
-| `/messages` | `(workspace)/messages/page.tsx` | Fahad | F10 | none |
-| `/invoices` | `(workspace)/invoices/page.tsx` | Fahad | F10 | none |
+| `/messages` | `(workspace)/messages/page.tsx` | Nahid | F10 | none |
+| `/invoices` | `(workspace)/invoices/page.tsx` | Nahid | F10 | none |
 | `/workspaces` | `(workspace)/workspaces/page.tsx` | Fahad | F11 | none |
 | `/workspaces/[engagementId]` | `(workspace)/workspaces/[engagementId]/page.tsx` | Fahad | F11 | none |
 | `/leads` | `(workspace)/leads/page.tsx` | Arfan | F08 | none |
@@ -99,15 +99,15 @@ Public pages (firm header and footer, no sidebar), in `portal/[firmSlug]/(public
 
 | URL | File | Owner | Ticket | Mockup (`client-portal/` or `begin-online/`) |
 | --- | --- | --- | --- | --- |
-| header and footer | `(public)/layout.tsx` | Nahid | N01 | `Client portal landing page.png` |
-| `/{firm}` | `(public)/page.tsx` | Nahid | N01 | `Client portal landing page.png` |
-| `/{firm}/sign-in` | `(public)/sign-in/page.tsx` | Nahid | N03 | sign-up style |
-| `/{firm}/forgot-password` | `(public)/forgot-password/page.tsx` | Nahid | N03 | sign-up style |
-| `/{firm}/reset-password` | `(public)/reset-password/page.tsx` | Nahid | N03 | sign-up style |
-| `/{firm}/sign-up` | `(public)/sign-up/page.tsx` | Nahid | N02 | `LVP Client Portal Sign-Up Page.png` |
-| `/{firm}/sign-up/verify-email` | `(public)/sign-up/verify-email/page.tsx` | Nahid | N02 | `Verify email .png` |
-| `/{firm}/sign-up/verify-phone` | `(public)/sign-up/verify-phone/page.tsx` | Nahid | N02 | `Verify phone.png` |
-| `/{firm}/sign-up/done` (also where a pending client lands after sign-in) | `(public)/sign-up/done/page.tsx` | Nahid | N02 | `LVP Client Portal Account Confirmation.png` |
+| header and footer | `(public)/layout.tsx` | R17 (Rasel) | N01 | `Client portal landing page.png` |
+| `/{firm}` | `(public)/page.tsx` | R17 (Rasel) | N01 | `Client portal landing page.png` |
+| `/{firm}/sign-in` | `(public)/sign-in/page.tsx` | R17 (Rasel) | N03 | sign-up style |
+| `/{firm}/forgot-password` | `(public)/forgot-password/page.tsx` | R17 (Rasel) | N03 | sign-up style |
+| `/{firm}/reset-password` | `(public)/reset-password/page.tsx` | R17 (Rasel) | N03 | sign-up style |
+| `/{firm}/sign-up` | `(public)/sign-up/page.tsx` | R17 (Rasel) | N02 | `LVP Client Portal Sign-Up Page.png` |
+| `/{firm}/sign-up/verify-email` | `(public)/sign-up/verify-email/page.tsx` | R17 (Rasel) | N02 | `Verify email .png` |
+| `/{firm}/sign-up/verify-phone` | `(public)/sign-up/verify-phone/page.tsx` | R17 (Rasel) | N02 | `Verify phone.png` |
+| `/{firm}/sign-up/done` (also where a pending client lands after sign-in) | `(public)/sign-up/done/page.tsx` | R17 (Rasel) | N02 | `LVP Client Portal Account Confirmation.png` |
 | `/{firm}/begin` | `(public)/begin/page.tsx` | Arfan | N07a | `Begin online.png` |
 | `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | Arfan | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
 | `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | Arfan | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
@@ -135,32 +135,32 @@ Signed-in pages (sidebar, header, footer), in `portal/[firmSlug]/(client)/`:
 
 | URL | File | Owner | Ticket | Mockup (`client-portal/`) |
 | --- | --- | --- | --- | --- |
-| shell | `(client)/layout.tsx` | Nahid | N01 | `My docs tab.png` |
-| folder tabs and right column | `(client)/(tabs)/layout.tsx` | Nahid | N01 | `My docs tab.png` |
+| shell | `(client)/layout.tsx` | R17 (Rasel) | N01 | `My docs tab.png` |
+| folder tabs and right column | `(client)/(tabs)/layout.tsx` | R17 (Rasel) | N01 | `My docs tab.png` |
 | `/{firm}/home` | `(client)/home/route.ts` (opens Intake Forms) | R1 | | |
-| `/{firm}/intake` | `(client)/(tabs)/intake/page.tsx` | Nahid | N06 | `Intake form tab.png` |
-| `/{firm}/business` | `(client)/(tabs)/business/page.tsx` | Nahid | N09 | `Business Tab.png` |
-| `/{firm}/documents` | `(client)/(tabs)/documents/page.tsx` | Nahid | N05 | `My docs tab.png`, `Upload docs popup.png` |
-| `/{firm}/taxes` | `(client)/(tabs)/taxes/page.tsx` | Nahid | N06 | `Taxes tab.png` |
-| `/{firm}/invoices` | `(client)/(tabs)/invoices/page.tsx` | Nahid | N09 | `invoices tab.png` |
-| `/{firm}/messages` | `(client)/(tabs)/messages/page.tsx` | Nahid | N09 | `Messages and notes.png` |
+| `/{firm}/intake` | `(client)/(tabs)/intake/page.tsx` | R17 (Rasel) | N06 | `Intake form tab.png` |
+| `/{firm}/business` | `(client)/(tabs)/business/page.tsx` | R17 (Rasel) | N09 | `Business Tab.png` |
+| `/{firm}/documents` | `(client)/(tabs)/documents/page.tsx` | R17 (Rasel) | N05 | `My docs tab.png`, `Upload docs popup.png` |
+| `/{firm}/taxes` | `(client)/(tabs)/taxes/page.tsx` | R17 (Rasel) | N06 | `Taxes tab.png` |
+| `/{firm}/invoices` | `(client)/(tabs)/invoices/page.tsx` | R17 (Rasel) | N09 | `invoices tab.png` |
+| `/{firm}/messages` | `(client)/(tabs)/messages/page.tsx` | R17 (Rasel) | N09 | `Messages and notes.png` |
 | `/{firm}/appointments` | `(client)/appointments/page.tsx` | Tumit | N08 | none |
-| `/{firm}/services` | `(client)/services/page.tsx` | Nahid | N06 | none |
-| `/{firm}/profile` | `(client)/profile/page.tsx` | Nahid | N05 | `My profile.png` |
-| `/{firm}/resources/startup-guide` | `(client)/resources/startup-guide/page.tsx` | Nahid | N10 | ` Business Startup Guide Dashboard.png` |
-| `/{firm}/resources/record-keeping` | `(client)/resources/record-keeping/page.tsx` | Nahid | N10 | `Record Keeping Best Practices Dashboard.png` |
-| `/{firm}/resources/payroll` | `(client)/resources/payroll/page.tsx` | Nahid | N10 | `payroll_resources_dashboard.png` |
-| `/{firm}/resources/tax-deductions` | `(client)/resources/tax-deductions/page.tsx` | Nahid | N10 | `LVP_Tax_Deductions_Small_Businesses.png` |
-| `/{firm}/resources/external-links` | `(client)/resources/external-links/page.tsx` | Nahid | N09 | `External links .png` |
+| `/{firm}/services` | `(client)/services/page.tsx` | R17 (Rasel) | N06 | none |
+| `/{firm}/profile` | `(client)/profile/page.tsx` | R17 (Rasel) | N05 | `My profile.png` |
+| `/{firm}/resources/startup-guide` | `(client)/resources/startup-guide/page.tsx` | R17 (Rasel) | N10 | ` Business Startup Guide Dashboard.png` |
+| `/{firm}/resources/record-keeping` | `(client)/resources/record-keeping/page.tsx` | R17 (Rasel) | N10 | `Record Keeping Best Practices Dashboard.png` |
+| `/{firm}/resources/payroll` | `(client)/resources/payroll/page.tsx` | R17 (Rasel) | N10 | `payroll_resources_dashboard.png` |
+| `/{firm}/resources/tax-deductions` | `(client)/resources/tax-deductions/page.tsx` | R17 (Rasel) | N10 | `LVP_Tax_Deductions_Small_Businesses.png` |
+| `/{firm}/resources/external-links` | `(client)/resources/external-links/page.tsx` | R17 (Rasel) | N09 | `External links .png` |
 | `/{firm}/calculator` (the signed-in hub) | `(client)/calculator/page.tsx` | R14 | calculators | none yet |
 | `/{firm}/calculator/tax-return` | `(client)/calculator/tax-return/page.tsx` | R14 | calculators | none yet |
 | `/{firm}/calculator/quarterly-estimate` | `(client)/calculator/quarterly-estimate/page.tsx` | R14 | calculators | none yet |
 | `/{firm}/calculator/tax-bracket` | `(client)/calculator/tax-bracket/page.tsx` | R14 | calculators | none yet |
 | `/{firm}/signatures` (Signature center) | `(client)/signatures/page.tsx` | R13-web | Firm Sign | Firm Sign spec |
-| `/{firm}/notifications` | `(client)/notifications/page.tsx` | Nahid | N10 | none |
+| `/{firm}/notifications` | `(client)/notifications/page.tsx` | R17 (Rasel) | N10 | none |
 
 Sidebar: Home, My Documents, Intake Forms, Messages (unread count), Appointments, Invoices & Payments, My Services, My Profile, Log Out.
-Nahid adds two menu lines in `(client)/layout.tsx`: "Signatures", shown only when `api.esign.status()` says enabled, and "Tax Calculators", shown only when the client's calculator list isn't empty. R14 owns the eight calculator files (the public hub and three calculators, the signed-in hub and three calculators).
+R17 (Rasel) adds two menu lines in `(client)/layout.tsx`: "Signatures", shown only when `api.esign.status()` says enabled, and "Tax Calculators", shown only when the client's calculator list isn't empty. R14 owns the eight calculator files (the public hub and three calculators, the signed-in hub and three calculators).
 Folder tabs: Intake Form, Business Documents & Resources, My Uploaded Documents, Tax Returns, Receipts & Invoices, Messages and Notes.
 
 ## Shared code
@@ -183,7 +183,7 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/components/auth/`, `apps/web/src/components/sign-in-panel.tsx`, `apps/web/src/components/notification-bell.tsx`
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
-- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's), `sign-ups/`, `messages/`, `invoices/`, `workspaces/`
+- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/` and `clients/[id]/invoices/`, Nahid's), `sign-ups/`, `workspaces/`
 - `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
 **Tumit**
@@ -194,10 +194,9 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
 - `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
-**Nahid**
-- `apps/web/src/app/portal/[firmSlug]/layout.tsx`
-- `apps/web/src/app/portal/[firmSlug]/(public)/`, except `begin/` and `calculators/` (R14's)
-- `apps/web/src/app/portal/[firmSlug]/(client)/`, except `appointments/`, `home/`, `calculator/` (R14's) and `signatures/` (R13-web's)
+**Nahid** (F10, from Oct 9; the portal pages moved to R17)
+- `apps/web/src/app/firm/(workspace)/messages/`, `(workspace)/invoices/`
+- `apps/web/src/app/firm/(workspace)/clients/[id]/messages/`, `clients/[id]/invoices/`
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
 **Arfan**

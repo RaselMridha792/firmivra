@@ -4,7 +4,7 @@ import { MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
 import { DownloadLink } from '../documents/schemas.js';
 import { ServiceRef } from '../engagements/schemas.js';
-import { IntakeAnswers } from '../intake/answers.js';
+import { IntakeAnswers, intakeNumbersMasked } from '../intake/answers.js';
 import { IntakeFormDefinition } from '../intake/definition.js';
 
 export { DownloadLink, LeadStatus };
@@ -20,6 +20,8 @@ export { DownloadLink, LeadStatus };
 const DateTime = z.iso.datetime({ offset: true });
 
 export const LeadId = z.uuid();
+/** A lead upload's id in a path. */
+export const LeadUploadId = z.uuid();
 
 /** The statuses the firm sees: a lead the visitor sent, and what the firm did with it. */
 export const ReviewedLeadStatus = LeadStatus.exclude(['DRAFT', 'EXPIRED']);
@@ -81,16 +83,23 @@ export const LeadUpload = z.object({
 export type LeadUpload = z.infer<typeof LeadUpload>;
 
 /** The lead's intake: the form version the visitor filled and the answers they sent. */
-export const LeadIntake = z.object({
-  id: z.uuid(),
-  status: IntakeStatus,
-  formVersion: z.number().int(),
-  /** The definition the answers follow, to lay them out step by step. */
-  definition: IntakeFormDefinition,
-  /** SSN and EIN answers come back as `{ last4 }` only. */
-  answers: IntakeAnswers,
-  uploads: z.array(LeadUpload),
-});
+export const LeadIntake = z
+  .object({
+    id: z.uuid(),
+    status: IntakeStatus,
+    formVersion: z.number().int(),
+    /** The definition the answers follow, to lay them out step by step. */
+    definition: IntakeFormDefinition,
+    /** SSN and EIN answers come back as `{ last4 }` only. */
+    answers: IntakeAnswers,
+    uploads: z.array(LeadUpload),
+  })
+  .superRefine((intake, ctx) => {
+    // A full number never reaches the screen, even if the API got it wrong.
+    if (!intakeNumbersMasked(intake.definition, intake.answers)) {
+      ctx.addIssue({ code: 'custom', path: ['answers'], message: 'An SSN or EIN is not masked' });
+    }
+  });
 export type LeadIntake = z.infer<typeof LeadIntake>;
 
 /** GET /business/leads/{id}: the lead with its answers, for review. */
