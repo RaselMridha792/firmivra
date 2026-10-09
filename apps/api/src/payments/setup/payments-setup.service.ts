@@ -1,6 +1,6 @@
 import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { Database } from '@firmivra/db';
-import { type PaymentsSetup, setupRequirementsDue } from '@firmivra/types';
+import { PAYMENTS_SETUP_ERRORS, type PaymentsSetup, setupRequirementsDue } from '@firmivra/types';
 import { DATABASE } from '../../database/database.module.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 
@@ -28,7 +28,7 @@ export function toPaymentsSetup(row: AccountRow | null): PaymentsSetup {
 export const providerUnavailable = () =>
   new ServiceUnavailableException({
     code: 'PAYMENT_PROVIDER_UNAVAILABLE',
-    message: 'Stripe is not answering right now. Nothing was changed. Try again in a moment.',
+    message: PAYMENTS_SETUP_ERRORS.PAYMENT_PROVIDER_UNAVAILABLE,
   });
 
 /**
