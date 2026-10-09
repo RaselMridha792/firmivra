@@ -1,6 +1,11 @@
-import type { EsignEventRecord, EsignRequestRecord } from '../requests/esign.repository.js';
+import type {
+  EsignEventRecord,
+  EsignRecipientRecord,
+  EsignRequestParts,
+  EsignRequestRecord,
+} from '../requests/esign.repository.js';
 
-// Firm Sign's lifecycle storage (R13): remind and void (correct and replace follow). Like the other esign
+// Firm Sign's lifecycle storage (R13): remind, void, correct and replace. Like the other esign
 // ports, every method takes the firm first and the Prisma implementation (with r0_esign) uses only
 // forBusiness(businessId), never the owner client. Each write runs in one transaction under the
 // request's FOR UPDATE lock and applies only while its lastActivityAt is still `readAt` (every
@@ -40,6 +45,24 @@ export interface VoidWrite extends LifecycleWrite {
   byUserId: string;
 }
 
+/**
+ * The recipient's name, email or phone. token_version + 1, so every earlier link of theirs stops
+ * working, and an open email code is dropped; then `link`, when it is their turn.
+ */
+export interface CorrectWrite extends LifecycleWrite {
+  recipientId: string;
+  patch: Partial<Pick<EsignRecipientRecord, 'name' | 'email' | 'phone'>>;
+  link: IssuedLink | null;
+}
+
+/** The new DRAFT, with its own ids throughout (its files already copied in the store). */
+export interface Replacement {
+  record: EsignRequestRecord;
+  parts: EsignRequestParts;
+  /** Its CREATED event (`events` are the old request's). */
+  event: EsignEventRecord;
+}
+
 /** The request as written and the queued emails' ids, in `emails` order. */
 export interface LifecycleWritten {
   request: EsignRequestRecord;
@@ -60,6 +83,22 @@ export interface EsignLifecycleRepository {
     write: VoidWrite,
     readAt: Date,
   ): Promise<LifecycleWritten | null>;
+  correct(
+    businessId: string,
+    id: string,
+    write: CorrectWrite,
+    readAt: Date,
+  ): Promise<LifecycleWritten | null>;
+  /**
+   * Voids the request as `void` does, with replacedByRequestId, and inserts the new DRAFT (its
+   * replacesRequestId set) with its documents, page plan, recipients, fields and CREATED event.
+   */
+  replace(
+    businessId: string,
+    id: string,
+    write: VoidWrite & { replacement: Replacement },
+    readAt: Date,
+  ): Promise<(LifecycleWritten & { created: EsignRequestRecord }) | null>;
 }
 
 export const LIFECYCLE_REPOSITORY = Symbol('ESIGN_LIFECYCLE_REPOSITORY');

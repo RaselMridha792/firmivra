@@ -49,6 +49,8 @@ const withId = (id: string): Route[] => [
   ['post', `${base(id)}/send`, { confirm: true }],
   ['post', `${base(id)}/remind`, {}],
   ['post', `${base(id)}/void`, { reason: 'Fake reason' }],
+  ['post', `${base(id)}/recipients/${randomUUID()}/correct`, { name: 'Fake Name' }],
+  ['post', `${base(id)}/replace`, { reason: 'Fake reason' }],
 ];
 const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
@@ -146,6 +148,9 @@ describe('Firm Sign draft routes', () => {
       ['put', `${base(anyId)}/fields`, { fields: [], extra: true }],
       ['post', `${base(anyId)}/remind`, { recipientId: 'not-a-uuid' }],
       ['post', `${base(anyId)}/void`, { reason: '' }],
+      ['post', `${base(anyId)}/recipients/${randomUUID()}/correct`, {}],
+      ['post', `${base(anyId)}/recipients/not-a-uuid/correct`, { name: 'Fake Name' }],
+      ['post', `${base(anyId)}/replace`, {}],
       ...['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1'].map((query): Route => [
         'get',
         `/api/v1/esign/requests?${query}`,

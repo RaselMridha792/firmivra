@@ -1,7 +1,10 @@
 import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  EsignCorrectRecipientBody,
+  EsignRecipientId,
   EsignRemindBody,
+  EsignReplaceBody,
   EsignRequestId,
   type EsignRequestDetail,
   EsignVoidBody,
@@ -15,7 +18,7 @@ import { EsignLifecycleService } from './lifecycle.service.js';
 
 const idPipe = new ZodValidationPipe(EsignRequestId);
 
-/** Remind and void a sent request (packages/types/src/esign/schemas.ts). */
+/** Remind, void, correct and replace a sent request (packages/types/src/esign/schemas.ts). */
 @Controller('esign/requests/:id')
 @Roles(...FIRM_STAFF)
 @RequiresModule('esign')
@@ -43,5 +46,30 @@ export class EsignLifecycleController {
     @Body(new ZodValidationPipe(EsignVoidBody)) body: z.output<typeof EsignVoidBody>,
   ): Promise<EsignRequestDetail> {
     return this.lifecycle.void(tenant.businessId, actorOf(auth, tenant), id, body.reason);
+  }
+
+  @Post('recipients/:recipientId/correct')
+  @HttpCode(200)
+  correct(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('recipientId', new ZodValidationPipe(EsignRecipientId)) recipientId: string,
+    @Body(new ZodValidationPipe(EsignCorrectRecipientBody))
+    body: z.output<typeof EsignCorrectRecipientBody>,
+  ): Promise<EsignRequestDetail> {
+    const actor = actorOf(auth, tenant);
+    return this.lifecycle.correct(tenant.businessId, actor, id, recipientId, body);
+  }
+
+  /** 201: the new DRAFT. */
+  @Post('replace')
+  replace(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(EsignReplaceBody)) body: z.output<typeof EsignReplaceBody>,
+  ): Promise<EsignRequestDetail> {
+    return this.lifecycle.replace(tenant.businessId, actorOf(auth, tenant), id, body.reason);
   }
 }

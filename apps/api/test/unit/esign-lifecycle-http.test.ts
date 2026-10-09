@@ -127,29 +127,51 @@ async function sent(clientId = w.ids.c1) {
 }
 
 describe('Firm Sign lifecycle over HTTP', () => {
-  it('reminds and voids (200), then refuses a closed request (409 REQUEST_CLOSED)', async () => {
+  it('reminds, corrects and voids (200), then refuses a closed request (409 REQUEST_CLOSED)', async () => {
     const { id, signerId } = await sent();
     const reminded = await post(`${id}/remind`, ownerA(), { recipientId: signerId });
     expect(reminded.status).toBe(200);
     expect(EsignRequestDetail.parse(reminded.body).recipients[0]!.reminderCount).toBe(1);
     expect(errorOf(await post(`${id}/remind`, ownerA(), {}))).toEqual([409, 'REMIND_TOO_SOON']);
+    const corrected = await post(`${id}/recipients/${signerId}/correct`, staffA(), {
+      email: 'fixed@example.test',
+    });
+    expect(corrected.status).toBe(200);
+    expect(EsignRequestDetail.parse(corrected.body).recipients[0]!.email).toBe(
+      'fixed@example.test',
+    );
     const voided = await post(`${id}/void`, ownerA(), { reason: 'Fake reason' });
     expect([voided.status, EsignRequestDetail.parse(voided.body).status]).toEqual([200, 'VOIDED']);
     expect(errorOf(await post(`${id}/void`, ownerA(), { reason: 'Fake reason' }))).toEqual([
       409,
       'REQUEST_CLOSED',
     ]);
-    expect(notify.sent.map((m) => m.template)).toEqual(['esign.reminder', 'esign.voided']);
+    expect(notify.sent.map((m) => m.template)).toEqual([
+      'esign.reminder',
+      'esign.request',
+      'esign.voided',
+    ]);
+  });
+
+  it('replaces with 201 and the new DRAFT', async () => {
+    const { id } = await sent();
+    const res = await post(`${id}/replace`, ownerA(), { reason: 'Fake reason' });
+    const created = EsignRequestDetail.parse(res.body);
+    expect([res.status, created.status, created.replacesRequestId]).toEqual([201, 'DRAFT', id]);
   });
 
   it('validates ids and bodies with the contract (400)', async () => {
-    const { id } = await sent();
+    const { id, signerId } = await sent();
     const bad: [string, object][] = [
       ['not-a-uuid/remind', {}],
       [`${id}/remind`, { recipientId: 'nope' }],
       [`${id}/remind`, { extra: 1 }],
       [`${id}/void`, { reason: '' }],
       [`${id}/void`, {}],
+      [`${id}/replace`, { reason: 'x'.repeat(501) }],
+      [`${id}/recipients/${signerId}/correct`, {}],
+      [`${id}/recipients/not-a-uuid/correct`, { name: 'Fake' }],
+      [`${id}/recipients/${signerId}/correct`, { email: 'not-an-email' }],
     ];
     for (const [path, body] of bad) {
       expect(errorOf(await post(path, ownerA(), body))).toEqual([400, 'VALIDATION_FAILED']);
@@ -157,11 +179,13 @@ describe('Firm Sign lifecycle over HTTP', () => {
   });
 
   it('answers 404 across firms, across clients (Staff of another client) and to a client', async () => {
-    const { id } = await sent(w.ids.c2);
+    const { id, signerId } = await sent(w.ids.c2);
     for (const who of [ownerB(), staffA(), clientA()]) {
       for (const [path, body] of [
         [`${id}/remind`, {}],
         [`${id}/void`, { reason: 'Fake reason' }],
+        [`${id}/recipients/${signerId}/correct`, { name: 'Fake' }],
+        [`${id}/replace`, { reason: 'Fake reason' }],
       ] as const) {
         expect(errorOf(await post(path, who, body))).toEqual([404, 'NOT_FOUND']);
       }
@@ -176,6 +200,8 @@ describe('Firm Sign lifecycle over HTTP', () => {
       for (const [path, body] of [
         [`${id}/remind`, {}],
         [`${id}/void`, { reason: 'Fake reason' }],
+        [`${id}/recipients/${randomUUID()}/correct`, { name: 'Fake' }],
+        [`${id}/replace`, { reason: 'Fake reason' }],
       ] as const) {
         expect(errorOf(await post(path, ownerA(), body))).toEqual([403, 'MODULE_OFF']);
       }

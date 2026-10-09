@@ -1,7 +1,8 @@
-// R13 step 8, lifecycle: remind and void on the in-memory ports (esign-fakes.ts) with R18's link
-// tokens: who is reminded and how often, fresh links stored only as hashes, the voided emails
-// without the reason, the optimistic lock, the audit (ids only) and the access rules. Synthetic
-// data only.
+// R13 step 8, lifecycle: remind, void, correct and replace on the in-memory ports
+// (esign-fakes.ts) with R18's link tokens: who is reminded and how often, fresh links stored only
+// as hashes, the voided emails without the reason, a corrected recipient's old links failing, the
+// replacement's copied files and new ids, the optimistic lock, the audit (ids only) and the access
+// rules. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpException, Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -48,6 +49,7 @@ beforeEach(() => {
     w.repo,
     lc,
     w.directory,
+    w.store,
     new RandomLinkTokens(),
     notify,
     w.audit,
@@ -310,6 +312,146 @@ describe('void', () => {
   });
 });
 
+describe('correct a recipient', () => {
+  it('fixes an external signer in turn: old links fail, a new invitation goes to the new address', async () => {
+    const x = outside();
+    const { id } = await sentRequest([x]);
+    lc.links.of(w.a).set('old-hash', { requestId: id, recipientId: x.id, tokenVersion: 0 });
+    const body = { name: 'Fake fixed', email: 'fixed@example.test' };
+
+    const detail = await svc.correct(w.a, owner, id, x.id, body);
+
+    expect(detail.recipients[0]).toMatchObject({
+      name: 'Fake fixed',
+      email: 'fixed@example.test',
+      status: 'SENT',
+    });
+    expect(lc.findLink(w.a, 'old-hash')).toBeNull();
+    const [message] = notify.sent;
+    expect([message?.template, message?.to]).toEqual(['esign.request', 'fixed@example.test']);
+    expect(message?.data).toMatchObject({ name: 'Fake fixed', senderName: 'owner-a' });
+    expect(lc.findLink(w.a, sha(tokenOf(message!)))).toBe(x.id);
+    const events = await w.repo.events(w.a, id);
+    expect(events.map((e) => [e.type, e.recipient])).toEqual([
+      ['CORRECTED', { id: x.id, name: 'Fake fixed' }],
+    ]);
+    const audit = w.audit.entries.at(-1)!;
+    expect(audit).toMatchObject({
+      action: 'esign.recipient_corrected',
+      metadata: { recipientId: x.id, changed: ['name', 'email'] },
+    });
+    expect(JSON.stringify(audit)).not.toContain('fixed@example.test');
+  });
+
+  it('sends nothing to one not yet in turn, but their earlier links still stop', async () => {
+    const first = recipient(w);
+    const x = outside({ status: 'WAITING', sentAt: null, routingOrder: 2 });
+    const { id } = await sentRequest([first, x]);
+    lc.links.of(w.a).set('old-hash', { requestId: id, recipientId: x.id, tokenVersion: 0 });
+    await svc.correct(w.a, owner, id, x.id, { phone: null });
+    expect(notify.sent).toHaveLength(0);
+    expect(lc.findLink(w.a, 'old-hash')).toBeNull();
+  });
+
+  it('refuses a finished recipient, a client login, an unknown one and a closed request', async () => {
+    const signed = outside({ status: 'SIGNED' });
+    const login = recipient(w);
+    const { id } = await sentRequest([signed, login]);
+    const fix = { name: 'Fake fixed' };
+    expect(await refused(svc.correct(w.a, owner, id, signed.id, fix))).toEqual([
+      409,
+      'RECIPIENT_DONE',
+    ]);
+    expect(await refused(svc.correct(w.a, owner, id, login.id, fix))).toEqual([
+      409,
+      'INVALID_STATE',
+    ]);
+    expect(await refused(svc.correct(w.a, owner, id, randomUUID(), fix))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    const closed = await sentRequest([outside()], 'DECLINED');
+    const rid = (await w.repo.parts(w.a, closed.id)).recipients[0]!.id;
+    expect(await refused(svc.correct(w.a, owner, closed.id, rid, fix))).toEqual([
+      409,
+      'REQUEST_CLOSED',
+    ]);
+  });
+});
+
+describe('replace', () => {
+  it('voids it and answers a new DRAFT copied with new ids, files and settings', async () => {
+    const coded = outside({ authMethod: 'ACCESS_CODE', accessCodeHash: 'f'.repeat(64) });
+    const signed = recipient(w, { status: 'SIGNED', signedAt: new Date(), reminderCount: 2 });
+    const { id, documentId, key } = await sentRequest([signed, coded]);
+    w.repo.seed(w.a, id, (row) => (row.record.internalNote = 'Fake note'));
+    const staff: EsignActor = { userId: w.users.staffA, role: 'STAFF' };
+
+    const created = await svc.replace(w.a, staff, id, 'Fake reason');
+
+    const old = (await w.repo.findRequest(w.a, id))!;
+    expect([old.status, old.voidReason, old.replacedByRequestId]).toEqual([
+      'VOIDED',
+      'Fake reason',
+      created.id,
+    ]);
+    expect(created).toMatchObject({
+      status: 'DRAFT',
+      title: 'Engagement letter 2025',
+      sender: { userId: w.users.staffA, name: 'staff-a' },
+      client: { id: w.ids.c1 },
+      engagement: { id: w.ids.e1 },
+      internalNote: 'Fake note',
+      replacesRequestId: id,
+      sentAt: null,
+      expiresAt: null,
+      originalSha256: null,
+    });
+    expect(created.id).not.toBe(id);
+    const [doc] = created.documents;
+    expect(doc!.id).not.toBe(documentId);
+    expect(created.pagePlan).toEqual([{ documentId: doc!.id, page: 0, rotation: 0 }]);
+    const copy = (await w.repo.parts(w.a, created.id)).documents[0]!.s3Key;
+    expect(copy).toBe(w.store.keyFor(w.a, created.id, `source/${doc!.id}`));
+    expect(Buffer.from((await w.store.read(w.a, copy))!).toString()).toBe('pdf:1');
+    expect(await w.store.read(w.a, key)).not.toBeNull();
+    expect(
+      created.recipients.map((r) => [r.name, r.status, r.reminderCount, r.hasAccessCode]),
+    ).toEqual([
+      ['Fake primary', 'WAITING', 0, false],
+      ['Fake outside', 'WAITING', 0, false],
+    ]);
+    const newIds = new Set(created.recipients.map((r) => r.id));
+    expect(newIds.has(signed.id) || newIds.has(coded.id)).toBe(false);
+    expect(created.fields.every((f) => !f.filled && newIds.has(f.recipientId!))).toBe(true);
+    expect((await w.repo.events(w.a, id)).map((e) => [e.type, e.reason])).toEqual([
+      ['REPLACED', 'Fake reason'],
+    ]);
+    expect((await w.repo.events(w.a, created.id)).map((e) => e.type)).toEqual(['CREATED']);
+    expect(notify.sent.map((m) => [m.template, m.to])).toEqual([
+      ['esign.voided', 'outside@example.test'],
+    ]);
+    expect(w.audit.entries.at(-1)).toMatchObject({
+      action: 'esign.request_replaced',
+      entity: { id },
+      metadata: { clientId: w.ids.c1, replacedByRequestId: created.id },
+    });
+  });
+
+  it('removes the copied files when the write loses (409 INVALID_STATE), changing nothing', async () => {
+    const { id } = await sentRequest();
+    const objects = w.store.objects.size;
+    vi.spyOn(lc, 'replace').mockResolvedValueOnce(null);
+    expect(await refused(svc.replace(w.a, owner, id, 'Fake reason'))).toEqual([
+      409,
+      'INVALID_STATE',
+    ]);
+    expect(w.store.objects.size).toBe(objects);
+    expect((await w.repo.findRequest(w.a, id))!.status).toBe('SENT');
+    expect(notify.sent).toHaveLength(0);
+  });
+});
+
 describe('who may', () => {
   it('is a write: 404 across firms, for unassigned Staff and an approver; 403 for a Viewer', async () => {
     const approver = recipient(w, {
@@ -327,7 +469,12 @@ describe('who may', () => {
       [w.a, { userId: w.users.staffA, role: 'VIEWER' }, 403],
     ];
     for (const [firm, actor, status] of cases) {
-      for (const work of [svc.remind(firm, actor, id), svc.void(firm, actor, id, 'Fake reason')]) {
+      for (const work of [
+        svc.remind(firm, actor, id),
+        svc.void(firm, actor, id, 'Fake reason'),
+        svc.correct(firm, actor, id, x.id, { name: 'Fake fixed' }),
+        svc.replace(firm, actor, id, 'Fake reason'),
+      ]) {
         expect((await refused(work))[0]).toBe(status);
       }
     }

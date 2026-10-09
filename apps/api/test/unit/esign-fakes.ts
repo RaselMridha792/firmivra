@@ -45,11 +45,13 @@ import { ESIGN_OPEN_STATUSES, type EsignRequestStatus } from '@firmivra/types';
 import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
 import type { NotifyMessage, NotifyService } from '../../src/notify/notify.types.js';
 import type {
+  CorrectWrite,
   EsignLifecycleRepository,
   IssuedLink,
   LifecycleEmail,
   LifecycleWritten,
   RemindWrite,
+  Replacement,
   VoidWrite,
 } from '../../src/esign/lifecycle/lifecycle.repository.js';
 
@@ -475,6 +477,32 @@ export class InMemoryLifecycleRepository implements EsignLifecycleRepository {
 
   void(businessId: string, id: string, write: VoidWrite, readAt: Date) {
     return this.apply(businessId, id, write, readAt, (row) => voided(row, write));
+  }
+
+  correct(businessId: string, id: string, write: CorrectWrite, readAt: Date) {
+    return this.apply(businessId, id, write, readAt, (row) => {
+      const r = row.parts.recipients.find((x) => x.id === write.recipientId);
+      if (r) Object.assign(r, structuredClone(write.patch));
+      const versions = this.tokenVersions.of(businessId);
+      versions.set(write.recipientId, (versions.get(write.recipientId) ?? 0) + 1);
+      if (write.link) this.link(businessId, id, write.link);
+    });
+  }
+
+  async replace(
+    businessId: string,
+    id: string,
+    write: VoidWrite & { replacement: Replacement },
+    readAt: Date,
+  ) {
+    const { record, parts, event } = write.replacement;
+    const written = await this.apply(businessId, id, write, readAt, (row) => {
+      voided(row, write);
+      row.record.replacedByRequestId = record.id;
+      this.requests.insert(businessId, { record, parts });
+      this.requests.timelines.of(businessId).set(record.id, [structuredClone(event)]);
+    });
+    return written && { ...written, created: structuredClone(record) };
   }
 
   /** The link's recipient, while its request is open and its version is the recipient's. */
