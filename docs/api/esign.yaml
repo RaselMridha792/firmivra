@@ -22,6 +22,20 @@ info:
     a token for every signer step (`MOCK_SIGNING_TOKENS`). Schemas below name their zod schema; if this file and the zod schemas
     differ, the zod schemas win.
 
+    ## Who may call (`x-roles`)
+
+    Every operation names its roles in `x-roles`; anyone else gets 403 `FORBIDDEN` (a request or
+    template the caller may not see is 404). Firm Sign roles (`EsignAccessRole`, `GET
+    /esign/status`):
+    - OWNER and ADMIN: everything, Signing Settings and Firm Sign roles included.
+    - MANAGER (a Staff member made one, contract 3): every request and template, approves and
+      voids; not Signing Settings or roles.
+    - STAFF: their own requests and their assigned clients' requests; templates that are FIRM or
+      their own, and they change only their own.
+    - VIEWER (a Staff member made one, contract 3): reads what STAFF could see and changes
+      nothing, except their own job title and an in-person exit.
+    - CLIENT: a signed-in portal client, their own rows only. SIGNER: the `fv_sign_{slug}` cookie.
+
     ## The module switch
 
     Firm Sign is a per-firm module, `esign`, switched on or off by Firmivra
@@ -141,6 +155,7 @@ paths:
     get:
       tags: [esign]
       operationId: esignStatus
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: 'Whether Firm Sign is on for the firm, and the caller''s access in it. Off is 200 `{ enabled: false, myEsignRole: null }`, never MODULE_OFF'
       responses:
         '200':
@@ -152,6 +167,7 @@ paths:
     get:
       tags: [esign]
       operationId: listEsignRequests
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: Requests the caller may see, newest activity first (`ListEsignRequestsQuery`)
       parameters:
         - { name: status, in: query, schema: { $ref: '#/components/schemas/EsignRequestStatus' }, description: SENT includes DELIVERED }
@@ -173,6 +189,7 @@ paths:
     post:
       tags: [esign]
       operationId: createEsignRequest
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: A new DRAFT (`CreateEsignRequestBody`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -187,6 +204,7 @@ paths:
     get:
       tags: [esign]
       operationId: esignSummary
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: The dashboard's 9 counters and the quick filters' counts (`EsignSummary`)
       responses:
         '200':
@@ -200,6 +218,7 @@ paths:
     get:
       tags: [esign]
       operationId: getEsignRequest
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: Everything about one request (`EsignRequestDetail`)
       responses:
         '200': { $ref: '#/components/responses/Detail' }
@@ -209,6 +228,7 @@ paths:
     patch:
       tags: [esign]
       operationId: updateEsignRequest
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Change a DRAFT (`UpdateEsignRequestBody`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -220,6 +240,7 @@ paths:
     delete:
       tags: [esign]
       operationId: discardEsignRequest
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Delete a DRAFT that was never sent
       responses:
         '200': { $ref: '#/components/responses/Ok' }
@@ -232,6 +253,7 @@ paths:
     post:
       tags: [esign]
       operationId: createEsignUpload
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Upload step 1 (`CreateEsignUploadBody`, PDF, JPG or PNG; another type is 400 `FILE_TYPE_NOT_ALLOWED` from the client, before anything is sent); answers an `UploadTicket` (docs/api/documents.yaml)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -248,6 +270,7 @@ paths:
     post:
       tags: [esign]
       operationId: confirmEsignUpload
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Upload step 3 (`ConfirmEsignUploadBody`); the file's pages join the end of the page plan
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -265,6 +288,7 @@ paths:
     post:
       tags: [esign]
       operationId: addEsignDocumentFromVault
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Copy one of the client's CLEAN PDF, JPG or PNG documents (`EsignFromVaultBody`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -281,6 +305,7 @@ paths:
     delete:
       tags: [esign]
       operationId: removeEsignDocument
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Remove a file, its pages and their fields (DRAFT only)
       responses:
         '200': { $ref: '#/components/responses/Detail' }
@@ -295,6 +320,7 @@ paths:
     get:
       tags: [esign]
       operationId: esignDocumentContent
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: The file's bytes, for the page viewer on the same site (CLEAN files only)
       responses:
         '200':
@@ -312,6 +338,7 @@ paths:
     put:
       tags: [esign]
       operationId: putEsignPagePlan
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: The packet's pages in order, with rotation (`PutPagePlanBody`); fields follow their page
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -326,6 +353,7 @@ paths:
     put:
       tags: [esign]
       operationId: putEsignRecipients
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: The whole recipient list (`PutRecipientsBody`); a recipient left out, or no longer a SIGNER, loses their fields
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -340,6 +368,7 @@ paths:
     put:
       tags: [esign]
       operationId: putEsignFields
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: The whole field list (`PutFieldsBody`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -354,6 +383,7 @@ paths:
     get:
       tags: [esign]
       operationId: esignMergeValues
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: The 17 merge values from the client, the sender and the firm, and the missing ones the fields use (`EsignMergeValues`)
       responses:
         '200':
@@ -367,6 +397,7 @@ paths:
     get:
       tags: [esign]
       operationId: esignReadiness
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: What still blocks sending (`EsignReadiness`)
       responses:
         '200':
@@ -380,6 +411,7 @@ paths:
     post:
       tags: [esign]
       operationId: sendEsignRequest
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Send it (`SendEsignRequestBody`, `confirm` true)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -394,6 +426,7 @@ paths:
     post:
       tags: [esign]
       operationId: remindEsignRequest
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Email every signer whose turn it is, or one (`RemindBody`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -408,6 +441,7 @@ paths:
     post:
       tags: [esign]
       operationId: voidEsignRequest
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Void an open request with a reason (`VoidBody`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -424,6 +458,7 @@ paths:
     post:
       tags: [esign]
       operationId: correctEsignRecipient
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Fix an external recipient who has not finished (`CorrectRecipientBody`); their link changes
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -438,6 +473,7 @@ paths:
     post:
       tags: [esign]
       operationId: replaceEsignRequest
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Void it and answer a new DRAFT copied from it (`ReplaceBody`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -452,6 +488,7 @@ paths:
     post:
       tags: [esign]
       operationId: resendEsignCopy
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Email a fresh link to the completed copy (`ResendCopyBody`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -468,6 +505,7 @@ paths:
     get:
       tags: [esign]
       operationId: downloadEsignFile
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: A 5-minute download link (`DownloadLink`)
       responses:
         '200':
@@ -482,6 +520,7 @@ paths:
     get:
       tags: [esign]
       operationId: esignEvents
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: The timeline, oldest first (`EsignEventList`)
       responses:
         '200':
@@ -496,6 +535,7 @@ paths:
     get:
       tags: [esign-portal]
       operationId: mySignaturesStatus
+      x-roles: [CLIENT]
       summary: 'Whether the portal shows ''Signatures'' (`MySignaturesStatus`); a signed-in client of the firm. Off is 200 `{ enabled: false }`; 404 only for an unknown or inactive firm'
       security: [{ portalCookie: [] }]
       responses:
@@ -511,6 +551,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerSession
+      x-roles: [SIGNER]
       summary: Trade the link token for the signer cookie (`SignerSessionBody` → `SignerState`)
       security: []
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -528,6 +569,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerSessionEnd
+      x-roles: [SIGNER]
       summary: 'Clear the signer cookie (`{ ok: true }`)'
       security: [{ signerCookie: [] }]
       responses:
@@ -541,6 +583,7 @@ paths:
     get:
       tags: [esign-signer]
       operationId: signerState
+      x-roles: [SIGNER]
       summary: Where the signer is (`SignerState`)
       security: [{ signerCookie: [] }]
       responses:
@@ -555,6 +598,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerSendCode
+      x-roles: [SIGNER]
       summary: Email a new 6-digit code (`SignerCodeSent`); 429 CODE_TOO_SOON
       security: [{ signerCookie: [] }]
       responses:
@@ -571,6 +615,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerVerifyCode
+      x-roles: [SIGNER]
       summary: Check the email code (`SignerVerifyCodeBody` → `SignerState`); 400 CODE_INVALID, 429 CODE_LOCKED
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -589,6 +634,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerAccessCode
+      x-roles: [SIGNER]
       summary: Check the access code (`SignerAccessCodeBody` → `SignerState`)
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -607,6 +653,7 @@ paths:
     get:
       tags: [esign-signer]
       operationId: signerConsent
+      x-roles: [SIGNER]
       summary: The firm’s consent text (`SignerConsent`)
       security: [{ signerCookie: [] }]
       responses:
@@ -618,6 +665,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerAcceptConsent
+      x-roles: [SIGNER]
       summary: Accept it (`SignerAcceptConsentBody` → `SignerState`); 409 CONSENT_OUTDATED
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -635,6 +683,7 @@ paths:
     get:
       tags: [esign-signer]
       operationId: signerEnvelope
+      x-roles: [SIGNER]
       summary: The document and the signer’s own fields (`SignerEnvelope`)
       security: [{ signerCookie: [] }]
       responses:
@@ -650,12 +699,13 @@ paths:
     get:
       tags: [esign-signer]
       operationId: signerPacket
+      x-roles: [SIGNER]
       summary: The document’s bytes (application/pdf), as it stands
       security: [{ signerCookie: [] }]
       responses:
         '200':
-          description: The zod schema in the summary
-          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+          description: The PDF
+          content: { application/pdf: { schema: { type: string, format: binary } } }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -665,6 +715,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerAdopt
+      x-roles: [SIGNER]
       summary: Adopt a signature and initials (`SignerAdoptBody` → `SignerEnvelope`); 400 IMAGE_INVALID
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -682,6 +733,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerFinish
+      x-roles: [SIGNER]
       summary: Sign (`SignerFinishBody` → `SignerState`); 409 REQUIRED_FIELDS_MISSING, SIGNATURE_REQUIRED, NOT_YOUR_TURN
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -699,6 +751,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerDecline
+      x-roles: [SIGNER]
       summary: Decline (`SignerDeclineBody` → `SignerState`)
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -716,6 +769,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerAttachmentUpload
+      x-roles: [SIGNER]
       summary: Upload ticket for an ATTACHMENT field (`SignerAttachmentUploadBody` → `UploadTicket`)
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -733,6 +787,7 @@ paths:
     post:
       tags: [esign-signer]
       operationId: signerAttachmentConfirm
+      x-roles: [SIGNER]
       summary: Confirm it (`SignerAttachmentConfirmBody` → `SignerField`); 410 UPLOAD_EXPIRED
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
@@ -751,6 +806,7 @@ paths:
     get:
       tags: [esign-signer]
       operationId: signerCopy
+      x-roles: [SIGNER]
       summary: A completed-copy link’s files (`SignerCopy`)
       security: [{ signerCookie: [] }]
       responses:
@@ -767,6 +823,7 @@ paths:
     get:
       tags: [esign-signer]
       operationId: signerCopyDownload
+      x-roles: [SIGNER]
       summary: A 5-minute link to the final PDF or certificate (`DownloadLink`)
       security: [{ signerCookie: [] }]
       responses:
@@ -784,6 +841,7 @@ paths:
     get:
       tags: [esign-portal]
       operationId: mySignatures
+      x-roles: [CLIENT]
       summary: The client’s requests (`MySignatureList`), tab PENDING or SIGNED
       security: [{ portalCookie: [] }]
       responses:
@@ -801,6 +859,7 @@ paths:
     post:
       tags: [esign-portal]
       operationId: mySignatureSession
+      x-roles: [CLIENT]
       summary: Open the signer pages without a code (`SignerState`); sets the signer cookie
       security: [{ portalCookie: [] }]
       responses:
@@ -818,6 +877,7 @@ paths:
     get:
       tags: [esign-portal]
       operationId: mySignatureDownload
+      x-roles: [CLIENT]
       summary: A COMPLETED request’s file (`DownloadLink`)
       security: [{ portalCookie: [] }]
       responses:
@@ -833,6 +893,7 @@ paths:
     get:
       tags: [esign-admin]
       operationId: esignSettings
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: Signing Settings (`EsignSettings`)
       responses:
         '200':
@@ -842,6 +903,7 @@ paths:
     put:
       tags: [esign-admin]
       operationId: updateEsignSettings
+      x-roles: [OWNER, ADMIN]
       summary: Change the defaults (`UpdateEsignSettingsBody` → `EsignSettings`); Owner and Admin
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -855,6 +917,7 @@ paths:
     get:
       tags: [esign-admin]
       operationId: esignConsentVersions
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: Every consent version, newest first (`EsignConsentVersionList`)
       responses:
         '200':
@@ -864,6 +927,7 @@ paths:
     post:
       tags: [esign-admin]
       operationId: publishEsignConsent
+      x-roles: [OWNER, ADMIN]
       summary: Publish a new version (`PublishEsignConsentBody` → `EsignConsentVersion`); Owner and Admin
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -877,6 +941,7 @@ paths:
     put:
       tags: [esign-admin]
       operationId: updateEsignProfile
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: The caller’s job title (`UpdateEsignProfileBody` → `EsignSettings`)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -893,6 +958,7 @@ paths:
     get:
       tags: [esign-admin]
       operationId: esignTemplates
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: Templates the caller may use (`EsignTemplateList`)
       responses:
         '200':
@@ -907,6 +973,7 @@ paths:
     get:
       tags: [esign-admin]
       operationId: esignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
       summary: One template (`EsignTemplateDetail`)
       responses:
         '200':
@@ -917,6 +984,7 @@ paths:
     patch:
       tags: [esign-admin]
       operationId: updateEsignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Rename or change it (`UpdateEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_NAME_TAKEN, TEMPLATE_ARCHIVED
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -934,6 +1002,7 @@ paths:
     post:
       tags: [esign-admin]
       operationId: archiveEsignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: Archive it (`EsignTemplateDetail`)
       responses:
         '200':
@@ -949,6 +1018,7 @@ paths:
     post:
       tags: [esign-admin]
       operationId: useEsignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: A new DRAFT from it (`UseEsignTemplateBody` → `EsignRequestDetail`); 409 TEMPLATE_ROLES_UNFILLED, TEMPLATE_ARCHIVED, ENGAGEMENT_MISMATCH
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -966,6 +1036,7 @@ paths:
     post:
       tags: [esign-admin]
       operationId: saveEsignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
       summary: A template from the request (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_NAME_TAKEN, SCAN_PENDING
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
@@ -1247,7 +1318,7 @@ components:
       description: '`CODE_LOCKED`, `CODE_TOO_SOON` or `RATE_LIMITED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Conflict:
-      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`'
+      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
   schemas:

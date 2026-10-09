@@ -53,8 +53,9 @@ import { mockBusiness } from './me';
  * - emailCode: the email code step (the code is 123456; 5 wrong tries lock it), consent, then sign.
  * - accessCode: an access code (MOCK1234) instead of the email code.
  * - autoPage: no placed fields, so they sign on the added signature page.
- * - waiting: someone signs first (WAITING). done: they already signed (DONE).
- * - copy: a completed-copy link (email code, then COPY). expired: LINK_INVALID.
+ * - waiting: someone signs first (WAITING). DONE comes after `finish`.
+ * - copy: a completed-copy link (email code, then COPY). used and expired: LINK_INVALID (a link
+ *   that was already used to sign, or ran out).
  * Any other token, another firm's slug, or NEXT_PUBLIC_API_MOCK_ESIGN=off answers 404 LINK_INVALID.
  * A page reload keeps the step (the mock "cookie" lives as long as the page).
  */
@@ -70,7 +71,7 @@ export const MOCK_SIGNING_TOKENS = {
   accessCode: 'mock-access-code000000000000000000000000000',
   autoPage: 'mock-auto-page00000000000000000000000000000',
   waiting: 'mock-waiting0000000000000000000000000000000',
-  done: 'mock-done0000000000000000000000000000000000',
+  used: 'mock-used0000000000000000000000000000000000',
   copy: 'mock-copy0000000000000000000000000000000000',
   expired: 'mock-expired0000000000000000000000000000000',
 } as const;
@@ -112,7 +113,7 @@ const FIRST_STEP: Record<Scenario, SignerStep> = {
   accessCode: 'VERIFY_ACCESS_CODE',
   autoPage: 'VERIFY_EMAIL',
   waiting: 'WAITING',
-  done: 'DONE',
+  used: 'DONE',
   copy: 'VERIFY_EMAIL',
   expired: 'CLOSED',
   portal: 'CONSENT',
@@ -177,7 +178,7 @@ const signerState = (s: Session): SignerState => ({
   senderName: 'Mock User',
   firmName: mockBusiness.name,
   signerName: 'Jamie Sample',
-  codeSentTo: s.step === 'VERIFY_EMAIL' ? 'j***@example.com' : null,
+  codeSentTo: s.step === 'VERIFY_EMAIL' ? 'j***@example.test' : null,
   requestStatus: s.step === 'COPY' ? 'COMPLETED' : s.step === 'CLOSED' ? 'EXPIRED' : null,
   expiresAt: s.step === 'CLOSED' ? null : iso(Date.now() + 10 * DAY),
 });
@@ -233,7 +234,9 @@ export function createSigningMock(firmSlug: string): SigningClient {
       const scenario = (
         Object.keys(MOCK_SIGNING_TOKENS) as (keyof typeof MOCK_SIGNING_TOKENS)[]
       ).find((k) => MOCK_SIGNING_TOKENS[k] === t);
-      if (!firmOk() || !scenario || scenario === 'expired') throw linkInvalid();
+      if (!firmOk() || !scenario || scenario === 'expired' || scenario === 'used') {
+        throw linkInvalid();
+      }
       const s = newSession(scenario);
       sessions().set(slug, s);
       return signerState(s);
@@ -252,7 +255,7 @@ export function createSigningMock(firmSlug: string): SigningClient {
       s.codeSentAt = Date.now();
       s.tries = 0;
       return {
-        sentTo: 'j***@example.com',
+        sentTo: 'j***@example.test',
         expiresAt: iso(Date.now() + ESIGN_CODE_MINUTES * MINUTE),
         resendAfter: iso(Date.now() + MINUTE),
       };
@@ -311,7 +314,9 @@ export function createSigningMock(firmSlug: string): SigningClient {
       const { values } = parseInput(SignerFinishBody, body);
       const s = await at('SIGN');
       const mine = new Set(s.fields.map((f) => f.id));
-      if (values.some((v) => !mine.has(v.fieldId))) throw linkInvalid();
+      if (values.some((v) => !mine.has(v.fieldId))) {
+        throw fail(400, 'VALIDATION_FAILED', 'Unknown field');
+      }
       const needsInitials = s.fields.some((f) => f.type === 'INITIALS');
       if (!s.adopted || (needsInitials && !s.adopted.hasInitials)) {
         throw fail(409, 'SIGNATURE_REQUIRED', 'Adopt your signature first');
@@ -338,7 +343,7 @@ export function createSigningMock(firmSlug: string): SigningClient {
       const input = parseInput(SignerAttachmentUploadBody, body);
       const s = await at('SIGN');
       if (!s.fields.some((f) => f.id === input.fieldId && f.type === 'ATTACHMENT')) {
-        throw linkInvalid();
+        throw fail(400, 'VALIDATION_FAILED', 'Unknown field');
       }
       return {
         uploadToken: `mock-attachment:${input.fieldId}:${input.fileName}`,
