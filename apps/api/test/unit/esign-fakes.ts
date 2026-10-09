@@ -1,8 +1,20 @@
 // In-memory stand-ins for Firm Sign's ports (R13), keyed by firm so isolation is real: a firm
 // only ever sees its own rows. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
-import type { EsignAccessRole, EsignDefaults, EsignField, EsignPage } from '@firmivra/types';
+import {
+  ESIGN_MAX_PAGES,
+  type EsignAccessRole,
+  type EsignDefaults,
+  type EsignField,
+  type EsignPage,
+} from '@firmivra/types';
 import type { BusinessModules, FirmModule } from '../../src/common/modules/requires-module.js';
+import {
+  EsignEngineError,
+  type InspectedFile,
+  type PdfEngine,
+} from '../../src/esign/engine/engine.types.js';
+import { MemoryEsignStore } from '../../src/esign/engine/esign-store.js';
 import type {
   DirectoryClient,
   DirectoryEngagement,
@@ -11,11 +23,14 @@ import type {
   EsignDirectory,
 } from '../../src/esign/requests/esign-directory.js';
 import type {
+  EsignDocumentRecord,
   EsignDraftPatch,
+  EsignPendingUpload,
   EsignRecipientRecord,
   EsignRepository,
   EsignRequestParts,
   EsignRequestRecord,
+  NewEsignDocument,
   NewEsignRequest,
 } from '../../src/esign/requests/esign.repository.js';
 
@@ -111,6 +126,52 @@ export class InMemoryEsignRepository implements EsignRepository {
     );
   }
 
+  /** Each firm's started uploads, by token hash. */
+  readonly uploads = new PerFirm<EsignPendingUpload>();
+
+  saveUpload(businessId: string, upload: EsignPendingUpload): Promise<void> {
+    this.uploads.of(businessId).set(upload.tokenHash, structuredClone(upload));
+    return Promise.resolve();
+  }
+
+  takeUpload(businessId: string, requestId: string, userId: string, tokenHash: string) {
+    const found = this.uploads.of(businessId).get(tokenHash);
+    if (found?.requestId !== requestId || found.userId !== userId) return Promise.resolve(null);
+    this.uploads.of(businessId).delete(tokenHash);
+    return Promise.resolve(found);
+  }
+
+  async addDocument(
+    businessId: string,
+    id: string,
+    document: NewEsignDocument,
+  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'> {
+    const pages = this.rows.of(businessId).get(id)?.parts.pagePlan.length ?? 0;
+    if (pages + document.pageCount > ESIGN_MAX_PAGES) return 'TOO_MANY_PAGES';
+    let added: EsignDocumentRecord | undefined;
+    const ok = await this.write(businessId, id, (row) => {
+      added = { ...structuredClone(document), position: row.parts.documents.length };
+      row.parts.documents.push(added);
+      for (let page = 0; page < document.pageCount; page++) {
+        row.parts.pagePlan.push({ documentId: document.id, page, rotation: 0 });
+      }
+    });
+    return ok && added ? structuredClone(added) : 'NOT_DRAFT';
+  }
+
+  removeDocument(
+    businessId: string,
+    id: string,
+    documentId: string,
+    pagePlan: EsignPage[],
+    fields: EsignField[],
+  ) {
+    return this.write(businessId, id, (row) => {
+      row.parts.documents = row.parts.documents.filter((d) => d.id !== documentId);
+      Object.assign(row.parts, structuredClone({ pagePlan, fields }));
+    });
+  }
+
   /** Test set-up: change a stored request directly (status, documents, fields...). */
   seed(businessId: string, id: string, change: (row: Row) => void): void {
     const row = this.rows.of(businessId).get(id);
@@ -176,18 +237,39 @@ export class FakeAudit {
   }
 }
 
-export class FakeStore {
+/** R18's in-memory store, recording what is removed. */
+export class FakeStore extends MemoryEsignStore {
   readonly removed: { businessId: string; key: string }[] = [];
-  remove(businessId: string, key: string): Promise<void> {
+  override remove(businessId: string, key: string): Promise<void> {
     this.removed.push({ businessId, key });
-    return Promise.resolve();
+    return super.remove(businessId, key);
   }
 }
 
+/**
+ * A PDF engine for tests: a "PDF" is the text `pdf:<pages>`, or `encrypted` or anything else
+ * (unreadable); an image is one page of 600x400.
+ */
+export const fakePdf: Pick<PdfEngine, 'inspect'> = {
+  inspect: ({ contentType, bytes }): Promise<InspectedFile> => {
+    if (contentType !== 'application/pdf') {
+      return Promise.resolve({ pageCount: 1, pageSizes: [{ width: 600, height: 400 }] });
+    }
+    const text = Buffer.from(bytes).toString();
+    if (text === 'encrypted') return Promise.reject(new EsignEngineError('PDF_ENCRYPTED'));
+    const pages = /^pdf:(\d+)$/.exec(text);
+    if (!pages) return Promise.reject(new EsignEngineError('PDF_UNREADABLE'));
+    const pageCount = Number(pages[1]);
+    if (pageCount > ESIGN_MAX_PAGES) return Promise.reject(new EsignEngineError('TOO_MANY_PAGES'));
+    const pageSizes = Array.from({ length: pageCount }, () => ({ width: 612, height: 792 }));
+    return Promise.resolve({ pageCount, pageSizes });
+  },
+};
+
 /** CodeHasher.hash in the engine's shape (an HMAC there; a plain hash is enough here). */
 export const fakeHasher = {
-  hash: (recipientId: string, code: string) =>
-    createHash('sha256').update(`${recipientId}:${code}`).digest('hex'),
+  hash: (recipientId: string, kind: string, code: string) =>
+    createHash('sha256').update(`${recipientId}:${kind}:${code}`).digest('hex'),
 };
 
 /**

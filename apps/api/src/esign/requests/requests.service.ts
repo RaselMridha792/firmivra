@@ -11,6 +11,7 @@ import type { z } from 'zod';
 import {
   type CreateEsignRequestBody,
   ESIGN_ERRORS,
+  type EsignDocument,
   type EsignErrorCode,
   type EsignField,
   type EsignPage,
@@ -32,6 +33,7 @@ import {
 import { type DirectoryClient, ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
 import {
   ESIGN_REPOSITORY,
+  type EsignDocumentRecord,
   type EsignDraftPatch,
   type EsignRecipientRecord,
   type EsignRepository,
@@ -240,7 +242,7 @@ export class EsignRequestsService {
       let accessCodeHash: string | null = null;
       if (input.authMethod === 'ACCESS_CODE' && input.delivery !== 'IN_PERSON') {
         accessCodeHash = input.accessCode
-          ? this.codes.hash(recipientId, input.accessCode)
+          ? this.codes.hash(recipientId, 'ACCESS', input.accessCode)
           : (old?.accessCodeHash ?? null);
         if (!accessCodeHash) throw invalid(`recipients.${i}.accessCode`, 'Set an access code');
       }
@@ -317,7 +319,7 @@ export class EsignRequestsService {
   }
 
   /** The request, if the caller may reach it; else 404 (another firm's id included). */
-  private async reach(businessId: string, actor: EsignActor, id: string) {
+  async reach(businessId: string, actor: EsignActor, id: string) {
     const record = await this.repo.findRequest(businessId, id);
     if (!record) throw notFound();
     if (!seesAll(actor) && record.senderUserId !== actor.userId) {
@@ -327,18 +329,20 @@ export class EsignRequestsService {
     return record;
   }
 
-  private async draft(businessId: string, actor: EsignActor, id: string) {
+  /** The request, if the caller may reach it (404) and it is a DRAFT (409 INVALID_STATE). */
+  async draft(businessId: string, actor: EsignActor, id: string) {
     const record = await this.reach(businessId, actor, id);
     if (record.status !== 'DRAFT') throw esignRefusal('INVALID_STATE');
     return record;
   }
 
   /** A draft write that found the request no longer a DRAFT (sent or discarded meanwhile). */
-  private async drafted(write: Promise<boolean>): Promise<void> {
+  async drafted(write: Promise<boolean>): Promise<void> {
     if (!(await write)) throw esignRefusal('INVALID_STATE');
   }
 
-  private async reachableClient(businessId: string, actor: EsignActor, clientId: string) {
+  /** A client the caller reaches and that is not archived; else 404. */
+  async reachableClient(businessId: string, actor: EsignActor, clientId: string) {
     const client = await this.directory.client(businessId, clientId);
     const reached =
       client && !client.archived && (seesAll(actor) || client.assignedUserId === actor.userId);
@@ -393,18 +397,7 @@ export class EsignRequestsService {
       expiryDays: r.expiryDays,
       reminders: r.reminders,
       expiryWarningDays: r.expiryWarningDays,
-      documents: parts.documents.map((d) => ({
-        id: d.id,
-        position: d.position,
-        fileName: d.fileName,
-        contentType: d.contentType,
-        sizeBytes: d.sizeBytes,
-        pageCount: d.pageCount,
-        pageSizes: d.pageSizes,
-        sourceDocumentId: d.sourceDocumentId,
-        scanStatus: d.scanStatus,
-        createdAt: d.createdAt.toISOString(),
-      })),
+      documents: parts.documents.map(documentOf),
       pagePlan: parts.pagePlan,
       recipients: parts.recipients.map(({ accessCodeHash, ...x }) => ({
         ...x,
@@ -434,5 +427,19 @@ export class EsignRequestsService {
     };
   }
 }
+
+/** A stored file as the contract shows it. */
+export const documentOf = (d: EsignDocumentRecord): EsignDocument => ({
+  id: d.id,
+  position: d.position,
+  fileName: d.fileName,
+  contentType: d.contentType,
+  sizeBytes: d.sizeBytes,
+  pageCount: d.pageCount,
+  pageSizes: d.pageSizes,
+  sourceDocumentId: d.sourceDocumentId,
+  scanStatus: d.scanStatus,
+  createdAt: d.createdAt.toISOString(),
+});
 
 const clientRef = (c: DirectoryClient) => ({ id: c.id, displayName: c.displayName });
