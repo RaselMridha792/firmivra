@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { ModulesModule } from '../common/modules/requires-module.js';
+import { EsignCenterController } from './center/center.controller.js';
+import { CENTER_REPOSITORY } from './center/center.repository.js';
+import { EsignCenterService } from './center/center.service.js';
 import { COMPLETION_REPOSITORY } from './completion/completion.repository.js';
 import { EsignCompletionJob } from './completion/completion.job.js';
 import { EsignCompletionService } from './completion/completion.service.js';
@@ -40,6 +43,7 @@ import { EsignSignerService } from './signer/signer.service.js';
     EsignDocumentsController,
     EsignSignerController,
     EsignSettingsController,
+    EsignCenterController,
   ],
   providers: [
     EsignRequestsService,
@@ -52,11 +56,13 @@ import { EsignSignerService } from './signer/signer.service.js';
     EsignCompletionService,
     EsignCompletionJob,
     EsignSettingsService,
+    EsignCenterService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
     { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
     { provide: SETTINGS_REPOSITORY, useValue: notMigrated('EsignSettingsRepository') },
+    { provide: CENTER_REPOSITORY, useValue: notMigrated('EsignCenterRepository') },
   ],
 })
 export class EsignModule {}

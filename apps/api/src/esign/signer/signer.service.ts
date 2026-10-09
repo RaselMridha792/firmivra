@@ -148,6 +148,32 @@ export class EsignSignerService {
     return this.moveOn(call, res);
   }
 
+  /**
+   * The Signature center's start (`api.mySignatures(slug).startSigning`): the portal sign-in is
+   * the check, so no email or access code; the same cookie, at CONSENT or SIGN.
+   */
+  async openFromPortal(
+    firm: SignerCall['firm'],
+    signer: SignerRecord,
+    res: Response,
+  ): Promise<SignerState> {
+    const { request: q, recipient: me } = signer;
+    const session: SignerSession = {
+      ...{ slug: firm.slug, businessId: firm.id, requestId: q.id, recipientId: me.id },
+      ...{ tokenVersion: signer.tokenVersion, purpose: 'SIGN' },
+      ...{ emailCodePassed: true, accessCodePassed: true },
+      consentVersionId: signer.consentVersionId,
+    };
+    const call: SignerCall = {
+      ...{ firm, session, signer },
+      step: signerStep(session, signer, new Date()),
+    };
+    if (call.step !== 'CONSENT' && call.step !== 'SIGN') throw linkInvalid();
+    await this.event(call, 'AUTH_PASSED', 'PORTAL_SESSION');
+    await this.log(call, 'esign.signer_portal_opened', { authMethod: 'PORTAL_SESSION' });
+    return this.moveOn(call, res);
+  }
+
   /** The signer of this cookie under this slug, else LINK_INVALID; WRONG_STEP off `steps`. */
   async call(slug: string, req: Request, ...steps: SignerStep[]): Promise<SignerCall> {
     const firm = await this.firm(slug);

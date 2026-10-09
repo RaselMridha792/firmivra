@@ -57,6 +57,10 @@ import type {
   SignerPendingAttachment,
 } from '../../src/esign/signer/signer.repository.js';
 import type {
+  EsignCenterRepository,
+  MySignatureRecord,
+} from '../../src/esign/center/center.repository.js';
+import type {
   EsignConsentRecord,
   EsignSettingsRepository,
   NewEsignConsent,
@@ -395,6 +399,11 @@ export class InMemoryEsignRepository implements EsignRepository {
       },
       readAt,
     );
+  }
+
+  /** A copy of every request of the firm, with its parts (for the fakes built on this one). */
+  all(businessId: string): Row[] {
+    return structuredClone([...this.rows.of(businessId).values()]);
   }
 
   /** Test set-up: change a stored request directly (status, documents, fields...). */
@@ -773,6 +782,34 @@ export class InMemorySettingsRepository implements EsignSettingsRepository {
     if (jobTitle === null) this.titles.of(businessId).delete(userId);
     else this.titles.of(businessId).set(userId, jobTitle);
     return Promise.resolve();
+  }
+}
+
+/** The Signature center over InMemoryEsignRepository's requests: a login's own recipients. */
+export class InMemoryCenterRepository implements EsignCenterRepository {
+  constructor(private readonly requests: InMemoryEsignRepository) {}
+
+  mine(businessId: string, clientAccountId: string): Promise<MySignatureRecord[]> {
+    const found = this.requests
+      .all(businessId)
+      .filter(({ record }) => record.sentAt !== null)
+      .flatMap(({ record, parts }) =>
+        parts.recipients
+          .filter(
+            (r) =>
+              (r.kind === 'SIGNER' || r.kind === 'CC') &&
+              r.link.type === 'CLIENT_LOGIN' &&
+              r.link.clientAccountId === clientAccountId,
+          )
+          .map((recipient) => ({ request: record, recipient })),
+      )
+      .sort((x, y) => y.request.sentAt!.getTime() - x.request.sentAt!.getTime());
+    return Promise.resolve(found);
+  }
+
+  async one(businessId: string, clientAccountId: string, recipientId: string) {
+    const mine = await this.mine(businessId, clientAccountId);
+    return mine.find((m) => m.recipient.id === recipientId) ?? null;
   }
 }
 

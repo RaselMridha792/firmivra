@@ -22,6 +22,10 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'DELETE /api/v1/esign/requests/:id/documents/:documentId': OFF,
   'POST /api/v1/esign/requests/:id/documents/from-vault': OFF,
   'GET /api/v1/esign/requests/:id/documents/:documentId/content': OFF,
+  // The portal's Signature center: the recipient must be the signed-in login's own (another
+  // login's, client's or firm's: 404, test/unit/esign-center.test.ts).
+  'POST /api/v1/portal/:firmSlug/me/signatures/:recipientId/session': OFF,
+  'GET /api/v1/portal/:firmSlug/me/signatures/:recipientId/download': OFF,
 };
 
 // The signer routes are public: no staff or client session and no record id in the URL. The firm
