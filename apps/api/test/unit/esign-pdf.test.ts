@@ -1,13 +1,18 @@
 // R13 engine 1: Firm Sign's PDF engine. Every file here is synthetic, made in the test.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { crc32, deflateSync } from 'node:zlib';
+import fontkit from '@pdf-lib/fontkit';
 import {
   decodePDFRawStream,
   degrees,
   PDFArray,
+  PDFBool,
+  PDFDict,
   PDFDocument,
   PDFName,
   PDFRawStream,
+  PDFString,
   type PDFPage,
 } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
@@ -15,6 +20,8 @@ import {
   compose,
   type EngineFile,
   EsignEngineError,
+  EsignPlanError,
+  fitText,
   flatten,
   inspect,
   sha256,
@@ -53,11 +60,25 @@ function png(width: number, height: number) {
   );
 }
 
-/** The markers pdf-lib reads from a JPEG (SOI, a baseline SOF0 with the size, EOI). */
-function jpeg(width: number, height: number) {
+/** The markers pdf-lib reads from a JPEG: SOI, an EXIF orientation, a baseline SOF0, EOI. */
+function jpeg(width: number, height: number, orientation?: number) {
   const sof = [0xff, 0xc0, 0x00, 0x11, 8, height >> 8, height & 255, width >> 8, width & 255];
   const components = [3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1];
-  return new Uint8Array([0xff, 0xd8, ...sof, ...components, 0xff, 0xd9]);
+  const tiff = [0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1];
+  const exif = [
+    ...Buffer.from('Exif\0\0', 'latin1'),
+    ...tiff,
+    0,
+    orientation ?? 1,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+  ];
+  const app1 = orientation ? [0xff, 0xe1, 0, exif.length + 2, ...exif] : [];
+  return new Uint8Array([0xff, 0xd8, ...app1, ...sof, ...components, 0xff, 0xd9]);
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -278,5 +299,190 @@ describe('stamp and flatten', () => {
     const first = await signed(at);
     expect(await signed(at)).toBe(first);
     expect(await signed(new Date('2026-10-18T09:31:00Z'))).not.toBe(first);
+  });
+});
+
+/** A PNG's signature and IHDR only: enough for the header check, nothing to decode. */
+function pngHeader(width: number, height: number) {
+  const bytes = Buffer.from(png(1, 1).subarray(0, 33));
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return new Uint8Array(bytes);
+}
+
+/** The decoded content of the page's form XObjects. */
+function xObjects(page: PDFPage) {
+  const xObject = page.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+  return (xObject?.values() ?? [])
+    .map((ref) => page.doc.context.lookup(ref))
+    .map((s) =>
+      s instanceof PDFRawStream
+        ? Buffer.from(decodePDFRawStream(s).decode()).toString('latin1')
+        : '',
+    )
+    .join('\n');
+}
+
+describe('hostile and unusual files', () => {
+  it('refuses huge images from the header, before decoding, and files over 10 MB', async () => {
+    expect(await refusal(inspect(pngHeader(20_000, 10), 'image/png'))).toBe('PDF_UNREADABLE');
+    expect(await refusal(inspect(pngHeader(6_000, 6_000), 'image/png'))).toBe('PDF_UNREADABLE');
+    expect(await refusal(inspect(jpeg(10_001, 10), 'image/jpeg'))).toBe('PDF_UNREADABLE');
+    const big = Buffer.concat([Buffer.from(await pdf([[612, 792]])), Buffer.alloc(10 * 2 ** 20)]);
+    expect(await refusal(inspect(big, 'application/pdf'))).toBe('PDF_UNREADABLE');
+  });
+
+  it('turns a photo as its EXIF orientation says', async () => {
+    expect((await inspect(jpeg(30, 20, 6), 'image/jpeg')).pageSizes).toEqual([
+      { width: 612, height: 792 },
+    ]);
+    const photo = file('image/jpeg', jpeg(30, 20, 6));
+    const plan = [{ documentId: photo.documentId, page: 0, rotation: 90 as const }];
+    const { bytes } = await compose([photo], plan);
+    expect((await PDFDocument.load(bytes)).getPage(0).getRotation().angle).toBe(180);
+  });
+
+  it('answers PDF_UNREADABLE for a PDF that loads but breaks later, at upload already', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([612, 792]).node.set(PDFName.of('Annots'), doc.context.obj([5]));
+    const broken = await doc.save({ useObjectStreams: false });
+    expect(await refusal(inspect(broken, 'application/pdf'))).toBe('PDF_UNREADABLE');
+    expect(await refusal(flatten(broken, new Date(0)))).toBe('PDF_UNREADABLE');
+  });
+
+  it('keeps a stamp on its own page when the plan uses one page twice', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    page.drawText('Synthetic page');
+    const contents = doc.context.lookup(page.node.get(PDFName.of('Contents')))!;
+    page.node.set(PDFName.of('Contents'), doc.context.register(contents)); // one shared array
+    const a = file('application/pdf', await doc.save({ useObjectStreams: false }));
+    const twice = [0, 0].map((p) => ({ documentId: a.documentId, page: p, rotation: 0 as const }));
+    const { bytes } = await compose([a], twice);
+    const check = { pageIndex: 0, x: 0.1, y: 0.1, w: 0.3, h: 0.05, kind: 'check' as const };
+    const stamped = await PDFDocument.load(await stamp(bytes, [check]));
+    expect(content(stamped.getPage(0))).toMatch(/ l\b/);
+    expect(content(stamped.getPage(1))).not.toMatch(/ l\b/);
+  });
+});
+
+describe('flattening forms', () => {
+  it('keeps a value that had no appearance (NeedAppearances)', async () => {
+    const value = 'Synthetic Client';
+    const doc = await PDFDocument.create();
+    const field = doc.getForm().createTextField('client.name');
+    field.addToPage(doc.addPage([612, 792]), { x: 50, y: 700, width: 200, height: 20 });
+    field.setText(value);
+    for (const widget of field.acroField.getWidgets()) widget.dict.delete(PDFName.of('AP'));
+    doc.getForm().acroForm.dict.set(PDFName.of('NeedAppearances'), PDFBool.True);
+    const bytes = await doc.save({ useObjectStreams: false, updateFieldAppearances: false });
+    const a = file('application/pdf', bytes);
+    const packet = await compose([a], [{ documentId: a.documentId, page: 0, rotation: 0 }]);
+    const hex = Buffer.from(value, 'latin1').toString('hex').toUpperCase();
+    for (const source of [bytes, packet.bytes]) {
+      const flat = await PDFDocument.load(await flatten(source, new Date(0)));
+      expect(xObjects(flat.getPage(0))).toContain(hex);
+    }
+  });
+
+  it('maps an appearance through its Matrix and BBox onto a reversed Rect', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    const { context } = doc;
+    const appearance = context.register(
+      context.stream('0 0 1 rg 10 10 100 20 re f', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [10, 10, 110, 30],
+        Matrix: [0, 1, -1, 0, 0, 0],
+      }),
+    );
+    const widget = (rect: number[], flags: number) =>
+      context.register(
+        context.obj({
+          Type: 'Annot',
+          Subtype: 'Widget',
+          Rect: rect,
+          F: flags,
+          AP: { N: appearance },
+        }),
+      );
+    // The second widget is NoView (32): not drawn.
+    const annots = context.obj([widget([70, 800, 50, 700], 4), widget([0, 0, 9, 9], 32)]);
+    page.node.set(PDFName.of('Annots'), annots);
+    const flat = await PDFDocument.load(await flatten(await doc.save(), new Date(0)));
+    const drawn = content(flat.getPage(0));
+    expect(drawn).toContain('1 0 0 1 80 690 cm');
+    expect(drawn.match(/FlatWidget-\d+ Do/g)).toHaveLength(1);
+  });
+
+  it('leaves the signed copy inert: no scripts, actions or embedded files; URI links stay', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    const { context } = doc;
+    const js = { Type: 'Action', S: 'JavaScript', JS: PDFString.of('app.alert(1)') };
+    const names = { JavaScript: { Names: [] }, EmbeddedFiles: { Names: [] } };
+    doc.catalog.set(PDFName.of('OpenAction'), context.obj(js));
+    doc.catalog.set(PDFName.of('Names'), context.obj(names));
+    page.node.set(PDFName.of('AA'), context.obj({ O: js }));
+    const annot = (Subtype: string, A?: Record<string, PDFString | string>) =>
+      context.register(
+        context.obj({ Type: 'Annot', Subtype, Rect: [0, 0, 9, 9], ...(A ? { A } : {}) }),
+      );
+    const annots = [
+      annot('Link', { S: 'URI', URI: PDFString.of('https://example.test') }),
+      annot('Link', js),
+      annot('Link', { S: 'Launch', F: PDFString.of('synthetic.exe') }),
+      annot('FileAttachment'),
+    ];
+    page.node.set(PDFName.of('Annots'), context.obj(annots));
+    const flat = await PDFDocument.load(await flatten(await doc.save(), new Date(0)));
+    const left = flat.catalog.lookup(PDFName.of('Names'), PDFDict);
+    expect(flat.catalog.get(PDFName.of('OpenAction'))).toBeUndefined();
+    expect(left.get(PDFName.of('JavaScript'))).toBeUndefined();
+    expect(left.get(PDFName.of('EmbeddedFiles'))).toBeUndefined();
+    expect(flat.getPage(0).node.get(PDFName.of('AA'))).toBeUndefined();
+    const kept = flat.getPage(0).node.Annots()!;
+    expect(kept.size()).toBe(1);
+    const action = kept.lookup(0, PDFDict).lookup(PDFName.of('A'), PDFDict);
+    expect(action.get(PDFName.of('S'))).toBe(PDFName.of('URI'));
+  });
+});
+
+describe('text and stamping limits', () => {
+  it('cuts text that does not fit at 4 pt with an ellipsis', async () => {
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(fontkit);
+    const fontFile = new URL('../../src/esign/engine/fonts/NotoSans-Regular.ttf', import.meta.url);
+    const font = await doc.embedFont(readFileSync(fontFile));
+    const fitted = fitText(font, 'Zoë Ångström-Papadopoulou, Synthetic Street '.repeat(5), 60, 10);
+    expect(fitted?.size).toBe(4);
+    expect(fitted?.text.endsWith('…')).toBe(true);
+    expect(font.widthOfTextAtSize(fitted!.text, 4)).toBeLessThanOrEqual(60);
+    expect(fitText(font, '  ', 60, 10)).toBeUndefined();
+  });
+
+  it('embeds the font once per call and refuses a stamped packet', async () => {
+    const a = file(
+      'application/pdf',
+      await pdf([
+        [612, 792],
+        [612, 792],
+      ]),
+    );
+    const plan = [0, 1].map((page) => ({ documentId: a.documentId, page, rotation: 0 as const }));
+    const { bytes } = await compose([a], plan);
+    const text = (pageIndex: number, y: number) => ({
+      ...{ pageIndex, x: 0.1, y, w: 0.4, h: 0.04 },
+      kind: 'text' as const,
+      text: `Zoë ${y}`,
+    });
+    const one = await stamp(bytes, [text(0, 0.1)]);
+    const many = await stamp(
+      bytes,
+      [0.1, 0.2, 0.3, 0.4].flatMap((y) => [text(0, y), text(1, y)]),
+    );
+    expect(many.length - one.length).toBeLessThan(20_000);
+    await expect(stamp(one, [text(1, 0.5)])).rejects.toThrow(EsignPlanError);
   });
 });
