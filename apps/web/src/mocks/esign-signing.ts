@@ -8,6 +8,7 @@ import {
   type EsignTemplateDetail,
   type EsignTemplateRole,
   type EsignPutRecipient,
+  EsignFieldId,
   EsignPutRecipientsBody,
   EsignTemplateId,
   type MemberRef,
@@ -373,6 +374,15 @@ export function createSigningMock(firmSlug: string): SigningClient {
       f.attachmentName = fileName;
       return copy(f);
     },
+    removeAttachment: async (fieldId) => {
+      parseInput(EsignFieldId, fieldId);
+      const s = await at('SIGN');
+      const f = s.fields.find((x) => x.id === fieldId && x.type === 'ATTACHMENT');
+      if (!f || !s.attachments.has(fieldId)) throw fail(404, 'NOT_FOUND', 'Not found');
+      s.attachments.delete(fieldId);
+      f.attachmentName = null;
+      return copy(f);
+    },
     copy: async () => {
       await at('COPY');
       return {
@@ -429,14 +439,14 @@ const MY_ROWS = (): MySignatureRow[] => {
 /**
  * An in-memory `api.mySignatures(slug)`: Jamie Sample's requests at `lvp`. Firm Sign is off for
  * every other firm, and everywhere with NEXT_PUBLIC_API_MOCK_ESIGN=off (`status()` says so; the
- * other calls answer 404).
+ * other calls answer 403 MODULE_OFF).
  */
 export function createMySignaturesMock(firmSlug: string): MySignaturesClient {
   const slug = firmSlug.toLowerCase();
   const enabled = !ESIGN_OFF && slug === mockBusiness.slug;
   const on = async () => {
     await mockDelay();
-    if (!enabled) throw fail(404, 'NOT_FOUND', 'Not found');
+    if (!enabled) throw fail(403, 'MODULE_OFF', 'Firm Sign is not turned on for this firm.');
   };
   const mine = (recipientId: string) => {
     const r = MY_ROWS().find((x) => x.recipientId === recipientId);

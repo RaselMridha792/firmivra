@@ -46,6 +46,8 @@ const ids = {
   messageA: '',
   invoiceA: '',
   paymentA: '',
+  checkInvoiceA: '',
+  offlinePaymentA: '',
 };
 const tokenHash = (firm: string) =>
   createHash('sha256').update(`invite-${run}-${firm}`).digest('hex');
@@ -331,6 +333,34 @@ beforeAll(async () => {
           refundedAt: new Date(),
         },
       });
+      // A check on a second invoice, recorded as the owner (the database needs the actor).
+      const checkBill = await tx.invoice.create({ data: { ...work, number: 'INV-2' } });
+      await tx.invoiceLine.create({
+        data: {
+          businessId: firm,
+          invoiceId: checkBill.id,
+          description: 'Fee',
+          unitAmountCents: 100,
+        },
+      });
+      await tx.invoice.update({
+        where: { id: checkBill.id },
+        data: { status: 'OPEN', issuedAt: new Date() },
+      });
+      await tx.$executeRaw`SELECT set_config('app.current_actor_id', ${ownerId}, true)`;
+      const check = await tx.offlinePayment.create({
+        data: {
+          businessId: firm,
+          invoiceId: checkBill.id,
+          method: 'CHECK',
+          amountCents: 40,
+          reference: '1001',
+          receivedOn: new Date(),
+          idempotencyKey: randomUUID(),
+          recordedByUserId: ownerId,
+        },
+      });
+      await tx.$executeRaw`SELECT set_config('app.current_actor_id', '', true)`;
       await tx.contentItem.create({
         data: { businessId: firm, kind: 'TIP', title: 'Tip', body: 'Keep receipts' },
       });
@@ -415,6 +445,8 @@ beforeAll(async () => {
         ids.messageA = msg.id;
         ids.invoiceA = bill.id;
         ids.paymentA = pay.id;
+        ids.checkInvoiceA = checkBill.id;
+        ids.offlinePaymentA = check.id;
       }
     });
   }
@@ -485,6 +517,7 @@ describe('no scope set', () => {
     expect(await unscopedApp.invoiceLine.findMany()).toEqual([]);
     expect(await unscopedApp.payment.findMany()).toEqual([]);
     expect(await unscopedApp.paymentEvent.findMany()).toEqual([]);
+    expect(await unscopedApp.offlinePayment.findMany()).toEqual([]);
     expect(await unscopedApp.contentItem.findMany()).toEqual([]);
     expect(await unscopedApp.calculatorDefinition.findMany()).toEqual([]);
     expect(await unscopedApp.firmAgreement.findMany()).toEqual([]);
@@ -548,6 +581,7 @@ describe('business scope: firm B', () => {
       await b().paymentEvent.findMany(),
       await b().stripeAccount.findMany(),
       await b().paymentRefund.findMany(),
+      await b().offlinePayment.findMany(),
       await b().contentItem.findMany(),
       await b().calculatorDefinition.findMany(),
       await b().firmAgreement.findMany(),
@@ -618,6 +652,30 @@ describe('business scope: firm B', () => {
     expect(await b().message.findUnique({ where: { id: ids.messageA } })).toBeNull();
     expect(await b().invoice.findUnique({ where: { id: ids.invoiceA } })).toBeNull();
     expect(await b().payment.findUnique({ where: { id: ids.paymentA } })).toBeNull();
+    expect(await b().offlinePayment.findUnique({ where: { id: ids.offlinePaymentA } })).toBeNull();
+    // Firm B's owner cannot record a check on firm A's invoice, or void firm A's check.
+    const ownerB = db.forBusiness(ids.firmB, { actorUserId: ids.ownerB });
+    await expect(
+      ownerB.offlinePayment.create({
+        data: {
+          businessId: ids.firmB,
+          invoiceId: ids.checkInvoiceA,
+          method: 'CASH',
+          amountCents: 10,
+          receivedOn: new Date(),
+          idempotencyKey: randomUUID(),
+          recordedByUserId: ids.ownerB,
+        },
+      }),
+    ).rejects.toThrow(/only an open invoice/);
+    expect(
+      (
+        await ownerB.offlinePayment.updateMany({
+          where: { id: ids.offlinePaymentA },
+          data: { voidedByUserId: ids.ownerB, voidReason: 'Planted' },
+        })
+      ).count,
+    ).toBe(0);
     // Firm B cannot pay, or record a webhook event against, firm A's invoice or payment.
     await expect(
       b().payment.create({

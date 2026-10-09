@@ -422,7 +422,8 @@ Dots mark the "many" end. Authorization is always the same two questions: does t
 | intake\_submissions | tenant | tenant\_id, engagement\_id, form\_type, form\_version, answers (JSONB), state, version | New row on every change |
 | esign\_requests | tenant | tenant\_id, client\_id, engagement\_id, status, original\_sha256, final\_sha256, certificate\_sha256, final\_document\_id | Frozen once sent; never deleted after send |
 | esign\_events | tenant | tenant\_id, request\_id, recipient\_id, type, actor, ip, at | Append-only; UPDATE and DELETE denied |
-| invoices, payments | tenant | tenant\_id, amount\_cents, status, processor\_ref; processor\_event\_id unique | Paid only by verified webhook |
+| invoices, payments, payment\_refunds, payment\_events | tenant | tenant\_id, amount\_cents, status, processor\_ref; event id unique | Paid only by a verified webhook; amounts computed by the database |
+| stripe\_accounts | tenant (written by platform) | tenant\_id, account id, charges and payouts enabled, onboarding status | One per business; written only through the platform-scope writer |
 | audit\_events | both | tenant\_id (null = platform), actor, action, target, ip, at | UPDATE and DELETE denied |
 
 ## Modules & packs
@@ -476,7 +477,7 @@ Decided by Rasel on 8 Oct: e-signature is our own module, Firm Sign, not DocuSig
 
 **Scan exception.** Every upload waits for the GuardDuty scan before anyone can open it. There is one exception: a `documents` row may start `CLEAN` only for the server-made final PDF or certificate of a `COMPLETED` request, with its key under `tenant/<id>/esign/<request>/final/` or `tenant/<id>/esign/<request>/certificate/`. A database trigger enforces it. Signer attachments and uploaded signature images always wait for the scan.
 
-**Module switch.** Firm Sign and calculators are per-firm modules in `business_settings.enabled_modules` (`'esign'`, `'calculators'`). The app role cannot change that column. Only `app_set_business_module(business, module, enabled, reason)` changes it: a `SECURITY DEFINER` function only the migrate role may run, which needs a reason and writes a `module.enabled` or `module.disabled` audit row. Rasel runs it through `packages/db/scripts/set-module.mjs` with `MODULE_CHANGE=<slug>:<module>:on|off` and `MODULE_REASON=...`. When `esign` is off, firm routes answer 403 `MODULE_OFF` and public signer routes answer 404. `GET /esign/status` and the portal's `GET /portal/{slug}/me/signatures/status` never error; they answer `enabled: false`.
+**Module switch.** Firm Sign and calculators are per-firm modules in `business_settings.enabled_modules` (`'esign'`, `'calculators'`). The app role cannot change that column. Only `app_set_business_module(business, module, enabled, reason)` changes it: a `SECURITY DEFINER` function only the migrate role may run, which needs a reason and writes a `module.enabled` or `module.disabled` audit row. Rasel runs it through `packages/db/scripts/set-module.mjs` with `MODULE_CHANGE=<slug>:<module>:on|off` and `MODULE_REASON=...`. When `esign` is off, firm routes and signed-in portal routes (the Signature center) answer 403 `MODULE_OFF`, and public signer routes answer 404. `GET /esign/status` and the portal's `GET /portal/{slug}/me/signatures/status` never error; they answer `enabled: false`.
 
 ## Tech stack
 
@@ -528,7 +529,7 @@ Payments & e-sign
 
 **Stripe; Firm Sign (built in)**
 
-Stripe decided 4 Oct, with hosted checkout; Stripe Connect so each business is paid into its own account (to confirm). Firm Sign decided 8 Oct: our own engine on pdf-lib, no e-signature vendor.
+Stripe decided 4 Oct, with hosted Checkout. Stripe Connect with Standard accounts (Oct 9): each business connects its own account from Settings > Payments through Stripe's hosted onboarding and is paid into it; checkouts and refunds run on that account, and its webhook events are matched to the business by the connected account. A job every 15 minutes opens scheduled invoices on their day in the firm's time zone. Firm Sign decided 8 Oct: our own engine on pdf-lib, no e-signature vendor.
 
 Ops
 
@@ -703,7 +704,7 @@ Which calculators are approved, and with what formulas and tax year?
 :   Needed before the Tax Return Calculator can be built.
 
 Stripe Connect, or one Stripe account per firm?
-:   The design assumes Connect so each firm is paid into its own account.
+:   Decided: Connect with Standard accounts, each firm paid into its own account.
 
 Which video tool for appointments?
 :   Zoom or a plain meeting link. (E-signature is decided: the built-in Firm Sign.)

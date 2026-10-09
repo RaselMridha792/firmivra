@@ -27,6 +27,11 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
     routes: /^POST \/api\/v1\/business\/clients\/:id\/message-threads$/,
     why: 'echoed back on the thread as a link; the service never reads the record it names',
   },
+  ...['signature.agreements.agreementId', 'signature.acknowledgments.agreementId'].map((field) => ({
+    field,
+    routes: /\/submit$/,
+    why: "compared with the firm's current agreement block inside the firm's own transaction (R14's sign()); any other id is 409 AGREEMENT_OUTDATED, and the record it names is never read",
+  })),
 ];
 
 // A uuid field not named like an id is found by its zod format (`z.uuid()`, `.uuid()`); one checked

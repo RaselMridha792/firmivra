@@ -288,6 +288,8 @@ export const IntakeErrorCode = z.enum([
   'INTAKE_LOCKED',
   /** 410: the intake expired; the client asks the firm to reopen it. */
   'INTAKE_EXPIRED',
+  /** 409 on a submit: the intake changed at that moment (a save or upload); reload and submit again. */
+  'INTAKE_CHANGED',
   /**
    * 409: the slot holds its field's `maxFiles` or the form holds INTAKE_LIMITS.maxFiles; every
    * file counts, blocked ones too.
@@ -320,6 +322,8 @@ export type IntakeErrorCode = z.infer<typeof IntakeErrorCode>;
 export const INTAKE_ERRORS = {
   INTAKE_LOCKED: 'This form has been submitted and can no longer be changed.',
   INTAKE_EXPIRED: 'This form has expired. Contact your firm to reopen it.',
+  INTAKE_CHANGED:
+    'Your form changed while it was being sent. Please reload the page and try again.',
   TOO_MANY_FILES: 'There is no room for more files here. Remove a file to add another.',
   ENCRYPTION_UNAVAILABLE: INTAKE_NUMBERS_UNAVAILABLE,
   TOO_MANY_NUMBERS: INTAKE_TOO_MANY_NUMBERS,

@@ -318,3 +318,37 @@ describe('POST /business/invoices/{id}/cancel', () => {
     expect([b.status, codeOf(b)]).toEqual([404, 'NOT_FOUND']);
   });
 });
+
+describe('the invoice row held by another API task', () => {
+  it('answers Pay Now and cancel 409 PAYMENT_IN_PROGRESS after about a second, never 500', async () => {
+    const invoice = await open();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => (held = resolve));
+    // Another API process's Pay Now: its own transaction holds the row, so this process's
+    // in-flight guard does not see it and the wait is the row lock's lock_timeout.
+    const other = t.inScope(t.ids.firmA, async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM invoices WHERE id = ${invoice.id}::uuid FOR UPDATE`;
+      held();
+      await gate;
+    });
+    try {
+      await holding;
+      for (const call of [() => pay(invoice.id), () => cancel(invoice.id)]) {
+        const started = Date.now();
+        const res = await call();
+        expect([res.status, codeOf(res)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
+        // It waited on the row (1 s), not on this process's guard, and gave up in time.
+        expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+        expect(Date.now() - started).toBeLessThan(2_500);
+      }
+    } finally {
+      release();
+      await other;
+    }
+    // Nothing was written while it waited, and both work once the row is free.
+    expect(await paymentsOf(invoice.id)).toEqual([]);
+    expectOk(await pay(invoice.id));
+  });
+});
