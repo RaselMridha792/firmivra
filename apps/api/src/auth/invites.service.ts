@@ -326,6 +326,7 @@ export class InvitesService {
     );
     await this.mailer.send({
       inviteId,
+      businessId,
       to: email,
       name,
       businessName: business.name,
