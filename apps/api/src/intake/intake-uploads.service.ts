@@ -81,12 +81,16 @@ export class IntakeUploadsService {
     });
   }
 
-  /** Step 3: the intake must still be open and the slot still have room. */
+  /**
+   * Step 3: the intake must still be open and the slot still have room. Another client's intake
+   * is 404 before the token is looked at, as on every route that names one.
+   */
   async confirmUpload(
     who: IntakeUploader,
     intakeId: string,
     uploadToken: string,
   ): Promise<IntakeView> {
+    await this.inFirm(who.businessId, (tx) => this.ownIntake(tx, who, intakeId));
     await this.uploads.confirm(
       {
         pool: 'CLIENT',
@@ -130,6 +134,15 @@ export class IntakeUploadsService {
       FOR SHARE`;
     if (!client) throw notFound();
     return { archived: client.archived_at !== null };
+  }
+
+  /** 404 unless the intake is one of this client's (any status). */
+  private async ownIntake(tx: TxClient, who: IntakeUploader, intakeId: string): Promise<void> {
+    const row = await tx.intake.findFirst({
+      where: { businessId: who.businessId, id: intakeId, engagement: { clientId: who.clientId } },
+      select: { id: true },
+    });
+    if (!row) throw notFound();
   }
 
   /** The client's open intake, held for this transaction. */
