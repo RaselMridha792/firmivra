@@ -2,16 +2,13 @@
 // tokens, code HMAC and sealed cookie: opening the link (unknown, expired, used, corrected,
 // wrong-slug and other firm's tokens all LINK_INVALID), the cookie (missing, other slug, other
 // firm, tampered), every step and every out-of-order call (409 WRONG_STEP), the email and access
-// codes with their limits, consent, the packet, decline, a cross-recipient check and nothing
-// secret in the logs, audit or timeline. Synthetic data only.
-import { createHash, randomUUID } from 'node:crypto';
+// codes with their limits, consent, a cross-recipient check and nothing secret in the logs,
+// audit or timeline. Synthetic data only.
+import { randomUUID } from 'node:crypto';
 import { HttpException, Logger, NotFoundException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  EsignDocumentRecord,
-  EsignRecipientRecord,
-} from '../../src/esign/requests/esign.repository.js';
+import type { EsignRecipientRecord } from '../../src/esign/requests/esign.repository.js';
 import {
   HmacCodeHasher,
   RandomLinkTokens,
@@ -26,7 +23,6 @@ const secrets = { CLIENT: 'fake-client-secret', STAFF: 'fake-staff-secret' };
 const SLUG_A = 'fake-firm-a';
 const SLUG_B = 'fake-firm-b';
 const ACCESS = 'FAKE1234';
-const PACKET = new TextEncoder().encode('%PDF-fake-packet');
 const MIN = 60_000;
 
 class FakeNotify implements NotifyService {
@@ -75,12 +71,10 @@ beforeEach(() => {
     { activeFirm },
     w.modules,
     signers,
-    w.repo,
     w.directory,
     tokens,
     hasher,
     new SealedSignerCookie(secrets, true),
-    w.store,
     notify,
     w.audit,
   );
@@ -108,10 +102,6 @@ const api = (b: Browser, slug = SLUG_A) => ({
   consent: async () => svc.consent(await svc.call(slug, b.req, 'CONSENT')),
   accept: async (versionId: string) =>
     svc.acceptConsent(await svc.call(slug, b.req, 'CONSENT'), versionId, b.res),
-  packet: async () => svc.packet(await svc.call(slug, b.req, 'SIGN')),
-  decline: async (reason: string | null = null) =>
-    svc.decline(await svc.call(slug, b.req, 'CONSENT', 'SIGN'), reason),
-  end: () => svc.end(slug, b.res),
 });
 
 async function refused(work: Promise<unknown>): Promise<string> {
@@ -149,8 +139,8 @@ const signer = (extra: Partial<EsignRecipientRecord> = {}): EsignRecipientRecord
   ...extra,
 });
 
-/** A SENT request of the firm with these recipients, its packet stored; answers its id. */
-async function sent(firm: string, recipients: EsignRecipientRecord[], scan = 'CLEAN' as const) {
+/** A SENT request of the firm with these recipients; answers its id. */
+async function sent(firm: string, recipients: EsignRecipientRecord[]) {
   const record = await w.repo.createRequest(firm, {
     title: 'Fake engagement letter',
     source: 'TAB',
@@ -165,23 +155,13 @@ async function sent(firm: string, recipients: EsignRecipientRecord[], scan = 'CL
     reminders: { firstAfterDays: 3, everyDays: 3, max: 3 },
     expiryWarningDays: 2,
   });
-  const sha = createHash('sha256').update(PACKET).digest('hex');
-  await w.store.put(
-    firm,
-    w.store.keyFor(firm, record.id, `packet-${sha}.pdf`),
-    PACKET,
-    'application/pdf',
-  );
-  const doc = { id: randomUUID(), scanStatus: scan } as EsignDocumentRecord;
   w.repo.seed(firm, record.id, (row) => {
     Object.assign(row.record, {
       status: 'SENT',
       sentAt: new Date(),
       expiresAt: new Date(Date.now() + 10 * 86_400_000),
-      originalSha256: sha,
     });
     row.parts.recipients = structuredClone(recipients);
-    row.parts.documents = [doc];
   });
   return record.id;
 }
@@ -199,7 +179,6 @@ function link(
     recipientId,
     tokenVersion: 0,
     purpose: 'SIGN',
-    expiresAt: null,
     ...extra,
   });
   return token;
@@ -276,7 +255,7 @@ describe('open the link', () => {
       [link(w.a, id, done.id), SLUG_A], // used: signed
       [link(w.a, id, declined.id), SLUG_A], // used: declined
       [corrected, SLUG_A],
-      [link(w.a, id, me.id, { purpose: 'COPY', expiresAt: new Date(Date.now() - 1) }), SLUG_A],
+      [link(w.a, id, me.id, { purpose: 'COPY' }), SLUG_A], // the copy link: slice 2
       [firmB, SLUG_A], // another firm's token on this firm's slug
       [link(w.a, id, me.id, { tokenVersion: 1 }), SLUG_B], // this firm's token on another slug
       [link(w.a, id, me.id, { tokenVersion: 1 }), 'no-such-firm'],
@@ -323,16 +302,10 @@ describe('the cookie', () => {
     });
     expect(await refused(api(b).accept(consentId()))).toBe('409 WRONG_STEP');
   });
-
-  it('session/end clears it', async () => {
-    const { b } = await atConsent();
-    await api(b).end();
-    expect(b.jar.size).toBe(0);
-  });
 });
 
 describe('the steps, in order', () => {
-  it('email code, consent (version pinned), then the packet; events record authMethod', async () => {
+  it('email code, consent (version pinned), then SIGN; events record authMethod', async () => {
     const { b, id, me } = await atConsent();
     expect(notify.sent[0]).toMatchObject({
       template: 'esign.code',
@@ -348,7 +321,6 @@ describe('the steps, in order', () => {
     const state = await api(b).accept(consentId());
     expect(state.step).toBe('SIGN');
     expect(signers.pinned.of(w.a).get(me.id)).toBe(consentId());
-    expect(Buffer.from(await api(b).packet()).toString()).toBe('%PDF-fake-packet');
     const events = await w.repo.events(w.a, id);
     expect(events.map((e) => [e.type, e.actorKind, e.authMethod])).toEqual([
       ['AUTH_PASSED', 'SIGNER', 'EMAIL_CODE'],
@@ -359,7 +331,6 @@ describe('the steps, in order', () => {
       'esign.signer_code_sent',
       'esign.signer_auth_passed',
       'esign.signer_consented',
-      'esign.signer_packet_read',
     ]);
   });
 
@@ -403,8 +374,6 @@ describe('the steps, in order', () => {
       () => c.accessCode(ACCESS),
       () => c.consent(),
       () => c.accept(consentId()),
-      () => c.packet(),
-      () => c.decline(),
     ]) {
       expect(await refused(call())).toBe('409 WRONG_STEP');
     }
@@ -415,7 +384,6 @@ describe('the steps, in order', () => {
       () => c.sendCode(),
       () => c.verifyCode('123456'),
       () => c.accessCode(ACCESS),
-      () => c.packet(),
     ]) {
       expect(await refused(call())).toBe('409 WRONG_STEP');
     }
@@ -436,7 +404,7 @@ describe('the steps, in order', () => {
     const id = await sent(w.a, [me]);
     const b = new Browser();
     expect((await api(b).open(link(w.a, id, me.id))).step).toBe('WAITING');
-    for (const call of [() => api(b).sendCode(), () => api(b).consent(), () => api(b).decline()]) {
+    for (const call of [() => api(b).sendCode(), () => api(b).consent()]) {
       expect(await refused(call())).toBe('409 WRONG_STEP');
     }
   });
@@ -447,45 +415,6 @@ describe('the steps, in order', () => {
     signers.consents.set(w.a, { id: randomUUID(), version: 2, bodyMarkdown: 'Fake v2' });
     expect(await refused(api(b).accept(old))).toBe('409 CONSENT_OUTDATED');
     expect((await api(b).accept(consentId())).step).toBe('SIGN');
-  });
-
-  it('the packet only while every file is CLEAN', async () => {
-    for (const [scan, answer] of [
-      ['PENDING', '409 SCAN_PENDING'],
-      ['INFECTED', '409 FILE_BLOCKED'],
-    ] as const) {
-      const me = signer({ authMethod: 'LINK' });
-      const id = await sent(w.a, [me], scan as 'CLEAN');
-      const b = new Browser();
-      await api(b).open(link(w.a, id, me.id));
-      await api(b).accept(consentId());
-      expect(await refused(api(b).packet())).toBe(answer);
-    }
-  });
-});
-
-describe('decline', () => {
-  it('declines the recipient and the request, with the reason on the timeline only', async () => {
-    const { b, id, me } = await atConsent();
-    const state = await api(b).decline('Fake reason');
-    expect(state).toMatchObject({ step: 'DECLINED', expiresAt: null });
-    expect((await w.repo.findRequest(w.a, id))?.status).toBe('DECLINED');
-    const event = (await w.repo.events(w.a, id)).at(-1);
-    expect(event).toMatchObject({
-      type: 'DECLINED',
-      reason: 'Fake reason',
-      authMethod: 'EMAIL_CODE',
-    });
-    expect(JSON.stringify(w.audit.entries)).not.toContain('Fake reason');
-    expect(await refused(api(b).decline())).toBe('409 WRONG_STEP');
-    expect(await refused(api(new Browser()).open(link(w.a, id, me.id)))).toBe('404 LINK_INVALID');
-  });
-
-  it('409 REQUEST_CLOSED when the request closed between the read and the write', async () => {
-    const { b, id } = await atConsent();
-    const call = await svc.call(SLUG_A, b.req, 'CONSENT', 'SIGN');
-    w.repo.seed(w.a, id, (row) => (row.record.status = 'VOIDED'));
-    expect(await refused(svc.decline(call, null))).toBe('409 REQUEST_CLOSED');
   });
 });
 

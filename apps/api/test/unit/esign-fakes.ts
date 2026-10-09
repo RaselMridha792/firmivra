@@ -515,30 +515,6 @@ export class InMemorySignerRepository implements EsignSignerRepository {
     await this.addEvent(businessId, requestId, event);
     return true;
   }
-
-  async decline(
-    businessId: string,
-    requestId: string,
-    recipientId: string,
-    write: { at: Date; reason: string | null; event: EsignEventRecord },
-  ) {
-    const found = await this.signer(businessId, requestId, recipientId);
-    const open = ['SENT', 'DELIVERED', 'VIEWED', 'PARTIALLY_SIGNED'];
-    if (
-      !found ||
-      !open.includes(found.request.status) ||
-      ['SIGNED', 'DECLINED'].includes(found.recipient.status)
-    ) {
-      return false;
-    }
-    this.requests.seed(businessId, requestId, (row) => {
-      row.record.status = 'DECLINED';
-      const me = row.parts.recipients.find((r) => r.id === recipientId)!;
-      Object.assign(me, { status: 'DECLINED', declinedAt: write.at, declineReason: write.reason });
-    });
-    await this.addEvent(businessId, requestId, write.event);
-    return true;
-  }
 }
 
 /** A firm's clients, services, portal logins and members. */

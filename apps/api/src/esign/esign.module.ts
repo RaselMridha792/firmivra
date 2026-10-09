@@ -16,7 +16,7 @@ import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 import { EsignSendService } from './requests/send.service.js';
 import { EsignSignerController } from './signer/signer.controller.js';
-import { type EsignSignerRepository, SIGNER_REPOSITORY } from './signer/signer.repository.js';
+import { SIGNER_REPOSITORY } from './signer/signer.repository.js';
 import { EsignSignerService } from './signer/signer.service.js';
 
 /**
@@ -42,10 +42,7 @@ import { EsignSignerService } from './signer/signer.service.js';
     EsignSignerService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
-    {
-      provide: SIGNER_REPOSITORY,
-      useValue: notMigrated<EsignSignerRepository>('EsignSignerRepository'),
-    },
+    { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
   ],
 })
 export class EsignModule {}

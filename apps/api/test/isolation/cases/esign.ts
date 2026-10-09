@@ -30,13 +30,10 @@ const SIGNER =
 
 export const excluded: CaseModule['excluded'] = {
   'POST /api/v1/portal/:firmSlug/sign/session': SIGNER,
-  'POST /api/v1/portal/:firmSlug/sign/session/end': SIGNER,
   'GET /api/v1/portal/:firmSlug/sign/state': SIGNER,
   'POST /api/v1/portal/:firmSlug/sign/code/send': SIGNER,
   'POST /api/v1/portal/:firmSlug/sign/code/verify': SIGNER,
   'POST /api/v1/portal/:firmSlug/sign/access-code': SIGNER,
   'GET /api/v1/portal/:firmSlug/sign/consent': SIGNER,
   'POST /api/v1/portal/:firmSlug/sign/consent': SIGNER,
-  'GET /api/v1/portal/:firmSlug/sign/packet': SIGNER,
-  'POST /api/v1/portal/:firmSlug/sign/decline': SIGNER,
 };

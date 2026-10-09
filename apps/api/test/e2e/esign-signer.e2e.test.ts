@@ -27,8 +27,6 @@ const COOKIE_ROUTES = [
   ['post', 'access-code', { code: 'FAKE1234' }],
   ['get', 'consent', undefined],
   ['post', 'consent', { versionId: randomUUID(), agree: true }],
-  ['get', 'packet', undefined],
-  ['post', 'decline', {}],
 ] as const;
 
 beforeAll(async () => {
@@ -109,8 +107,6 @@ describe('Firm Sign signer routes', () => {
       ['access-code', { code: '!!' }],
       ['consent', { versionId: randomUUID(), agree: false }],
       ['consent', { versionId: 'nope', agree: true }],
-      ['decline', { reason: 'x'.repeat(501) }],
-      ['decline', { extra: true }],
     ] as const;
     for (const [path, body] of bad) {
       expect(answer(await send('post', onSlug, path, body))).toBe('400 VALIDATION_FAILED');
@@ -121,13 +117,5 @@ describe('Firm Sign signer routes', () => {
     const answers = [];
     for (let i = 0; i < 6; i++) answers.push(answer(await send('post', onSlug, 'code/send', {})));
     expect(answers).toEqual([...Array<string>(5).fill('404 LINK_INVALID'), '429 RATE_LIMITED']);
-  });
-
-  it('session/end clears the cookie on its path', async () => {
-    const res = await send('post', onSlug, 'session/end', {});
-    expect(res.status).toBe(200);
-    expect(String(res.headers['set-cookie'])).toContain(
-      `fv_sign_${onSlug}=; Path=/api/v1/portal/${onSlug}/sign;`,
-    );
   });
 });
