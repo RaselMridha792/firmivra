@@ -19,11 +19,10 @@ const rowSelect = {
   disclaimer: true,
   enabled: true,
   sortOrder: true,
-  config: true,
 } satisfies Prisma.CalculatorDefinitionSelect;
 
 /**
- * The firm's calculators (R12 step 5; contract in packages/types/src/calculators). Every query
+ * The firm's calculators (R12 step 5, R14 K1; contract in packages/types/src/calculators). Every query
  * runs in the firm's business scope with `businessId` from TenantGuard. Everyone at the firm
  * reads; Owner and Admin change (the routes say so). Reads never write: a firm without a row
  * gets the default definition, and its row is created on the first change. Clients read enabled
@@ -57,9 +56,8 @@ export class CalculatorsService {
       { kind: 'business', businessId },
       async (tx) => {
         const d = CALCULATOR_DEFAULTS[key];
-        // No config: the column's default `{}` keeps showing the current default figures, so a
-        // firm that only renamed its calculator gets the new figures when the defaults change,
-        // the same as a firm without a row (never a frozen copy of the placeholders).
+        // No config: the column keeps its default `{}` and is never read (the figures live in
+        // packages/types, by tax year).
         const inserted = await tx.calculatorDefinition.createMany({
           data: [
             {

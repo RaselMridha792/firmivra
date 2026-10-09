@@ -17,8 +17,8 @@ const keyPipe = new ZodValidationPipe(CalculatorKey);
 /**
  * The firm's calculators (R12 step 5; contract in packages/types/src/calculators). Everyone at
  * the firm reads; Owner and Admin turn them on or off and edit the title and disclaimer (Staff
- * 403). The figures are data and change only with Octavia's list. The firm comes from
- * TenantGuard.
+ * 403). No figures go over the wire (they live in packages/types by tax year), and nothing is
+ * computed here. The firm comes from TenantGuard.
  */
 @Controller('business/calculators')
 @Roles(...FIRM_STAFF)
