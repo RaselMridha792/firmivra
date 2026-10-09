@@ -53,10 +53,7 @@ function FieldCard({ title, fields }: { title: string; fields: readonly Field[] 
       <h2 className="text-lg font-semibold">{title}</h2>
       <dl className="mt-4 divide-y divide-border">
         {fields.map(([label, value]) => (
-          <div
-            key={label}
-            className="grid grid-cols-[minmax(7rem,.8fr)_minmax(0,1.2fr)] gap-3 py-2 text-sm"
-          >
+          <div key={label} className="grid grid-cols-2 gap-3 py-2 text-sm">
             <dt className="text-muted">{label}</dt>
             <dd className="break-words">{display(value)}</dd>
           </div>
