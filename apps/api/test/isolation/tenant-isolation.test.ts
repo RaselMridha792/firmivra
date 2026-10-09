@@ -332,7 +332,8 @@ async function bodySwaps(
 
 const HOW_TO_ADD =
   'Add it in test/isolation/cases/<module>.ts: `cases` maps "METHOD /api/v1/path" to ' +
-  '{ params: { <param>: "<record>" }, bodyIds?: { <field>: "<record>" }, body?, expect? }; a record no file creates yet goes in ' +
+  '{ params: { <param>: "<record>" }, bodyIds?: { <field>: "<record>" }, body?, expect? }; a ' +
+  'record no file creates yet goes in ' +
   '`records` as { create(ctx) { ...return id } } (see world.ts); a route that is neither a firm ' +
   'nor a portal route goes in `excluded` with the reason; a firm or portal route behind a module ' +
   'that is off in every firm goes in `moduleOff` with the reason until the module is on.';
@@ -372,12 +373,10 @@ describe('tenant isolation (R8 step 2)', () => {
         );
         continue;
       }
-      const named = Object.keys(c.bodyIds ?? {})
-        .sort()
-        .join(',');
-      if (named !== [...fields].sort().join(','))
+      const named = Object.keys(c.bodyIds ?? {});
+      if (named.sort().join(',') !== [...fields].sort().join(','))
         problems.push(
-          `${key} (${c.file}): bodyIds map ${named || 'nothing'}, the body has ${fields.join(',') || 'none'}`,
+          `${key} (${c.file}): bodyIds map ${named.join(',') || 'nothing'}, the body has ${fields.join(',') || 'none'}`,
         );
       const mapped = Object.keys(c.params).sort().join(',');
       if (mapped !== [...params].sort().join(','))
@@ -444,41 +443,25 @@ describe('tenant isolation (R8 step 2)', () => {
 
     it("a member of firm Q is refused firm P's records named in a body, in firm Q", async () => {
       const actor = as.firm(people.ownerQ, firms.q.id);
-      const { failures, sent } = await bodySwaps(
-        routes.filter(isFirmRoute),
-        q,
-        actor,
-        firms.q.slug,
-        own.q,
-      );
-      expect(failures).toEqual([]);
-      expect(sent).toBeGreaterThan(20);
+      const res = await bodySwaps(routes.filter(isFirmRoute), q, actor, firms.q.slug, own.q);
+      expect(res.failures).toEqual([]);
+      expect(res.sent).toBeGreaterThan(20);
     });
 
     it("a client of firm Q is refused firm P's records named in a body", async () => {
-      const portal = routes.filter(isPortalRoute);
-      const { failures, sent } = await bodySwaps(
-        portal,
-        q,
-        as.client(q.client!),
-        firms.q.slug,
-        own.q,
-      );
-      expect(failures).toEqual([]);
-      expect(sent).toBeGreaterThan(0);
+      const actor = as.client(q.client!);
+      const res = await bodySwaps(routes.filter(isPortalRoute), q, actor, firms.q.slug, own.q);
+      expect(res.failures).toEqual([]);
+      expect(res.sent).toBeGreaterThan(0);
     });
 
     it("client Y is refused client X's records named in a body, in the same firm", async () => {
-      const { failures, sent } = await bodySwaps(
-        routes.filter(isPortalRoute),
-        peer,
-        as.client(peer.client!),
-        firms.p.slug,
-        own.p,
-        (record) => RECORDS[record]?.clientPrivate === true,
-      );
-      expect(failures).toEqual([]);
-      expect(sent).toBeGreaterThan(0);
+      const actor = as.client(peer.client!);
+      const only = (record: string) => RECORDS[record]?.clientPrivate === true;
+      const portal = routes.filter(isPortalRoute);
+      const res = await bodySwaps(portal, peer, actor, firms.p.slug, own.p, only);
+      expect(res.failures).toEqual([]);
+      expect(res.sent).toBeGreaterThan(0);
     });
 
     it("a client of firm P gets 404 at firm Q's portal, on every client route", async () => {
@@ -656,9 +639,9 @@ describe('tenant isolation (R8 step 2)', () => {
         route.method === 'GET'
           ? base
           : await buildWorld([
+              'client',
               ...Object.values(c.params),
               ...Object.values(c.bodyIds ?? {}),
-              'client',
             ]);
       const portal = isPortalRoute(route);
       const res = await call(
