@@ -8,7 +8,7 @@ import {
   notificationText,
   storedType,
 } from '../../src/notifications/notification-text.js';
-import { NotificationInputError, Notifier } from '../../src/notifications/notifier.js';
+import { NotificationInputError, Notifier, short } from '../../src/notifications/notifier.js';
 import { BrandingSource, FIRMIVRA_BRANDING, UnknownFirmError } from '../../src/notify/branding.js';
 import { NotifyDeliveryError, SendingNotifyService } from '../../src/notify/notify.service.js';
 import { PreferenceSource } from '../../src/notify/preferences.js';
@@ -263,5 +263,17 @@ describe('Notifier input and failures', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('short (titles and names in a bell item)', () => {
+  it('cuts at 120 code points, never inside a surrogate pair (jsonb refuses a lone one)', () => {
+    const value = `${'a'.repeat(119)}😀tail`;
+    const cut = short(value)!;
+    expect(Array.from(cut)).toHaveLength(120);
+    expect(cut.endsWith('😀')).toBe(true);
+    expect(cut).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(short('  one\n‮two  ')).toBe('one two');
+    expect(short('   ')).toBeNull();
   });
 });
