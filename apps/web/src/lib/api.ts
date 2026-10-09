@@ -67,6 +67,7 @@ import {
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
+import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
@@ -116,7 +117,11 @@ export const api = {
     dev && mocked('engagements')
       ? createEngagementsMock({ role: MOCK_ROLE })
       : createEngagementsClient(request),
-  taxReturns: createTaxReturnsClient(request),
+  /** Tax returns per client and year (R10): firm side. */
+  taxReturns:
+    dev && mocked('taxReturns')
+      ? createTaxReturnsMock({ role: MOCK_ROLE })
+      : createTaxReturnsClient(request),
   /** Begin Online leads (R11): the firm's inbox, convert and decline. */
   leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
@@ -125,7 +130,10 @@ export const api = {
     dev && mocked('myServices')
       ? myServicesMock(firmSlug)
       : createMyServicesClient(request, firmSlug),
-  myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
+  myTaxReturns: (firmSlug: string) =>
+    dev && mocked('myTaxReturns')
+      ? createMyTaxReturnsMock()
+      : createMyTaxReturnsClient(request, firmSlug),
   /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
   appointmentTypes:
     dev && mocked('appointmentTypes')
