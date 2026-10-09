@@ -44,6 +44,7 @@ Isolation suite green in CI; prod stacks deployed and empty.
 - R0 (low priority), R0's open item (c): asks now run in the admin scope, so drop the platform branch of `support_access_grants_request`. Today a bug in any platform-scope caller could still plant a request naming anyone, a firm's own staff member included, whose rows the firm's log would then show as Firmivra Support. The test fixtures that insert grants in platform scope (`packages/db/test/policies.test.ts`, and my `apps/api/test/e2e/audit-log.e2e.test.ts`) move to the admin scope with it.
 - R0 (low priority): let the admin scope read the name of a Super Admin who asked for support access (`users_admin_platform_admins` has those who reviewed applications, not these), so a former Super Admin's asks keep their name in `GET /admin/support-access`. Today the name is `''`.
 - R6: a notice to the firm's Owners when Firmivra Support asks for access (and, optionally, when a grant is about to expire). Until then the API logs it by id.
+- R1: a dev check of the sign-in limits with real Cognito. Cognito's own per-user lockout (about 5 wrong passwords, doubling up to about 15 minutes; not configurable) lets attacker networks lock the real user at Cognito, and their right password then returns NotAuthorizedException, so INVALID_CREDENTIALS counted against their own network. "Failures from one network lock only that network" can only be shown on dev.
 
 ## Decisions (Rasel's q31: the lead's defaults of Oct 8, confirmed by Rasel the same day)
 
