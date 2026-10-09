@@ -130,23 +130,25 @@ const Ref = z.object({ id: z.uuid(), name: z.string() });
 const ServiceRef = z.object({ id: z.uuid(), title: z.string() });
 
 // ---------- Upload (both sides) ----------
+/**
+ * An uploaded file's name, shown to staff and the client, and the download's name. No control or
+ * invisible formatting characters (such as a right-to-left override or a zero-width space), no
+ * lone surrogates, no line or paragraph separators, no / or \. Shared with agreement PDFs (R14).
+ */
+export const FileName = z
+  .string()
+  .trim()
+  .min(1, 'The file needs a name')
+  .max(255, 'Use a file name of at most 255 characters')
+  .regex(
+    /^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]+$/u,
+    'Rename the file: its name has characters that are not allowed',
+  );
+
 /** What `uploadFile()` learns from the file itself and adds to every `createUpload`. */
 const FileFacts = {
-  /**
-   * Shown to staff and the client, and the download's name. No control or invisible formatting
-   * characters (such as a right-to-left override or a zero-width space), no lone surrogates, no
-   * line or paragraph separators, no / or \. It must end in an ending of its content type
-   * (checked with the type).
-   */
-  fileName: z
-    .string()
-    .trim()
-    .min(1, 'The file needs a name')
-    .max(255, 'Use a file name of at most 255 characters')
-    .regex(
-      /^[^\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}/\\]+$/u,
-      'Rename the file: its name has characters that are not allowed',
-    ),
+  /** FileName; it must end in an ending of its content type (checked with the type). */
+  fileName: FileName,
   contentType: UploadContentType,
   sizeBytes: z
     .number()

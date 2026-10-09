@@ -2,6 +2,8 @@
 
 **Goal:** Firms and clients book appointments without double booking; firms publish resources and external links; owners and admins read their audit log; clients use the calculators; staff work in the Bookkeeping and Tax Planning workspaces. Former developer tickets T07, T08 (Tumit) and I11 (Arfan), moved here on Oct 6.
 
+Calculators and meeting links moved to R14: see R14-agreements-calculators-meetings.md.
+
 **Owned paths (change only these):**
 - `apps/api/src/appointments/**`, `apps/api/src/content/**`, `apps/api/src/audit-viewer/**`, `apps/api/src/calculators/**`, `apps/api/src/workspaces/**` (map them to the real layout once)
 - the matching folders in `packages/types/src/` and `apps/web/src/mocks/`, and your registration lines in `apps/web/src/lib/api.ts`

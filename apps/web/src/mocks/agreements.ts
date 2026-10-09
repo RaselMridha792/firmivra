@@ -1,16 +1,21 @@
 import {
   type AgreementFile,
+  AgreementPathId,
   type AgreementsClient,
-  type AgreementVersion,
+  AgreementVersion,
   AgreementVersionNumber,
   ApiRequestError,
   ConfirmUploadRequest,
   CreateAgreementRequest,
   CreateAgreementUploadRequest,
-  type FirmAgreementSummary,
+  FirmAgreementSummary,
+  INTAKE_FORMS,
   type IntakeAgreement,
-  type IntakeAgreementBlock,
+  IntakeAgreementBlock,
   IntakeAgreementsQuery,
+  type IntakeFormKey,
+  MAX_SERVICE_AGREEMENTS,
+  type MyIntakeAgreementsClient,
   parseInput,
   type PublicAgreementsClient,
   PublishAgreementVersionRequest,
@@ -19,16 +24,26 @@ import { mockDelay } from '../lib/mock';
 import type { MockFirmRole } from './clients';
 
 /**
- * Mock data for `api.agreements` (firm) and `api.publicAgreements(slug)` (Begin Online and the
- * portal intake tab), R14. Synthetic text only: never a firm's real agreement. Same input checks,
- * rules and error codes as the API. A mock upload needs no storage (its URL starts with `mock:`).
- * To show the PDF states on a screen, upload a file whose name contains:
+ * Mock data for `api.agreements` (firm), `api.publicAgreements(slug)` (Begin Online) and
+ * `api.myIntakeAgreements(slug)` (the portal intake), R14. Synthetic text only: never a firm's
+ * real agreement. Same input checks, rules and error codes as the API; the fixtures are parsed
+ * with the response schemas, so they cannot drift from the contract. A mock upload needs no
+ * storage (its URL starts with `mock:`). The seeded versions' PDFs are CLEAN files, so a new
+ * version can reuse one. To show the PDF states on a screen, upload a file whose name contains:
  *   "pending"  the scan never finishes (publish answers 409 FILE_NOT_READY)
  *   "password" confirm answers 409 FILE_PASSWORD_PROTECTED
+ *   "notpdf"   confirm answers 409 NOT_A_PDF
+ *   "pages"    confirm answers 409 TOO_MANY_PAGES
+ *   "mismatch" confirm answers 409 UPLOAD_MISMATCH
  *   "virus"    the scan comes back INFECTED (publish answers 409 FILE_BLOCKED)
- * Any other file is PENDING for a few seconds, then CLEAN.
- * The public block: slug `not-ready` has no firm-wide agreement yet (ready: false); any other
- * slug gets the sample firm-wide agreement, plus the service one for SAMPLE_SERVICE_ID.
+ * Any other file is PENDING for a few seconds, then CLEAN. A service takes at most
+ * MAX_SERVICE_AGREEMENTS unarchived agreements (409 SERVICE_AGREEMENT_LIMIT).
+ * The block: slug `not-ready` has no firm-wide agreement yet (ready: false); any other slug gets
+ * the sample firm-wide agreement, plus the Bookkeeping one for the BOOKKEEPING form. A form
+ * INTAKE_FORMS doesn't have answers 404, as in the intake mocks. The block is seeded on its own:
+ * versions published with the firm mock (`api.agreements`) never show in it.
+ * The portal block knows the intake mock's six intakes (mocks/intake.ts, R11's contract B: ids
+ * 0199b6a8-...-1 to -6 with their forms); any other intake id answers 404.
  */
 const at = '2026-10-06T09:00:00.000Z';
 const SCAN_MS = 3000;
@@ -89,6 +104,11 @@ const pdf = (n: number, fileName: string) => ({
   sizeBytes: 48_213,
   sha256: hex(n),
 });
+/** The seeded versions' PDF originals (CLEAN). */
+const seededFiles = (series: Series[]): AgreementFile[] =>
+  series.flatMap((s) =>
+    s.versions.flatMap((v) => (v.pdf ? [{ ...v.pdf, scanStatus: 'CLEAN' as const }] : [])),
+  );
 
 function seed(): Series[] {
   const firmWide = uuid('0001', 1);
@@ -99,18 +119,19 @@ function seed(): Series[] {
     title: string,
     body: string,
     acks: typeof acknowledgments,
-  ): AgreementVersion => ({
-    agreementId,
-    version: n,
-    title,
-    effectiveDate: '2026-10-01',
-    publishedAt: at,
-    publishedBy: owner,
-    pdf: pdf(n + (agreementId === firmWide ? 0 : 10), `${title.replace(/\W+/g, '-')}.pdf`),
-    bodyMarkdown: body,
-    bodySha256: hex(1000 + n + (agreementId === firmWide ? 0 : 10)),
-    acknowledgments: acks,
-  });
+  ): AgreementVersion =>
+    AgreementVersion.parse({
+      agreementId,
+      version: n,
+      title,
+      effectiveDate: '2026-10-01',
+      publishedAt: at,
+      publishedBy: owner,
+      pdf: pdf(n + (agreementId === firmWide ? 0 : 10), `${title.replace(/\W+/g, '-')}.pdf`),
+      bodyMarkdown: body,
+      bodySha256: hex(1000 + n + (agreementId === firmWide ? 0 : 10)),
+      acknowledgments: acks,
+    });
   const fw = [
     version(
       firmWide,
@@ -142,18 +163,19 @@ function seed(): Series[] {
     scope: FirmAgreementSummary['scope'],
     versions: AgreementVersion[],
     sortOrder: number,
-  ): FirmAgreementSummary => ({
-    id,
-    scope,
-    service: scope === 'SERVICE' ? SAMPLE_SERVICE : null,
-    sortOrder,
-    archivedAt: null,
-    current: listed(versions[0]),
-    versionCount: versions.length,
-  });
+  ): FirmAgreementSummary =>
+    FirmAgreementSummary.parse({
+      id,
+      scope,
+      service: scope === 'SERVICE' ? SAMPLE_SERVICE : null,
+      sortOrder,
+      archivedAt: null,
+      current: listed(versions[0]),
+      versionCount: versions.length,
+    });
   return [
     { summary: summary(firmWide, 'ALL_INTAKES', fw, 0), versions: fw },
-    { summary: summary(service, 'SERVICE', sv, 1), versions: sv },
+    { summary: summary(service, 'SERVICE', sv, 0), versions: sv },
   ];
 }
 
@@ -171,6 +193,7 @@ const listed = (v: AgreementVersion | undefined) =>
 const fail = (status: number, code: string, message: string) =>
   new ApiRequestError(status, code, message);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
+const uuidInput = (value: string) => parseInput(AgreementPathId, value);
 const link = () => ({
   url: 'mock:download/agreement.pdf',
   expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
@@ -185,25 +208,29 @@ export function createAgreementsMock(
 ): AgreementsClient {
   let series = seed();
   let next = 100;
-  const files = new Map<string, AgreementFile & { readyAt: number; finalScan: string }>();
+  const files = new Map<string, AgreementFile & { readyAt: number; finalScan: string }>(
+    seededFiles(series).map((f) => [f.fileId, { ...f, readyAt: 0, finalScan: 'CLEAN' }]),
+  );
   const pending = new Map<string, { fileName: string; sizeBytes: number; sha256: string }>();
   const allowed = async () => {
     await mockDelay();
     if (options.role === 'STAFF') throw fail(403, 'FORBIDDEN', 'This action is not permitted');
   };
   const find = (id: string) => {
+    uuidInput(id);
     const s = series.find((x) => x.summary.id === id);
     if (!s) throw notFound();
     return s;
   };
   const fileView = (id: string): AgreementFile => {
-    const f = files.get(id);
+    const f = files.get(uuidInput(id));
     if (!f) throw notFound();
     const { readyAt, finalScan, ...file } = f;
     const scanStatus =
       file.scanStatus === 'PENDING' && readyAt <= Date.now() ? finalScan : file.scanStatus;
     return { ...file, scanStatus: scanStatus as AgreementFile['scanStatus'] };
   };
+  // `series` is in creation order, and sort is stable: the API's createdAt tie-break.
   const ordered = () =>
     [...series].sort(
       (a, b) =>
@@ -226,11 +253,17 @@ export function createAgreementsMock(
         throw fail(409, 'FIRM_WIDE_EXISTS', 'The firm already has a firm-wide agreement');
       }
       if (input.scope === 'SERVICE' && input.serviceId !== SAMPLE_SERVICE_ID) throw notFound();
+      const open = series.filter(
+        (s) => s.summary.service?.id === input.serviceId && !s.summary.archivedAt,
+      );
+      if (input.scope === 'SERVICE' && open.length >= MAX_SERVICE_AGREEMENTS) {
+        throw fail(409, 'SERVICE_AGREEMENT_LIMIT', 'This service already has 9 agreements');
+      }
       const summary: FirmAgreementSummary = {
         id: uuid('0001', next++),
         scope: input.scope,
         service: input.scope === 'SERVICE' ? SAMPLE_SERVICE : null,
-        sortOrder: series.length,
+        sortOrder: 0,
         archivedAt: null,
         current: null,
         versionCount: 0,
@@ -331,10 +364,15 @@ export function createAgreementsMock(
       if (name.includes('password')) {
         throw fail(409, 'FILE_PASSWORD_PROTECTED', 'This PDF has a password');
       }
+      if (name.includes('notpdf')) throw fail(409, 'NOT_A_PDF', 'This file isn’t a PDF');
+      if (name.includes('pages')) throw fail(409, 'TOO_MANY_PAGES', 'More than 200 pages');
+      if (name.includes('mismatch')) throw fail(409, 'UPLOAD_MISMATCH', 'This file changed');
       const fileId = uuid('0002', next++);
       files.set(fileId, {
         fileId,
-        ...p,
+        fileName: p.fileName,
+        sizeBytes: p.sizeBytes,
+        sha256: p.sha256,
         scanStatus: 'PENDING',
         readyAt: name.includes('pending') ? Infinity : Date.now() + SCAN_MS,
         finalScan: name.includes('virus') ? 'INFECTED' : 'CLEAN',
@@ -355,9 +393,16 @@ export function createAgreementsMock(
   };
 }
 
-/** The block a visitor sees: the sample firm-wide agreement, plus the service's extra. */
-export function intakeBlockFixture(firmSlug: string, serviceId?: string): IntakeAgreementBlock {
-  const legal = { terms: { version: 2 }, privacy: { version: 1 } };
+/**
+ * The block for a form: the sample firm-wide agreement, plus the Bookkeeping one for BOOKKEEPING.
+ * `legal` is set only on Begin Online (both Terms and Privacy published).
+ */
+export function intakeBlockFixture(
+  firmSlug: string,
+  form: IntakeFormKey,
+  where: 'begin' | 'portal' = 'begin',
+): IntakeAgreementBlock {
+  const legal = where === 'begin' ? { terms: { version: 2 }, privacy: { version: 1 } } : null;
   if (firmSlug.toLowerCase() === 'not-ready') return { ready: false, agreements: [], legal };
   const block = (s: Series): IntakeAgreement => {
     const v = s.versions[0]!;
@@ -381,29 +426,62 @@ export function intakeBlockFixture(firmSlug: string, serviceId?: string): Intake
   };
   const [firmWide, service] = seed();
   const agreements = [block(firmWide!)];
-  if (serviceId === SAMPLE_SERVICE_ID) agreements.push(block(service!));
-  return { ready: true, agreements, legal };
+  if (form === 'BOOKKEEPING') agreements.push(block(service!));
+  return IntakeAgreementBlock.parse({ ready: true, agreements, legal });
 }
+
+/** A form the mock firm offers (as mocks/intake.ts): 404 for one INTAKE_FORMS doesn't have. */
+const offered = (form: IntakeFormKey) => {
+  if (!INTAKE_FORMS[form]) throw notFound();
+  return form;
+};
 
 /**
  * An in-memory `api.publicAgreements(slug)`. Signing itself goes with R11's submit; its mock
- * answers AGREEMENT_OUTDATED when the printed name contains "outdated" (see intake mocks).
+ * (mocks/intake.ts) answers AGREEMENT_OUTDATED when a text answer contains "agreementoutdated".
  */
 export function publicAgreementsMock(firmSlug: string): PublicAgreementsClient {
   return {
-    block: async (query = {}) => {
+    block: async (query) => {
       await mockDelay();
-      const { serviceId } = parseInput(IntakeAgreementsQuery, query);
-      return intakeBlockFixture(firmSlug, serviceId);
+      const { form } = parseInput(IntakeAgreementsQuery, query);
+      return intakeBlockFixture(firmSlug, offered(form));
     },
     downloadPdf: async (agreementId, version) => {
       await mockDelay();
+      uuidInput(agreementId);
       const wanted = parseInput(AgreementVersionNumber, version);
-      const found = intakeBlockFixture(firmSlug, SAMPLE_SERVICE_ID).agreements.find(
+      const found = intakeBlockFixture(firmSlug, 'BOOKKEEPING').agreements.find(
         (a) => a.agreementId === agreementId && a.version === wanted && a.pdf.available,
       );
       if (!found) throw notFound();
       return link();
+    },
+  };
+}
+
+/** The intake mock's intakes (mocks/intake.ts) and their forms. */
+const MOCK_INTAKE_FORMS = [
+  'ANNUAL_TAX',
+  'BOOKKEEPING',
+  'ANNUAL_TAX',
+  'PAYROLL',
+  'QUARTERLY_TAX',
+  'TAX_PLANNING',
+] as const satisfies readonly IntakeFormKey[];
+const intakeForm = (intakeId: string): IntakeFormKey | undefined =>
+  MOCK_INTAKE_FORMS.find(
+    (_, n) => intakeId === `0199b6a8-0000-7000-8000-${String(n + 1).padStart(12, '0')}`,
+  );
+
+/** An in-memory `api.myIntakeAgreements(slug)`: 404 for an intake the client doesn't have. */
+export function myIntakeAgreementsMock(firmSlug: string): MyIntakeAgreementsClient {
+  return {
+    block: async (intakeId) => {
+      await mockDelay();
+      const form = intakeForm(uuidInput(intakeId));
+      if (!form) throw notFound();
+      return intakeBlockFixture(firmSlug, form, 'portal');
     },
   };
 }

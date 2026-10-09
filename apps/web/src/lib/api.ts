@@ -22,7 +22,7 @@ import {
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
-  createPublicAgreementsClient,
+  createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
   createMyNotesClient,
@@ -34,6 +34,7 @@ import {
   createMyTaxReturnsClient,
   createNotificationsClient,
   createPaymentsSetupClient,
+  createPublicAgreementsClient,
   createRequest,
   createSettingsClient,
   createSupportAccessClient,
@@ -49,7 +50,11 @@ import {
   createAvailabilityMock,
   myAppointmentsMock,
 } from '../mocks/appointments';
-import { createAgreementsMock, publicAgreementsMock } from '../mocks/agreements';
+import {
+  createAgreementsMock,
+  myIntakeAgreementsMock,
+  publicAgreementsMock,
+} from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -198,11 +203,16 @@ export const api = {
     dev && mocked('agreements')
       ? createAgreementsMock({ role: MOCK_ROLE })
       : createAgreementsClient(request),
-  /** Intake agreements (R14): what a visitor or client signs before an intake submits (public). */
+  /** Intake agreements (R14): what a Begin Online visitor signs before the form submits (public). */
   publicAgreements: (firmSlug: string) =>
     dev && mocked('publicAgreements')
       ? publicAgreementsMock(firmSlug)
       : createPublicAgreementsClient(request, firmSlug),
+  /** Intake agreements (R14): what the signed-in client signs for one of their portal intakes. */
+  myIntakeAgreements: (firmSlug: string) =>
+    dev && mocked('myIntakeAgreements')
+      ? myIntakeAgreementsMock(firmSlug)
+      : createMyIntakeAgreementsClient(request, firmSlug),
   /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
   auditLog:
     dev && mocked('auditLog')
