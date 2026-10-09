@@ -58,7 +58,7 @@ import {
   SAMPLE_PDF_URL,
   SAMPLE_PNG_BASE64,
 } from './esign-common';
-import { esignExtrasMock, esignKioskOpen } from './esign-extras';
+import { esignExtrasMock, esignKioskOpen, esignMockRoleOf } from './esign-extras';
 import { esignAdminMock, type EsignBaseClient, esignDefaults } from './esign-signing';
 import { mockBusiness } from './me';
 
@@ -69,7 +69,11 @@ import { mockBusiness } from './me';
  * Documents rows come first; the other requests are generated to make up the counts. Same input
  * checks, rules and error codes as the API, so a screen built on it works unchanged.
  * - `role: 'STAFF'` is Sam Staff (mocks/clients.ts): he sees requests he sends and those of his
- *   assigned clients (Jamie Sample and Acme Widgets); any other request is 404.
+ *   assigned clients (Jamie Sample and Acme Widgets); any other request is 404. MANAGER and VIEWER
+ *   (NEXT_PUBLIC_API_MOCK_ESIGN_ROLE) are Sam too: a Manager also approves and manages FIRM
+ *   templates; a Viewer's changes answer 403 FORBIDDEN (but their own job title).
+ * - Approvers: the Owner, or Sam once he is a MANAGER (`roles.set` or the env role); never the
+ *   sender (409 APPROVER_NOT_ALLOWED). Any edit to a DRAFT clears its approvals.
  * - New requests need a client from mocks/clients.ts and one of its open services
  *   (mocks/engagements.ts: Jamie Sample's 2025 Personal Tax or Bookkeeping).
  * - Uploads: a file is PENDING (being checked) for 4 seconds, then CLEAN. A PDF whose name contains
@@ -502,11 +506,12 @@ const MERGE_ROW = (r: EsignRequestDetail): Record<EsignMergeKey, string | null> 
 
 /** An in-memory `api.esign`. `enabled: false` shows Firm Sign turned off (403 MODULE_OFF). */
 export function createEsignMock(
-  options: { role?: MockFirmRole; enabled?: boolean } = {},
+  options: { role?: MockFirmRole | EsignAccessRole; enabled?: boolean } = {},
 ): EsignClient {
   const role: EsignAccessRole = options.role ?? 'OWNER';
   const enabled = options.enabled ?? !ESIGN_OFF;
-  const me: MemberRef = role === 'STAFF' ? mockStaff : mockMe;
+  const firmWide = role === 'OWNER' || role === 'ADMIN';
+  const me: MemberRef = firmWide ? mockMe : mockStaff;
   const uploads = new Map<
     string,
     { requestId: string; fileName: string; contentType: EsignContentType; sizeBytes: number }
@@ -517,7 +522,7 @@ export function createEsignMock(
   const assigned = (clientId: string | undefined) =>
     clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === mockStaff.userId);
   const visible = (r: EsignRequestDetail) =>
-    role !== 'STAFF' || r.sender.userId === me.userId || assigned(r.client?.id);
+    firmWide || r.sender.userId === me.userId || assigned(r.client?.id);
   const moduleOn = async () => {
     await mockDelay();
     if (!enabled) throw fail(403, 'MODULE_OFF', 'Firm Sign is off for this firm');
@@ -547,6 +552,16 @@ export function createEsignMock(
     if (r.status !== 'DRAFT') throw invalidState();
     return r;
   };
+  /** A DRAFT about to change: every approval so far is cleared. */
+  const edit = (requestId: string) => {
+    const r = draft(requestId);
+    for (const x of r.recipients) if (x.kind === 'APPROVER') x.status = 'WAITING';
+    return r;
+  };
+  /** The Owner, or Sam once he is a Firm Sign Manager. */
+  const mayApprove = (userId: string) =>
+    userId === mockMe.userId ||
+    (userId === mockStaff.userId && (role === 'MANAGER' || esignMockRoleOf(userId) === 'MANAGER'));
   const open = (requestId: string, alsoApproval = false) => {
     const r = find(requestId);
     if (CLOSED.includes(r.status)) throw closed();
@@ -696,7 +711,7 @@ export function createEsignMock(
     }
     for (const x of r.recipients) {
       if (x.delivery === 'EMAIL' && !x.email) add('RECIPIENT_NO_CONTACT', { recipientId: x.id });
-      if (x.authMethod === 'ACCESS_CODE' && !x.hasAccessCode)
+      if (x.authMethod === 'ACCESS_CODE' && x.delivery !== 'IN_PERSON' && !x.hasAccessCode)
         add('ACCESS_CODE_MISSING', { recipientId: x.id });
       if (x.kind === 'APPROVER' && x.status !== 'APPROVED')
         add('APPROVAL_PENDING', { recipientId: x.id });
@@ -808,7 +823,7 @@ export function createEsignMock(
     update: async (requestId, body) => {
       await on();
       const input = parseInput(UpdateEsignRequestBody, body);
-      const r = draft(requestId);
+      const r = edit(requestId);
       const { clientId, engagementId, ...rest } = input;
       if (clientId !== undefined && clientId !== (r.client?.id ?? null)) {
         if (r.recipients.some((x) => x.link.type === 'CLIENT_LOGIN')) {
@@ -829,7 +844,7 @@ export function createEsignMock(
     },
     discard: async (requestId) => {
       await on();
-      const r = draft(requestId);
+      const r = edit(requestId);
       if (r.sentAt) throw invalidState();
       const list = esignStore().details;
       list.splice(list.indexOf(r), 1);
@@ -842,7 +857,7 @@ export function createEsignMock(
         throw fail(400, 'FILE_TYPE_NOT_ALLOWED', 'Only PDF, JPG and PNG files');
       }
       const input = parseInput(CreateEsignUploadBody, body);
-      const r = draft(requestId);
+      const r = edit(requestId);
       const n = nextId++;
       uploads.set(`mock-esign-upload-${n}`, {
         requestId: r.id,
@@ -861,7 +876,7 @@ export function createEsignMock(
     confirmUpload: async (requestId, body) => {
       await on();
       const { uploadToken } = parseInput(ConfirmEsignUploadBody, body);
-      const r = draft(requestId);
+      const r = edit(requestId);
       const upload = uploads.get(uploadToken);
       if (!upload || upload.requestId !== r.id) {
         throw fail(410, 'UPLOAD_EXPIRED', 'This upload has expired');
@@ -901,7 +916,7 @@ export function createEsignMock(
     addFromVault: async (requestId, body) => {
       await on();
       const { documentId } = parseInput(EsignFromVaultBody, body);
-      const r = draft(requestId);
+      const r = edit(requestId);
       const source = documentFixtures().documents.find(
         (x) => x.id === documentId && x.clientId === r.client?.id,
       );
@@ -935,7 +950,7 @@ export function createEsignMock(
     removeDocument: async (requestId, documentId) => {
       await on();
       const docId = parseInput(EsignDocumentId, documentId);
-      const r = draft(requestId);
+      const r = edit(requestId);
       if (!r.documents.some((d) => d.id === docId)) throw notFound();
       const kept = r.pagePlan.filter((p) => p.documentId !== docId);
       remapFields(r, kept);
@@ -959,7 +974,7 @@ export function createEsignMock(
     putPagePlan: async (requestId, body) => {
       await on();
       const { pages } = parseInput(EsignPutPagePlanBody, body);
-      const r = draft(requestId);
+      const r = edit(requestId);
       for (const p of pages) {
         const d = r.documents.find((x) => x.id === p.documentId);
         if (!d || p.page >= d.pageCount) throw fail(400, 'VALIDATION_FAILED', 'Unknown page');
@@ -978,7 +993,7 @@ export function createEsignMock(
     putRecipients: async (requestId, body) => {
       await on();
       const input = parseInput(EsignPutRecipientsBody, body);
-      const r = draft(requestId);
+      const r = edit(requestId);
       const used = new Set<number>();
       const list: EsignRecipient[] = input.recipients.map((x) => {
         const old = x.id ? r.recipients.find((o) => o.id === x.id) : undefined;
@@ -1005,6 +1020,12 @@ export function createEsignMock(
           name = x.who.name;
           email = x.who.email;
           phone = x.who.phone ?? null;
+        }
+        if (x.kind === 'APPROVER') {
+          const userId = x.who.type === 'STAFF' ? x.who.userId : '';
+          if (userId === r.sender.userId || !mayApprove(userId)) {
+            throw fail(409, 'APPROVER_NOT_ALLOWED', 'This person cannot approve this request');
+          }
         }
         if (old) used.add(old.colorIndex);
         return {
@@ -1054,7 +1075,7 @@ export function createEsignMock(
     putFields: async (requestId, body) => {
       await on();
       const input = parseInput(EsignPutFieldsBody, body);
-      const r = draft(requestId);
+      const r = edit(requestId);
       r.fields = input.fields.map((f) => {
         if (f.id && !r.fields.some((o) => o.id === f.id)) {
           throw fail(400, 'VALIDATION_FAILED', 'Unknown field');
@@ -1260,7 +1281,8 @@ export function createEsignMock(
     stored: find,
     record,
     me,
-    manager: role !== 'STAFF',
+    manager: firmWide,
+    templateManager: firmWide || role === 'MANAGER',
     newId,
   };
   const admin = esignAdminMock(shared);
@@ -1276,12 +1298,55 @@ export function createEsignMock(
     ],
   });
   const { versions, restoreVersion, duplicate, bulkSend, ...rest } = extras;
-  return {
+  const all: EsignClient = {
     ...client,
     ...admin,
     ...rest,
     templates: { ...admin.templates, versions, restoreVersion, duplicate, bulkSend },
   };
+  return role === 'VIEWER' ? readOnly(all) : all;
+}
+
+/** Calls a Viewer may make; every other one answers 403 FORBIDDEN. */
+const VIEWER_CALLS = [
+  'status',
+  'list',
+  'counters',
+  'get',
+  'readiness',
+  'mergeValues',
+  'documentContentUrl',
+  'download',
+  'events',
+  'settings.get',
+  'settings.consentVersions',
+  'settings.updateMyProfile',
+  'templates.list',
+  'templates.get',
+  'templates.versions',
+  'inPerson.state',
+  'bulk',
+  'report',
+];
+
+/** A Viewer's `api.esign`: reads work, changes answer 403 FORBIDDEN. */
+function readOnly<T extends object>(target: T, path = ''): T {
+  return Object.fromEntries(
+    Object.entries(target).map(([key, value]) => {
+      const name = path + key;
+      if (typeof value === 'function') {
+        if (VIEWER_CALLS.includes(name)) return [key, value];
+        return [
+          key,
+          async () => {
+            await mockDelay();
+            throw fail(403, 'FORBIDDEN', 'Viewers can’t change anything');
+          },
+        ];
+      }
+      return [key, readOnly(value as object, `${name}.`)];
+    }),
+  ) as T;
 }
 
 /**
@@ -1301,4 +1366,4 @@ function remapFields(r: EsignRequestDetail, pages: EsignRequestDetail['pagePlan'
 
 /** `api.mySignatures(slug)` and `api.signing(slug)`: see mocks/esign-signing.ts. */
 export { createMySignaturesMock as mySignaturesMock, createSigningMock } from './esign-signing';
-export { SAMPLE_PDF_URL } from './esign-common';
+export { MOCK_ESIGN_ROLE, SAMPLE_PDF_URL } from './esign-common';

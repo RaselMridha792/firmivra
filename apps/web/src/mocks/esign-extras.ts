@@ -3,11 +3,13 @@ import {
   EsignApprovalBody,
   type EsignAccessRole,
   type EsignBulkBatch,
+  EsignErrorCode,
   EsignBulkSendBody,
   type EsignClient,
   type EsignInPersonSession,
   type EsignMemberRole,
   EsignRecipientId,
+  type EsignReadinessCode,
   type EsignReportTotals,
   EsignReportQuery,
   type EsignRequestDetail,
@@ -32,16 +34,28 @@ import {
   type ExtrasKeys,
   esignTemplateStore,
   type TemplateExtrasKeys,
+  MOCK_SIGNING_TOKENS,
 } from './esign-signing';
 
 /**
  * Contract 3's extras for the firm-side mock (mocks/esign.ts): approvals, Firm Sign roles,
  * template versions and duplicate, in-person signing, bulk send and reports. Synthetic data only.
- * - The in-person password is `mock-password`; 5 wrong ones answer 401 (signed out).
+ * - The in-person password is `mock-password`; 5 wrong ones answer 401 (signed out). The kiosk
+ *   link opens the signer pages with MOCK_SIGNING_TOKENS.inPerson (on NEXT_PUBLIC_PORTAL_BASE_URL,
+ *   else http://portal.localhost:3000).
  * - Bulk send creates and sends every client's request at once; a client with no open service or
  *   a readiness problem stays a DRAFT, NOT_SENT.
  */
 export const MOCK_KIOSK_PASSWORD = 'mock-password';
+const PORTAL = process.env.NEXT_PUBLIC_PORTAL_BASE_URL ?? 'http://portal.localhost:3000';
+/** A bulk row's problem: the error's own code when it is a Firm Sign one, else `fallback`. */
+const problemOf = (
+  e: unknown,
+  fallback: EsignErrorCode | EsignReadinessCode,
+): EsignErrorCode | EsignReadinessCode => {
+  const code = EsignErrorCode.safeParse((e as { code?: unknown }).code);
+  return code.success ? code.data : fallback;
+};
 
 /** `on` here only checks Firm Sign is on: `unlocked()` adds the kiosk lock where it applies. */
 export interface EsignExtrasContext extends EsignAdminContext {
@@ -73,7 +87,7 @@ const extras = (): ExtrasState =>
 export function esignExtrasMock(
   ctx: EsignExtrasContext,
 ): Pick<EsignClient, ExtrasKeys> & Pick<EsignClient['templates'], TemplateExtrasKeys> {
-  const manager = ['OWNER', 'ADMIN', 'MANAGER'].includes(ctx.role);
+  const manager = ctx.templateManager;
   const forbidden = () => fail(403, 'FORBIDDEN', 'You can’t do this');
   const ownerOrAdmin = () => {
     if (ctx.role !== 'OWNER' && ctx.role !== 'ADMIN') throw forbidden();
@@ -86,7 +100,8 @@ export function esignExtrasMock(
     const tid = parseInput(EsignTemplateId, templateId);
     const t = esignTemplateStore(ctx.me).find(
       (x) =>
-        x.id === tid && (x.visibility === 'FIRM' || x.owner.userId === ctx.me.userId || manager),
+        x.id === tid &&
+        (x.visibility === 'FIRM' || x.owner.userId === ctx.me.userId || ctx.manager),
     );
     if (!t) throw fail(404, 'NOT_FOUND', 'Not found');
     return t;
@@ -183,7 +198,14 @@ export function esignExtrasMock(
       const me = r.recipients.find(
         (x) => x.kind === 'APPROVER' && x.link.type === 'STAFF' && x.link.userId === ctx.me.userId,
       );
-      if (!me) throw fail(403, 'NOT_AN_APPROVER', 'You are not an approver');
+      const allowed =
+        ctx.role === 'OWNER' ||
+        ctx.role === 'ADMIN' ||
+        ctx.role === 'MANAGER' ||
+        extras().esignRoles.get(ctx.me.userId) === 'MANAGER';
+      if (!me || !allowed || r.sender.userId === ctx.me.userId) {
+        throw fail(403, 'NOT_AN_APPROVER', 'You are not an approver');
+      }
       if (r.status !== 'NEEDS_APPROVAL') throw fail(409, 'INVALID_STATE', 'Not waiting');
       if (me.status === 'APPROVED') throw fail(409, 'RECIPIENT_DONE', 'Already decided');
       r.approvalNotes.push({
@@ -201,8 +223,9 @@ export function esignExtrasMock(
       me.status = 'APPROVED';
       ctx.record(r, 'APPROVED', who);
       if (r.recipients.every((x) => x.kind !== 'APPROVER' || x.status === 'APPROVED')) {
+        // If the send fails, the approvals stand and the request stays a DRAFT.
         r.status = 'DRAFT';
-        return ctx.client.send(requestId, { confirm: true });
+        return ctx.client.send(requestId, { confirm: true }).catch(() => ctx.find(requestId));
       }
       return ctx.find(requestId);
     },
@@ -229,7 +252,7 @@ export function esignExtrasMock(
           requestId: r.id,
           recipientId: x.id,
           signerName: x.name,
-          signingUrl: `/lvp/sign#t=${'K'.repeat(43)}`,
+          signingUrl: `${PORTAL}/lvp/sign#t=${MOCK_SIGNING_TOKENS.inPerson}`,
           startedAt: iso(now),
           expiresAt: iso(now + 15 * MINUTE),
         };
@@ -358,7 +381,7 @@ export function esignExtrasMock(
         ...copy(t),
         id: ctx.newId('e'),
         name: input.name,
-        visibility: input.visibility ?? 'FIRM',
+        visibility: input.visibility ?? t.visibility,
         owner: ctx.me,
         version: 1,
         updatedAt: iso(Date.now()),
@@ -405,7 +428,7 @@ export function esignExtrasMock(
               problem: null,
             });
           } catch (e) {
-            const code = (e as { code?: string }).code ?? 'NOT_READY';
+            const code = problemOf(e, 'NOT_READY');
             batch.items.push({
               clientId: c.clientId,
               clientName: name,
@@ -415,7 +438,7 @@ export function esignExtrasMock(
             });
           }
         } catch (e) {
-          const code = (e as { code?: string }).code ?? 'NOT_FOUND';
+          const code = problemOf(e, 'NO_CLIENT');
           batch.items.push({
             clientId: c.clientId,
             clientName: name,
@@ -430,6 +453,9 @@ export function esignExtrasMock(
     },
   };
 }
+
+/** A Staff member's Firm Sign role as set with `roles.set` (undefined: STAFF). */
+export const esignMockRoleOf = (userId: string) => state?.esignRoles.get(userId);
 
 /** True while an in-person signing is open: every other firm call answers 403 KIOSK_LOCKED. */
 export const esignKioskOpen = () => state?.kiosk != null;

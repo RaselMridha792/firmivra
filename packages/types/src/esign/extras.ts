@@ -3,7 +3,8 @@ import { MemberRef } from '../clients/schemas.js';
 import { text } from '../clients/text.js';
 import { EsignTemplateVisibility } from './admin.js';
 import { EsignAccessRole, EsignRequestStatus } from './enums.js';
-import { EsignPutRecipient } from './schemas.js';
+import { EsignErrorCode } from './errors.js';
+import { EsignReadinessCode, EsignWhoExternal, EsignWhoStaff } from './schemas.js';
 
 // Firm Sign (R13), firm side, contract 3: the extras. Approvals, Firm Sign roles (Manager and
 // Viewer), template versions and duplicate, in-person signing, bulk send and reports. Same access
@@ -12,6 +13,11 @@ import { EsignPutRecipient } from './schemas.js';
 const DateTime = z.iso.datetime({ offset: true });
 
 // ---------- Approvals ----------
+// Who approves: an APPROVER recipient is a STAFF member who is an Owner, Admin or Firm Sign
+// Manager and is not the request's sender. PUT recipients and `use` (template) answer 409
+// APPROVER_NOT_ALLOWED otherwise, and the rule is checked again on submit and on each decision
+// (a member whose role changed since answers 403 NOT_AN_APPROVER).
+
 /**
  * POST /esign/requests/{id}/submit-for-approval (the sender, Owner, Admin, Manager): a DRAFT whose
  * only readiness problem is APPROVAL_PENDING becomes NEEDS_APPROVAL, and its approvers get an
@@ -24,8 +30,11 @@ export type SubmitEsignApprovalBody = z.input<typeof SubmitEsignApprovalBody>;
 /**
  * POST /esign/requests/{id}/approval (an APPROVER recipient on the request, NEEDS_APPROVAL only):
  * APPROVE, or REJECT with a note. When the last approver approves, the request is sent at once, in
- * the sender's name. REJECT puts it back to DRAFT and every approval so far is cleared; the
- * sender is told. The note is for staff only: never shown to a signer or put in an email.
+ * the sender's name. If that send fails (a readiness problem that appeared since, such as a merge
+ * value), the approvals stand: the request goes back to DRAFT with its approvers APPROVED and
+ * the sender is told; sending it again needs no new approval. Any edit to a DRAFT (files, page
+ * plan, recipients, fields, settings) clears every approval. REJECT puts it back to DRAFT and
+ * every approval so far is cleared; the sender is told. The note is for staff only: never shown to a signer or put in an email.
  * 403 NOT_AN_APPROVER, 409 INVALID_STATE, RECIPIENT_DONE (already decided).
  */
 export const EsignApprovalBody = z
@@ -42,7 +51,8 @@ export type EsignApprovalBody = z.input<typeof EsignApprovalBody>;
 // ---------- Firm Sign roles ----------
 /**
  * A member's access in Firm Sign. Owner and Admin are always OWNER and ADMIN; a Staff member is
- * STAFF unless the firm made them a MANAGER or a VIEWER.
+ * STAFF unless the firm made them a MANAGER or a VIEWER. A MANAGER sees what STAFF sees (their own
+ * requests and their assigned clients'), and also approves and manages every FIRM template.
  */
 export const EsignMemberRole = z.object({
   user: MemberRef,
@@ -110,12 +120,13 @@ export const RestoreEsignTemplateVersionBody = z.strictObject({
 export type RestoreEsignTemplateVersionBody = z.input<typeof RestoreEsignTemplateVersionBody>;
 
 /**
- * POST /esign/templates/{id}/duplicate (anyone who may use it): a new template, owned by the
- * caller, from the newest version, starting again at version 1. 409 TEMPLATE_NAME_TAKEN.
+ * POST /esign/templates/{id}/duplicate (anyone who may use it, but a VIEWER): a new template,
+ * owned by the caller, from the newest version, starting again at version 1. `visibility` is the
+ * source's when left out. 409 TEMPLATE_NAME_TAKEN.
  */
 export const DuplicateEsignTemplateBody = z.strictObject({
   name: text(200, 'one', 'Name the template'),
-  visibility: EsignTemplateVisibility.default('FIRM'),
+  visibility: EsignTemplateVisibility.optional(),
 });
 export type DuplicateEsignTemplateBody = z.input<typeof DuplicateEsignTemplateBody>;
 
@@ -126,9 +137,14 @@ export type DuplicateEsignTemplateBody = z.input<typeof DuplicateEsignTemplateBo
  * signer pages on the portal (a fresh one-time link; the old one stops working); the staff
  * member's own session is locked until `exit` with their password: every other firm route
  * answers 403 KIOSK_LOCKED. The signer skips the email code (the staff member vouches); the
- * events record IN_PERSON_STARTED with who started it. 409 NOT_IN_PERSON, NOT_YOUR_TURN,
- * RECIPIENT_DONE, REQUEST_CLOSED.
+ * events record IN_PERSON_STARTED with who started it. The staff tab shows the lock screen at once
+ * (and on every load while `GET /esign/in-person` has a session); the signer pages open in a new
+ * tab. After ESIGN_KIOSK_IDLE_MINUTES with no signer activity the signer's session ends and the
+ * staff member is signed out (401), so an unattended device never stays open. 409 NOT_IN_PERSON,
+ * NOT_YOUR_TURN, RECIPIENT_DONE, REQUEST_CLOSED.
  */
+export const ESIGN_KIOSK_IDLE_MINUTES = 15;
+
 export const StartEsignInPersonBody = z.strictObject({ recipientId: z.uuid() });
 export type StartEsignInPersonBody = z.input<typeof StartEsignInPersonBody>;
 
@@ -137,7 +153,10 @@ export const EsignInPersonSession = z.object({
   recipientId: z.uuid(),
   /** The signer's name, for the handoff screen. */
   signerName: z.string(),
-  /** Open in the same browser (a new tab): `<PORTAL_BASE_URL>/<slug>/sign#t=<token>`. */
+  /**
+   * An absolute URL on the portal site, `<PORTAL_BASE_URL>/<slug>/sign#t=<token>`: open it in a new
+   * tab of the same browser. The signer starts at the consent step.
+   */
   signingUrl: z.string(),
   startedAt: DateTime,
   /** The link stops working after this (15 minutes) if signing has not started. */
@@ -163,13 +182,14 @@ export type ExitEsignInPersonBody = z.input<typeof ExitEsignInPersonBody>;
 export const ESIGN_BULK_MAX = 200;
 
 /**
- * POST /esign/templates/{id}/bulk-send (Owner, Admin, Manager, and Staff for their assigned
- * clients): one separate request per client, each with its own signers, audit trail and signed
+ * POST /esign/templates/{id}/bulk-send (Owner and Admin for any client; Manager and Staff for
+ * their own assigned clients): one separate request per client, each with its own signers, audit trail and signed
  * copy; no request ever holds two clients. CLIENT, SPOUSE and PREPARER roles fill themselves for
  * each client; `roles` gives the same person for every other role (a STAFF member or an EXTERNAL
  * person, never a client login). Answers 202 with the batch; the job runner creates and sends the
  * requests. A client whose request can't be sent (a readiness problem) stays a DRAFT and the batch
- * row says why. 400 BULK_LIMIT, 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED.
+ * row says why. 400 BULK_LIMIT (the client checks it before sending), 409 TEMPLATE_ARCHIVED,
+ * TEMPLATE_ROLES_UNFILLED, APPROVER_NOT_ALLOWED.
  */
 export const EsignBulkSendBody = z
   .strictObject({
@@ -189,10 +209,7 @@ export const EsignBulkSendBody = z
       .array(
         z.strictObject({
           key: z.string().min(1).max(40),
-          who: z.discriminatedUnion('type', [
-            EsignPutRecipient.shape.who.options[1],
-            EsignPutRecipient.shape.who.options[2],
-          ]),
+          who: z.discriminatedUnion('type', [EsignWhoStaff, EsignWhoExternal]),
         }),
       )
       .max(20)
@@ -229,7 +246,7 @@ export const EsignBulkBatch = z.object({
       /** The client's request once created (a DRAFT when NOT_SENT). */
       requestId: z.uuid().nullable(),
       /** Why it was not sent: a readiness code or an error code. Null otherwise. */
-      problem: z.string().nullable(),
+      problem: z.union([EsignReadinessCode, EsignErrorCode]).nullable(),
     }),
   ),
 });
@@ -238,8 +255,8 @@ export type EsignBulkBatch = z.infer<typeof EsignBulkBatch>;
 // ---------- Reports ----------
 /**
  * GET /esign/reports?from=&to=&status=&senderId=: requests SENT in the date range (calendar days,
- * inclusive, in the firm's time zone; at most 366 days). Owner, Admin and Manager see the whole
- * firm; Staff and Viewers see only the requests they may open, so another member's restricted
+ * inclusive, in the firm's time zone; at most 366 days). Owner and Admin see the whole firm;
+ * Managers, Staff and Viewers see only the requests they may open, so another member's restricted
  * clients never count. `senderId` narrows to one sender.
  */
 export const EsignReportQuery = z
