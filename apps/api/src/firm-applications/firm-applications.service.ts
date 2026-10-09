@@ -799,7 +799,7 @@ export class FirmApplicationsService {
             slug: firm.slug,
             name: firm.name,
             status: firm.status,
-          } as BusinessSummary)
+          } satisfies BusinessSummary)
         : null,
       ownerInvite: links[0]
         ? { status: ownerInviteStatus(links[0]), expiresAt: links[0].expiresAt.toISOString() }

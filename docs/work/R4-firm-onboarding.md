@@ -223,3 +223,4 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - Resend owner invite also copies settings an approval could not copy (idempotent; a firm with settings keeps them).
   - A revoked newest owner link reads EXPIRED, not SENT.
   - Tests: unit (sweep age and held firms, the error recorded once, a failing sweep), e2e (settings copied on resend, once).
+- 2026-10-09, #183 pre-review fixes (branch `rasel/R16-firm-activation`): the activation e2e signs the owner in with the password the link set (sign-in, then the authenticator step with the local code) and runs setup with that session's cookies, not a dev token; it checks the audit rows of activation, the four steps and Finish (by the owner); the firm summary is built with `satisfies`, not `as`.

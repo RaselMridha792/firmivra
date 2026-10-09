@@ -1,15 +1,23 @@
 // End-to-end: the approved firm's owner activates (R4 step 4). The owner's link from the approval
 // email (a recording NotifyService) sets a password (local auth), setup's four steps and Finish
 // make the firm ACTIVE, and the Super Admin's review page shows FIRM_ACTIVATED with the firm active.
+// The owner works with the session from signing in with the password the link set (cookies), not
+// a dev token, so the walk proves the activated login works.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
+import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { FirmApplicationRecord, ListFirmsResponse } from '@firmivra/types';
+import {
+  FirmApplicationRecord,
+  ListFirmsResponse,
+  type MfaSetupResponse,
+  type SignInResult,
+} from '@firmivra/types';
+import { LOCAL_MFA_CODE } from '../../src/auth/identity/local-identity.provider.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -46,11 +54,40 @@ const asAdmin = (method: 'get' | 'post', path: string) =>
   request(app.getHttpServer())
     [method](`/api/v1${path}`)
     .set('authorization', `Bearer ${adminToken}`);
-const inFirm = (token: string, firmId: string, method: 'get' | 'put' | 'post', path: string) =>
+let appOrigin = '';
+/** The firm site's call with the session's cookies, as the browser sends it. */
+const inFirm = (cookie: string, firmId: string, method: 'get' | 'put' | 'post', path: string) =>
   request(app.getHttpServer())
     [method](`/api/v1/business${path}`)
-    .set('authorization', `Bearer ${token}`)
+    .set('origin', appOrigin)
+    .set('cookie', cookie)
     .set('x-business-id', firmId);
+const PASSWORD = 'Owner-password-2026';
+const viewer = (path: string, body: object) =>
+  request(app.getHttpServer())
+    .post(`/api/v1/auth${path}`)
+    .set('origin', appOrigin)
+    .set('x-forwarded-for', '203.0.113.41, 10.0.0.5')
+    .send(body);
+/** The cookies a browser would send back. */
+const cookiesOf = (res: Response) =>
+  ((res.headers['set-cookie'] as unknown as string[] | undefined) ?? [])
+    .map((c) => c.split(';')[0])
+    .join('; ');
+/** An MFA step finished with the local code: first-time authenticator setup, or a code. */
+async function finishMfa(step: SignInResult): Promise<Response> {
+  let session: string;
+  if (step.status === 'MFA_SETUP_REQUIRED') {
+    session = (
+      (await viewer('/mfa/setup', { session: step.session }).expect(200)).body as MfaSetupResponse
+    ).session;
+  } else if (step.status === 'MFA_REQUIRED') {
+    session = step.session;
+  } else {
+    throw new Error(`unexpected ${step.status}`);
+  }
+  return viewer('/mfa', { session, code: LOCAL_MFA_CODE }).expect(200);
+}
 
 beforeAll(async () => {
   await asPlatform((tx) =>
@@ -84,6 +121,7 @@ beforeAll(async () => {
   configureApp(nest, env);
   await nest.init();
   app = nest;
+  appOrigin = new URL(env.APP_BASE_URL).origin;
   adminToken = await tokenFor(fx.users.admin.email);
 });
 
@@ -116,14 +154,14 @@ describe('Owner activation', () => {
       business: { id: firm.id },
       hasAccount: false,
     });
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/activate')
-      .set('x-forwarded-for', '203.0.113.41, 10.0.0.5')
-      .send({ token, password: 'Owner-password-2026' })
-      .expect(200);
+    const activated = await viewer('/activate', { token, password: PASSWORD }).expect(200);
+    await finishMfa(activated.body as SignInResult);
 
-    // First-time setup: the firm is still in setup, and the owner may run the wizard.
-    const owner = await tokenFor(ownerEmail);
+    // Later, the owner signs in with that password and lands in first-time setup.
+    const signIn = await viewer('/sign-in', { email: ownerEmail, password: PASSWORD }).expect(200);
+    const signedIn = await finishMfa(signIn.body as SignInResult);
+    expect((signedIn.body as SignInResult).status).toBe('SIGNED_IN');
+    const owner = cookiesOf(signedIn);
     const setup = await inFirm(owner, firm.id, 'get', '/setup').expect(200);
     expect(setup.body).toMatchObject({ completedAt: null });
     expect(
@@ -155,5 +193,26 @@ describe('Owner activation', () => {
         .body,
     );
     expect(firms.items).toEqual([expect.objectContaining({ id: firm.id, status: 'ACTIVE' })]);
+
+    // Activation and Finish are audited in the new firm, by the owner.
+    const ownerId = (
+      await asPlatform((tx) =>
+        tx.user.findFirstOrThrow({ where: { email: ownerEmail, pool: 'STAFF' } }),
+      )
+    ).id;
+    const audit = await asPlatform((tx) =>
+      tx.auditLog.findMany({
+        where: {
+          businessId: firm.id,
+          action: { in: ['membership.activated', 'setup.step_completed', 'setup.finished'] },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    expect(audit.map((a) => [a.action, a.actorUserId])).toEqual([
+      ['membership.activated', ownerId],
+      ...Array.from({ length: 4 }, () => ['setup.step_completed', ownerId]),
+      ['setup.finished', ownerId],
+    ]);
   });
 });
