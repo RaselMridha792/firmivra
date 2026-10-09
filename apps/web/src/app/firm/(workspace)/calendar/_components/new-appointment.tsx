@@ -76,7 +76,11 @@ function BookingForm({
         label="Find a client"
         type="search"
         value={search}
-        onChange={(event) => setSearch(event.target.value)}
+        onChange={(event) => {
+          setSearch(event.target.value);
+          // A new search must not keep a client the list no longer shows.
+          setClientId('');
+        }}
       />
       <PageState query={clients}>
         {({ items }) =>
@@ -136,6 +140,7 @@ function BookingForm({
       />
       <Input
         label={type ? DETAILS_LABEL[type.locationKind] : 'Where'}
+        maxLength={500}
         value={details}
         onChange={(event) => setDetails(event.target.value)}
       />
