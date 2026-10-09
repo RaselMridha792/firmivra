@@ -121,5 +121,7 @@ export class DocumentsController {
     UploadsService,
     FirmDocumentsService,
   ],
+  // Portal intake uploads (R11) use the same tickets, confirm and bucket.
+  exports: [UploadsService, DOCUMENT_STORAGE],
 })
 export class DocumentsModule {}

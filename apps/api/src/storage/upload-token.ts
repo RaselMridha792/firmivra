@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DocumentDirection, UploadContentType } from '@firmivra/types';
+import { DocumentDirection, IntakeKey, UploadContentType } from '@firmivra/types';
 import { type PoolSecrets, Sealer } from '../auth/sealed.js';
 
 /** HKDF label for upload-token keys. A new label (v2) ends every open upload. */
@@ -16,27 +16,37 @@ export const UPLOAD_TOKEN_SECONDS = 900;
  * the browser can neither read nor change it, and it opens only on the side (pool) it was made
  * for. Confirm takes the file's owner, place and facts from here, never from the request.
  */
-const UploadClaim = z.object({
-  /** STAFF: the firm workspace; CLIENT: the portal. */
-  pool: z.enum(['STAFF', 'CLIENT']),
-  businessId: z.uuid(),
-  /** Who uploads (users.id): only they can confirm. */
-  userId: z.uuid(),
-  /** The portal login that uploads; null on the firm side. */
-  clientAccountId: z.uuid().nullable(),
-  clientId: z.uuid(),
-  engagementId: z.uuid(),
-  // A requestId (the portal's upload for a request) comes with part 2.
-  categoryId: z.uuid().nullable(),
-  direction: DocumentDirection,
-  taxYear: z.number().int().nullable(),
-  /** tenant/{businessId}/documents/{uuid}, chosen by the API. */
-  key: z.string(),
-  fileName: z.string(),
-  contentType: UploadContentType,
-  sizeBytes: z.number().int().positive(),
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
-});
+const UploadClaim = z
+  .object({
+    /** STAFF: the firm workspace; CLIENT: the portal. */
+    pool: z.enum(['STAFF', 'CLIENT']),
+    businessId: z.uuid(),
+    /** Who uploads (users.id): only they can confirm. */
+    userId: z.uuid(),
+    /** The portal login that uploads; null on the firm side. */
+    clientAccountId: z.uuid().nullable(),
+    clientId: z.uuid(),
+    engagementId: z.uuid(),
+    // A requestId (the portal's upload for a request) comes with part 2.
+    categoryId: z.uuid().nullable(),
+    direction: DocumentDirection,
+    taxYear: z.number().int().nullable(),
+    /** tenant/{businessId}/documents/{uuid}, chosen by the API. */
+    key: z.string(),
+    fileName: z.string(),
+    contentType: UploadContentType,
+    sizeBytes: z.number().int().positive(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    /**
+     * A portal intake's upload slot (R11): the intake (of this engagement, open for changes) and the
+     * slot's field key, checked by the caller before the ticket. The document gets both on insert.
+     */
+    intakeId: z.uuid().optional(),
+    intakeSlot: IntakeKey.optional(),
+  })
+  .refine((c) => (c.intakeId === undefined) === (c.intakeSlot === undefined), {
+    message: 'intakeId and intakeSlot come together',
+  });
 export type UploadClaim = z.infer<typeof UploadClaim>;
 
 export class UploadTokens extends Sealer<UploadClaim> {

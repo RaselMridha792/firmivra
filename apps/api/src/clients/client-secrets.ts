@@ -81,36 +81,44 @@ export async function secretColumns(
   });
 }
 
-/** The date of birth in full (`YYYY-MM-DD`), for the firm's staff and the primary login only. */
+const log = new Logger('ClientSecrets');
+
+/** A date of birth as a response shows it. */
+export interface DateOfBirthView {
+  dateOfBirth: string | null;
+  dateOfBirthUnavailable: boolean;
+}
+
+export const NO_DATE_OF_BIRTH: DateOfBirthView = {
+  dateOfBirth: null,
+  dateOfBirthUnavailable: false,
+};
+
+/**
+ * The date of birth in full (`YYYY-MM-DD`), for the firm's staff and the primary login only.
+ * When the stored value can't be decrypted (the firm has no key, KMS is down or refuses, the value
+ * is damaged), the page still loads (Rasel, Oct 8): null with `dateOfBirthUnavailable`, and the
+ * screen asks for it again. The warning names the client and the error, never a value.
+ */
 export async function readDateOfBirth(
   fe: FieldEncryption,
   businessId: string,
   clientId: string,
   dobEnc: Uint8Array | null | undefined,
-): Promise<string | null> {
-  if (!dobEnc) return null;
-  return guarded(() => fe.decrypt(context(businessId, clientId, 'date_of_birth'), dobEnc));
-}
-
-const log = new Logger('ClientSecrets');
-
-/**
- * The date of birth for a response after a write that is already committed: the change is
- * saved, so a failed decrypt answers null (and a warning without values) instead of an error
- * that would look like the save failed.
- */
-export async function readDateOfBirthAfterWrite(
-  fe: FieldEncryption,
-  businessId: string,
-  clientId: string,
-  dobEnc: Uint8Array | null | undefined,
-): Promise<string | null> {
+): Promise<DateOfBirthView> {
+  if (!dobEnc) return NO_DATE_OF_BIRTH;
   try {
-    return await readDateOfBirth(fe, businessId, clientId, dobEnc);
+    const dateOfBirth = await fe.decrypt(context(businessId, clientId, 'date_of_birth'), dobEnc);
+    return { dateOfBirth, dateOfBirthUnavailable: false };
   } catch (error) {
-    const name = error instanceof Error ? error.name : 'UnknownError';
-    log.warn(`Date of birth not readable after a write for client ${clientId}: ${name}`);
-    return null;
+    const name =
+      error instanceof FieldEncryptionError
+        ? error.code
+        : error instanceof Error
+          ? error.name
+          : 'UnknownError';
+    log.warn(`Date of birth not readable for client ${clientId}: ${name}`);
+    return { dateOfBirth: null, dateOfBirthUnavailable: true };
   }
 }
 
