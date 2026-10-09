@@ -114,6 +114,15 @@ info:
       `{ written: 0, failed: true }` when the bell items could not be written, so a job retries
       the same call. `eventKey` makes a retry write nothing new (and send no second email). The
       bell item never depends on preferences (there is no in-app switch).
+    - Reminder jobs (q30): `ReminderJobs` (`apps/api/src/notifications/reminder-jobs.ts`) runs in
+      every API task each minute; each job holds its Postgres advisory lock
+      (`pg_try_advisory_xact_lock`) for the run, so a second task skips it. `appointment.reminder`
+      (both sides) for a SCHEDULED appointment starting within 24 hours, not within 2 hours of
+      its booking or last change; then `appointments.reminder_sent_at` (a reschedule clears it,
+      so the new time gets its own). `client-note.reminder` (the note's owner only) once
+      `remind_at` has passed; then `client_note_reminders.reminded_at`. The `eventKey` is the
+      record and its time, so a retried run sends nothing twice. `NOTIFY_JOBS=off` stops them
+      (off by default in tests).
     - Email copies: events named like a NotifyService template (`document.requested`,
       `appointment.*`, `invoice.sent`, `payment.received`) send that email to each new client
       recipient's login address, with a portal link built by `notificationLink`. The templates are
