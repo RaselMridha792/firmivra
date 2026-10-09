@@ -1,5 +1,6 @@
-// PrismaEsignDirectory (R13, parts 1b and 1e, the templates' client logins and bulk send's open services) on the real database: firm A's reader finds firm
-// A's client, service, portal login, member and vault document, and never firm B's (forBusiness, row-level
+// PrismaEsignDirectory (R13, parts 1b and 1e, the templates' client logins, the extras' members
+// and bulk send's open services) on the real database: firm A's reader finds firm A's client,
+// service, portal login, members and vault document, and never firm B's (forBusiness, row-level
 // security), even when asked for firm B's ids. Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -133,5 +134,13 @@ describe('PrismaEsignDirectory', () => {
     expect(await dir.member(fx.firmB.id, ids.a.member)).toBeNull();
     expect(await dir.document(fx.firmB.id, ids.a.document)).toBeNull();
     expect(await dir.document(fx.firmB.id, ids.b.document)).toMatchObject({ id: ids.b.document });
+    // Members (Firm Sign roles, approvers): active ones of the firm only.
+    const aMembers = (await dir.members(a)).map((m) => m.userId);
+    expect(aMembers).toContain(fx.users.ownerA.id);
+    expect(aMembers).not.toContain(fx.users.ownerB.id);
+    expect(await dir.members(a)).toContainEqual(
+      expect.objectContaining({ userId: fx.users.ownerA.id, firmRole: 'OWNER', active: true }),
+    );
+    expect((await dir.members(fx.firmB.id)).map((m) => m.userId)).not.toContain(fx.users.ownerA.id);
   });
 });

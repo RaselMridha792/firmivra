@@ -16,7 +16,7 @@ import {
   EsignBulkSendBody,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
-import { RequiresModule } from '../../common/modules/requires-module.js';
+import { EsignRoute } from '../extras/esign-role.guard.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { actorOf } from '../requests/requests.controller.js';
@@ -38,7 +38,7 @@ class BulkBodyPipe implements PipeTransform<unknown, z.output<typeof EsignBulkSe
 /** Bulk send (contract 3: packages/types/src/esign/extras.ts, docs/api/esign.yaml). */
 @Controller('esign')
 @Roles(...FIRM_STAFF)
-@RequiresModule('esign')
+@EsignRoute()
 export class EsignBulkController {
   constructor(private readonly bulk: EsignBulkService) {}
 

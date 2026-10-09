@@ -272,7 +272,7 @@ describe('the bulk job', () => {
       t.record.id,
       body([{ clientId: w.ids.c1, engagementId: w.ids.e1 }]),
     );
-    w.directory.members.of(w.a).get(w.users.staffA)!.active = false;
+    w.directory.people.of(w.a).get(w.users.staffA)!.active = false;
     await run();
     expect(rows(await svc.get(w.a, owner, b.id))).toEqual([
       ['Fake Client One', 'NOT_SENT', 'NOT_A_MEMBER'],

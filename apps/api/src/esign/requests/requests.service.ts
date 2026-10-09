@@ -59,7 +59,7 @@ export interface EsignActor {
 export const esignRefusal = (code: EsignErrorCode) =>
   new ConflictException({ code, message: ESIGN_ERRORS[code] });
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
-const readOnly = (actor: EsignActor) => {
+export const readOnly = (actor: EsignActor) => {
   if (actor.role === 'VIEWER') {
     throw new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
   }
@@ -104,9 +104,10 @@ export class EsignRequestsService {
   /** Never MODULE_OFF: off is `{ enabled: false, myEsignRole: null }`. */
   async status(businessId: string, actor: EsignActor): Promise<EsignStatus> {
     const enabled = await this.modules.isEnabled(businessId, 'esign');
-    // TODO(r0_esign): MANAGER and VIEWER need the member's stored Firm Sign role, which r0_esign
-    // adds; until then the firm role is the answer.
-    return { enabled, myEsignRole: enabled ? actor.role : null };
+    if (!enabled) return { enabled, myEsignRole: null };
+    // A Staff member's stored Firm Sign role (MANAGER or VIEWER); Owner and Admin keep theirs.
+    const stored = actor.role === 'STAFF' && (await this.repo.esignRole(businessId, actor.userId));
+    return { enabled, myEsignRole: stored || actor.role };
   }
 
   async create(
@@ -473,10 +474,11 @@ export class EsignRequestsService {
     actor: EsignActor | null = null,
   ): Promise<EsignRequestDetail> {
     const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
-    const [row, service, voider] = await Promise.all([
+    const [row, service, voider, approvalNotes] = await Promise.all([
       this.row(businessId, r, parts.recipients, actor),
       r.engagementId ? this.directory.engagement(businessId, r.engagementId) : null,
       r.voidedByUserId ? this.directory.member(businessId, r.voidedByUserId) : null,
+      this.repo.approvalNotes(businessId, r.id),
     ]);
     return {
       ...row,
@@ -511,7 +513,7 @@ export class EsignRequestsService {
       replacedByRequestId: r.replacedByRequestId,
       template: r.template,
       // The columns below arrive with r0_esign and are read from part 3 on.
-      approvalNotes: [],
+      approvalNotes,
       declinedAt: null,
       expiredAt: iso(r.expiredAt),
       voidedAt: iso(r.voidedAt),

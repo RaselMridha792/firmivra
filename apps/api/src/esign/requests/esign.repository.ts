@@ -8,6 +8,7 @@ import type {
   EsignPage,
   EsignRecipient,
   EsignReminders,
+  EsignRequestDetail,
   EsignRequestStatus,
   EsignRouting,
   EsignSource,
@@ -178,6 +179,9 @@ export interface EsignListedRequest {
   recipients: EsignRecipientRecord[];
 }
 
+/** An esign_approval_notes row: one approver's decision and note (staff only). */
+export type EsignApprovalNote = EsignRequestDetail['approvalNotes'][number];
+
 /** An esign_events row, with the names as they were then; never a field value or content. */
 export type EsignEventRecord = Omit<EsignEvent, 'createdAt'> & { createdAt: Date };
 
@@ -230,6 +234,8 @@ export interface EsignRepository {
   esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
   /** True once the firm has published a consent version (Signing Settings). */
   consentPublished(businessId: string): Promise<boolean>;
+  /** The approvers' decisions and notes, oldest first (staff only; extras.repository.ts). */
+  approvalNotes(businessId: string, id: string): Promise<EsignApprovalNote[]>;
   // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt and
   // refuses (null or INVALID_STATE; changing nothing) when it is not, or no longer exists. The
   // lastActivityAt written is strictly later than the value it replaces (the Prisma

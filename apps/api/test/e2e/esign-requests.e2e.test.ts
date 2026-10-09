@@ -1,5 +1,6 @@
 // End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send, step 8's
-// lifecycle, step 9's templates and step 10's bulk send)
+// lifecycle, step 9's templates, step 10's bulk send and the extras: approvals, roles, reports
+// and in person)
 // through the real guard stack. The esign tables come with r0_esign, so this covers what answers
 // before the repository: 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module
 // is off, and 400 for a bad id or body where it is on. Synthetic data only.
@@ -14,6 +15,8 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { LOCAL_PASSWORD } from '../../src/auth/identity/local-identity.provider.js';
+import { KIOSK_AUTH, type KioskAuth } from '../../src/esign/extras/kiosk.js';
 
 const fx = inject('fixtures');
 let app: INestApplication;
@@ -51,6 +54,9 @@ const withId = (id: string): Route[] => [
   ['post', `${base(id)}/void`, { reason: 'Fake reason' }],
   ['post', `${base(id)}/recipients/${randomUUID()}/correct`, { name: 'Fake Name' }],
   ['post', `${base(id)}/replace`, { reason: 'Fake reason' }],
+  ['post', `${base(id)}/submit-for-approval`, { confirm: true }],
+  ['post', `${base(id)}/approval`, { decision: 'APPROVE' }],
+  ['post', `${base(id)}/in-person`, { recipientId: randomUUID() }],
   ['post', `${base(id)}/save-as-template`, { name: 'Fake template' }],
   ['post', `${base(id)}/save-as-version`, { templateId: randomUUID() }],
 ];
@@ -71,10 +77,19 @@ const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
   ['get', '/api/v1/esign/requests', undefined],
   ['get', '/api/v1/esign/requests/summary', undefined],
+  ['get', '/api/v1/esign/approvers', undefined],
+  ['get', '/api/v1/esign/reports?from=2026-10-01&to=2026-10-31', undefined],
+  ['get', '/api/v1/esign/in-person', undefined],
+  ['post', '/api/v1/esign/in-person/exit', { password: 'Fake-password-1' }],
   ...withId(anyId),
   ['get', '/api/v1/esign/templates', undefined],
   ...withTemplateId(anyId),
   ['get', `/api/v1/esign/bulk/${anyId}`, undefined],
+];
+/** Owner and Admin only (@Roles): Staff get 403 FORBIDDEN before the module is asked. */
+const OWNER_ROUTES: Route[] = [
+  ['get', '/api/v1/esign/roles', undefined],
+  ['put', `/api/v1/esign/roles/${randomUUID()}`, { esignRole: 'VIEWER' }],
 ];
 
 beforeAll(async () => {
@@ -136,7 +151,7 @@ const answer = (res: request.Response) =>
 
 describe('Firm Sign draft routes', () => {
   it('refuses the signed out (401) and clients (403) on every route', async () => {
-    for (const [method, path, body] of ROUTES) {
+    for (const [method, path, body] of [...ROUTES, ...OWNER_ROUTES]) {
       expect((await send(method, path, null, body)).status).toBe(401);
       expect((await send(method, path, fx.users.clientA.email, body)).status).toBe(403);
     }
@@ -147,6 +162,10 @@ describe('Firm Sign draft routes', () => {
       for (const who of [fx.users.ownerA, fx.users.staffA]) {
         expect(answer(await send(method, path, who.email, body))).toBe('403 MODULE_OFF');
       }
+    }
+    for (const [method, path, body] of OWNER_ROUTES) {
+      expect(answer(await send(method, path, fx.users.ownerA.email, body))).toBe('403 MODULE_OFF');
+      expect(answer(await send(method, path, fx.users.staffA.email, body))).toBe('403 FORBIDDEN');
     }
   });
 
@@ -169,6 +188,8 @@ describe('Firm Sign draft routes', () => {
       ['post', `${base(anyId)}/recipients/${randomUUID()}/correct`, {}],
       ['post', `${base(anyId)}/recipients/not-a-uuid/correct`, { name: 'Fake Name' }],
       ['post', `${base(anyId)}/replace`, {}],
+      ['post', `${base(anyId)}/submit-for-approval`, { confirm: false }],
+      ['post', `${base(anyId)}/approval`, { decision: 'REJECT' }],
       ['patch', template(anyId), {}],
       ['patch', template(anyId), { visibility: 'EVERYONE' }],
       ['get', '/api/v1/esign/templates?archived=maybe', undefined],
@@ -178,6 +199,13 @@ describe('Firm Sign draft routes', () => {
       ['post', `${base(anyId)}/save-as-version`, { templateId: 'not-a-uuid' }],
       ['post', `${template(anyId)}/versions/0/restore`, {}],
       ['post', `${template(anyId)}/versions/1/restore`, { note: 'x'.repeat(501) }],
+      ['put', '/api/v1/esign/roles/not-a-uuid', { esignRole: 'VIEWER' }],
+      ['put', `/api/v1/esign/roles/${anyId}`, { esignRole: 'OWNER' }],
+      ['get', '/api/v1/esign/reports?from=2026-01-01&to=2027-01-02', undefined],
+      ['get', '/api/v1/esign/reports?from=2026-10-01', undefined],
+      ['post', `${base(anyId)}/in-person`, { recipientId: 'not-a-uuid' }],
+      ['post', '/api/v1/esign/in-person/exit', {}],
+      ['post', '/api/v1/esign/in-person/exit', { password: '' }],
       ...['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1'].map((query): Route => [
         'get',
         `/api/v1/esign/requests?${query}`,
@@ -213,5 +241,19 @@ describe('Firm Sign draft routes', () => {
     const exe = { ...upload, fileName: 'Fake.exe', contentType: 'application/x-msdownload' };
     const res = await send('post', `${base(anyId)}/documents/uploads`, onOwner.email, exe);
     expect(answer(res)).toBe('400 FILE_TYPE_NOT_ALLOWED');
+  });
+
+  it('has no kiosk where no lock can exist yet, and checks the staff password locally', async () => {
+    expect(answer(await send('get', '/api/v1/esign/in-person', onOwner.email))).toBe(
+      '200 undefined',
+    );
+    const res = await send('post', '/api/v1/esign/in-person/exit', onOwner.email, {
+      password: 'Fake-password-1',
+    });
+    expect([res.status, res.body]).toEqual([200, { ok: true }]);
+    // The real KioskAuth finds the sign-in module's identity provider (AUTH_MODE=local).
+    const auth = app.get<KioskAuth>(KIOSK_AUTH, { strict: false });
+    expect(await auth.passwordOk(onOwner.id, LOCAL_PASSWORD)).toBe(true);
+    expect(await auth.passwordOk(onOwner.id, 'Not-the-password-1')).toBe(false);
   });
 });

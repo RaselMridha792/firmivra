@@ -18,7 +18,12 @@ import type {
 export type LifecycleEmail =
   | {
       recipientId: string;
-      template: 'esign.request' | 'esign.reminder' | 'esign.expiring' | 'esign.voided';
+      template:
+        | 'esign.request'
+        | 'esign.reminder'
+        | 'esign.expiring'
+        | 'esign.voided'
+        | 'esign.approval-requested';
     }
   | { userId: string; template: 'esign.staff-update' };
 
