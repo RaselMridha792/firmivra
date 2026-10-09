@@ -100,7 +100,7 @@ export const ESIGN_ERRORS = {
   FILE_BLOCKED: "This file couldn't be checked, so it can't be used.",
   FILE_TYPE_NOT_ALLOWED: 'Only PDF, JPG and PNG files can be sent for signature.',
   UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
-  UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
+  UPLOAD_MISMATCH: "The uploaded file doesn't match what was expected. Upload it again.",
   ENGAGEMENT_MISMATCH: 'Choose one of this client’s open services.',
   RECIPIENTS_LINKED: 'Remove this client’s recipients before choosing another client.',
   LOGIN_NOT_ACTIVE: 'This portal login is not active. Choose another recipient.',
