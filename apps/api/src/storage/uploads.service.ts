@@ -127,6 +127,7 @@ export class UploadsService {
         categoryId: claim.categoryId,
         direction: claim.direction,
         clientAccountId: claim.clientAccountId,
+        ...(claim.intakeId && { intakeId: claim.intakeId, intakeSlot: claim.intakeSlot }),
       },
     );
     const expiresAt = new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString();
@@ -208,6 +209,8 @@ export class UploadsService {
             sha256: claim.sha256,
             s3Key: claim.key,
             taxYear: claim.taxYear,
+            intakeId: claim.intakeId ?? null,
+            intakeSlot: claim.intakeSlot ?? null,
             // The category's retention from today; no category or no retention keeps it for good.
             retentionUntil: years === null ? null : yearsAfter(now, years),
             uploadedByUserId: claim.userId,
@@ -233,6 +236,7 @@ export class UploadsService {
             uploadId: uploadIdOf(claim.key),
             clientAccountId: claim.clientAccountId,
             scanMode,
+            ...(claim.intakeId && { intakeId: claim.intakeId, intakeSlot: claim.intakeSlot }),
           },
           { businessId },
         );

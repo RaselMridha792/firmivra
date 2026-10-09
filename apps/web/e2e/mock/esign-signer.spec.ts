@@ -33,7 +33,7 @@ test('email code, consent, then the document with my fields', async ({ page }) =
   await page.getByRole('button', { name: 'Continue' }).click();
   await agreeToConsent(page);
   await expect(
-    page.getByText(/^You have \d+ places? to sign and \d+ fields? to fill in/),
+    page.getByText(/^You have \d+ fields? to fill in, marked on the pages\./),
   ).toBeVisible();
   await expect(
     page.getByRole('document', { name: 'Bookkeeping Services Agreement' }),

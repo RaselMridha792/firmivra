@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -13,11 +14,13 @@ import {
   ESIGN_ERRORS,
   type EsignErrorCode,
   type EsignAccessRole,
+  type EsignDocument,
   EsignField,
   type EsignPage,
   type EsignPutRecipientsBody,
   EsignRecipient,
   type EsignRequestDetail,
+  type EsignRequestRow,
   type EsignStatus,
   type OkResponse,
   type UpdateEsignRequestBody,
@@ -31,9 +34,11 @@ import {
   ESIGN_STORE,
   type EsignStore,
 } from '../engine/engine.types.js';
+import { allowedActions, nextAction, signersOf } from './actions.js';
 import { type DirectoryClient, ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
 import {
   ESIGN_REPOSITORY,
+  type EsignDocumentRecord,
   type EsignDraftPatch,
   type EsignRecipientRecord,
   type EsignRepository,
@@ -41,20 +46,28 @@ import {
   type EsignRequestRecord,
 } from './esign.repository.js';
 
-/** The signed-in member and their access (from TenantGuard; MANAGER once Firm Sign roles land). */
+/**
+ * The signed-in member and their access (from TenantGuard; MANAGER and VIEWER once Firm Sign
+ * roles land). A VIEWER reads what STAFF could and changes nothing (403 FORBIDDEN).
+ */
 export interface EsignActor {
   userId: string;
-  role: Exclude<TenantRole, 'CLIENT'> | 'MANAGER';
+  role: Exclude<TenantRole, 'CLIENT'> | 'MANAGER' | 'VIEWER';
 }
 
 /** A Firm Sign refusal: 409 with the words users see (ESIGN_ERRORS). */
 export const esignRefusal = (code: EsignErrorCode) =>
   new ConflictException({ code, message: ESIGN_ERRORS[code] });
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
+export const readOnly = (actor: EsignActor) => {
+  if (actor.role === 'VIEWER') {
+    throw new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
+  }
+};
 /** Owner and Admin reach every request; a MANAGER sees only what STAFF sees. */
-const seesAll = (actor: EsignActor) => actor.role === 'OWNER' || actor.role === 'ADMIN';
+export const seesAll = (actor: EsignActor) => actor.role === 'OWNER' || actor.role === 'ADMIN';
 
-const invalid = (path: string, message: string) =>
+export const invalid = (path: string, message: string) =>
   new BadRequestException({
     code: 'VALIDATION_FAILED',
     message: 'The request is not valid',
@@ -91,9 +104,10 @@ export class EsignRequestsService {
   /** Never MODULE_OFF: off is `{ enabled: false, myEsignRole: null }`. */
   async status(businessId: string, actor: EsignActor): Promise<EsignStatus> {
     const enabled = await this.modules.isEnabled(businessId, 'esign');
-    // TODO(r0_esign): MANAGER and VIEWER need the member's stored Firm Sign role, which r0_esign
-    // adds; until then the firm role is the answer.
-    return { enabled, myEsignRole: enabled ? actor.role : null };
+    if (!enabled) return { enabled, myEsignRole: null };
+    // A Staff member's stored Firm Sign role (MANAGER or VIEWER); Owner and Admin keep theirs.
+    const stored = actor.role === 'STAFF' && (await this.repo.esignRole(businessId, actor.userId));
+    return { enabled, myEsignRole: stored || actor.role };
   }
 
   async create(
@@ -101,6 +115,7 @@ export class EsignRequestsService {
     actor: EsignActor,
     body: z.output<typeof CreateEsignRequestBody>,
   ): Promise<EsignRequestDetail> {
+    readOnly(actor);
     const client = body.clientId
       ? await this.reachableClient(businessId, actor, body.clientId)
       : null;
@@ -131,9 +146,9 @@ export class EsignRequestsService {
 
   /** Returns client data, so every view is audited (ids only). */
   async get(businessId: string, actor: EsignActor, id: string): Promise<EsignRequestDetail> {
-    const { record, approverOnly } = await this.reach(businessId, actor, id, 'read');
+    const { record } = await this.reach(businessId, actor, id, 'read');
     await this.audit.log('esign.request_viewed', entity(id), { clientId: record.clientId });
-    return this.toDetail(businessId, record, approverOnly);
+    return this.toDetail(businessId, record, actor);
   }
 
   async update(
@@ -229,7 +244,7 @@ export class EsignRequestsService {
       pageCount: pages.length,
       fieldsRemoved: parts.fields.length - fields.length,
     });
-    return this.toDetail(businessId, saved);
+    return this.answer(businessId, saved);
   }
 
   /** The whole list. Kept ids keep their colour; removed signers lose their fields. */
@@ -308,11 +323,16 @@ export class EsignRequestsService {
       recipientIds: recipients.map((r) => r.id),
       fieldsRemoved: parts.fields.length - fields.length,
     });
-    return this.toDetail(businessId, saved);
+    return this.answer(businessId, saved);
+  }
+
+  /** The answer to a write: the request as written, with no view audit and no access check. */
+  answer(businessId: string, record: EsignRequestRecord): Promise<EsignRequestDetail> {
+    return this.toDetail(businessId, record);
   }
 
   /** Who a recipient is. Client logins are the request's client's own, by id, never by email. */
-  private async who(
+  async who(
     businessId: string,
     clientId: string | null,
     who: PutRecipient['who'],
@@ -338,9 +358,9 @@ export class EsignRequestsService {
   }
 
   /** 409 APPROVER_NOT_ALLOWED unless an Owner, Admin or Firm Sign Manager, not the sender. */
-  private async approver(
+  async approver(
     businessId: string,
-    record: EsignRequestRecord,
+    record: Pick<EsignRequestRecord, 'senderUserId'>,
     who: PutRecipient['who'],
   ): Promise<void> {
     const role = who.type === 'STAFF' ? await this.repo.esignRole(businessId, who.userId) : null;
@@ -357,16 +377,20 @@ export class EsignRequestsService {
    * needs Owner or Admin, the sender or the client's assigned member; 'read' (also decisions)
    * admits an approver of the request too, whatever their role or the assignment.
    */
-  private async reach(businessId: string, actor: EsignActor, id: string, mode: 'read' | 'write') {
+  async reach(businessId: string, actor: EsignActor, id: string, mode: 'read' | 'write') {
     const record = await this.repo.findRequest(businessId, id);
     if (!record) throw notFound();
-    if (await this.manages(businessId, actor, record)) return { record, approverOnly: false };
+    if (await this.manages(businessId, actor, record)) {
+      if (mode === 'write') readOnly(actor);
+      return { record, approverOnly: false, parts: null };
+    }
     if (mode === 'read') {
-      const { recipients } = await this.repo.parts(businessId, record.id);
-      const approves = recipients.some(
+      // `parts` is handed back so a read that needs them does not read them again.
+      const parts = await this.repo.parts(businessId, record.id);
+      const approves = parts.recipients.some(
         (r) => r.kind === 'APPROVER' && r.link.type === 'STAFF' && r.link.userId === actor.userId,
       );
-      if (approves) return { record, approverOnly: true };
+      if (approves) return { record, approverOnly: true, parts };
     }
     throw notFound();
   }
@@ -378,13 +402,14 @@ export class EsignRequestsService {
   }
 
   /** A DRAFT the caller may change (write mode), else 404 or 409 INVALID_STATE. */
-  private async draft(businessId: string, actor: EsignActor, id: string) {
+  async draft(businessId: string, actor: EsignActor, id: string) {
     const { record } = await this.reach(businessId, actor, id, 'write');
     if (record.status !== 'DRAFT') throw esignRefusal('INVALID_STATE');
     return record;
   }
 
-  private async reachableClient(businessId: string, actor: EsignActor, clientId: string) {
+  /** A client the caller reaches and that is not archived; else 404. */
+  async reachableClient(businessId: string, actor: EsignActor, clientId: string) {
     const client = await this.directory.client(businessId, clientId);
     const reached =
       client && !client.archived && (seesAll(actor) || client.assignedUserId === actor.userId);
@@ -393,7 +418,7 @@ export class EsignRequestsService {
   }
 
   /** One of the client's PENDING or ACTIVE services, or 409 ENGAGEMENT_MISMATCH. */
-  private async openService(businessId: string, clientId: string | null, id: string | null) {
+  async openService(businessId: string, clientId: string | null, id: string | null) {
     if (id === null) return null;
     const service = await this.directory.engagement(businessId, id);
     if (!service || service.clientId !== clientId || !OPEN_SERVICE.has(service.status)) {
@@ -402,22 +427,27 @@ export class EsignRequestsService {
     return service.id;
   }
 
-  /** `approverOnly`: reached only as an approver, who may open and decide but never change it. */
-  private async toDetail(
+  /**
+   * The list's row for a request the caller may see. `actor` null: the answer to a draft write.
+   * Reached only as an approver (not Owner or Admin, the sender or the client's assigned member),
+   * the caller may decide and download, never change it.
+   */
+  async row(
     businessId: string,
     r: EsignRequestRecord,
-    approverOnly = false,
-  ): Promise<EsignRequestDetail> {
-    const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
-    const [client, service, sender] = await Promise.all([
+    recipients: EsignRecipientRecord[],
+    actor: EsignActor | null,
+  ): Promise<EsignRequestRow> {
+    const [client, sender] = await Promise.all([
       r.clientId ? this.directory.client(businessId, r.clientId) : null,
-      r.engagementId ? this.directory.engagement(businessId, r.engagementId) : null,
       this.directory.member(businessId, r.senderUserId),
     ]);
-    const signers = parts.recipients
-      .filter((x) => x.kind === 'SIGNER')
-      .sort((a, b) => a.routingOrder - b.routingOrder);
-    const draft = r.status === 'DRAFT';
+    const approverOnly =
+      actor !== null &&
+      !seesAll(actor) &&
+      r.senderUserId !== actor.userId &&
+      client?.assignedUserId !== actor.userId;
+    const signers = signersOf(recipients);
     return {
       id: r.id,
       title: r.title,
@@ -428,14 +458,30 @@ export class EsignRequestsService {
       signerNames: signers.map((s) => s.name),
       signedCount: signers.filter((s) => s.status === 'SIGNED').length,
       signerCount: signers.length,
-      // Sent requests' next action and actions come with part 3 (list and lifecycle).
-      nextAction: { kind: draft ? 'FINISH_DRAFT' : 'NONE', waitingOn: [] },
+      nextAction: nextAction(r.status, recipients),
       createdAt: r.createdAt.toISOString(),
       sentAt: iso(r.sentAt),
       lastActivityAt: r.lastActivityAt.toISOString(),
       expiresAt: iso(r.expiresAt),
       completedAt: iso(r.completedAt),
-      allowedActions: draft && !approverOnly ? ['EDIT', 'DISCARD', 'SEND'] : [],
+      allowedActions: allowedActions(r, recipients, actor, approverOnly),
+    };
+  }
+
+  private async toDetail(
+    businessId: string,
+    r: EsignRequestRecord,
+    actor: EsignActor | null = null,
+  ): Promise<EsignRequestDetail> {
+    const parts: EsignRequestParts = await this.repo.parts(businessId, r.id);
+    const [row, service, voider, approvalNotes] = await Promise.all([
+      this.row(businessId, r, parts.recipients, actor),
+      r.engagementId ? this.directory.engagement(businessId, r.engagementId) : null,
+      r.voidedByUserId ? this.directory.member(businessId, r.voidedByUserId) : null,
+      this.repo.approvalNotes(businessId, r.id),
+    ]);
+    return {
+      ...row,
       internalNote: r.internalNote,
       emailSubject: r.emailSubject,
       emailMessage: r.emailMessage,
@@ -444,18 +490,7 @@ export class EsignRequestsService {
       expiryDays: r.expiryDays,
       reminders: r.reminders,
       expiryWarningDays: r.expiryWarningDays,
-      documents: parts.documents.map((d) => ({
-        id: d.id,
-        position: d.position,
-        fileName: d.fileName,
-        contentType: d.contentType,
-        sizeBytes: d.sizeBytes,
-        pageCount: d.pageCount,
-        pageSizes: d.pageSizes,
-        sourceDocumentId: d.sourceDocumentId,
-        scanStatus: d.scanStatus,
-        createdAt: d.createdAt.toISOString(),
-      })),
+      documents: parts.documents.map(toDocument),
       // Contract fields only (the schemas drop anything else a row holds).
       pagePlan: parts.pagePlan.map(({ documentId, page, rotation }) => ({
         documentId,
@@ -474,17 +509,17 @@ export class EsignRequestsService {
         }),
       ),
       fields: parts.fields.map((f) => EsignField.parse(f)),
+      replacesRequestId: r.replacesRequestId,
+      replacedByRequestId: r.replacedByRequestId,
+      template: r.template,
       // The columns below arrive with r0_esign and are read from part 3 on.
-      replacesRequestId: null,
-      replacedByRequestId: null,
-      template: null,
-      approvalNotes: [],
+      approvalNotes,
       declinedAt: null,
-      expiredAt: null,
-      voidedAt: null,
-      voidReason: null,
-      voidedBy: null,
-      originalSha256: null,
+      expiredAt: iso(r.expiredAt),
+      voidedAt: iso(r.voidedAt),
+      voidReason: r.voidReason,
+      voidedBy: r.voidedByUserId ? { userId: r.voidedByUserId, name: voider?.name ?? '' } : null,
+      originalSha256: r.originalSha256,
       finalSha256: null,
       certificateSha256: null,
       finalDocumentId: null,
@@ -495,8 +530,24 @@ export class EsignRequestsService {
 
 const clientRef = (c: DirectoryClient) => ({ id: c.id, displayName: c.displayName });
 
+/** A file as the contract shows it. */
+export function toDocument(d: EsignDocumentRecord): EsignDocument {
+  return {
+    id: d.id,
+    position: d.position,
+    fileName: d.fileName,
+    contentType: d.contentType,
+    sizeBytes: d.sizeBytes,
+    pageCount: d.pageCount,
+    pageSizes: d.pageSizes,
+    sourceDocumentId: d.sourceDocumentId,
+    scanStatus: d.scanStatus,
+    createdAt: d.createdAt.toISOString(),
+  };
+}
+
 /** A draft write's result: the request as written, or 409 INVALID_STATE when it was refused. */
-function savedOrRefused(record: EsignRequestRecord | null): EsignRequestRecord {
+export function savedOrRefused(record: EsignRequestRecord | null): EsignRequestRecord {
   if (!record) throw esignRefusal('INVALID_STATE');
   return record;
 }

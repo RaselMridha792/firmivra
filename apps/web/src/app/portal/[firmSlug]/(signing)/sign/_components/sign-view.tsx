@@ -184,7 +184,9 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
       <p className="text-sm text-text">
         {fields.length
           ? `You have ${fields.length} ${fields.length === 1 ? 'field' : 'fields'} to fill in, marked on the pages. Select Next to go to each one.`
-          : 'You sign on the signature page at the end of the document.'}
+          : envelope.autoSignaturePage
+            ? 'You sign on the signature page at the end of the document.'
+            : 'There is nothing for you to fill in on this document.'}
       </p>
       <PdfPages
         source={envelope.packetUrl}

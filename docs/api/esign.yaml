@@ -125,7 +125,10 @@ info:
     `decline`), or WAITING, DONE, DECLINED, CLOSED, or COPY (a completed-copy link, 30 days,
     after an email code). A call out of order answers `409 WRONG_STEP`. A signer sees only their
     own fields, never the internal note or another signer's values. The document comes from
-    `GET .../sign/packet`, with the sender's values and earlier signatures stamped in.
+    `GET .../sign/packet`, with the sender's values and earlier signatures stamped in. An
+    ATTACHMENT field takes a file through `POST .../sign/attachments/uploads` (the ticket) and
+    `POST .../sign/attachments/uploads/confirm`; `DELETE .../sign/attachments/{fieldId}` removes
+    it before the signer finishes.
 
     ## Signature center (contract 2)
 
@@ -133,7 +136,8 @@ info:
     (`GET /portal/{slug}/me/signatures?tab=PENDING|SIGNED`), opens an ACTION_NEEDED one without
     an email code (`POST .../{recipientId}/session`, which sets the same signer cookie; then the
     signer routes from CONSENT on), and downloads a COMPLETED one's files. The client comes from
-    the portal session, never the URL; another login's recipient answers 404.
+    the portal session, never the URL; another login's recipient answers 404. While Firm Sign is
+    off, `status` answers `{ enabled: false }` and the other routes `403 MODULE_OFF`.
 
     ## Settings and templates (contract 2)
 
@@ -829,6 +833,24 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '410': { $ref: '#/components/responses/Gone' }
 
+  /portal/{firmSlug}/sign/attachments/{fieldId}:
+    parameters:
+      - { name: firmSlug, in: path, required: true, schema: { type: string } }
+      - { name: fieldId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [esign-signer]
+      operationId: signerAttachmentRemove
+      x-roles: [SIGNER]
+      summary: 'Remove the file from one of their ATTACHMENT fields before they finish (`SignerField`, `attachmentName: null`); 404 when the field is not theirs or has no file'
+      security: [{ signerCookie: [] }]
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /portal/{firmSlug}/sign/copy:
     parameters:
       - { name: firmSlug, in: path, required: true, schema: { type: string } }
@@ -879,6 +901,7 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /portal/{firmSlug}/me/signatures/{recipientId}/session:
@@ -895,7 +918,9 @@ paths:
         '200':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /portal/{firmSlug}/me/signatures/{recipientId}/download:
@@ -915,6 +940,7 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -1083,7 +1109,7 @@ paths:
       tags: [esign-admin]
       operationId: saveEsignTemplate
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: A template from the request, PRIVATE unless saved as FIRM; never a client's files or values, and sender-typed values only with `keepSenderValues: true` (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_NAME_TAKEN, SCAN_PENDING, FILE_BLOCKED
+      summary: 'A template from the request, PRIVATE unless saved as FIRM; never a client''s files or values, and sender-typed values only with `keepSenderValues: true` (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_NAME_TAKEN, SCAN_PENDING, FILE_BLOCKED'
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '201':
