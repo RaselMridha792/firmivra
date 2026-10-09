@@ -58,6 +58,13 @@ describe('inspect', () => {
     );
   });
 
+  it('refuses files over 10 MB', async () => {
+    const big = new Uint8Array(10 * 1024 * 1024 + 1);
+    big.set(new TextEncoder().encode('%PDF-1.7'));
+    expect(await refusal(inspect({ contentType: PDF, bytes: big }))).toBe('PDF_UNREADABLE');
+    expect(await refusal(inspect({ contentType: 'image/png', bytes: big }))).toBe('PDF_UNREADABLE');
+  });
+
   it('refuses more than 100 pages', async () => {
     const bytes = await pdf(Array.from({ length: 101 }, () => [200, 200] as [number, number]));
     expect(await refusal(inspect({ contentType: PDF, bytes }))).toBe('TOO_MANY_PAGES');
