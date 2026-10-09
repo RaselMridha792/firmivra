@@ -37,3 +37,23 @@ test('My Uploaded Documents lists, filters and searches the client uploads', asy
   ).toBeTruthy();
   await page.screenshot({ path: testInfo.outputPath('documents-375.png'), fullPage: true });
 });
+
+test('View Firm Documents switches My Docs to the files the firm shared', async ({ page }) => {
+  await page.goto(portal('/lvp/documents'));
+  await page.getByRole('link', { name: 'View Firm Documents' }).click();
+  await expect(page).toHaveURL(/\/lvp\/documents\?source=firm$/);
+  await expect(
+    page.getByRole('heading', { name: 'Firm Uploaded Documents', level: 1 }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Firm Documents' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  const table = page.getByRole('table');
+  await expect(table).toContainText('Engagement_Letter_2025.pdf');
+  await expect(table).not.toContainText('W-2');
+
+  await page.getByRole('button', { name: 'My Uploads' }).click();
+  await expect(page).toHaveURL(/\/lvp\/documents$/);
+  await expect(table).not.toContainText('Engagement_Letter_2025.pdf');
+});
