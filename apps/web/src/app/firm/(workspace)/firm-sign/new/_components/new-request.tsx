@@ -20,7 +20,15 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { requestKey } from '../../requests/[id]/prepare/_components/steps';
 import { ClientPicker } from './client-picker';
 import { TEMPLATES, templateKey } from '../../templates/_components/keys';
-import { askedRoles, draftOf, type RoleDraft, TemplateRoles, toWho } from './template-roles';
+import {
+  askedRoles,
+  draftOf,
+  memberOptions,
+  type RoleDraft,
+  roleErrorKey,
+  TemplateRoles,
+  toWho,
+} from './template-roles';
 
 /** Step 0 of a request (/firm-sign/new): its name, client and service; then the wizard. */
 export function NewRequest({ clientId, templateId }: { clientId?: string; templateId?: string }) {
@@ -114,10 +122,9 @@ function StartForm({
     if (!parsed.success) {
       const next: Record<string, string> = {};
       for (const issue of parsed.error.issues) {
-        const [first, index, , box] = issue.path;
-        const role = first === 'roles' && typeof index === 'number' ? given[index]?.r : undefined;
-        if (role) next[box ? `${role.key}.${String(box)}` : role.key] ??= issue.message;
-        else if (first === 'title') setTitleError(issue.message);
+        const key = roleErrorKey(issue.path, given);
+        if (key) next[key] ??= issue.message;
+        else if (issue.path[0] === 'title') setTitleError(issue.message);
         else setFormError(issue.message);
       }
       return setRoleErrors(next);
@@ -218,11 +225,7 @@ function StartForm({
               clientId={clientId}
               drafts={roles}
               errors={roleErrors}
-              members={(members.data?.items ?? []).map((m) => ({
-                value: m.user.userId,
-                label: m.user.name,
-                canApprove: ['OWNER', 'ADMIN', 'MANAGER'].includes(m.esignRole),
-              }))}
+              members={memberOptions(members.data)}
               onChange={(key, draft) => {
                 setRoles((x) => ({ ...x, [key]: draft }));
                 setRoleErrors(({ [key]: _, ...rest }) => rest);

@@ -1,6 +1,6 @@
 'use client';
 
-import type { EsignPutRecipient, EsignTemplateRole } from '@firmivra/types';
+import type { EsignMemberRoleList, EsignPutRecipient, EsignTemplateRole } from '@firmivra/types';
 import { Input, Select } from '@firmivra/ui';
 import { roleName } from '../../../../../../components/esign/field-labels';
 
@@ -32,6 +32,28 @@ export const draftOf = (
 /** The roles the sender answers for: every one but the preparer. */
 export const askedRoles = (roles: EsignTemplateRole[]) =>
   [...roles].filter((r) => r.role !== 'PREPARER').sort((a, b) => a.routingOrder - b.routingOrder);
+
+/** Firm members as TemplateRoles lists them; approvers are Owners, Admins and Managers. */
+export const memberOptions = (list: EsignMemberRoleList | undefined) =>
+  (list?.items ?? []).map((m) => ({
+    value: m.user.userId,
+    label: m.user.name,
+    canApprove: ['OWNER', 'ADMIN', 'MANAGER'].includes(m.esignRole),
+  }));
+
+/**
+ * Where a schema issue under `roles[i]` shows: on that role's box (`key.name`, `key.email`, ...)
+ * or its picker. `given` is the list that was parsed, so the index lines up.
+ */
+export function roleErrorKey(
+  path: readonly PropertyKey[],
+  given: readonly { r: EsignTemplateRole }[],
+): string | undefined {
+  const [first, index, , box] = path;
+  const role = first === 'roles' && typeof index === 'number' ? given[index]?.r : undefined;
+  if (!role) return undefined;
+  return box ? `${role.key}.${String(box)}` : role.key;
+}
 
 /** The `who` for a role: undefined when the template fills it, null while nothing is chosen. */
 export function toWho(d: RoleDraft): Who | undefined | null {
