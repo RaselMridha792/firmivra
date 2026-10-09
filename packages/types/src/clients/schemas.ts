@@ -272,7 +272,8 @@ export const MyProfile = z.object({
   dateOfBirth: CalendarDate.nullable(),
   /**
    * True when a date of birth is on file but can't be read right now (no firm key, KMS down, a
-   * damaged value): `dateOfBirth` is then null, and the screen asks for it to be entered again.
+   * damaged value): `dateOfBirth` is then null, and the portal shows it as unavailable and asks
+   * the client to contact the firm.
    */
   dateOfBirthUnavailable: z.boolean(),
   /** The login email; changing it is an account (sign-in) change, not a profile edit. */
