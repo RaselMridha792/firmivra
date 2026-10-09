@@ -12,6 +12,7 @@ export function Header({
   roleLabel,
   onOpenMenu,
   bell,
+  hideRole = false,
 }: {
   /** Placeholder text for the search box; search is not connected yet. */
   search?: string;
@@ -21,6 +22,8 @@ export function Header({
   onOpenMenu: () => void;
   /** Replaces the plain bell button, for example the portal's bell with its unread count. */
   bell?: ReactNode;
+  /** Shows only the name next to the avatar, as the portal mockups do. */
+  hideRole?: boolean;
 }) {
   const { me, signOut } = useMe();
   const [open, setOpen] = useState(false);
@@ -50,7 +53,7 @@ export function Header({
           />
         </label>
       ) : null}
-      {greeting ? <p className="text-lg font-semibold text-text">{greeting}</p> : null}
+      {greeting ? <div className="text-lg font-semibold text-text">{greeting}</div> : null}
 
       <div
         className={
@@ -80,7 +83,7 @@ export function Header({
             </span>
             <span className="hidden text-left text-sm sm:block">
               <span className="block font-semibold text-text">{me.user.name}</span>
-              <span className="block text-muted">{roleLabel}</span>
+              {hideRole ? null : <span className="block text-muted">{roleLabel}</span>}
             </span>
             <ChevronDown aria-hidden className="size-4 text-muted" />
           </button>

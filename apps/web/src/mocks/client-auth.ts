@@ -124,6 +124,7 @@ function buildFixtures() {
       primaryColor: '#1F3A6B',
       accentColor: '#C9A227',
       portalName: 'LVP Accounting & Taxes Client Portal',
+      tagline: 'Plan | Prepare | Prosper',
       header: 'Your Documents. Your Information. All in One Place.',
       welcomeMessage: 'Secure. Convenient. Designed for You.',
     },

@@ -23,6 +23,7 @@ import { Header } from '../../../../components/app-shell/header';
 import { isActive } from '../../../../components/app-shell/types';
 import { usePortal } from '../layout';
 import { PortalFooter } from '../(public)/_components/portal-footer';
+import { taglineWords } from '../(public)/_components/tagline';
 import { PortalBell } from './_components/portal-bell';
 import type { NavSections } from '../../../../components/app-shell/types';
 import { SignedIn, useMe } from '../../../../components/signed-in';
@@ -133,6 +134,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
   const unread = useApiQuery(['my-messages', slug, 'unread'], () =>
     api.myMessages(slug).unreadCount(),
   );
+  const motto = taglineWords(branding.tagline);
   const nav = sections(slug, {
     signatures: signatures.data?.enabled === true,
     calculators: (calculators.data?.length ?? 0) > 0,
@@ -147,26 +149,37 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
           href={href ?? `/${business.slug}/home`}
           onClick={() => setDrawer(false)}
           aria-current={href && isActive(pathname, href) ? 'page' : undefined}
-          className={`flex items-center gap-3 rounded-control p-3 text-sm ${href && isActive(pathname, href) ? 'bg-firm-accent' : 'hover:bg-navigation-hover'}`}
+          className={`flex items-center gap-4 rounded-control px-4 py-3 text-base ${href && isActive(pathname, href) ? 'bg-firm-accent' : 'hover:bg-navigation-hover'}`}
         >
           <Icon aria-hidden className="size-6 shrink-0" />
           <span className="flex-1">{label}</span>
           {badge ? (
-            <span className="rounded-full bg-on-action px-2 text-xs font-bold text-firm-primary">
+            <span className="flex size-6 items-center justify-center rounded-full bg-firm-accent text-xs font-bold text-on-action">
               {badge}
               <span className="sr-only"> unread</span>
             </span>
           ) : null}
         </Link>
       ))}
+      <hr className="my-4 border-navigation-hover" />
       <Button
         variant="ghost"
-        className="justify-start text-on-action hover:text-firm-primary"
+        className="justify-start gap-4 px-4 text-base! text-on-action hover:text-firm-primary"
         onClick={() => void signOut()}
       >
         <LogOut aria-hidden className="size-6" />
         Log Out
       </Button>
+      {motto.length > 0 ? (
+        <div data-testid="sidebar-motto" className="mt-auto px-4 pt-8 pb-2">
+          <span aria-hidden className="block h-0.5 w-12 bg-firm-accent" />
+          {motto.map((word) => (
+            <span key={word} className="mt-2 block text-sm tracking-motto uppercase">
+              {word}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </nav>
   );
   return (
@@ -182,12 +195,22 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
             business.name
           )}
         </Link>
-        <div className="min-w-0 flex-1 [&_header]:border-b-0 [&_header>p]:flex-1 [&_header>p]:text-center [&_header>p]:font-display md:[&_header>p]:text-2xl">
+        <div className="min-w-0 flex-1 [&_header]:border-b-0 [&_header>div:first-of-type]:flex-1 [&_header>div:first-of-type]:text-center">
           <Header
             roleLabel="Client"
+            hideRole
             onOpenMenu={() => setDrawer(true)}
             bell={<PortalBell slug={slug} />}
-            greeting={`Welcome back, ${me.user.name.split(' ')[0]}!`}
+            greeting={
+              <>
+                <p className="font-display text-xl font-bold text-heading md:text-3xl">
+                  Welcome Back, <span className="text-link">{me.user.name.split(' ')[0]}</span>!
+                </p>
+                <p className="hidden text-base font-normal md:block">
+                  Your documents. Your services. All in one place.
+                </p>
+              </>
+            }
           />
         </div>
       </div>
