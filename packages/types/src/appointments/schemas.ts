@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MemberRef } from '../clients/schemas.js';
+import { ClientId, MemberRef } from '../clients/schemas.js';
 import { clearable, text } from '../clients/text.js';
 
 // Appointments (R12): the firm's calendar, availability and appointment types, and the client's
@@ -306,7 +306,7 @@ export const AppointmentsQuery = z
     from: DateTime,
     to: DateTime,
     staffUserId: MemberId.optional(),
-    clientId: z.uuid().optional(),
+    clientId: ClientId.optional(),
     status: AppointmentStatus.optional(),
   })
   .refine(within(62), 'Use a range of at most 62 days');
