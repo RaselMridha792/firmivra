@@ -3,6 +3,7 @@
 // and the 404s across firms and for another member's PRIVATE template, with the in-memory ports
 // (no database). A stand-in for TenantGuard puts the caller's firm and role on the request, as in
 // esign-requests-http.test.ts. Synthetic data only.
+import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
 import { randomUUID } from 'node:crypto';
 import { Global, type INestApplication, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -49,6 +50,9 @@ beforeAll(async () => {
     .useValue(w.modules)
     .overrideProvider(ESIGN_STORE)
     .useValue(w.store)
+    // The signer routes' firm lookup (not used by these routes).
+    .overrideProvider(PortalInfoService)
+    .useValue({ activeFirm: () => Promise.reject(new Error('not used here')) })
     .compile();
   app = moduleRef.createNestApplication();
   app.use((req: Request, _res: Response, next: NextFunction) => {

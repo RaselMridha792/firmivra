@@ -128,7 +128,7 @@ export class EsignPrepareService {
     return this.merge(businessId, actor, record, fields);
   }
 
-  /** The rules' readiness check (with Signing Settings' requireApproval: APPROVER_MISSING). */
+  /** The rules' readiness check; Signing Settings' requireApproval adds APPROVER_MISSING. */
   async readiness(businessId: string, actor: EsignActor, id: string): Promise<EsignReadiness> {
     const { record } = await this.requests.reach(businessId, actor, id, 'read');
     return this.check(businessId, actor, record, await this.repo.parts(businessId, id));
