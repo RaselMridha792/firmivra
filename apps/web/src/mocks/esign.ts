@@ -1,5 +1,4 @@
 import {
-  ApiRequestError,
   ConfirmEsignUploadBody,
   EsignCorrectRecipientBody,
   CreateEsignRequestBody,
@@ -32,7 +31,6 @@ import {
   ESIGN_RECENT_DAYS,
   ListEsignRequestsQuery,
   type MemberRef,
-  type MySignaturesClient,
   parseInput,
   EsignPutFieldsBody,
   EsignPutPagePlanBody,
@@ -49,6 +47,19 @@ import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { documentFixtures } from './documents';
 import { engagementFixtures } from './engagements';
+import {
+  copy,
+  DAY,
+  ESIGN_OFF,
+  fail,
+  HOUR,
+  iso,
+  LETTER,
+  SAMPLE_PDF_URL,
+  SAMPLE_PNG_BASE64,
+} from './esign-common';
+import { esignExtrasMock, esignKioskOpen, esignMockMayApprove } from './esign-extras';
+import { esignAdminMock, type EsignBaseClient, esignDefaults } from './esign-signing';
 import { mockBusiness } from './me';
 
 /**
@@ -58,7 +69,13 @@ import { mockBusiness } from './me';
  * Documents rows come first; the other requests are generated to make up the counts. Same input
  * checks, rules and error codes as the API, so a screen built on it works unchanged.
  * - `role: 'STAFF'` is Sam Staff (mocks/clients.ts): he sees requests he sends and those of his
- *   assigned clients (Jamie Sample and Acme Widgets); any other request is 404.
+ *   assigned clients (Jamie Sample and Acme Widgets); any other request is 404. MANAGER and VIEWER
+ *   (NEXT_PUBLIC_API_MOCK_ESIGN_ROLE) are Sam too: a Manager also approves and manages FIRM
+ *   templates; a Viewer's changes answer 403 FORBIDDEN (but their own job title).
+ * - Approvers: the Owner, or Sam once he is a MANAGER (`roles.set` or the env role); never the
+ *   sender (409 APPROVER_NOT_ALLOWED). Any edit to a DRAFT clears its approvals.
+ *   MOCK_APPROVAL_REQUEST_ID (Terms of Service, NEEDS_APPROVAL) and MOCK_APPROVAL_DRAFT_ID (a ready
+ *   DRAFT) are Sam's, each with Mock User as approver.
  * - New requests need a client from mocks/clients.ts and one of its open services
  *   (mocks/engagements.ts: Jamie Sample's 2025 Personal Tax or Bookkeeping).
  * - Uploads: a file is PENDING (being checked) for 4 seconds, then CLEAN. A PDF whose name contains
@@ -67,49 +84,13 @@ import { mockBusiness } from './me';
  * - Merge values: Jamie Sample has no business name, so BUSINESS_NAME and SPOUSE_NAME are missing.
  * - NEXT_PUBLIC_API_MOCK_ESIGN=off: Firm Sign turned off (`status()` says so, other calls 403).
  */
-/** NEXT_PUBLIC_API_MOCK_ESIGN=off shows Firm Sign turned off (menus hide it; calls answer 403). */
-const ESIGN_OFF = process.env.NEXT_PUBLIC_API_MOCK_ESIGN === 'off';
-const DAY = 24 * 60 * 60 * 1000;
-const HOUR = 60 * 60 * 1000;
 const SCAN_MS = 4000;
 const id = (prefix: string, n: number) =>
   `0199b6e${prefix}-0000-7000-8000-${String(n).padStart(12, '0')}`;
-const iso = (ms: number) => new Date(ms).toISOString();
-const copy = <T>(value: T): T => structuredClone(value);
-const fail = (status: number, code: string, message: string) =>
-  new ApiRequestError(status, code, message);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const invalidState = () => fail(409, 'INVALID_STATE', 'The request is not in a state for this');
 const closed = () => fail(409, 'REQUEST_CLOSED', 'The request is closed');
 const SHA = (n: number) => (n % 256).toString(16).padStart(2, '0').repeat(32);
-
-/** A generated 2-page sample PDF (Helvetica text, synthetic), base64. */
-const SAMPLE_PDF_BASE64 =
-  'JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoK' +
-  'PDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUiA0IDAgUl0gL0NvdW50IDIgPj4KZW5kb2JqCjMgMCBvYmoKPDwg' +
-  'L1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9G' +
-  'b250IDw8IC9GMSA1IDAgUiA+PiA+PiAvQ29udGVudHMgNiAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL1R5cGUg' +
-  'L1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8' +
-  'IC9GMSA1IDAgUiA+PiA+PiAvQ29udGVudHMgNyAwIFIgPj4KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQg' +
-  'L1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iago2IDAgb2JqCjw8IC9MZW5ndGgg' +
-  'Mjc1ID4+CnN0cmVhbQpCVCAvRjEgMTIgVGYgNzIgNzIwIFRkIDE2IFRMCihTYW1wbGUgRW5nYWdlbWVudCBMZXR0' +
-  'ZXIgKHN5bnRoZXRpYyB0ZXN0IGRvY3VtZW50KSkgVGogVCoKKCkgVGogVCoKKFRoaXMgcGFnZSBzdGFuZHMgaW4g' +
-  'Zm9yIGEgcmVhbCBkb2N1bWVudCBpbiBtb2NrIG1vZGUuKSBUaiBUKgooRmlybTogTFZQIEFjY291bnRpbmcgJiBU' +
-  'YXhlcyAobW9jaykpIFRqIFQqCihDbGllbnQ6IEphbWllIFNhbXBsZSAoc3ludGhldGljKSkgVGogVCoKKCkgVGog' +
-  'VCoKKFBhZ2UgMSBvZiAyKSBUaiBUKgpFVAplbmRzdHJlYW0KZW5kb2JqCjcgMCBvYmoKPDwgL0xlbmd0aCAxNjYg' +
-  'Pj4Kc3RyZWFtCkJUIC9GMSAxMiBUZiA3MiA3MjAgVGQgMTYgVEwKKFNpZ25hdHVyZXMpIFRqIFQqCigpIFRqIFQq' +
-  'CihDbGllbnQgc2lnbmF0dXJlOiBfX19fX19fX19fX19fX19fX19fX19fKSBUaiBUKgooRGF0ZTogX19fX19fX19f' +
-  'X19fX18pIFRqIFQqCigpIFRqIFQqCihQYWdlIDIgb2YgMikgVGogVCoKRVQKZW5kc3RyZWFtCmVuZG9iagp4cmVm' +
-  'CjAgOAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAow' +
-  'MDAwMDAwMTIxIDAwMDAwIG4gCjAwMDAwMDAyNDcgMDAwMDAgbiAKMDAwMDAwMDM3MyAwMDAwMCBuIAowMDAwMDAw' +
-  'NDQzIDAwMDAwIG4gCjAwMDAwMDA3NjkgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA4IC9Sb290IDEgMCBSID4+' +
-  'CnN0YXJ0eHJlZgo5ODYKJSVFT0YK';
-/** A tiny grey PNG, for image files. */
-const SAMPLE_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-/** The sample PDF as a data: URL, for the page viewer and the downloads. */
-export const SAMPLE_PDF_URL = `data:application/pdf;base64,${SAMPLE_PDF_BASE64}`;
-const LETTER = { width: 612, height: 792 };
 
 type Client = { id: string; displayName: string };
 /** Clients of the mockup's rows (not in mocks/clients.ts) and two of mocks/clients.ts. */
@@ -165,7 +146,21 @@ interface Seed {
   sentAt?: number;
   lastActivityAt: number;
   expiresAt?: number;
+  /** The first signer signs in person (delivery IN_PERSON). */
+  inPerson?: boolean;
+  /** A member who approves the request (an APPROVER recipient), not yet decided. */
+  approver?: MemberRef;
 }
+
+/** The SENT request whose first signer, Taylor Sample, signs in person (`inPerson.start`). */
+const IN_PERSON_N = 96;
+export const MOCK_IN_PERSON_REQUEST_ID = '0199b6e0-0000-7000-8000-000000000096';
+export const MOCK_IN_PERSON_RECIPIENT_ID = '0199b6e3-0000-7000-8000-000000000960';
+/** The mockup's Terms of Service row: sent by Sam Staff, waiting on Mock User (the Owner) to approve. */
+export const MOCK_APPROVAL_REQUEST_ID = '0199b6e0-0000-7000-8000-000000000005';
+/** A ready DRAFT by Sam Staff with Mock User as approver: its only problem is APPROVAL_PENDING. */
+const APPROVAL_DRAFT_N = 97;
+export const MOCK_APPROVAL_DRAFT_ID = '0199b6e0-0000-7000-8000-000000000097';
 
 const DOC_STATUS_OF: Partial<Record<EsignRequestStatus, EsignRecipient['status']>> = {
   SENT: 'SENT',
@@ -198,7 +193,7 @@ function seeded(n: number, s: Seed): { detail: EsignRequestDetail; events: Esign
         .replace(/^\.|\.$/g, '')}@example.test`,
       phone: null,
       link: { type: 'EXTERNAL' },
-      delivery: 'EMAIL',
+      delivery: s.inPerson && i === 0 ? 'IN_PERSON' : 'EMAIL',
       authMethod: 'EMAIL_CODE',
       hasAccessCode: false,
       colorIndex: i % 8,
@@ -218,6 +213,27 @@ function seeded(n: number, s: Seed): { detail: EsignRequestDetail; events: Esign
   ]);
   for (const f of fields)
     f.filled = recipients.find((r) => r.id === f.recipientId)?.status === 'SIGNED';
+  if (s.approver) {
+    const member = STAFF.find((m) => m.userId === s.approver!.userId);
+    recipients.push({
+      ...recipients[0]!,
+      id: id('3', n * 10 + 9),
+      kind: 'APPROVER',
+      role: 'MANAGER',
+      routingOrder: 1,
+      name: s.approver.name,
+      email: member?.email ?? null,
+      link: { type: 'STAFF', userId: s.approver.userId },
+      delivery: 'EMAIL',
+      colorIndex: 7,
+      status: 'WAITING',
+      sentAt: null,
+      viewedAt: null,
+      signedAt: null,
+      declinedAt: null,
+      declineReason: null,
+    });
+  }
   const completed = s.status === 'COMPLETED';
   const detail: EsignRequestDetail = {
     id: id('0', n),
@@ -268,6 +284,8 @@ function seeded(n: number, s: Seed): { detail: EsignRequestDetail; events: Esign
     fields,
     replacesRequestId: null,
     replacedByRequestId: null,
+    template: null,
+    approvalNotes: [],
     declinedAt: s.status === 'DECLINED' ? iso(s.lastActivityAt) : null,
     expiredAt: s.status === 'EXPIRED' ? iso(s.lastActivityAt) : null,
     voidedAt: null,
@@ -433,13 +451,14 @@ function buildFixtures(): { details: EsignRequestDetail[]; events: Map<string, E
       signers: ['Kevin Jackson'],
       createdAt: oct(6, 9),
       lastActivityAt: oct(6, 13),
+      approver: mockMe,
     },
   ];
   // What the five rows leave of the mockup's counters (SENT includes 4 DELIVERED).
   const rest: [EsignRequestStatus, number][] = [
-    ['DRAFT', 12],
+    ['DRAFT', 11],
     ['NEEDS_APPROVAL', 2],
-    ['SENT', 13],
+    ['SENT', 12],
     ['DELIVERED', 4],
     ['VIEWED', 10],
     ['PARTIALLY_SIGNED', 6],
@@ -475,10 +494,35 @@ function buildFixtures(): { details: EsignRequestDetail[]; events: Map<string, E
       });
     }
   }
+  // One of the mockup's SENT requests: its signer signs on the staff member's device.
+  seeds.push({
+    title: 'Engagement Letter (in person)',
+    status: 'SENT',
+    client: jamie,
+    sender: mockMe,
+    signers: ['Taylor Sample'],
+    createdAt: oct(8, 10),
+    sentAt: oct(8, 11),
+    lastActivityAt: oct(8, 11),
+    expiresAt: now + 20 * DAY,
+    inPerson: true,
+  });
+  // The 12th draft: ready but for Mock User's approval (approvals screens).
+  seeds.push({
+    title: 'Fee Agreement 2026',
+    status: 'DRAFT',
+    client: jamie,
+    sender: mockStaff,
+    signers: ['Jamie Sample'],
+    createdAt: oct(8, 9),
+    lastActivityAt: oct(8, 10),
+    approver: mockMe,
+  });
   const details: EsignRequestDetail[] = [];
   const events = new Map<string, EsignEvent[]>();
+  const last = seeds.length - 1;
   seeds.forEach((s, n) => {
-    const built = seeded(n + 1, s);
+    const built = seeded(s.inPerson ? IN_PERSON_N : n === last ? APPROVAL_DRAFT_N : n + 1, s);
     details.push(built.detail);
     events.set(built.detail.id, built.events);
   });
@@ -525,11 +569,12 @@ const MERGE_ROW = (r: EsignRequestDetail): Record<EsignMergeKey, string | null> 
 
 /** An in-memory `api.esign`. `enabled: false` shows Firm Sign turned off (403 MODULE_OFF). */
 export function createEsignMock(
-  options: { role?: MockFirmRole; enabled?: boolean } = {},
+  options: { role?: MockFirmRole | EsignAccessRole; enabled?: boolean } = {},
 ): EsignClient {
   const role: EsignAccessRole = options.role ?? 'OWNER';
   const enabled = options.enabled ?? !ESIGN_OFF;
-  const me: MemberRef = role === 'STAFF' ? mockStaff : mockMe;
+  const firmWide = role === 'OWNER' || role === 'ADMIN';
+  const me: MemberRef = firmWide ? mockMe : mockStaff;
   const uploads = new Map<
     string,
     { requestId: string; fileName: string; contentType: EsignContentType; sizeBytes: number }
@@ -539,11 +584,21 @@ export function createEsignMock(
 
   const assigned = (clientId: string | undefined) =>
     clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === mockStaff.userId);
+  /** An approver always sees the requests they approve, whatever the client assignment. */
+  const approves = (r: EsignRequestDetail) =>
+    r.recipients.some(
+      (x) => x.kind === 'APPROVER' && x.link.type === 'STAFF' && x.link.userId === me.userId,
+    );
   const visible = (r: EsignRequestDetail) =>
-    role !== 'STAFF' || r.sender.userId === me.userId || assigned(r.client?.id);
-  const on = async () => {
+    firmWide || r.sender.userId === me.userId || assigned(r.client?.id) || approves(r);
+  const moduleOn = async () => {
     await mockDelay();
     if (!enabled) throw fail(403, 'MODULE_OFF', 'Firm Sign is off for this firm');
+  };
+  /** Every firm call but the in-person state and exit is locked while a kiosk is open. */
+  const on = async () => {
+    await moduleOn();
+    if (esignKioskOpen()) throw fail(403, 'KIOSK_LOCKED', 'An in-person signing is open');
   };
   /** A file's scan finishes 4 seconds after its upload. */
   const scanned = (r: EsignRequestDetail) => {
@@ -565,6 +620,13 @@ export function createEsignMock(
     if (r.status !== 'DRAFT') throw invalidState();
     return r;
   };
+  /** The firm's members: the Owner (`mockMe`) and Sam Staff. */
+  const members = [
+    { ...STAFF[0]!, firmRole: 'OWNER' as const },
+    { ...STAFF[1]!, firmRole: 'STAFF' as const },
+  ];
+  const mayApprove = (userId: string) =>
+    esignMockMayApprove(members, userId, { userId: me.userId, role });
   const open = (requestId: string, alsoApproval = false) => {
     const r = find(requestId);
     if (CLOSED.includes(r.status)) throw closed();
@@ -588,13 +650,35 @@ export function createEsignMock(
     });
     esignStore().events.set(r.id, list);
   };
+  /** After a change; a changed DRAFT loses every approval so far. */
   const touched = (r: EsignRequestDetail) => {
+    if (r.status === 'DRAFT')
+      for (const x of r.recipients) if (x.kind === 'APPROVER') x.status = 'WAITING';
     r.lastActivityAt = iso(Date.now());
     derive(r);
   };
   const actions = (r: EsignRequestDetail): EsignAction[] => {
-    if (r.status === 'DRAFT') return ['EDIT', 'DISCARD', 'SEND'];
-    if (r.status === 'NEEDS_APPROVAL') return ['VOID'];
+    const approver = r.recipients.some(
+      (x) =>
+        x.kind === 'APPROVER' &&
+        x.link.type === 'STAFF' &&
+        x.link.userId === me.userId &&
+        x.status !== 'APPROVED',
+    );
+    if (role === 'VIEWER') return r.sentAt ? ['DOWNLOAD'] : [];
+    // Reached only as its approver: decide it, and download it once sent.
+    if (!firmWide && r.sender.userId !== me.userId && !assigned(r.client?.id)) {
+      const decide: EsignAction[] = r.status === 'NEEDS_APPROVAL' && approver ? ['APPROVE'] : [];
+      return r.sentAt ? [...decide, 'DOWNLOAD'] : decide;
+    }
+    const approvers = r.recipients.filter((x) => x.kind === 'APPROVER');
+    if (r.status === 'DRAFT')
+      return approvers.some((x) => x.status !== 'APPROVED')
+        ? ['EDIT', 'DISCARD', 'SUBMIT_FOR_APPROVAL']
+        : ['EDIT', 'DISCARD', 'SEND'];
+    if (r.status === 'NEEDS_APPROVAL') return approver ? ['APPROVE', 'VOID'] : ['VOID'];
+    if (OPEN.includes(r.status) && r.recipients.some((x) => x.delivery === 'IN_PERSON'))
+      return ['REMIND', 'VOID', 'CORRECT', 'REPLACE', 'DOWNLOAD', 'START_IN_PERSON'];
     if (OPEN.includes(r.status)) return ['REMIND', 'VOID', 'CORRECT', 'REPLACE', 'DOWNLOAD'];
     if (r.status === 'COMPLETED') return ['RESEND_COPY', 'DOWNLOAD'];
     return r.sentAt ? ['DOWNLOAD'] : [];
@@ -663,7 +747,7 @@ export function createEsignMock(
   /** The client a request may be for: one the caller may see, not archived. */
   const clientFor = (clientId: string): Client => {
     const c = clientFixtures().find((x) => x.id === clientId && !x.archivedAt);
-    if (!c || (role === 'STAFF' && !assigned(c.id))) throw notFound();
+    if (!c || (!firmWide && !assigned(c.id))) throw notFound();
     return { id: c.id, displayName: c.displayName };
   };
   /** One of the client's PENDING or ACTIVE services. */
@@ -702,7 +786,7 @@ export function createEsignMock(
     }
     for (const x of r.recipients) {
       if (x.delivery === 'EMAIL' && !x.email) add('RECIPIENT_NO_CONTACT', { recipientId: x.id });
-      if (x.authMethod === 'ACCESS_CODE' && !x.hasAccessCode)
+      if (x.authMethod === 'ACCESS_CODE' && x.delivery !== 'IN_PERSON' && !x.hasAccessCode)
         add('ACCESS_CODE_MISSING', { recipientId: x.id });
       if (x.kind === 'APPROVER' && x.status !== 'APPROVED')
         add('APPROVAL_PENDING', { recipientId: x.id });
@@ -720,10 +804,12 @@ export function createEsignMock(
     }
     if (r.reminders.max > 0 && r.reminders.firstAfterDays >= r.expiryDays)
       add('REMINDER_AFTER_EXPIRY');
+    if (esignDefaults().requireApproval && !r.recipients.some((x) => x.kind === 'APPROVER'))
+      add('APPROVER_MISSING');
     return { ready: problems.length === 0, problems, autoSignaturePage: r.fields.length === 0 };
   };
 
-  return {
+  const client: EsignBaseClient = {
     status: async () => {
       await mockDelay();
       return { enabled, myEsignRole: enabled ? role : null };
@@ -1010,6 +1096,12 @@ export function createEsignMock(
           email = x.who.email;
           phone = x.who.phone ?? null;
         }
+        if (x.kind === 'APPROVER') {
+          const userId = x.who.type === 'STAFF' ? x.who.userId : '';
+          if (userId === r.sender.userId || !mayApprove(userId)) {
+            throw fail(409, 'APPROVER_NOT_ALLOWED', 'This person cannot approve this request');
+          }
+        }
         if (old) used.add(old.colorIndex);
         return {
           id: old?.id ?? newId('3'),
@@ -1214,6 +1306,8 @@ export function createEsignMock(
         })),
         replacesRequestId: old.id,
         replacedByRequestId: null,
+        template: null,
+        approvalNotes: [],
         originalSha256: null,
         allowedActions: [],
       };
@@ -1255,6 +1349,77 @@ export function createEsignMock(
       return { items: copy(esignStore().events.get(r.id) ?? []) };
     },
   };
+  const shared = {
+    client,
+    on,
+    find: (requestId: string) => view(find(requestId)),
+    stored: find,
+    record,
+    me,
+    manager: firmWide,
+    templateManager: firmWide || role === 'MANAGER',
+    newId,
+  };
+  const admin = esignAdminMock(shared);
+  const extras = esignExtrasMock({
+    ...shared,
+    on: moduleOn,
+    client: { ...client, templates: admin.templates },
+    role,
+    visible: () => esignStore().details.filter(visible),
+    members,
+  });
+  const { versions, restoreVersion, duplicate, bulkSend, ...rest } = extras;
+  const all: EsignClient = {
+    ...client,
+    ...admin,
+    ...rest,
+    templates: { ...admin.templates, versions, restoreVersion, duplicate, bulkSend },
+  };
+  return role === 'VIEWER' ? readOnly(all) : all;
+}
+
+/** Calls a Viewer may make; every other one answers 403 FORBIDDEN. */
+const VIEWER_CALLS = [
+  'status',
+  'list',
+  'summary',
+  'get',
+  'readiness',
+  'mergeValues',
+  'documentContentUrl',
+  'download',
+  'events',
+  'settings.get',
+  'settings.consentVersions',
+  'settings.updateMyProfile',
+  'templates.list',
+  'templates.get',
+  'templates.packetUrl',
+  'templates.versions',
+  'inPerson.state',
+  'bulk',
+  'report',
+];
+
+/** A Viewer's `api.esign`: reads work, changes answer 403 FORBIDDEN. */
+function readOnly<T extends object>(target: T, path = ''): T {
+  return Object.fromEntries(
+    Object.entries(target).map(([key, value]) => {
+      const name = path + key;
+      if (typeof value === 'function') {
+        if (VIEWER_CALLS.includes(name)) return [key, value];
+        return [
+          key,
+          async () => {
+            await mockDelay();
+            throw fail(403, 'FORBIDDEN', 'Viewers can’t change anything');
+          },
+        ];
+      }
+      return [key, readOnly(value as object, `${name}.`)];
+    }),
+  ) as T;
 }
 
 /**
@@ -1272,15 +1437,6 @@ function remapFields(r: EsignRequestDetail, pages: EsignRequestDetail['pagePlan'
   r.pagePlan = pages.map((p) => ({ ...p }));
 }
 
-/**
- * An in-memory `api.mySignatures(slug)`: Firm Sign is on for `lvp` only, and off everywhere with
- * NEXT_PUBLIC_API_MOCK_ESIGN=off. Off is `{ enabled: false }`, not an error.
- */
-export function mySignaturesMock(firmSlug: string): MySignaturesClient {
-  return {
-    status: async () => {
-      await mockDelay();
-      return { enabled: !ESIGN_OFF && firmSlug.toLowerCase() === mockBusiness.slug };
-    },
-  };
-}
+/** `api.mySignatures(slug)` and `api.signing(slug)`: see mocks/esign-signing.ts. */
+export { createMySignaturesMock as mySignaturesMock, createSigningMock } from './esign-signing';
+export { MOCK_ESIGN_ROLE, SAMPLE_PDF_URL } from './esign-common';

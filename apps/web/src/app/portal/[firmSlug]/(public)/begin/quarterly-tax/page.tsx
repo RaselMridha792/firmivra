@@ -1,18 +1,13 @@
-import { PageContainer } from '@firmivra/ui';
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { IntakePage } from '../_blocks/intake-flow';
 
 export const metadata: Metadata = { title: 'Quarterly tax' };
 
-export default function QuarterlyTaxPage() {
-  return (
-    <PageContainer className="py-8">
-      <PagePlaceholder
-        title="Quarterly tax"
-        ticket="N07b"
-        owner="Arfan"
-        mockup="begin-online/business Information.png, Taxes & Income.png, Business Expenses.png, Review & Submit.png"
-      />
-    </PageContainer>
-  );
+export default async function QuarterlyTaxPage({
+  params,
+}: {
+  params: Promise<{ firmSlug: string }>;
+}) {
+  const { firmSlug } = await params;
+  return <IntakePage firmSlug={firmSlug} form="QUARTERLY_TAX" />;
 }

@@ -1,18 +1,9 @@
-import { PageContainer } from '@firmivra/ui';
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { IntakePage } from '../_blocks/intake-flow';
 
 export const metadata: Metadata = { title: 'Payroll' };
 
-export default function PayrollPage() {
-  return (
-    <PageContainer className="py-8">
-      <PagePlaceholder
-        title="Payroll"
-        ticket="N07b"
-        owner="Arfan"
-        mockup="begin-online/Payroll*.png (3 files)"
-      />
-    </PageContainer>
-  );
+export default async function PayrollPage({ params }: { params: Promise<{ firmSlug: string }> }) {
+  const { firmSlug } = await params;
+  return <IntakePage firmSlug={firmSlug} form="PAYROLL" />;
 }

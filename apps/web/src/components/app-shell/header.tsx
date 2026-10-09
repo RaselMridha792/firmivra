@@ -31,7 +31,8 @@ export function Header({
   return (
     <header
       onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
-      className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2 md:px-6"
+      // Super Admin (search): the header sits on the canvas as in its mockup; elsewhere a white bar.
+      className={`flex items-center gap-3 px-4 py-2 md:px-6 ${search ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
     >
       <button
         type="button"
@@ -43,13 +44,13 @@ export function Header({
       </button>
 
       {search ? (
-        <label className="hidden w-full max-w-xs flex-1 items-center gap-2 rounded-control border border-border bg-surface px-3 py-2 text-sm text-muted md:ml-auto md:flex">
+        <label className="hidden h-10 w-full max-w-xs flex-1 items-center gap-2 rounded-control border border-border bg-surface px-3 text-sm text-muted md:ml-auto md:flex">
           <Search aria-hidden className="size-4" />
           <input
             type="search"
             placeholder={search}
             aria-label="Search firms, applications, users"
-            className="w-full bg-transparent outline-none"
+            className="min-h-0 w-full bg-transparent outline-none"
           />
         </label>
       ) : null}
@@ -57,7 +58,9 @@ export function Header({
 
       <div
         className={
-          search ? 'ml-auto flex items-center gap-2 md:ml-5' : 'ml-auto flex items-center gap-2'
+          search
+            ? 'ml-auto flex items-center gap-2 rounded-card bg-surface px-2 py-1 md:ml-5'
+            : 'ml-auto flex items-center gap-2'
         }
       >
         {bell ?? (
@@ -69,6 +72,7 @@ export function Header({
             <Bell aria-hidden className="size-5" />
           </button>
         )}
+        {search ? <span aria-hidden className="h-8 w-px bg-border" /> : null}
 
         <div className="relative">
           <button
