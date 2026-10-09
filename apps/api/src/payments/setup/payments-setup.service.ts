@@ -33,7 +33,8 @@ export const providerUnavailable = () =>
 
 /**
  * Settings > Payments (docs/api/invoices.yaml, "Stripe Connect setup"). The firm's
- * `stripe_accounts` row is read and written only in its own business scope.
+ * `stripe_accounts` row is read in its own business scope and written only through
+ * `StripeAccountsWriter` (platform scope).
  */
 @Injectable()
 export class PaymentsSetupService {
