@@ -1,7 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Database, Prisma, TxClient } from '@firmivra/db';
-import type { Invoice, InvoiceList, ListInvoicesQuery } from '@firmivra/types';
+import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@firmivra/db';
+import type {
+  CreateInvoiceRequest,
+  Invoice,
+  InvoiceList,
+  ListInvoicesQuery,
+  UpdateInvoiceRequest,
+} from '@firmivra/types';
 import type { z } from 'zod';
+import { AuditService } from '../../audit/audit.service.js';
 import {
   type ClientsActor,
   decodeCursor,
@@ -10,16 +17,25 @@ import {
 } from '../../clients/clients.service.js';
 import { DATABASE } from '../../database/database.module.js';
 import {
+  conflict,
   firmToday,
   type InvoiceRow,
   invoiceSelect,
   notFound,
   paymentsEnabled,
+  toDate,
   toInvoice,
   toListItem,
 } from './invoice-view.js';
 
 type ListQuery = z.output<typeof ListInvoicesQuery>;
+type CreateBody = z.output<typeof CreateInvoiceRequest>;
+type DraftBody = z.output<typeof UpdateInvoiceRequest>;
+
+export const archived = () => conflict('CLIENT_ARCHIVED', 'Restore the client first');
+export const notDraft = () => conflict('NOT_DRAFT', 'Only a draft can be changed');
+const isUniqueViolation = (e: unknown) =>
+  (e as { code?: unknown } | null)?.code === 'P2002' || databaseErrorCode(e) === '23505';
 
 /**
  * The firm's invoices (R7 step 7; contract in packages/types/src/payments). Owner and Admin reach
@@ -29,7 +45,10 @@ type ListQuery = z.output<typeof ListInvoicesQuery>;
  */
 @Injectable()
 export class InvoicesService {
-  constructor(@Inject(DATABASE) private readonly database: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    private readonly audit: AuditService,
+  ) {}
 
   inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId }, fn);
@@ -113,6 +132,133 @@ export class InvoicesService {
   async get(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
     return this.inFirm(businessId, async (tx) => {
       const row = await this.load(tx, businessId, actor, id);
+      return toInvoice(row, (await firmToday(tx, businessId)).today);
+    });
+  }
+
+  /** The client (404) and the service (one of this client's, 404); true when it is archived. */
+  private async checkClient(
+    tx: TxClient,
+    businessId: string,
+    clientId: string,
+    engagementId: string | null | undefined,
+  ): Promise<boolean> {
+    await tx.$queryRaw`
+      SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid FOR SHARE`;
+    const client = await tx.client.findFirst({
+      where: { businessId, id: clientId },
+      select: { archivedAt: true },
+    });
+    if (!client) throw notFound();
+    if (engagementId) {
+      const service = await tx.engagement.findFirst({
+        where: { businessId, clientId, id: engagementId },
+        select: { id: true },
+      });
+      if (!service) throw notFound();
+    }
+    return client.archivedAt !== null;
+  }
+
+  /**
+   * Writes a draft's fields and lines. The discount goes on last, after the lines made the
+   * subtotal, so the database's `total = subtotal - discount >= 0` holds after every statement.
+   */
+  private async writeDraft(tx: TxClient, businessId: string, id: string, body: DraftBody) {
+    const where = { businessId_id: { businessId, id } };
+    await tx.invoice.update({ where, data: { discountCents: 0 } });
+    await tx.invoiceLine.deleteMany({ where: { businessId, invoiceId: id } });
+    await tx.invoiceLine.createMany({
+      data: body.lines.map((l, i) => ({
+        businessId,
+        invoiceId: id,
+        description: l.description,
+        quantity: l.quantity,
+        unitAmountCents: l.unitAmountCents,
+        sortOrder: i,
+      })),
+    });
+    await tx.invoice.update({
+      where,
+      data: {
+        engagementId: body.engagementId ?? null,
+        discountCents: body.discountCents,
+        dueOn: toDate(body.dueOn),
+        scheduledFor: body.scheduledFor ? toDate(body.scheduledFor) : null,
+      },
+    });
+  }
+
+  /** `INV-{year}-{4 digits}`: the next in the firm for the firm's calendar year. */
+  private async nextNumber(tx: TxClient, businessId: string): Promise<string> {
+    const year = (await firmToday(tx, businessId)).today.slice(0, 4);
+    const [row] = await tx.$queryRaw<{ n: number | null }[]>`
+      SELECT max(substring(number from '^INV-[0-9]{4}-([0-9]+)$')::int) AS n
+        FROM invoices WHERE business_id = ${businessId}::uuid AND number LIKE ${`INV-${year}-%`}`;
+    return `INV-${year}-${String((row?.n ?? 0) + 1).padStart(4, '0')}`;
+  }
+
+  async create(businessId: string, actor: ClientsActor, body: CreateBody): Promise<Invoice> {
+    const attempt = () =>
+      this.inFirm(businessId, async (tx) => {
+        if (await this.checkClient(tx, businessId, body.clientId, body.engagementId)) {
+          throw archived();
+        }
+        const { id } = await tx.invoice.create({
+          data: {
+            businessId,
+            clientId: body.clientId,
+            number: await this.nextNumber(tx, businessId),
+            createdByUserId: actor.userId,
+          },
+          select: { id: true },
+        });
+        await this.writeDraft(tx, businessId, id, body);
+        const row = await this.load(tx, businessId, actor, id);
+        await this.audit.logIn(
+          tx,
+          'invoice.created',
+          { type: 'invoice', id },
+          {
+            clientId: body.clientId,
+            number: row.number,
+            totalCents: row.totalCents,
+            lines: row.lines.length,
+          },
+        );
+        return toInvoice(row, (await firmToday(tx, businessId)).today);
+      });
+    // Two creates at once can pick the same number: the unique index refuses one; it tries again.
+    return attempt().catch((e: unknown) => {
+      if (isUniqueViolation(e)) return attempt();
+      throw e;
+    });
+  }
+
+  async update(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: DraftBody,
+  ): Promise<Invoice> {
+    return this.inFirm(businessId, async (tx) => {
+      const current = await this.load(tx, businessId, actor, id, true);
+      const isArchived = await this.checkClient(
+        tx,
+        businessId,
+        current.clientId,
+        body.engagementId,
+      );
+      if (current.status !== 'DRAFT') throw notDraft();
+      if (isArchived) throw archived();
+      await this.writeDraft(tx, businessId, id, body);
+      const row = await this.load(tx, businessId, actor, id);
+      await this.audit.logIn(
+        tx,
+        'invoice.updated',
+        { type: 'invoice', id },
+        { totalCents: row.totalCents, lines: row.lines.length },
+      );
       return toInvoice(row, (await firmToday(tx, businessId)).today);
     });
   }
