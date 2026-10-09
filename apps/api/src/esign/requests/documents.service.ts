@@ -57,7 +57,9 @@ const isEsignType = (type: string): type is EsignContentType =>
 /** S3's missing key on a copy or read (the in-memory store rejects with that message). */
 const isNoSuchKey = (error: unknown) =>
   error instanceof Error &&
-  (error.name === 'NoSuchKey' || error.message === 'NoSuchKey' || statusOf(error) === 404);
+  (error.name === 'NoSuchKey' ||
+    error.message === 'NoSuchKey' ||
+    (statusOf(error) === 404 && error.name !== 'NoSuchBucket'));
 
 /** A CLEAN file's bytes for the page viewer. */
 export interface EsignContent {
@@ -180,9 +182,9 @@ export class EsignDocumentsService {
     if (source.scanStatus !== 'CLEAN') throw esignRefusal('FILE_BLOCKED');
     const documentId = randomUUID();
     const key = this.store.keyFor(businessId, id, `source/${documentId}`);
-    await this.copySource(businessId, source, key);
+    const copied = await this.copySource(businessId, source, key);
     return this.removingOnRefusal(businessId, key, async () => {
-      const bytes = await this.store.read(businessId, key);
+      const bytes = copied ?? (await this.store.read(businessId, key));
       // The copy must be the file that was scanned.
       if (!bytes || sha256(bytes) !== source.sha256) throw esignRefusal('FILE_BLOCKED');
       return this.add(businessId, actor, id, bytes, {
@@ -202,22 +204,36 @@ export class EsignDocumentsService {
    * Copies a vault file into the request's folder. R5's uploads sit under documents/, and Firm
    * Sign's own filed PDFs (final and certificate) under esign/, which EsignStore reads itself.
    * Begin Online uploads carried over at conversion (leads/) EsignStore cannot copy yet (R18):
-   * 409 FILE_BLOCKED, never a 500. A vault row whose object is gone answers 404.
+   * 409 FILE_BLOCKED, never a 500. A vault row whose object is gone answers 404. Gives the
+   * bytes when it read them (esign/), so the caller checks those instead of reading the copy.
    */
-  private async copySource(businessId: string, source: DirectoryDocument, key: string) {
+  private async copySource(
+    businessId: string,
+    source: DirectoryDocument,
+    key: string,
+  ): Promise<Uint8Array | null> {
     const { s3Key } = source;
     const under = (area: string) => s3Key.startsWith(`tenant/${businessId}/${area}/`);
+    const gone = () => {
+      this.logger.warn(`Esign from-vault: document ${source.id} has no stored file`); // ids only
+      return notFound();
+    };
     try {
-      if (under('documents')) return await this.store.copyFromVault(businessId, s3Key, key);
+      if (under('documents')) {
+        await this.store.copyFromVault(businessId, s3Key, key);
+        return null;
+      }
       if (under('esign')) {
         const bytes = await this.store.read(businessId, s3Key);
-        if (!bytes) throw notFound();
-        return await this.store.put(businessId, key, bytes, source.contentType);
+        if (!bytes) throw gone();
+        // The file must be the one that was scanned; nothing is copied otherwise.
+        if (sha256(bytes) !== source.sha256) throw esignRefusal('FILE_BLOCKED');
+        await this.store.put(businessId, key, bytes, source.contentType);
+        return bytes;
       }
     } catch (error) {
       if (!isNoSuchKey(error)) throw error;
-      this.logger.warn(`Esign from-vault: document ${source.id} has no stored file`); // ids only
-      throw notFound();
+      throw gone();
     }
     this.logger.warn(`Esign from-vault: document ${source.id} is in a folder it can't copy from`);
     throw esignRefusal('FILE_BLOCKED');
@@ -248,7 +264,9 @@ export class EsignDocumentsService {
     const saved = savedOrRefused(
       await this.repo.removeDocument(businessId, id, documentId, pagePlan, fields, lastActivityAt),
     );
-    await this.audit.log('esign.document_removed', entity(id), {
+    // The file is off the draft once removeDocument commits: a failed audit write must not answer
+    // 500 and leave the stored file behind (a retry is 404), so it is logged and the file removed.
+    await this.auditOrLog(id, 'esign.document_removed', {
       documentId,
       pagesRemoved: parts.pagePlan.length - pagePlan.length,
       fieldsRemoved: parts.fields.length - fields.length,
@@ -300,12 +318,23 @@ export class EsignDocumentsService {
     });
     if (added === 'NOT_DRAFT') throw esignRefusal('INVALID_STATE');
     if (added === 'TOO_MANY_PAGES') throw esignRefusal('TOO_MANY_PAGES');
-    await this.audit.log('esign.document_added', entity(id), {
+    // The file is on the draft once addDocument commits; a retry would be 410 UPLOAD_EXPIRED.
+    await this.auditOrLog(id, 'esign.document_added', {
       documentId: added.id,
       sourceDocumentId: added.sourceDocumentId,
       pageCount,
     });
     return toDocument(added);
+  }
+
+  /** An audit entry after a write that has committed: a failure is logged (ids only), not thrown. */
+  private async auditOrLog(id: string, action: string, metadata: Record<string, unknown>) {
+    try {
+      await this.audit.log(action, entity(id), metadata);
+    } catch (error) {
+      const name = error instanceof Error ? error.name : typeof error;
+      this.logger.error(`Could not audit ${action} on esign request ${id}: ${name}`);
+    }
   }
 
   /** Runs `work`; a refusal (4xx) deletes the stored object first. */
