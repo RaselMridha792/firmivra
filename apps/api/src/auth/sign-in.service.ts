@@ -15,6 +15,7 @@ import {
   IDENTITY_PROVIDER,
   type IdentityProvider,
 } from './identity/identity-provider.js';
+import { networkOf } from '../client-auth/network.js';
 import { portalClient } from './portal-clients.js';
 import { deriveKey, poolSecrets } from './sealed.js';
 import type { SessionTokens, SignInPlace } from './site.js';
@@ -44,17 +45,34 @@ const SIGN_IN = {
   released: 'auth.sign_in_released',
 };
 type Actions = { attempt: string; passed: string; released: string };
-/** One limit an attempt must stay under: the open attempts (failed or in flight) with this value. */
+/**
+ * One limit an attempt must stay under: the open attempts (failed or in flight) with this value,
+ * and, with `netKey`, only those started from that network. A `soft` limit never refuses: past
+ * it the attempt is slowed and a warning logged (Rasel's q20).
+ */
 type LimitCheck = {
   field: 'emailKey' | 'attemptId';
   value: string;
+  netKey?: string;
   limit: number;
   windowMs: number;
   refuse: () => Error;
+  soft?: boolean;
 };
+/**
+ * Rasel's q20 (Oct 8): failures lock per email and network, so a stranger elsewhere can't lock a
+ * real person out; a higher per-email ceiling over every network only slows and alerts.
+ */
 export const SIGN_IN_LIMIT = {
-  /** Failures for one email (per firm on a portal) in the window, then 429 RATE_LIMITED. */
-  perEmail: 10,
+  /**
+   * Failures for one email (per firm on a portal) from one network (/24 or /48) in the window,
+   * then 429 RATE_LIMITED from that network only.
+   */
+  perEmailNetwork: 10,
+  /** Failures for one email from every network in the window, then each attempt is slowed. */
+  perEmailCeiling: 50,
+  /** How long an attempt past the ceiling waits before Cognito is asked. */
+  ceilingDelayMs: 2_000,
   /** Wrong MFA codes in one sign-in attempt, then CHALLENGE_EXPIRED: sign in again. */
   perAttempt: 5,
   windowMs: 15 * 60_000,
@@ -74,6 +92,10 @@ function openAttempts(businessId: string | null, actions: Actions, check: LimitC
   const [attempt, passed, released] = [actions.attempt, actions.passed, actions.released].map(
     literal,
   );
+  // The network is on the attempt row; the row that closes an attempt matches it by its id.
+  const fromNetwork = check.netKey
+    ? Prisma.sql`AND (action <> ${attempt} OR metadata ->> 'netKey' = ${check.netKey})`
+    : Prisma.empty;
   return Prisma.sql`(
     SELECT count(*) FROM (
       SELECT 1 FROM audit_logs
@@ -81,6 +103,7 @@ function openAttempts(businessId: string | null, actions: Actions, check: LimitC
         AND created_at > now() - ${check.windowMs}::int * interval '1 millisecond'
         AND action IN (${attempt}, ${passed}, ${released})
         AND ${KEY_SQL[check.field]} = ${check.value}
+        ${fromNetwork}
       GROUP BY coalesce(metadata ->> 'reservationId', metadata ->> 'token')
       HAVING bool_and(action = ${attempt})
     ) open)`;
@@ -101,6 +124,8 @@ function literal(action: string): Prisma.Sql {
 }
 /** HKDF label for the key that turns an email into the pseudonymous key the limit counts by. */
 const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
+/** HKDF label for the key that turns a network into the keyed hash the audit rows keep. */
+const NETWORK_KEY_LABEL = 'fv-auth-network-key-v1';
 /** Staff and Super Admins always pass MFA; the pools require it, and so does the API. */
 const MFA_REQUIRED: ReadonlySet<IdentityPool> = new Set(['STAFF', 'ADMIN']);
 
@@ -124,6 +149,7 @@ const wrongStep = () =>
 export class SignInService {
   private readonly logger = new Logger(SignInService.name);
   private readonly emailKeys: Partial<Record<IdentityPool, Uint8Array>> = {};
+  private readonly networkKeys: Partial<Record<IdentityPool, Uint8Array>> = {};
 
   constructor(
     @Inject(DATABASE) private readonly db: Database,
@@ -139,26 +165,30 @@ export class SignInService {
           pool as IdentityPool,
           EMAIL_KEY_LABEL,
         );
+        this.networkKeys[pool as IdentityPool] = deriveKey(
+          secret,
+          pool as IdentityPool,
+          NETWORK_KEY_LABEL,
+        );
       }
     }
   }
 
   /**
-   * Checks the password. An email at SIGN_IN_LIMIT.perEmail failures (and attempts in flight) in
-   * the window is 429 before Cognito is asked, whether or not it has an account; each attempt is
-   * reserved first and each wrong password audited.
+   * Checks the password. An email at SIGN_IN_LIMIT.perEmailNetwork failures (and attempts in
+   * flight) from this network in the window is 429 before Cognito is asked, whether or not it has
+   * an account; past the per-email ceiling it is slowed. Each attempt is reserved first and each
+   * wrong password audited.
    */
   async signIn(place: SignInPlace, email: string, password: string): Promise<SignInOutcome> {
     const emailKey = this.emailKey(place, email);
+    const netKey = this.netKey(place);
     const reservationId = await this.reserve(
       place,
       SIGN_IN,
-      `fv-sign-in:${emailKey}`,
-      [this.perEmail(emailKey)],
-      {
-        emailKey,
-        step: 'password',
-      },
+      `fv-sign-in:${emailKey}:${netKey}`,
+      this.perEmail(emailKey, netKey),
+      { emailKey, netKey, step: 'password' },
     );
     const user = await this.findUser(place, email);
     let step: AuthStep;
@@ -208,9 +238,10 @@ export class SignInService {
         refuse: () => httpError('CHALLENGE_EXPIRED'),
       });
     }
-    if (c.emailKey) checks.push(this.perEmail(c.emailKey));
+    const netKey = this.netKey(place);
+    if (c.emailKey) checks.push(...this.perEmail(c.emailKey, netKey));
     const lockKey = c.emailKey
-      ? `fv-sign-in:${c.emailKey}`
+      ? `fv-sign-in:${c.emailKey}:${netKey}`
       : c.attemptId
         ? `fv-sign-in-attempt:${c.attemptId}`
         : undefined;
@@ -220,7 +251,7 @@ export class SignInService {
     };
     // A challenge sealed before step 7 carries neither; it expires within minutes.
     const reservationId = lockKey
-      ? await this.reserve(place, SIGN_IN, lockKey, checks, { ...ids, step: 'mfa' })
+      ? await this.reserve(place, SIGN_IN, lockKey, checks, { ...ids, netKey, step: 'mfa' })
       : undefined;
     let tokens: SessionTokens;
     try {
@@ -325,15 +356,42 @@ export class SignInService {
     return createHmac('sha256', key).update(input).digest('hex');
   }
 
-  /** The per-email sign-in limit for this email key. */
-  private perEmail(emailKey: string): LimitCheck {
-    return {
-      field: 'emailKey',
-      value: emailKey,
-      limit: SIGN_IN_LIMIT.perEmail,
-      windowMs: SIGN_IN_LIMIT.windowMs,
-      refuse: () => httpError('RATE_LIMITED'),
-    };
+  /**
+   * A keyed hash of the viewer's network (/24 or /48, from req.ip with trust proxy), so the audit
+   * log never holds the address. A missing IP is one shared 'unknown' network.
+   */
+  private netKey(place: Pick<SignInPlace, 'pool'>): string {
+    const key = this.networkKeys[place.pool];
+    if (!key) throw new Error(`No network key for the ${place.pool} pool`);
+    const network = networkOf(requestContext.getStore()?.ip);
+    return createHmac('sha256', key).update(network).digest('hex');
+  }
+
+  /**
+   * The per-email sign-in limits: the lock for this email from this network, and the ceiling
+   * over every network, which only slows (q20).
+   */
+  private perEmail(emailKey: string, netKey: string): LimitCheck[] {
+    const refuse = () => httpError('RATE_LIMITED');
+    const { windowMs } = SIGN_IN_LIMIT;
+    return [
+      {
+        field: 'emailKey',
+        value: emailKey,
+        netKey,
+        limit: SIGN_IN_LIMIT.perEmailNetwork,
+        windowMs,
+        refuse,
+      },
+      {
+        field: 'emailKey',
+        value: emailKey,
+        limit: SIGN_IN_LIMIT.perEmailCeiling,
+        windowMs,
+        refuse,
+        soft: true,
+      },
+    ];
   }
 
   /**
@@ -359,6 +417,7 @@ export class SignInService {
     const scope = place.businessId
       ? ({ kind: 'business', businessId: place.businessId } as const)
       : ({ kind: 'platform' } as const);
+    let slow = false;
     const refusal = await this.db.withScope(scope, async (tx) => {
       const [locked] = await tx.$queryRaw<{ ok: boolean }[]>`
         SELECT pg_try_advisory_xact_lock(hashtextextended(${lockKey}, 0)) AS ok`;
@@ -366,8 +425,10 @@ export class SignInService {
       const counts = checks.map((check) => openAttempts(businessId, actions, check));
       const [counted] = await tx.$queryRaw<{ open: number[] }[]>`
         SELECT ARRAY[${Prisma.join(counts)}]::int[] AS open`;
-      const over = checks.find((check, i) => (counted?.open[i] ?? 0) >= check.limit);
+      const isOver = (check: LimitCheck, i: number) => (counted?.open[i] ?? 0) >= check.limit;
+      const over = checks.find((check, i) => !check.soft && isOver(check, i));
       if (over) return over.refuse();
+      slow = checks.some((check, i) => check.soft === true && isOver(check, i));
       const store = requestContext.getStore();
       await tx.auditLog.create({
         data: {
@@ -385,6 +446,14 @@ export class SignInService {
       return null;
     });
     if (refusal) throw refusal;
+    if (slow) {
+      // Past the per-email ceiling: slowed, never locked, and the same for unknown emails. The
+      // warning names the attempt, never the email.
+      this.logger.warn(
+        `Sign-in failures for one email passed the ceiling (attempt ${reservationId})`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, SIGN_IN_LIMIT.ceilingDelayMs));
+    }
     return reservationId;
   }
 
