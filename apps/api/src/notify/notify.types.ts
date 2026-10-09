@@ -114,7 +114,8 @@ export interface NotifyTemplates {
   /** To an internal approver. `link`: the request in the workspace. */
   'esign.approval-requested': EsignNamed & { senderName: string; link: string };
   /**
-   * To the sender: what happened. `signerName` for VIEWED and SIGNED; `waitingOn` (SIGNED only)
+   * To the sender: what happened. `signerName` for VIEWED and SIGNED (and the approver for
+   * APPROVAL_REJECTED); `waitingOn` (SIGNED only)
    * names the signers whose turn it is now ("Waiting on Another Signer", spec section 23).
    */
   'esign.staff-update': EsignNamed & {
@@ -143,6 +144,10 @@ export const ESIGN_STAFF_EVENTS = [
   'SIGNED',
   'COMPLETED',
   'EXPIRED',
+  /** An approver asked for changes (never their note: it is staff only). */
+  'APPROVAL_REJECTED',
+  /** Every approver approved, but sending it failed: the sender opens it and sends it. */
+  'APPROVED',
 ] as const satisfies readonly EsignEventType[];
 export type EsignStaffEvent = (typeof ESIGN_STAFF_EVENTS)[number];
 

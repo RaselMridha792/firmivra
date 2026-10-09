@@ -77,7 +77,7 @@ export function BatchView({ id }: { id: string }) {
             <Link href="/firm-sign/bulk" className="self-start text-sm text-link">
               New bulk send
             </Link>
-            <h1 data-testid="page-title" className="text-3xl font-semibold text-heading">
+            <h1 data-testid="page-title" className="font-display text-3xl text-heading">
               Bulk send: {b.templateName}
             </h1>
             <p data-testid="batch-summary" role="status" className="text-text">

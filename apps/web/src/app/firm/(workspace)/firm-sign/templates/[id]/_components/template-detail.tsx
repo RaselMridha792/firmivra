@@ -57,7 +57,7 @@ function Template({ t, canUse }: { t: EsignTemplateDetail; canUse: boolean }) {
           <Link href="/firm-sign/templates" className="text-sm text-link">
             All templates
           </Link>
-          <h1 data-testid="page-title" className="text-3xl font-semibold text-heading">
+          <h1 data-testid="page-title" className="font-display text-3xl text-heading">
             {t.name}
           </h1>
           {t.description && <p className="text-muted">{t.description}</p>}

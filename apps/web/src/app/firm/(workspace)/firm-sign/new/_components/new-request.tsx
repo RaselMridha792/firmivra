@@ -13,7 +13,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { EsignGate } from '../../../../../../components/esign/esign-gate';
-import { canCreate, isFirmManager } from '../../../../../../components/esign/esign-role';
+import { canCreate, isOwnerOrAdmin } from '../../../../../../components/esign/esign-role';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
@@ -40,7 +40,7 @@ export function NewRequest({ clientId, templateId }: { clientId?: string; templa
           <StartForm
             fromClient={ClientId.safeParse(clientId).success ? clientId : undefined}
             fromTemplate={EsignTemplateId.safeParse(templateId).success ? templateId : undefined}
-            canListMembers={isFirmManager(role)}
+            canListMembers={isOwnerOrAdmin(role)}
           />
         ) : (
           <Card>

@@ -49,37 +49,48 @@ function Wizard({ id, step }: { id: string; step: StepId }) {
       q.state.data?.documents.some((d) => d.scanStatus === 'PENDING') ? 2000 : false,
   });
   return (
-    <PageState query={request} isEmpty={() => false}>
-      {(r) => (
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-2">
-            <h1 data-testid="page-title" className="font-display text-3xl break-words text-heading">
-              {r.title}
-            </h1>
-            <p className="text-sm text-muted">
-              {r.client ? `For ${r.client.displayName}` : 'No client'}
-              {r.engagement && ` · ${r.engagement.title}`}
-            </p>
-          </div>
-          {r.status === 'DRAFT' ? (
-            <>
-              <StepNav id={r.id} current={step} />
-              <Step r={r} step={step} />
-            </>
-          ) : (
-            <Card>
-              <p className="text-text">{LOCKED[r.status] ?? LOCKED.SENT}</p>
-              <Link
-                href={`/firm-sign/requests/${r.id}`}
-                className="mt-2 inline-flex min-h-11 items-center text-link underline"
-              >
-                Open the request
-              </Link>
-            </Card>
-          )}
-        </div>
+    <>
+      {/* The page keeps a heading while it loads or fails. */}
+      {!request.data && (
+        <h1 data-testid="page-title" className="sr-only">
+          Prepare request
+        </h1>
       )}
-    </PageState>
+      <PageState query={request} isEmpty={() => false}>
+        {(r) => (
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-2">
+              <h1
+                data-testid="page-title"
+                className="min-w-0 font-display text-3xl wrap-anywhere text-heading"
+              >
+                {r.title}
+              </h1>
+              <p className="text-sm text-muted">
+                {r.client ? `For ${r.client.displayName}` : 'No client'}
+                {r.engagement && ` · ${r.engagement.title}`}
+              </p>
+            </div>
+            {r.status === 'DRAFT' ? (
+              <>
+                <StepNav id={r.id} current={step} />
+                <Step r={r} step={step} />
+              </>
+            ) : (
+              <Card>
+                <p className="text-text">{LOCKED[r.status] ?? LOCKED.SENT}</p>
+                <Link
+                  href={`/firm-sign/requests/${r.id}`}
+                  className="mt-2 inline-flex min-h-11 items-center text-link underline"
+                >
+                  Open the request
+                </Link>
+              </Card>
+            )}
+          </div>
+        )}
+      </PageState>
+    </>
   );
 }
 

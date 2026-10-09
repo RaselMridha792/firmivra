@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { EsignGate } from '../../../../../../components/esign/esign-gate';
-import { canCreate, isFirmManager } from '../../../../../../components/esign/esign-role';
+import { canCreate, isOwnerOrAdmin } from '../../../../../../components/esign/esign-role';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
@@ -32,7 +32,7 @@ export function BulkSend({ batchId }: { batchId?: string }) {
         batchId ? (
           <BatchView id={batchId} />
         ) : canCreate(role) ? (
-          <BulkForm canListMembers={isFirmManager(role)} />
+          <BulkForm canListMembers={isOwnerOrAdmin(role)} />
         ) : (
           <Card>
             <p className="text-text">You can view signature requests, but not send them.</p>
@@ -134,7 +134,7 @@ function BulkForm({ canListMembers }: { canListMembers: boolean }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 data-testid="page-title" className="text-3xl font-semibold text-heading">
+      <h1 data-testid="page-title" className="font-display text-3xl text-heading">
         Bulk send
       </h1>
       <Card>

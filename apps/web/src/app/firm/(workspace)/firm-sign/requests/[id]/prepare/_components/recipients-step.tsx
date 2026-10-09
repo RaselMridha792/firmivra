@@ -11,7 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
-import { isFirmManager } from '../../../../../../../../components/esign/esign-role';
+import { isOwnerOrAdmin } from '../../../../../../../../components/esign/esign-role';
 import { useApiMutation, useApiQuery } from '../../../../../../../../lib/query';
 import {
   blank,
@@ -43,7 +43,7 @@ export function RecipientsStep({ r }: { r: EsignRequestDetail }) {
     .map((l) => ({ value: `login:${l.clientAccountId}`, label: `${l.email} (portal login)` }));
   // Only Owners and Admins can list the members; anyone else adds people as "Someone else".
   const status = useApiQuery(['esign', 'status'], () => api.esign.status());
-  const manager = isFirmManager(status.data?.myEsignRole ?? null);
+  const manager = isOwnerOrAdmin(status.data?.myEsignRole ?? null);
   const roles = useQuery({
     queryKey: ['esign', 'roles'],
     queryFn: () => api.esign.roles.list(),
