@@ -3,7 +3,10 @@ import { Badge } from '@firmivra/ui';
 
 type Tone = 'info' | 'success' | 'warning' | 'danger' | 'neutral' | 'accent';
 
-/** Each status's colour, as in the mockup's Status column. DELIVERED reads "Sent". */
+/**
+ * Each status's colour, as in the mockup's Status column. DELIVERED reads "Sent". Partially Signed
+ * is purple in the mockup; it is teal until packages/ui has a purple tone.
+ */
 export const STATUS_TONE: Record<EsignRequestStatus, Tone> = {
   DRAFT: 'neutral',
   NEEDS_APPROVAL: 'warning',
