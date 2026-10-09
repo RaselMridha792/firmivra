@@ -37,7 +37,7 @@ import {
 // - Owner and Admin: every request of the firm.
 // - Staff and a Firm Sign MANAGER: requests they send, and requests for clients assigned to them.
 //   Any other request answers 404, as if it did not exist. A VIEWER reads the same and changes
-//   nothing (403).
+//   nothing (403). An approver also sees the requests they approve (extras.ts).
 // A request is prepared as a DRAFT (documents, page plan, recipients, fields, settings), checked
 // with `readiness()`, then sent; from then on only the lifecycle actions apply (remind, void,
 // correct a recipient, replace, resend the completed copy). Completed, declined, expired and

@@ -56,6 +56,8 @@ info:
     - `myEsignRole` in `GET /esign/status` says which of these the caller is. Manager and Viewer
       come with the roles contract; until then Staff are `STAFF`. The mock takes
       `NEXT_PUBLIC_API_MOCK_ESIGN_ROLE=MANAGER` or `VIEWER`.
+    - An **approver** always opens, lists and decides the requests they approve, whatever the
+      client assignment.
     - **Approvers** are STAFF recipients who are an Owner, Admin or Manager and not the sender
       (`409 APPROVER_NOT_ALLOWED`).
 
