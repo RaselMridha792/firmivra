@@ -81,50 +81,76 @@ function answerView(
     }
     case 'grid': {
       const grid = (v ?? {}) as ScreenGrid;
-      const lines = f.rows
-        .map((row) => {
-          const cells = f.columns
-            .map((col) => {
-              const text = grid[row.key]?.[col.key] ?? '';
-              if (!text) return '';
-              const cents = col.type === 'currency' ? toCents(text) : null;
-              return `${fill(col.label)} ${cents === null ? text : formatCents(cents)}`;
-            })
-            .filter(Boolean);
-          return cells.length ? `${fill(row.label)}: ${cells.join(', ')}` : '';
-        })
-        .filter(Boolean);
-      return lines.length ? (
-        <ul>
-          {lines.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-      ) : (
-        ''
+      const cell = (text: string, type: string) => {
+        if (!text) return '';
+        if (type === 'date') return usDate(text);
+        const cents = type === 'currency' ? toCents(text) : null;
+        return cents === null ? text : formatCents(cents);
+      };
+      const rows = f.rows.filter((row) => f.columns.some((col) => grid[row.key]?.[col.key]));
+      if (!rows.length) return '';
+      return (
+        <AnswerTable
+          head={['', ...f.columns.map((col) => fill(col.label))]}
+          rows={rows.map((row) => ({
+            key: row.key,
+            cells: [
+              fill(row.label),
+              ...f.columns.map((col) => cell(grid[row.key]?.[col.key] ?? '', col.type)),
+            ],
+          }))}
+        />
       );
     }
     case 'group': {
-      const rows = (v ?? []) as ScreenRow[];
-      const lines = rows.map((row) =>
-        f.fields
-          .map((sub) => scalarText(sub, row[sub.key]))
-          .filter(Boolean)
-          .join(', '),
+      // The mockups' tables (Dependents...): a column per field, a row per entry.
+      const rows = ((v ?? []) as ScreenRow[]).filter((row) =>
+        f.fields.some((sub) => scalarText(sub, row[sub.key])),
       );
-      return lines.some(Boolean) ? (
-        <ol className="list-inside list-decimal">
-          {lines.map((line, i) => (
-            <li key={rows[i]?.id}>{line}</li>
-          ))}
-        </ol>
-      ) : (
-        ''
+      if (!rows.length) return '';
+      return (
+        <AnswerTable
+          head={f.fields.map((sub) => fill(sub.label))}
+          rows={rows.map((row) => ({
+            key: row.id,
+            cells: f.fields.map((sub) => scalarText(sub, row[sub.key])),
+          }))}
+        />
       );
     }
     default:
       return scalarText(f, v);
   }
+}
+
+/** A small table inside a review row (a group's entries, a grid's filled rows). */
+function AnswerTable({ head, rows }: { head: string[]; rows: { key: string; cells: string[] }[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-left">
+        <thead>
+          <tr>
+            {head.map((h, i) => (
+              <th key={`${h}-${String(i)}`} scope="col" className="pr-2 font-semibold text-heading">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              {row.cells.map((c, i) => (
+                <td key={`${String(i)}-${c}`} className="pr-2 align-top">
+                  {c || '—'}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /**
@@ -157,10 +183,11 @@ export function IntakeReview({
             {step.sections.map((section) => {
               const rows = section.fields
                 .filter((f) => f.type !== 'info' && shownFields.has(f.key))
-                .map((f): [string, ReactNode, string] => [
+                .map((f): [string, ReactNode, string, boolean] => [
                   fill(f.label),
                   answerView(f, values[f.key], fill, uploads),
                   f.key,
+                  f.type === 'group' || f.type === 'grid',
                 ]);
               if (!rows.length) return null;
               return (

@@ -11,7 +11,9 @@ test('the firm sign-in shows firm features, the Super Admin one platform feature
   await expect(page.getByRole('heading', { name: 'Firm workspace' })).toBeAttached();
   await expect(page.getByText('Serve Clients', { exact: true })).toBeVisible();
   await expect(page.getByText('Manage Firms', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Serve. Organize. Grow.' })).toBeVisible();
   await page.goto(admin('/sign-in'));
   await expect(page.getByRole('heading', { name: 'Super Admin console' })).toBeAttached();
   await expect(page.getByText('Manage Firms', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Manage. Approve. Grow.' })).toBeVisible();
 });

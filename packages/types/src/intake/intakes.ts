@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { IntakeStatus, ScanStatus } from '../db-enums.js';
 import { type ApiRequest, parseInput } from '../client.js';
-import { CalendarDate } from '../clients/schemas.js';
+import { CalendarDate, ClientId } from '../clients/schemas.js';
 import { text } from '../clients/text.js';
-import { ServiceRef } from '../engagements/schemas.js';
+import { EngagementId, ServiceRef } from '../engagements/schemas.js';
 import { IntakeAnswers } from './answers.js';
 import { IntakeFormDefinition } from './definition.js';
 import { IntakeId, refuseFullNumbers } from './schemas.js';
@@ -84,14 +84,18 @@ export function createIntakesClient(request: ApiRequest) {
   const one = (id: string) => `/business/intakes/${parseInput(IntakeId, id)}`;
   return {
     listForClient: async (clientId: string): Promise<IntakeSummary[]> =>
-      (await request(IntakeList, `/business/clients/${parseInput(IntakeId, clientId)}/intakes`))
+      (await request(IntakeList, `/business/clients/${parseInput(ClientId, clientId)}/intakes`))
         .items,
     /** 409 ENGAGEMENT_NOT_ACTIVE, NO_INTAKE_FORM, INTAKE_OPEN. */
     send: async (engagementId: string, body: SendIntakeRequest = {}): Promise<IntakeView> =>
-      request(IntakeView, `/business/engagements/${parseInput(IntakeId, engagementId)}/intakes`, {
-        method: 'POST',
-        body: parseInput(SendIntakeRequest, body),
-      }),
+      request(
+        IntakeView,
+        `/business/engagements/${parseInput(EngagementId, engagementId)}/intakes`,
+        {
+          method: 'POST',
+          body: parseInput(SendIntakeRequest, body),
+        },
+      ),
     get: async (id: string): Promise<IntakeView> => request(IntakeView, one(id)),
     /** SUBMITTED to UNDER_REVIEW. 409 INVALID_STATUS. */
     startReview: async (id: string): Promise<IntakeView> =>
