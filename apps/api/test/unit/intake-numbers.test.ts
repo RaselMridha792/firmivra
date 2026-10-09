@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { ANNUAL_TAX_FORM, restoreMaskedNumbers } from '@firmivra/types';
 import type { FieldEncryption } from '../../src/field-encryption/field-encryption.service.js';
-import { maskStoredNumbers, sealIntakeNumbers } from '../../src/intake/intake-numbers.js';
+import {
+  maskStoredNumbers,
+  numberField,
+  sealIntakeNumbers,
+} from '../../src/intake/intake-numbers.js';
 
-// A stand-in that records each field context; the real cipher has its own tests.
+// A stand-in that records each field context and refuses a field name the real cipher refuses
+// (field-encryption.service.ts); the real cipher has its own tests.
 const contexts: string[] = [];
 const fe = {
   encrypt: async (ctx: { recordId: string; field: string }, value: string) => {
+    if (!/^[a-z][a-z0-9_]{0,62}$/.test(ctx.field)) throw new Error('INVALID_CONTEXT');
     contexts.push(`${ctx.recordId}:${ctx.field}`);
     return new Uint8Array(Buffer.from(`enc(${value})`));
   },
@@ -30,7 +36,7 @@ describe('intake numbers at rest', () => {
       sealed: Buffer.from('enc(123-45-6789)').toString('base64'),
     });
     expect(first['firstName']).toBe('Avery');
-    expect(contexts).toEqual([`${where.intakeId}:ssn`]);
+    expect(contexts).toEqual([`${where.intakeId}:${numberField('ssn')}`]);
 
     const masked = await maskStoredNumbers(ANNUAL_TAX_FORM, first);
     expect(masked['ssn']).toEqual({ last4: '6789' });
@@ -51,5 +57,29 @@ describe('intake numbers at rest', () => {
       await maskStoredNumbers(ANNUAL_TAX_FORM, first),
     );
     expect(result.issues.map((i) => i.path)).toEqual([['ssn']]);
+  });
+
+  it('seals a spouse SSN and SSNs in group rows, each bound to its own path', async () => {
+    contexts.length = 0;
+    const sealed = await sealIntakeNumbers(
+      fe,
+      where,
+      ANNUAL_TAX_FORM,
+      {
+        spouseSsn: '987-65-4321',
+        dependents: [
+          { id: 'a1', firstName: 'Kid', ssn: '111-22-3333' },
+          { id: 'b2', firstName: 'Kid', ssn: '444-55-6666' },
+        ],
+      },
+      {},
+    );
+    expect(sealed['spouseSsn']).toMatchObject({ last4: '4321' });
+    expect(sealed['dependents']).toMatchObject([
+      { id: 'a1', ssn: { last4: '3333' } },
+      { id: 'b2', ssn: { last4: '6666' } },
+    ]);
+    expect(new Set(contexts).size).toBe(3);
+    expect(numberField('dependents.a1.ssn')).not.toBe(numberField('dependents.b2.ssn'));
   });
 });
