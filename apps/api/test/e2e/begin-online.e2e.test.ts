@@ -636,23 +636,27 @@ describe('Begin Online submit', () => {
     return key;
   }
 
+  // The firm's own people: the shared fixture users must not gain a membership here, or the
+  // other e2e files that list their firms see this one.
+  const team = {
+    owner: { id: randomUUID(), email: `r11-bo-owner-${run}@example.test` },
+    staff: { id: randomUUID(), email: `r11-bo-staff-${run}@example.test` },
+  };
+
   beforeAll(async () => {
+    await asOwner(null, async (tx) => {
+      for (const [key, p] of Object.entries(team)) {
+        await tx.user.create({
+          data: { id: p.id, cognitoSub: p.id, pool: 'STAFF', email: p.email, name: `Fake ${key}` },
+        });
+      }
+    });
     await asOwner(firms.a.id, async (tx) => {
       await tx.membership.create({
-        data: {
-          businessId: firms.a.id,
-          userId: fx.users.ownerA.id,
-          role: 'OWNER',
-          status: 'ACTIVE',
-        },
+        data: { businessId: firms.a.id, userId: team.owner.id, role: 'OWNER', status: 'ACTIVE' },
       });
       await tx.membership.create({
-        data: {
-          businessId: firms.a.id,
-          userId: fx.users.staffA.id,
-          role: 'STAFF',
-          status: 'ACTIVE',
-        },
+        data: { businessId: firms.a.id, userId: team.staff.id, role: 'STAFF', status: 'ACTIVE' },
       });
     });
   });
@@ -730,7 +734,7 @@ describe('Begin Online submit', () => {
     expect(mails.map((m) => [m.template, m.to]).sort()).toEqual(
       [
         ['lead.confirmation', complete['email']],
-        ['lead.received', fx.users.ownerA.email],
+        ['lead.received', team.owner.email],
       ].sort(),
     );
     const received = mails.find((m) => m.template === 'lead.received')!;

@@ -9,6 +9,7 @@ const claim: UploadClaim = {
   clientAccountId: '0199b6a0-0000-7000-8000-000000000003',
   clientId: '0199b6a0-0000-7000-8000-000000000004',
   engagementId: '0199b6a0-0000-7000-8000-000000000005',
+  requestId: null,
   categoryId: null,
   direction: 'CLIENT_TO_FIRM',
   taxYear: 2025,

@@ -38,6 +38,8 @@ const staff = {
   mfa: person('mfa'),
   released: person('released'),
   audited: person('audited'),
+  network: person('network'),
+  ceiling: person('ceiling'),
 };
 const firmX = { id: '', slug: `r2-lim-x-${tag}` };
 const firmY = { id: '', slug: `r2-lim-y-${tag}` };
@@ -49,7 +51,10 @@ let lastViewer = 0;
 const newViewer = () => `198.21.0.${++lastViewer}`;
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 
-/** Each call from a new viewer IP: these tests are about the per-email limits, not per-IP. */
+/**
+ * Each call from a new viewer IP in one /24, so one network (q20): these tests are about the
+ * per-email limits from one network; 'per email and network' changes the network.
+ */
 const post = (path: string, body: object, portal = false) => {
   const req = request(app.getHttpServer())
     .post(path)
@@ -130,20 +135,93 @@ afterAll(async () => {
 });
 
 describe('per-email limit', () => {
-  it('locks an email after SIGN_IN_LIMIT.perEmail failures, real or unknown, and only that email', async () => {
-    await fail(SIGN_IN_LIMIT.perEmail, () => staffSignIn(staff.locked.email, WRONG));
+  it('locks an email after SIGN_IN_LIMIT.perEmailNetwork failures, real or unknown, and only that email', async () => {
+    await fail(SIGN_IN_LIMIT.perEmailNetwork, () => staffSignIn(staff.locked.email, WRONG));
     // Even the right password waits now.
     const locked = await staffSignIn(staff.locked.email, LOCAL_PASSWORD);
     expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
 
     // An unknown email gets exactly the same answers.
     const nobody = `r2-lim-nobody-${tag}@a.test`;
-    await fail(SIGN_IN_LIMIT.perEmail, () => staffSignIn(nobody, WRONG));
+    await fail(SIGN_IN_LIMIT.perEmailNetwork, () => staffSignIn(nobody, WRONG));
     const unknown = await staffSignIn(nobody, WRONG);
     expect([unknown.status, codeOf(unknown)]).toEqual([429, 'RATE_LIMITED']);
 
     // Nobody else is affected.
     expect((await staffSignIn(staff.bystander.email, LOCAL_PASSWORD)).status).toBe(200);
+  });
+});
+
+describe('per email and network (q20)', () => {
+  const signInFrom = (ip: string, email: string, password: string) =>
+    request(app.getHttpServer())
+      .post('/api/v1/auth/sign-in')
+      .set('x-forwarded-for', `${ip}, 10.0.0.5`)
+      .send({ email, password });
+
+  it('locks one network (its /24) for an email, while another network still signs in', async () => {
+    const who = staff.network;
+    // Failures from addresses across one /24 count together.
+    for (let i = 1; i <= SIGN_IN_LIMIT.perEmailNetwork; i += 1) {
+      const res = await signInFrom(`198.30.1.${i}`, who.email, WRONG);
+      expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+    }
+    const locked = await signInFrom('198.30.1.200', who.email, LOCAL_PASSWORD);
+    expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
+    // The person, from their own network, is not locked out.
+    const elsewhere = await signInFrom('198.31.7.1', who.email, LOCAL_PASSWORD);
+    expect(elsewhere.status).toBe(200);
+    expect((elsewhere.body as SignInResult).status).toBe('MFA_SETUP_REQUIRED');
+
+    // An unknown email: the same answers, network by network.
+    const nobody = `r2-lim-net-nobody-${tag}@a.test`;
+    for (let i = 1; i <= SIGN_IN_LIMIT.perEmailNetwork; i += 1) {
+      const res = await signInFrom(`198.32.1.${i}`, nobody, WRONG);
+      expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+    }
+    expect((await signInFrom('198.32.1.99', nobody, WRONG)).status).toBe(429);
+    expect((await signInFrom('198.33.1.1', nobody, WRONG)).status).toBe(401);
+  });
+
+  it('past the per-email ceiling every network is slowed, never locked out', async () => {
+    const { perEmailCeiling, ceilingDelayMs } = SIGN_IN_LIMIT;
+    SIGN_IN_LIMIT.perEmailCeiling = 3;
+    SIGN_IN_LIMIT.ceilingDelayMs = 400;
+    try {
+      const who = staff.ceiling;
+      for (let n = 1; n <= 3; n += 1) {
+        const res = await signInFrom(`198.40.${n}.1`, who.email, WRONG);
+        expect(res.status).toBe(401);
+      }
+      let started = Date.now();
+      const wrong = await signInFrom('198.40.4.1', who.email, WRONG);
+      expect([wrong.status, codeOf(wrong)]).toEqual([401, 'INVALID_CREDENTIALS']);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+      started = Date.now();
+      const right = await signInFrom('198.40.5.1', who.email, LOCAL_PASSWORD);
+      expect((right.body as SignInResult).status).toBe('MFA_SETUP_REQUIRED');
+      expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+    } finally {
+      SIGN_IN_LIMIT.perEmailCeiling = perEmailCeiling;
+      SIGN_IN_LIMIT.ceilingDelayMs = ceilingDelayMs;
+    }
+  });
+
+  it('parallel guesses from two networks: each stays within its own limit, no 500', async () => {
+    const email = `r2-lim-net-burst-${tag}@a.test`;
+    const burst = (net: string) =>
+      Array.from({ length: 20 }, (_, i) => signInFrom(`${net}.${i + 1}`, email, WRONG));
+    const [a, b] = await Promise.all([
+      Promise.all(burst('198.50.1')),
+      Promise.all(burst('198.50.2')),
+    ]);
+    for (const results of [a, b]) {
+      const statuses = results.map((r) => r.status);
+      expect(statuses.filter((s) => s !== 401 && s !== 429)).toEqual([]);
+      expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(
+        SIGN_IN_LIMIT.perEmailNetwork,
+      );
+    }
   });
 });
 
@@ -171,7 +249,7 @@ describe('wrong MFA codes', () => {
     expect([over.status, codeOf(over)]).toEqual([401, 'CHALLENGE_EXPIRED']);
 
     // Those wrong codes counted for the email: starting again does not give fresh tries.
-    await fail(SIGN_IN_LIMIT.perEmail - SIGN_IN_LIMIT.perAttempt, () =>
+    await fail(SIGN_IN_LIMIT.perEmailNetwork - SIGN_IN_LIMIT.perAttempt, () =>
       staffSignIn(staff.mfa.email, WRONG),
     );
     const locked = await staffSignIn(staff.mfa.email, LOCAL_PASSWORD);
@@ -185,7 +263,9 @@ describe('parallel attempts (reserved before Cognito is asked)', () => {
     const results = await Promise.all(Array.from({ length: 30 }, () => staffSignIn(email, WRONG)));
     const statuses = results.map((r) => r.status);
     expect(statuses.filter((s) => s !== 401 && s !== 429)).toEqual([]);
-    expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(SIGN_IN_LIMIT.perEmail);
+    expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(
+      SIGN_IN_LIMIT.perEmailNetwork,
+    );
     // And the limit holds afterwards for the right password too (unknown email: still 429).
     const after = await staffSignIn(email, WRONG);
     expect(after.status === 401 || after.status === 429).toBe(true);
@@ -219,6 +299,43 @@ describe('parallel attempts (reserved before Cognito is asked)', () => {
     expect(codes.filter(([, c]) => c === 'MFA_CODE_INVALID').length).toBeLessThanOrEqual(
       SIGN_IN_LIMIT.perAttempt,
     );
+  });
+
+  it('holds the per-attempt limit for codes sent from many networks at once (q20 review)', async () => {
+    const who = person('mfanets');
+    await asOwner({ kind: 'platform' }, (tx) =>
+      tx.user.create({
+        data: { id: who.id, cognitoSub: who.id, pool: 'STAFF', email: who.email, name: 'Fake' },
+      }),
+    );
+    const first = await staffSignIn(who.email, LOCAL_PASSWORD);
+    const setup = await post('/api/v1/auth/mfa/setup', {
+      session: (first.body as { session: string }).session,
+    });
+    await post('/api/v1/auth/mfa', {
+      session: (setup.body as MfaSetupResponse).session,
+      code: LOCAL_MFA_CODE,
+    }).expect(200);
+    const signIn = await staffSignIn(who.email, LOCAL_PASSWORD);
+    const step = signIn.body as SignInResult;
+    if (step.status !== 'MFA_REQUIRED') throw new Error(`unexpected ${step.status}`);
+    // One challenge, each wrong code from its own /24, so no (email, network) lock is shared.
+    const results = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        request(app.getHttpServer())
+          .post('/api/v1/auth/mfa')
+          .set('x-forwarded-for', `198.60.${i + 1}.1, 10.0.0.5`)
+          .send({ session: step.session, code: '111111' }),
+      ),
+    );
+    const codes = results.map((r) => [r.status, codeOf(r)] as const);
+    expect(codes.filter(([s]) => s >= 500)).toEqual([]);
+    expect(codes.filter(([, c]) => c === 'MFA_CODE_INVALID').length).toBeLessThanOrEqual(
+      SIGN_IN_LIMIT.perAttempt,
+    );
+    // The rest are refused: busy (429) or the attempt is over (sign in again).
+    const answers = new Set(['401 MFA_CODE_INVALID', '401 CHALLENGE_EXPIRED', '429 RATE_LIMITED']);
+    expect(codes.map(([s, c]) => `${s} ${c}`).filter((a) => !answers.has(a))).toEqual([]);
   });
 });
 
@@ -268,15 +385,18 @@ describe('audit', () => {
     const attempt = rows.find((r) => r.action === 'auth.sign_in_attempt');
     expect(attempt?.metadata).toMatchObject({
       emailKey: (failed[0]?.metadata as { emailKey?: string }).emailKey,
+      netKey: expect.stringMatching(/^[0-9a-f]{64}$/) as unknown,
       reservationId: (failed[0]?.metadata as { reservationId?: string }).reservationId,
     });
     expect(JSON.stringify(rows)).not.toContain(staff.audited.email);
+    // A keyed hash of the network, never the address, in the metadata.
+    expect(JSON.stringify(rows.map((r) => r.metadata))).not.toContain('198.21.0.');
   });
 });
 
 describe('client portal', () => {
   it("counts a client's failures in the firm's own log, per firm", async () => {
-    await fail(SIGN_IN_LIMIT.perEmail, () => portalSignIn(firmX.slug, WRONG));
+    await fail(SIGN_IN_LIMIT.perEmailNetwork, () => portalSignIn(firmX.slug, WRONG));
     const locked = await portalSignIn(firmX.slug, LOCAL_PASSWORD);
     expect([locked.status, codeOf(locked)]).toEqual([429, 'RATE_LIMITED']);
 
@@ -287,7 +407,7 @@ describe('client portal', () => {
     const inX = await asOwner({ kind: 'business', businessId: firmX.id }, (tx) =>
       tx.auditLog.count({ where: { businessId: firmX.id, action: 'auth.sign_in_failed' } }),
     );
-    expect(inX).toBe(SIGN_IN_LIMIT.perEmail);
+    expect(inX).toBe(SIGN_IN_LIMIT.perEmailNetwork);
     const inY = await asOwner({ kind: 'business', businessId: firmY.id }, (tx) =>
       tx.auditLog.findMany({
         where: { businessId: firmY.id },
@@ -330,8 +450,8 @@ describe('outcomes that say nothing about the credential (#84 follow-up)', () =>
   it('never count an error of ours against the email, and close it as released', async () => {
     const email = `r2-lim-release-${tag}@a.test`;
     const userAgent = `r2-lim-release-${tag}`;
-    const perEmail = SIGN_IN_LIMIT.perEmail;
-    SIGN_IN_LIMIT.perEmail = 1;
+    const perEmail = SIGN_IN_LIMIT.perEmailNetwork;
+    SIGN_IN_LIMIT.perEmailNetwork = 1;
     const identity = app.get<IdentityProvider>(IDENTITY_PROVIDER);
     const signIn = vi
       .spyOn(identity, 'signIn')
@@ -364,7 +484,7 @@ describe('outcomes that say nothing about the credential (#84 follow-up)', () =>
       });
     } finally {
       signIn.mockRestore();
-      SIGN_IN_LIMIT.perEmail = perEmail;
+      SIGN_IN_LIMIT.perEmailNetwork = perEmail;
     }
   });
 
@@ -405,8 +525,8 @@ describe('outcomes that say nothing about the credential (#84 follow-up)', () =>
 describe('the reservation key (#84 follow-up)', () => {
   it("still counts an open attempt written before the rename, under the old key 'token'", async () => {
     const email = `r2-lim-oldkey-${tag}@a.test`;
-    const perEmail = SIGN_IN_LIMIT.perEmail;
-    SIGN_IN_LIMIT.perEmail = 2;
+    const perEmail = SIGN_IN_LIMIT.perEmailNetwork;
+    SIGN_IN_LIMIT.perEmailNetwork = 2;
     try {
       // One failure now gives the email key its value as the API writes it. Its own User-Agent
       // finds its row, whatever other test files write at the same time.
@@ -423,7 +543,7 @@ describe('the reservation key (#84 follow-up)', () => {
           select: { metadata: true },
         }),
       );
-      const emailKey = (row?.metadata as { emailKey?: string }).emailKey;
+      const { emailKey, netKey } = row?.metadata as { emailKey?: string; netKey?: string };
       // An attempt still open from before the rename: its key is 'token'.
       await asOwner({ kind: 'platform' }, (tx) =>
         tx.auditLog.create({
@@ -431,14 +551,14 @@ describe('the reservation key (#84 follow-up)', () => {
             businessId: null,
             action: 'auth.sign_in_attempt',
             entityType: 'login',
-            metadata: { emailKey, step: 'password', pool: 'STAFF', token: randomUUID() },
+            metadata: { emailKey, netKey, step: 'password', pool: 'STAFF', token: randomUUID() },
           },
         }),
       );
       const over = await staffSignIn(email, WRONG);
       expect([over.status, codeOf(over)]).toEqual([429, 'RATE_LIMITED']);
     } finally {
-      SIGN_IN_LIMIT.perEmail = perEmail;
+      SIGN_IN_LIMIT.perEmailNetwork = perEmail;
     }
   });
 });
