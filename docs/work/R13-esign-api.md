@@ -8,7 +8,7 @@
 - `packages/types/src/esign/**` (and `esign/capture.ts` once R14's PR merges)
 - `apps/web/src/mocks/esign.ts`, `esign-common.ts`, `esign-signing.ts` and `esign-extras.ts`, and the `esign`, `mySignatures` and `signing` lines in `apps/web/src/lib/api.ts`
 - `docs/api/esign.yaml`
-- `apps/api/test/unit/esign-*` and `apps/api/test/e2e/esign-*`
+- `apps/api/test/unit/esign-*`, `apps/api/test/e2e/esign-*` and `apps/api/test/isolation/cases/esign.ts` (the esign cases of R21's isolation suite)
 - the 9 e-sign templates in `apps/api/src/notify`
 - the e-sign parts of `docs/SYSTEM-DESIGN.md`, `docs/PROJECT-DRAFT-v2.md` and `docs/AUTH-DESIGN.md`
 - registration lines in `apps/api/src/app.module.ts` and `packages/types/src/index.ts`
@@ -97,3 +97,4 @@ Target merge windows in brackets (Dhaka).
 - Oct 9: contract follow-ups from the Scrum review of contract 2 on rasel/R13-api-contract-fixes (from contract 3): template privacy and packet route, role fills with access codes, status-code rule, wording. Pre-review of #269: main merged in; save-as-template drops sender values unless `keepSenderValues`; no access codes in bulk; SCAN_PENDING and FILE_BLOCKED agree; template `use` in the mock leaves no orphan draft.
 - Oct 9: requests API 1 on rasel/R13-api-requests-1 (stacked on contract 3, R18's engine interfaces merged in): `@RequiresModule()` and `ModuleGuard` in common/modules (reading `business_settings.enabled_modules`) and `GET /esign/status`, with an AppModule e2e test. Drafts (part 1b), page plan and recipients (part 1c) and files (parts 1d and 1e) follow, behind the `EsignRepository` and `EsignDirectory` ports.
 - Oct 9: requests API 1b on rasel/R13-api-requests-1b (#224): drafts (`POST/GET/PATCH/DELETE /esign/requests[/:id]`) behind `@RequiresModule('esign')`, `EsignRepository` and `EsignDirectory` with in-memory fakes, approvers read only, the draft routes as module-off isolation cases. Pre-review round 2: a failed discard audit no longer answers 500 or orphans files.
+- Oct 9: requests API 1c on rasel/R13-api-requests-1c (#225): `PUT .../page-plan` and `PUT .../recipients` (optimistic on `lastActivityAt`). Pre-review round 2: page plan and recipients writes return the record as written, a kept recipient id keeps its access code only for the same member or login (compared by type and id), and the repository doc says each write moves `lastActivityAt` strictly forward. With #248 on main, `POST /esign/requests` (its body names clientId and engagementId) joins the module-off isolation cases.

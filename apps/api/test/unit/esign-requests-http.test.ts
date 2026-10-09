@@ -1,7 +1,8 @@
-// R13 step 6, requests API part 1b, over HTTP: EsignModule's status and draft routes, pipes
-// and the module switch with the in-memory ports (no database). A stand-in for TenantGuard
-// puts the caller's firm and role on the request, as the global guards do in the app; the
-// guards themselves are tested in guards.test.ts and the e2e suite. Synthetic data only.
+// R13 step 6, requests API parts 1b and 1c, over HTTP: EsignModule's status, draft, page plan
+// and recipients routes, pipes and the module switch with the in-memory ports (no database). A
+// stand-in for TenantGuard puts the caller's firm and role on the request, as the global guards
+// do in the app; the guards themselves are tested in guards.test.ts and the e2e suite.
+// Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import {
   Controller,
@@ -163,6 +164,8 @@ describe('Firm Sign drafts over HTTP', () => {
         await send('get', `/esign/requests/${id}`, ownerA()),
         await send('patch', `/esign/requests/${id}`, ownerA(), { title: 'x' }),
         await send('delete', `/esign/requests/${id}`, ownerA()),
+        await send('put', `/esign/requests/${id}/page-plan`, ownerA(), { pages: [] }),
+        await send('put', `/esign/requests/${id}/recipients`, ownerA(), { recipients: [] }),
       ]) {
         expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
       }
@@ -202,6 +205,91 @@ describe('Firm Sign drafts over HTTP', () => {
     const gone = await send('delete', `/esign/requests/${id}`, ownerA());
     expect([gone.status, gone.body]).toEqual([200, { ok: true }]);
     expect(errorOf(await call(`/esign/requests/${id}`, ownerA()))).toEqual([404, 'NOT_FOUND']);
+  });
+});
+
+describe('Firm Sign page plan and recipients over HTTP', () => {
+  it('sets recipients with the contract’s defaults and refuses an empty page plan', async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Form 8879',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const path = `/esign/requests/${id}/recipients`;
+    const recipients = await send('put', path, ownerA(), {
+      recipients: [
+        {
+          role: 'CLIENT',
+          routingOrder: 1,
+          who: { type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary },
+          delivery: 'PORTAL',
+        },
+      ],
+    });
+    const detail = EsignRequestDetail.parse(recipients.body);
+    expect(detail.recipients.map((r) => [r.kind, r.delivery, r.authMethod])).toEqual([
+      ['SIGNER', 'PORTAL', 'EMAIL_CODE'],
+    ]);
+    const approver = await send('put', path, ownerA(), {
+      recipients: [
+        {
+          kind: 'APPROVER',
+          role: 'MANAGER',
+          routingOrder: 1,
+          who: { type: 'STAFF', userId: w.users.staffA },
+        },
+      ],
+    });
+    expect(errorOf(approver)).toEqual([409, 'APPROVER_NOT_ALLOWED']);
+    // The pipe refuses an empty page plan before the service runs.
+    const empty = await send('put', `/esign/requests/${id}/page-plan`, ownerA(), { pages: [] });
+    expect(errorOf(empty)).toEqual([400, 'VALIDATION_FAILED']);
+    expect(errorOf(await send('put', path, ownerB(), { recipients: [] }))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+  });
+
+  it('reorders the page plan through the pipe; refuses a page twice, another firm and Staff', async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake packet',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const documentId = randomUUID();
+    const page = (n: number) => ({ documentId, page: n, rotation: 0 });
+    w.repo.seed(w.a, id, (row) => {
+      const size = { width: 612, height: 792 };
+      row.parts.documents.push({
+        id: documentId,
+        position: 0,
+        fileName: 'fake.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 1000,
+        pageCount: 2,
+        pageSizes: [size, size],
+        sourceDocumentId: null,
+        scanStatus: 'CLEAN',
+        createdAt: new Date(),
+        s3Key: `tenant/${w.a}/esign/${id}/fake.pdf`,
+        sha256: '0'.repeat(64),
+      });
+      row.parts.pagePlan = [page(0), page(1)] as typeof row.parts.pagePlan;
+    });
+    const path = `/esign/requests/${id}/page-plan`;
+    const reordered = await send('put', path, ownerA(), { pages: [page(1), page(0)] });
+    expect([reordered.status, EsignRequestDetail.parse(reordered.body).pagePlan]).toEqual([
+      200,
+      [page(1), page(0)],
+    ]);
+    const twice = { pages: [page(0), page(0)] };
+    expect(errorOf(await send('put', path, ownerA(), twice))).toEqual([400, 'VALIDATION_FAILED']);
+    for (const who of [ownerB(), staffA2()]) {
+      const res = await send('put', path, who, { pages: [page(0)] });
+      expect(errorOf(res)).toEqual([404, 'NOT_FOUND']);
+    }
   });
 });
 
