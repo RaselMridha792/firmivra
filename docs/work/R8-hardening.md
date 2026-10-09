@@ -45,6 +45,8 @@ Isolation suite green in CI; prod stacks deployed and empty.
 - R0 (low priority): let the admin scope read the name of a Super Admin who asked for support access (`users_admin_platform_admins` has those who reviewed applications, not these), so a former Super Admin's asks keep their name in `GET /admin/support-access`. Today the name is `''`.
 - R19 (from R21): the Stripe webhook is limited by its signature, not by IP: add it to `NO_OWN_LIMIT` in `apps/api/test/e2e/hardening.e2e.test.ts` with that reason, and read its raw body with its own parser (the JSON limit in `configure-app.ts` is 100 KB).
 - Web (from R21): `packages/types` has no client for `GET /admin/firms/{businessId}/audit-log` yet (only `api.auditLog` for the firm); the admin support view needs one, with `AuditLogQuery` and `AuditLogPage`.
+- R0 (from #171's pre-review, high priority): #215, a definer function that writes the firm's `support.requested` row from admin scope inside the ask's transaction (actor shown as Firmivra Support, no IP or user agent). Until it lands the API writes that row afterwards in the firm's scope, best effort.
+- Web or R1 (from R13-web): when the web app gets a Content-Security-Policy, the Firm Sign PDF viewer needs `worker-src 'self'` and `'wasm-unsafe-eval'` in `script-src` (pdf.js decoders from `_next/static/media`). The API's CSP in `configure-app.ts` covers API responses only.
 - R6: a notice to the firm's Owners when Firmivra Support asks for access (and, optionally, when a grant is about to expire). Until then the API logs it by id.
 
 ## Decisions (Rasel's q31: the lead's defaults of Oct 8, confirmed by Rasel the same day)
