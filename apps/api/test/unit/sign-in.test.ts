@@ -28,7 +28,12 @@ import {
   SessionService,
 } from '../../src/auth/session.service.js';
 import { AdminSignInController, StaffSignInController } from '../../src/auth/sign-in.controller.js';
-import { otpauthUri, SignInService } from '../../src/auth/sign-in.service.js';
+import {
+  CEILING_WARNED_MAX,
+  otpauthUri,
+  SIGN_IN_LIMIT,
+  SignInService,
+} from '../../src/auth/sign-in.service.js';
 import { siteOf, sitePlace } from '../../src/auth/site.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { requestContext, requestContextMiddleware } from '../../src/common/request-context.js';
@@ -686,11 +691,78 @@ describe('SignInService: MFA is never skipped for staff and Super Admins (#16 it
       ChallengeSessions.fromEnv(env),
       { log: vi.fn() } as never,
       env,
+      { notify: vi.fn() } as never,
     );
     await expect(service.signIn(sitePlace(site), 'owner@lvp.test', 'pw')).rejects.toThrow(
       /skipped MFA/,
     );
     expect(identity.revoke).toHaveBeenCalledWith(site === 'admin' ? 'ADMIN' : 'STAFF', 'ref');
+  });
+});
+
+describe('SignInService: the ceiling warning comes once per email per window (#202 follow-up)', () => {
+  const env = loadEnv({
+    NODE_ENV: 'test',
+    AUTH_MODE: 'local',
+    LOCAL_AUTH_SECRET: 'unit-test-secret-unit-test-secret-1234',
+    DATABASE_URL_APP: 'postgresql://unused',
+    APP_BASE_URL: 'http://app.localhost:3000',
+    PORTAL_BASE_URL: 'http://portal.localhost:3000',
+    ADMIN_BASE_URL: 'http://admin.localhost:3000',
+  });
+  /** The private warning gate and its map, reached without changing the service. */
+  type Gate = { firstPastCeiling(key: string): boolean; ceilingWarned: Map<string, number> };
+  const newGate = () =>
+    new SignInService(
+      {} as Database,
+      {} as never,
+      ChallengeSessions.fromEnv(env),
+      { log: vi.fn() } as never,
+      env,
+      { notify: vi.fn() } as never,
+    ) as unknown as Gate;
+  const { windowMs } = SIGN_IN_LIMIT;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('warns once per email key in a window, and again once the window ends', () => {
+    vi.useFakeTimers();
+    const gate = newGate();
+    expect(gate.firstPastCeiling('key-a')).toBe(true);
+    expect(gate.firstPastCeiling('key-a')).toBe(false);
+    // Another email has its own window.
+    expect(gate.firstPastCeiling('key-b')).toBe(true);
+    vi.advanceTimersByTime(windowMs - 1);
+    expect(gate.firstPastCeiling('key-a')).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(gate.firstPastCeiling('key-a')).toBe(true);
+    expect(gate.firstPastCeiling('key-a')).toBe(false);
+  });
+
+  it('prunes ended windows when the map reaches CEILING_WARNED_MAX, keeping live ones', () => {
+    vi.useFakeTimers();
+    const gate = newGate();
+    const half = CEILING_WARNED_MAX / 2;
+    for (let i = 0; i < half; i += 1) gate.firstPastCeiling(`old-${i}`);
+    vi.advanceTimersByTime(windowMs / 2);
+    for (let i = 0; i < half; i += 1) gate.firstPastCeiling(`live-${i}`);
+    expect(gate.ceilingWarned.size).toBe(CEILING_WARNED_MAX);
+    // The old windows end; the next new key prunes them and keeps the live ones.
+    vi.advanceTimersByTime(windowMs / 2);
+    expect(gate.firstPastCeiling('new')).toBe(true);
+    expect(gate.ceilingWarned.size).toBe(half + 1);
+    expect(gate.firstPastCeiling('live-0')).toBe(false);
+    expect(gate.firstPastCeiling('old-0')).toBe(true);
+  });
+
+  it('starts over when the map is full of live windows, so it never grows without bound', () => {
+    vi.useFakeTimers();
+    const gate = newGate();
+    for (let i = 0; i < CEILING_WARNED_MAX; i += 1) gate.firstPastCeiling(`live-${i}`);
+    expect(gate.firstPastCeiling('one-more')).toBe(true);
+    expect(gate.ceilingWarned.size).toBe(1);
   });
 });
 

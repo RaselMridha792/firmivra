@@ -13,7 +13,10 @@ const SESSION_COOKIES = new Set<string>(
 );
 /** Each firm's portal cookies (portalCookies() in packages/types), the sign-up one included. */
 const PORTAL_COOKIE = /^fv_portal_.+_(access|id|refresh|signup)$/;
-const isSessionCookie = (name: string) => SESSION_COOKIES.has(name) || PORTAL_COOKIE.test(name);
+/** The Begin Online draft cookies: they carry an application in progress, so they count too. */
+const BEGIN_ONLINE_COOKIE = /^fv_bo_/;
+const isSessionCookie = (name: string) =>
+  SESSION_COOKIES.has(name) || PORTAL_COOKIE.test(name) || BEGIN_ONLINE_COOKIE.test(name);
 
 /**
  * The origins each site's pages run on, from config (ADMIN_BASE_URL, APP_BASE_URL,
