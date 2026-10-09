@@ -9,7 +9,12 @@ import {
   IntakeFormKey,
   intakeStepFields,
 } from '../intake/definition.js';
-import { INTAKE_AGREEMENT_ERRORS, IntakeUpload, refuseFullNumbers } from '../intake/schemas.js';
+import {
+  INTAKE_AGREEMENT_ERRORS,
+  INTAKE_NUMBERS_UNAVAILABLE,
+  IntakeUpload,
+  refuseFullNumbers,
+} from '../intake/schemas.js';
 
 // Begin Online (R11): the public intake on a firm's portal site (portal.firmivra.com/{firmSlug}/
 // begin), without an account. A visitor picks one of the six services, gives their name and email
@@ -313,6 +318,11 @@ export const BeginOnlineErrorCode = z.enum([
    * Begin Online only; see SubmitIntakeRequest).
    */
   'TERMS_OUTDATED',
+  /**
+   * 503 on a save or submit that holds a new SSN or EIN: it can't be sealed with the firm's key
+   * right now (no key yet, KMS down). Nothing is saved; try again later.
+   */
+  'ENCRYPTION_UNAVAILABLE',
   // The submit's agreement codes (IntakeAgreementErrorCode in intake/schemas.ts).
   'NO_INTAKE_AGREEMENT',
   'AGREEMENT_OUTDATED',
@@ -335,5 +345,6 @@ export const BEGIN_ONLINE_ERRORS = {
   TOO_MANY_FILES: 'There is no room for more files here. Remove a file to add another.',
   TERMS_OUTDATED:
     'Our Terms of Service or Privacy Policy has been updated. Please review it and accept again.',
+  ENCRYPTION_UNAVAILABLE: INTAKE_NUMBERS_UNAVAILABLE,
   ...INTAKE_AGREEMENT_ERRORS,
 } as const satisfies Record<BeginOnlineErrorCode, string>;

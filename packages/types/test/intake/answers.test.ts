@@ -483,6 +483,112 @@ describe('SSNs and EINs', () => {
     }
   });
 
+  it('fails closed on every odd shape at an SSN or EIN field', () => {
+    const ok = {
+      firstName: 'Avery',
+      ssn: null,
+      dependents: [{ id: 'd1', ssn: { last4: '4321' } }],
+    };
+    expect(intakeNumbersMasked(annual, ok)).toBe(true);
+    expect(intakeNumbersMasked(annual, { ...ok, ssn: undefined })).toBe(true);
+    const row = (ssn: unknown) => ({ dependents: [{ id: 'd1', ssn }] });
+    for (const leak of [
+      // A string in any spelling: spaces, dashes, dots, letters around it, a short one.
+      { ssn: '900 12 3456' },
+      { ssn: '900-12-3456' },
+      { ssn: '900.12.3456' },
+      { ssn: 'SSN 900123456' },
+      { ssn: '3456' },
+      { ssn: '' },
+      // Not a string at all.
+      { ssn: 900123456 },
+      { ssn: true },
+      { ssn: ['900123456'] },
+      { ssn: [['900123456']] },
+      { ssn: [{ last4: '3456' }] },
+      // `{ last4 }` with anything else next to it, or not exactly 4 digits.
+      { ssn: { last4: '3456', full: '900123456' } },
+      { ssn: { last4: '3456', sealed: 'blob' } },
+      { ssn: { last4: '3456', __proto__: { full: '900123456' } } },
+      { ssn: JSON.parse('{"last4":"3456","__proto__":{"full":"900123456"}}') as unknown },
+      { ssn: { last4: 3456 } },
+      { ssn: { last4: '93456' } },
+      { ssn: { last4: '34 6' } },
+      { ssn: { LAST4: '3456' } },
+      { ssn: { Last4: '3456' } },
+      { ssn: { last4: { last4: '3456' } } },
+      { ssn: {} },
+      { ssn: { notAvailable: true } },
+      // The same inside a group row.
+      row('900-65-4321'),
+      row(900654321),
+      row(['900654321']),
+      row({ last4: '4321', full: '900654321' }),
+      row({ Last4: '4321' }),
+      // A row whose id, or a key in another case, could carry the number.
+      { dependents: [{ id: 900654321, ssn: null }] },
+      { dependents: [{ id: { full: '900654321' }, ssn: null }] },
+      { dependents: [{ ssn: { last4: '4321' } }] },
+      { dependents: [{ id: 'd1', SSN: '900654321' }] },
+      { dependents: [[{ id: 'd1', ssn: '900654321' }]] },
+      { dependents: [{ id: 'd1', ssn: { last4: '4321' } }, '900654321'] },
+      // A key in another case is not the form's field.
+      { SSN: '900123456' },
+      { Ssn: { last4: '3456' } },
+    ]) {
+      expect([leak, intakeNumbersMasked(annual, { ...ok, ...leak })]).toEqual([leak, false]);
+    }
+  });
+
+  it('fails closed on a value whose shape is not its field type, where a number could hide', () => {
+    const ok = {
+      firstName: 'Avery',
+      returnTypes: ['PERSONAL'],
+      businessIncome: { services: { q1: 120_000 } },
+      governmentId: { notAvailable: true, reason: 'Lost' },
+    };
+    expect(intakeNumbersMasked(annual, ok)).toBe(true);
+    for (const leak of [
+      { firstName: { ssn: '900123456' } },
+      { firstName: ['900123456'] },
+      { returnTypes: [{ ssn: '900123456' }] },
+      { businessIncome: { services: { q1: { ssn: '900123456' } } } },
+      { businessIncome: { services: ['900123456'] } },
+      { governmentId: { notAvailable: true, ssn: '900123456' } },
+      { governmentId: { notAvailable: 'yes' } },
+      { hasDependents: { value: true, ssn: '900123456' } },
+    ]) {
+      expect([leak, intakeNumbersMasked(annual, { ...ok, ...leak })]).toEqual([leak, false]);
+    }
+  });
+
+  it('keeps a number field one when the definition sent with the answers retypes it', () => {
+    const retyped = IntakeFormDefinition.parse({
+      ...annual,
+      steps: annual.steps.map((step) => ({
+        ...step,
+        sections: step.sections.map((section) => ({
+          ...section,
+          fields: section.fields.map((f) =>
+            f.key === 'ssn' ? { ...f, type: 'text', maxLength: 100 } : f,
+          ),
+        })),
+      })),
+    });
+    expect(intakeNumbersMasked(retyped, { ssn: { last4: '3456' } })).toBe(true);
+    expect(intakeNumbersMasked(retyped, { ssn: '900123456' })).toBe(false);
+  });
+
+  it('the response schema refuses a key next to last4 instead of dropping it', () => {
+    expect(IntakeAnswers.safeParse({ ssn: { last4: '3456', full: '900123456' } }).success).toBe(
+      false,
+    );
+    expect(
+      IntakeAnswers.safeParse({ governmentId: { notAvailable: true, ssn: '900123456' } }).success,
+    ).toBe(false);
+    expect(IntakeAnswers.parse({ ssn: { last4: '3456' } })).toEqual({ ssn: { last4: '3456' } });
+  });
+
   it('puts back the stored number for a matching { last4 }, by key and by row id', () => {
     const result = restoreMaskedNumbers(
       annual,

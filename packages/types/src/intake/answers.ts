@@ -14,6 +14,7 @@ import {
   intakeStepFields,
 } from './definition.js';
 import { ScanStatus } from '../db-enums.js';
+import { INTAKE_FORMS } from './forms/index.js';
 import { UsState } from './options.js';
 
 // Answers: one flat map from field key to a typed value, checked against the definition by
@@ -69,11 +70,14 @@ const fewKeys = (max: number, message: string) =>
     )
     .refine((v) => Object.keys(v).length <= max, { message, abort: true });
 
-/** Value schemas: responses are plain objects, requests strict (unknown keys refused). */
-function answersSchema(strict: boolean) {
-  const obj = strict ? z.strictObject : z.object;
-  const Masked = obj({ last4: z.string().regex(/^\d{4}$/) });
-  const Upload = obj({
+/**
+ * Value schemas, the same for requests and responses: the only fixed-shape objects (`{ last4 }`
+ * and an upload's answer) are strict in responses too, since a plain object would drop a key next
+ * to `last4` (where a full number could sit) before `intakeNumbersMasked` sees it.
+ */
+function answersSchema() {
+  const Masked = z.strictObject({ last4: z.string().regex(/^\d{4}$/) });
+  const Upload = z.strictObject({
     notAvailable: z.boolean(),
     reason: z.string().max(INTAKE_LIMITS.maxReason).nullable().optional(),
   });
@@ -116,11 +120,11 @@ function answersSchema(strict: boolean) {
 }
 
 /** Answers as the API returns them (SSNs and EINs as `{ last4 }`). */
-export const IntakeAnswers = answersSchema(false);
+export const IntakeAnswers = answersSchema();
 export type IntakeAnswers = z.infer<typeof IntakeAnswers>;
 export type IntakeAnswerValue = IntakeAnswers[string];
 /** Answers in a request: the same values; `{ last4 }` sent back keeps the stored number. */
-export const IntakeAnswersInput = answersSchema(true);
+export const IntakeAnswersInput = answersSchema();
 export type IntakeAnswersInput = z.input<typeof IntakeAnswersInput>;
 
 /** An SSN or EIN as the API returns it. */
@@ -305,30 +309,117 @@ export function maskIntakeAnswers(
   return out as IntakeAnswers;
 }
 
+/** Exactly `{ last4: "dddd" }`: one own key (none hidden, no symbol), a plain object. */
+const isExactlyMasked = (v: unknown): v is MaskedNumber =>
+  isObject(v) &&
+  Object.getPrototypeOf(v) === Object.prototype &&
+  Reflect.ownKeys(v).length === 1 &&
+  isMasked(v);
+
+/** A plain object whose own keys are all strings and all in `allowed`. */
+const onlyKeys = (v: unknown, allowed: (key: string) => boolean): v is Record<string, unknown> =>
+  isObject(v) &&
+  Object.getPrototypeOf(v) === Object.prototype &&
+  Reflect.ownKeys(v).every((k) => typeof k === 'string' && allowed(k));
+
+const isPlainScalar = (v: unknown) =>
+  typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
+
 /**
- * True when the answers cannot hold a full SSN or EIN: what a response must hold. Every SSN and
- * EIN is `{ last4 }` or empty, at the top level and in group rows; and nothing sits where this
- * check can't see: every key is a field of the form, and every group answer is a list of rows
- * holding only `id` and the group's own fields. Cleaned answers (`checkIntakeAnswers`) always
- * pass; an API bug, or answers kept from another version of the form, do not. Used by MyIntake
- * and BeginDraft, so a full number never reaches a screen.
+ * The keys an SSN or EIN may sit at, in `definitions` together: top-level keys, and per group key
+ * the sub-field keys.
+ */
+function sensitiveKeys(definitions: readonly IntakeFormDefinition[]) {
+  const top = new Set<string>();
+  const sub = new Map<string, Set<string>>();
+  for (const definition of definitions) {
+    for (const f of intakeFields(definition)) {
+      if (isSensitive(f)) top.add(f.key);
+      if (f.type !== 'group') continue;
+      const keys = sub.get(f.key) ?? new Set<string>();
+      for (const s of f.fields) if (isSensitive(s)) keys.add(s.key);
+      sub.set(f.key, keys);
+    }
+  }
+  return { top, sub };
+}
+
+/**
+ * True when the answers cannot hold a full SSN or EIN: what a response must hold. It fails
+ * closed: an SSN or EIN answer must be null, left out, or exactly `{ last4 }` with 4 digits
+ * (not a string in any spelling, not a number, not a list, not an object with another key next
+ * to `last4`), at the top level and in group rows. A key counts as an SSN or EIN when the
+ * definition says so, or when the built-in form of the same kind (INTAKE_FORMS) does, so a wrong
+ * definition can't hide one. Nothing may sit where this check can't see: every key is a field of
+ * the form (keys match exactly, case included), and every answer has its type's shape (a group a
+ * list of rows holding only a row id and the group's own fields; a grid rows of cells; an upload
+ * `{ notAvailable, reason }`; a choice list strings; anything else one plain value). Cleaned and
+ * masked answers (`checkIntakeAnswers`, `maskIntakeAnswers`) always pass; an API bug, or answers
+ * kept from another version of the form, do not. Used by MyIntake, BeginDraft and LeadIntake, so
+ * a full number never reaches a screen.
  */
 export function intakeNumbersMasked(
   definition: IntakeFormDefinition,
   answers: Readonly<Values>,
 ): boolean {
+  const builtIn = INTAKE_FORMS[definition.key];
+  const sensitive = sensitiveKeys(builtIn ? [definition, builtIn] : [definition]);
   const fields = new Map(intakeFields(definition).map((f) => [f.key, f]));
   const empty = (v: unknown) => v === undefined || v === null;
-  const safe = (f: IntakeField | undefined, v: unknown) =>
-    f !== undefined && (!isSensitive(f) || empty(v) || isMasked(v));
+  /** One answer of a field that is not a group, by its type's shape. */
+  const valueSafe = (f: IntakeField, v: unknown, isNumber: boolean): boolean => {
+    if (empty(v)) return true;
+    if (isNumber || isSensitive(f)) return isExactlyMasked(v);
+    switch (f.type) {
+      case 'info':
+        return false;
+      case 'upload':
+        return (
+          onlyKeys(v, (k) => k === 'notAvailable' || k === 'reason') &&
+          typeof v['notAvailable'] === 'boolean' &&
+          (empty(v['reason']) || typeof v['reason'] === 'string')
+        );
+      case 'grid':
+        return (
+          onlyKeys(v, () => true) &&
+          Object.values(v).every(
+            (cells) =>
+              empty(cells) ||
+              (onlyKeys(cells, () => true) &&
+                Object.values(cells).every(
+                  (cell) => empty(cell) || typeof cell === 'string' || typeof cell === 'number',
+                )),
+          )
+        );
+      case 'checkboxes':
+      case 'state':
+        return (
+          isPlainScalar(v) || (Array.isArray(v) && v.every((code) => typeof code === 'string'))
+        );
+      default:
+        return isPlainScalar(v);
+    }
+  };
   return Object.entries(answers).every(([key, value]) => {
     const f = fields.get(key);
-    if (f?.type !== 'group' || empty(value)) return safe(f, value);
+    if (f === undefined) return false;
+    if (f.type !== 'group' || sensitive.top.has(key)) {
+      return valueSafe(f, value, sensitive.top.has(key));
+    }
+    if (empty(value)) return true;
     if (!Array.isArray(value)) return false;
     const subs = new Map<string, IntakeField>(f.fields.map((s) => [s.key, s]));
+    const numbers = sensitive.sub.get(key) ?? new Set<string>();
     return value.every(
       (row: unknown) =>
-        isObject(row) && Object.entries(row).every(([k, v]) => k === 'id' || safe(subs.get(k), v)),
+        onlyKeys(row, (k) => k === 'id' || subs.has(k)) &&
+        typeof row['id'] === 'string' &&
+        ROW_ID.test(row['id']) &&
+        Object.entries(row).every(([k, v]) => {
+          if (k === 'id') return true;
+          const sub = subs.get(k);
+          return sub !== undefined && valueSafe(sub, v, numbers.has(k));
+        }),
     );
   });
 }

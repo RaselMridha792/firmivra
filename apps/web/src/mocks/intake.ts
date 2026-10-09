@@ -12,11 +12,13 @@ import {
   INTAKE_ERRORS,
   INTAKE_FORMS,
   INTAKE_LIMITS,
+  INTAKE_NUMBERS_UNAVAILABLE,
   INTAKE_UPLOAD_STATUS,
   type IntakeAgreementErrorCode,
   type IntakeAnswers,
   type IntakeFormDefinition,
   type IntakeFormKey,
+  intakeFields,
   IntakeId,
   IntakeKey,
   intakeStepFields,
@@ -72,6 +74,9 @@ import { mockBusiness } from './me';
  *   "acknowledgmentrequired" 400 ACKNOWLEDGMENT_REQUIRED, "signaturemismatch" 400
  *   SIGNATURE_MISMATCH, "pdfrequired" 400 PDF_REQUIRED. 400 VALIDATION_FAILED names the first
  *   problem of an incomplete form.
+ * A save (or a submit's answers) with a new SSN or EIN ending in 0503 (MOCK_KEY_DOWN_LAST4)
+ * answers 503 ENCRYPTION_UNAVAILABLE and saves nothing, as the API does when the firm's key can't
+ * be used.
  */
 const at = (date: string) => `${date}T15:00:00.000Z`;
 const intakeId = (n: number) => `0199b6a8-0000-7000-8000-${String(n).padStart(12, '0')}`;
@@ -107,6 +112,29 @@ export function answersOrFail(
 }
 
 /**
+ * A new SSN or EIN ending in these four digits answers 503 ENCRYPTION_UNAVAILABLE, as the API does
+ * when the firm's key can't be used (nothing is saved). A `{ last4 }` sent back never does.
+ */
+export const MOCK_KEY_DOWN_LAST4 = '0503';
+
+/** The new SSNs and EINs in checked answers (digits only), top level and group rows. */
+function newNumbers(definition: IntakeFormDefinition, answers: IntakeAnswers): string[] {
+  const numbers = (fields: readonly { key: string; type: string }[], values: object) =>
+    fields
+      .filter((f) => f.type === 'ssn' || f.type === 'ein')
+      .map((f) => (values as Record<string, unknown>)[f.key])
+      .filter((v): v is string => typeof v === 'string')
+      .map((v) => v.replace(/\D/g, ''));
+  return intakeFields(definition).flatMap((f) => {
+    if (f.type !== 'group') return numbers([f], answers);
+    const rows = answers[f.key];
+    return Array.isArray(rows)
+      ? rows.flatMap((row) => (typeof row === 'object' ? numbers(f.fields, row) : []))
+      : [];
+  });
+}
+
+/**
  * A step's checked answers merged into what is stored, as the API does: `{ last4 }` keeps the
  * stored number only when it matches it (by key, and by row id in a group), otherwise 400. The
  * mock keeps every number as `{ last4 }` (the API keeps it encrypted).
@@ -120,6 +148,9 @@ export function storeStep(
   const { answers, issues } = restoreMaskedNumbers(definition, clean, stored);
   const first = issues[0];
   if (first) throw fail(400, 'VALIDATION_FAILED', `${first.label}: ${first.message}`);
+  if (newNumbers(definition, answers).some((n) => n.endsWith(MOCK_KEY_DOWN_LAST4))) {
+    throw fail(503, 'ENCRYPTION_UNAVAILABLE', INTAKE_NUMBERS_UNAVAILABLE);
+  }
   const step = definition.steps.find((s) => s.key === stepKey);
   const next: Record<string, unknown> = { ...stored };
   for (const f of step ? intakeStepFields(step) : []) {
@@ -266,18 +297,23 @@ export function createMockSlotUploads() {
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
       };
     },
+    /**
+     * Step 3: checks the room and stores the file into `holder.files` in one synchronous step
+     * (no await between the check and the push), so uploads confirmed at once can never pass the
+     * limits together: those past them answer 409 TOO_MANY_FILES.
+     */
     confirm(
       owner: string,
       uploadToken: string,
       definition: IntakeFormDefinition,
-      files: readonly MockSlotFile[],
+      holder: { files: MockSlotFile[] },
     ): MockSlotFile {
       const p = pending.get(uploadToken);
       if (!p || p.owner !== owner) {
         throw fail(410, 'UPLOAD_EXPIRED', DOCUMENT_ERRORS.UPLOAD_EXPIRED);
       }
       pending.delete(uploadToken);
-      checkRoom(definition, files, p.slot);
+      checkRoom(definition, holder.files, p.slot);
       const name = p.fileName.toLowerCase();
       if (p.contentType === XLSX || p.contentType === DOCX) {
         if (name.includes('password')) {
@@ -287,7 +323,7 @@ export function createMockSlotUploads() {
           throw fail(409, 'FILE_HAS_MACROS', DOCUMENT_ERRORS.FILE_HAS_MACROS);
         }
       }
-      return {
+      const file: MockSlotFile = {
         upload: {
           id: uploadId(next++),
           slot: p.slot,
@@ -303,6 +339,8 @@ export function createMockSlotUploads() {
             : 'CLEAN',
         readyAt: Date.now() + SCAN_MS,
       };
+      holder.files.push(file);
+      return file;
     },
   };
 }
@@ -722,8 +760,7 @@ export function createMyIntakesMock(
       const { uploadToken } = parseInput(ConfirmUploadRequest, body);
       firm();
       const row = changeable(find(iid));
-      const file = uploads.confirm(row.item.id, uploadToken, definition(row), row.files);
-      row.files.push(file);
+      const file = uploads.confirm(row.item.id, uploadToken, definition(row), row);
       touched(row);
       return fileView(file);
     },

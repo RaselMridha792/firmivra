@@ -86,7 +86,8 @@ export type SavedIntakeStep = z.infer<typeof SavedIntakeStep>;
  */
 export const SubmitIntakeRequest = z.strictObject({
   answers: IntakeAnswersInput.optional(),
-  // signature: IntakeSignatureInput from R14's agreements contract, added when it is on main
+  // TODO(R14): signature: IntakeSignatureInput from R14's agreements contract, added when it is on
+  // main (neither it nor #155's SignatureCaptureInput is on main yet).
 });
 export type SubmitIntakeRequest = z.input<typeof SubmitIntakeRequest>;
 
@@ -146,6 +147,13 @@ export const CreateIntakeUploadRequest = z
     }
   });
 export type CreateIntakeUploadRequest = z.input<typeof CreateIntakeUploadRequest>;
+
+/**
+ * What people see for 503 ENCRYPTION_UNAVAILABLE (INTAKE_ERRORS and BEGIN_ONLINE_ERRORS): a save
+ * or submit with a new SSN or EIN while the firm's key can't be used. Nothing was saved.
+ */
+export const INTAKE_NUMBERS_UNAVAILABLE =
+  "Your SSN or EIN can't be saved right now, so nothing was saved. Please try again in a few minutes.";
 
 /**
  * The agreement and signature codes a submit can answer, in the portal and in Begin Online. The
@@ -318,6 +326,11 @@ export const IntakeErrorCode = z.enum([
    * file counts, blocked ones too.
    */
   'TOO_MANY_FILES',
+  /**
+   * 503 on a save or submit that holds a new SSN or EIN: it can't be sealed with the firm's key
+   * right now (no key yet, KMS down). Nothing is saved; try again later.
+   */
+  'ENCRYPTION_UNAVAILABLE',
   ...AGREEMENT_CODES,
 ]);
 export type IntakeErrorCode = z.infer<typeof IntakeErrorCode>;
@@ -332,5 +345,6 @@ export const INTAKE_ERRORS = {
   INTAKE_LOCKED: 'This form has been submitted and can no longer be changed.',
   INTAKE_EXPIRED: 'This form has expired. Contact your firm to reopen it.',
   TOO_MANY_FILES: 'There is no room for more files here. Remove a file to add another.',
+  ENCRYPTION_UNAVAILABLE: INTAKE_NUMBERS_UNAVAILABLE,
   ...INTAKE_AGREEMENT_ERRORS,
 } as const satisfies Record<IntakeErrorCode, string>;

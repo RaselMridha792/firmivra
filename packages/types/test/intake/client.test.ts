@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ANNUAL_TAX_FORM,
   ApiRequestError,
+  BEGIN_ONLINE_ERRORS,
   BeginOnlineErrorCode,
   BOOKKEEPING_FORM,
   createMyIntakesClient,
@@ -213,6 +214,13 @@ describe('the submit body and its errors', () => {
       expect(IntakeErrorCode.options).toContain(code);
       expect(BeginOnlineErrorCode.options).toContain(code);
     }
+  });
+
+  it('answers 503 ENCRYPTION_UNAVAILABLE in both modules with the same message', () => {
+    expect(IntakeErrorCode.options).toContain('ENCRYPTION_UNAVAILABLE');
+    expect(BeginOnlineErrorCode.options).toContain('ENCRYPTION_UNAVAILABLE');
+    expect(INTAKE_ERRORS.ENCRYPTION_UNAVAILABLE).toBe(BEGIN_ONLINE_ERRORS.ENCRYPTION_UNAVAILABLE);
+    expect(INTAKE_ERRORS.ENCRYPTION_UNAVAILABLE).not.toMatch(/KMS|key|encrypt/i);
   });
 
   it("describes AGREEMENT_OUTDATED's details: each agreement's id, version and hashes", () => {

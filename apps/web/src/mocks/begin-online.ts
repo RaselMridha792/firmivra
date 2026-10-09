@@ -65,6 +65,8 @@ import { mockBusiness } from './me';
  *     `mock:`, so `uploadFile()` skips the PUT.
  *   - `forms` lists the services in the page's order (BEGIN_ONLINE_FORM_ORDER); `start` fills
  *     the form's contact fields with `beginOnlinePrefill`, as the API does.
+ *   - A save (or a submit's answers) with a new SSN or EIN ending in 0503 (MOCK_KEY_DOWN_LAST4
+ *     in ./intake) answers 503 ENCRYPTION_UNAVAILABLE and saves nothing.
  *   - Submit checks the whole form: 400 VALIDATION_FAILED names the first problem. Then, until
  *     R14's signature is in the body, a word in a text answer answers a submit code instead
  *     (MOCK_SUBMIT_TRIGGERS in ./intake; the start's email fills the form's email, so starting
@@ -368,8 +370,7 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
       const { uploadToken } = parseInput(ConfirmUploadRequest, body);
       firm();
       const d = mine(key);
-      const file = uploads.confirm(key, uploadToken, mockForm(key), d.files);
-      d.files.push(file);
+      const file = uploads.confirm(key, uploadToken, mockForm(key), d);
       renew(d);
       return fileView(file);
     },
