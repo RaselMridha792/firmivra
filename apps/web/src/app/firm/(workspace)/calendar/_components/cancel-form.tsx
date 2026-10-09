@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
-import { APPOINTMENTS, CALENDAR_ERRORS } from './shared';
+import { CALENDAR, CALENDAR_ERRORS } from './shared';
 
 /** Cancels an appointment, with an optional reason the history keeps. */
 export function CancelForm({ id, onDone }: { id: string; onDone: () => void }) {
@@ -17,7 +17,7 @@ export function CancelForm({ id, onDone }: { id: string; onDone: () => void }) {
   });
   const cancel = useApiMutation(
     (body: CancelAppointmentRequest) => api.appointments.cancel(id, body),
-    { invalidate: APPOINTMENTS },
+    { invalidate: CALENDAR },
   );
   return (
     <form

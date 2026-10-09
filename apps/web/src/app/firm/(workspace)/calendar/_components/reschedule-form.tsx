@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
-import { APPOINTMENTS, CALENDAR_ERRORS } from './shared';
+import { CALENDAR, CALENDAR_ERRORS } from './shared';
 import { SlotPicker } from './slot-picker';
 import { localParts, timeLabel } from './time';
 
@@ -35,7 +35,7 @@ export function RescheduleForm({
         startsAt: slot.startsAt,
         staffUserId: slot.staff.userId,
       }),
-    { invalidate: APPOINTMENTS },
+    { invalidate: CALENDAR },
   );
 
   if (!appointment.type) {

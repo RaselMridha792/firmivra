@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
-import { AVAILABILITY, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
+import { CALENDAR, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** Monday first; Weekday 0 is Sunday. */
@@ -36,7 +36,7 @@ export function WorkingHours({
   const [problem, setProblem] = useState('');
   const save = useApiMutation(
     (body: SetWorkingHoursRequest) => api.availability.setWorkingHours(member.member.userId, body),
-    { invalidate: AVAILABILITY },
+    { invalidate: CALENDAR },
   );
   const change = (index: number, patch: Partial<WorkingHoursRange>) =>
     setHours(hours.map((range, i) => (i === index ? { ...range, ...patch } : range)));

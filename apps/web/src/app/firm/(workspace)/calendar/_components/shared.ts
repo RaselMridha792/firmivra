@@ -1,8 +1,12 @@
 import type { LocationKind } from '@firmivra/types';
 
-/** Query keys: every appointment query starts with APPOINTMENTS, so one invalidate covers all. */
-export const AVAILABILITY = ['availability'];
-export const APPOINTMENTS = ['appointments'];
+/**
+ * Query keys under one root: a change to hours, blocks or appointments invalidates CALENDAR, so the
+ * free times (under APPOINTMENTS) never outlive the availability they came from.
+ */
+export const CALENDAR = ['calendar'];
+export const AVAILABILITY = [...CALENDAR, 'availability'];
+export const APPOINTMENTS = [...CALENDAR, 'appointments'];
 
 export const LOCATION_LABELS: Record<LocationKind, string> = {
   IN_PERSON: 'In person',

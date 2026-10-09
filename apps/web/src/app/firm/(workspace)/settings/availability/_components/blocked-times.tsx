@@ -11,7 +11,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
-import { AVAILABILITY, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
+import { AVAILABILITY, CALENDAR, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
 import {
   dayLabel,
   isCalendarDate,
@@ -47,7 +47,7 @@ export function BlockedTimes({
     api.availability.blockedTimes(range),
   );
   const unblock = useApiMutation((id: string) => api.availability.unblock(id), {
-    invalidate: AVAILABILITY,
+    invalidate: CALENDAR,
   });
   const when = (iso: string) =>
     `${dayLabel(localParts(iso, timeZone).date)}, ${timeLabel(iso, timeZone)}`;
@@ -115,7 +115,7 @@ function AddBlock({
   const [reason, setReason] = useState('');
   const [problem, setProblem] = useState('');
   const block = useApiMutation((body: CreateBlockedTimeRequest) => api.availability.block(body), {
-    invalidate: AVAILABILITY,
+    invalidate: CALENDAR,
   });
   const submit = () => {
     if (![start.time, end.time].every(Boolean) || ![start.date, end.date].every(isCalendarDate)) {
