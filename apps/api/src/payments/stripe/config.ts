@@ -50,3 +50,16 @@ export function loadStripeConfig(
     ? { mode: 'stripe', secretKey: env.STRIPE_SECRET_KEY }
     : { mode: 'off' };
 }
+
+/**
+ * STRIPE_WEBHOOK_SECRET (optional): the signing secret of the Connect webhook endpoint (`whsec_`),
+ * from Secrets Manager on AWS. Without it the webhook answers 503 and Stripe retries later.
+ */
+export function loadWebhookSecret(raw: Record<string, string | undefined> = process.env) {
+  const value = raw.STRIPE_WEBHOOK_SECRET;
+  if (!value) return null;
+  if (!/^whsec_[A-Za-z0-9]+$/.test(value)) {
+    throw new Error('Invalid Stripe settings: STRIPE_WEBHOOK_SECRET must be a whsec_ secret');
+  }
+  return value;
+}
