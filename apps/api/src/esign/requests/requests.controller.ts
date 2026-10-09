@@ -7,10 +7,13 @@ import {
   Param,
   Patch,
   Post,
+  Put,
 } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   CreateEsignRequestBody,
+  EsignPutPagePlanBody,
+  EsignPutRecipientsBody,
   EsignRequestId,
   type EsignRequestDetail,
   type EsignStatus,
@@ -26,7 +29,7 @@ import { type EsignActor, EsignRequestsService } from './requests.service.js';
 const idPipe = new ZodValidationPipe(EsignRequestId);
 
 /** The firm comes from TenantGuard; firm roles only (see @Roles). */
-function actorOf(auth: AuthContext, tenant: TenantContext): EsignActor {
+export function actorOf(auth: AuthContext, tenant: TenantContext): EsignActor {
   if (tenant.kind !== 'staff') throw new NotFoundException({ code: 'NOT_FOUND' });
   return { userId: auth.userId, role: tenant.role };
 }
@@ -92,5 +95,26 @@ export class EsignRequestsController {
     @Param('id', idPipe) id: string,
   ): Promise<OkResponse> {
     return this.requests.discard(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Put(':id/page-plan')
+  putPagePlan(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(EsignPutPagePlanBody)) body: z.output<typeof EsignPutPagePlanBody>,
+  ): Promise<EsignRequestDetail> {
+    return this.requests.putPagePlan(tenant.businessId, actorOf(auth, tenant), id, body.pages);
+  }
+
+  @Put(':id/recipients')
+  putRecipients(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(EsignPutRecipientsBody))
+    body: z.output<typeof EsignPutRecipientsBody>,
+  ): Promise<EsignRequestDetail> {
+    return this.requests.putRecipients(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 }

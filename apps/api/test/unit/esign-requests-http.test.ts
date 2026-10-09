@@ -1,8 +1,9 @@
-// R13 step 6, requests API part 1b, over HTTP: EsignModule's status and draft routes, pipes
-// and the module switch with the in-memory ports (no database). A stand-in for TenantGuard
-// puts the caller's firm and role on the request, as the global guards do in the app; the
-// guards themselves are tested in guards.test.ts and the e2e suite. Synthetic data only.
-import { randomUUID } from 'node:crypto';
+// R13 step 6, requests API parts 1b to 1e, over HTTP: EsignModule's status, draft, page plan,
+// recipients and document routes, pipes and the module switch with the in-memory ports (no
+// database). A stand-in for TenantGuard puts the caller's firm and role on the request, as the
+// global guards do in the app; the guards themselves are tested in guards.test.ts and the e2e
+// suite. Synthetic data only.
+import { createHash, randomUUID } from 'node:crypto';
 import {
   Controller,
   ExecutionContext,
@@ -17,7 +18,7 @@ import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EsignRequestDetail, EsignStatus } from '@firmivra/types';
+import { EsignDocument, EsignRequestDetail, EsignStatus, UploadTicket } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
 import {
@@ -26,13 +27,13 @@ import {
   ModulesModule,
   RequiresModule,
 } from '../../src/common/modules/requires-module.js';
-import { CODE_HASHER, ESIGN_STORE } from '../../src/esign/engine/engine.types.js';
+import { CODE_HASHER, ESIGN_STORE, PDF_ENGINE } from '../../src/esign/engine/engine.types.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { ESIGN_REPOSITORY, notMigrated } from '../../src/esign/requests/esign.repository.js';
+import { esignWorld, fakeHasher, fakePdf } from './esign-fakes.js';
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
-import { esignWorld, fakeHasher } from './esign-fakes.js';
 
 const w = esignWorld();
 
@@ -68,6 +69,8 @@ beforeAll(async () => {
     .useValue(fakeHasher)
     .overrideProvider(ESIGN_STORE)
     .useValue(w.store)
+    .overrideProvider(PDF_ENGINE)
+    .useValue(fakePdf)
     .compile();
   app = moduleRef.createNestApplication();
   // What AuthGuard and TenantGuard set, from test headers.
@@ -163,6 +166,8 @@ describe('Firm Sign drafts over HTTP', () => {
         await send('get', `/esign/requests/${id}`, ownerA()),
         await send('patch', `/esign/requests/${id}`, ownerA(), { title: 'x' }),
         await send('delete', `/esign/requests/${id}`, ownerA()),
+        await send('put', `/esign/requests/${id}/page-plan`, ownerA(), { pages: [] }),
+        await send('put', `/esign/requests/${id}/recipients`, ownerA(), { recipients: [] }),
       ]) {
         expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
       }
@@ -202,6 +207,199 @@ describe('Firm Sign drafts over HTTP', () => {
     const gone = await send('delete', `/esign/requests/${id}`, ownerA());
     expect([gone.status, gone.body]).toEqual([200, { ok: true }]);
     expect(errorOf(await call(`/esign/requests/${id}`, ownerA()))).toEqual([404, 'NOT_FOUND']);
+  });
+});
+
+describe('Firm Sign page plan and recipients over HTTP', () => {
+  it('sets recipients with the contract’s defaults and refuses an empty page plan', async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Form 8879',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const path = `/esign/requests/${id}/recipients`;
+    const recipients = await send('put', path, ownerA(), {
+      recipients: [
+        {
+          role: 'CLIENT',
+          routingOrder: 1,
+          who: { type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary },
+          delivery: 'PORTAL',
+        },
+      ],
+    });
+    const detail = EsignRequestDetail.parse(recipients.body);
+    expect(detail.recipients.map((r) => [r.kind, r.delivery, r.authMethod])).toEqual([
+      ['SIGNER', 'PORTAL', 'EMAIL_CODE'],
+    ]);
+    const approver = await send('put', path, ownerA(), {
+      recipients: [
+        {
+          kind: 'APPROVER',
+          role: 'MANAGER',
+          routingOrder: 1,
+          who: { type: 'STAFF', userId: w.users.staffA },
+        },
+      ],
+    });
+    expect(errorOf(approver)).toEqual([409, 'APPROVER_NOT_ALLOWED']);
+    // The pipe refuses an empty page plan before the service runs.
+    const empty = await send('put', `/esign/requests/${id}/page-plan`, ownerA(), { pages: [] });
+    expect(errorOf(empty)).toEqual([400, 'VALIDATION_FAILED']);
+    expect(errorOf(await send('put', path, ownerB(), { recipients: [] }))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+  });
+
+  it('reorders the page plan through the pipe; refuses a page twice, another firm and Staff', async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake packet',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const documentId = randomUUID();
+    const page = (n: number) => ({ documentId, page: n, rotation: 0 });
+    w.repo.seed(w.a, id, (row) => {
+      const size = { width: 612, height: 792 };
+      row.parts.documents.push({
+        id: documentId,
+        position: 0,
+        fileName: 'fake.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 1000,
+        pageCount: 2,
+        pageSizes: [size, size],
+        sourceDocumentId: null,
+        scanStatus: 'CLEAN',
+        createdAt: new Date(),
+        s3Key: `tenant/${w.a}/esign/${id}/fake.pdf`,
+        sha256: '0'.repeat(64),
+      });
+      row.parts.pagePlan = [page(0), page(1)] as typeof row.parts.pagePlan;
+    });
+    const path = `/esign/requests/${id}/page-plan`;
+    const reordered = await send('put', path, ownerA(), { pages: [page(1), page(0)] });
+    expect([reordered.status, EsignRequestDetail.parse(reordered.body).pagePlan]).toEqual([
+      200,
+      [page(1), page(0)],
+    ]);
+    const twice = { pages: [page(0), page(0)] };
+    expect(errorOf(await send('put', path, ownerA(), twice))).toEqual([400, 'VALIDATION_FAILED']);
+    for (const who of [ownerB(), staffA2()]) {
+      const res = await send('put', path, who, { pages: [page(0)] });
+      expect(errorOf(res)).toEqual([404, 'NOT_FOUND']);
+    }
+  });
+});
+
+describe('Firm Sign documents over HTTP', () => {
+  const content = new Uint8Array(Buffer.from('pdf:2'));
+  const facts = {
+    fileName: 'letter.pdf',
+    contentType: 'application/pdf',
+    sizeBytes: content.byteLength,
+    sha256: createHash('sha256').update(content).digest('hex'),
+  };
+  const newDraft = async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake letter',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    return EsignRequestDetail.parse(created.body).id;
+  };
+
+  it('uploads, confirms, serves once CLEAN and removes a file', async () => {
+    const id = await newDraft();
+    const base = `/esign/requests/${id}/documents`;
+    const started = await send('post', `${base}/uploads`, ownerA(), facts);
+    expect(started.status).toBe(201);
+    const ticket = UploadTicket.parse(started.body);
+    await w.store.put(w.a, ticket.url.replace('memory://', ''), content, 'application/pdf');
+    const confirm = { uploadToken: ticket.uploadToken };
+    const confirmed = await send('post', `${base}/uploads/confirm`, ownerA(), confirm);
+    expect(confirmed.status).toBe(201);
+    const doc = EsignDocument.parse(confirmed.body);
+    expect([doc.pageCount, doc.scanStatus]).toEqual([2, 'PENDING']);
+    expect(errorOf(await send('post', `${base}/uploads/confirm`, ownerA(), confirm))).toEqual([
+      410,
+      'UPLOAD_EXPIRED',
+    ]);
+
+    const path = `${base}/${doc.id}/content`;
+    expect(errorOf(await call(path, ownerA()))).toEqual([409, 'SCAN_PENDING']);
+    w.repo.seed(w.a, id, (row) => {
+      for (const d of row.parts.documents) d.scanStatus = 'CLEAN';
+    });
+    const bytes = await call(path, ownerA()).buffer(true);
+    expect([bytes.status, bytes.get('content-type'), bytes.get('cache-control')]).toEqual([
+      200,
+      'application/pdf',
+      'no-store',
+    ]);
+    expect(bytes.get('cross-origin-resource-policy')).toBe('same-origin');
+    expect((bytes.body as Buffer).toString()).toBe('pdf:2');
+    expect(errorOf(await call(path, ownerB()))).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await call(path, staffA2()))).toEqual([404, 'NOT_FOUND']);
+
+    expect(errorOf(await send('delete', `${base}/${doc.id}`, ownerB()))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    const removed = await send('delete', `${base}/${doc.id}`, ownerA());
+    const detail = EsignRequestDetail.parse(removed.body);
+    expect([removed.status, detail.documents, detail.pagePlan]).toEqual([200, [], []]);
+  });
+
+  it('refuses other file types (400 FILE_TYPE_NOT_ALLOWED), bad bodies and other firms', async () => {
+    const id = await newDraft();
+    const base = `/esign/requests/${id}/documents`;
+    const word = { ...facts, fileName: 'a.docx', contentType: 'application/msword' };
+    expect(errorOf(await send('post', `${base}/uploads`, ownerA(), word))).toEqual([
+      400,
+      'FILE_TYPE_NOT_ALLOWED',
+    ]);
+    const big = { ...facts, sizeBytes: 10 * 1024 * 1024 + 1 };
+    expect(errorOf(await send('post', `${base}/uploads`, ownerA(), big))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+    expect(errorOf(await send('post', `${base}/uploads`, ownerB(), facts))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    expect(
+      errorOf(await send('post', `${base}/from-vault`, ownerA(), { documentId: 'x' })),
+    ).toEqual([400, 'VALIDATION_FAILED']);
+    const vault = await send('post', `${base}/from-vault`, ownerA(), { documentId: randomUUID() });
+    expect(errorOf(vault)).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await call(`${base}/not-a-uuid/content`, ownerA()))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+  });
+
+  it('answers MODULE_OFF (403) on every document route when off', async () => {
+    const id = await newDraft();
+    const base = `/esign/requests/${id}/documents`;
+    const doc = randomUUID();
+    w.modules.set(w.a, 'esign', false);
+    try {
+      for (const res of [
+        await send('post', `${base}/uploads`, ownerA(), facts),
+        await send('post', `${base}/uploads/confirm`, ownerA(), { uploadToken: 'x' }),
+        await send('post', `${base}/from-vault`, ownerA(), { documentId: doc }),
+        await send('delete', `${base}/${doc}`, ownerA()),
+        await send('get', `${base}/${doc}/content`, ownerA()),
+      ]) {
+        expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
+      }
+    } finally {
+      w.modules.set(w.a, 'esign', true);
+    }
   });
 });
 

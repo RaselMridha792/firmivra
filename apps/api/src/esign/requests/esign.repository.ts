@@ -1,4 +1,6 @@
 import type {
+  EsignAccessRole,
+  EsignContentType,
   EsignDefaults,
   EsignDocument,
   EsignField,
@@ -79,6 +81,28 @@ export type EsignRecipientRecord = Omit<EsignRecipient, RecipientDates | 'hasAcc
   [K in RecipientDates]: Date | null;
 } & { accessCodeHash: string | null };
 
+/** A file to add: the repository gives it the next position and appends its pages. */
+export type NewEsignDocument = Omit<EsignDocumentRecord, 'position'>;
+
+/**
+ * An upload started by createUpload and not yet confirmed. Only the token's SHA-256 is kept; the
+ * key, size, type and checksum are the API's, never the confirming request's.
+ */
+export interface EsignPendingUpload {
+  tokenHash: string;
+  requestId: string;
+  /** Who started it: only they confirm it. */
+  userId: string;
+  /** The document's id once confirmed (the last part of `key`). */
+  documentId: string;
+  key: string;
+  fileName: string;
+  contentType: EsignContentType;
+  sizeBytes: number;
+  sha256: string;
+  createdAt: Date;
+}
+
 /** The request's documents (upload order), page plan (packet order), recipients and fields. */
 export interface EsignRequestParts {
   documents: EsignDocumentRecord[];
@@ -94,10 +118,17 @@ export interface EsignRepository {
   /** Null when the firm has no such request (another firm's id included). */
   findRequest(businessId: string, id: string): Promise<EsignRequestRecord | null>;
   parts(businessId: string, id: string): Promise<EsignRequestParts>;
+  /** A member's Firm Sign access (OWNER and ADMIN follow the firm role); null if not a member. */
+  esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
   // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt and
-  // refuses (false, null or INVALID_STATE; changing nothing) when it is not, or no longer exists.
-  // TODO(r0_esign): every Prisma draft write also resets APPROVED approvers to WAITING in the
-  // same transaction (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
+  // refuses (null or INVALID_STATE; changing nothing) when it is not, or no longer exists. The
+  // lastActivityAt written is strictly later than the value it replaces (the Prisma
+  // implementation writes GREATEST(now(), old + 1 ms), never now() alone): it is the version the
+  // `readAt` checks below compare, so an equal value would hide a write in between, and a value
+  // that only differs below the millisecond (Postgres keeps microseconds, a JS Date does not)
+  // would refuse every later write.
+  // TODO(r0_esign): every Prisma draft write also resets every APPROVER recipient to WAITING in
+  // the same transaction (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
   /**
    * Applies the patch and returns the request as written. With `clientChange`, it refuses
    * (RECIPIENTS_LINKED, changing nothing) while a recipient is linked to a client login: the
@@ -119,20 +150,60 @@ export interface EsignRepository {
     businessId: string,
     id: string,
   ): Promise<Pick<EsignDocumentRecord, 'id' | 's3Key'>[] | null>;
+  // The two below replace what the service computed from parts() read before the write, so each
+  // also refuses (null) unless the request's lastActivityAt is still `readAt`: checked under the
+  // FOR UPDATE lock, a write in between (a PUT fields, say) is never silently reverted. Each
+  // returns the request as written, read in the same transaction.
   /** Replaces the page plan and the fields (moved with their pages) together. */
   savePagePlan(
     businessId: string,
     id: string,
     pagePlan: EsignPage[],
     fields: EsignField[],
-  ): Promise<boolean>;
+    readAt: Date,
+  ): Promise<EsignRequestRecord | null>;
   /** Replaces the recipients and the fields (those of removed signers dropped) together. */
   saveRecipients(
     businessId: string,
     id: string,
     recipients: EsignRecipientRecord[],
     fields: EsignField[],
-  ): Promise<boolean>;
+    readAt: Date,
+  ): Promise<EsignRequestRecord | null>;
+  // Uploads between createUpload and confirmUpload (draft writes from addDocument on).
+  saveUpload(businessId: string, upload: EsignPendingUpload): Promise<void>;
+  /**
+   * Deletes and returns this request's upload with the token hash, started by `userId`: each is
+   * confirmed at most once. Null when there is none (another firm's, request's or person's).
+   */
+  takeUpload(
+    businessId: string,
+    requestId: string,
+    userId: string,
+    tokenHash: string,
+  ): Promise<EsignPendingUpload | null>;
+  /**
+   * Adds the file at the next position and its pages, unturned, to the end of the page plan.
+   * TOO_MANY_PAGES (nothing added) when the plan would pass ESIGN_MAX_PAGES.
+   */
+  addDocument(
+    businessId: string,
+    id: string,
+    document: NewEsignDocument,
+  ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'>;
+  /**
+   * Deletes the file and replaces the page plan and the fields (those pages' removed), and
+   * returns the request as written. Like the saves above, null unless lastActivityAt is still
+   * `readAt`.
+   */
+  removeDocument(
+    businessId: string,
+    id: string,
+    documentId: string,
+    pagePlan: EsignPage[],
+    fields: EsignField[],
+    readAt: Date,
+  ): Promise<EsignRequestRecord | null>;
 }
 
 export const ESIGN_REPOSITORY = Symbol('ESIGN_REPOSITORY');
