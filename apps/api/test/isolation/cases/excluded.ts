@@ -4,8 +4,6 @@ import type { CaseModule } from '../world.js';
 
 const SIGN_IN = 'Public sign-in step: no firm or client data before a session exists';
 const SIGN_UP = 'Public portal sign-up step: answers the same whether or not an account exists';
-const ESIGN_OFF =
-  'behind the esign module, off in every firm until r0_esign (#156); real cases come with r0_esign';
 
 export const excluded: CaseModule['excluded'] = {
   'GET /api/v1/health': 'Public health check, no data',
@@ -47,8 +45,4 @@ export const excluded: CaseModule['excluded'] = {
   'GET /api/v1/portal/:firmSlug/me': "The client's own login at this firm, from the session",
   'POST /api/v1/dev/token': 'Local only (AUTH_MODE=local): mints a test token',
   'POST /api/v1/dev/sign-out': 'Local only (AUTH_MODE=local)',
-  // Firm Sign (R13): firm routes with a record id, excluded until r0_esign.
-  'GET /api/v1/esign/requests/:id': ESIGN_OFF,
-  'PATCH /api/v1/esign/requests/:id': ESIGN_OFF,
-  'DELETE /api/v1/esign/requests/:id': ESIGN_OFF,
 };
