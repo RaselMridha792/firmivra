@@ -3,10 +3,12 @@
 **Goal:** A firm applies, Super Admin approves, requests info or declines, and the owner activates the workspace.
 
 **Owned paths (change only these):**
+
 - `apps/api/src/firm-applications/**`
 - `packages/types/src/firm-applications/**`
 
 **Read first (nothing else):** CLAUDE.md, docs/work/README.md, this file, and:
+
 - docs/specs (Super Admin Phase 1 scope)
 - docs/work/R2-staff-auth.md (invites)
 
@@ -92,7 +94,7 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
 - R0 (seed): LVP's seeded firm application has `data: { businessType }`, not the stored form (`StoredApplication` in `apps/api/src/firm-applications/firm-applications.service.ts`: the review page's business, primaryAdmin, account and credentials groups). Since the #79 fixes the API answers it from the table's own columns (`formReadable` false) instead of 500, and the contract now takes its hand-written id (next note), so the pages list and open it. The seed should still write the stored shape (synthetic values), so local review pages show a full form. Dev has no applications, so it is not affected.
 - R0 (seed): the seed's fixed ids should be RFC 9562 UUIDs (the contracts check ids with `z.uuid()`). Done in #89 (Oct 8); `FirmApplicationId` is `z.uuid()` again since #79.
 - R0: admin scope reads only the signed-in admin's own user row, so another Super Admin's name in a decision or the history shows as "Firmivra admin". Let admin scope read platform admins' names (users of `platform_admins`). Done in #80 (Oct 8): `users_admin_platform_admins`; R4 uses it in a later PR.
-- R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API. In R1's #101 (`firmivra/<env>/firm-applications/ein-hash-key` as `EIN_HASH_KEY`); submit answers 503 on dev until it deploys.
+- R1/Rasel (infra): the server-side secret for the EIN hash (dev and prod), before step 1's API. Done for dev in R1 step 14 (#101, Oct 8): `firmivra/dev/firm-applications/ein-hash-key` as `EIN_HASH_KEY`; submit answers 503 on dev until #101 deploys; prod with R8.
 - Lead: an `EIN_HASH_KEY` placeholder in `.env.example` (dev-only value, 64 hex characters). Done (the lead's yes, Oct 8): `.env.example` has a dev-only key, and production refuses that exact value.
 - R8: alarm on the warnings "Firm application <id>: the <template> email could not be sent" (received, info-requested, declined; the id only) and "Firm application submit refused: EIN_HASH_KEY ..." (the key is missing or malformed: no application can be received). Optionally also "Firm application submits for one email (key <first 12 of the keyed hash>) reached <n> in a day" (one email named by many networks; once a day per email, never a block).
 - Firmivra's own terms version: submit can't store "the version of Firmivra's terms in force" (For the API steps) until one exists; the application keeps only the two ticks the contract requires.
@@ -178,3 +180,8 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - `.env.example` has `EIN_HASH_KEY` with a dev-only 64-hex value (the lead's yes for that file), so a local submit works. `loadEinHashKey` refuses that exact value when `NODE_ENV` is production ("EIN_HASH_KEY is the .env.example value"), so a deploy that copied `.env.example` never hashes EINs with a public key; a unit test keeps the constant and `.env.example` the same.
   - Submit is wrapped in R3's `atLeast`: in AWS (`AUTH_MODE=cognito`) every answer, a 429 or 503 included, takes at least `SUBMIT_MIN_RESPONSE_MS` (1 s), so a dropped honeypot and a real submit can't be told apart by time. Local and test runs don't wait.
   - Tests: unit (the production refusal, `.env.example` in step, the minimum time for a honeypot and a 503 in AWS, none locally).
+- 2026-10-08, from R1 step 14 (branch `rasel/R1-kms-secret-ses`):
+  - `firm-keys.ts` exists: `FirmKeys`, `AwsFirmKeys`, `LocalFirmKeys`, `loadFirmKeysConfig`, `createFirmKeys`, `FIRM_KEYS`, `firmKeyAlias`, `FirmKeyError`. Keys are tagged `firmivra:env`, `firmivra:businessId` (the lower-case id) and `firmivra:purpose=firm-data`, named `alias/firmivra/<env>/business/<id>`, and made with KMS's default key policy (none sent). A repeat finds the key by its alias; a race uses the key named first; either way the adapter adopts the key only if it is exactly one it makes (enabled customer key of this account, KMS key material, one Region, symmetric, exactly the firm's three tags, KMS's default key policy, no grants), else `FirmKeyError` and nothing is stored; naming a new key is retried for up to five minutes (tags take that long to reach authorization).
+  - The one-off `create-firm-key` command (`create-firm-key.ts`, `create-firm-key.cli.ts`) gives LVP its key on dev, in platform scope, with a `business.kms_key_set` platform audit row; `--check` proves the encryption-context rule on the real key.
+  - Approve (step 3) reuses them, as the plan for step 3 says (#124, "For the API steps"): `CreateAlias` can wait up to 5 minutes on a new key, so the key is made outside the request, and a naming failure logs the unused key (`FirmKeyError` names it). Add approve to the source-scan test in `test/unit/firm-keys.test.ts`.
+  - EIN-hash key: `firmivra/<env>/firm-applications/ein-hash-key`, 64 lower-case hex characters (32 bytes), injected as `EIN_HASH_KEY`. Submit reads it with its own settings loader (check `^[0-9a-f]{64}$`, decode, HMAC-SHA256 into `ein_hash`) and never rotates it. Locally, `.env` takes the dev-only `.env.example` value (#107, above).
