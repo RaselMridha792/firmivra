@@ -4,6 +4,8 @@ import { Card } from '@firmivra/ui';
 import { ArrowRight, ChevronLeft, ChevronRight, Search, type LucideIcon } from 'lucide-react';
 import type { InputHTMLAttributes, ReactNode } from 'react';
 
+export { formatPhone } from '../applications/_components/application-cards';
+
 /** Shared parts of the Super Admin lists (Firm Applications, Firms), after the mockups. */
 
 export type StatTone = 'info' | 'success' | 'warning' | 'danger' | 'purple';
@@ -31,7 +33,10 @@ export function StatCard({
   action?: { label: string; onClick: () => void };
 }) {
   return (
-    <Card variant="elevated" className="flex items-center gap-4 !p-5 2xl:gap-5">
+    <Card
+      variant="elevated"
+      className="flex items-center gap-4 !p-5 xl:items-start 2xl:items-center 2xl:gap-5"
+    >
       <span
         className={`flex size-13 shrink-0 items-center justify-center rounded-xl 2xl:size-15 ${tones[tone]}`}
       >
@@ -95,7 +100,7 @@ export function ListTable({ head, children }: { head: ListColumn[]; children: Re
               <th
                 key={label}
                 scope="col"
-                className={`px-3 py-4 font-medium ${label === '#' ? 'w-12' : ''} ${center ? 'text-center' : ''}`}
+                className={`whitespace-nowrap px-3 py-4 font-medium ${label === '#' ? 'w-12' : ''} ${center ? 'text-center' : ''}`}
               >
                 {label === '#' ? (
                   <>
@@ -114,6 +119,22 @@ export function ListTable({ head, children }: { head: ListColumn[]; children: Re
     </div>
   );
 }
+
+/** An email that may break only before the @ or, for a very long address, anywhere. */
+export function EmailText({ value }: { value: string }) {
+  const at = value.lastIndexOf('@');
+  if (at <= 0) return <>{value}</>;
+  return (
+    <>
+      {value.slice(0, at)}
+      <wbr />
+      {value.slice(at)}
+    </>
+  );
+}
+
+/** Email cells: one line when it fits, never wider than the column. */
+export const emailCellClass = 'min-w-44 wrap-anywhere';
 
 /** A body cell; every cell after the first draws the divider on its left. */
 export const cellClass = 'border-l border-border px-3 py-4';

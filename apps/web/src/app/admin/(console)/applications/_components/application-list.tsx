@@ -8,11 +8,13 @@ import Link from 'next/link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { formatPhone } from './application-cards';
 import { applicationCountsKey, applicationListKey } from './application-data';
 import {
   cellClass,
+  EmailText,
+  emailCellClass,
   firstCellClass,
+  formatPhone,
   ListPager,
   ListTable,
   SearchBox,
@@ -216,59 +218,109 @@ export function ApplicationList() {
         {(data) => (
           <>
             <Card variant="elevated" className="overflow-hidden !p-0" aria-label="Applications">
-              <ListTable
-                head={[
-                  { label: '#', center: true },
-                  { label: 'Business Name' },
-                  { label: 'Owner / Contact' },
-                  { label: 'Email' },
-                  { label: 'Submitted' },
-                  { label: 'Status' },
-                  { label: 'Actions', center: true },
-                ]}
-              >
-                {data.items.map((application, index) => {
+              <ul className="divide-y divide-border sm:hidden">
+                {data.items.map((application) => {
                   const [day, time] = dateParts(application.submittedAt);
                   return (
-                    <tr
-                      key={application.id}
-                      data-testid="application-row"
-                      className="hover:bg-subtle"
-                    >
-                      <td className={firstCellClass}>{first + index}</td>
-                      <th
-                        scope="row"
-                        className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
-                      >
-                        {application.legalName}
-                      </th>
-                      <td className={`${cellClass} break-words`}>
-                        {application.contactName}
-                        <span className="block whitespace-nowrap text-muted">
-                          {formatPhone(application.contactPhone) ?? '—'}
-                        </span>
-                      </td>
-                      <td className={`${cellClass} break-all`}>{application.contactEmail}</td>
-                      <td className={`${cellClass} whitespace-nowrap`}>
-                        {day}
-                        <span className="block">{time}</span>
-                      </td>
-                      <td className={cellClass}>
+                    <li key={application.id} className="space-y-3 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 break-words font-semibold text-heading">
+                          {application.legalName}
+                        </p>
                         <StatusPill status={application.status} />
-                      </td>
-                      <td className={`${cellClass} text-center`}>
-                        <Link
-                          aria-label={`Open application for ${application.legalName}`}
-                          className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-4 py-2.5 font-semibold text-white hover:bg-platform-navy-raised"
-                          href={`/applications/${application.id}`}
-                        >
-                          Open Application
-                        </Link>
-                      </td>
-                    </tr>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border pt-3 text-sm">
+                        <div className="col-span-2">
+                          <dt className="text-xs text-muted">Owner / Contact</dt>
+                          <dd className="mt-1 break-words font-medium text-text">
+                            {application.contactName}
+                            <span className="block font-normal text-muted wrap-anywhere">
+                              <EmailText value={application.contactEmail} />
+                            </span>
+                            {application.contactPhone ? (
+                              <span className="block font-normal text-muted">
+                                {formatPhone(application.contactPhone)}
+                              </span>
+                            ) : null}
+                          </dd>
+                        </div>
+                        <div className="col-span-2">
+                          <dt className="text-xs text-muted">Submitted</dt>
+                          <dd className="mt-1 text-text">
+                            {day}, {time}
+                          </dd>
+                        </div>
+                      </dl>
+                      <Link
+                        aria-label={`Open application for ${application.legalName}`}
+                        className="flex justify-center rounded-control bg-platform-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-platform-navy-raised"
+                        href={`/applications/${application.id}`}
+                      >
+                        Open Application
+                      </Link>
+                    </li>
                   );
                 })}
-              </ListTable>
+              </ul>
+              <div className="hidden sm:block">
+                <ListTable
+                  head={[
+                    { label: '#', center: true },
+                    { label: 'Business Name' },
+                    { label: 'Owner / Contact' },
+                    { label: 'Email' },
+                    { label: 'Submitted' },
+                    { label: 'Status' },
+                    { label: 'Actions', center: true },
+                  ]}
+                >
+                  {data.items.map((application, index) => {
+                    const [day, time] = dateParts(application.submittedAt);
+                    return (
+                      <tr
+                        key={application.id}
+                        data-testid="application-row"
+                        className="hover:bg-subtle"
+                      >
+                        <td className={firstCellClass}>{first + index}</td>
+                        <th
+                          scope="row"
+                          className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
+                        >
+                          {application.legalName}
+                        </th>
+                        <td className={`${cellClass} break-words`}>
+                          {application.contactName}
+                          {application.contactPhone ? (
+                            <span className="block whitespace-nowrap text-muted">
+                              {formatPhone(application.contactPhone)}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className={`${cellClass} ${emailCellClass}`}>
+                          <EmailText value={application.contactEmail} />
+                        </td>
+                        <td className={`${cellClass} whitespace-nowrap`}>
+                          {day}
+                          <span className="block">{time}</span>
+                        </td>
+                        <td className={cellClass}>
+                          <StatusPill status={application.status} />
+                        </td>
+                        <td className={`${cellClass} text-center`}>
+                          <Link
+                            aria-label={`Open application for ${application.legalName}`}
+                            className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-4 py-2.5 font-semibold text-white hover:bg-platform-navy-raised"
+                            href={`/applications/${application.id}`}
+                          >
+                            Open Application
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </ListTable>
+              </div>
             </Card>
             <ListPager
               noun="applications"

@@ -71,6 +71,21 @@ test('filters the firms list and stays usable at mobile width', async ({ page })
     .toBeLessThanOrEqual(375);
 });
 
+for (const width of [1440, 1280]) {
+  test(`the All Firms table fits at ${width} px`, async ({ page }) => {
+    await mockAdminSession(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(admin('/firms'));
+    await page.getByRole('tab', { name: /^All Firms \(/ }).click();
+    await expect(page.getByRole('row').nth(1)).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    const table = page.locator('table').locator('..');
+    await expect
+      .poll(() => table.evaluate((el) => el.scrollWidth - el.clientWidth))
+      .toBeLessThanOrEqual(0);
+  });
+}
+
 test('the firm stat cards filter the list, and the table fits at 1280 px', async ({ page }) => {
   await mockAdminSession(page);
   await page.setViewportSize({ width: 1280, height: 900 });
