@@ -32,13 +32,34 @@ test('loads applications from the API mock, filters rows and pages results', asy
   await expect(page.getByText('Showing 6–8 of 8 applications')).toBeVisible();
 });
 
+/** The most lines any one text piece of a cell takes (an email is two pieces, split at the @). */
+const lineCount = (el: Element) =>
+  Math.max(
+    ...[...el.childNodes].map((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+    }),
+  );
+
 for (const width of [1440, 1280]) {
   test(`the applications table fits at ${width} px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(admin('/applications'));
     await expect(page.getByTestId('application-row').first()).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
     const table = page.locator('table').locator('..');
     expect(await table.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    // Headers stay on one line, as in the mockups. At the mockups' 1440 an email breaks only
+    // before its @; at 1280 a long one may wrap anywhere rather than widen the table.
+    const cells = [
+      ...(width >= 1440 ? await page.locator('td', { hasText: '@' }).all() : []),
+      ...(await page.getByRole('columnheader').filter({ hasNotText: 'Row' }).all()),
+    ];
+    expect(cells.length).toBeGreaterThan(5);
+    for (const cell of cells) {
+      expect(await cell.evaluate(lineCount), await cell.innerText()).toBeLessThanOrEqual(1);
+    }
   });
 }
 
@@ -52,7 +73,8 @@ test('reviews an unreadable application from its stored columns without losing a
   const row = page.getByTestId('application-row');
   await expect(row).toContainText('Sample Harbor Tax Services');
   await expect(row).toContainText('Drew Sample');
-  await expect(row).toContainText('—');
+  // No phone on file: the line is left out.
+  await expect(row).not.toContainText(/\(\d{3}\)/);
   await row.getByRole('link', { name: 'Open Application' }).click();
 
   await expect(page.getByRole('heading', { name: 'Sample Harbor Tax Services' })).toBeVisible();
