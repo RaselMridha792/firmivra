@@ -10,9 +10,9 @@ import {
   EsignVoidBody,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
-import { RequiresModule } from '../../common/modules/requires-module.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { EsignRoute } from '../extras/esign-role.guard.js';
 import { actorOf } from '../requests/requests.controller.js';
 import { EsignLifecycleService } from './lifecycle.service.js';
 
@@ -21,7 +21,7 @@ const idPipe = new ZodValidationPipe(EsignRequestId);
 /** Remind, void, correct and replace a sent request (packages/types/src/esign/schemas.ts). */
 @Controller('esign/requests/:id')
 @Roles(...FIRM_STAFF)
-@RequiresModule('esign')
+@EsignRoute()
 export class EsignLifecycleController {
   constructor(private readonly lifecycle: EsignLifecycleService) {}
 

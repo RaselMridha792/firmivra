@@ -31,9 +31,9 @@ import {
   UpdateEsignRequestBody,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
-import { RequiresModule } from '../../common/modules/requires-module.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { EsignRoute, esignRoleOf } from '../extras/esign-role.guard.js';
 import { EsignListService } from './list.service.js';
 import { EsignPrepareService } from './prepare.service.js';
 import { type EsignActor, EsignRequestsService } from './requests.service.js';
@@ -41,10 +41,10 @@ import { EsignSendService } from './send.service.js';
 
 const idPipe = new ZodValidationPipe(EsignRequestId);
 
-/** The firm comes from TenantGuard; firm roles only (see @Roles). */
+/** The firm comes from TenantGuard; the Firm Sign role from EsignRoleGuard (@EsignRoute). */
 export function actorOf(auth: AuthContext, tenant: TenantContext): EsignActor {
   if (tenant.kind !== 'staff') throw new NotFoundException({ code: 'NOT_FOUND' });
-  return { userId: auth.userId, role: tenant.role };
+  return { userId: auth.userId, role: esignRoleOf(tenant) };
 }
 
 /** GET /esign/status: never MODULE_OFF, so it has no @RequiresModule. */
@@ -65,7 +65,7 @@ export class EsignStatusController {
 /** Firm Sign requests (contract: packages/types/src/esign/schemas.ts, docs/api/esign.yaml). */
 @Controller('esign/requests')
 @Roles(...FIRM_STAFF)
-@RequiresModule('esign')
+@EsignRoute()
 export class EsignRequestsController {
   constructor(
     private readonly requests: EsignRequestsService,

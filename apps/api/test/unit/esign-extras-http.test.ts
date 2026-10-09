@@ -8,7 +8,14 @@ import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EsignApproverList, EsignRequestDetail } from '@firmivra/types';
+import {
+  EsignApproverList,
+  EsignMemberRole,
+  EsignMemberRoleList,
+  EsignReport,
+  EsignRequestDetail,
+  EsignStatus,
+} from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
 import { BUSINESS_MODULES, ModulesModule } from '../../src/common/modules/requires-module.js';
@@ -250,11 +257,78 @@ describe('Firm Sign approvals over HTTP', () => {
         ['post', `requests/${id}/submit-for-approval`, { confirm: true }],
         ['post', `requests/${id}/approval`, { decision: 'APPROVE' }],
         ['get', 'approvers', undefined],
+        ['get', 'roles', undefined],
+        ['put', `roles/${w.users.staffA}`, { esignRole: 'VIEWER' }],
+        ['get', 'reports?from=2026-10-01&to=2026-10-31', undefined],
       ] as const) {
         expect(errorOf(await call(method, path, ownerA(), body))).toEqual([403, 'MODULE_OFF']);
       }
     } finally {
       w.modules.set(w.a, 'esign', true);
     }
+  });
+});
+
+describe('Firm Sign roles and reports over HTTP', () => {
+  it('lists and sets roles (200) for Owner and Admin; Staff 403; bad ids and bodies 400', async () => {
+    const list = await call('get', 'roles', ownerA());
+    expect(list.status).toBe(200);
+    expect(EsignMemberRoleList.parse(list.body).items).toHaveLength(5);
+    const set = await call('put', `roles/${w.users.staffA2}`, ownerA(), { esignRole: 'MANAGER' });
+    expect([set.status, EsignMemberRole.parse(set.body).esignRole]).toEqual([200, 'MANAGER']);
+    await call('put', `roles/${w.users.staffA2}`, ownerA(), { esignRole: 'STAFF' });
+    expect(errorOf(await call('get', 'roles', staffA()))).toEqual([403, 'FORBIDDEN']);
+    const byStaff = await call('put', `roles/${w.users.staffA2}`, staffA(), {
+      esignRole: 'VIEWER',
+    });
+    expect(errorOf(byStaff)).toEqual([403, 'FORBIDDEN']);
+    const fixed = await call('put', `roles/${w.users.adminA}`, ownerA(), { esignRole: 'VIEWER' });
+    expect(errorOf(fixed)).toEqual([409, 'ROLE_FIXED']);
+    const other = await call('put', `roles/${w.users.ownerB}`, ownerA(), { esignRole: 'VIEWER' });
+    expect(errorOf(other)).toEqual([409, 'NOT_A_MEMBER']);
+    for (const [path, body] of [
+      ['roles/not-a-uuid', { esignRole: 'VIEWER' }],
+      [`roles/${w.users.staffA}`, { esignRole: 'OWNER' }],
+      [`roles/${w.users.staffA}`, {}],
+    ] as const) {
+      expect(errorOf(await call('put', path, ownerA(), body))).toEqual([400, 'VALIDATION_FAILED']);
+    }
+  });
+
+  it('a Staff member made a Viewer is a VIEWER on every Firm Sign route', async () => {
+    await call('put', `roles/${w.users.staffA}`, ownerA(), { esignRole: 'VIEWER' });
+    try {
+      const created = await post('requests', staffA(), { title: 'Fake', source: 'TAB' });
+      expect(errorOf(created)).toEqual([403, 'FORBIDDEN']);
+      expect(errorOf(await call('get', 'approvers', staffA()))).toEqual([403, 'FORBIDDEN']);
+      expect((await call('get', 'requests', staffA())).status).toBe(200);
+      const status = EsignStatus.parse((await call('get', 'status', staffA())).body);
+      expect(status.myEsignRole).toBe('VIEWER');
+    } finally {
+      await call('put', `roles/${w.users.staffA}`, ownerA(), { esignRole: 'STAFF' });
+    }
+  });
+
+  it('reports (200) for anyone, Viewers too; the range is checked (400)', async () => {
+    const res = await call('get', 'reports?from=2026-10-01&to=2026-10-31', staffA());
+    expect(res.status).toBe(200);
+    expect(EsignReport.parse(res.body).from).toBe('2026-10-01');
+    for (const q of [
+      'from=2026-01-01&to=2027-01-02',
+      'from=2026-02-01&to=2026-01-01',
+      'from=2026-10-01',
+      'from=2026-10-01&to=2026-10-31&senderId=nope',
+      'from=2026-10-01&to=2026-10-31&status=NOPE',
+      'from=2026-10-01&to=2026-10-31&extra=1',
+    ]) {
+      expect(errorOf(await call('get', `reports?${q}`, ownerA()))).toEqual([
+        400,
+        'VALIDATION_FAILED',
+      ]);
+    }
+    expect(errorOf(await call('get', 'reports?from=2026-10-01&to=2026-10-31', clientA()))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
   });
 });

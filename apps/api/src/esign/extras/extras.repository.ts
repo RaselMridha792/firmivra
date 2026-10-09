@@ -1,4 +1,5 @@
-import type { EsignEventRecord } from '../requests/esign.repository.js';
+import type { EsignRequestStatus } from '@firmivra/types';
+import type { EsignEventRecord, EsignRequestFilter } from '../requests/esign.repository.js';
 import type { LifecycleEmail, LifecycleWritten } from '../lifecycle/lifecycle.repository.js';
 
 // Firm Sign's extras storage (R13, contract 3): approvals and the members' Firm Sign roles. Like
@@ -36,6 +37,21 @@ export interface ApprovalDecisionWrite {
 /** A Staff member's Firm Sign access beyond STAFF (esign_member_roles). */
 export type EsignStaffRole = 'MANAGER' | 'VIEWER';
 
+/** The requests a report counts: sent at or after `sentFrom` and before `sentBefore`. */
+export type EsignReportFilter = Pick<EsignRequestFilter, 'visibleTo' | 'senderUserId'> & {
+  sentFrom: Date;
+  sentBefore: Date;
+  status?: EsignRequestStatus;
+};
+
+/** One sender's requests in a report: how many have each status now, and their turnaround. */
+export interface EsignReportRow {
+  senderUserId: string;
+  counts: Partial<Record<EsignRequestStatus, number>>;
+  /** Sum of completed_at - sent_at over the COMPLETED ones, in milliseconds. */
+  completionMs: number;
+}
+
 export interface EsignExtrasRepository {
   submitForApproval(
     businessId: string,
@@ -53,6 +69,17 @@ export interface EsignExtrasRepository {
   queueEmails(businessId: string, id: string, emails: LifecycleEmail[]): Promise<string[]>;
   /** The Staff members made MANAGER or VIEWER, by user id (every other Staff member is STAFF). */
   staffRoles(businessId: string): Promise<Map<string, EsignStaffRole>>;
+  /** Sets (null: removes, back to STAFF) a Staff member's role; answers the role as stored. */
+  setStaffRole(
+    businessId: string,
+    userId: string,
+    role: EsignStaffRole | null,
+  ): Promise<EsignStaffRole | null>;
+  /**
+   * One row per sender with a matching request (SQL: GROUP BY sender_user_id, status), with the
+   * same visibility as the list (`visibleTo`).
+   */
+  report(businessId: string, filter: EsignReportFilter): Promise<EsignReportRow[]>;
 }
 
 export const EXTRAS_REPOSITORY = Symbol('ESIGN_EXTRAS_REPOSITORY');

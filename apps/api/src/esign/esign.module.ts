@@ -4,6 +4,8 @@ import { EsignEngineModule } from './engine/engine.module.js';
 import { EsignApprovalsService } from './extras/approvals.service.js';
 import { EsignExtrasController } from './extras/extras.controller.js';
 import { EXTRAS_REPOSITORY } from './extras/extras.repository.js';
+import { EsignReportsService } from './extras/reports.service.js';
+import { EsignRolesService } from './extras/roles.service.js';
 import { EsignLifecycleController } from './lifecycle/lifecycle.controller.js';
 import { EsignLifecycleJob } from './lifecycle/lifecycle.job.js';
 import { LIFECYCLE_REPOSITORY } from './lifecycle/lifecycle.repository.js';
@@ -46,6 +48,8 @@ import { EsignSendService } from './requests/send.service.js';
     EsignLifecycleService,
     EsignLifecycleJob,
     EsignApprovalsService,
+    EsignRolesService,
+    EsignReportsService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },

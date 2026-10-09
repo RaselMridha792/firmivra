@@ -1,5 +1,5 @@
 // End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send and step
-// 8's lifecycle, and the extras: approvals)
+// 8's lifecycle, and the extras: approvals, roles and reports)
 // through the real guard stack. The esign tables come with r0_esign, so this covers what answers
 // before the repository: 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module
 // is off, and 400 for a bad id or body where it is on. Synthetic data only.
@@ -59,7 +59,13 @@ const ROUTES: Route[] = [
   ['get', '/api/v1/esign/requests', undefined],
   ['get', '/api/v1/esign/requests/summary', undefined],
   ['get', '/api/v1/esign/approvers', undefined],
+  ['get', '/api/v1/esign/reports?from=2026-10-01&to=2026-10-31', undefined],
   ...withId(anyId),
+];
+/** Owner and Admin only (@Roles): Staff get 403 FORBIDDEN before the module is asked. */
+const OWNER_ROUTES: Route[] = [
+  ['get', '/api/v1/esign/roles', undefined],
+  ['put', `/api/v1/esign/roles/${randomUUID()}`, { esignRole: 'VIEWER' }],
 ];
 
 beforeAll(async () => {
@@ -121,7 +127,7 @@ const answer = (res: request.Response) =>
 
 describe('Firm Sign draft routes', () => {
   it('refuses the signed out (401) and clients (403) on every route', async () => {
-    for (const [method, path, body] of ROUTES) {
+    for (const [method, path, body] of [...ROUTES, ...OWNER_ROUTES]) {
       expect((await send(method, path, null, body)).status).toBe(401);
       expect((await send(method, path, fx.users.clientA.email, body)).status).toBe(403);
     }
@@ -132,6 +138,10 @@ describe('Firm Sign draft routes', () => {
       for (const who of [fx.users.ownerA, fx.users.staffA]) {
         expect(answer(await send(method, path, who.email, body))).toBe('403 MODULE_OFF');
       }
+    }
+    for (const [method, path, body] of OWNER_ROUTES) {
+      expect(answer(await send(method, path, fx.users.ownerA.email, body))).toBe('403 MODULE_OFF');
+      expect(answer(await send(method, path, fx.users.staffA.email, body))).toBe('403 FORBIDDEN');
     }
   });
 
@@ -156,6 +166,10 @@ describe('Firm Sign draft routes', () => {
       ['post', `${base(anyId)}/replace`, {}],
       ['post', `${base(anyId)}/submit-for-approval`, { confirm: false }],
       ['post', `${base(anyId)}/approval`, { decision: 'REJECT' }],
+      ['put', '/api/v1/esign/roles/not-a-uuid', { esignRole: 'VIEWER' }],
+      ['put', `/api/v1/esign/roles/${anyId}`, { esignRole: 'OWNER' }],
+      ['get', '/api/v1/esign/reports?from=2026-01-01&to=2027-01-02', undefined],
+      ['get', '/api/v1/esign/reports?from=2026-10-01', undefined],
       ...['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1'].map((query): Route => [
         'get',
         `/api/v1/esign/requests?${query}`,

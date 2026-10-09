@@ -104,9 +104,10 @@ export class EsignRequestsService {
   /** Never MODULE_OFF: off is `{ enabled: false, myEsignRole: null }`. */
   async status(businessId: string, actor: EsignActor): Promise<EsignStatus> {
     const enabled = await this.modules.isEnabled(businessId, 'esign');
-    // TODO(r0_esign): MANAGER and VIEWER need the member's stored Firm Sign role, which r0_esign
-    // adds; until then the firm role is the answer.
-    return { enabled, myEsignRole: enabled ? actor.role : null };
+    if (!enabled) return { enabled, myEsignRole: null };
+    // A Staff member's stored Firm Sign role (MANAGER or VIEWER); Owner and Admin keep theirs.
+    const stored = actor.role === 'STAFF' && (await this.repo.esignRole(businessId, actor.userId));
+    return { enabled, myEsignRole: stored || actor.role };
   }
 
   async create(

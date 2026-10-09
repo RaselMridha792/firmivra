@@ -50,6 +50,8 @@ import type { NotifyMessage, NotifyService } from '../../src/notify/notify.types
 import type {
   ApprovalDecisionWrite,
   EsignExtrasRepository,
+  EsignReportFilter,
+  EsignReportRow,
   EsignStaffRole,
   SubmitApprovalWrite,
 } from '../../src/esign/extras/extras.repository.js';
@@ -647,6 +649,35 @@ export class InMemoryExtrasRepository implements EsignExtrasRepository {
       if (role === 'MANAGER' || role === 'VIEWER') roles.set(userId, role);
     }
     return Promise.resolve(roles);
+  }
+
+  setStaffRole(businessId: string, userId: string, role: EsignStaffRole | null) {
+    this.requests.roles.of(businessId).set(userId, role ?? 'STAFF');
+    return Promise.resolve(role);
+  }
+
+  /** As the GROUP BY would: the visible requests sent in the range, by sender and status. */
+  async report(businessId: string, f: EsignReportFilter): Promise<EsignReportRow[]> {
+    const { visibleTo, senderUserId, status } = f;
+    const filter = { visibleTo, ...(senderUserId && { senderUserId }) };
+    const listed = await this.requests.listRequests(businessId, filter, {
+      after: null,
+      limit: 100_000,
+    });
+    const rows = new Map<string, EsignReportRow>();
+    for (const { record: q } of listed) {
+      if (!q.sentAt || q.sentAt < f.sentFrom || q.sentAt >= f.sentBefore) continue;
+      if (status && q.status !== status) continue;
+      const row = rows.get(q.senderUserId) ?? {
+        senderUserId: q.senderUserId,
+        counts: {},
+        completionMs: 0,
+      };
+      row.counts[q.status] = (row.counts[q.status] ?? 0) + 1;
+      if (q.status === 'COMPLETED' && q.completedAt) row.completionMs += +q.completedAt - +q.sentAt;
+      rows.set(q.senderUserId, row);
+    }
+    return [...rows.values()];
   }
 
   private queue(businessId: string, email: LifecycleEmail) {
