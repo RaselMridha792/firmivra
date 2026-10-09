@@ -14,6 +14,7 @@ import { FirmApplicationRecord } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { FirmApplicationsService } from '../../src/firm-applications/firm-applications.service.js';
 import { FirmKeyJob } from '../../src/firm-applications/firm-key-job.js';
 import { FIRM_KEYS, type FirmKeys } from '../../src/firm-applications/firm-keys.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
@@ -35,6 +36,7 @@ const ids = {
   resend: randomUUID(),
   pending: randomUUID(),
   copy: randomUUID(),
+  resettle: randomUUID(),
 };
 const adminPoolOnly = { id: randomUUID(), email: `admins-pool-${tag}@firmivra.test` };
 const email = (n: number) => `owner${n}@${tag}.example.test`;
@@ -387,6 +389,31 @@ describe('After approve', () => {
       tx.invite.update({ where: { id: link.id }, data: { acceptedAt: new Date() } }),
     );
     expect((await open(ids.copy)).ownerInvite?.status).toBe('ACCEPTED');
+  });
+
+  it('copies settings an approval could not copy when the owner invite is sent again', async () => {
+    // The copy fails once, as if the connection dropped after the firm was created.
+    const service = FirmApplicationsService.prototype as unknown as {
+      copySettings: () => Promise<void>;
+    };
+    const copy = vi
+      .spyOn(service, 'copySettings')
+      .mockRejectedValueOnce(new Error('connection lost'));
+    const firm = (await approve(ids.resettle)).firm!;
+    copy.mockRestore();
+    const settingsOf = () =>
+      asFirm(firm.id, (tx) => tx.businessSettings.findUnique({ where: { businessId: firm.id } }));
+    expect(await settingsOf()).toBeNull();
+    await resend(ids.resettle).expect(200);
+    expect(await settingsOf()).toMatchObject({ entityType: 'S_CORP', teamSize: 7, einEnc: null });
+    // Again: the copy is kept, not repeated.
+    await resend(ids.resettle).expect(200);
+    const audit = await asFirm(firm.id, (tx) =>
+      tx.auditLog.count({
+        where: { businessId: firm.id, action: 'settings.copied_from_application' },
+      }),
+    );
+    expect(audit).toBe(1);
   });
 
   it('is for Super Admins only: 401 for a firm login, 403 for an admins-pool login without the role', async () => {

@@ -211,3 +211,10 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - `POST /admin/firm-applications/{id}/owner-invite` (contract's `resendOwnerInvite`, already in the contract and mock): a new link (R2's resend) or a first one; 409 INVITE_NOT_NEEDED before the firm exists, for a suspended or closed firm, or once the owner is active.
   - The record's `ownerInvite` and OWNER_INVITED history come from `platform_owner_invites` (R2 need above).
   - Tests: `apps/api/test/e2e/firm-setup.e2e.test.ts` (settings without the EIN and isolation, key stored, invite and email, email and key failures then resend and retry, 409s, ownerInvite from the copy, 401/403), `firm-application-approve.e2e.test.ts` updated, unit `firm-key-job.test.ts`, `firm-keys.test.ts`.
+- 2026-10-09, #164 pre-review fixes (branch `rasel/R16-firm-setup`):
+  - The key sweep's timer catches a failed sweep (a warning; the next one runs), so a database error can't stop the API task.
+  - A `FirmKeyError` (a key made but not named, or an alias naming a key the adapter won't adopt) is recorded once as the platform event `business.key_needs_person` and logged once; the sweep never retries that firm, so no more unused keys are made. A person runs `create-firm-key`, which stores the key.
+  - The sweep leaves firms created in the last 10 minutes to approve's own call (its try-lock ends with the list, and naming a new key can take 5 minutes).
+  - Resend owner invite also copies settings an approval could not copy (idempotent; a firm with settings keeps them).
+  - A revoked newest owner link reads EXPIRED, not SENT.
+  - Tests: unit (sweep age and held firms, the error recorded once, a failing sweep), e2e (settings copied on resend, once).

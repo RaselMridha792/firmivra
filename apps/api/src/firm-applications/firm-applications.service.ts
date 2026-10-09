@@ -92,13 +92,16 @@ const failureOf = (e: unknown): string => {
   return typeof code === 'string' ? code : e instanceof Error ? e.constructor.name : 'unknown';
 };
 
-/** The owner's newest activation link as the review page shows it. */
+/**
+ * The owner's newest activation link as the review page shows it: a revoked one no longer works,
+ * so it reads as EXPIRED (send a new one) like one past its expiry.
+ */
 export function ownerInviteStatus(
-  link: { expiresAt: Date; acceptedAt: Date | null },
+  link: { expiresAt: Date; acceptedAt: Date | null; revokedAt: Date | null },
   now = new Date(),
 ): 'SENT' | 'EXPIRED' | 'ACCEPTED' {
   if (link.acceptedAt) return 'ACCEPTED';
-  return link.expiresAt <= now ? 'EXPIRED' : 'SENT';
+  return link.revokedAt || link.expiresAt <= now ? 'EXPIRED' : 'SENT';
 }
 
 /**
@@ -533,6 +536,17 @@ export class FirmApplicationsService {
           })
         : null;
     if (firm?.status !== 'PENDING_SETUP' && firm?.status !== 'ACTIVE') throw inviteNotNeeded();
+    // Settings an approval could not copy (a failure, or a stop after the firm was created) are
+    // copied now; a firm that has settings keeps them.
+    if (firm.status === 'PENDING_SETUP') {
+      try {
+        await this.copySettings(id, firm.id, this.stored(row));
+      } catch (e) {
+        this.logger.warn(
+          `Firm ${firm.id}: settings not copied from its application (${failureOf(e)})`,
+        );
+      }
+    }
     const owner = await this.owner(firm.id);
     if (owner?.status === 'ACTIVE') throw inviteNotNeeded();
     const invite =
@@ -738,7 +752,7 @@ export class FirmApplicationsService {
         ? db.platformOwnerInvite.findMany({
             where: { businessId: row.businessId },
             orderBy: [{ sentAt: 'desc' }, { inviteId: 'desc' }],
-            select: { sentAt: true, expiresAt: true, acceptedAt: true },
+            select: { sentAt: true, expiresAt: true, acceptedAt: true, revokedAt: true },
           })
         : Promise.resolve([]),
     ]);
