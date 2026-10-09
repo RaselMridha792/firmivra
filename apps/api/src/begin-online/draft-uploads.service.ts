@@ -27,9 +27,16 @@ import {
 } from '../storage/document-storage.js';
 import { checkFile, type FileRefusal } from '../storage/file-checks.js';
 import { UPLOAD_TOKEN_SECONDS } from '../storage/upload-token.js';
-import { CHECKS_AT_ONCE } from '../storage/uploads.service.js';
+import { CHECKS_AT_ONCE, REFUSALS_SINCE_MS } from '../storage/uploads.service.js';
 import { BeginOnlineService, intakeUpload } from './begin-online.service.js';
-import { draftErrors, expiredDraftRefusal, holdDraft, renewDraft } from './drafts.js';
+import {
+  draftErrors,
+  expiredDraftRefusal,
+  holdDraft,
+  renewDraft,
+  rethrowExpired,
+} from './drafts.js';
+import { leadUploadKey, openTickets, UPLOAD_ACTIONS, uploadIdOf } from './upload-tickets.js';
 
 /** What `createUpload` decided, sealed into the ticket: confirm takes everything from here. */
 const LeadUploadClaim = z.object({
@@ -69,7 +76,6 @@ export const DRAFT_UPLOAD_PROVIDERS: Provider[] = [
 ];
 
 const tooMany = draftErrors.tooManyFiles;
-const uploadIdOf = (key: string) => key.slice(key.lastIndexOf('/') + 1);
 let checking = 0;
 
 /**
@@ -79,7 +85,10 @@ let checking = 0;
  * while the lead is a live draft (the database refuses files for any other lead). A ticket belongs
  * to the draft (lead) that asked for it: confirm checks the token's lead is this browser's draft
  * for the service, so once a start or a resume replaced it, the ticket is 410 UPLOAD_EXPIRED. A
- * confirm or a removal renews the draft. The audit holds ids and slot keys, never a file name.
+ * ticket not yet confirmed or refused takes a place in its slot and the draft until it expires
+ * (`openTickets`), and a genuine ticket that can no longer be confirmed (replaced draft, draft
+ * expired or sent) has its object deleted like any refused upload. A confirm or a removal renews
+ * the draft. The audit holds ids and slot keys, never a file name.
  */
 @Injectable()
 export class DraftUploadsService {
@@ -116,15 +125,13 @@ export class DraftUploadsService {
       };
       throw draftErrors.invalid([issue]);
     }
-    const inSlot = draft.uploads.filter((u) => u.slot === body.slot).length;
-    if (inSlot >= field.maxFiles || draft.uploads.length >= INTAKE_LIMITS.maxFiles) throw tooMany();
     const businessId = draft.firm.id;
     const claim: LeadUploadClaim = {
       pool: 'CLIENT',
       businessId,
       leadId: draft.leadId,
       slot: body.slot,
-      key: `tenant/${businessId}/leads/${draft.leadId}/${randomUUID()}`,
+      key: leadUploadKey(businessId, draft.leadId, randomUUID()),
       fileName: body.fileName,
       contentType: body.contentType,
       sizeBytes: body.sizeBytes,
@@ -132,12 +139,28 @@ export class DraftUploadsService {
     };
     const put = await this.s3(() => this.storage.presignUpload(claim));
     const uploadToken = await this.tokens.seal(claim, UPLOAD_TOKEN_SECONDS);
-    await this.audit.log(
-      'begin_online.upload_started',
-      { type: 'lead', id: draft.leadId },
-      { slot: body.slot, uploadId: uploadIdOf(claim.key) },
-      { businessId },
-    );
+    // Holding the lead (the intake, then the lead: the lock order of confirm, submit and expiry),
+    // the slot's and the draft's files and open tickets are counted and this ticket is recorded:
+    // parallel tickets count one by one. The PUT URL is handed out only after that commits.
+    await this.database
+      .withScope({ kind: 'business', businessId }, async (tx) => {
+        await holdDraft(tx, draft.leadId);
+        const files = await tx.leadUpload.findMany({
+          where: { leadId: draft.leadId },
+          select: { slot: true },
+        });
+        const taken = [...files, ...(await openTickets(tx, draft.leadId))];
+        const inSlot = taken.filter((f) => f.slot === body.slot).length;
+        if (inSlot >= field.maxFiles || taken.length >= INTAKE_LIMITS.maxFiles) throw tooMany();
+        await this.audit.logIn(
+          tx,
+          UPLOAD_ACTIONS.started,
+          { type: 'lead', id: draft.leadId },
+          { slot: body.slot, uploadId: uploadIdOf(claim.key) },
+          { businessId },
+        );
+      })
+      .catch(rethrowExpired);
     const expiresAt = new Date(Date.now() + PUT_URL_SECONDS * 1000).toISOString();
     return { uploadToken, url: put.url, method: 'PUT', headers: put.headers, expiresAt };
   }
@@ -149,11 +172,13 @@ export class DraftUploadsService {
     res: Response,
     uploadToken: string,
   ): Promise<IntakeUpload> {
-    const draft = await this.drafts.draftOf(slug, path, req);
     const claim = (await this.tokens.open(uploadToken, 'CLIENT'))?.value;
-    if (claim?.businessId !== draft.firm.id || claim.leadId !== draft.leadId) {
-      throw refusal('UPLOAD_EXPIRED');
-    }
+    const draft = await this.drafts
+      .draftOf(slug, path, req)
+      .catch((error: unknown) => this.refuseEnded(slug, claim, error));
+    if (claim?.businessId !== draft.firm.id) throw refusal('UPLOAD_EXPIRED');
+    // A genuine ticket of another draft (this browser started again): it can never be confirmed.
+    if (claim.leadId !== draft.leadId) return this.refuse(claim, refusal('UPLOAD_EXPIRED'));
     const db = this.database.forBusiness(claim.businessId);
     if (await db.leadUpload.findFirst({ where: { s3Key: claim.key }, select: { id: true } })) {
       throw refusal('UPLOAD_EXPIRED');
@@ -192,7 +217,7 @@ export class DraftUploadsService {
           });
           await this.audit.logIn(
             tx,
-            'begin_online.upload_confirmed',
+            UPLOAD_ACTIONS.confirmed,
             { type: 'lead', id: leadId },
             { uploadId: uploadIdOf(key), leadUploadId: row.id, slot: claim.slot },
             { businessId: claim.businessId },
@@ -213,10 +238,14 @@ export class DraftUploadsService {
       return done.file;
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') throw refusal('UPLOAD_EXPIRED');
+      // The draft ended (expired or sent) while this confirm waited: the file can't be kept.
       const expired = expiredDraftRefusal(error);
-      if (expired) throw expired;
+      if (expired) return this.refuse(claim, expired);
       const code = codeOf(error);
       if (code === 'TOO_MANY_FILES') return this.refuse(claim, tooMany());
+      if (code === 'DRAFT_EXPIRED' || code === 'DRAFT_SUBMITTED') {
+        return this.refuse(claim, error as HttpException);
+      }
       throw error;
     }
   }
@@ -269,10 +298,40 @@ export class DraftUploadsService {
     }
   }
 
+  /**
+   * Confirm found no live draft for this browser (`error`). When the token is a genuine ticket of
+   * this firm whose own lead is no longer a live draft (expired or sent), its object is refused
+   * and deleted as `refuse` does; either way the visitor gets `error`.
+   */
+  private async refuseEnded(
+    slug: string,
+    claim: LeadUploadClaim | undefined,
+    error: unknown,
+  ): Promise<never> {
+    if (!claim || !(error instanceof HttpException)) throw error;
+    const firm = await this.drafts.firm(slug).catch(() => null);
+    if (claim.businessId !== firm?.id) throw error;
+    const rows = await this.database.withScope(
+      { kind: 'business', businessId: claim.businessId },
+      (tx) => tx.$queryRaw<{ live: boolean }[]>`
+        SELECT (status = 'DRAFT' AND coalesce(draft_expires_at > now(), false)) AS live
+          FROM leads WHERE id = ${claim.leadId}::uuid`,
+    );
+    if (rows[0]?.live !== false) throw error;
+    return this.refuse(claim, error);
+  }
+
+  /**
+   * Whether this key was refused before (the mark `refuse` leaves before it deletes). Only in the
+   * last REFUSALS_SINCE_MS (R5's bound: longer than a ticket lives), so the search stays on the
+   * (business_id, created_at) index.
+   */
   private async refusedBefore(tx: TxClient, claim: LeadUploadClaim): Promise<boolean> {
     const row = await tx.auditLog.findFirst({
       where: {
-        action: 'begin_online.upload_refused',
+        businessId: claim.businessId,
+        createdAt: { gte: new Date(Date.now() - REFUSALS_SINCE_MS) },
+        action: UPLOAD_ACTIONS.refused,
         entityId: claim.leadId,
         metadata: { path: ['uploadId'], equals: uploadIdOf(claim.key) },
       },
@@ -292,7 +351,7 @@ export class DraftUploadsService {
       if (await tx.leadUpload.findFirst({ where: { s3Key: claim.key } })) return true;
       await this.audit.logIn(
         tx,
-        'begin_online.upload_refused',
+        UPLOAD_ACTIONS.refused,
         { type: 'lead', id: claim.leadId },
         { uploadId: uploadIdOf(claim.key), code: codeOf(error) },
         { businessId },

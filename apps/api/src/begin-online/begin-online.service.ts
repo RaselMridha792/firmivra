@@ -25,6 +25,7 @@ import type { z } from 'zod';
 import { beginOnlineService } from '../agreements/agreements.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PortalInfoService } from '../client-auth/portal-info.controller.js';
+import { networkOf } from '../common/network.js';
 import { requestContext } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -41,6 +42,7 @@ import {
   renewDraft,
   rethrowExpired,
 } from './drafts.js';
+import { ticketKeys } from './upload-tickets.js';
 
 type Firm = { id: string; slug: string; name: string };
 type Values = Record<string, unknown>;
@@ -51,11 +53,12 @@ const nameOf = (error: unknown) => (error instanceof Error ? error.name : typeof
 
 /**
  * New drafts a day (rolling 24 h), counted in the audit log like RESUME_LINK_LIMITS: per firm, and
- * per viewer IP on that firm's site (a firm's scope sees only its own rows; the in-memory
- * BEGIN_ONLINE_THROTTLE.start counts an IP across firms). Here, not next to BEGIN_ONLINE_THROTTLE
- * or RESUME_LINK_LIMITS, because both of those files import this one.
+ * per viewer network on that firm's site (networkOf: the /24 or /48, as R5's sign-up limits key
+ * it; a firm's scope sees only its own rows; the in-memory BEGIN_ONLINE_THROTTLE.start counts a
+ * network across firms). Here, not next to BEGIN_ONLINE_THROTTLE or RESUME_LINK_LIMITS, because
+ * both of those files import this one.
  */
-export const DRAFT_START_LIMITS = { perFirm: 500, perIp: 50, windowMs: 24 * 60 * 60_000 };
+export const DRAFT_START_LIMITS = { perFirm: 500, perNetwork: 50, windowMs: 24 * 60 * 60_000 };
 const STARTED = 'begin_online.draft_started';
 
 /** A lead upload row, as the draft's files are read. */
@@ -196,8 +199,9 @@ export class BeginOnlineService {
     const toStore = await sealIntakeNumbers(this.fe, where, definition, restored.answers, {});
     const taxYear = currentTaxYear();
 
+    const net = networkOf(requestContext.getStore()?.ip);
     const lead = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
-      await this.checkStartLimits(tx, businessId);
+      await this.checkStartLimits(tx, businessId, net);
       if (newest.formId === null) {
         // The built-in form becomes the firm's version 1 (a parallel start inserts nothing).
         await tx.intakeForm.createMany({
@@ -259,7 +263,7 @@ export class BeginOnlineService {
         tx,
         STARTED,
         { type: 'lead', id: ids.lead },
-        { serviceId: service.id, form, formVersion: newest.version },
+        { serviceId: service.id, form, formVersion: newest.version, net },
         { businessId },
       );
       return { draftExpiresAt: row.draftExpiresAt, updatedAt: row.updatedAt };
@@ -287,16 +291,21 @@ export class BeginOnlineService {
    * Retry-After is when enough counted rows leave the window to allow one more (the global filter
    * caps it at an hour). Starts of one firm count one after the other, under a lock.
    */
-  private async checkStartLimits(tx: TxClient, businessId: string): Promise<void> {
+  private async checkStartLimits(tx: TxClient, businessId: string, net: string): Promise<void> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`begin-online-start:${businessId}`}, 0))`;
-    const { perFirm, perIp, windowMs } = DRAFT_START_LIMITS;
+    const { perFirm, perNetwork, windowMs } = DRAFT_START_LIMITS;
     const firmWide = { action: STARTED, createdAt: { gt: new Date(Date.now() - windowMs) } };
-    const ip = requestContext.getStore()?.ip;
-    const limits: [Prisma.AuditLogWhereInput, number][] = [[firmWide, perFirm]];
-    if (ip) limits.push([{ ...firmWide, ip }, perIp]);
-    for (const [where, max] of limits) {
+    const limits: [Prisma.AuditLogWhereInput, number, string][] = [
+      [firmWide, perFirm, 'firm'],
+      [{ ...firmWide, metadata: { path: ['net'], equals: net } }, perNetwork, 'network'],
+    ];
+    for (const [where, max, kind] of limits) {
       const count = await tx.auditLog.count({ where });
       if (count < max) continue;
+      if (kind === 'firm') {
+        // Ids only. R8 turns this line into an alarm (a 24 h lockout of the firm's form for now).
+        this.logger.warn(`Firm ${businessId} reached its ${perFirm} Begin Online starts a day`);
+      }
       const leaving = await tx.auditLog.findFirst({
         where,
         orderBy: { createdAt: 'asc' },
@@ -504,18 +513,20 @@ export class BeginOnlineService {
    * A draft past its expiry, in one transaction and in the submit's lock order (the intake, then
    * the lead): the open version's answers and saved steps are cleared and the uploads deleted
    * while the lead is still a draft (R0 allows only that), then the lead becomes EXPIRED with its
-   * resume link cleared, then its intake. After commit the stored files are deleted. Used when a
-   * visitor reaches the draft and by BeginOnlineSweep for drafts nobody reopens. Returns whether
-   * this call expired it.
+   * resume link cleared, then its intake. After commit the stored files are deleted, and the
+   * objects of tickets that were never confirmed (a PUT without a confirm). Used when a visitor
+   * reaches the draft and by BeginOnlineSweep for drafts nobody reopens. Returns whether this
+   * call expired it.
    */
   async expire(businessId: string, leadId: string): Promise<boolean> {
     const keys = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       await tx.$queryRaw`SELECT 1 FROM intakes WHERE lead_id = ${leadId}::uuid FOR NO KEY UPDATE`;
-      const rows = await tx.$queryRaw<{ id: string }[]>`
-        SELECT id FROM leads
+      const rows = await tx.$queryRaw<{ created_at: Date }[]>`
+        SELECT created_at FROM leads
          WHERE id = ${leadId}::uuid AND status = 'DRAFT' AND draft_expires_at <= now()
            FOR UPDATE`;
-      if (rows.length === 0) return null;
+      const lead = rows[0];
+      if (!lead) return null;
       await tx.intakeSubmission.updateMany({
         where: { intake: { leadId }, submittedAt: null },
         data: { answers: {}, savedSteps: [] },
@@ -537,7 +548,9 @@ export class BeginOnlineService {
         { removed: files.length },
         { businessId },
       );
-      return files.map((f) => f.s3Key);
+      // Every file's object, and those of tickets never confirmed (no row holds them).
+      const tickets = await ticketKeys(tx, businessId, leadId, lead.created_at);
+      return [...new Set([...files.map((f) => f.s3Key), ...tickets])];
     });
     for (const key of keys ?? []) {
       await this.storage.remove(key).catch((error: unknown) => {

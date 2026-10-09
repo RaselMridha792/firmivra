@@ -37,6 +37,7 @@ import { Public } from '../auth/decorators.js';
 import { poolSecrets } from '../auth/sealed.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { requestContext } from '../common/request-context.js';
+import { networkOf } from '../common/network.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -50,14 +51,21 @@ import { DRAFT_UPLOAD_PROVIDERS, DraftUploadsService } from './draft-uploads.ser
 import { DraftCookies } from './drafts.js';
 import { ResumeLinksService } from './resume-links.service.js';
 
-/** Per viewer IP, in memory (see configure-app.ts): a new draft is the scarce one. */
+/** A starting or resuming viewer's network (networkOf: /24 or /48), not the single address. */
+const byNetwork = (req: Record<string, unknown>) =>
+  networkOf(typeof req['ip'] === 'string' ? req['ip'] : undefined);
+
+/**
+ * Per viewer IP, in memory (see configure-app.ts): a new draft is the scarce one. Starts and
+ * resume links count per network, as the daily start limit does: a whole /24 or /48 is one viewer.
+ */
 export const BEGIN_ONLINE_THROTTLE = {
-  start: { default: { limit: 5, ttl: 60_000 } },
+  start: { default: { limit: 5, ttl: 60_000, getTracker: byNetwork } },
   /** Autosave: one save every 2 seconds at most, within the public write limit. */
   save: { default: { limit: 30, ttl: 60_000 } },
-  /** Emails: few per IP (the per-address and per-firm limits are counted in the database). */
-  resumeLink: { default: { limit: 5, ttl: 600_000 } },
-  resume: { default: { limit: 10, ttl: 60_000 } },
+  /** Emails: few per network (the per-address and per-firm limits are counted in the database). */
+  resumeLink: { default: { limit: 5, ttl: 600_000, getTracker: byNetwork } },
+  resume: { default: { limit: 10, ttl: 60_000, getTracker: byNetwork } },
   upload: { default: { limit: 30, ttl: 60_000 } },
   submit: { default: { limit: 5, ttl: 60_000 } },
 };
