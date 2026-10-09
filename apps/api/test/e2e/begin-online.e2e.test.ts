@@ -591,7 +591,11 @@ describe('Begin Online drafts', () => {
     // The daily limit counts the network the start row records (never only the address).
     const rows = await asOwner(firms.b.id, (tx) =>
       tx.auditLog.findMany({
-        where: { action: 'begin_online.draft_started', ip: { in: [...v4, ...v6] } },
+        where: {
+          businessId: firms.b.id,
+          action: 'begin_online.draft_started',
+          ip: { in: [...v4, ...v6] },
+        },
         select: { metadata: true },
       }),
     );
