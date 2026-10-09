@@ -19,7 +19,13 @@ import {
   type EsignRequestParts,
   type EsignRequestRecord,
 } from './esign.repository.js';
-import { type EsignActor, EsignRequestsService, invalid, seesAll } from './requests.service.js';
+import {
+  type EsignActor,
+  EsignRequestsService,
+  invalid,
+  savedOrRefused,
+  seesAll,
+} from './requests.service.js';
 
 /**
  * The sender's field types that may take a merge value: the text-like ones. A checkbox, radio
@@ -105,14 +111,15 @@ export class EsignPrepareService {
         filled: false,
       };
     });
-    const write = this.repo.saveFields(businessId, id, fields, record.lastActivityAt);
-    await this.requests.drafted(write);
+    const saved = savedOrRefused(
+      await this.repo.saveFields(businessId, id, fields, record.lastActivityAt),
+    );
     const kept = new Set(fields.map((f) => f.id));
     await this.audit.log('esign.fields_updated', entity(id), {
       fieldCount: fields.length,
       fieldsRemoved: parts.fields.filter((f) => !kept.has(f.id)).length,
     });
-    return this.requests.current(businessId, id);
+    return this.requests.answer(businessId, saved);
   }
 
   async mergeValues(businessId: string, actor: EsignActor, id: string): Promise<EsignMergeValues> {
@@ -121,7 +128,7 @@ export class EsignPrepareService {
     return this.merge(businessId, actor, record, fields);
   }
 
-  /** The rules' readiness check, plus APPROVER_MISSING (below). */
+  /** The rules' readiness check; Signing Settings' requireApproval adds APPROVER_MISSING. */
   async readiness(businessId: string, actor: EsignActor, id: string): Promise<EsignReadiness> {
     const { record } = await this.requests.reach(businessId, actor, id, 'read');
     return this.check(businessId, actor, record, await this.repo.parts(businessId, id));
@@ -139,7 +146,7 @@ export class EsignPrepareService {
       this.repo.defaults(businessId),
       this.repo.consentPublished(businessId),
     ]);
-    const result = this.rules.readiness({
+    return this.rules.readiness({
       documents: parts.documents,
       clientId: record.clientId,
       engagementId: record.engagementId,
@@ -151,20 +158,8 @@ export class EsignPrepareService {
       expiryDays: record.expiryDays,
       reminders: record.reminders,
       consentPublished,
+      approvalRequired: defaults.requireApproval,
     });
-    // R18 follow-up: ReadinessInput has no `approvalRequired` yet, so Signing Settings'
-    // requireApproval is checked here until EsignRules.readiness takes it.
-    if (defaults.requireApproval && !parts.recipients.some((r) => r.kind === 'APPROVER')) {
-      result.problems.push({
-        code: 'APPROVER_MISSING',
-        recipientId: null,
-        fieldId: null,
-        documentId: null,
-        mergeKey: null,
-      });
-      result.ready = false;
-    }
-    return result;
   }
 
   /**

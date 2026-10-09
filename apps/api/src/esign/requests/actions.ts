@@ -13,7 +13,7 @@ import type { EsignActor } from './requests.service.js';
 
 const OPEN: readonly EsignRequestStatus[] = ESIGN_OPEN_STATUSES;
 /** A signer whose turn it is. */
-const TURN: readonly EsignRecipientStatus[] = ['SENT', 'DELIVERED', 'VIEWED'];
+export const TURN: readonly EsignRecipientStatus[] = ['SENT', 'DELIVERED', 'VIEWED'];
 
 export const isOpen = (status: EsignRequestStatus) => OPEN.includes(status);
 

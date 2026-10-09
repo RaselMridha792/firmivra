@@ -5,3 +5,4 @@ export {
   type InvoicesClient,
   type MyInvoicesClient,
 } from './client.js';
+export * from './setup.js';

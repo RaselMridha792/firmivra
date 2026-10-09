@@ -98,7 +98,7 @@ export class EsignSendService {
       });
     const mailed = parts.recipients.filter((r) => links.has(r.id) && r.email);
     const now = new Date();
-    const emailIds = await this.repo.sendDraft(
+    const sent = await this.repo.sendDraft(
       businessId,
       id,
       {
@@ -120,7 +120,8 @@ export class EsignSendService {
       },
       record.lastActivityAt,
     );
-    if (!emailIds) throw esignRefusal('INVALID_STATE');
+    if (!sent) throw esignRefusal('INVALID_STATE');
+    const { emailIds } = sent;
     await this.audit.log('esign.request_sent', entity(id), {
       clientId: record.clientId,
       recipientIds: turn.map((t) => t.recipientId),
@@ -130,7 +131,7 @@ export class EsignSendService {
       const emailId = emailIds[i];
       if (emailId) await this.invite(businessId, emailId, r, links.get(r.id)!, record, sender);
     }
-    return this.requests.current(businessId, id);
+    return this.requests.answer(businessId, sent.request);
   }
 
   /** Composes the packet, stores it under its own hash (a lost race never overwrites it). */

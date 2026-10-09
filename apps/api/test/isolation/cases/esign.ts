@@ -1,10 +1,12 @@
-// Firm Sign (R13). Every route with a record id is behind the esign module, which is off in
-// every firm until r0_esign adds its tables; real cases replace these then.
+// Firm Sign (R13). Every route with a record id, in its path or its body (#248: the create's
+// clientId and engagementId), is behind the esign module, which is off in every firm until
+// r0_esign adds its tables; real cases (params and bodyIds) replace these then.
 import type { CaseModule } from '../world.js';
 
 const OFF = 'behind the esign module, off everywhere until r0_esign (#156)';
 
 export const moduleOff: CaseModule['moduleOff'] = {
+  'POST /api/v1/esign/requests': OFF,
   'GET /api/v1/esign/requests/:id': OFF,
   'PATCH /api/v1/esign/requests/:id': OFF,
   'DELETE /api/v1/esign/requests/:id': OFF,
@@ -15,6 +17,10 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'GET /api/v1/esign/requests/:id/readiness': OFF,
   'GET /api/v1/esign/requests/:id/events': OFF,
   'POST /api/v1/esign/requests/:id/send': OFF,
+  'POST /api/v1/esign/requests/:id/remind': OFF,
+  'POST /api/v1/esign/requests/:id/void': OFF,
+  'POST /api/v1/esign/requests/:id/recipients/:recipientId/correct': OFF,
+  'POST /api/v1/esign/requests/:id/replace': OFF,
   'POST /api/v1/esign/requests/:id/documents/uploads': OFF,
   'POST /api/v1/esign/requests/:id/documents/uploads/confirm': OFF,
   'DELETE /api/v1/esign/requests/:id/documents/:documentId': OFF,

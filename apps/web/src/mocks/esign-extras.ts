@@ -31,6 +31,7 @@ import { clientFixtures } from './clients';
 import { copy, fail, HOUR, iso, MINUTE } from './esign-common';
 import { engagementFixtures } from './engagements';
 import {
+  checkTemplateSource,
   type EsignAdminContext,
   type EsignBaseClient,
   type ExtrasKeys,
@@ -94,16 +95,8 @@ export function esignExtrasMock(
   const ownerOrAdmin = () => {
     if (ctx.role !== 'OWNER' && ctx.role !== 'ADMIN') throw forbidden();
   };
-  /** Owner and Admin, a Firm Sign Manager, or the caller when signed in as one. */
-  const mayApprove = (userId: string) => {
-    const m = ctx.members.find((x) => x.userId === userId);
-    if (!m) return false;
-    if (m.firmRole !== 'STAFF') return true;
-    return (
-      extras().esignRoles.get(userId) === 'MANAGER' ||
-      (userId === ctx.me.userId && ctx.role === 'MANAGER')
-    );
-  };
+  const mayApprove = (userId: string) =>
+    esignMockMayApprove(ctx.members, userId, { userId: ctx.me.userId, role: ctx.role });
   const unlocked = async () => {
     await ctx.on();
     if (extras().kiosk) throw fail(403, 'KIOSK_LOCKED', 'An in-person signing is open');
@@ -171,9 +164,7 @@ export function esignExtrasMock(
       const r = ctx.find(requestId);
       const t = template(input.templateId);
       editable(t);
-      if (r.documents.some((d) => d.scanStatus !== 'CLEAN')) {
-        throw fail(409, 'SCAN_PENDING', 'A file is still being checked');
-      }
+      checkTemplateSource(r);
       t.pageCount = r.pagePlan.length;
       t.roleCount = r.recipients.length;
       t.routing = r.routing;
@@ -300,6 +291,18 @@ export function esignExtrasMock(
         ctx.record(r, 'IN_PERSON_ENDED', { recipient: { id: k.recipientId, name: k.signerName } });
         return { ok: true as const };
       },
+    },
+
+    approvers: async () => {
+      await unlocked();
+      return {
+        items: ctx.members
+          .filter((m) => m.userId !== ctx.me.userId && mayApprove(m.userId))
+          .map((m) => ({
+            user: { userId: m.userId, name: m.name },
+            esignRole: m.firmRole === 'STAFF' ? ('MANAGER' as const) : m.firmRole,
+          })),
+      };
     },
 
     roles: {
@@ -475,8 +478,23 @@ export function esignExtrasMock(
   };
 }
 
-/** A Staff member's Firm Sign role as set with `roles.set` (undefined: STAFF). */
-export const esignMockRoleOf = (userId: string) => state?.esignRoles.get(userId);
+/**
+ * Who may approve, the one rule for both firm-side mocks: an Owner or Admin, or a Staff member
+ * who is a Firm Sign Manager (set with `roles.set`, or the caller signed in as one).
+ */
+export const esignMockMayApprove = (
+  members: readonly { userId: string; firmRole: 'OWNER' | 'ADMIN' | 'STAFF' }[],
+  userId: string,
+  caller: { userId: string; role: EsignAccessRole },
+): boolean => {
+  const m = members.find((x) => x.userId === userId);
+  if (!m) return false;
+  if (m.firmRole !== 'STAFF') return true;
+  return (
+    state?.esignRoles.get(userId) === 'MANAGER' ||
+    (userId === caller.userId && caller.role === 'MANAGER')
+  );
+};
 
 /** True while an in-person signing is open: every other firm call answers 403 KIOSK_LOCKED. */
 export const esignKioskOpen = () => state?.kiosk != null;
