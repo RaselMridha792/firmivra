@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
 import { EsignGate } from '../../../../../../../components/esign/esign-gate';
+import { canCreate } from '../../../../../../../components/esign/esign-role';
 import { roleName, VISIBILITY_LABELS } from '../../../../../../../components/esign/field-labels';
 import { FieldOverlay } from '../../../../../../../components/esign/field-overlay';
 import { PdfPages } from '../../../../../../../components/esign/pdf-pages';
@@ -25,15 +26,15 @@ const AUTH: Record<EsignTemplateDetail['roles'][number]['authMethod'], string> =
 
 /** /firm-sign/templates/[id]: what using the template copies, and its owner's controls. */
 export function TemplateDetail({ id }: { id: string }) {
-  return <EsignGate>{() => <Detail id={id} />}</EsignGate>;
+  return <EsignGate>{(role) => <Detail id={id} canUse={canCreate(role)} />}</EsignGate>;
 }
 
-function Detail({ id }: { id: string }) {
+function Detail({ id, canUse }: { id: string; canUse: boolean }) {
   const template = useApiQuery(templateKey(id), () => api.esign.templates.get(id));
-  return <PageState query={template}>{(t) => <Template t={t} />}</PageState>;
+  return <PageState query={template}>{(t) => <Template t={t} canUse={canUse} />}</PageState>;
 }
 
-function Template({ t }: { t: EsignTemplateDetail }) {
+function Template({ t, canUse }: { t: EsignTemplateDetail; canUse: boolean }) {
   const [editing, setEditing] = useState(false);
   const roles = [...t.roles].sort((a, b) => a.routingOrder - b.routingOrder);
   const fields = t.fields.map((f) => ({ ...f, recipientId: f.roleKey, filled: false }));
@@ -65,12 +66,24 @@ function Template({ t }: { t: EsignTemplateDetail }) {
             {t.archivedAt && <Badge tone="warning">Archived {shortDate(t.archivedAt)}</Badge>}
           </div>
         </div>
-        {editable && (
+        {!t.archivedAt && (canUse || editable) && (
           <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" onClick={() => setEditing(true)}>
-              Edit details
-            </Button>
-            <Archive t={t} onArchived={() => setEditing(false)} />
+            {canUse && (
+              <Link
+                href={`/firm-sign/new?templateId=${t.id}`}
+                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+              >
+                Use template
+              </Link>
+            )}
+            {editable && (
+              <>
+                <Button variant="secondary" onClick={() => setEditing(true)}>
+                  Edit details
+                </Button>
+                <Archive t={t} onArchived={() => setEditing(false)} />
+              </>
+            )}
           </div>
         )}
       </div>
