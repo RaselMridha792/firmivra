@@ -31,6 +31,7 @@ import {
 } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
+import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
 import {
   BUSINESS_MODULES,
   ModuleGuard,
@@ -98,6 +99,9 @@ beforeAll(async () => {
     .useValue(w.store)
     .overrideProvider(PDF_ENGINE)
     .useValue(fakePdf)
+    // The signer routes' firm lookup (not used by these routes).
+    .overrideProvider(PortalInfoService)
+    .useValue({ activeFirm: () => Promise.reject(new Error('not used here')) })
     .compile();
   app = moduleRef.createNestApplication();
   // What AuthGuard and TenantGuard set, from test headers.
@@ -168,12 +172,12 @@ describe('Firm Sign over HTTP', () => {
     }
   });
 
-  it('closes @RequiresModule routes when off: 403 MODULE_OFF for staff, 404 for clients', async () => {
+  it('closes @RequiresModule routes when off: 403 MODULE_OFF for staff and clients', async () => {
     expect((await call('/probe', ownerA())).status).toBe(200);
     w.modules.set(w.a, 'esign', false);
     try {
       expect(errorOf(await call('/probe', ownerA()))).toEqual([403, 'MODULE_OFF']);
-      expect(errorOf(await call('/probe', clientA()))).toEqual([404, 'NOT_FOUND']);
+      expect(errorOf(await call('/probe', clientA()))).toEqual([403, 'MODULE_OFF']);
       expect((await call('/probe', ownerB())).status).toBe(200);
     } finally {
       w.modules.set(w.a, 'esign', true);
@@ -783,11 +787,11 @@ describe('the module switch (ModuleGuard)', () => {
         `${e.getStatus()} ${e.getResponse().code}`,
     );
 
-  it('lets a firm through when on; off is 403 MODULE_OFF for staff, 404 for clients and public routes', async () => {
+  it('lets a firm through when on; off is 403 MODULE_OFF for staff and clients, 404 for public routes', async () => {
     expect(await answer(guardFor(true).canActivate(ctx(staffTenant)))).toBe('allowed');
     expect(await answer(guardFor(true).canActivate(ctx(clientTenant)))).toBe('allowed');
     expect(await answer(guardFor(false).canActivate(ctx(staffTenant)))).toBe('403 MODULE_OFF');
-    expect(await answer(guardFor(false).canActivate(ctx(clientTenant)))).toBe('404 NOT_FOUND');
+    expect(await answer(guardFor(false).canActivate(ctx(clientTenant)))).toBe('403 MODULE_OFF');
     expect(await answer(guardFor(true).canActivate(ctx(undefined)))).toBe('404 NOT_FOUND');
     // A route without @RequiresModule is not the guard's business.
     expect(await answer(guardFor(false).canActivate(ctx(staffTenant, () => 1)))).toBe('allowed');

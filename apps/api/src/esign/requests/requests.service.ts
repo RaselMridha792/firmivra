@@ -331,7 +331,7 @@ export class EsignRequestsService {
   }
 
   /** Who a recipient is. Client logins are the request's client's own, by id, never by email. */
-  private async who(
+  async who(
     businessId: string,
     clientId: string | null,
     who: PutRecipient['who'],
@@ -357,9 +357,9 @@ export class EsignRequestsService {
   }
 
   /** 409 APPROVER_NOT_ALLOWED unless an Owner, Admin or Firm Sign Manager, not the sender. */
-  private async approver(
+  async approver(
     businessId: string,
-    record: EsignRequestRecord,
+    record: Pick<EsignRequestRecord, 'senderUserId'>,
     who: PutRecipient['who'],
   ): Promise<void> {
     const role = who.type === 'STAFF' ? await this.repo.esignRole(businessId, who.userId) : null;
@@ -417,7 +417,7 @@ export class EsignRequestsService {
   }
 
   /** One of the client's PENDING or ACTIVE services, or 409 ENGAGEMENT_MISMATCH. */
-  private async openService(businessId: string, clientId: string | null, id: string | null) {
+  async openService(businessId: string, clientId: string | null, id: string | null) {
     if (id === null) return null;
     const service = await this.directory.engagement(businessId, id);
     if (!service || service.clientId !== clientId || !OPEN_SERVICE.has(service.status)) {
@@ -510,8 +510,8 @@ export class EsignRequestsService {
       fields: parts.fields.map((f) => EsignField.parse(f)),
       replacesRequestId: r.replacesRequestId,
       replacedByRequestId: r.replacedByRequestId,
+      template: r.template,
       // The columns below arrive with r0_esign and are read from part 3 on.
-      template: null,
       approvalNotes,
       declinedAt: null,
       expiredAt: iso(r.expiredAt),

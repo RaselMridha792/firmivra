@@ -85,6 +85,15 @@ const ADDRESS = {
   postalCode: true,
 } as const;
 
+const LOGIN = {
+  id: true,
+  clientId: true,
+  portalRole: true,
+  status: true,
+  email: true,
+  user: { select: { name: true } },
+} as const;
+
 /** One of a client's documents (R5's vault), for from-vault. */
 export interface DirectoryDocument {
   id: string;
@@ -101,6 +110,8 @@ export interface EsignDirectory {
   client(businessId: string, clientId: string): Promise<DirectoryClient | null>;
   engagement(businessId: string, engagementId: string): Promise<DirectoryEngagement | null>;
   clientLogin(businessId: string, clientAccountId: string): Promise<DirectoryLogin | null>;
+  /** The client's portal logins, oldest first (a template's CLIENT and SPOUSE roles). */
+  clientLogins(businessId: string, clientId: string): Promise<DirectoryLogin[]>;
   member(businessId: string, userId: string): Promise<DirectoryMember | null>;
   /** Every active member, by name. */
   members(businessId: string): Promise<DirectoryStaff[]>;
@@ -134,16 +145,18 @@ export class PrismaEsignDirectory implements EsignDirectory {
   async clientLogin(businessId: string, id: string): Promise<DirectoryLogin | null> {
     const row = await this.database.forBusiness(businessId).clientAccount.findFirst({
       where: { businessId, id },
-      select: {
-        id: true,
-        clientId: true,
-        portalRole: true,
-        status: true,
-        email: true,
-        user: { select: { name: true } },
-      },
+      select: LOGIN,
     });
     return row && { ...row, name: row.user.name };
+  }
+
+  async clientLogins(businessId: string, clientId: string): Promise<DirectoryLogin[]> {
+    const rows = await this.database.forBusiness(businessId).clientAccount.findMany({
+      where: { businessId, clientId },
+      orderBy: { createdAt: 'asc' },
+      select: LOGIN,
+    });
+    return rows.map(({ user, ...row }) => ({ ...row, name: user.name }));
   }
 
   async member(businessId: string, userId: string): Promise<DirectoryMember | null> {

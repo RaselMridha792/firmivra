@@ -1,5 +1,12 @@
 import { Module } from '@nestjs/common';
+import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { ModulesModule } from '../common/modules/requires-module.js';
+import { EsignCenterController } from './center/center.controller.js';
+import { CENTER_REPOSITORY } from './center/center.repository.js';
+import { EsignCenterService } from './center/center.service.js';
+import { COMPLETION_REPOSITORY } from './completion/completion.repository.js';
+import { EsignCompletionJob } from './completion/completion.job.js';
+import { EsignCompletionService } from './completion/completion.service.js';
 import { EsignEngineModule } from './engine/engine.module.js';
 import { EsignApprovalsService } from './extras/approvals.service.js';
 import { EsignExtrasController } from './extras/extras.controller.js';
@@ -21,20 +28,47 @@ import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 import { EsignSendService } from './requests/send.service.js';
+import { EsignTemplateCopyService } from './templates/template-copy.service.js';
+import { EsignTemplateUseService } from './templates/template-use.service.js';
+import {
+  EsignTemplateVersionSaveController,
+  EsignTemplateVersionsController,
+} from './templates/template-versions.controller.js';
+import { EsignTemplateVersionsService } from './templates/template-versions.service.js';
+import {
+  EsignTemplateSaveController,
+  EsignTemplatesController,
+} from './templates/templates.controller.js';
+import { TEMPLATE_REPOSITORY } from './templates/templates.repository.js';
+import { EsignTemplatesService } from './templates/templates.service.js';
+import { EsignSettingsController } from './settings/settings.controller.js';
+import { SETTINGS_REPOSITORY } from './settings/settings.repository.js';
+import { EsignSettingsService } from './settings/settings.service.js';
+import { EsignSignerController } from './signer/signer.controller.js';
+import { EsignSignerFilesService } from './signer/signer-files.service.js';
+import { SIGNER_REPOSITORY } from './signer/signer.repository.js';
+import { EsignSignerService } from './signer/signer.service.js';
 
 /**
  * Firm Sign (R13). Behind the firm's 'esign' module (ModulesModule): off for a firm until
  * `business_settings.enabled_modules` lists 'esign'. The engine's CODE_HASHER, ESIGN_STORE,
- * ESIGN_RULES and PDF_ENGINE come from R18's EsignEngineModule; the EsignRepository is a failing
- * stand-in until migration r0_esign adds its tables.
+ * ESIGN_RULES and PDF_ENGINE come from R18's EsignEngineModule; the esign repositories are failing
+ * stand-ins until migration r0_esign adds their tables.
  */
 @Module({
-  imports: [ModulesModule, EsignEngineModule],
+  imports: [ModulesModule, EsignEngineModule, PortalInfoModule],
   controllers: [
     EsignStatusController,
     EsignRequestsController,
     EsignDocumentsController,
+    EsignSignerController,
+    EsignSettingsController,
+    EsignCenterController,
     EsignLifecycleController,
+    EsignTemplatesController,
+    EsignTemplateSaveController,
+    EsignTemplateVersionsController,
+    EsignTemplateVersionSaveController,
     EsignExtrasController,
   ],
   providers: [
@@ -43,12 +77,27 @@ import { EsignSendService } from './requests/send.service.js';
     EsignPrepareService,
     EsignListService,
     EsignSendService,
-    EsignLifecycleService,
-    EsignLifecycleJob,
+    EsignTemplatesService,
+    EsignTemplateCopyService,
+    EsignTemplateUseService,
+    EsignTemplateVersionsService,
+    EsignSignerService,
+    EsignSignerFilesService,
+    EsignCompletionService,
+    EsignCompletionJob,
+    EsignSettingsService,
+    EsignCenterService,
     EsignApprovalsService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
+    { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
+    { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
+    { provide: SETTINGS_REPOSITORY, useValue: notMigrated('EsignSettingsRepository') },
+    { provide: CENTER_REPOSITORY, useValue: notMigrated('EsignCenterRepository') },
+    EsignLifecycleService,
+    EsignLifecycleJob,
     { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
+    { provide: TEMPLATE_REPOSITORY, useValue: notMigrated('EsignTemplateRepository') },
     { provide: EXTRAS_REPOSITORY, useValue: notMigrated('EsignExtrasRepository') },
   ],
 })
