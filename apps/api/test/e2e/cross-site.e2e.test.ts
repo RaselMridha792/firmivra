@@ -191,6 +191,23 @@ describe('server-side code never relays a session (#23 review)', () => {
     }
   });
 
+  it('counts the Begin Online draft cookie (fv_bo_*) as a session cookie', async () => {
+    for (const cookie of ['fv_bo_draft=x', 'fv_bo_x=y']) {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/sign-out')
+        .set('cookie', cookie)
+        .send({});
+      expect([cookie, res.status, codeOf(res)]).toEqual([cookie, 403, 'ORIGIN_NOT_ALLOWED']);
+    }
+    // From another site it is refused like any other cross-site change.
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/sign-out')
+      .set('cookie', 'fv_bo_draft=x')
+      .set('origin', 'https://evil.example')
+      .send({});
+    expect([res.status, codeOf(res)]).toEqual([403, 'ORIGIN_NOT_ALLOWED']);
+  });
+
   it('lets the same change through from the browser, and cookie-less calls without Origin', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/auth/sign-out')
