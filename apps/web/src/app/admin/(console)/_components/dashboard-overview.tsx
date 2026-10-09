@@ -281,11 +281,11 @@ export function DashboardOverview() {
             </div>
           </Card>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Card variant="elevated" data-testid="platform-growth" className="!p-4">
+          <div className="grid gap-4 xl:grid-cols-13">
+            <Card variant="elevated" data-testid="platform-growth" className="!p-4 xl:col-span-7">
               <PlatformGrowth />
             </Card>
-            <Card variant="elevated" className="!p-4">
+            <Card variant="elevated" className="!p-4 xl:col-span-6">
               <SectionTitle icon={SquareCheckBig} iconClassName="text-purple">
                 Tasks Requiring Attention
               </SectionTitle>
