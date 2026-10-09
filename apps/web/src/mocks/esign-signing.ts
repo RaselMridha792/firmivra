@@ -54,6 +54,8 @@ import { mockBusiness } from './me';
  * - accessCode: an access code (MOCK1234) instead of the email code.
  * - autoPage: no placed fields, so they sign on the added signature page.
  * - waiting: someone signs first (WAITING). DONE comes after `finish`.
+ * - inPerson: the link `inPerson.start` gives (signing on the staff member's device): it starts
+ *   at the consent step, with no email code.
  * - copy: a completed-copy link (email code, then COPY). used and expired: LINK_INVALID (a link
  *   that was already used to sign, or ran out).
  * Any other token, another firm's slug, or NEXT_PUBLIC_API_MOCK_ESIGN=off answers 404 LINK_INVALID.
@@ -71,6 +73,7 @@ export const MOCK_SIGNING_TOKENS = {
   accessCode: 'mock-access-code000000000000000000000000000',
   autoPage: 'mock-auto-page00000000000000000000000000000',
   waiting: 'mock-waiting0000000000000000000000000000000',
+  inPerson: 'mock-in-person00000000000000000000000000000',
   used: 'mock-used0000000000000000000000000000000000',
   copy: 'mock-copy0000000000000000000000000000000000',
   expired: 'mock-expired0000000000000000000000000000000',
@@ -113,6 +116,7 @@ const FIRST_STEP: Record<Scenario, SignerStep> = {
   accessCode: 'VERIFY_ACCESS_CODE',
   autoPage: 'VERIFY_EMAIL',
   waiting: 'WAITING',
+  inPerson: 'CONSENT',
   used: 'DONE',
   copy: 'VERIFY_EMAIL',
   expired: 'CLOSED',
@@ -174,10 +178,15 @@ function newSession(scenario: Scenario): Session {
 
 const signerState = (s: Session): SignerState => ({
   step: s.step,
-  title: s.scenario === 'copy' ? 'Tax Engagement Letter 2026' : 'Bookkeeping Services Agreement',
+  title:
+    s.scenario === 'copy'
+      ? 'Tax Engagement Letter 2026'
+      : s.scenario === 'inPerson'
+        ? 'Engagement Letter (in person)'
+        : 'Bookkeeping Services Agreement',
   senderName: 'Mock User',
   firmName: mockBusiness.name,
-  signerName: 'Jamie Sample',
+  signerName: s.scenario === 'inPerson' ? 'Taylor Sample' : 'Jamie Sample',
   codeSentTo: s.step === 'VERIFY_EMAIL' ? 'j***@example.test' : null,
   requestStatus: s.step === 'COPY' ? 'COMPLETED' : s.step === 'CLOSED' ? 'EXPIRED' : null,
   expiresAt: s.step === 'CLOSED' ? null : iso(Date.now() + 10 * DAY),
@@ -464,10 +473,26 @@ export function createMySignaturesMock(firmSlug: string): MySignaturesClient {
 
 // ---------- Settings and templates on api.esign ----------
 type AdminKeys = 'saveAsTemplate' | 'settings' | 'templates';
+/** Contract 3's calls, mocked in mocks/esign-extras.ts. */
+export type ExtrasKeys =
+  | 'saveAsVersion'
+  | 'submitForApproval'
+  | 'decideApproval'
+  | 'inPerson'
+  | 'roles'
+  | 'approvers'
+  | 'bulk'
+  | 'report';
+export type TemplateExtrasKeys = 'versions' | 'restoreVersion' | 'duplicate' | 'bulkSend';
+/** The request calls of mocks/esign.ts, without settings, templates and the extras. */
+export type EsignBaseClient = Omit<EsignClient, AdminKeys | ExtrasKeys>;
+type AdminClient = Pick<EsignClient, 'saveAsTemplate' | 'settings'> & {
+  templates: Omit<EsignClient['templates'], TemplateExtrasKeys>;
+};
 
 /** What the firm-side mock (mocks/esign.ts) shares with settings and templates. */
 export interface EsignAdminContext {
-  client: Omit<EsignClient, AdminKeys>;
+  client: EsignBaseClient;
   on: () => Promise<void>;
   /** The request, if the caller may see it (404 otherwise). */
   find: (requestId: string) => EsignRequestDetail;
@@ -475,7 +500,10 @@ export interface EsignAdminContext {
   stored: (requestId: string) => EsignRequestDetail;
   record: (r: EsignRequestDetail, type: EsignEventType, extra?: Partial<EsignEvent>) => void;
   me: MemberRef;
+  /** Owner or Admin: settings, and every template, PRIVATE ones too. */
   manager: boolean;
+  /** Owner, Admin or Firm Sign Manager: changes any template they can see. */
+  templateManager: boolean;
   newId: (prefix: string) => string;
 }
 
@@ -500,6 +528,10 @@ const admin = (): AdminState =>
   });
 let templates: EsignTemplateDetail[] | undefined;
 
+/** The firm's Signing Settings defaults (for the readiness check in mocks/esign.ts). */
+export const esignDefaults = () => admin().defaults;
+/** The mock's templates (shared with mocks/esign-extras.ts). */
+export const esignTemplateStore = (me: MemberRef): EsignTemplateDetail[] => templateFixtures(me);
 const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
   (templates ??= (
     [
@@ -515,6 +547,7 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
     owner: me,
     pageCount: 2,
     roleCount: 2,
+    version: 1,
     updatedAt: iso(Date.now() - (i + 1) * 7 * DAY),
     archivedAt: null,
     canEdit: true,
@@ -615,7 +648,7 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
   })));
 
 /** Signing Settings, templates and save-as-template for the firm-side mock. */
-export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminKeys> {
+export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
   const forbidden = () => fail(403, 'FORBIDDEN', 'Only an Owner or Admin can change this');
   const settingsView = () => ({
     defaults: copy(admin().defaults),
@@ -637,13 +670,13 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
       (t) => !t.archivedAt && t.id !== except && t.name.toLowerCase() === name.toLowerCase(),
     );
   const editable = (t: EsignTemplateDetail) => {
-    if (!(ctx.manager || t.owner.userId === ctx.me.userId)) throw forbidden();
+    if (!(ctx.templateManager || t.owner.userId === ctx.me.userId)) throw forbidden();
     if (t.archivedAt) throw fail(409, 'TEMPLATE_ARCHIVED', 'This template is archived');
   };
   const rowOf = (t: EsignTemplateDetail) => {
     const { packetUrl: _p, pageSizes: _s, roles: _r, fields: _f, ...rest } = t;
     void [_p, _s, _r, _f];
-    return { ...copy(rest), canEdit: ctx.manager || t.owner.userId === ctx.me.userId };
+    return { ...copy(rest), canEdit: ctx.templateManager || t.owner.userId === ctx.me.userId };
   };
 
   return {
@@ -668,6 +701,7 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
         owner: ctx.me,
         pageCount: r.pagePlan.length,
         roleCount: r.recipients.length,
+        version: 1,
         updatedAt: iso(Date.now()),
         archivedAt: null,
         canEdit: true,
@@ -825,6 +859,7 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
         });
         const r = ctx.stored(created.id);
         r.source = 'TEMPLATE';
+        r.template = { id: t.id, version: t.version };
         const docId = ctx.newId('b');
         r.documents = [
           {
