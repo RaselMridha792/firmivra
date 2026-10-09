@@ -37,6 +37,7 @@ import { DocumentsModule } from './storage/documents.controller.js';
 import { CheckoutModule } from './payments/checkout/checkout.controller.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
 import { RefundsModule } from './payments/refunds/refunds.controller.js';
+import { OfflinePaymentsModule } from './payments/offline/offline-payments.controller.js';
 import { StripeWebhookModule } from './payments/webhooks/stripe-webhook.controller.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
@@ -98,6 +99,7 @@ export class AppModule {
         CheckoutModule,
         StripeWebhookModule,
         RefundsModule,
+        OfflinePaymentsModule,
         StripeClientModule,
         PaymentsSetupModule,
         SignInModule,

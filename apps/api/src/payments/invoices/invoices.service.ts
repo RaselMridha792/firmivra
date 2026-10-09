@@ -31,6 +31,7 @@ import {
   conflict,
   day,
   firmToday,
+  holdsMoney,
   type InvoiceRow,
   invoiceSelect,
   notFound,
@@ -337,6 +338,7 @@ export class InvoicesService {
           throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
         }
         if (processing(current)) throw paymentInProgress();
+        if (holdsMoney(current)) throw conflict('HAS_PAYMENTS', INVOICE_ERRORS.HAS_PAYMENTS);
         const unsettled = current.payments.some((p) => p.status === 'PENDING');
         if (unsettled) {
           if (!this.stripe) throw providerUnavailable();

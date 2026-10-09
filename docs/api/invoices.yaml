@@ -196,9 +196,10 @@ info:
       database), after locking the invoice (`404` if not the firm's). A retry with a used
       `idempotencyKey` fails as a duplicate key before any other check: answer the invoice as it
       is (`200`, read the row by key). `receivedOn` after the firm's today is `400`. Then `409
-      NOT_OPEN` (not `OPEN`); end the invoice's open Checkout Sessions at Stripe as cancel does
-      (`409 PAYMENT_IN_PROGRESS` when the client already paid on one; `503` when Stripe does not
-      answer); `409 AMOUNT_TOO_LARGE` over the balance due (`total − app_invoice_paid_cents`). The
+      NOT_OPEN` (not `OPEN`), `409 PAYMENT_IN_PROGRESS` (a submitted payment waits for Stripe),
+      `409 AMOUNT_TOO_LARGE` over the balance due (`total − app_invoice_paid_cents`); then end
+      the invoice's open Checkout Sessions at Stripe as cancel does (`409 PAYMENT_IN_PROGRESS`
+      when the client already paid on one; `503` when Stripe does not answer). The
       invoice turns `PAID` when covered (the API sets it, as the webhook does); notices
       `payment.received` after commit. Void only with `app_void_offline_payment(id, reason)` as the
       acting member (`404` for no such payment on this invoice, `409 ALREADY_VOIDED`); the

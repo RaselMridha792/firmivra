@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { AuditService } from '../../audit/audit.service.js';
 import { DATABASE } from '../../database/database.module.js';
 import { InvoiceNotices } from '../invoices/invoice-notices.js';
+import { paidCents } from '../invoices/invoice-view.js';
 import { providerUnavailable, stripeCall } from '../checkout/checkout-sessions.js';
 import { StripeAccountsWriter, toOnboardingState } from '../stripe/stripe-accounts.js';
 import {
@@ -200,16 +201,11 @@ export class StripeWebhookService {
       where: { businessId, id: payment.invoiceId },
       select: { status: true, totalCents: true },
     });
-    const paid = await tx.payment.aggregate({
-      where: {
-        businessId,
-        invoiceId: payment.invoiceId,
-        status: { in: ['SUCCEEDED', 'REFUNDED'] },
-      },
-      _sum: { amountCents: true },
-    });
     // A payment of an invoice canceled meanwhile is still recorded; the firm refunds it.
-    if (invoice.status === 'OPEN' && (paid._sum.amountCents ?? 0) >= invoice.totalCents) {
+    if (
+      invoice.status === 'OPEN' &&
+      (await paidCents(tx, payment.invoiceId)) >= invoice.totalCents
+    ) {
       await tx.invoice.update({
         where: { businessId_id: { businessId, id: payment.invoiceId } },
         data: { status: 'PAID', paidAt: new Date() },
