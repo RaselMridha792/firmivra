@@ -1,3 +1,4 @@
+import { PageContainer } from '@firmivra/ui';
 import type { Metadata } from 'next';
 import { PagePlaceholder } from '../../../../../../components/page-placeholder';
 
@@ -5,11 +6,13 @@ export const metadata: Metadata = { title: 'Quarterly tax' };
 
 export default function QuarterlyTaxPage() {
   return (
-    <PagePlaceholder
-      title="Quarterly tax"
-      ticket="N07b"
-      owner="Arfan"
-      mockup="begin-online/business Information.png, Taxes & Income.png, Business Expenses.png, Review & Submit.png"
-    />
+    <PageContainer className="py-8">
+      <PagePlaceholder
+        title="Quarterly tax"
+        ticket="N07b"
+        owner="Arfan"
+        mockup="begin-online/business Information.png, Taxes & Income.png, Business Expenses.png, Review & Submit.png"
+      />
+    </PageContainer>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { PageContainer, PageSection } from '@firmivra/ui';
 import Image from 'next/image';
 import type { ReactNode } from 'react';
 import { PortalFooter } from '../../app/portal/[firmSlug]/(public)/_components/portal-footer';
@@ -13,7 +14,7 @@ export function SigningFrame({ children }: { children: ReactNode }) {
   const { branding, business } = usePortal();
   return (
     <div className="flex min-h-screen flex-col bg-surface">
-      <header className="border-b border-border bg-folder-surface px-6 py-4">
+      <PageSection as="header" className="border-b border-border bg-folder-surface py-4">
         <p
           data-testid="signing-firm"
           className="flex items-center gap-3 text-xl font-bold text-firm-primary"
@@ -23,9 +24,11 @@ export function SigningFrame({ children }: { children: ReactNode }) {
           )}
           {business.name}
         </p>
-      </header>
-      <main className="flex-1 p-4">{children}</main>
-      <PortalFooter />
+      </PageSection>
+      <PageContainer as="main" className="flex-1 py-4">
+        {children}
+      </PageContainer>
+      <PortalFooter width="public" />
     </div>
   );
 }
