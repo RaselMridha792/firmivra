@@ -320,6 +320,7 @@ export class SignUpService {
         await this.log(s.businessId, s.userId, 'client_account.verified', account.id, {
           phoneVerified: false,
         });
+        await this.submitted(s.businessId, account.id, s.userId);
         // The sign-up is complete: a busy database while reading the state never makes it an error.
         return this.stateOf(s, expiresAt).catch(() => ({
           step: 'DONE' as const,

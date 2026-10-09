@@ -10,12 +10,13 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { portalCookies, SignUpState } from '@firmivra/types';
+import { NotificationList, portalCookies, SignUpState } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { portalClient } from '../../src/auth/portal-clients.js';
 import { CLIENT_CODE_SENDER } from '../../src/client-auth/client-code-sender.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE } from '../../src/notify/notify.types.js';
 
 const fx = inject('fixtures');
 let app: INestApplication;
@@ -24,6 +25,11 @@ let firmId = '';
 // The firm's own owner, so the shared fixtures' owners keep exactly their memberships.
 const ownerId = randomUUID();
 const ownerEmail = `owner-${slug}@example.test`;
+// The firm's Admin and Staff member: `client.signup-submitted` reaches Owners and Admins only.
+const adminId = randomUUID();
+const adminEmail = `admin-${slug}@example.test`;
+const staffId = randomUUID();
+const staffEmail = `staff-${slug}@example.test`;
 const docIds: string[] = [];
 const outbox: { kind: 'email' | 'sms' | 'registered'; to: string }[] = [];
 let portalOrigin = '';
@@ -67,6 +73,20 @@ async function asOwner<T>(
   }
 }
 
+/** The staff bell of the person with `email` in this firm, through the list route. */
+async function bell(email: string) {
+  const { token } = (
+    await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email }).expect(200)
+  ).body as { token: string };
+  const res = await request(app.getHttpServer())
+    .get('/api/v1/business/me/notifications')
+    .set('authorization', `Bearer ${token}`)
+    .set('x-business-id', firmId)
+    .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`);
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+  return NotificationList.parse(res.body).items;
+}
+
 async function firmCall(method: 'get' | 'post', path: string, body?: object) {
   const { token } = (
     await request(app.getHttpServer())
@@ -85,24 +105,26 @@ async function firmCall(method: 'get' | 'post', path: string, body?: object) {
 beforeAll(async () => {
   firmId = (
     await asOwner({ kind: 'platform' }, async (tx) => {
-      await tx.user.create({
-        data: {
-          id: ownerId,
-          cognitoSub: ownerId,
-          pool: 'STAFF',
-          email: ownerEmail,
-          name: 'Fake owner',
-        },
-      });
+      for (const [id, email, name] of [
+        [ownerId, ownerEmail, 'Fake owner'],
+        [adminId, adminEmail, 'Fake admin'],
+        [staffId, staffEmail, 'Fake staff'],
+      ] as const) {
+        await tx.user.create({ data: { id, cognitoSub: id, pool: 'STAFF', email, name } });
+      }
       return tx.business.create({
         data: { slug, name: 'R6 SMS Fallback Firm', status: 'ACTIVE' },
       });
     })
   ).id;
   await asOwner({ kind: 'business', businessId: firmId }, async (tx) => {
-    await tx.membership.create({
-      data: { businessId: firmId, userId: ownerId, role: 'OWNER', status: 'ACTIVE' },
-    });
+    for (const [userId, role] of [
+      [ownerId, 'OWNER'],
+      [adminId, 'ADMIN'],
+      [staffId, 'STAFF'],
+    ] as const) {
+      await tx.membership.create({ data: { businessId: firmId, userId, role, status: 'ACTIVE' } });
+    }
     for (const kind of ['TERMS', 'PRIVACY'] as const) {
       const doc = await tx.firmLegalDocument.create({
         data: {
@@ -140,6 +162,8 @@ beforeAll(async () => {
       signUpApproved: () => Promise.resolve(),
       signUpDeclined: () => Promise.resolve(),
     })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({ send: () => Promise.resolve() })
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -327,5 +351,55 @@ describe('sign-up with the phone code optional (SMS fallback)', () => {
       tx.clientAccount.findFirstOrThrow({ where: { email: takenEmail } }),
     );
     expect([after.userId, after.status]).toEqual([before.userId, 'PENDING_APPROVAL']);
+  });
+
+  it("completing at verify-email writes client.signup-submitted for the firm's Owners and Admins", async () => {
+    const email = `r6-bell-${randomUUID().slice(0, 6)}@example.test`;
+    const v = visitor();
+    await v.signUp({
+      name: 'Jane Bell',
+      email,
+      phone: '+17705550145',
+      password: 'Client-password-1',
+      accountType: 'INDIVIDUAL',
+      accepted: { termsVersion: 1, privacyVersion: 1 },
+    });
+    const accountId = (
+      await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+        tx.clientAccount.findFirstOrThrow({ where: { email }, select: { id: true } }),
+      )
+    ).id;
+    const stored = () =>
+      asOwner({ kind: 'platform' }, (tx) =>
+        tx.notification.findMany({
+          where: { entityId: accountId },
+          select: { businessId: true, recipientUserId: true, payload: true },
+        }),
+      );
+    // Not complete yet: nothing in the queue's bell.
+    expect(await stored()).toEqual([]);
+    expect((await v.post('/verify-email', { code: '000000' })).body).toMatchObject({
+      step: 'DONE',
+    });
+
+    for (const who of [ownerEmail, adminEmail]) {
+      const items = (await bell(who)).filter((i) => i.target.id === accountId);
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        title: 'New client sign-up',
+        body: 'Jane Bell is waiting for approval.',
+        target: { kind: 'client_account', id: accountId, clientId: null },
+      });
+    }
+    expect((await bell(staffEmail)).filter((i) => i.target.id === accountId)).toEqual([]);
+    // In this firm only, the account's id and the name its text shows (no email or phone).
+    const rows = await stored();
+    expect(rows.map((r) => [r.businessId, r.recipientUserId]).sort()).toEqual(
+      [
+        [firmId, ownerId],
+        [firmId, adminId],
+      ].sort(),
+    );
+    for (const r of rows) expect(r.payload).toEqual({ name: 'Jane Bell', client: null });
   });
 });
