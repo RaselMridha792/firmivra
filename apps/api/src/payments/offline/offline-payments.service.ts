@@ -36,7 +36,26 @@ type VoidBody = z.output<typeof VoidOfflinePaymentRequest>;
 
 const isUniqueViolation = (e: unknown) =>
   (e as { code?: unknown } | null)?.code === 'P2002' || databaseErrorCode(e) === '23505';
+/** R0's unique index on (business_id, idempotency_key); also raised by name by the trigger. */
+export const KEY_INDEX = 'offline_payments_business_id_idempotency_key_key';
+
+/**
+ * The unique index a Prisma error names: the pg adapter puts PostgreSQL's constraint in
+ * `meta.driverAdapterError.cause.constraint.index` (its message names it too).
+ */
+export function violatedIndex(error: unknown): string | undefined {
+  const meta = (error as { meta?: { driverAdapterError?: { cause?: unknown } } } | null)?.meta;
+  const cause = meta?.driverAdapterError?.cause as
+    { constraint?: { index?: unknown }; originalMessage?: unknown } | undefined;
+  const index = cause?.constraint?.index;
+  if (typeof index === 'string') return index;
+  const message = cause?.originalMessage;
+  return typeof message === 'string' ? /unique constraint "([^"]+)"/.exec(message)?.[1] : undefined;
+}
+
 const tooLarge = () => conflict('AMOUNT_TOO_LARGE', INVOICE_ERRORS.AMOUNT_TOO_LARGE);
+const duplicateCheck = () =>
+  conflict('DUPLICATE_CHECK_NUMBER', INVOICE_ERRORS.DUPLICATE_CHECK_NUMBER);
 const forbidden = () =>
   new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
 
@@ -117,6 +136,15 @@ export class OfflinePaymentsService {
       if (current.status !== 'OPEN') throw conflict('NOT_OPEN', INVOICE_ERRORS.NOT_OPEN);
       if (processing(current)) throw paymentInProgress();
       if (body.amountCents > money(current).balanceDueCents) throw tooLarge();
+      // One live record of a check number per invoice, any case (offline_payments_one_live_check).
+      if (body.method === 'CHECK' && body.reference) {
+        const number = body.reference.toUpperCase();
+        const live = current.offlinePayments.some(
+          (o) =>
+            o.method === 'CHECK' && o.voidedAt === null && o.reference?.toUpperCase() === number,
+        );
+        if (live) throw duplicateCheck();
+      }
       // A checkout the client opened and left would let both kinds of money in: end it first.
       if (current.payments.some((p) => p.status === 'PENDING')) {
         if (!this.stripe) throw providerUnavailable();
@@ -160,8 +188,14 @@ export class OfflinePaymentsService {
       recorded = true;
       return toInvoice(await this.invoices.load(tx, businessId, actor, id), today);
     }).catch(async (error: unknown) => {
-      // Two requests with one key at once: the second fails on the key; answer as a retry.
-      if (isUniqueViolation(error)) return this.replay(businessId, actor, id, body.idempotencyKey);
+      if (isUniqueViolation(error)) {
+        // Two first-time requests with one key at once: the second fails on the key; a retry.
+        if (violatedIndex(error) === KEY_INDEX) {
+          return this.replay(businessId, actor, id, body.idempotencyKey);
+        }
+        // Any other unique index is the one live check number per invoice.
+        throw duplicateCheck();
+      }
       throw mapped(error);
     });
     if (recorded) await this.notices.send('payment.received', businessId, id);
@@ -176,17 +210,13 @@ export class OfflinePaymentsService {
     body: VoidBody,
   ): Promise<Invoice> {
     return this.inActor(businessId, actor, async (tx) => {
-      await this.invoices.load(tx, businessId, actor, id, true);
+      const before = await this.invoices.load(tx, businessId, actor, id, true);
       const payment = await tx.offlinePayment.findFirst({
         where: { businessId, id: offlinePaymentId, invoiceId: id },
         select: { voidedAt: true, method: true, amountCents: true },
       });
       if (!payment) throw notFound();
       if (payment.voidedAt) throw conflict('ALREADY_VOIDED', INVOICE_ERRORS.ALREADY_VOIDED);
-      const before = await tx.invoice.findFirstOrThrow({
-        where: { businessId, id },
-        select: { status: true },
-      });
       await tx.$queryRaw`
         SELECT id FROM app_void_offline_payment(${offlinePaymentId}::uuid, ${body.reason})`;
       const row = await this.invoices.load(tx, businessId, actor, id);
