@@ -85,7 +85,7 @@ function Step({ r, step }: { r: EsignRequestDetail; step: StepId }) {
   if (step === 'documents') return <DocumentsStep r={r} />;
   return (
     <Card>
-      <p className="text-text">This step is being built.</p>
+      <p className="text-text">{STEPS.find((s) => s.id === step)?.label} is being built.</p>
       <Link
         href={stepHref(r.id, 'documents')}
         className="mt-2 inline-flex min-h-11 items-center text-link underline"
