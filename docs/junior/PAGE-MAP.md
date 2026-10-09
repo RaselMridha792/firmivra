@@ -108,16 +108,16 @@ Public pages (firm header and footer, no sidebar), in `portal/[firmSlug]/(public
 | `/{firm}/sign-up/verify-email` | `(public)/sign-up/verify-email/page.tsx` | R17 (Rasel) | N02 | `Verify email .png` |
 | `/{firm}/sign-up/verify-phone` | `(public)/sign-up/verify-phone/page.tsx` | R17 (Rasel) | N02 | `Verify phone.png` |
 | `/{firm}/sign-up/done` (also where a pending client lands after sign-in) | `(public)/sign-up/done/page.tsx` | R17 (Rasel) | N02 | `LVP Client Portal Account Confirmation.png` |
-| `/{firm}/begin` | `(public)/begin/page.tsx` | Arfan | N07a | `Begin online.png` |
-| `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | Arfan | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
-| `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | Arfan | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
-| `/{firm}/begin/bookkeeping` | `(public)/begin/bookkeeping/page.tsx` | Arfan | N07b | the 4 `Bookkeeping ...` files |
-| `/{firm}/begin/payroll` | `(public)/begin/payroll/page.tsx` | Arfan | N07b | the 3 `Payroll ...` files |
-| `/{firm}/begin/tax-planning` | `(public)/begin/tax-planning/page.tsx` | Arfan | N07b | the 4 `Tax planning ...` files |
-| `/{firm}/begin/business-development` | `(public)/begin/business-development/page.tsx` | Arfan | N07b | the 4 `Development intake ...` files |
-| `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | Arfan | N07c | none |
-| `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | Arfan | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
-| form blocks for all six services | `(public)/begin/_blocks/` | Arfan | N07a | |
+| `/{firm}/begin` | `(public)/begin/page.tsx` | R22 (Rasel; from Arfan) | N07a | `Begin online.png` |
+| `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | R22 (Rasel; from Arfan) | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
+| `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | R22 (Rasel; from Arfan) | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
+| `/{firm}/begin/bookkeeping` | `(public)/begin/bookkeeping/page.tsx` | R22 (Rasel; from Arfan) | N07b | the 4 `Bookkeeping ...` files |
+| `/{firm}/begin/payroll` | `(public)/begin/payroll/page.tsx` | R22 (Rasel; from Arfan) | N07b | the 3 `Payroll ...` files |
+| `/{firm}/begin/tax-planning` | `(public)/begin/tax-planning/page.tsx` | R22 (Rasel; from Arfan) | N07b | the 4 `Tax planning ...` files |
+| `/{firm}/begin/business-development` | `(public)/begin/business-development/page.tsx` | R22 (Rasel; from Arfan) | N07b | the 4 `Development intake ...` files |
+| `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | R22 (Rasel; from Arfan) | N07c | none |
+| `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | R22 (Rasel; from Arfan) | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
+| form blocks for all six services | `(public)/begin/_blocks/` | R22 (Rasel; from Arfan) | N07a | |
 | `/{firm}/calculators` (hub) | `(public)/calculators/page.tsx` | R14 | calculators | none yet |
 | `/{firm}/calculators/tax-return` | `(public)/calculators/tax-return/page.tsx` | R14 | calculators | none yet |
 | `/{firm}/calculators/quarterly-estimate` | `(public)/calculators/quarterly-estimate/page.tsx` | R14 | calculators | none yet |

@@ -11,10 +11,13 @@ import {
   ListMyInvoicesQuery,
   MyInvoiceDetail,
   MyInvoiceList,
+  OfflinePaymentId,
   PayInvoiceRequest,
+  RecordOfflinePaymentRequest,
   PaymentId,
   RefundPaymentRequest,
   UpdateInvoiceRequest,
+  VoidOfflinePaymentRequest,
 } from './schemas.js';
 
 const BASE = '/business/invoices';
@@ -51,7 +54,7 @@ export function createInvoicesClient(request: ApiRequest) {
      */
     send: async (id: string): Promise<Invoice> =>
       request(Invoice, `${one(id)}/send`, { method: 'POST', body: {} }),
-    /** Draft, scheduled or open. 409 INVOICE_CLOSED or PAYMENT_IN_PROGRESS. */
+    /** Draft, scheduled or open. 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS or HAS_PAYMENTS. */
     cancel: async (id: string, body: CancelInvoiceRequest): Promise<Invoice> =>
       request(Invoice, `${one(id)}/cancel`, {
         method: 'POST',
@@ -68,6 +71,32 @@ export function createInvoicesClient(request: ApiRequest) {
         method: 'POST',
         body: parseInput(RefundPaymentRequest, body),
       }),
+    /**
+     * Records a check or cash payment on an OPEN invoice (at most its balance due); it turns PAID
+     * once covered. 409 NOT_OPEN, AMOUNT_TOO_LARGE, DUPLICATE_CHECK_NUMBER (that check number is
+     * live on this invoice already) or PAYMENT_IN_PROGRESS. A retry with the same idempotencyKey
+     * answers the invoice as it is (nothing recorded twice); a key used on another invoice is 404.
+     */
+    recordPayment: async (id: string, body: RecordOfflinePaymentRequest): Promise<Invoice> =>
+      request(Invoice, `${one(id)}/offline-payments`, {
+        method: 'POST',
+        body: parseInput(RecordOfflinePaymentRequest, body),
+      }),
+    /**
+     * Voids a recorded check or cash payment; a PAID invoice it no longer covers reopens. 409
+     * ALREADY_VOIDED, or PAYMENT_IN_PROGRESS (retry) while another payment or cancel holds the
+     * invoice.
+     */
+    voidPayment: async (
+      id: string,
+      offlinePaymentId: string,
+      body: VoidOfflinePaymentRequest,
+    ): Promise<Invoice> =>
+      request(
+        Invoice,
+        `${one(id)}/offline-payments/${parseInput(OfflinePaymentId, offlinePaymentId)}/void`,
+        { method: 'POST', body: parseInput(VoidOfflinePaymentRequest, body) },
+      ),
   };
 }
 
