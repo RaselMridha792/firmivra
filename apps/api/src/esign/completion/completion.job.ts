@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { esignJobsOn } from '../lifecycle/lifecycle.job.js';
 import { COMPLETION_REPOSITORY, type EsignCompletionRepository } from './completion.repository.js';
 import { EsignCompletionService } from './completion.service.js';
 
@@ -9,16 +10,6 @@ export const COMPLETION_JOB_INTERVAL_MS = 60_000;
 const BATCH = 20;
 /** A run stops starting work here (the lock's transaction is capped at 30 s). */
 const BUDGET_MS = 20_000;
-
-/**
- * ESIGN_JOBS=on|off: Firm Sign's jobs in this API task. Off unless on, until the r0_esign tables
- * and the Prisma repositories land (the stand-in would fail every tick); other values refused.
- */
-export function esignJobsOn(env: NodeJS.ProcessEnv = process.env): boolean {
-  const value = env.ESIGN_JOBS;
-  if (value === 'on' || value === 'off' || !value) return value === 'on';
-  throw new Error('ESIGN_JOBS must be "on" or "off"');
-}
 
 export interface CompletionJobOptions {
   now?: Date;

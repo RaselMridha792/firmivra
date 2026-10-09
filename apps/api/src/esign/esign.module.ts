@@ -5,6 +5,10 @@ import { COMPLETION_REPOSITORY } from './completion/completion.repository.js';
 import { EsignCompletionJob } from './completion/completion.job.js';
 import { EsignCompletionService } from './completion/completion.service.js';
 import { EsignEngineModule } from './engine/engine.module.js';
+import { EsignLifecycleController } from './lifecycle/lifecycle.controller.js';
+import { EsignLifecycleJob } from './lifecycle/lifecycle.job.js';
+import { LIFECYCLE_REPOSITORY } from './lifecycle/lifecycle.repository.js';
+import { EsignLifecycleService } from './lifecycle/lifecycle.service.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
 import { EsignDocumentsService } from './requests/documents.service.js';
 import { ESIGN_DIRECTORY, PrismaEsignDirectory } from './requests/esign-directory.js';
@@ -36,6 +40,7 @@ import { EsignSignerService } from './signer/signer.service.js';
     EsignRequestsController,
     EsignDocumentsController,
     EsignSignerController,
+    EsignLifecycleController,
   ],
   providers: [
     EsignRequestsService,
@@ -51,6 +56,9 @@ import { EsignSignerService } from './signer/signer.service.js';
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
     { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
+    EsignLifecycleService,
+    EsignLifecycleJob,
+    { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
   ],
 })
 export class EsignModule {}

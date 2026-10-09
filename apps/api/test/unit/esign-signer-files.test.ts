@@ -373,6 +373,7 @@ describe('attachments', () => {
       action: 'esign.signer_attachment_removed',
       entity: { type: 'esign_recipient', id: me.id },
       metadata: { requestId: id, fieldId: attach.id },
+      at: { businessId: w.a },
     });
   });
 

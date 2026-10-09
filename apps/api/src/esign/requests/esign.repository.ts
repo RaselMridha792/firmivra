@@ -47,6 +47,16 @@ export interface EsignRequestRecord {
   completedAt: Date | null;
   /** Hex SHA-256 of the packet as sent; null until sent. */
   originalSha256: string | null;
+  /** The lifecycle (lifecycle.repository.ts): null until it expires, is voided or replaced. */
+  expiredAt: Date | null;
+  voidedAt: Date | null;
+  /** Staff only: never in an email, a log or the audit. */
+  voidReason: string | null;
+  voidedByUserId: string | null;
+  replacesRequestId: string | null;
+  replacedByRequestId: string | null;
+  /** When the expiry warning went out (once per request); null before. */
+  expiryWarnedAt: Date | null;
 }
 
 export type NewEsignRequest = Omit<
@@ -59,6 +69,13 @@ export type NewEsignRequest = Omit<
   | 'expiresAt'
   | 'completedAt'
   | 'originalSha256'
+  | 'expiredAt'
+  | 'voidedAt'
+  | 'voidReason'
+  | 'voidedByUserId'
+  | 'replacesRequestId'
+  | 'replacedByRequestId'
+  | 'expiryWarnedAt'
 >;
 
 /** What PATCH may change. */
@@ -211,7 +228,7 @@ export interface EsignRepository {
   /** True once the firm has published a consent version (Signing Settings). */
   consentPublished(businessId: string): Promise<boolean>;
   // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt and
-  // refuses (false, null or INVALID_STATE; changing nothing) when it is not, or no longer exists. The
+  // refuses (null or INVALID_STATE; changing nothing) when it is not, or no longer exists. The
   // lastActivityAt written is strictly later than the value it replaces (the Prisma
   // implementation writes GREATEST(now(), old + 1 ms), never now() alone): it is the version the
   // `readAt` checks below compare, so an equal value would hide a write in between, and a value
@@ -241,9 +258,9 @@ export interface EsignRepository {
     id: string,
   ): Promise<Pick<EsignDocumentRecord, 'id' | 's3Key'>[] | null>;
   // The three below replace what the service computed from parts() read before the write, so each
-  // also refuses (null or false) unless the request's lastActivityAt is still `readAt`: checked
-  // under the FOR UPDATE lock, a write in between (from another tab, say) is never silently
-  // reverted. The first two return the request as written, read in the same transaction.
+  // also refuses (null) unless the request's lastActivityAt is still `readAt`: checked under the
+  // FOR UPDATE lock, a write in between (from another tab, say) is never silently reverted. Each
+  // returns the request as written, read in the same transaction.
   /** Replaces the page plan and the fields (moved with their pages) together. */
   savePagePlan(
     businessId: string,
@@ -261,19 +278,25 @@ export interface EsignRepository {
     readAt: Date,
   ): Promise<EsignRequestRecord | null>;
   /** Replaces the fields. */
-  saveFields(businessId: string, id: string, fields: EsignField[], readAt: Date): Promise<boolean>;
+  saveFields(
+    businessId: string,
+    id: string,
+    fields: EsignField[],
+    readAt: Date,
+  ): Promise<EsignRequestRecord | null>;
   /**
    * Sends the DRAFT: status SENT, the dates, the hash, the turn's recipients, the events row and
-   * the queued emails, under the request's FOR UPDATE lock. Approvals stand. Answers the queued
-   * emails' ids in `emails` order; null (nothing written) unless it is still a DRAFT whose
-   * lastActivityAt is `readAt`, so a double-click sends once.
+   * the queued emails, under the request's FOR UPDATE lock. Approvals stand. Answers the request
+   * as written and the queued emails' ids in `emails` order; null (nothing written) unless it is
+   * still a DRAFT whose lastActivityAt is `readAt`, so a double-click sends once. Like the draft
+   * writes, lastActivityAt moves strictly forward.
    */
   sendDraft(
     businessId: string,
     id: string,
     write: EsignSendWrite,
     readAt: Date,
-  ): Promise<string[] | null>;
+  ): Promise<{ request: EsignRequestRecord; emailIds: string[] } | null>;
   /** Records a queued email's attempt: SENT, or FAILED with the error's class name only. */
   emailOutcome(
     businessId: string,
@@ -302,8 +325,9 @@ export interface EsignRepository {
     document: NewEsignDocument,
   ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'>;
   /**
-   * Deletes the file and replaces the page plan and the fields (those pages' removed). Like the
-   * saves above, false unless lastActivityAt is still `readAt`.
+   * Deletes the file and replaces the page plan and the fields (those pages' removed), and
+   * returns the request as written. Like the saves above, null unless lastActivityAt is still
+   * `readAt`.
    */
   removeDocument(
     businessId: string,
@@ -312,7 +336,7 @@ export interface EsignRepository {
     pagePlan: EsignPage[],
     fields: EsignField[],
     readAt: Date,
-  ): Promise<boolean>;
+  ): Promise<EsignRequestRecord | null>;
 }
 
 export const ESIGN_REPOSITORY = Symbol('ESIGN_REPOSITORY');
