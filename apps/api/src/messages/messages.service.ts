@@ -534,6 +534,9 @@ export class MessagesService {
     side: 'firm' | 'client',
     read: boolean,
   ): Promise<void> {
+    // The same lock as a new message: a read can't commit between a send's flood check and its
+    // insert, which would leave the new message unread with no email.
+    await this.lockThread(tx, businessId, threadId);
     const direction = inbound(side);
     if (read) {
       await tx.message.updateMany({

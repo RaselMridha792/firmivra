@@ -4,6 +4,7 @@ import {
   createRequest,
   createTaxReturnsClient,
   MyTaxReturn,
+  TaxReturnErrorCode,
 } from '../../src/index.js';
 
 function fakeFetch(body: unknown) {
@@ -66,5 +67,16 @@ describe('api.myTaxReturns(firmSlug)', () => {
     expect(calls[0]?.url).toBe('/api/v1/portal/lvp/me/tax-returns?taxYear=2024&kind=annual');
     expect(Object.keys(MyTaxReturn.shape)).not.toContain('clientId');
     expect(Object.keys(MyTaxReturn.shape)).not.toContain('engagementId');
+  });
+});
+
+describe('TaxReturnErrorCode', () => {
+  it('lists every code the tax returns API answers with (#219 follow-up)', () => {
+    expect(TaxReturnErrorCode.options).toEqual([
+      'CLIENT_ARCHIVED',
+      'INVALID_DOCUMENT',
+      'INVALID_STATUS',
+      'RETURN_LOCKED',
+    ]);
   });
 });
