@@ -20,6 +20,7 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 
 // Strict copies of the contract's shapes: a leaked field fails the parse.
 const Message = z.strictObject({
@@ -41,9 +42,13 @@ const people = {
   ownerA: person('owner-a'),
   staffA: person('staff-a'),
   staffA2: person('staff-a2'),
+  adminA: person('admin-a'),
+  goneOwnerA: person('gone-owner-a'),
   primary: person('primary'),
   spouse: person('spouse'),
   other: person('other'),
+  disabledPrimary: person('disabled-primary'),
+  spouseThree: person('spouse-three'),
   ownerB: person('owner-b'),
   clientB: person('client-b'),
 };
@@ -54,11 +59,15 @@ const ids = {
   slugB: `r20m-b-${run}`,
   one: '',
   two: '',
+  three: '',
   old: '',
   engagementTwo: '',
 };
 
 let app: INestApplication;
+const outbox: NotifyMessage[] = [];
+/** Addresses the mail sender refuses, to show a refused email never fails the request. */
+const refused: string[] = [];
 const tokens = new Map<string, string>();
 
 async function tokenFor(email: string): Promise<string> {
@@ -124,7 +133,16 @@ beforeAll(async () => {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
-      const pool = ['primary', 'spouse', 'other', 'clientB'].includes(key) ? 'CLIENT' : 'STAFF';
+      const pool = [
+        'primary',
+        'spouse',
+        'other',
+        'disabledPrimary',
+        'spouseThree',
+        'clientB',
+      ].includes(key)
+        ? 'CLIENT'
+        : 'STAFF';
       await tx.user.create({
         data: { id: p.id, cognitoSub: p.id, pool, email: p.email, name: `Fake R20 ${key}` },
       });
@@ -138,12 +156,14 @@ beforeAll(async () => {
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
     const A = { businessId: ids.firmA };
-    for (const [userId, role] of [
-      [people.ownerA.id, 'OWNER'],
-      [people.staffA.id, 'STAFF'],
-      [people.staffA2.id, 'STAFF'],
+    for (const [userId, role, status] of [
+      [people.ownerA.id, 'OWNER', 'ACTIVE'],
+      [people.staffA.id, 'STAFF', 'ACTIVE'],
+      [people.staffA2.id, 'STAFF', 'ACTIVE'],
+      [people.adminA.id, 'ADMIN', 'ACTIVE'],
+      [people.goneOwnerA.id, 'OWNER', 'DEACTIVATED'],
     ] as const) {
-      await tx.membership.create({ data: { ...A, userId, role, status: 'ACTIVE' } });
+      await tx.membership.create({ data: { ...A, userId, role, status } });
     }
     ids.one = (
       await tx.client.create({
@@ -151,16 +171,19 @@ beforeAll(async () => {
       })
     ).id;
     ids.two = (await tx.client.create({ data: { ...A, displayName: 'Two' } })).id;
+    ids.three = (await tx.client.create({ data: { ...A, displayName: 'Three' } })).id;
     ids.old = (
       await tx.client.create({ data: { ...A, displayName: 'Old', archivedAt: new Date() } })
     ).id;
-    for (const [p, clientId, portalRole] of [
-      [people.primary, ids.one, 'PRIMARY'],
-      [people.spouse, ids.one, 'SPOUSE'],
-      [people.other, ids.two, 'PRIMARY'],
+    for (const [p, clientId, portalRole, status] of [
+      [people.primary, ids.one, 'PRIMARY', 'ACTIVE'],
+      [people.spouse, ids.one, 'SPOUSE', 'ACTIVE'],
+      [people.other, ids.two, 'PRIMARY', 'ACTIVE'],
+      [people.disabledPrimary, ids.three, 'PRIMARY', 'DISABLED'],
+      [people.spouseThree, ids.three, 'SPOUSE', 'ACTIVE'],
     ] as const) {
       await tx.clientAccount.create({
-        data: { ...A, userId: p.id, clientId, email: p.email, portalRole, status: 'ACTIVE' },
+        data: { ...A, userId: p.id, clientId, email: p.email, portalRole, status },
       });
     }
     const service = await tx.service.create({
@@ -197,9 +220,16 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot(env)],
-  }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (message: NotifyMessage) => {
+        if (refused.includes(message.to)) return Promise.reject(new Error('refused'));
+        outbox.push(message);
+        return Promise.resolve();
+      },
+    })
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -448,5 +478,173 @@ describe('reach and isolation', () => {
     } finally {
       await owner.$disconnect();
     }
+  });
+});
+
+describe('notices', () => {
+  const secret = randomUUID();
+  const mail = () => outbox.splice(0).filter((m) => m.template === 'message.received');
+
+  it('emails the primary login, with no text and once per unread run; a bell item too', async () => {
+    mail();
+    const t = await startThread({ subject: `Notice ${secret}`, body: `Body ${secret}` });
+    const first = mail();
+    expect(first.map((m) => m.to)).toEqual([people.primary.email]);
+    expect(first[0]).toMatchObject({
+      businessId: ids.firmA,
+      data: {
+        name: 'Fake R20 primary',
+        link: expect.stringMatching(new RegExp(`/${ids.slugA}/messages$`)),
+      },
+    });
+    expect(JSON.stringify(first)).not.toContain(secret);
+    // Still unread: no second email for the thread.
+    expectOk(
+      await firm('post', `/message-threads/${t.id}/messages`, people.ownerA, { body: 'More' }),
+      201,
+    );
+    expect(mail()).toEqual([]);
+    expectOk(await portal('post', `/${t.id}/read`, people.primary, {}));
+    expectOk(
+      await firm('post', `/message-threads/${t.id}/messages`, people.ownerA, { body: 'Again' }),
+      201,
+    );
+    expect(mail()).toHaveLength(1);
+
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      const bell = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.notification.findMany({
+          where: { businessId: ids.firmA, entityId: t.id },
+          select: { recipientUserId: true },
+        }),
+      );
+      const to = new Set(bell.map((b) => b.recipientUserId));
+      expect(to.has(people.primary.id)).toBe(true);
+      expect(to.has(people.ownerA.id)).toBe(false);
+      expect(to.has(people.spouse.id)).toBe(false);
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it("emails the client's assigned member and every active Owner and Admin, nobody else", async () => {
+    const t = await startThread({ subject: 'Ask', body: 'Question?' });
+    mail();
+    expectOk(
+      await portal('post', `/${t.id}/messages`, people.spouse, { body: `Answer ${secret}` }),
+      201,
+    );
+    const sent = mail();
+    expect(sent.map((m) => m.to).sort()).toEqual(
+      [people.ownerA.email, people.adminA.email, people.staffA.email].sort(),
+    );
+    expect(sent[0]?.data).toMatchObject({
+      link: expect.stringMatching(new RegExp(`/clients/${ids.one}/messages$`)),
+    });
+    expect(JSON.stringify(sent)).not.toContain(secret);
+
+    // The bell item goes to the same people on the firm side, never to the sender.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      const bell = await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.notification.findMany({
+          where: { businessId: ids.firmA, entityId: t.id },
+          select: { recipientUserId: true },
+        }),
+      );
+      const to = new Set(bell.map((b) => b.recipientUserId));
+      for (const p of [people.ownerA, people.adminA, people.staffA]) {
+        expect(to.has(p.id)).toBe(true);
+      }
+      for (const p of [people.staffA2, people.goneOwnerA, people.spouse]) {
+        expect(to.has(p.id)).toBe(false);
+      }
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
+  it('a read at the same time as a message never leaves it unread without an email', async () => {
+    for (let round = 0; round < 8; round += 1) {
+      const t = await startThread({ subject: `Read race ${round}`, body: 'Unread' });
+      mail();
+      const [read, send] = await Promise.all([
+        portal('post', `/${t.id}/read`, people.primary, {}),
+        firm('post', `/message-threads/${t.id}/messages`, people.ownerA, { body: 'New' }),
+      ]);
+      expectOk(read);
+      expectOk(send, 201);
+      const sent = mail().length;
+      const detail = MyDetail.parse(expectOk(await portal('get', `/${t.id}`, people.primary)).body);
+      const unread = detail.messages.filter((m) => m.from === 'FIRM' && m.unread).length;
+      // Read first: the new message starts a run and is emailed. Send first: the read covers it.
+      expect(unread > 0 ? sent : 0, `round ${round}`).toBe(unread > 0 ? 1 : 0);
+    }
+  });
+  it('emails no one at a client whose primary login is disabled, not even the spouse', async () => {
+    mail();
+    const t = await startThread({ subject: 'Three', body: 'Hello' }, ids.three);
+    expect(mail()).toEqual([]);
+    // The spouse may still reply; the firm side is emailed as usual.
+    expectOk(await portal('post', `/${t.id}/messages`, people.spouseThree, { body: 'Hi' }), 201);
+    expect(mail().map((m) => m.to)).not.toContain(people.spouseThree.email);
+  });
+
+  it('the firm side is emailed once per unread run, and again after the firm reads', async () => {
+    const t = await startThread({ subject: 'Run', body: 'Start' });
+    expectOk(await portal('post', `/${t.id}/read`, people.primary, {}));
+    mail();
+    const reply = async (body: string) =>
+      expectOk(await portal('post', `/${t.id}/messages`, people.primary, { body }), 201);
+    await reply('One');
+    expect(mail()).toHaveLength(3);
+    await reply('Two');
+    expect(mail()).toEqual([]);
+    expectOk(await firm('post', `/message-threads/${t.id}/read`, people.staffA, {}));
+    await reply('Three');
+    expect(mail()).toHaveLength(3);
+  });
+
+  it('two staff writing at once start one run: one email', async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const t = await startThread({ subject: `Race ${round}`, body: 'Start' });
+      expectOk(await portal('post', `/${t.id}/read`, people.primary, {}));
+      mail();
+      const results = await Promise.all(
+        [people.ownerA, people.staffA, people.adminA].map((who) =>
+          firm('post', `/message-threads/${t.id}/messages`, who, { body: 'Same time' }),
+        ),
+      );
+      for (const res of results) expectOk(res, 201);
+      expect(mail()).toHaveLength(1);
+    }
+  });
+
+  it('a refused email still saves the message on both sides', async () => {
+    refused.push(people.primary.email, people.ownerA.email);
+    try {
+      mail();
+      const t = await startThread({ subject: 'Refused', body: 'Hello' });
+      expect(mail()).toEqual([]);
+      expectOk(await portal('post', `/${t.id}/messages`, people.primary, { body: 'Hi' }), 201);
+      // The others are still emailed.
+      expect(
+        mail()
+          .map((m) => m.to)
+          .sort(),
+      ).toEqual([people.adminA.email, people.staffA.email].sort());
+    } finally {
+      refused.length = 0;
+    }
+  });
+
+  it('a reply refused for closed replies sends nothing', async () => {
+    const t = await startThread({ subject: 'Closed', body: 'No replies', repliesEnabled: false });
+    mail();
+    const res = await portal('post', `/${t.id}/messages`, people.primary, { body: 'Hi' });
+    expect(res.status).toBe(409);
+    expect(codeOf(res)).toBe('REPLIES_CLOSED');
+    expect(mail()).toEqual([]);
   });
 });
