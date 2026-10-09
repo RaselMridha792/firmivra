@@ -3,7 +3,6 @@
 **Goal:** Clients pay invoices by card and the invoice turns paid by itself.
 
 **Owner:** cloud thread R19 owns R7 from Oct 9 09:25 UTC (brief R19; it took over from R16, which started it the same morning).
-**From Oct 9:** all of R7 is built by R16 (a cloud thread, Rasel's Oct 8 decision), which logs its work below.
 
 **Owned paths (change only these):**
 - `apps/api/src/payments/**`
