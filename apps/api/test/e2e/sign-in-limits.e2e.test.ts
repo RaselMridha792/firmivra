@@ -201,6 +201,19 @@ describe('per email and network (q20)', () => {
       const right = await signInFrom('198.40.5.1', who.email, LOCAL_PASSWORD);
       expect((right.body as SignInResult).status).toBe('MFA_SETUP_REQUIRED');
       expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+
+      // An unknown email past the ceiling: slowed the same way, never locked, the same answer.
+      const nobody = `r2-lim-ceil-nobody-${tag}@a.test`;
+      for (let n = 1; n <= 3; n += 1) {
+        const res = await signInFrom(`198.41.${n}.1`, nobody, WRONG);
+        expect([res.status, codeOf(res)]).toEqual([401, 'INVALID_CREDENTIALS']);
+      }
+      for (let n = 4; n <= 5; n += 1) {
+        started = Date.now();
+        const unknown = await signInFrom(`198.41.${n}.1`, nobody, WRONG);
+        expect([unknown.status, codeOf(unknown)]).toEqual([401, 'INVALID_CREDENTIALS']);
+        expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+      }
     } finally {
       SIGN_IN_LIMIT.perEmailCeiling = perEmailCeiling;
       SIGN_IN_LIMIT.ceilingDelayMs = ceilingDelayMs;
