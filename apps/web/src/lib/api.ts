@@ -5,6 +5,7 @@ import {
   createAppointmentTypesClient,
   createAuditLogClient,
   createAvailabilityClient,
+  createBeginOnlineClient,
   createCalculatorsClient,
   createClientsClient,
   createClientSignUpsClient,
@@ -13,10 +14,12 @@ import {
   createEngagementsClient,
   createEsignClient,
   createFirmApplicationsClient,
+  createIntakesClient,
   createInvoicesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
+  createMyIntakesClient,
   createMyDocumentsClient,
   createMyInvoicesClient,
   createMyNotificationsClient,
@@ -42,6 +45,7 @@ import {
   myAppointmentsMock,
 } from '../mocks/appointments';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
@@ -49,6 +53,7 @@ import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createEsignMock, mySignaturesMock } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
+import { createIntakesMock, myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
@@ -111,6 +116,19 @@ export const api = {
     dev && mocked('myServices')
       ? myServicesMock(firmSlug)
       : createMyServicesClient(request, firmSlug),
+  /** Begin Online (R11): a firm's public intake forms and this browser's draft (portal, signed out). */
+  beginOnline: (firmSlug: string) =>
+    dev && mocked('beginOnline')
+      ? beginOnlineMock(firmSlug)
+      : createBeginOnlineClient(request, firmSlug),
+  /** Intake forms (R11): the signed-in client's own, per firm (portal). */
+  myIntakes: (firmSlug: string) =>
+    dev && mocked('myIntakes') ? myIntakesMock(firmSlug) : createMyIntakesClient(request, firmSlug),
+  /** Intake forms (R11): the firm's side: send, review, corrections and unlock. */
+  intakes:
+    dev && mocked('intakes')
+      ? createIntakesMock({ role: MOCK_ROLE })
+      : createIntakesClient(request),
   myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
   /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
   appointmentTypes:
