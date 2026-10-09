@@ -22,11 +22,13 @@ const BUDGET_MS = 20_000;
 
 /**
  * INVOICE_JOBS=on|off: run the job in this API task. Default on, off under NODE_ENV=test (tests
- * call `run()` themselves).
+ * call `run()` themselves). Any other value is refused at boot, so a typo never leaves it on.
  */
 export function invoiceJobsOn(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.INVOICE_JOBS === 'on' || env.INVOICE_JOBS === 'off') return env.INVOICE_JOBS === 'on';
-  return env.NODE_ENV !== 'test';
+  const value = env.INVOICE_JOBS;
+  if (value === undefined || value === '') return env.NODE_ENV !== 'test';
+  if (value === 'on' || value === 'off') return value === 'on';
+  throw new Error('INVOICE_JOBS must be "on" or "off"');
 }
 
 export interface InvoiceJobOptions {
@@ -81,11 +83,14 @@ export class InvoiceJobs implements OnApplicationBootstrap, OnModuleDestroy {
     this.timers = [];
   }
 
-  private async tick(): Promise<void> {
+  /** A timer's run: never rejects, so a failure cannot become an unhandled rejection. */
+  async tick(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
       await this.run();
+    } catch (error) {
+      this.logger.error(`tick failed (${error instanceof Error ? error.name : 'Error'})`);
     } finally {
       this.running = false;
     }
