@@ -17,7 +17,7 @@ import {
   type NotifyTemplate,
 } from '../notify/notify.types.js';
 import { lockClient } from '../workspaces/common.js';
-import { type Payload, type Side, storedType } from './notification-text.js';
+import { eventOfType, type Payload, type Side, storedType } from './notification-text.js';
 
 /**
  * What another feature passes to `Notifier.notify`: the event and the record it is about. The
@@ -339,7 +339,13 @@ export class Notifier {
     const sides: Side[] = audience === 'both' ? ['client', 'staff'] : [audience];
     const what = `${event} for ${def.kind} ${recordId.toLowerCase()}`;
 
-    type Copy = { id: string | null; recipient: Recipient; values: Payload };
+    type Copy = {
+      id: string | null;
+      recipient: Recipient;
+      values: Payload;
+      /** The email copy's row in the outbox (notification_deliveries). */
+      deliveryId?: string;
+    };
     let written: Copy[];
     const actor: { copy: Copy | null } = { copy: null };
     try {
@@ -379,11 +385,27 @@ export class Notifier {
           skipDuplicates: true,
           select: { id: true, recipientUserId: true },
         });
-        return rows.map((row) => ({
+        const items: Copy[] = rows.map((row) => ({
           id: row.id,
           recipient: to.find((r) => r.userId === row.recipientUserId)!,
           values: record.values,
         }));
+        // The outbox: one EMAIL delivery per email copy, committed with its bell item, so a copy
+        // that fails (or a task that stops before sending) is retried by the job.
+        const mailed = EMAIL_EVENTS.has(event)
+          ? items.filter((i) => i.recipient.side === 'client' && i.recipient.email)
+          : [];
+        if (mailed.length > 0) {
+          const deliveries = await tx.notificationDelivery.createManyAndReturn({
+            data: mailed.map((i) => ({ businessId, notificationId: i.id!, channel: 'EMAIL' })),
+            select: { id: true, notificationId: true },
+          });
+          for (const d of deliveries) {
+            const item = mailed.find((i) => i.id === d.notificationId);
+            if (item) item.deliveryId = d.id;
+          }
+        }
+        return items;
       });
     } catch (error) {
       this.logger.warn(`${what}: not written (${errorName(error)})`);
@@ -392,16 +414,101 @@ export class Notifier {
     if (written.length === 0) this.logger.log(`${what}: nobody to notify`);
 
     if (EMAIL_EVENTS.has(event)) {
-      for (const item of actor.copy ? [actor.copy, ...written] : written) {
-        if (item.recipient.side !== 'client' || !item.recipient.email) continue;
-        await this.sendCopy(event as NotifyTemplate, businessId, item.id, item.recipient, {
-          kind: def.kind,
-          id: recordId.toLowerCase(),
-          values: item.values,
+      const target = { kind: def.kind, id: recordId.toLowerCase() };
+      // The actor's confirmation has no bell item, so no outbox row: one attempt.
+      if (actor.copy?.recipient.email) {
+        await this.sendCopy(event as NotifyTemplate, businessId, null, actor.copy.recipient, {
+          ...target,
+          values: actor.copy.values,
         });
+      }
+      for (const item of written) {
+        if (!item.deliveryId) continue;
+        await this.deliver(businessId, item.deliveryId, 0, () =>
+          this.sendCopy(event as NotifyTemplate, businessId, item.id, item.recipient, {
+            ...target,
+            values: item.values,
+          }),
+        );
       }
     }
     return { written: written.length };
+  }
+
+  /**
+   * Retries one email copy from the outbox (the job calls it for a QUEUED or FAILED delivery):
+   * rebuilt from its bell item (the record's safe values) and the recipient's login as it is now.
+   * SKIPPED when the login is no longer ACTIVE. `busy`: another task claimed it first.
+   */
+  async retryDelivery(
+    businessId: string,
+    deliveryId: string,
+    attempts: number,
+  ): Promise<'sent' | 'failed' | 'skipped' | 'busy'> {
+    return this.deliver(businessId, deliveryId, attempts, async () => {
+      const db = this.database.forBusiness(businessId);
+      const d = await db.notificationDelivery.findFirst({
+        where: { businessId, id: deliveryId, channel: 'EMAIL' },
+        select: {
+          notification: {
+            select: { id: true, recipientUserId: true, type: true, entityId: true, payload: true },
+          },
+        },
+      });
+      const n = d?.notification;
+      const event = n ? eventOfType(n.type) : null;
+      if (!n || !event || !EMAIL_EVENTS.has(event)) return 'skip';
+      const login = await db.clientAccount.findFirst({
+        where: { businessId, userId: n.recipientUserId, status: 'ACTIVE' },
+        select: accountSelect,
+      });
+      if (!login) return 'skip';
+      return this.sendCopy(
+        event as NotifyTemplate,
+        businessId,
+        n.id,
+        { userId: login.userId, side: 'client', name: login.user.name, email: login.email },
+        {
+          kind: NOTIFICATION_EVENTS[event].kind,
+          id: n.entityId,
+          values: (n.payload ?? {}) as Payload,
+        },
+      );
+    });
+  }
+
+  /**
+   * One attempt at an outbox delivery: claims it (attempts goes up only if nobody else did it
+   * first), sends, and records SENT, SKIPPED or FAILED with the error's name only.
+   */
+  private async deliver(
+    businessId: string,
+    deliveryId: string,
+    attempts: number,
+    send: () => Promise<string | null | 'skip'>,
+  ): Promise<'sent' | 'failed' | 'skipped' | 'busy'> {
+    try {
+      const db = this.database.forBusiness(businessId);
+      const claimed = await db.notificationDelivery.updateMany({
+        where: { businessId, id: deliveryId, attempts, status: { in: ['QUEUED', 'FAILED'] } },
+        data: { attempts: attempts + 1 },
+      });
+      if (claimed.count !== 1) return 'busy';
+      const error = await send();
+      const status = error === null ? 'SENT' : error === 'skip' ? 'SKIPPED' : 'FAILED';
+      await db.notificationDelivery.updateMany({
+        where: { businessId, id: deliveryId },
+        data: {
+          status,
+          sentAt: status === 'SENT' ? new Date() : null,
+          lastError: status === 'FAILED' ? error : null,
+        },
+      });
+      return status === 'SENT' ? 'sent' : status === 'SKIPPED' ? 'skipped' : 'failed';
+    } catch (error) {
+      this.logger.warn(`delivery ${deliveryId}: not recorded (${errorName(error)})`);
+      return 'failed';
+    }
   }
 
   /**
@@ -422,14 +529,17 @@ export class Notifier {
     return { cleared: count };
   }
 
-  /** The email copy, to the client login's own address. Ids only in the log. */
+  /**
+   * The email copy, to the client login's own address. Ids only in the log. Resolves null when
+   * sent, or the error's name.
+   */
   private async sendCopy(
     template: NotifyTemplate,
     businessId: string,
     notificationId: string | null,
     recipient: Recipient,
     target: { kind: NotificationTargetKind; id: string; values: Payload },
-  ): Promise<void> {
+  ): Promise<string | null> {
     try {
       const firm = await this.database
         .forBusiness(businessId)
@@ -463,10 +573,12 @@ export class Notifier {
         recipient: { userId: recipient.userId },
         data,
       } as NotifyMessage);
+      return null;
     } catch (error) {
       this.logger.warn(
         `${template} email for ${notificationId ? `notification ${notificationId}` : `the actor of ${target.kind} ${target.id}`} not sent (${errorName(error)})`,
       );
+      return errorName(error);
     }
   }
 }

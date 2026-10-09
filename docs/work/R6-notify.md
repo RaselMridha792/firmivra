@@ -28,7 +28,7 @@
   - [x] API: the routes in the yaml, with the "Rules for the API" there, e2e and tenant-isolation tests
   - [x] A helper the other streams call to write a bell item (with its email or SMS copy through NotifyService): `Notifier` in `apps/api/src/notifications/notifier.ts`
   - [x] Reminder jobs (appointments, client note reminders), in-process under an advisory lock (q30)
-  - [ ] The `notification_deliveries` outbox (retries) for the email copies: next branch
+  - [x] The `notification_deliveries` outbox (retries) for the email copies
 
 ## Done when
 
@@ -73,7 +73,7 @@ Every flow above sends a real email to a verified address on dev.
 - The helper rejects only a programming error (`NotificationInputError`: unknown event, a side the event never reaches, an id that is not a UUID); a database or delivery failure is logged with ids and an error name only, and resolves, so the caller's change stands: `{ written }`, or `{ written: 0, failed: true }` when the bell items could not be written (a job retries with the same `eventKey`). A record not in the firm writes nothing. The bell item never depends on preferences.
 - `notifications.type` allows no hyphen (`notifications_type_key`), so events are stored with `-` as `_` (`document_request.accepted`); the API maps them back. No schema change needed.
 - Email copies go to client recipients only (every template speaks to a client); staff get the bell item only. The link is `PORTAL_BASE_URL` plus `notificationLink(target, portal)`.
-- `notification_deliveries` is not written yet: the email is sent inline after the bell items commit, and NotifyService's own skip covers preferences. The outbox (QUEUED, SENT, FAILED, SKIPPED, retries) comes with the reminder jobs.
+- ~~`notification_deliveries` is not written yet~~ (Oct 9: written, see the outbox decision below). NotifyService's own skip covers preferences.
 - `target.clientId` on the firm site is read from each record when listed (batched per kind), never from `payload`; null in the portal and for kinds without a client page.
 - SMS shows in `channels` only with `SMS_MODE=sns` and a registered number, and for a client login with a verified phone (`phone_verified_at` and `users.phone`). Staff have no verified number in Firmivra, so EMAIL only for now.
 - Audit: `notification_preferences.updated`, entity the person's user id, metadata the categories and switches set (consent to texts). Reads and marks are not audited.
@@ -92,6 +92,13 @@ Every flow above sends a real email to a verified address on dev.
 - Firms: every ACTIVE firm (listed in platform scope), at most 50 reminders per firm per run.
 - `NOTIFY_JOBS=on|off` (R6's config loader): default on, off under NODE_ENV=test or the test runner, so tests start a run by hand.
 - Step 6: `NotifyActivationMailer` and `NotifyClientCodeSender` (`src/notify/adapters.ts`) implement R2's `ActivationMailer` and R3's `ClientCodeSender` over NotifyService; the modules' providers switch to them (the `Log*` stand-ins stay for their unit tests). The messages now carry `businessId` (and the client's name, the sign-in link). The invite mailer never rejects (the invite stands; logged with the invite id). With AUTH_MODE=local an SMS code is also logged (answers the Open "Local SMS codes": the log, development only; emails are read in Mailpit).
+
+## Decisions (Oct 9, R16: the email outbox)
+
+- Each email copy of a bell item gets a `notification_deliveries` row (EMAIL, QUEUED) in the bell item's transaction. It is tried inline after the commit; the `email-retries` job (lock key 0x52360003) tries FAILED rows, and QUEUED rows a stopped task left, 5 minutes after their last change, up to 5 attempts in all. Then the row stays FAILED for support. A try claims the row by raising `attempts` from the value it read (another task's claim makes it `busy`), then records SENT (`sent_at`), FAILED (`last_error` = the error's name) or SKIPPED (the recipient's login is no longer ACTIVE, or the event has no email).
+- A retry rebuilds the email from the bell item (its stored safe values and record) and the login's current address and name, so no address or content is stored in the outbox (the schema's rule).
+- A copy NotifyService skips for preferences resolves and counts as SENT (NotifyService does not say it skipped); SKIPPED is only for the cases above.
+- The actor's confirmation email has no bell item, so no outbox row: one attempt, as before.
 
 ## Open (Rasel)
 
@@ -142,3 +149,4 @@ Every flow above sends a real email to a verified address on dev.
 - 2026-10-08, step 7 and step 5 (review): the helper's recipients must be ACTIVE (tests: a PENDING_APPROVAL PRIMARY login gets nothing and no email; an assignee whose membership is DEACTIVATED falls back to the ACTIVE Owners and Admins, never a DEACTIVATED Admin or a Staff member). A client who acted keeps the email copy without a bell item. `message.received` requires `audience` (client or staff). `notify` returns `{ written: 0, failed: true }` on a database failure. NotifyService loads the firm before the preferences (an unknown or malformed firm is UnknownFirmError) and adds the "turn off emails like this" footer only when the message names a `recipient` (`RenderOptions.canOptOut`). Tests: SMS offered only with `SMS_MODE=sns` and a verified phone on the client login (staff never), the bell item written with the email switched off, the locked ACCOUNT category without a query, exact audit metadata. Reminder jobs and step 6 (R2's invite emails and R3's codes through NotifyService): next PR.
 - 2026-10-09, step 7 (R16): R1's notification center branch merged with main (clean, green). q27 applied: staff events reach the assignee and every Owner and Admin; the SMS switch shows for anyone with a phone number. Tests updated. Branch `rasel/R16-notification-center`.
 - 2026-10-09, step 7 (reminder jobs) and step 6 (R16): `ReminderJobs` (appointment and note reminders under `pg_try_advisory_xact_lock`, `NOTIFY_JOBS`), R2's invites and R3's codes and notices through NotifyService (`src/notify/adapters.ts`), `.env.example` `NOTIFY_JOBS`. Tests: `test/e2e/notify-jobs.e2e.test.ts` (once only, reschedule, note owner only, the lock: a second runner skips), `test/unit/notify-adapters.test.ts`. Branch `rasel/R16-notify-jobs`.
+- 2026-10-09, step 7 (outbox, R16): email copies written to `notification_deliveries` with their bell items, sent inline and retried by the `email-retries` job (claim by attempts, 5 attempts, every 5 minutes). Tests in `test/e2e/notify-jobs.e2e.test.ts` (FAILED, retried, SENT once; gives up after 5; a stale claim is busy). Branch `rasel/R16-notify-outbox`.

@@ -11,7 +11,13 @@ import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
-import { JOB_LOCK_KEYS, ReminderJobs } from '../../src/notifications/reminder-jobs.js';
+import { Notifier } from '../../src/notifications/notifier.js';
+import {
+  EMAIL_MAX_ATTEMPTS,
+  EMAIL_RETRY_AFTER_MS,
+  JOB_LOCK_KEYS,
+  ReminderJobs,
+} from '../../src/notifications/reminder-jobs.js';
 import type { NotifyConfig } from '../../src/notify/config.js';
 import { NOTIFY_CONFIG } from '../../src/notify/notify.module.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
@@ -44,11 +50,15 @@ const ids = {
   dueB: '',
   noteDue: '',
   noteLater: '',
+  invoice: '',
 };
 
 let app: INestApplication;
 let jobs: ReminderJobs;
+let notifier: Notifier;
 const outbox: NotifyMessage[] = [];
+/** Set to make the fake sender refuse every message. */
+const delivery = { failing: false };
 const owner = () => createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
 
 async function inFirm<T>(businessId: string, work: (tx: TxClient) => Promise<T>, actor?: string) {
@@ -139,6 +149,9 @@ beforeAll(async () => {
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
     ids.cancelled = cancelled;
+    ids.invoice = (
+      await tx.invoice.create({ data: { ...A, clientId: ids.client, number: 'R6J-1' } })
+    ).id;
   });
   await runInScope(db, { kind: 'business', businessId: ids.firmB }, async (tx) => {
     const B = { businessId: ids.firmB };
@@ -198,6 +211,11 @@ beforeAll(async () => {
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({
       send: (message: NotifyMessage) => {
+        if (delivery.failing) {
+          const error = new Error('provider down');
+          error.name = 'NotifyDeliveryError';
+          return Promise.reject(error);
+        }
         outbox.push(message);
         return Promise.resolve();
       },
@@ -208,6 +226,7 @@ beforeAll(async () => {
   await nest.init();
   app = nest;
   jobs = nest.get(ReminderJobs);
+  notifier = nest.get(Notifier);
 });
 
 afterAll(async () => {
@@ -311,6 +330,80 @@ describe('reminder jobs', () => {
       expect(await jobs.run('appointment-reminders', only)).toEqual({ skipped: false, sent: 0 });
     } finally {
       await db.$disconnect();
+    }
+  });
+
+  it('the outbox: a failed email copy is FAILED, retried by the job, then SENT once', async () => {
+    const deliveries = () =>
+      inFirm(ids.firm, (tx) =>
+        tx.notificationDelivery.findMany({
+          where: { notification: { entityId: ids.invoice } },
+        }),
+      );
+    outbox.length = 0;
+    delivery.failing = true;
+    expect(
+      await notifier.notify({ businessId: ids.firm, event: 'invoice.sent', recordId: ids.invoice }),
+    ).toEqual({ written: 1 });
+    const [first] = await deliveries();
+    expect(first).toMatchObject({
+      channel: 'EMAIL',
+      status: 'FAILED',
+      attempts: 1,
+      lastError: 'NotifyDeliveryError',
+      sentAt: null,
+    });
+    // Not before EMAIL_RETRY_AFTER_MS.
+    expect(await jobs.run('email-retries', only)).toEqual({ skipped: false, sent: 0 });
+    expect((await deliveries())[0]?.attempts).toBe(1);
+    const later = (ms: number) => ({ ...only, now: new Date(Date.now() + ms) });
+    // Still failing: one more attempt.
+    await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS + 1_000));
+    expect((await deliveries())[0]).toMatchObject({ status: 'FAILED', attempts: 2 });
+    // A stale claim (another task took it first) does nothing.
+    expect(await notifier.retryDelivery(ids.firm, first!.id, 1)).toBe('busy');
+    // The provider is back: SENT, with the same email as the first try would have sent.
+    delivery.failing = false;
+    expect(await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS + 1_000))).toEqual({
+      skipped: false,
+      sent: 1,
+    });
+    const [sent] = await deliveries();
+    expect(sent).toMatchObject({ status: 'SENT', attempts: 3, lastError: null });
+    expect(sent?.sentAt).not.toBeNull();
+    expect(outbox.map((m) => [m.template, m.to, m.data])).toEqual([
+      [
+        'invoice.sent',
+        people.primary.email,
+        expect.objectContaining({ name: people.primary.name, invoiceNumber: 'R6J-1' }),
+      ],
+    ]);
+    // Final: never sent again.
+    await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS * 3));
+    expect(outbox).toHaveLength(1);
+  });
+
+  it(`the outbox gives up after ${EMAIL_MAX_ATTEMPTS} attempts`, async () => {
+    delivery.failing = true;
+    try {
+      const invoice = await inFirm(ids.firm, (tx) =>
+        tx.invoice.create({
+          data: { businessId: ids.firm, clientId: ids.client, number: 'R6J-2' },
+        }),
+      );
+      await notifier.notify({ businessId: ids.firm, event: 'invoice.sent', recordId: invoice.id });
+      for (let i = 1; i <= EMAIL_MAX_ATTEMPTS + 1; i += 1) {
+        await jobs.run('email-retries', {
+          ...only,
+          now: new Date(Date.now() + i * (EMAIL_RETRY_AFTER_MS + 1_000)),
+        });
+      }
+      const [row] = await inFirm(ids.firm, (tx) =>
+        tx.notificationDelivery.findMany({ where: { notification: { entityId: invoice.id } } }),
+      );
+      expect(row).toMatchObject({ status: 'FAILED', attempts: EMAIL_MAX_ATTEMPTS });
+    } finally {
+      delivery.failing = false;
     }
   });
 });
