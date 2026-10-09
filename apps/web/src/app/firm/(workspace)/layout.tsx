@@ -86,6 +86,8 @@ function FirmArea({ children }: { children: ReactNode }) {
         // A firm still in Pending Setup finishes the setup wizard first; a lost session signs in.
         if (code === 'BUSINESS_SETUP_REQUIRED') router.replace('/setup');
         else if (e instanceof ApiRequestError && e.status === 401) router.replace('/sign-in');
+        // An in-person signing locked this session: only the kiosk's own pages open (R13).
+        else if (code === 'KIOSK_LOCKED') router.replace('/firm-sign/in-person');
         else setError(code);
       },
     );

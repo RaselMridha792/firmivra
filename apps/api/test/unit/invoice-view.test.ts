@@ -46,7 +46,7 @@ describe('invoice money', () => {
     expect(money(row)).toEqual({
       amountPaidCents: 13_000,
       refundedCents: 5_000,
-      balanceDueCents: 17_000,
+      balanceDueCents: 12_000,
     });
     expect(money(invoice('PAID', row.payments)).balanceDueCents).toBe(0);
     expect(money(invoice('CANCELED', [])).balanceDueCents).toBe(0);

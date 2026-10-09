@@ -17,7 +17,6 @@ import {
 import { Button, Input, PageContainer } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, LockKeyhole, Save } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { PageState } from '../../../../../../components/page-state';
@@ -38,6 +37,7 @@ import { IntakeReview } from './intake-review';
 import { StepSections } from './intake-step';
 import {
   allAnswers,
+  clearHidden,
   issueKey,
   screenValues,
   type ScreenValue,
@@ -202,7 +202,7 @@ type DraftState = BeginDraft | 'SUBMITTED' | 'EXPIRED' | null;
 const ENDED_NOTICE = {
   SUBMITTED:
     'Your earlier form for this service was sent. Thank you! You can start a new one below.',
-  EXPIRED: 'Your saved form has expired. Start again below, or ask for a new link',
+  EXPIRED: 'Your saved form expired and its answers were removed. Please start again below.',
 } as const;
 
 function useFill(taxYear: number): Fill {
@@ -229,15 +229,6 @@ function StartCard({
       className="mx-auto mb-3 max-w-2xl rounded-control border border-folder-border bg-folder-surface p-3 text-sm text-heading"
     >
       {ENDED_NOTICE[ended]}
-      {ended === 'EXPIRED' && (
-        <>
-          {' '}
-          <Link href={`/${firmSlug}/begin/resume`} className="font-semibold underline">
-            to continue
-          </Link>
-          .
-        </>
-      )}
     </p>
   );
   return (
@@ -400,27 +391,25 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   );
   const step = steps[index]!;
 
-  // A file being checked turns READY or BLOCKED in a few seconds: ask again until none is.
+  // A file being checked turns READY or BLOCKED in a few seconds: ask again until none is. Each
+  // answer changes `uploads`, which arms the next ask while a file is still being checked.
   const checking = uploads.some((u) => u.status === 'CHECKING');
   useEffect(() => {
     if (!checking) return;
     const timer = setTimeout(() => {
-      // Merge by id: a file confirmed while this was in flight stays in the list.
+      // Only the files on screen are updated: one added or removed meanwhile stays as it is.
       client.uploads(form).then(
         (fresh) =>
           setUploads((list) => {
             const byId = new Map(fresh.map((u) => [u.id, u]));
-            const known = new Set(list.map((u) => u.id));
-            return [
-              ...list.map((u) => byId.get(u.id) ?? u),
-              ...fresh.filter((u) => !known.has(u.id)),
-            ];
+            return list.map((u) => byId.get(u.id) ?? u);
           }),
-        () => undefined,
+        // A failed ask tries again on the next timer.
+        () => setUploads((list) => [...list]),
       );
     }, 3000);
     return () => clearTimeout(timer);
-  }, [checking, client, form]);
+  }, [checking, client, form, uploads]);
 
   const save = useApiMutation((key: string) => {
     const s = definition.steps.find((x) => x.key === key)!;
@@ -461,9 +450,16 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     }
     try {
       await save.mutateAsync(step.key);
+      // What the save cleared (a hidden field, a row's hidden field) is cleared on screen too.
+      setValues((v) => clearHidden(definition, step, v));
       return true;
     } catch (error) {
       draftEnded(error);
+      if (error instanceof ApiRequestError && error.code === 'VALIDATION_FAILED') {
+        // The API's issues aren't passed on, so mark what the step's own check finds.
+        const found = stepIssues(definition, step, values, uploads);
+        if (found.length) showIssues(found);
+      }
       return false;
     }
   }
@@ -559,13 +555,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   }
 
   const failure = save.error ?? submit.error ?? resumeLink.error;
-  // Until R14's signing is live the API answers a submit with 503 SIGNING_UNAVAILABLE.
-  const failureText =
-    failure instanceof ApiRequestError && failure.code === 'SIGNING_UNAVAILABLE'
-      ? "Online submission isn't open yet. Your answers are saved: choose Save and Continue Later and we'll email you a link to finish."
-      : failure
-        ? errorMessage(failure, BEGIN_ONLINE_ERRORS)
-        : '';
+  const failureText = failure ? errorMessage(failure, BEGIN_ONLINE_ERRORS) : '';
   const previous = steps[index - 1];
   const words = WORDING[form];
   // The review step's info-only panels ("Review Your Information...") come before the answers.

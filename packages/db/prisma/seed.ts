@@ -1296,6 +1296,53 @@ async function main() {
     },
   );
 
+  // INV-1002, part paid by a check the owner recorded: the database takes an offline payment only
+  // from the acting Owner or Admin, on an OPEN invoice, within the balance due.
+  await runInScope(
+    prisma,
+    { kind: 'business', businessId: businesses.lvp, actorUserId: SEED_USERS.lvpOwner.id },
+    async (tx) => {
+      const lvp = { businessId: businesses.lvp };
+      const invoiceId = SEED_BILLING_IDS.offlineInvoice;
+      if (await tx.invoice.findUnique({ where: { id: invoiceId } })) return;
+      await tx.invoice.create({
+        data: {
+          ...lvp,
+          id: invoiceId,
+          clientId: SEED_CLIENT_IDS.lvp,
+          engagementId: SEED_WORK_IDS.lvpBookkeeping,
+          number: 'INV-1002',
+          createdByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+      await tx.invoiceLine.create({
+        data: {
+          ...lvp,
+          invoiceId,
+          description: 'Bookkeeping (Growth), October 2026',
+          unitAmountCents: 30000,
+        },
+      });
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'OPEN', issuedAt: new Date(), dueOn: new Date('2026-11-30') },
+      });
+      await tx.offlinePayment.create({
+        data: {
+          ...lvp,
+          id: SEED_BILLING_IDS.offlinePayment,
+          invoiceId,
+          method: 'CHECK',
+          amountCents: 10000,
+          reference: '1042',
+          receivedOn: new Date('2026-10-05'),
+          idempotencyKey: SEED_BILLING_IDS.offlinePaymentKey,
+          recordedByUserId: SEED_USERS.lvpOwner.id,
+        },
+      });
+    },
+  );
+
   await runInScope(prisma, { kind: 'business', businessId: businesses.testFirmB }, async (tx) => {
     await tx.membership.upsert({
       where: {

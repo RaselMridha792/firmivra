@@ -309,3 +309,112 @@ test('a file of a refused type is not uploaded; Edit on the review opens its ste
   await page.getByRole('button', { name: /^Edit Personal/ }).click();
   await expect(current(page).getByRole('button')).toHaveText('1', { timeout: 20_000 });
 });
+
+test('an uploaded file turns Uploaded after its check, and a blocked one says so', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page, 'payroll');
+  const slot = form(page).locator('[data-slot]:visible').first();
+  for (let step = 2; step <= 3 && !(await slot.isVisible()); step += 1) {
+    await fillStep(page);
+    await continueTo(page, step);
+  }
+  await slot.locator('input[type=file]').setInputFiles(PDF);
+  await slot.locator('input[type=file]').setInputFiles({ ...PDF, name: 'virus-synthetic.pdf' });
+  const clean = slot.getByRole('listitem').filter({ hasText: 'synthetic.pdf' }).first();
+  const blocked = slot.getByRole('listitem').filter({ hasText: 'virus-synthetic.pdf' });
+  await expect(blocked).toContainText('Checking');
+  // The mock's check takes 4 s; the page asks again every 3 s until no file is being checked.
+  await expect(clean).toContainText('Uploaded', { timeout: 20_000 });
+  await expect(blocked).toContainText("This file couldn't be checked", { timeout: 20_000 });
+});
+
+test('a saved SSN that is hidden and shown again asks for a new one', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${origin}/lvp/begin`);
+  await page.getByTestId('intake-annual-tax').click();
+  await page.getByLabel('First Name *').fill('Avery');
+  await page.getByLabel('Last Name *').fill('Example');
+  await page.getByLabel('Email Address *').fill('avery@example.test');
+  await page.getByRole('button', { name: 'Start My Form' }).click();
+  await page.getByRole('radio', { name: 'Married Filing Jointly' }).check();
+  await page.getByLabel('Spouse SSN *').fill('123454321');
+  await fillStep(page);
+  await continueTo(page, 3);
+  // Reopened, the saved SSN shows masked.
+  await page.goBack();
+  await page.getByTestId('intake-annual-tax').click();
+  await expect(current(page).getByRole('button')).toHaveText('3', { timeout: 20_000 });
+  await page.getByTestId('intake-back').click();
+  await expect(form(page).getByText('•••-••-4321')).toBeVisible();
+  // Single hides it; the save clears it.
+  await page.getByRole('radio', { name: 'Single', exact: true }).check();
+  await continueTo(page, 3);
+  await page.getByTestId('intake-back').click();
+  // Shown again, it is empty (not the old masked number, which the save would refuse).
+  await page.getByRole('radio', { name: 'Married Filing Jointly' }).check();
+  await expect(form(page).getByText('•••-••-4321')).toHaveCount(0);
+  await expect(page.getByLabel('Spouse SSN *')).toHaveValue('');
+  await page.getByLabel('Spouse SSN *').fill('123455678');
+  await fillStep(page);
+  await continueTo(page, 3);
+});
+
+test('an expired draft: Continue, Save Later, Submit and reopening show the start card', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const expiredNotice = page.getByRole('status').filter({ hasText: 'expired' });
+  // Past the 30 days a draft lasts: the mock reads the page's clock, set a month later each time.
+  let months = 0;
+  const expire = () => {
+    months += 1;
+    return page.clock.setSystemTime(Date.now() + months * 31 * 86_400_000);
+  };
+
+  // Continue (a save) on an expired draft.
+  await start(page, 'tax-planning');
+  await fillStep(page);
+  await expire();
+  await page.getByTestId('intake-next').click();
+  await expect(expiredNotice).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: 'Start My Form' })).toBeVisible();
+
+  // Save and Continue Later on an expired draft.
+  await page.getByLabel('First Name *').fill('Avery');
+  await page.getByLabel('Last Name *').fill('Example');
+  await page.getByLabel('Email Address *').fill('avery@example.test');
+  await page.getByRole('button', { name: 'Start My Form' }).click();
+  await expect(current(page)).toContainText(/./);
+  await expire();
+  await page.getByRole('button', { name: 'Save and Continue Later' }).click();
+  await expect(expiredNotice).toBeVisible({ timeout: 20_000 });
+
+  // Submit on an expired draft.
+  await start(page, 'payroll');
+  for (let step = 1; step < 3; step += 1) {
+    await fillStep(page);
+    await continueTo(page, step + 1);
+  }
+  await fillStep(page);
+  await page.getByLabel('Full Name *', { exact: true }).fill('Avery Example');
+  await page.getByLabel('Signature (type your full name) *').fill('Avery Example');
+  await expire();
+  await page.getByRole('button', { name: /^Submit/ }).click();
+  await expect(expiredNotice).toBeVisible({ timeout: 20_000 });
+
+  // Opening the service again (the draft's GET answers 410) shows the same card. Client
+  // navigation only: a page load would start the mock over.
+  await page.goto(`${origin}/lvp/begin`);
+  await page.getByTestId('intake-bookkeeping').click();
+  await page.getByLabel('First Name *').fill('Avery');
+  await page.getByLabel('Last Name *').fill('Example');
+  await page.getByLabel('Email Address *').fill('avery@example.test');
+  await page.getByRole('button', { name: 'Start My Form' }).click();
+  await expect(current(page)).toContainText(/./);
+  await expire();
+  await page.goBack();
+  await page.getByTestId('intake-bookkeeping').click();
+  await expect(expiredNotice).toBeVisible({ timeout: 20_000 });
+});

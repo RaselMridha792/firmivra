@@ -75,12 +75,13 @@ export function GridInput({
                 </th>
                 {field.columns.map((col) => {
                   const error = errors[issueKey([field.key, row.key, col.key])];
+                  const errorId = `${field.key}-${row.key}-${col.key}-error`;
                   return (
                     <td key={col.key} className="px-1 py-1 align-top">
                       <input
                         aria-label={`${fill(row.label)}, ${fill(col.label)}`}
                         aria-invalid={error ? true : undefined}
-                        title={error}
+                        aria-describedby={error ? errorId : undefined}
                         type={col.type === 'date' ? 'date' : 'text'}
                         inputMode={col.type === 'currency' ? 'decimal' : undefined}
                         maxLength={col.type === 'text' ? (col.maxLength ?? 200) : undefined}
@@ -95,7 +96,11 @@ export function GridInput({
                         onChange={(event) => set(row.key, col.key, event.target.value)}
                         className={`min-h-11 w-full rounded-control border bg-surface px-2 py-1 text-xs sm:min-h-7 ${error ? 'border-danger' : 'border-border'}`}
                       />
-                      {error && <span className="text-xs text-danger">{error}</span>}
+                      {error && (
+                        <span id={errorId} className="text-xs text-danger">
+                          {error}
+                        </span>
+                      )}
                     </td>
                   );
                 })}
