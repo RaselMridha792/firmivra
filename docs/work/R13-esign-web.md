@@ -56,6 +56,7 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 ## Needs from others
 
 - R13-api: `packages/types/src/esign` contract and mocks (`api.esign`, `api.signing(slug)`, `api.mySignatures(slug)`).
+- R13-api: the largest adopted signature image the signing API takes. The pad refuses data URLs over 90,000 characters (`MAX_SIGNATURE_CHARS` in `signature-pad.tsx`, under Nest's 100 KB JSON limit); the constant moves to `packages/types/src/esign` with the signing contract.
 - Fahad: "Firm Sign" in the firm menu; the Send for Signature button and the "Signatures" entry in the client record's tabs (`clients/[id]/layout.tsx`, F06).
 - Nahid: "Signatures" in the portal menu.
 - R1: PAGE-MAP rows for the Firm Sign pages.
@@ -68,3 +69,4 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - 2026-10-08: viewer PR: `pdfjs-dist` 6.3.289 and the loader (worker with a ready check, else the main thread; a failed load retries), `PdfPages` (pages draw as they scroll near and free their canvas when far, sized to the container, an overlay slot per page for FieldOverlay), a synthetic sample PDF shown on `/{firm}/sign` until the signing API lands, `e2e/mock/esign-pdf-pages.spec.ts` (incl. the no-worker fallback).
 - 2026-10-08: signature pad PR, stacked on the viewer: `SignaturePad` (type, draw, upload; always a PNG; each tab keeps its own value; ink and font from the pad's theme tokens), on `/{firm}/sign`, `e2e/mock/esign-signature-pad.spec.ts` (draw at 375 px).
 - 2026-10-09: #146 pre-review fix 1: one shared `PDFWorker` passed to every `getDocument`, so closing a document no longer destroys the worker the next one needs; the sign preview gets a Next document button and a spec that switches documents after the first draws (fails without the fix). Fix 2 (wasm, standard fonts and cMaps for scanned pages, plus a CCITT spec) goes in the next viewer PR, before any real document is shown; it needs a `/pdfjs/` exception in the proxy matcher from R1 or assets resolved with `import.meta.url`.
+- 2026-10-09: #147 pre-review fixes: an uploaded photo becomes ink on transparent paper (pixels lighter than 75% are paper, a fade down to 55% keeps smooth edges, strokes take the theme ink), so a phone photo of a signature adopts in a few KB; a picture that still comes out over the cap is refused with "This picture is too detailed. Try a closer photo on plain white paper."; the open tab is read from a ref when a panel reports (no stale tab after a quick switch); very long typed names are squeezed to fit the box.
