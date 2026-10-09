@@ -225,18 +225,40 @@ export async function startInvoiceApp(tag: string) {
       await db.$disconnect();
     }
   };
-  /** A draft for `clientId` (Owner A), parsed with the strict shape. */
-  const draft = async (clientId: string, extra: object = {}) =>
-    Invoice.parse(
-      expectOk(
-        await firm('post', '', people.ownerA, {
+  let seq = 0;
+  /**
+   * An invoice for `clientId` in firm A, written straight to the database (the database computes
+   * its amounts), then read back through the API with the strict shape.
+   */
+  const draft = async (
+    clientId: string,
+    extra: { lines?: { description: string; unitAmountCents: number }[]; status?: 'OPEN' } = {},
+  ) => {
+    const id = await inScope(ids.firmA, async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          businessId: ids.firmA,
           clientId,
-          lines: [{ description: 'Tax return', unitAmountCents: 50_000 }],
-          dueOn: nyDay(30),
-          ...extra,
-        }),
-      ).body,
-    );
+          number: `INV-${run}-${String(++seq).padStart(4, '0')}`,
+          dueOn: new Date(`${nyDay(30)}T00:00:00.000Z`),
+          createdByUserId: people.ownerA.id,
+        },
+      });
+      await tx.invoiceLine.createMany({
+        data: (extra.lines ?? [{ description: 'Tax return', unitAmountCents: 50_000 }]).map(
+          (l, sortOrder) => ({ businessId: ids.firmA, invoiceId: invoice.id, ...l, sortOrder }),
+        ),
+      });
+      if (extra.status === 'OPEN') {
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: { status: 'OPEN', issuedAt: new Date() },
+        });
+      }
+      return invoice.id;
+    });
+    return Invoice.parse(expectOk(await firm('get', `/${id}`, people.ownerA)).body);
+  };
 
   return { app, run, people, ids, firm, portal, inScope, draft, appUrl: fx.appUrl };
 }

@@ -1,20 +1,7 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Post, Put, Query } from '@nestjs/common';
+import { Controller, Get, Module, Param, Query } from '@nestjs/common';
 import type { z } from 'zod';
-import {
-  CreateInvoiceRequest,
-  type Invoice,
-  InvoiceId,
-  type InvoiceList,
-  ListInvoicesQuery,
-  UpdateInvoiceRequest,
-} from '@firmivra/types';
-import {
-  CurrentAuth,
-  CurrentTenant,
-  FIRM_MANAGERS,
-  FIRM_STAFF,
-  Roles,
-} from '../../auth/decorators.js';
+import { type Invoice, InvoiceId, type InvoiceList, ListInvoicesQuery } from '@firmivra/types';
+import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
 import type { ClientsActor } from '../../clients/clients.service.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
@@ -52,28 +39,6 @@ export class InvoicesController {
     @Param('id', idPipe) id: string,
   ): Promise<Invoice> {
     return this.invoices.get(tenant.businessId, actorOf(auth, tenant), id);
-  }
-
-  @Post()
-  @HttpCode(200)
-  @Roles(...FIRM_MANAGERS)
-  create(
-    @CurrentAuth() auth: AuthContext,
-    @CurrentTenant() tenant: TenantContext,
-    @Body(new ZodValidationPipe(CreateInvoiceRequest)) body: z.output<typeof CreateInvoiceRequest>,
-  ): Promise<Invoice> {
-    return this.invoices.create(tenant.businessId, actorOf(auth, tenant), body);
-  }
-
-  @Put(':id')
-  @Roles(...FIRM_MANAGERS)
-  update(
-    @CurrentAuth() auth: AuthContext,
-    @CurrentTenant() tenant: TenantContext,
-    @Param('id', idPipe) id: string,
-    @Body(new ZodValidationPipe(UpdateInvoiceRequest)) body: z.output<typeof UpdateInvoiceRequest>,
-  ): Promise<Invoice> {
-    return this.invoices.update(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 }
 
