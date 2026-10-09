@@ -216,3 +216,10 @@ Nahid's N04 form and Fahad's F04 screens complete the flow on dev.
   - The review page's history has FIRM_ACTIVATED at `activated_at` (by null), and the firm summary stays the four contract fields.
   - Step 5: every firm-application email already goes through NotifyService (received, information requested, declined since step 2; approved with the owner's link since step 3); there are no log-only calls left in the module. There is no separate "firm activated" email template; none is sent.
   - Tests: `apps/api/test/e2e/firm-activation.e2e.test.ts` (approve, the link from the approval email, activation with a password, setup in PENDING_SETUP, resend 409 once joined, the four steps and Finish, FIRM_ACTIVATED, the firms list ACTIVE).
+- 2026-10-09, #164 pre-review fixes (branch `rasel/R16-firm-setup`):
+  - The key sweep's timer catches a failed sweep (a warning; the next one runs), so a database error can't stop the API task.
+  - A `FirmKeyError` (a key made but not named, or an alias naming a key the adapter won't adopt) is recorded once as the platform event `business.key_needs_person` and logged once; the sweep never retries that firm, so no more unused keys are made. A person runs `create-firm-key`, which stores the key.
+  - The sweep leaves firms created in the last 10 minutes to approve's own call (its try-lock ends with the list, and naming a new key can take 5 minutes).
+  - Resend owner invite also copies settings an approval could not copy (idempotent; a firm with settings keeps them).
+  - A revoked newest owner link reads EXPIRED, not SENT.
+  - Tests: unit (sweep age and held firms, the error recorded once, a failing sweep), e2e (settings copied on resend, once).
