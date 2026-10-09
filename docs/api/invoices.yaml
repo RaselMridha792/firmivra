@@ -275,7 +275,7 @@ info:
       It also stores the account's current state from Stripe (`accounts.retrieve`).
     - **Stripe errors**, or no `STRIPE_SECRET_KEY` in the environment: `503
       PAYMENT_PROVIDER_UNAVAILABLE` on every setup route, nothing written. Calls to Stripe use a
-      pinned API version and a 10 s timeout.
+      pinned API version, an 8 s timeout and no SDK retry.
     - **Audit:** `payments.stripe_account_created` (the `acct_` id) and
       `payments.onboarding_link_created`; reads are not audited.
 
