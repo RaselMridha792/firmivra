@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import {
+  INTAKE_LIMITS,
   IntakeList,
   IntakeUpload,
   IntakeView,
@@ -25,6 +26,7 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { IntakeSignaturesService } from '../../src/agreements/intake-signatures.service.js';
 import type { IntakeSignInput } from '../../src/intake/intake-signing.js';
+import { IntakesService } from '../../src/intake/intakes.service.js';
 import type { SignedBy } from '../../src/intake/intake-submit.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -233,6 +235,21 @@ const signAsOne = async (tx: TxClient, input: IntakeSignInput): Promise<SignedBy
  */
 const signed: string[] = [];
 let hold: { entered: () => void; until: Promise<void> } | null = null;
+/**
+ * How many of the next submit attempts get a save landing between their check and their lock:
+ * right after the check reads the intake's files (each attempt's first read; the second is under
+ * the lock), the draft's city flips between two valid answers.
+ */
+let landSaves = 0;
+let slotReads = 0;
+const landSave = (intakeId: string) =>
+  inFirm(
+    (tx) => tx.$executeRaw`
+      UPDATE intake_submissions
+      SET answers = answers || jsonb_build_object('city',
+        CASE WHEN answers->>'city' = 'Atlanta' THEN 'Decatur' ELSE 'Atlanta' END)
+      WHERE intake_id = ${intakeId}::uuid AND submitted_at IS NULL`,
+  );
 
 /** Contract B's signature for firm A's current firm-wide agreement, by client One. */
 const signature = (name = 'One Sample', typed = name) => ({
@@ -391,6 +408,16 @@ beforeAll(async () => {
       await hold.until;
     }
     return sign(tx, input);
+  };
+  const intakes = nest.get(IntakesService);
+  const slotFiles = intakes['slotFiles'].bind(intakes);
+  intakes['slotFiles'] = async (tx, businessId, intakeId) => {
+    const files = await slotFiles(tx, businessId, intakeId);
+    if (landSaves > 0 && slotReads++ % 2 === 0) {
+      landSaves--;
+      await landSave(intakeId);
+    }
+    return files;
   };
   await nest.listen(0, '127.0.0.1');
   app = nest;
@@ -710,7 +737,7 @@ describe('portal: uploads', () => {
 
   it("puts a file in an open intake's slot, and takes it out again", async () => {
     // The intake of ids.tax is IN_PROGRESS (version 3) after the firm unlocked it.
-    const t = UploadTicket.parse(ok(await ticket(ids.intake, 'incomeDocuments'), 201).body);
+    const t = UploadTicket.parse(ok(await ticket(ids.intake, 'incomeDocuments')).body);
     objects.set(t.url.slice('memory:'.length), bytes);
     const file = IntakeUpload.parse(
       ok(
@@ -766,6 +793,120 @@ describe('portal: uploads', () => {
     const closed = await ticket(ids.closing, 'incomeDocuments');
     expect(closed.status).toBe(409);
     expect(codeOf(closed)).toBe('NO_OPEN_SERVICE');
+  });
+});
+
+describe('portal: upload limits, and the general My Documents route', () => {
+  const bytes = pdf('limits');
+  const intake = { id: '', engagementId: '' };
+  const ticket = (slot: string) =>
+    portal('post', `/${intake.id}/uploads`, people.one, {
+      slot,
+      fileName: `${slot}.pdf`,
+      contentType: 'application/pdf',
+      sizeBytes: bytes.length,
+      sha256: sha256(bytes),
+    });
+  /** A ticket for the slot whose file is PUT: its key. */
+  const put = async (slot: string) => {
+    const t = UploadTicket.parse(ok(await ticket(slot)).body);
+    const key = t.url.slice('memory:'.length);
+    objects.set(key, bytes);
+    return { token: t.uploadToken, key };
+  };
+  const confirm = (token: string) =>
+    portal('post', `/${intake.id}/uploads/confirm`, people.one, { uploadToken: token });
+  /** `n` files already in the slot (straight into the database). */
+  const fill = (slot: string, n: number) =>
+    inFirm((tx) =>
+      tx.document.createMany({
+        data: Array.from({ length: n }, (_, i) => ({
+          businessId: ids.firmA,
+          clientId: ids.clientOne,
+          engagementId: intake.engagementId,
+          intakeId: intake.id,
+          intakeSlot: slot,
+          direction: 'CLIENT_TO_FIRM' as const,
+          fileName: `${slot}-${i}.pdf`,
+          contentType: 'application/pdf',
+          sizeBytes: 1024,
+          sha256: 'c'.repeat(64),
+          s3Key: `tenant/${ids.firmA}/documents/${randomUUID()}`,
+          uploadedByUserId: people.one.id,
+        })),
+      }),
+    );
+  const saved = (key: string) => inFirm((tx) => tx.document.count({ where: { s3Key: key } }));
+  const inSlot = (slot: string) =>
+    inFirm((tx) => tx.document.count({ where: { intakeId: intake.id, intakeSlot: slot } }));
+
+  it("an intake's ticket confirmed through My Documents is 404: its file is deleted, nothing saved", async () => {
+    const serviceId = (
+      await inFirm((tx) => tx.engagement.findUniqueOrThrow({ where: { id: ids.tax } }))
+    ).serviceId;
+    intake.engagementId = await inFirm((tx) =>
+      tx.engagement
+        .create({
+          data: {
+            businessId: ids.firmA,
+            clientId: ids.clientOne,
+            serviceId,
+            title: '2025 limits',
+            taxYear: 2025,
+            status: 'ACTIVE',
+          },
+        })
+        .then((e) => e.id),
+    );
+    intake.id = (await send(intake.engagementId)).id;
+    const { token, key } = await put('governmentId');
+    const general = await request(app.getHttpServer())
+      .post(`/api/v1/portal/${ids.slugA}/me/documents/uploads/confirm`)
+      .set('authorization', `Bearer ${await tokenFor(people.one.email)}`)
+      .send({ uploadToken: token });
+    expect(general.status, JSON.stringify(general.body)).toBe(404);
+    expect(objects.has(key)).toBe(false);
+    expect(await saved(key)).toBe(0);
+    expect(mine(await portal('get', `/${intake.id}`, people.one)).uploads).toEqual([]);
+    // Refused once: the intake's own route does not save it either.
+    expect((await confirm(token)).status).not.toBe(200);
+    expect(await saved(key)).toBe(0);
+  });
+
+  it("409 TOO_MANY_FILES at the ticket and at the confirm: the slot's maxFiles", async () => {
+    const max = INTAKE_LIMITS.maxFilesPerSlot; // Annual Tax's slots take the most
+    await fill('incomeDocuments', max);
+    const full = await ticket('incomeDocuments');
+    expect(full.status).toBe(409);
+    expect(codeOf(full)).toBe('TOO_MANY_FILES');
+    // A ticket for the last place, then another file takes it before the confirm.
+    await fill('deductionDocuments', max - 1);
+    const { token, key } = await put('deductionDocuments');
+    await fill('deductionDocuments', 1);
+    const late = await confirm(token);
+    expect(late.status).toBe(409);
+    expect(codeOf(late)).toBe('TOO_MANY_FILES');
+    expect(objects.has(key)).toBe(false);
+    expect(await saved(key)).toBe(0);
+    expect(await inSlot('deductionDocuments')).toBe(max);
+  });
+
+  it('409 TOO_MANY_FILES at the ticket and at the confirm: INTAKE_LIMITS.maxFiles for the form', async () => {
+    // 40 files so far; 49 leaves one place.
+    await fill('governmentId', INTAKE_LIMITS.maxFiles - 2 * INTAKE_LIMITS.maxFilesPerSlot - 1);
+    const { token, key } = await put('socialSecurityCard');
+    await fill('dependentDocuments', 1);
+    const full = await ticket('socialSecurityCard');
+    expect(full.status).toBe(409);
+    expect(codeOf(full)).toBe('TOO_MANY_FILES');
+    const late = await confirm(token);
+    expect(late.status).toBe(409);
+    expect(codeOf(late)).toBe('TOO_MANY_FILES');
+    expect(objects.has(key)).toBe(false);
+    expect(await saved(key)).toBe(0);
+    // At the limit the client's intake still reads (contract B: at most 50 uploads).
+    const read = mine(await portal('get', `/${intake.id}`, people.one));
+    expect(read.uploads).toHaveLength(INTAKE_LIMITS.maxFiles);
   });
 });
 
@@ -953,6 +1094,24 @@ describe('portal: submit', () => {
     expect(await signaturesOf(intakeId)).toBe(0);
   });
 
+  it('a save between the check and the lock starts the submit again; three in a row are 409 INTAKE_CHANGED', async () => {
+    const { intakeId } = sent;
+    signed.length = 0;
+    slotReads = 0;
+    landSaves = 3;
+    const res = await submit(intakeId);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(codeOf(res)).toBe('INTAKE_CHANGED');
+    expect(landSaves).toBe(0);
+    expect(signed).toEqual([]);
+    expect(await signaturesOf(intakeId)).toBe(0);
+    expect(mine(await portal('get', `/${intakeId}`, people.one))).toMatchObject({
+      status: 'IN_PROGRESS',
+      canSubmit: true,
+      signature: null,
+    });
+  });
+
   it('saves the review answers, takes hidden-slot files out, signs and locks; an upload waits and is refused', async () => {
     const { intakeId, spouseId } = sent;
     const intake = { id: intakeId };
@@ -967,7 +1126,6 @@ describe('portal: submit', () => {
           sizeBytes: bytes.length,
           sha256: sha256(bytes),
         }),
-        201,
       ).body,
     );
     objects.set(t.url.slice('memory:'.length), bytes);
@@ -977,6 +1135,9 @@ describe('portal: submit', () => {
     const signing = new Promise<void>((r) => (entered = r));
     hold = { entered, until: gate };
     signed.length = 0;
+    // One save lands before the first attempt's lock: the second attempt signs.
+    slotReads = 0;
+    landSaves = 1;
     const submitting = submit(intake.id, {
       answers: { paymentPreference: 'PAY_NOW_DISCOUNT' },
       signature: signature(),
@@ -1002,6 +1163,7 @@ describe('portal: submit', () => {
     expect(submitted.answers['paymentPreference']).toBe('PAY_NOW_DISCOUNT');
     expect(submitted.uploads.map((u) => u.slot)).toEqual(['governmentId']);
     expect(signed).toHaveLength(1);
+    expect(landSaves).toBe(0);
     expect(codeOf(await confirming)).toBe('INTAKE_LOCKED');
     const stored = await inFirm(async (tx) => ({
       spouse: await tx.document.findUniqueOrThrow({ where: { id: spouseId } }),
