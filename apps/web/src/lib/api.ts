@@ -4,6 +4,7 @@ import {
   createAppointmentsClient,
   createAppointmentTypesClient,
   createAuditLogClient,
+  createBeginOnlineClient,
   createAvailabilityClient,
   createCalculatorsClient,
   createClientsClient,
@@ -42,6 +43,7 @@ import {
   myAppointmentsMock,
 } from '../mocks/appointments';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
@@ -111,6 +113,11 @@ export const api = {
     dev && mocked('myServices')
       ? myServicesMock(firmSlug)
       : createMyServicesClient(request, firmSlug),
+  /** Begin Online (R11): a firm's public intake forms and this browser's draft (portal, signed out). */
+  beginOnline: (firmSlug: string) =>
+    dev && mocked('beginOnline')
+      ? beginOnlineMock(firmSlug)
+      : createBeginOnlineClient(request, firmSlug),
   myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
   /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
   appointmentTypes:
