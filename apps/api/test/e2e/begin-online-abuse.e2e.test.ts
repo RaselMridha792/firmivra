@@ -16,7 +16,7 @@ import { AppModule } from '../../src/app.module.js';
 import { BEGIN_ONLINE_THROTTLE } from '../../src/begin-online/begin-online.controller.js';
 import { DRAFT_START_LIMITS } from '../../src/begin-online/begin-online.service.js';
 import { RESUME_LINK_LIMITS } from '../../src/begin-online/resume-links.service.js';
-import { configureApp } from '../../src/configure-app.js';
+import { configureApp, JSON_BODY_LIMIT_BYTES } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
@@ -330,10 +330,12 @@ describe('Begin Online size limits', () => {
     ['more than maxAnswers answers', tooManyAnswers(), 400],
     ['a group over maxRows', { dependents: rows(INTAKE_LIMITS.maxRows + 1) }, 400],
     ['a group row over maxRowKeys', { dependents: rows(1, INTAKE_LIMITS.maxRowKeys) }, 400],
-    ['a body over the JSON limit (100 kB)', { notes: [long(9_000)], ...bigBody() }, 413],
+    ['a body over the JSON limit', { notes: [long(9_000)], ...bigBody() }, 413],
   ];
+  /** Just over the API's one JSON body limit (JSON_BODY_LIMIT_BYTES). */
   function bigBody() {
-    return Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`big${i}`, long(9_999)]));
+    const length = Math.ceil(JSON_BODY_LIMIT_BYTES / 9_999) + 1;
+    return Object.fromEntries(Array.from({ length }, (_, i) => [`big${i}`, long(9_999)]));
   }
 
   it.each(refused)('start: %s is refused and stores nothing', async (_n, answers, status) => {
