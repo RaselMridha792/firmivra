@@ -222,8 +222,23 @@ info:
         bucket, a changed ETag) and `FAILED`. The alarm fires and we rescan it with GuardDuty's
         on-demand scan (`SendObjectMalwareScan` with the key and the confirmed version id); the
         object is never rewritten or copied to rescan it.
-      - A request whose newest file becomes `INFECTED` or `FAILED` goes back to `REQUESTED` in
-        the same transaction (see "Requests"; kept, Rasel q22).
+      - A `SUBMITTED` request whose newest file becomes `INFECTED` or `FAILED` goes back to
+        `REQUESTED` in the same transaction (see "Requests"; kept, Rasel q22). A request the
+        firm cancelled or marked missing, or the client answered "I don't have this", keeps its
+        status and note.
+      - GuardDuty scans the object as soon as the PUT ends, so a result can arrive before the
+        confirm commits the document (a confirm may come up to the token's 15 minutes later,
+        after a `503`). Such a result is `UNKNOWN` (logged with the upload id): the handler
+        leaves the message on the queue for redelivery (a visibility timeout and a max receive
+        count that cover 30 minutes), then dead-letters it to the alarm (an upload never
+        confirmed or refused, its object deleted). `IGNORED` (delete the message) is only for a
+        result already set or a key outside `tenant/{businessId}/documents/`.
+      - Built (R5 API part 2): `ScanResultsService.recordScanResult({ key, status, reasons })`
+        does all of the above for the handler to call (locks the request, then the document;
+        audits `document.scanned` with the result and reasons, `document.scan_unfinished` for
+        our side, `document_request.reopened`). A password-protected PDF becomes `CLEAN` with
+        `unscanned: true` in its audit entry; the firm's document shows it once R0 adds a column
+        for it (the contract field comes with that column).
     - **Replays.** A presigned PUT can be replayed until it expires and the bucket is versioned,
       so a download pins the confirmed version (R0: `documents.s3_version_id`) or the API checks
       the checksum before signing the GET. Today it checks the size, S3's checksum and that no
