@@ -171,6 +171,38 @@ describe('routing', () => {
     expect(currentTurn('SEQUENTIAL', [a, b, c])).toEqual([]);
   });
 
+  it('flags every required field kind left without a signer', () => {
+    const a = signer();
+    const field = (type: 'INITIALS' | 'DATE_SIGNED' | 'ATTACHMENT') => ({
+      id: randomUUID(),
+      recipientId: randomUUID(), // a signer who was removed
+      type,
+      required: true,
+      mergeKey: null,
+    });
+    const fields = [field('INITIALS'), field('DATE_SIGNED'), field('ATTACHMENT')];
+    const mine = { ...fields[0]!, id: randomUUID(), recipientId: a.id };
+    const result = readiness(base({ recipients: [a], fields: [...fields, mine] }));
+    expect(result.problems.map((p) => [p.code, p.fieldId])).toEqual(
+      fields.map((f) => ['SIGNATURE_UNASSIGNED', f.id]),
+    );
+  });
+
+  it('needs no email or access code for an in-person signer', () => {
+    const inPerson = signer({ delivery: 'IN_PERSON', email: null, authMethod: 'ACCESS_CODE' });
+    expect(codes(base({ recipients: [inPerson], fields: [] }))).toEqual([]);
+  });
+
+  it('never moves an open request backwards', () => {
+    const a = signer({ status: 'SENT' });
+    const b = signer({ status: 'SENT' });
+    expect(statusAfter([a, b], 'VIEWED')).toBe('VIEWED');
+    expect(statusAfter([a, b], 'PARTIALLY_SIGNED')).toBe('PARTIALLY_SIGNED');
+    a.status = 'DECLINED';
+    expect(statusAfter([a, b], 'PARTIALLY_SIGNED')).toBe('DECLINED');
+    expect(statusAfter([], 'VIEWED')).toBe('VIEWED');
+  });
+
   it('moves the request status after each recipient change', () => {
     const a = signer({ status: 'SENT' });
     const b = signer({ status: 'WAITING', routingOrder: 2 });

@@ -26,7 +26,11 @@ function folder(businessId: string, area: 'esign' | 'documents'): string {
 /** The key, when it is a plain key under the firm's `area` folder; else throws. */
 export function checkKey(businessId: string, key: string, area: 'esign' | 'documents' = 'esign') {
   const prefix = folder(businessId, area);
-  if (!key.startsWith(prefix) || !NAME.test(key.slice(prefix.length))) throw new EsignKeyError();
+  const rest = key.slice(prefix.length);
+  if (!key.startsWith(prefix) || !NAME.test(rest)) throw new EsignKeyError();
+  // Firm Sign's own files always sit in a request's folder.
+  const [request, ...name] = rest.split('/');
+  if (area === 'esign' && (!UUID.test(request!) || name.length === 0)) throw new EsignKeyError();
   return key;
 }
 

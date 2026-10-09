@@ -35,7 +35,10 @@ export class EsignEngineError extends Error {
   }
 }
 
-/** A page size in PDF points, before any rotation (EsignDocument.pageSizes). */
+/**
+ * A page size in PDF points as a viewer shows it: the visible box turned by the page's own
+ * /Rotate, before any plan rotation (EsignDocument.pageSizes).
+ */
 export type PageSize = EsignDocument['pageSizes'][number];
 
 /** One stored file of a request: a PDF, or a JPG or PNG that becomes one page. */
@@ -158,13 +161,16 @@ export interface LinkTokens {
   hash(token: string): string;
 }
 
+export type EsignCodeKind = 'EMAIL' | 'ACCESS';
+
 /** Email and access codes: an HMAC (HKDF label fv-esign-code-v1), bound to the recipient. */
 export interface CodeHasher {
   /** A random 6-digit code. */
   generate(): string;
-  hash(recipientId: string, code: string): string;
+  /** The kind is in the HMAC input, so an email code never passes as the access code. */
+  hash(recipientId: string, kind: EsignCodeKind, code: string): string;
   /** Constant-time comparison. */
-  verify(recipientId: string, code: string, storedHash: string): boolean;
+  verify(recipientId: string, kind: EsignCodeKind, code: string, storedHash: string): boolean;
 }
 
 /** What the sealed fv_sign_{slug} cookie holds once a signer opened their link. */
@@ -255,7 +261,12 @@ export interface EsignRules {
   currentTurn(routing: EsignRouting, recipients: RuleRecipient[]): string[];
   /** The request's status after a recipient's status changed (open requests only). */
   statusAfter(recipients: RuleRecipient[], current: EsignRequestStatus): EsignRequestStatus;
-  /** When the next automatic reminder is due; null when none is left before expiry. */
+  /**
+   * When the next automatic reminder to one recipient is due; null when none is left before
+   * expiry. `sentAt` is when that recipient's turn began (for a later group in SEQUENTIAL
+   * routing, when the group before it finished), and `sentCount` counts only the automatic
+   * reminders already sent to them: Remind Now doesn't use up the schedule.
+   */
   nextReminderAt(input: {
     sentAt: Date;
     reminders: EsignReminders;

@@ -13,7 +13,8 @@ import type { EsignRules, ReadinessInput, RuleRecipient } from './engine.types.j
 const DAY_MS = 24 * 60 * 60_000;
 /** Remind Now waits this long after the last reminder to the same recipient. */
 export const REMIND_GAP_MS = 60 * 60_000;
-const OPEN: readonly EsignRequestStatus[] = ['SENT', 'DELIVERED', 'VIEWED', 'PARTIALLY_SIGNED'];
+/** The open statuses, in the order a request moves through them. */
+const OPEN: readonly string[] = ['SENT', 'DELIVERED', 'VIEWED', 'PARTIALLY_SIGNED'];
 const Email = z.email();
 
 type Problem = EsignReadiness['problems'][number];
@@ -56,7 +57,9 @@ export function readiness(input: ReadinessInput): EsignReadiness {
     if (r.delivery === 'EMAIL' && !(r.email && Email.safeParse(r.email).success)) {
       problems.push(problem('RECIPIENT_NO_CONTACT', { recipientId: r.id }));
     }
-    if (r.kind !== 'CC' && r.authMethod === 'ACCESS_CODE' && !r.hasAccessCode) {
+    // IN_PERSON recipients sign on the firm's device: no email and no access code needed.
+    const inPerson = r.delivery === 'IN_PERSON';
+    if (!inPerson && r.kind !== 'CC' && r.authMethod === 'ACCESS_CODE' && !r.hasAccessCode) {
       problems.push(problem('ACCESS_CODE_MISSING', { recipientId: r.id }));
     }
     if (r.kind === 'APPROVER' && r.status !== 'APPROVED') {
@@ -64,9 +67,11 @@ export function readiness(input: ReadinessInput): EsignReadiness {
     }
   }
 
+  // Any required field (signature, initials, date, attachment...) whose signer is gone or who
+  // was never a signer could never be filled; the code says signature, the fieldId says which.
   for (const field of input.fields) {
     const unassigned = !field.recipientId || !signerIds.has(field.recipientId);
-    if (field.type === 'SIGNATURE' && field.required && unassigned) {
+    if (field.required && unassigned) {
       problems.push(problem('SIGNATURE_UNASSIGNED', { fieldId: field.id }));
     }
   }
@@ -108,15 +113,24 @@ export function currentTurn(routing: EsignRouting, recipients: RuleRecipient[]):
 /**
  * The request's status after a recipient changed. Only open requests move: DECLINED when a
  * signer declined, COMPLETED when every signer signed, PARTIALLY_SIGNED when some did, else the
- * furthest any signer got (VIEWED, DELIVERED, SENT). Any other status stays as it is.
+ * furthest any signer got (VIEWED, DELIVERED, SENT), never behind the current status. Any other
+ * status stays as it is.
  */
 export function statusAfter(
   recipients: RuleRecipient[],
   current: EsignRequestStatus,
 ): EsignRequestStatus {
   if (!OPEN.includes(current)) return current;
+  const next = furthest(recipients);
+  // Terminal outcomes always apply; otherwise an open request never moves backwards.
+  if (next === 'NONE') return current;
+  if (!OPEN.includes(next) || OPEN.indexOf(next) > OPEN.indexOf(current)) return next;
+  return current;
+}
+
+function furthest(recipients: RuleRecipient[]): EsignRequestStatus | 'NONE' {
   const signers = recipients.filter((r) => r.kind === 'SIGNER');
-  if (signers.length === 0) return current;
+  if (signers.length === 0) return 'NONE';
   if (signers.some((s) => s.status === 'DECLINED')) return 'DECLINED';
   const signed = signers.filter((s) => s.status === 'SIGNED').length;
   if (signed === signers.length) return 'COMPLETED';
