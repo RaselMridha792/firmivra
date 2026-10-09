@@ -51,8 +51,10 @@ export function createMyIntakesClient(request: ApiRequest, firmSlug: string) {
     /**
      * Signs and submits: the version is locked and the intake is SUBMITTED (the firm is told).
      * 400 VALIDATION_FAILED when the form is not complete (`checkIntakeAnswers` shows where);
-     * then the agreement codes (IntakeAgreementErrorCode: NO_INTAKE_AGREEMENT, AGREEMENT_OUTDATED,
-     * ACKNOWLEDGMENT_REQUIRED, SIGNATURE_MISMATCH, PDF_REQUIRED).
+     * then the signing codes (R14's IntakeSigningErrorCode: NO_INTAKE_AGREEMENT,
+     * AGREEMENT_OUTDATED, ACKNOWLEDGMENT_REQUIRED, SIGNATURE_MISMATCH); 503
+     * ENCRYPTION_UNAVAILABLE for a new SSN or EIN the firm's key can't seal now. The body needs
+     * `signature` for the block from `api.myIntakeAgreements(slug).block(id)`.
      */
     submit: async (id: string, body: SubmitIntakeRequest): Promise<MyIntake> =>
       request(MyIntake, `${one(id)}/submit`, {
@@ -70,7 +72,9 @@ export function createMyIntakesClient(request: ApiRequest, firmSlug: string) {
      * its slot. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS;
      * 409 TOO_MANY_FILES when files confirmed since step 1 filled the slot or the form: the API
      * checks the slot's `maxFiles` and INTAKE_LIMITS.maxFiles again inside the confirm
-     * transaction that adds the file, so uploads confirmed at once never pass either limit.
+     * transaction that adds the file, after `SELECT ... FOR NO KEY UPDATE` on the intake's row
+     * (FOR SHARE is not enough: two confirms at 49 would both count 49), so uploads confirmed at
+     * once never pass either limit. Also 409 INTAKE_LOCKED or NO_OPEN_SERVICE, 410 INTAKE_EXPIRED.
      */
     confirmUpload: async (id: string, body: ConfirmUploadRequest): Promise<IntakeUpload> =>
       request(IntakeUpload, `${one(id)}/uploads/confirm`, {

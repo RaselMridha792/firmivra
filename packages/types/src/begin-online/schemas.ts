@@ -9,9 +9,10 @@ import {
   IntakeFormKey,
   intakeStepFields,
 } from '../intake/definition.js';
+import { INTAKE_SIGNING_ERRORS, IntakeSigningErrorCode } from '../agreements/schemas.js';
 import {
-  INTAKE_AGREEMENT_ERRORS,
   INTAKE_NUMBERS_UNAVAILABLE,
+  INTAKE_TOO_MANY_NUMBERS,
   IntakeUpload,
   refuseFullNumbers,
 } from '../intake/schemas.js';
@@ -37,8 +38,9 @@ import {
 // One service per kind: a firm offers at most one Begin Online service of each of the six kinds
 // (R0: services.begin_online, unique per firm and kind among unarchived services, never OTHER);
 // the API picks that one.
-// No form carries an agreement of its own: the review step shows the firm's agreements from
-// R14's `api.publicAgreements(slug)`, and the submit carries the signature (SubmitIntakeRequest).
+// No form carries an agreement of its own: the review step shows the form's agreements from
+// R14's `api.publicAgreements(slug).block({ form })` (GET /portal/{firmSlug}/intake-agreements
+// ?form=<IntakeFormKey>), and the submit carries the signature (SubmitIntakeRequest).
 // The draft cookie: HttpOnly, one per service, on /api/v1/portal/{firmSlug}/begin, a few hours. Its
 // value is signed by the API and binds the firm, the lead, the form and an expiry, never a bare
 // lead id; JavaScript never sees it, nothing is kept in localStorage, and nothing about the draft
@@ -154,7 +156,8 @@ export type BeginOnlineFormItem = z.infer<typeof BeginOnlineFormList>['items'][n
 
 /**
  * GET /portal/{firmSlug}/begin/forms/{path}: the form to show before a draft exists. The
- * agreements to sign are not here: the review step reads them from `api.publicAgreements(slug)`.
+ * agreements to sign are not here: the review step reads them from
+ * `api.publicAgreements(slug).block({ form })`, which resolves the firm's service of that kind.
  */
 export const BeginOnlineForm = z.object({
   form: IntakeFormKey,
@@ -312,23 +315,17 @@ export const BeginOnlineErrorCode = z.enum([
    */
   'TOO_MANY_FILES',
   /**
-   * 409 on submit: the Terms of Service or Privacy Policy accepted on the review step is not the
-   * firm's current version (as R3's sign-up). Reload them and accept again. The versions accepted
-   * travel with R14's signature (intake_signatures.terms_document_id and privacy_document_id,
-   * Begin Online only; see SubmitIntakeRequest).
-   */
-  'TERMS_OUTDATED',
-  /**
    * 503 on a save or submit that holds a new SSN or EIN: it can't be sealed with the firm's key
    * right now (no key yet, KMS down). Nothing is saved; try again later.
    */
   'ENCRYPTION_UNAVAILABLE',
-  // The submit's agreement codes (IntakeAgreementErrorCode in intake/schemas.ts).
-  'NO_INTAKE_AGREEMENT',
-  'AGREEMENT_OUTDATED',
-  'ACKNOWLEDGMENT_REQUIRED',
-  'SIGNATURE_MISMATCH',
-  'PDF_REQUIRED',
+  /** 400 on a save or submit with more than 120 new SSNs and EINs; nothing is saved. */
+  'TOO_MANY_NUMBERS',
+  /**
+   * The submit's signing codes (R14's IntakeSigningErrorCode), TERMS_OUTDATED included: the
+   * Terms or Privacy versions in `signature.acceptLegal` are not the firm's current ones.
+   */
+  ...IntakeSigningErrorCode.options,
 ]);
 export type BeginOnlineErrorCode = z.infer<typeof BeginOnlineErrorCode>;
 
@@ -343,8 +340,7 @@ export const BEGIN_ONLINE_ERRORS = {
     'This link is no longer valid. If your form is still saved, enter your email for a new link.',
   DRAFT_SUBMITTED: 'This form has already been submitted. Thank you!',
   TOO_MANY_FILES: 'There is no room for more files here. Remove a file to add another.',
-  TERMS_OUTDATED:
-    'Our Terms of Service or Privacy Policy has been updated. Please review it and accept again.',
   ENCRYPTION_UNAVAILABLE: INTAKE_NUMBERS_UNAVAILABLE,
-  ...INTAKE_AGREEMENT_ERRORS,
+  TOO_MANY_NUMBERS: INTAKE_TOO_MANY_NUMBERS,
+  ...INTAKE_SIGNING_ERRORS,
 } as const satisfies Record<BeginOnlineErrorCode, string>;

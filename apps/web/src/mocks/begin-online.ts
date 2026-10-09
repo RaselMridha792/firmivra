@@ -27,14 +27,15 @@ import { mockDelay } from '../lib/mock';
 import {
   answersOrFail,
   checkFixture,
+  checkMockSignature,
   createMockSlotUploads,
   fileView,
   keptFiles,
   mockForm,
   type MockSlotFile,
+  mockSubmitBlock,
   slotCounts,
   storeStep,
-  submitTrigger,
 } from './intake';
 import { mockBusiness } from './me';
 
@@ -44,7 +45,8 @@ import { mockBusiness } from './me';
  * (`checkIntakeAnswers`, `restoreMaskedNumbers`) and error codes as the API; the "browser's
  * draft" (the API's signed HttpOnly cookie) is kept in memory, so a page reload starts over. Only
  * the forms in INTAKE_FORMS are offered (another answers 404). No form carries an agreement: the
- * review step shows the firm's agreements from R14's `api.publicAgreements(slug)`. Nothing is
+ * review step shows the form's block from R14's `api.publicAgreements(slug).block({ form })`
+ * (its mock's `legal` is Terms 2 and Privacy 1, so a submit sends `acceptLegal`). Nothing is
  * built until the first call, and the fixture draft's answers are checked against its form then.
  * To see each state on a screen:
  *   - Resume links: open `/lvp/begin/resume#token=` + one of MOCK_RESUME_TOKENS: `saved` (a
@@ -62,20 +64,22 @@ import { mockBusiness } from './me';
  *     named "password" or "macro" is refused as the API would. Only CLEAN and PENDING files
  *     answer a required slot; every file counts toward the slot's `maxFiles` and the draft's
  *     limit, at step 1 and again at step 3 (409 TOO_MANY_FILES). The ticket URL starts with
- *     `mock:`, so `uploadFile()` skips the PUT.
+ *     `mock:`, so `uploadFile()` skips the PUT. A ticket belongs to the draft that asked for it:
+ *     once a start or a resume has replaced this browser's draft, it answers 410 UPLOAD_EXPIRED.
  *   - `forms` lists the services in the page's order (BEGIN_ONLINE_FORM_ORDER); `start` fills
  *     the form's contact fields with `beginOnlinePrefill`, as the API does.
  *   - A save (or a submit's answers) with a new SSN or EIN ending in 0503 (MOCK_KEY_DOWN_LAST4
  *     in ./intake) answers 503 ENCRYPTION_UNAVAILABLE and saves nothing.
- *   - Submit checks the whole form: 400 VALIDATION_FAILED names the first problem. Then, until
- *     R14's signature is in the body, a word in a text answer answers a submit code instead
- *     (MOCK_SUBMIT_TRIGGERS in ./intake; the start's email fills the form's email, so starting
- *     as e.g. `termsoutdated@lvp.test` works too): "termsoutdated" 409 TERMS_OUTDATED,
- *     "noagreement" 409 NO_INTAKE_AGREEMENT, "agreementoutdated" 409 AGREEMENT_OUTDATED,
- *     "acknowledgmentrequired" 400 ACKNOWLEDGMENT_REQUIRED, "signaturemismatch" 400
- *     SIGNATURE_MISMATCH, "pdfrequired" 400 PDF_REQUIRED. A submit deletes the files whose slot
- *     is not a shown upload field, keeps only the answers of shown fields, then locks the draft:
- *     it answers 409 DRAFT_SUBMITTED, and `start` begins a new one.
+ *   - Submit needs `signature` (400 VALIDATION_FAILED without it) and checks the whole form: 400
+ *     VALIDATION_FAILED names the first problem. Then the signature is checked against the
+ *     form's block as the API does (`checkMockSignature` in ./intake): an agreement left out or
+ *     at an older version or bodySha256 409 AGREEMENT_OUTDATED; `acceptLegal` missing 400
+ *     VALIDATION_FAILED, other Terms or Privacy versions 409 TERMS_OUTDATED; a required box not
+ *     ticked 400 ACKNOWLEDGMENT_REQUIRED; a name with a no-break space 400 SIGNATURE_MISMATCH.
+ *     "noagreement" in a text answer answers 409 NO_INTAKE_AGREEMENT (the start's email fills the
+ *     form's email, so starting as `noagreement@lvp.test` works too). A submit deletes the files
+ *     whose slot is not a shown upload field, keeps only the answers of shown fields, then locks
+ *     the draft: it answers 409 DRAFT_SUBMITTED, and `start` begins a new one.
  */
 export const MOCK_RESUME_TOKENS = {
   saved: 'mockSavedAnnualTaxDraft00000000000000000001',
@@ -92,9 +96,14 @@ const now = () => new Date().toISOString();
 const inDays = (days: number, from = Date.now()) => new Date(from + days * DAY).toISOString();
 /** The tax year the mock firm prepares: the current one, as the mockups show it. */
 const taxYear = () => new Date().getFullYear();
+let draftIds = 0;
+/** A new draft's lead id. */
+const newDraftId = () => `0199b6ab-0000-7000-8000-${String(100 + draftIds++).padStart(12, '0')}`;
 
 /** A draft as the mock stores it (the API's leads row and its answers). */
 export interface MockBeginDraft {
+  /** The lead's id: upload tickets belong to it. */
+  id: string;
   form: IntakeFormKey;
   contact: BeginContact;
   answers: IntakeAnswers;
@@ -125,6 +134,7 @@ function resumeFixtures(): Map<string, MockBeginDraft> {
     phone: '+14045550147',
   };
   const draft = (form: IntakeFormKey, data: Partial<MockBeginDraft>): MockBeginDraft => ({
+    id: newDraftId(),
     form,
     contact: avery,
     answers: { firstName: avery.firstName, lastName: avery.lastName, email: avery.email },
@@ -304,6 +314,7 @@ export function createBeginOnlineMock(
       const definition = mockForm(key);
       if (contact.email.includes('ratelimit')) throw rateLimited();
       const d: MockBeginDraft = {
+        id: newDraftId(),
         form: key,
         contact: { ...contact, phone: contact.phone ?? null },
         // The form's own contact fields start filled in, as the API does.
@@ -369,7 +380,7 @@ export function createBeginOnlineMock(
       const b = parseInput(CreateIntakeUploadRequest, body);
       firm();
       const d = mine(key);
-      return uploads.ticket(key, mockForm(key), d.files, b);
+      return uploads.ticket(d.id, mockForm(key), d.files, b);
     },
     confirmUpload: async (form, body) => {
       await mockDelay();
@@ -377,7 +388,7 @@ export function createBeginOnlineMock(
       const { uploadToken } = parseInput(ConfirmUploadRequest, body);
       firm();
       const d = mine(key);
-      const file = uploads.confirm(key, uploadToken, mockForm(key), d);
+      const file = uploads.confirm(d.id, uploadToken, mockForm(key), d);
       renew(d);
       return fileView(file);
     },
@@ -395,7 +406,7 @@ export function createBeginOnlineMock(
     submit: async (form, body) => {
       await mockDelay();
       const key = parseInput(IntakeFormKey, form);
-      const { answers } = parseInput(SubmitIntakeRequest, body);
+      const { answers, signature } = parseInput(SubmitIntakeRequest, body);
       firm();
       const d = mine(key);
       const definition = mockForm(key);
@@ -405,8 +416,7 @@ export function createBeginOnlineMock(
         mode: 'submit',
         uploads: slotCounts(kept),
       });
-      const triggered = submitTrigger(clean, BEGIN_ONLINE_ERRORS);
-      if (triggered) throw triggered;
+      checkMockSignature(mockSubmitBlock(firmSlug, key, 'begin', clean), signature, 'begin');
       // As the API, in one transaction: the files of hidden slots are deleted and the answers of
       // hidden fields dropped, then the lead leaves DRAFT.
       d.files = kept;

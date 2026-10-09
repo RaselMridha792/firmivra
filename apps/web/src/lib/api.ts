@@ -23,8 +23,8 @@ import {
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
-  createMyIntakeAgreementsClient,
   createMyIntakesClient,
+  createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
   createMyNotesClient,
@@ -276,11 +276,6 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
-  /** Firm Sign (R13): the signer pages at /{slug}/sign, no account (a link plus a code). */
-  signing: (firmSlug: string) =>
-    dev && mocked('signing')
-      ? createSigningMock(firmSlug)
-      : createSigningClient(request, firmSlug, options.baseUrl),
   /** Begin Online (R11): the public intake on a firm's portal site, without an account. */
   beginOnline: (firmSlug: string) =>
     dev && mocked('beginOnline')
@@ -289,6 +284,11 @@ export const api = {
   /** Intake forms (R11): the signed-in client's Intake Forms tab, per firm (portal). */
   myIntakes: (firmSlug: string) =>
     dev && mocked('myIntakes') ? myIntakesMock(firmSlug) : createMyIntakesClient(request, firmSlug),
+  /** Firm Sign (R13): the signer pages at /{slug}/sign, no account (a link plus a code). */
+  signing: (firmSlug: string) =>
+    dev && mocked('signing')
+      ? createSigningMock(firmSlug)
+      : createSigningClient(request, firmSlug, options.baseUrl),
   /** Messages (R20): the firm's threads with its clients; read state and unread counts (docs/api/messages.yaml). */
   messages:
     dev && mocked('messages')

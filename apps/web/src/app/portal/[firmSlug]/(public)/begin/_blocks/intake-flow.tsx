@@ -8,6 +8,7 @@ import {
   type BeginOnlineForm,
   fillIntakeText,
   type IntakeFormKey,
+  type IntakeSignatureInput,
   type IntakeUpload,
   shownIntakeKeys,
   StartBeginDraftRequest,
@@ -278,8 +279,9 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   const agreements = useApiQuery(['begin-online', firmSlug, form, 'agreements'], () =>
     api.publicAgreements(firmSlug).block({ form }),
   );
-  // TODO(R15): send `signature` with the answers once contract B's SubmitIntakeRequest has it.
-  const submit = useApiMutation(() => client.submit(form, { answers: stepAnswers(step, values) }));
+  const submit = useApiMutation((signature: IntakeSignatureInput) =>
+    client.submit(form, { answers: stepAnswers(step, values), signature }),
+  );
   const resumeLink = useApiMutation(() => client.emailResumeLink({ email: draft.contact.email }));
 
   const onChange = (key: string, value: ScreenValue) => {
@@ -348,7 +350,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     }
     setAgreementError('');
     try {
-      const done = await submit.mutateAsync();
+      const done = await submit.mutateAsync(signed.signature);
       router.push(`/${firmSlug}/begin/done?form=${BEGIN_ONLINE_SERVICES[done.form].path}`);
     } catch (error) {
       // A newer agreement or Terms version: show the current one to read and sign again.

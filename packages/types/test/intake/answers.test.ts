@@ -208,6 +208,17 @@ describe('checkIntakeAnswers: url and month answers', () => {
     }
   });
 
+  it('answers a malformed address with an issue, never a throw', () => {
+    for (const bad of [
+      'https://exa mple.com',
+      'javascript:alert(1)',
+      'https://example.com:99999',
+      'https://%',
+    ]) {
+      expect([bad, check({ website: bad }).issues.length]).toEqual([bad, 1]);
+    }
+  });
+
   it('keeps months between 1900 and 2100', () => {
     expect(check({ startMonth: '2026-08' }).issues).toEqual([]);
     for (const bad of ['1899-12', '2101-01', '2026-13']) {
@@ -577,6 +588,24 @@ describe('SSNs and EINs', () => {
     });
     expect(intakeNumbersMasked(retyped, { ssn: { last4: '3456' } })).toBe(true);
     expect(intakeNumbersMasked(retyped, { ssn: '900123456' })).toBe(false);
+  });
+
+  it('keeps it one when the retyped definition also names another form', () => {
+    const relabelled = IntakeFormDefinition.parse({
+      ...annual,
+      key: 'BUSINESS_DEVELOPMENT',
+      steps: annual.steps.map((step) => ({
+        ...step,
+        sections: step.sections.map((section) => ({
+          ...section,
+          fields: section.fields.map((f) =>
+            f.key === 'ssn' ? { ...f, type: 'text', maxLength: 100 } : f,
+          ),
+        })),
+      })),
+    });
+    expect(intakeNumbersMasked(relabelled, { ssn: '900-12-3456' })).toBe(false);
+    expect(intakeNumbersMasked(relabelled, { ssn: { last4: '3456' } })).toBe(true);
   });
 
   it('the response schema refuses a key next to last4 instead of dropping it', () => {

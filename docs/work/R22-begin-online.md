@@ -31,11 +31,10 @@ Not mine: `(public)/layout.tsx` and the portal header and footer (R17), `package
 
 - R15: contract B (#257) on main, then the Begin Online API PRs; their order.
 - R14: done (#259 on main). `<Markdown>` for the agreement text when it lands (plain text until then).
-- R15: `signature: IntakeSignatureInput` in contract B's SubmitIntakeRequest (asked Oct 9); the review builds it already.
 
 ## Progress log
 
 - 2026-10-09: step 1 (Arfan's #138 brought up to date, his commits kept): PR #266.
 - 2026-10-09: steps 2-3: the engine in `begin/_blocks/intake-*` renders a form from its definition (contract B, stacked on #257); checks use `checkIntakeAnswers` (the API's own check) instead of zodResolver, since the fields come from the definition. Quarterly tax, bookkeeping, payroll, tax planning and business development pages use it; `r22-intake-forms.spec.ts` runs each end to end. The agreement panel is a frame until R14's #259 (no signature in the submit yet). Submit's 503 (agreements not signable yet, R15) shows its own message.
 - 2026-10-09: steps 4, 5, 7: annual tax on the engine (Arfan's hand-built annual form, `quarterly-grid` and `upload-tile` removed; his spec replaced by the engine's), the resume page (`#token=` read, posted, cleared) and both success pages, each with Schedule an Appointment to `/{firm}/appointments`.
-- 2026-10-09: R14's #259 on main: the review step shows the firm's real agreement block (`api.publicAgreements`), its required boxes, the PDF original, the Terms and Privacy tick and the typed signature, checked with `IntakeSignatureInput`; AGREEMENT_OUTDATED and TERMS_OUTDATED reload the block. The submit sends the signature once R15 adds it to SubmitIntakeRequest (TODO(R15) in `intake-flow.tsx`).
+- 2026-10-09: R14's #259 on main: the review step shows the firm's real agreement block (`api.publicAgreements`), its required boxes, the PDF original, the Terms and Privacy tick and the typed signature, checked with `IntakeSignatureInput`; AGREEMENT_OUTDATED and TERMS_OUTDATED reload the block. The submit sends it (contract B head 8115f14 requires it; the mock checks it against R14's block).
