@@ -1,17 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  ConflictException,
-  HttpException,
-  Inject,
-  Injectable,
-  Logger,
-  type Provider,
-} from '@nestjs/common';
-import type { Request } from 'express';
+import { HttpException, Inject, Injectable, Logger, type Provider } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { Database, TxClient } from '@firmivra/db';
-import { INTAKE_LIMITS, intakeFields, type UploadTicket, UploadContentType } from '@firmivra/types';
-import { type CreateDraftUploadRequest, type DraftUpload } from './wire.js';
+import {
+  type CreateIntakeUploadRequest,
+  INTAKE_LIMITS,
+  type IntakeUpload,
+  intakeFields,
+  type UploadTicket,
+  UploadContentType,
+} from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { type PoolSecrets, poolSecrets, Sealer } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
@@ -29,8 +28,8 @@ import {
 import { checkFile, type FileRefusal } from '../storage/file-checks.js';
 import { UPLOAD_TOKEN_SECONDS } from '../storage/upload-token.js';
 import { CHECKS_AT_ONCE } from '../storage/uploads.service.js';
-import { BeginOnlineService, type Draft, draftUpload } from './begin-online.service.js';
-import { draftErrors, expiredDraftRefusal } from './drafts.js';
+import { BeginOnlineService, intakeUpload } from './begin-online.service.js';
+import { draftErrors, expiredDraftRefusal, holdDraft, renewDraft } from './drafts.js';
 
 /** What `createUpload` decided, sealed into the ticket: confirm takes everything from here. */
 const LeadUploadClaim = z.object({
@@ -69,8 +68,7 @@ export const DRAFT_UPLOAD_PROVIDERS: Provider[] = [
   },
 ];
 
-const tooMany = () =>
-  new ConflictException({ code: 'TOO_MANY_FILES', message: 'No more files can be added here.' });
+const tooMany = draftErrors.tooManyFiles;
 const uploadIdOf = (key: string) => key.slice(key.lastIndexOf('/') + 1);
 let checking = 0;
 
@@ -78,8 +76,10 @@ let checking = 0;
  * A draft's files (R11 step 3), in R5's three steps with R5's storage and file checks: a ticket
  * for an upload slot of the draft's form (`tenant/{businessId}/leads/{leadId}/{uuid}`), the
  * browser's PUT, then confirm, which checks the stored bytes and saves a lead_uploads row. Only
- * while the lead is a live draft (the database refuses files for any other lead). The audit
- * holds ids and slot keys, never a file name.
+ * while the lead is a live draft (the database refuses files for any other lead). A ticket belongs
+ * to the draft (lead) that asked for it: confirm checks the token's lead is this browser's draft
+ * for the service, so once a start or a resume replaced it, the ticket is 410 UPLOAD_EXPIRED. A
+ * confirm or a removal renews the draft. The audit holds ids and slot keys, never a file name.
  */
 @Injectable()
 export class DraftUploadsService {
@@ -94,8 +94,18 @@ export class DraftUploadsService {
     private readonly audit: AuditService,
   ) {}
 
-  async ticket(slug: string, req: Request, body: CreateDraftUploadRequest): Promise<UploadTicket> {
-    const draft = await this.drafts.draftOf(slug, req);
+  async list(slug: string, path: string, req: Request): Promise<IntakeUpload[]> {
+    const draft = await this.drafts.draftOf(slug, path, req);
+    return draft.uploads.map(intakeUpload);
+  }
+
+  async ticket(
+    slug: string,
+    path: string,
+    req: Request,
+    body: CreateIntakeUploadRequest,
+  ): Promise<UploadTicket> {
+    const draft = await this.drafts.draftOf(slug, path, req);
     const field = intakeFields(draft.definition).find((f) => f.key === body.slot);
     if (field?.type !== 'upload') {
       const issue = {
@@ -132,8 +142,14 @@ export class DraftUploadsService {
     return { uploadToken, url: put.url, method: 'PUT', headers: put.headers, expiresAt };
   }
 
-  async confirm(slug: string, req: Request, uploadToken: string): Promise<DraftUpload> {
-    const draft = await this.drafts.draftOf(slug, req);
+  async confirm(
+    slug: string,
+    path: string,
+    req: Request,
+    res: Response,
+    uploadToken: string,
+  ): Promise<IntakeUpload> {
+    const draft = await this.drafts.draftOf(slug, path, req);
     const claim = (await this.tokens.open(uploadToken, 'CLIENT'))?.value;
     if (claim?.businessId !== draft.firm.id || claim.leadId !== draft.leadId) {
       throw refusal('UPLOAD_EXPIRED');
@@ -145,7 +161,7 @@ export class DraftUploadsService {
     const refused = await this.checkStored(claim);
     if (refused) return this.refuse(claim, refusal(refused));
     try {
-      return await this.database.withScope(
+      const done = await this.database.withScope(
         { kind: 'business', businessId: claim.businessId },
         async (tx) => {
           await lockKey(tx, claim.key);
@@ -153,7 +169,8 @@ export class DraftUploadsService {
             throw refusal('UPLOAD_EXPIRED');
           }
           if (await this.refusedBefore(tx, claim)) throw refusal('UPLOAD_MISMATCH');
-          await holdDraft(tx, draft);
+          // The lead's row first (FOR UPDATE), then count: parallel confirms count one by one.
+          await holdDraft(tx, draft.leadId);
           const files = await tx.leadUpload.findMany({
             where: { leadId: claim.leadId },
             select: { slot: true },
@@ -180,9 +197,20 @@ export class DraftUploadsService {
             { uploadId: uploadIdOf(key), leadUploadId: row.id, slot: claim.slot },
             { businessId: claim.businessId },
           );
-          return draftUpload(saved);
+          const renewed = await renewDraft(tx, leadId);
+          if (!renewed) throw draftErrors.expired();
+          return { file: intakeUpload(saved), expiresAt: renewed.expiresAt };
         },
       );
+      await this.drafts.cookies.write(
+        res,
+        draft.firm,
+        draft.form,
+        draft.leadId,
+        done.expiresAt,
+        this.drafts.secure,
+      );
+      return done.file;
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') throw refusal('UPLOAD_EXPIRED');
       const expired = expiredDraftRefusal(error);
@@ -193,17 +221,18 @@ export class DraftUploadsService {
     }
   }
 
-  async remove(slug: string, req: Request, id: string): Promise<{ ok: true }> {
-    const draft = await this.drafts.draftOf(slug, req);
+  async remove(slug: string, path: string, req: Request, id: string): Promise<{ ok: true }> {
+    const draft = await this.drafts.draftOf(slug, path, req);
     const key = await this.database.withScope(
       { kind: 'business', businessId: draft.firm.id },
       async (tx) => {
-        await holdDraft(tx, draft);
+        await holdDraft(tx, draft.leadId);
         const row = z.uuid().safeParse(id).success
           ? await tx.leadUpload.findFirst({ where: { id, leadId: draft.leadId } })
           : null;
         if (!row) throw draftErrors.notFound();
         await tx.leadUpload.delete({ where: { id } });
+        await renewDraft(tx, draft.leadId);
         await this.audit.logIn(
           tx,
           'begin_online.upload_deleted',
@@ -292,16 +321,6 @@ export class DraftUploadsService {
 async function lockKey(tx: TxClient, key: string): Promise<void> {
   const lockName = `lead-upload:${key}`;
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockName}, 0))`;
-}
-
-/** Locks the lead while it is still this live draft with this key, or 404 / 410. */
-async function holdDraft(tx: TxClient, draft: Draft): Promise<void> {
-  const rows = await tx.$queryRaw<{ ok: number }[]>`
-    SELECT 1 AS ok FROM leads
-     WHERE id = ${draft.leadId}::uuid AND status = 'DRAFT' AND draft_expires_at > now()
-       AND resume_token_hash = ${draft.hash}
-       FOR UPDATE`;
-  if (rows.length === 0) throw draftErrors.noDraft();
 }
 
 function codeOf(error: unknown): string | undefined {
