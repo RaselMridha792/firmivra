@@ -1,7 +1,10 @@
 import { expect, type Page, test } from '@playwright/test';
 
 // N02 steps 2-4 in mock mode: the in-memory sign-up (mocks/client-auth.ts) takes the code
-// 000000. As in the API, the SMS code goes out only once the 45 s resend gap has passed.
+// 000000. As in the API, the SMS code goes out only once the 45 s resend gap has passed. The phone
+// step comes only with NEXT_PUBLIC_API_MOCK_SIGNUP_PHONE=required (the API's
+// SIGNUP_PHONE_VERIFICATION); by default the sign-up ends after the email code.
+const phoneRequired = process.env['NEXT_PUBLIC_API_MOCK_SIGNUP_PHONE'] === 'required';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const portal = (path: string) => `http://portal.localhost:${port}${path}`;
 
@@ -9,7 +12,7 @@ async function typeCode(page: Page, code: string) {
   await page.getByRole('textbox', { name: 'Verification code, digit 1' }).fill(code);
 }
 
-test('a sign-up verifies its email and phone and ends on Account Created', async ({
+test('a sign-up verifies its email (and phone when required) and ends on Account Created', async ({
   page,
 }, testInfo) => {
   await page.clock.install();
@@ -44,13 +47,15 @@ test('a sign-up verifies its email and phone and ends on Account Created', async
   await typeCode(page, '000000');
   await page.getByRole('button', { name: 'Verify Email' }).click();
 
-  await expect(page).toHaveURL(portal('/lvp/sign-up/verify-phone'));
-  await expect(page.getByTestId('code-sent-to')).toHaveText('(404) ***-0123');
-  await page.clock.fastForward('00:50');
-  await page.getByRole('button', { name: 'Resend Code' }).click();
-  await expect(page.getByRole('button', { name: /^Resend Code \(0:4\d\)$/ })).toBeDisabled();
-  await typeCode(page, '000000');
-  await page.getByRole('button', { name: 'Verify Phone Number' }).click();
+  if (phoneRequired) {
+    await expect(page).toHaveURL(portal('/lvp/sign-up/verify-phone'));
+    await expect(page.getByTestId('code-sent-to')).toHaveText('(404) ***-0123');
+    await page.clock.fastForward('00:50');
+    await page.getByRole('button', { name: 'Resend Code' }).click();
+    await expect(page.getByRole('button', { name: /^Resend Code \(0:4\d\)$/ })).toBeDisabled();
+    await typeCode(page, '000000');
+    await page.getByRole('button', { name: 'Verify Phone Number' }).click();
+  }
 
   await expect(page).toHaveURL(portal('/lvp/sign-up/done'));
   await expect(page.getByTestId('sign-up-done')).toContainText('Account Created!');
