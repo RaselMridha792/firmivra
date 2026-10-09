@@ -43,6 +43,29 @@ import type {
   NewEsignDocument,
   NewEsignRequest,
 } from '../../src/esign/requests/esign.repository.js';
+import type { EsignCodeKind } from '../../src/esign/engine/engine.types.js';
+import type {
+  CompletedFile,
+  CompletionWrite,
+  EsignCompletionRepository,
+} from '../../src/esign/completion/completion.repository.js';
+import type {
+  EsignSignerRepository,
+  SignerAdoption,
+  SignerAttachment,
+  SignerFinishWrite,
+  SignerLink,
+  SignerPendingAttachment,
+} from '../../src/esign/signer/signer.repository.js';
+import type {
+  EsignCenterRepository,
+  MySignatureRecord,
+} from '../../src/esign/center/center.repository.js';
+import type {
+  EsignConsentRecord,
+  EsignSettingsRepository,
+  NewEsignConsent,
+} from '../../src/esign/settings/settings.repository.js';
 import { ESIGN_OPEN_STATUSES, type EsignRequestStatus } from '@firmivra/types';
 import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
 import { expiryDue, reminderDue, warningDue } from '../../src/esign/lifecycle/lifecycle.job.js';
@@ -66,6 +89,17 @@ import type {
   Replacement,
   VoidWrite,
 } from '../../src/esign/lifecycle/lifecycle.repository.js';
+import type {
+  EsignListedTemplate,
+  EsignTemplateContent,
+  EsignTemplateDraft,
+  EsignTemplateFilter,
+  EsignTemplatePatch,
+  EsignTemplateRecord,
+  EsignTemplateRepository,
+  EsignTemplateVersionRecord,
+  NewEsignTemplate,
+} from '../../src/esign/templates/templates.repository.js';
 
 export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
   expiryDays: 30,
@@ -230,6 +264,7 @@ export class InMemoryEsignRepository implements EsignRepository {
       replacesRequestId: null,
       replacedByRequestId: null,
       expiryWarnedAt: null,
+      template: null,
     };
     const parts = { documents: [], pagePlan: [], recipients: [], fields: [] };
     this.rows.of(businessId).set(record.id, { record, parts });
@@ -420,6 +455,11 @@ export class InMemoryEsignRepository implements EsignRepository {
     );
   }
 
+  /** A copy of every request of the firm, with its parts (for the fakes built on this one). */
+  all(businessId: string): Row[] {
+    return structuredClone([...this.rows.of(businessId).values()]);
+  }
+
   /** The stored row itself, read and changed synchronously (as under a lock); lifecycle fake. */
   peek(businessId: string, id: string): Row | undefined {
     return this.rows.of(businessId).get(id);
@@ -471,6 +511,534 @@ export class InMemoryEsignRepository implements EsignRepository {
     // An edit asks for approval again.
     for (const r of row.parts.recipients) if (r.kind === 'APPROVER') r.status = 'WAITING';
     return Promise.resolve(true);
+  }
+}
+
+/**
+ * The signer tables over InMemoryEsignRepository's requests: link hashes, token versions, pinned
+ * consent, codes (only hashes, with their tries and the sends of the last hour) and consents.
+ */
+export class InMemorySignerRepository implements EsignSignerRepository {
+  /** Each firm's links, by token hash. */
+  readonly links = new PerFirm<SignerLink>();
+  /** Each firm's recipients' token versions (0 unless set) and pinned consent. */
+  readonly versions = new PerFirm<number>();
+  readonly pinned = new PerFirm<string>();
+  /** Each firm's open codes, by `${recipientId}:${kind}`. */
+  readonly codes = new PerFirm<{
+    hash: string | null;
+    expiresAt: Date | null;
+    tries: number;
+    sends: Date[];
+  }>();
+  /** Each firm's newest consent version. */
+  readonly consents = new Map<string, { id: string; version: number; bodyMarkdown: string }>();
+
+  constructor(private readonly requests: InMemoryEsignRepository) {}
+
+  findLink(businessId: string, tokenHash: string) {
+    return Promise.resolve(structuredClone(this.links.of(businessId).get(tokenHash) ?? null));
+  }
+
+  /** Each firm's copy-link expiry, by recipient id (written by the completion fake). */
+  readonly copyExpiry = new PerFirm<Date>();
+
+  signer(businessId: string, requestId: string, recipientId: string) {
+    return this.recipient(businessId, requestId, recipientId, ['SIGNER']);
+  }
+
+  copyHolder(businessId: string, requestId: string, recipientId: string) {
+    return this.recipient(businessId, requestId, recipientId, ['SIGNER', 'CC']);
+  }
+
+  private async recipient(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    kinds: string[],
+  ) {
+    const request = await this.requests.findRequest(businessId, requestId);
+    const { recipients } = await this.requests.parts(businessId, requestId);
+    const recipient = recipients.find((r) => r.id === recipientId && kinds.includes(r.kind));
+    if (!request || !recipient) return null;
+    const tokenVersion = this.versions.of(businessId).get(recipientId) ?? 0;
+    const consentVersionId = this.pinned.of(businessId).get(recipientId) ?? null;
+    const adoption = this.adoptions.of(businessId).get(recipientId);
+    const adopted = adoption
+      ? { method: adoption.signature.method, hasInitials: adoption.initials !== null }
+      : null;
+    const copyExpiresAt = this.copyExpiry.of(businessId).get(recipientId) ?? null;
+    return { request, recipient, tokenVersion, consentVersionId, adopted, copyExpiresAt };
+  }
+
+  /** Each firm's attachments, by `${recipientId}:${fieldId}`, and started uploads by token hash. */
+  readonly files = new PerFirm<SignerAttachment & { recipientId: string; requestId: string }>();
+  readonly attachmentUploads = new PerFirm<SignerPendingAttachment>();
+
+  attachments(businessId: string, requestId: string, recipientId: string) {
+    const all = [...this.files.of(businessId).values()];
+    const mine = all.filter((a) => a.requestId === requestId && a.recipientId === recipientId);
+    return Promise.resolve(
+      structuredClone(mine.map(({ recipientId: _r, requestId: _q, ...a }) => a)),
+    );
+  }
+
+  saveAttachmentUpload(businessId: string, upload: SignerPendingAttachment) {
+    this.attachmentUploads.of(businessId).set(upload.tokenHash, structuredClone(upload));
+    return Promise.resolve();
+  }
+
+  takeAttachmentUpload(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    tokenHash: string,
+  ) {
+    const uploads = this.attachmentUploads.of(businessId);
+    const found = uploads.get(tokenHash);
+    if (found?.requestId !== requestId || found.recipientId !== recipientId) {
+      return Promise.resolve(null);
+    }
+    uploads.delete(tokenHash);
+    return Promise.resolve(found);
+  }
+
+  setAttachment(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    fieldId: string,
+    attachment: SignerAttachment | null,
+  ) {
+    const ok = this.change(businessId, requestId, recipientId, () => {
+      const key = `${recipientId}:${fieldId}`;
+      const files = this.files.of(businessId);
+      if (attachment) files.set(key, { ...structuredClone(attachment), recipientId, requestId });
+      else files.delete(key);
+    });
+    return Promise.resolve(ok);
+  }
+
+  issueCode(
+    businessId: string,
+    recipientId: string,
+    code: { hash: string; sentAt: Date; expiresAt: Date },
+  ): Promise<'OK' | 'TOO_SOON'> {
+    const key = `${recipientId}:EMAIL`;
+    const old = this.codes.of(businessId).get(key);
+    const at = code.sentAt.getTime();
+    const sends = (old?.sends ?? []).filter((d) => d.getTime() > at - 3_600_000);
+    const last = sends.at(-1);
+    if ((last && at - last.getTime() < 60_000) || sends.length >= 5) {
+      return Promise.resolve('TOO_SOON');
+    }
+    const row = {
+      hash: code.hash,
+      expiresAt: code.expiresAt,
+      tries: 0,
+      sends: [...sends, code.sentAt],
+    };
+    this.codes.of(businessId).set(key, row);
+    return Promise.resolve('OK');
+  }
+
+  takeCodeTry(businessId: string, recipientId: string, kind: EsignCodeKind) {
+    const codes = this.codes.of(businessId);
+    const key = `${recipientId}:${kind}`;
+    let row = codes.get(key);
+    if (!row && kind === 'EMAIL') return Promise.resolve(null);
+    if (!row) codes.set(key, (row = { hash: null, expiresAt: null, tries: 0, sends: [] }));
+    const triesBefore = row.tries++;
+    return Promise.resolve({ hash: row.hash, expiresAt: row.expiresAt, triesBefore });
+  }
+
+  clearCode(businessId: string, recipientId: string, kind: EsignCodeKind) {
+    const key = `${recipientId}:${kind}`;
+    const row = this.codes.of(businessId).get(key);
+    if (row && kind === 'ACCESS') row.tries = 0;
+    else this.codes.of(businessId).delete(key);
+    return Promise.resolve();
+  }
+
+  addEvent(businessId: string, requestId: string, event: EsignEventRecord) {
+    const timeline = this.requests.timelines.of(businessId);
+    timeline.set(requestId, [...(timeline.get(requestId) ?? []), structuredClone(event)]);
+    return Promise.resolve();
+  }
+
+  currentConsent(businessId: string) {
+    return Promise.resolve(this.consents.get(businessId) ?? null);
+  }
+
+  async acceptConsent(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    versionId: string,
+    event: EsignEventRecord,
+  ) {
+    if (this.consents.get(businessId)?.id !== versionId) return false;
+    this.pinned.of(businessId).set(recipientId, versionId);
+    await this.addEvent(businessId, requestId, event);
+    return true;
+  }
+
+  /** Each firm's adopted signatures, by recipient. */
+  readonly adoptions = new PerFirm<SignerAdoption>();
+  /** Each firm's signer values, by field id, and the requests marked for completion. */
+  readonly values = new PerFirm<string>();
+  readonly completionDue = new Set<string>();
+
+  /**
+   * Applies the change while the request is open and the recipient has not finished (and, with
+   * `readAt`, unchanged since), bumping lastActivityAt like the Prisma writes.
+   */
+  private change(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    apply: (row: { record: EsignRequestRecord; parts: EsignRequestParts }) => void,
+    readAt?: Date,
+  ): boolean {
+    let ok = false;
+    this.requests.seed(businessId, requestId, (row) => {
+      const me = row.parts.recipients.find((r) => r.id === recipientId);
+      const open = ['SENT', 'DELIVERED', 'VIEWED', 'PARTIALLY_SIGNED'];
+      if (!me || !open.includes(row.record.status) || ['SIGNED', 'DECLINED'].includes(me.status))
+        return;
+      if (readAt && row.record.lastActivityAt.getTime() !== readAt.getTime()) return;
+      const last = row.record.lastActivityAt.getTime();
+      row.record.lastActivityAt = new Date(Math.max(Date.now(), last + 1));
+      apply(row);
+      ok = true;
+    });
+    return ok;
+  }
+
+  async markViewed(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    write: { at: Date; status: EsignRequestStatus; event: EsignEventRecord },
+  ) {
+    if ((await this.signer(businessId, requestId, recipientId))?.recipient.viewedAt) return false;
+    const ok = this.change(businessId, requestId, recipientId, (row) => {
+      const me = row.parts.recipients.find((r) => r.id === recipientId)!;
+      Object.assign(me, { status: 'VIEWED', viewedAt: write.at });
+      row.record.status = write.status;
+    });
+    if (ok) await this.addEvent(businessId, requestId, write.event);
+    return ok;
+  }
+
+  adopt(businessId: string, requestId: string, recipientId: string, adoption: SignerAdoption) {
+    const ok = this.change(businessId, requestId, recipientId, () =>
+      this.adoptions.of(businessId).set(recipientId, adoption),
+    );
+    return Promise.resolve(ok);
+  }
+
+  async finish(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    write: SignerFinishWrite,
+    readAt: Date,
+  ) {
+    const outbox = this.requests.outbox.of(businessId);
+    const ids: string[] = [];
+    const ok = this.change(
+      businessId,
+      requestId,
+      recipientId,
+      (row) => {
+        const me = row.parts.recipients.find((r) => r.id === recipientId)!;
+        Object.assign(me, { status: 'SIGNED', signedAt: write.signedAt });
+        row.record.status = write.status;
+        for (const v of write.values) this.values.of(businessId).set(v.fieldId, v.value);
+        if (write.allSigned) this.completionDue.add(requestId);
+        for (const t of write.turn) {
+          const r = row.parts.recipients.find((x) => x.id === t.recipientId)!;
+          Object.assign(r, { status: 'SENT', sentAt: write.signedAt });
+          if (t.tokenHash) {
+            const link = {
+              requestId,
+              recipientId: r.id,
+              tokenVersion: 0,
+              purpose: 'SIGN' as const,
+            };
+            this.links.of(businessId).set(t.tokenHash, link);
+          }
+        }
+        for (const e of write.emails) {
+          const emailId = randomUUID();
+          outbox.set(emailId, { ...e, status: 'QUEUED', error: null });
+          ids.push(emailId);
+        }
+      },
+      readAt,
+    );
+    if (!ok) return null;
+    await this.addEvent(businessId, requestId, write.event);
+    return ids;
+  }
+
+  async decline(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    write: { at: Date; reason: string | null; event: EsignEventRecord },
+  ) {
+    const ok = this.change(businessId, requestId, recipientId, (row) => {
+      row.record.status = 'DECLINED';
+      const me = row.parts.recipients.find((r) => r.id === recipientId)!;
+      Object.assign(me, { status: 'DECLINED', declinedAt: write.at, declineReason: write.reason });
+    });
+    if (ok) await this.addEvent(businessId, requestId, write.event);
+    return ok;
+  }
+}
+
+/**
+ * Signing Settings over the request and signer fakes: changing the defaults or publishing a
+ * consent version shows in what new requests take and in what signers accept.
+ */
+export class InMemorySettingsRepository implements EsignSettingsRepository {
+  /** Each firm's consent versions, oldest first, and its members' job titles. */
+  readonly versions = new Map<string, EsignConsentRecord[]>();
+  readonly titles = new PerFirm<string>();
+
+  constructor(
+    private readonly requests: InMemoryEsignRepository,
+    private readonly signers?: InMemorySignerRepository,
+  ) {}
+
+  defaults(businessId: string): Promise<EsignDefaults> {
+    return this.requests.defaults(businessId);
+  }
+
+  async updateDefaults(businessId: string, patch: Partial<EsignDefaults>) {
+    const next = { ...(await this.defaults(businessId)), ...structuredClone(patch) };
+    this.requests.firmDefaults.set(businessId, next);
+    return structuredClone(next);
+  }
+
+  consentVersions(businessId: string): Promise<EsignConsentRecord[]> {
+    return Promise.resolve(structuredClone([...(this.versions.get(businessId) ?? [])].reverse()));
+  }
+
+  publishConsent(businessId: string, consent: NewEsignConsent): Promise<EsignConsentRecord> {
+    const all = this.versions.get(businessId) ?? [];
+    const v = { ...structuredClone(consent), id: randomUUID(), version: all.length + 1 };
+    this.versions.set(businessId, [...all, v]);
+    this.requests.consent.add(businessId);
+    const { id, version, bodyMarkdown } = v;
+    this.signers?.consents.set(businessId, { id, version, bodyMarkdown });
+    return Promise.resolve(structuredClone(v));
+  }
+
+  jobTitle(businessId: string, userId: string): Promise<string | null> {
+    return Promise.resolve(this.titles.of(businessId).get(userId) ?? null);
+  }
+
+  setJobTitle(businessId: string, userId: string, jobTitle: string | null): Promise<void> {
+    if (jobTitle === null) this.titles.of(businessId).delete(userId);
+    else this.titles.of(businessId).set(userId, jobTitle);
+    return Promise.resolve();
+  }
+}
+
+/** The Signature center over InMemoryEsignRepository's requests: a login's own recipients. */
+export class InMemoryCenterRepository implements EsignCenterRepository {
+  constructor(private readonly requests: InMemoryEsignRepository) {}
+
+  mine(businessId: string, clientAccountId: string): Promise<MySignatureRecord[]> {
+    const found = this.requests
+      .all(businessId)
+      .filter(({ record }) => record.sentAt !== null)
+      .flatMap(({ record, parts }) =>
+        parts.recipients
+          .filter(
+            (r) =>
+              (r.kind === 'SIGNER' || r.kind === 'CC') &&
+              r.link.type === 'CLIENT_LOGIN' &&
+              r.link.clientAccountId === clientAccountId,
+          )
+          .map((recipient) => ({ request: record, recipient })),
+      )
+      .sort((x, y) => y.request.sentAt!.getTime() - x.request.sentAt!.getTime());
+    return Promise.resolve(found);
+  }
+
+  async one(businessId: string, clientAccountId: string, recipientId: string) {
+    const mine = await this.mine(businessId, clientAccountId);
+    return mine.find((m) => m.recipient.id === recipientId) ?? null;
+  }
+}
+
+/** A vault document filed by completion (the documents row's columns that matter here). */
+export interface FiledDocument {
+  id: string;
+  clientId: string;
+  engagementId: string;
+  categoryId: string;
+  direction: 'FIRM_TO_CLIENT';
+  scanStatus: 'CLEAN';
+  legalHold: true;
+  retentionUntil: null;
+  contentType: 'application/pdf';
+  key: string;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+/** Completion over the request and signer fakes: the vault, the copy links and the due marks. */
+export class InMemoryCompletionRepository implements EsignCompletionRepository {
+  /** The job's firms (ACTIVE with Firm Sign on). */
+  readonly firmIds: string[] = [];
+  /** Each firm's filed documents, by id, and its categories, by name. */
+  readonly documents = new PerFirm<FiledDocument>();
+  readonly categories = new PerFirm<string>();
+  /** Each firm's completed requests' hashes and document ids. */
+  readonly completed = new PerFirm<{
+    finalSha256: string;
+    certificateSha256: string;
+    finalDocumentId: string;
+    certificateDocumentId: string;
+  }>();
+  /** Each firm's copy-link expiry, by recipient id (kept on the signer fake). */
+  get copyExpiry() {
+    return this.signers.copyExpiry;
+  }
+  /** Each firm's completed requests' stored files. */
+  readonly stored = new PerFirm<{ final: CompletedFile; certificate: CompletedFile }>();
+  /** Each request's next try after a failure. */
+  readonly retryAt = new Map<string, Date>();
+  /** Set to make `complete` throw once (a database failure mid-way). */
+  failNextComplete = false;
+  /** Set while another task holds the job's lock. */
+  lockedElsewhere = false;
+
+  constructor(
+    private readonly requests: InMemoryEsignRepository,
+    private readonly signers: InMemorySignerRepository,
+  ) {}
+
+  async withJobLock<T>(work: () => Promise<T>): Promise<T | null> {
+    return this.lockedElsewhere ? null : work();
+  }
+
+  firms() {
+    return Promise.resolve([...this.firmIds]);
+  }
+
+  async due(businessId: string, now: Date, limit: number) {
+    const ids: string[] = [];
+    for (const id of this.signers.completionDue) {
+      const q = await this.requests.findRequest(businessId, id);
+      const at = this.retryAt.get(id);
+      if (q?.status === 'PARTIALLY_SIGNED' && (!at || at <= now)) ids.push(id);
+    }
+    return ids.slice(0, limit);
+  }
+
+  async inputs(businessId: string, requestId: string) {
+    const { recipients, fields } = await this.requests.parts(businessId, requestId);
+    const values = this.signers.values.of(businessId);
+    const adoptions = this.signers.adoptions.of(businessId);
+    const consent = this.signers.consents.get(businessId);
+    const pinned = this.signers.pinned.of(businessId);
+    return {
+      values: fields.flatMap((f) =>
+        values.has(f.id) ? [{ fieldId: f.id, value: values.get(f.id)! }] : [],
+      ),
+      adoptions: recipients.flatMap((r) => {
+        const adoption = adoptions.get(r.id);
+        return adoption ? [{ recipientId: r.id, adoption }] : [];
+      }),
+      consentVersions: recipients.flatMap((r) =>
+        consent && pinned.get(r.id) === consent.id
+          ? [{ recipientId: r.id, version: consent.version }]
+          : [],
+      ),
+    };
+  }
+
+  async complete(businessId: string, requestId: string, write: CompletionWrite) {
+    if (this.failNextComplete) {
+      this.failNextComplete = false;
+      throw new Error('fake database failure');
+    }
+    // Checked and marked in one synchronous step, as under the FOR UPDATE lock.
+    let q: EsignRequestRecord | null = null;
+    if (!(await this.requests.findRequest(businessId, requestId))) return null;
+    this.requests.seed(businessId, requestId, (row) => {
+      const signers = row.parts.recipients.filter((r) => r.kind === 'SIGNER');
+      const due = this.signers.completionDue.has(requestId);
+      if (row.record.status !== 'PARTIALLY_SIGNED' || !due) return;
+      if (signers.some((r) => r.status !== 'SIGNED')) return;
+      const at = write.completedAt;
+      Object.assign(row.record, { status: 'COMPLETED', completedAt: at, lastActivityAt: at });
+      q = structuredClone(row.record);
+    });
+    if (!q) return null;
+    const { clientId, engagementId } = q as EsignRequestRecord;
+    const categories = this.categories.of(businessId);
+    if (!categories.has('Signed Documents')) categories.set('Signed Documents', randomUUID());
+    const file = (f: CompletionWrite['final']) => {
+      const doc: FiledDocument = {
+        id: randomUUID(),
+        clientId: clientId!,
+        engagementId: engagementId!,
+        categoryId: categories.get('Signed Documents')!,
+        direction: 'FIRM_TO_CLIENT',
+        scanStatus: 'CLEAN',
+        legalHold: true,
+        retentionUntil: null,
+        contentType: 'application/pdf',
+        ...f,
+      };
+      this.documents.of(businessId).set(doc.id, doc);
+      return doc.id;
+    };
+    const finalDocumentId = file(write.final);
+    const certificateDocumentId = file(write.certificate);
+    this.stored
+      .of(businessId)
+      .set(requestId, { final: write.final, certificate: write.certificate });
+    this.completed.of(businessId).set(requestId, {
+      finalSha256: write.final.sha256,
+      certificateSha256: write.certificate.sha256,
+      finalDocumentId,
+      certificateDocumentId,
+    });
+    this.signers.completionDue.delete(requestId);
+    for (const l of write.copyLinks) {
+      const { recipientId, tokenHash, expiresAt } = l;
+      const link = { requestId, recipientId, tokenVersion: 0, purpose: 'COPY' as const };
+      this.signers.links.of(businessId).set(tokenHash, link);
+      this.copyExpiry.of(businessId).set(recipientId, expiresAt);
+    }
+    const outbox = this.requests.outbox.of(businessId);
+    const emailIds = write.emails.map((e) => {
+      const id = randomUUID();
+      outbox.set(id, { ...e, status: 'QUEUED', error: null });
+      return id;
+    });
+    await this.signers.addEvent(businessId, requestId, write.event);
+    return { finalDocumentId, certificateDocumentId, emailIds };
+  }
+
+  files(businessId: string, requestId: string) {
+    const files = this.stored.of(businessId).get(requestId);
+    return Promise.resolve(files ? { final: files.final, certificate: files.certificate } : null);
+  }
+
+  async retryLater(businessId: string, requestId: string, retryAt: Date) {
+    if (await this.requests.findRequest(businessId, requestId)) {
+      this.retryAt.set(requestId, retryAt);
+    }
   }
 }
 
@@ -736,6 +1304,10 @@ export class InMemoryDirectory implements EsignDirectory {
   }
   clientLogin(businessId: string, id: string) {
     return Promise.resolve(this.logins.of(businessId).get(id) ?? null);
+  }
+  clientLogins(businessId: string, clientId: string) {
+    const all = [...this.logins.of(businessId).values()];
+    return Promise.resolve(all.filter((l) => l.clientId === clientId));
   }
   member(businessId: string, userId: string): Promise<DirectoryMember | null> {
     return Promise.resolve(this.people.of(businessId).get(userId) ?? null);
@@ -1035,3 +1607,210 @@ export const sentRecipient = (
   reminderCount: 0,
   ...extra,
 });
+
+/** A stored template and its versions, oldest first. */
+export interface TemplateRow {
+  record: EsignTemplateRecord;
+  versions: EsignTemplateVersionRecord[];
+}
+
+/** Templates per firm; each write checks and writes in one synchronous step (as under a lock). */
+export class InMemoryTemplateRepository implements EsignTemplateRepository {
+  readonly rows = new PerFirm<TemplateRow>();
+
+  /** `use` writes its drafts into the requests fake. */
+  constructor(private readonly requests?: InMemoryEsignRepository) {}
+
+  create(
+    businessId: string,
+    template: NewEsignTemplate,
+    first: EsignTemplateContent & { note: string | null },
+  ): Promise<EsignTemplateRecord | 'NAME_TAKEN'> {
+    if (this.taken(businessId, template.name)) return Promise.resolve('NAME_TAKEN');
+    const now = new Date();
+    const record = { ...template, version: 1, createdAt: now, updatedAt: now, archivedAt: null };
+    const version = { ...first, version: 1, savedAt: now, savedByUserId: template.ownerUserId };
+    this.insert(businessId, { record, versions: [version] });
+    return Promise.resolve(structuredClone(record));
+  }
+
+  createDraft(businessId: string, draft: EsignTemplateDraft): Promise<EsignRequestRecord> {
+    if (!this.requests) throw new Error('InMemoryTemplateRepository needs the requests fake');
+    this.requests.insert(businessId, { record: draft.record, parts: draft.parts });
+    this.requests.timelines.of(businessId).set(draft.record.id, [structuredClone(draft.event)]);
+    return Promise.resolve(structuredClone(draft.record));
+  }
+
+  list(businessId: string, f: EsignTemplateFilter): Promise<EsignListedTemplate[]> {
+    const search = f.search?.toLowerCase();
+    const listed = [...this.rows.of(businessId).values()]
+      .filter(
+        ({ record: t }) =>
+          (f.visibleTo === null || t.visibility === 'FIRM' || t.ownerUserId === f.visibleTo) &&
+          (t.archivedAt !== null) === f.archived &&
+          (!search || t.name.toLowerCase().includes(search)),
+      )
+      .sort((x, y) => +y.record.updatedAt - +x.record.updatedAt)
+      .map(({ record, versions }) => ({
+        template: record,
+        current: versions.find((v) => v.version === record.version)!,
+      }));
+    return Promise.resolve(structuredClone(listed));
+  }
+
+  find(businessId: string, id: string): Promise<EsignTemplateRecord | null> {
+    const row = this.rows.of(businessId).get(id);
+    return Promise.resolve(row ? structuredClone(row.record) : null);
+  }
+
+  version(businessId: string, id: string, version: number) {
+    const found = this.rows
+      .of(businessId)
+      .get(id)
+      ?.versions.find((v) => v.version === version);
+    return Promise.resolve(found ? structuredClone(found) : null);
+  }
+
+  update(businessId: string, id: string, patch: EsignTemplatePatch, readAt: Date) {
+    if (patch.name && this.taken(businessId, patch.name, id)) {
+      return Promise.resolve('NAME_TAKEN' as const);
+    }
+    return this.write(businessId, id, readAt, (row) => Object.assign(row.record, patch));
+  }
+
+  archive(businessId: string, id: string, readAt: Date) {
+    return this.write(businessId, id, readAt, (row) => (row.record.archivedAt = new Date()));
+  }
+
+  versions(businessId: string, id: string) {
+    const all = this.rows.of(businessId).get(id)?.versions ?? [];
+    return Promise.resolve(structuredClone([...all].reverse()));
+  }
+
+  addVersion(
+    businessId: string,
+    id: string,
+    version: EsignTemplateContent & { note: string | null; savedByUserId: string },
+    readAt: Date,
+  ) {
+    return this.write(businessId, id, readAt, (row) => {
+      row.record.version += 1;
+      const saved = { ...structuredClone(version), version: row.record.version };
+      row.versions.push({ ...saved, savedAt: new Date() });
+    });
+  }
+
+  /** Test set-up: stores a template and its versions as given. */
+  insert(businessId: string, row: TemplateRow): void {
+    this.rows.of(businessId).set(row.record.id, structuredClone(row));
+  }
+
+  /** Another active template of the firm has the name (case-insensitive). */
+  taken(businessId: string, name: string, except?: string): boolean {
+    return [...this.rows.of(businessId).values()].some(
+      ({ record: t }) =>
+        t.id !== except && !t.archivedAt && t.name.toLowerCase() === name.toLowerCase(),
+    );
+  }
+
+  /** A write while the template is active and unchanged since `readAt`; updatedAt moves on. */
+  write(
+    businessId: string,
+    id: string,
+    readAt: Date,
+    change: (row: TemplateRow) => unknown,
+  ): Promise<EsignTemplateRecord | null> {
+    const row = this.rows.of(businessId).get(id);
+    if (!row || row.record.archivedAt || +row.record.updatedAt !== +readAt) {
+      return Promise.resolve(null);
+    }
+    change(row);
+    row.record.updatedAt = new Date(Math.max(Date.now(), +readAt + 1));
+    return Promise.resolve(structuredClone(row.record));
+  }
+}
+
+/**
+ * A FIRM template owned by `ownerUserId` with one version: a 2-page packet stored in `store`,
+ * a CLIENT and a PREPARER role, a field each and a merge field. `extra` changes the record.
+ */
+export async function seedTemplate(
+  businessId: string,
+  repo: InMemoryTemplateRepository,
+  store: FakeStore,
+  ownerUserId: string,
+  extra: Partial<EsignTemplateRecord> = {},
+): Promise<TemplateRow> {
+  const id = randomUUID();
+  const bytes = new Uint8Array(Buffer.from('pdf:2'));
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const s3Key = store.keyFor(businessId, id, `template-${sha256}.pdf`);
+  await store.put(businessId, s3Key, bytes, 'application/pdf');
+  const at = new Date(Date.now() - 86_400_000);
+  const role = (key: string, r: 'CLIENT' | 'PREPARER', i: number) => ({
+    key,
+    kind: 'SIGNER' as const,
+    role: r,
+    roleLabel: null,
+    routingOrder: i + 1,
+    authMethod: 'EMAIL_CODE' as const,
+    colorIndex: i,
+  });
+  const field = (roleKey: string | null, extraField: object = {}) => ({
+    id: randomUUID(),
+    roleKey,
+    type: 'SIGNATURE' as const,
+    pageIndex: 1,
+    ...{ x: 0.1, y: 0.8, w: 0.3, h: 0.05 },
+    required: true,
+    label: null,
+    mergeKey: null,
+    options: [],
+    groupKey: null,
+    value: null,
+    ...extraField,
+  });
+  const row: TemplateRow = {
+    record: {
+      id,
+      name: `Fake template ${id.slice(0, 8)}`,
+      description: null,
+      visibility: 'FIRM',
+      ownerUserId,
+      version: 1,
+      createdAt: at,
+      updatedAt: at,
+      archivedAt: null,
+      ...extra,
+    },
+    versions: [
+      {
+        version: 1,
+        savedAt: at,
+        savedByUserId: ownerUserId,
+        note: null,
+        s3Key,
+        sha256,
+        sizeBytes: bytes.byteLength,
+        pageSizes: [
+          { width: 612, height: 792 },
+          { width: 612, height: 792 },
+        ],
+        roles: [role('client', 'CLIENT', 0), role('preparer', 'PREPARER', 1)],
+        fields: [
+          field('client'),
+          field('preparer', { y: 0.9 }),
+          field(null, { type: 'TEXT', pageIndex: 0, mergeKey: 'CLIENT_FULL_NAME' }),
+        ],
+        routing: 'SEQUENTIAL',
+        expiryDays: 30,
+        reminders: { firstAfterDays: 3, everyDays: 3, max: 3 },
+        expiryWarningDays: 2,
+        emailSubject: null,
+        emailMessage: null,
+      },
+    ],
+  };
+  repo.insert(businessId, row);
+  return structuredClone(row);
+}

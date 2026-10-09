@@ -312,9 +312,9 @@ describe('agreement errors', () => {
 
 describe('agreements clients', () => {
   it('calls the firm routes and refuses bad input before sending', async () => {
-    const { fn, calls } = fakeFetch(200, { items: [] });
+    const { fn, calls } = fakeFetch(200, { items: [], services: [] });
     const client = createAgreementsClient(createRequest({ baseUrl: '/api/v1', fetch: fn }));
-    await expect(client.list()).resolves.toEqual({ items: [] });
+    await expect(client.list()).resolves.toEqual({ items: [], services: [] });
     expect(calls[0]?.url).toBe('/api/v1/business/agreements');
     const refused = [
       client.getVersion('not-a-uuid', 1),

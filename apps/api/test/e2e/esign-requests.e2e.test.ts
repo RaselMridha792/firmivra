@@ -1,5 +1,5 @@
-// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send and step
-// 8's lifecycle, and the extras: approvals, roles and reports)
+// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send, step 8's
+// lifecycle, step 9's templates and the extras: approvals, roles and reports)
 // through the real guard stack. The esign tables come with r0_esign, so this covers what answers
 // before the repository: 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module
 // is off, and 400 for a bad id or body where it is on. Synthetic data only.
@@ -53,6 +53,20 @@ const withId = (id: string): Route[] => [
   ['post', `${base(id)}/replace`, { reason: 'Fake reason' }],
   ['post', `${base(id)}/submit-for-approval`, { confirm: true }],
   ['post', `${base(id)}/approval`, { decision: 'APPROVE' }],
+  ['post', `${base(id)}/save-as-template`, { name: 'Fake template' }],
+  ['post', `${base(id)}/save-as-version`, { templateId: randomUUID() }],
+];
+const template = (id: string) => `/api/v1/esign/templates/${id}`;
+/** Every template route with a template id, with a valid body. */
+const withTemplateId = (id: string): Route[] => [
+  ['get', template(id), undefined],
+  ['patch', template(id), { name: 'Fake template' }],
+  ['post', `${template(id)}/archive`, {}],
+  ['get', `${template(id)}/packet`, undefined],
+  ['post', `${template(id)}/use`, { roles: [] }],
+  ['post', `${template(id)}/duplicate`, { name: 'Fake copy' }],
+  ['get', `${template(id)}/versions`, undefined],
+  ['post', `${template(id)}/versions/1/restore`, {}],
 ];
 const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
@@ -61,6 +75,8 @@ const ROUTES: Route[] = [
   ['get', '/api/v1/esign/approvers', undefined],
   ['get', '/api/v1/esign/reports?from=2026-10-01&to=2026-10-31', undefined],
   ...withId(anyId),
+  ['get', '/api/v1/esign/templates', undefined],
+  ...withTemplateId(anyId),
 ];
 /** Owner and Admin only (@Roles): Staff get 403 FORBIDDEN before the module is asked. */
 const OWNER_ROUTES: Route[] = [
@@ -146,7 +162,7 @@ describe('Firm Sign draft routes', () => {
   });
 
   it('validates the ids and the body where the module is on (400)', async () => {
-    for (const [method, path, body] of withId('not-a-uuid')) {
+    for (const [method, path, body] of [...withId('not-a-uuid'), ...withTemplateId('nope')]) {
       expect(answer(await send(method, path, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
     }
     const badBodies: Route[] = [
@@ -166,6 +182,15 @@ describe('Firm Sign draft routes', () => {
       ['post', `${base(anyId)}/replace`, {}],
       ['post', `${base(anyId)}/submit-for-approval`, { confirm: false }],
       ['post', `${base(anyId)}/approval`, { decision: 'REJECT' }],
+      ['patch', template(anyId), {}],
+      ['patch', template(anyId), { visibility: 'EVERYONE' }],
+      ['get', '/api/v1/esign/templates?archived=maybe', undefined],
+      ['post', `${template(anyId)}/use`, { engagementId: randomUUID() }],
+      ['post', `${template(anyId)}/duplicate`, {}],
+      ['post', `${base(anyId)}/save-as-template`, { name: '' }],
+      ['post', `${base(anyId)}/save-as-version`, { templateId: 'not-a-uuid' }],
+      ['post', `${template(anyId)}/versions/0/restore`, {}],
+      ['post', `${template(anyId)}/versions/1/restore`, { note: 'x'.repeat(501) }],
       ['put', '/api/v1/esign/roles/not-a-uuid', { esignRole: 'VIEWER' }],
       ['put', `/api/v1/esign/roles/${anyId}`, { esignRole: 'OWNER' }],
       ['get', '/api/v1/esign/reports?from=2026-01-01&to=2027-01-02', undefined],
