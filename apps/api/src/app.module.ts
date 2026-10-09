@@ -30,6 +30,7 @@ import { TaxReturnsModule } from './tax-returns/tax-returns.controller.js';
 import { EngagementsModule } from './engagements/engagements.controller.js';
 import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
+import { AgreementsModule } from './agreements/agreements.controller.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
@@ -42,6 +43,7 @@ import { InvoicesModule } from './payments/invoices/invoices.module.js';
 import { RefundsModule } from './payments/refunds/refunds.controller.js';
 import { OfflinePaymentsModule } from './payments/offline/offline-payments.controller.js';
 import { StripeWebhookModule } from './payments/webhooks/stripe-webhook.controller.js';
+import { EsignModule } from './esign/esign.module.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 
@@ -94,6 +96,7 @@ export class AppModule {
         EngagementsModule,
         MessagesModule,
         SettingsModule,
+        AgreementsModule,
         TeamModule,
         CalculatorsModule,
         ContentModule,
@@ -105,6 +108,7 @@ export class AppModule {
         CheckoutModule,
         StripeWebhookModule,
         RefundsModule,
+        EsignModule,
         OfflinePaymentsModule,
         StripeClientModule,
         PaymentsSetupModule,

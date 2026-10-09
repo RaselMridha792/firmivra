@@ -132,6 +132,22 @@ export function stripeErrorName(error: unknown): string {
   return error instanceof Error ? error.name : 'unknown';
 }
 
+/**
+ * Stripe no longer has the session for us. Gone means: `resource_missing` (no such session),
+ * `account_invalid`, a StripePermissionError (the connected account was disconnected) or a
+ * StripeAuthenticationError (the platform key was refused). A timeout, a 5xx or a rate limit is
+ * not gone (the session may still be paid).
+ */
+export function isStripeGone(error: unknown): boolean {
+  const [type, code] = stripeErrorName(error).split(':');
+  return (
+    code === 'resource_missing' ||
+    code === 'account_invalid' ||
+    type === 'StripePermissionError' ||
+    type === 'StripeAuthenticationError'
+  );
+}
+
 const pick = (account: Stripe.Account): ConnectedAccount => ({
   id: account.id,
   charges_enabled: account.charges_enabled ?? false,

@@ -14,6 +14,7 @@ import {
   CHECKOUT_LIMITS,
   expireCheckout,
   lockInvoice,
+  oneAtATime,
   openCheckouts,
   paymentInProgress,
   providerUnavailable,
@@ -118,84 +119,87 @@ export class OfflinePaymentsService {
     body: RecordBody,
   ): Promise<Invoice> {
     let recorded = false;
-    const invoice = await this.inActor(businessId, actor, async (tx) => {
-      const { today } = await firmToday(tx, businessId);
-      if (body.receivedOn > today) {
-        throw new BadRequestException({
-          code: 'VALIDATION_FAILED',
-          message: 'The day received cannot be after today',
+    // One at a time with Pay Now and cancel of this invoice (checkout-sessions.ts, oneAtATime).
+    const invoice = await oneAtATime(businessId, id, () =>
+      this.inActor(businessId, actor, async (tx) => {
+        const { today } = await firmToday(tx, businessId);
+        if (body.receivedOn > today) {
+          throw new BadRequestException({
+            code: 'VALIDATION_FAILED',
+            message: 'The day received cannot be after today',
+          });
+        }
+        // In reach first (404 otherwise), then the row, waiting briefly (409 while a Pay Now runs).
+        await this.invoices.load(tx, businessId, actor, id);
+        await lockInvoice(tx, businessId, id);
+        const current = await this.invoices.load(tx, businessId, actor, id);
+        const known = await tx.offlinePayment.findUnique({
+          where: { businessId_idempotencyKey: { businessId, idempotencyKey: body.idempotencyKey } },
+          select: { invoiceId: true },
         });
-      }
-      // In reach first (404 otherwise), then the row, waiting briefly (409 while a Pay Now runs).
-      await this.invoices.load(tx, businessId, actor, id);
-      await lockInvoice(tx, businessId, id);
-      const current = await this.invoices.load(tx, businessId, actor, id);
-      const known = await tx.offlinePayment.findUnique({
-        where: { businessId_idempotencyKey: { businessId, idempotencyKey: body.idempotencyKey } },
-        select: { invoiceId: true },
-      });
-      if (known) {
-        if (known.invoiceId !== id) throw notFound();
-        return toInvoice(current, today);
-      }
-      if (current.status !== 'OPEN') throw conflict('NOT_OPEN', INVOICE_ERRORS.NOT_OPEN);
-      if (processing(current)) throw paymentInProgress();
-      if (body.amountCents > money(current).balanceDueCents) throw tooLarge();
-      // One live record of a check number per invoice, any case (offline_payments_one_live_check).
-      if (body.method === 'CHECK' && body.reference) {
-        const number = body.reference.toUpperCase();
-        const live = current.offlinePayments.some(
-          (o) =>
-            o.method === 'CHECK' && o.voidedAt === null && o.reference?.toUpperCase() === number,
-        );
-        if (live) throw duplicateCheck();
-      }
-      // A checkout the client opened and left would let both kinds of money in: end it first.
-      if (current.payments.some((p) => p.status === 'PENDING')) {
-        if (!this.stripe) throw providerUnavailable();
-        const stripe = this.stripe;
-        await withStripeHold(async () => {
-          for (const open of await openCheckouts(tx, stripe, this.audit, businessId, id)) {
-            await expireCheckout(tx, stripe, this.audit, businessId, id, open);
-          }
-        });
-      }
-      const payment = await tx.offlinePayment.create({
-        data: {
-          businessId,
-          invoiceId: id,
-          method: body.method,
-          amountCents: body.amountCents,
-          currency: current.currency,
-          reference: body.reference ?? null,
-          receivedOn: toDate(body.receivedOn),
-          note: body.note ?? null,
-          idempotencyKey: body.idempotencyKey,
-          recordedByUserId: actor.userId,
-        },
-        select: { id: true },
-      });
-      await this.audit.logIn(
-        tx,
-        'invoice.offline_payment_recorded',
-        { type: 'invoice', id },
-        { offlinePaymentId: payment.id, method: body.method, amountCents: body.amountCents },
-      );
-      if ((await paidCents(tx, id)) >= current.totalCents) {
-        await tx.invoice.update({
-          where: { businessId_id: { businessId, id } },
-          data: { status: 'PAID', paidAt: new Date() },
+        if (known) {
+          if (known.invoiceId !== id) throw notFound();
+          return toInvoice(current, today);
+        }
+        if (current.status !== 'OPEN') throw conflict('NOT_OPEN', INVOICE_ERRORS.NOT_OPEN);
+        if (processing(current)) throw paymentInProgress();
+        if (body.amountCents > money(current).balanceDueCents) throw tooLarge();
+        // One live record of a check number per invoice, any case (offline_payments_one_live_check).
+        if (body.method === 'CHECK' && body.reference) {
+          const number = body.reference.toUpperCase();
+          const live = current.offlinePayments.some(
+            (o) =>
+              o.method === 'CHECK' && o.voidedAt === null && o.reference?.toUpperCase() === number,
+          );
+          if (live) throw duplicateCheck();
+        }
+        // A checkout the client opened and left would let both kinds of money in: end it first.
+        if (current.payments.some((p) => p.status === 'PENDING')) {
+          if (!this.stripe) throw providerUnavailable();
+          const stripe = this.stripe;
+          await withStripeHold(async () => {
+            for (const open of await openCheckouts(tx, stripe, this.audit, businessId, id)) {
+              await expireCheckout(tx, stripe, this.audit, businessId, id, open);
+            }
+          });
+        }
+        const payment = await tx.offlinePayment.create({
+          data: {
+            businessId,
+            invoiceId: id,
+            method: body.method,
+            amountCents: body.amountCents,
+            currency: current.currency,
+            reference: body.reference ?? null,
+            receivedOn: toDate(body.receivedOn),
+            note: body.note ?? null,
+            idempotencyKey: body.idempotencyKey,
+            recordedByUserId: actor.userId,
+          },
+          select: { id: true },
         });
         await this.audit.logIn(
           tx,
-          'invoice.paid',
+          'invoice.offline_payment_recorded',
           { type: 'invoice', id },
-          { totalCents: current.totalCents, offlinePaymentId: payment.id },
+          { offlinePaymentId: payment.id, method: body.method, amountCents: body.amountCents },
         );
-      }
-      recorded = true;
-      return toInvoice(await this.invoices.load(tx, businessId, actor, id), today);
-    }).catch(async (error: unknown) => {
+        if ((await paidCents(tx, id)) >= current.totalCents) {
+          await tx.invoice.update({
+            where: { businessId_id: { businessId, id } },
+            data: { status: 'PAID', paidAt: new Date() },
+          });
+          await this.audit.logIn(
+            tx,
+            'invoice.paid',
+            { type: 'invoice', id },
+            { totalCents: current.totalCents, offlinePaymentId: payment.id },
+          );
+        }
+        recorded = true;
+        return toInvoice(await this.invoices.load(tx, businessId, actor, id), today);
+      }),
+    ).catch(async (error: unknown) => {
       if (isUniqueViolation(error)) {
         // Two first-time requests with one key at once: the second fails on the key; a retry.
         if (violatedIndex(error) === KEY_INDEX) {
@@ -218,7 +222,10 @@ export class OfflinePaymentsService {
     body: VoidBody,
   ): Promise<Invoice> {
     return this.inActor(businessId, actor, async (tx) => {
-      const before = await this.invoices.load(tx, businessId, actor, id, true);
+      // In reach first (404 otherwise), then the row, waiting briefly (409 while a Pay Now runs).
+      await this.invoices.load(tx, businessId, actor, id);
+      await lockInvoice(tx, businessId, id);
+      const before = await this.invoices.load(tx, businessId, actor, id);
       const payment = await tx.offlinePayment.findFirst({
         where: { businessId, id: offlinePaymentId, invoiceId: id },
         select: { voidedAt: true, method: true, amountCents: true },

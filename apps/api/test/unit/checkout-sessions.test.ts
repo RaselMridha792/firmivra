@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { TxClient } from '@firmivra/db';
 import type { AuditService } from '../../src/audit/audit.service.js';
 import {
+  oneAtATime,
   openCheckouts,
   SESSION_MS,
   withStripeHold,
@@ -48,6 +49,16 @@ describe('openCheckouts', () => {
       { type: 'payment', id: w.pending.id },
       { invoiceId: INVOICE, failureCode: 'checkout_expired' },
     );
+  });
+
+  it('answers 503 and marks nothing when Stripe times out on an old checkout (it may have been paid)', async () => {
+    const w = world(new Date(Date.now() - SESSION_MS - 20 * 60_000));
+    const stripe = new FakeStripeGateway();
+    stripe.down = true;
+    await expect(openCheckouts(w.tx, stripe, w.audit, BUSINESS, INVOICE)).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(w.updateMany).not.toHaveBeenCalled();
   });
 
   it('answers 503 for a young checkout Stripe does not answer for (it may still be paid)', async () => {
@@ -108,5 +119,52 @@ describe('withStripeHold', () => {
       ).rejects.toThrow('Stripe down');
     }
     await expect(withStripeHold(async () => 'ran')).resolves.toBe('ran');
+  });
+});
+
+describe('oneAtATime', () => {
+  const A = '00000000-0000-4000-8000-0000000000aa';
+  const B = '00000000-0000-4000-8000-0000000000bb';
+
+  it('runs a second one for the same invoice after the first, waiting without a connection', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const first = oneAtATime(BUSINESS, A, async () => {
+      await gate;
+      order.push('first');
+    });
+    const second = oneAtATime(BUSINESS, A, async () => {
+      order.push('second');
+    });
+    setTimeout(release, 50);
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first', 'second']);
+  });
+
+  it('answers 409 PAYMENT_IN_PROGRESS after a second, and never blocks other invoices or firms', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const held = oneAtATime(BUSINESS, A, () => gate);
+    await expect(oneAtATime(BUSINESS, B, async () => 'other invoice')).resolves.toBe(
+      'other invoice',
+    );
+    await expect(oneAtATime(INVOICE, A, async () => 'other firm')).resolves.toBe('other firm');
+    await expect(oneAtATime(BUSINESS, A, async () => 'ran')).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'PAYMENT_IN_PROGRESS' },
+    });
+    release();
+    await held;
+    await expect(oneAtATime(BUSINESS, A, async () => 'ran')).resolves.toBe('ran');
+  });
+
+  it('frees the invoice when the work fails', async () => {
+    await expect(
+      oneAtATime(BUSINESS, A, async () => {
+        throw new Error('failed');
+      }),
+    ).rejects.toThrow('failed');
+    await expect(oneAtATime(BUSINESS, A, async () => 'ran')).resolves.toBe('ran');
   });
 });

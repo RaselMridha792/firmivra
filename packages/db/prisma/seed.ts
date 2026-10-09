@@ -2,6 +2,7 @@
 // Test Firm B for isolation checks. Safe to run again. Runs as the owner role, inside the same
 // scopes the app uses, so it also works where the owner is not a superuser.
 import { createHash, randomBytes } from 'node:crypto';
+import { INTAKE_FORMS } from '@firmivra/types';
 import { config } from 'dotenv';
 import { createPrismaClient, runInScope, type TxClient } from '../src/client.js';
 import {
@@ -24,7 +25,10 @@ import {
   SEED_BILLING_IDS,
   SEED_STRIPE_ACCOUNT_ID,
   SEED_PLATFORM_IDS,
-  SAMPLE_FORM_DEFINITION,
+  SEED_MEETING_URLS,
+  seedFormDefinition,
+  SEED_AGREEMENT_IDS,
+  SAMPLE_AGREEMENT,
 } from './seed-data.js';
 
 config({ path: '../../.env', quiet: true });
@@ -120,6 +124,8 @@ async function seedServices(
       packages: [...s.packages],
       stages: [...s.stages],
       sortOrder,
+      // Every seeded service is offered on Begin Online: one per kind, none OTHER.
+      beginOnline: true,
     };
     const row = await tx.service.upsert({
       where: { businessId_name: { businessId, name: s.name } },
@@ -160,6 +166,7 @@ async function seedIntakeForms(
   const ids = new Map<string, string>();
   for (const name of serviceNames) {
     const serviceId = service(name);
+    const { kind } = await tx.service.findUniqueOrThrow({ where: { id: serviceId } });
     const row = await tx.intakeForm.upsert({
       where: { businessId_serviceId_version: { businessId, serviceId, version: 1 } },
       update: {},
@@ -168,8 +175,14 @@ async function seedIntakeForms(
         serviceId,
         version: 1,
         title: `${name} intake`,
-        definition: SAMPLE_FORM_DEFINITION,
-        agreementText: `Sample ${name} service agreement for local development. Not legal text.`,
+        // Annual Tax is the real form (R11's contract); the other kinds keep a small stand-in, so
+        // the seeded lead's answers and upload slot fit their form (real forms: r0_followups).
+        definition:
+          kind === 'ANNUAL_TAX' && INTAKE_FORMS.ANNUAL_TAX
+            ? INTAKE_FORMS.ANNUAL_TAX
+            : seedFormDefinition(kind, `${name} intake`),
+        // Deprecated: the agreement comes from the firm's intake agreements (seedFirmAgreement).
+        agreementText: null,
         status: 'PUBLISHED',
         publishedAt: new Date(),
       },
@@ -177,6 +190,55 @@ async function seedIntakeForms(
     ids.set(name, row.id);
   }
   return byName('intake form', ids);
+}
+
+/** The firm-wide intake agreement with a synthetic v1 and a CLEAN PDF row (no file in S3). */
+async function seedFirmAgreement(
+  tx: TxClient,
+  businessId: string,
+  ownerId: string,
+  ids: { agreement: string; file: string; version: string },
+) {
+  await tx.firmAgreement.upsert({
+    where: { id: ids.agreement },
+    update: {},
+    create: { id: ids.agreement, businessId, scope: 'ALL_INTAKES', createdByUserId: ownerId },
+  });
+  const sha256 = createHash('sha256').update(`sample agreement pdf ${businessId}`).digest('hex');
+  await tx.firmAgreementFile.upsert({
+    where: { id: ids.file },
+    update: {},
+    create: {
+      id: ids.file,
+      businessId,
+      fileName: SAMPLE_AGREEMENT.pdf.fileName,
+      sizeBytes: SAMPLE_AGREEMENT.pdf.sizeBytes,
+      sha256,
+      s3Key: `tenant/${businessId}/agreements/${ids.file}`,
+      uploadedByUserId: ownerId,
+    },
+  });
+  await tx.firmAgreementFile.updateMany({
+    where: { id: ids.file, scanStatus: 'PENDING' },
+    data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+  });
+  // Versions are insert-only (an upsert may update), so create it once.
+  if (!(await tx.firmAgreementVersion.findUnique({ where: { id: ids.version } }))) {
+    await tx.firmAgreementVersion.create({
+      data: {
+        id: ids.version,
+        businessId,
+        agreementId: ids.agreement,
+        version: 1,
+        title: SAMPLE_AGREEMENT.title,
+        bodyMarkdown: SAMPLE_AGREEMENT.body,
+        acknowledgments: SAMPLE_AGREEMENT.acknowledgments.map((a) => ({ ...a })),
+        pdfFileId: ids.file,
+        pdfSha256: sha256,
+        publishedByUserId: ownerId,
+      },
+    });
+  }
 }
 
 /** The firm's appointment types; returns their ids by name. */
@@ -258,14 +320,14 @@ async function main() {
   );
 
   await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, async (tx) => {
-    for (const [user, role] of [
-      [SEED_USERS.lvpOwner, 'OWNER'],
-      [SEED_USERS.lvpStaff, 'STAFF'],
+    for (const [user, role, meetingUrl] of [
+      [SEED_USERS.lvpOwner, 'OWNER', SEED_MEETING_URLS.lvpOwner],
+      [SEED_USERS.lvpStaff, 'STAFF', SEED_MEETING_URLS.lvpStaff],
     ] as const) {
       await tx.membership.upsert({
         where: { businessId_userId: { businessId: businesses.lvp, userId: user.id } },
-        update: { role, status: 'ACTIVE' },
-        create: { businessId: businesses.lvp, userId: user.id, role, status: 'ACTIVE' },
+        update: { role, status: 'ACTIVE', meetingUrl },
+        create: { businessId: businesses.lvp, userId: user.id, role, status: 'ACTIVE', meetingUrl },
       });
     }
     await tx.clientAccount.upsert({
@@ -285,6 +347,7 @@ async function main() {
       brandColor: '#1f4e79',
       taxStatuses: SEED_TAX_STATUSES.lvp,
     });
+    await seedFirmAgreement(tx, businesses.lvp, SEED_USERS.lvpOwner.id, SEED_AGREEMENT_IDS.lvp);
 
     // A staff member invited but not yet active, with one open invite.
     const invited = await tx.membership.upsert({
@@ -619,7 +682,8 @@ async function main() {
         id: SEED_INTAKE_IDS.taxSubmission,
         intakeId: SEED_INTAKE_IDS.taxIntake,
         version: 1,
-        answers: { fullName: SEED_USERS.lvpClient.name },
+        // The real Annual Tax form's own questions, partly answered (an IN_PROGRESS intake).
+        answers: { firstName: 'Chris', lastName: 'Client' },
       },
     });
 
@@ -634,6 +698,7 @@ async function main() {
         lastName: 'Lead (fake)',
         email: 'lena.lead@begin.test',
         phone: '+15555550123',
+        taxYear: 2025,
       },
     });
     // Uploads are added while the lead is a draft; no file exists behind it in local S3.
@@ -667,23 +732,67 @@ async function main() {
         status: 'SUBMITTED',
       },
     });
-    // A submitted version is locked (even an empty upsert would update it), so create it once.
-    const signedAt = new Date();
+    // A submitted version is locked (even an empty upsert would update it), so create it once:
+    // a draft, the signature evidence for LVP's firm-wide v1, then the submit that copies the
+    // signature's name, database time, IP and browser. Signing and submitting share this
+    // transaction, as the database requires.
+    let signedAt = new Date();
     if (
       !(await tx.intakeSubmission.findUnique({ where: { id: SEED_INTAKE_IDS.leadSubmission } }))
     ) {
+      const answers = { fullName: 'Lena Lead (fake)' };
       await tx.intakeSubmission.create({
         data: {
           ...lvp,
           id: SEED_INTAKE_IDS.leadSubmission,
           intakeId: SEED_INTAKE_IDS.leadIntake,
           version: 1,
-          answers: { fullName: 'Lena Lead (fake)', package: 'Growth' },
+          answers,
+        },
+      });
+      const version = await tx.firmAgreementVersion.findUniqueOrThrow({
+        where: { id: SEED_AGREEMENT_IDS.lvp.version },
+      });
+      const sha = (value: unknown) =>
+        createHash('sha256').update(JSON.stringify(value)).digest('hex');
+      const signature = await tx.intakeSignature.create({
+        data: {
+          ...lvp,
+          id: SEED_AGREEMENT_IDS.leadSignature,
+          submissionId: SEED_INTAKE_IDS.leadSubmission,
+          intakeId: SEED_INTAKE_IDS.leadIntake,
+          leadId: SEED_INTAKE_IDS.lead,
+          printedName: 'Lena Lead (fake)',
+          signatureText: 'Lena Lead (fake)',
+          signerEmail: 'lena.lead@begin.test',
+          acknowledgments: SAMPLE_AGREEMENT.acknowledgments.map((a) => ({
+            agreementVersionId: version.id,
+            ...a,
+            checked: true,
+          })),
+          // The database replaces this with the hash of the stored answers.
+          answersSha256: sha(answers),
+          evidenceSha256: sha({ seed: SEED_AGREEMENT_IDS.leadSignature }),
+          ip: '203.0.113.10',
+          userAgent: 'Sample browser (seed)',
+          agreements: {
+            create: {
+              agreementVersionId: version.id,
+              bodySha256: version.bodySha256,
+              pdfSha256: version.pdfSha256,
+            },
+          },
+        },
+      });
+      signedAt = signature.signedAt;
+      await tx.intakeSubmission.update({
+        where: { id: SEED_INTAKE_IDS.leadSubmission },
+        data: {
           submittedAt: signedAt,
-          signerName: 'Lena Lead (fake)',
+          signerName: signature.printedName,
           signedAt,
-          signerIp: '203.0.113.10',
-          signerUserAgent: 'Sample browser (seed)',
+          signerIp: signature.ip,
+          signerUserAgent: signature.userAgent,
         },
       });
     }
@@ -783,9 +892,10 @@ async function main() {
         createdByUserId: SEED_USERS.lvpOwner.id,
       },
     });
+    // The VIDEO appointment carries its staff member's own meeting link.
     await tx.appointment.upsert({
       where: { id: SEED_CALENDAR_IDS.appointment },
-      update: {},
+      update: { locationDetails: SEED_MEETING_URLS.lvpStaff },
       create: {
         ...lvp,
         id: SEED_CALENDAR_IDS.appointment,
@@ -796,7 +906,7 @@ async function main() {
         startsAt: new Date('2026-10-20T18:00:00Z'),
         endsAt: new Date('2026-10-20T18:30:00Z'),
         locationKind: 'VIDEO',
-        locationDetails: 'The video link is sent before the meeting.',
+        locationDetails: SEED_MEETING_URLS.lvpStaff,
         bookedByUserId: SEED_USERS.lvpClient.id,
         bookedByClient: true,
       },
@@ -1238,12 +1348,13 @@ async function main() {
       where: {
         businessId_userId: { businessId: businesses.testFirmB, userId: SEED_USERS.firmBOwner.id },
       },
-      update: { role: 'OWNER', status: 'ACTIVE' },
+      update: { role: 'OWNER', status: 'ACTIVE', meetingUrl: SEED_MEETING_URLS.firmBOwner },
       create: {
         businessId: businesses.testFirmB,
         userId: SEED_USERS.firmBOwner.id,
         role: 'OWNER',
         status: 'ACTIVE',
+        meetingUrl: SEED_MEETING_URLS.firmBOwner,
       },
     });
     await tx.clientAccount.upsert({
@@ -1262,6 +1373,12 @@ async function main() {
       contactEmail: 'hello@firm-b.test',
       taxStatuses: SEED_TAX_STATUSES.testFirmB,
     });
+    await seedFirmAgreement(
+      tx,
+      businesses.testFirmB,
+      SEED_USERS.firmBOwner.id,
+      SEED_AGREEMENT_IDS.testFirmB,
+    );
     await seedClient(
       tx,
       businesses.testFirmB,
@@ -1289,7 +1406,7 @@ async function main() {
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, a Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request and sample audit events.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request and sample audit events.`,
   );
 }
 

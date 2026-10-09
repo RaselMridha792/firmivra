@@ -90,7 +90,7 @@ info:
     | `DUPLICATE_CHECK_NUMBER` | check whose number (any case) is live on this invoice already |
     | `ALREADY_VOIDED` | void of an offline payment voided already |
     | `CLIENT_ARCHIVED` | create, update or send for an archived client |
-    | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe, or while another one of these on the invoice still talks to Stripe (retry) |
+    | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe, or while another one of these on the invoice still talks to Stripe (retry); update or send of a draft a cancel holds |
     | `NOT_PAYABLE` | Pay Now on an invoice that is upcoming, paid, canceled or has nothing left to pay |
     | `PAYMENTS_NOT_SET_UP` | Pay Now while the firm's Stripe account cannot take charges |
     | `NOT_REFUNDABLE` | refund of a payment that is not `SUCCEEDED` (pending, failed, refunded in full) |
@@ -109,7 +109,8 @@ info:
       `sort_order` in the order sent; the database computes the amounts and refuses the rest.
       Update replaces the lines in one transaction (delete and insert; lines can be deleted only
       while the invoice is a draft). Numbers: `INV-{year}-{4 digits}`, the next in the firm,
-      unique per firm (retry once on the unique violation). `engagementId` must be one of this
+      unique per firm, taken one at a time per firm under a transaction-scoped advisory lock
+      (one retry on a unique violation stays as the backstop). `engagementId` must be one of this
       client's engagements (`404` otherwise; the three-column foreign key also refuses another
       client's). The discount is checked against the subtotal before writing (`400`; the
       database's `invoices_amounts` check is the backstop).
@@ -143,13 +144,16 @@ info:
       Answer `{ url, expiresAt }`, `expiresAt` from the session's `expires_at` as Stripe returns
       it. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
       inserted.
-    - **Holding the row.** Pay Now, cancel and an offline payment wait at most 1 s for the
-      invoice's row (another one talking to Stripe holds it), then answer
+    - **Holding the row.** Pay Now, cancel and an offline payment of one invoice run one at a
+      time: in one API process a second one waits at most 1 s for the first without a database
+      connection, and across processes for the invoice's row, then answers
       `409 PAYMENT_IN_PROGRESS`. At most three of them per API process wait on Stripe while holding a row; one more answers
       `503 SERVICE_BUSY` with `Retry-After: 5`. A pending checkout older than its session (60
-      minutes plus 15) that Stripe no longer answers for (account disconnected or replaced) is
-      marked `FAILED` (`checkout_expired`), so it never blocks the invoice. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) come from the environment
-      (Secrets Manager on AWS), never from code.
+      minutes plus 15) that Stripe says is gone (missing, account disconnected or replaced) is
+      marked `FAILED` (`checkout_expired`), so it never blocks the invoice; a timeout or a 5xx is
+      `503` and marks nothing, since the checkout may have been paid. Update and send answer
+      `NOT_DRAFT` before taking the row. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`)
+      come from the environment (Secrets Manager on AWS), never from code.
     - **Payments in answers.** A `PENDING` payment is listed (and `paymentProcessing` is true)
       only once its checkout completed and Stripe's result is pending (a bank debit). A checkout
       that is open, or expired unpaid, is not listed. `failureCode` goes to the firm only.
@@ -308,7 +312,7 @@ info:
       It also stores the account's current state from Stripe (`accounts.retrieve`).
     - **Stripe errors**, or no `STRIPE_SECRET_KEY` in the environment: `503
       PAYMENT_PROVIDER_UNAVAILABLE` on every setup route, nothing written. Calls to Stripe use a
-      pinned API version and a 10 s timeout.
+      pinned API version, an 8 s timeout and no SDK retry.
     - **Audit:** `payments.stripe_account_created` (the `acct_` id) and
       `payments.onboarding_link_created`; reads are not audited.
 
@@ -387,7 +391,7 @@ paths:
     put:
       tags: [firm]
       operationId: updateInvoice
-      summary: Replaces the whole draft, lines included (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED
+      summary: Replaces the whole draft, lines included (Owner and Admin). 409 NOT_DRAFT, PAYMENT_IN_PROGRESS (a cancel holds the draft), CLIENT_ARCHIVED, in that order
       requestBody: { $ref: '#/components/requestBodies/UpdateInvoiceRequest' }
       responses:
         '200': { $ref: '#/components/responses/Invoice' }
@@ -404,7 +408,7 @@ paths:
     post:
       tags: [firm]
       operationId: sendInvoice
-      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED, in that order
+      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, PAYMENT_IN_PROGRESS (a cancel holds the draft), CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED, in that order
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200': { $ref: '#/components/responses/Invoice' }

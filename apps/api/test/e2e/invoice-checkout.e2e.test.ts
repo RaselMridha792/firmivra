@@ -41,6 +41,13 @@ const paymentsOf = (invoiceId: string) =>
     tx.payment.findMany({ where: { invoiceId }, orderBy: { createdAt: 'asc' } }),
   );
 const creates = () => fake.calls.filter((c) => c.method === 'createCheckoutSession');
+/** Waits until `check` holds (the fake records each call as it starts), so no test sleeps a guess. */
+async function until(check: () => boolean) {
+  for (let i = 0; i < 500 && !check(); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(check()).toBe(true);
+}
 
 describe('Pay Now', () => {
   it("charges the balance from the database on the firm's own account, and answers the same checkout again", async () => {
@@ -125,7 +132,7 @@ describe('Pay Now', () => {
     fake.delayMs = 3_000;
     try {
       const first = pay(invoice.id);
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await until(() => creates().length === before + 1);
       const second = await pay(invoice.id, t.people.spouse);
       expect([second.status, codeOf(second)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
       // So does a cancel by the firm; neither held a connection waiting for the row.
@@ -141,10 +148,11 @@ describe('Pay Now', () => {
   it('answers 503 SERVICE_BUSY with Retry-After when three checkouts already wait on Stripe', async () => {
     const invoices = [];
     for (let i = 0; i < 4; i += 1) invoices.push(await open());
+    const before = creates().length;
     fake.delayMs = 1_000;
     try {
       const first = invoices.slice(0, 3).map((i) => pay(i.id));
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      await until(() => creates().length === before + 3);
       const fourth = await pay(invoices[3]!.id);
       expect([fourth.status, codeOf(fourth)]).toEqual([503, 'SERVICE_BUSY']);
       expect(fourth.headers['retry-after']).toBe('5');
@@ -308,5 +316,39 @@ describe('POST /business/invoices/{id}/cancel', () => {
     expect([staff.status, codeOf(staff)]).toEqual([403, 'FORBIDDEN']);
     const b = await cancel(invoice.id, t.people.ownerB, t.ids.firmB);
     expect([b.status, codeOf(b)]).toEqual([404, 'NOT_FOUND']);
+  });
+});
+
+describe('the invoice row held by another API task', () => {
+  it('answers Pay Now and cancel 409 PAYMENT_IN_PROGRESS after about a second, never 500', async () => {
+    const invoice = await open();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => (held = resolve));
+    // Another API process's Pay Now: its own transaction holds the row, so this process's
+    // in-flight guard does not see it and the wait is the row lock's lock_timeout.
+    const other = t.inScope(t.ids.firmA, async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM invoices WHERE id = ${invoice.id}::uuid FOR UPDATE`;
+      held();
+      await gate;
+    });
+    try {
+      await holding;
+      for (const call of [() => pay(invoice.id), () => cancel(invoice.id)]) {
+        const started = Date.now();
+        const res = await call();
+        expect([res.status, codeOf(res)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
+        // It waited on the row (1 s), not on this process's guard, and gave up in time.
+        expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+        expect(Date.now() - started).toBeLessThan(2_500);
+      }
+    } finally {
+      release();
+      await other;
+    }
+    // Nothing was written while it waited, and both work once the row is free.
+    expect(await paymentsOf(invoice.id)).toEqual([]);
+    expectOk(await pay(invoice.id));
   });
 });

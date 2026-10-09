@@ -41,14 +41,32 @@ export const records: CaseModule['records'] = {
       return account.id;
     },
   },
+  /** A client record approve can link the sign-up to: the same email, no login yet. */
+  linkableClient: {
+    async create({ tx, businessId, get }) {
+      const account = await tx.clientAccount.findUniqueOrThrow({
+        where: { id: await get('pendingClientAccount') },
+      });
+      const client = await tx.client.create({
+        data: { businessId, displayName: 'Fake linkable client', email: account.email },
+      });
+      return client.id;
+    },
+  },
 };
 
 export const cases: CaseModule['cases'] = {
+  'POST /api/v1/business/clients': {
+    params: {},
+    bodyIds: { assignedUserId: 'staffUser' },
+    body: { displayName: 'Fake new client' },
+  },
   'GET /api/v1/business/clients/:id': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tax-years': { params: { id: 'client' } },
   'GET /api/v1/business/clients/:id/tax-years/:year/history': { params: { id: 'client' } },
   'PATCH /api/v1/business/clients/:id': {
     params: { id: 'client' },
+    bodyIds: { assignedUserId: 'staffUser' },
     body: { displayName: 'Fake renamed client' },
   },
   'POST /api/v1/business/clients/:id/archive': { params: { id: 'client' } },
@@ -59,11 +77,11 @@ export const cases: CaseModule['cases'] = {
   },
   'PUT /api/v1/business/clients/:id/tax-years/:year': {
     params: { id: 'client' },
-    body: ({ own }) => ({ taxStatusId: own.taxStatus }),
+    bodyIds: { taxStatusId: 'taxStatus' },
   },
   'POST /api/v1/client-sign-ups/:clientAccountId/approve': {
     params: { clientAccountId: 'pendingClientAccount' },
-    body: {},
+    bodyIds: { clientId: 'linkableClient' },
   },
   'POST /api/v1/client-sign-ups/:clientAccountId/decline': {
     params: { clientAccountId: 'pendingClientAccount' },
