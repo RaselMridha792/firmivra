@@ -15,6 +15,9 @@ export const LOCATION_LABELS: Record<LocationKind, string> = {
 };
 
 /** The appointment module's error codes (packages/types appointments), in plain words. */
+/** Someone else changed or removed the appointment: reload it instead of offering actions. */
+export const GONE = new Set(['APPOINTMENT_CLOSED', 'NOT_FOUND']);
+
 export const CALENDAR_ERRORS: Record<string, string> = {
   SLOT_TAKEN: 'Someone else just took this time. Pick another one.',
   APPOINTMENT_CLOSED: 'This appointment is no longer scheduled.',
