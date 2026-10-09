@@ -414,6 +414,7 @@ describe('loadNotifyConfig', () => {
       email: { mode: 'smtp', from: FROM, host: 'localhost', port: 1025 },
       sms: { mode: 'log', unregistered: false },
       linkOrigins: localOrigins,
+      jobs: true,
     });
   });
 
@@ -422,9 +423,18 @@ describe('loadNotifyConfig', () => {
       email: { mode: 'ses', from: { name: null, address: 'no-reply@dev.example.test' } },
       sms: { mode: 'log', unregistered: true },
       linkOrigins: devOrigins,
+      jobs: true,
     });
     const registered = loadNotifyConfig({ ...appStack, SMS_ORIGINATION_NUMBER: '+18885550100' });
     expect(registered.sms).toEqual({ mode: 'sns', originationNumber: '+18885550100' });
+  });
+
+  it('runs the reminder jobs unless NOTIFY_JOBS=off, and not in tests unless NOTIFY_JOBS=on', () => {
+    expect(loadNotifyConfig({ ...example, NOTIFY_JOBS: 'off' }).jobs).toBe(false);
+    expect(loadNotifyConfig({ ...example, NODE_ENV: 'test' }).jobs).toBe(false);
+    expect(loadNotifyConfig({ ...example, VITEST: 'true' }).jobs).toBe(false);
+    expect(loadNotifyConfig({ ...example, NODE_ENV: 'test', NOTIFY_JOBS: 'on' }).jobs).toBe(true);
+    expect(() => loadNotifyConfig({ ...example, NOTIFY_JOBS: 'yes' })).toThrow('NOTIFY_JOBS');
   });
 
   it('defaults to SES, so a missing setting never uses a stand-in', () => {
