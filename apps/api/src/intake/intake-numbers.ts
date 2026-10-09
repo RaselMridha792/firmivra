@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { type IntakeAnswers, type IntakeFormDefinition, intakeFields } from '@firmivra/types';
 import {
@@ -66,6 +67,15 @@ async function eachNumber(
   return out;
 }
 
+/**
+ * The field-encryption `field` for an answer path (`ssn`, `spouseSsn`, `dependents.<rowId>.ssn`).
+ * Field names are lower snake case, so the path is bound by its hash: the same path always gives
+ * the same name, and a blob moved to another path does not decrypt.
+ */
+export function numberField(path: string): string {
+  return `answer_${createHash('sha256').update(path).digest('hex').slice(0, 32)}`;
+}
+
 /** 503 when the firm's key can't be used right now; never a value or an AWS detail. */
 async function guarded<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -108,7 +118,7 @@ export function sealIntakeNumbers(
             businessId: where.businessId,
             table: 'intake_submissions',
             recordId: where.intakeId,
-            field: path,
+            field: numberField(path),
           },
           value,
         );
