@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
-import { clock, myAppointmentsKey } from './shared';
+import { myAppointmentsKey, slotLabel } from './shared';
 
 /**
  * A day's free times for a kind of appointment. `round` asks again: after a time was taken, the
@@ -82,7 +82,7 @@ export function FreeTimes({
                     disabled={isCurrent(slot)}
                     onClick={() => onPick(slot)}
                   >
-                    {clock(slot.startsAt)}
+                    {slotLabel(slot.startsAt, date)}
                     {isCurrent(slot) ? ' (current)' : ''}
                   </Button>
                 ))}

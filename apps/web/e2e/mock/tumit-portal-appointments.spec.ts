@@ -56,3 +56,16 @@ test('a client books after a taken time, then reschedules and cancels', async ({
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(375);
 });
+
+test.describe('a client in another time zone', () => {
+  test.use({ timezoneId: 'Asia/Dhaka' });
+
+  test('sees which of their days a free time falls on', async ({ page }) => {
+    await page.goto(portal('/lvp/appointments'));
+    await page.getByRole('button', { name: /Tax consultation/ }).click();
+    await page.getByLabel('Day').fill(nextWeek(0));
+    // The firm's Monday 1 PM and 3 PM (EDT) are Monday 11 PM and Tuesday 1 AM in Dhaka.
+    await expect(page.getByRole('button', { name: '11:00 PM', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Tue 1:00 AM', exact: true })).toBeVisible();
+  });
+});

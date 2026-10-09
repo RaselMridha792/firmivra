@@ -12,6 +12,7 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { FreeTimes } from './free-times';
 import {
   APPOINTMENT_ERRORS,
+  firstDay,
   LOCATION_LABELS,
   myAppointmentsKey,
   STALE,
@@ -184,7 +185,7 @@ function Reschedule({
         excludeAppointmentId={item.id}
         current={item.startsAt}
         date={date}
-        min={first}
+        min={firstDay(first)}
         picked={picked}
         round={round}
         onDate={(next) => {
