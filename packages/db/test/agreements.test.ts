@@ -799,12 +799,12 @@ describe('isolation', () => {
         FROM pg_constraint
         WHERE contype = 'f' AND conrelid::regclass::text IN ('firm_agreements',
           'firm_agreement_files', 'firm_agreement_versions', 'intake_signatures',
-          'intake_signature_agreements')
-        ORDER BY 1`,
+          'intake_signature_agreements')`,
     );
     const fk = (table: string, columns: string, target: string) =>
       `${table}: FOREIGN KEY (business_id, ${columns}) REFERENCES ${target} ON UPDATE CASCADE ON DELETE RESTRICT`;
-    expect(rows.map((r) => r.def)).toEqual(
+    // Sorted here: the database's collation orders underscores differently from JavaScript.
+    expect(rows.map((r) => r.def).sort()).toEqual(
       [
         fk('firm_agreement_files', 'uploaded_by_user_id', 'memberships(business_id, user_id)'),
         fk('firm_agreement_versions', 'agreement_id', 'firm_agreements(business_id, id)'),
