@@ -21,9 +21,10 @@ test('a client books after a taken time, then reschedules and cancels', async ({
   const mine = page.getByTestId('my-appointment');
   await expect(mine).toHaveCount(2);
 
-  // Book: a kind, a day, a free time. The mock offers 10 AM though Jamie is busy then, and
+  // Book in the "Schedule an Appointment" modal: a kind, a day, a free time. The mock offers 10 AM though Jamie is busy then, and
   // answers SLOT_TAKEN as the API does when someone took a time meanwhile (the API itself leaves
   // the client's own busy times out).
+  await page.getByRole('button', { name: 'Schedule an Appointment' }).first().click();
   await page.getByRole('button', { name: /Tax consultation/ }).click();
   await page.getByLabel('Day').fill(nextWeek(0));
   await page.getByRole('button', { name: '10:00 AM' }).click();
@@ -36,9 +37,10 @@ test('a client books after a taken time, then reschedules and cancels', async ({
   await expect(page.getByText(/^Booked: Tax consultation/)).toBeVisible();
   await expect(mine).toHaveCount(3);
 
-  // Reschedule Tuesday's appointment to 3 PM the same day.
+  // Reschedule Tuesday's appointment to 3 PM the same day, from its row menu.
   const tuesday = mine.filter({ hasText: 'Tue' });
-  await tuesday.getByRole('button', { name: 'Reschedule' }).click();
+  await tuesday.getByRole('button', { name: 'Appointment actions' }).click();
+  await tuesday.getByRole('menuitem', { name: 'Reschedule' }).click();
   await expect(tuesday.getByRole('button', { name: '2:00 PM (current)' })).toBeDisabled();
   await tuesday.getByRole('button', { name: '3:00 PM' }).click();
   await tuesday.getByRole('button', { name: /^Move to/ }).click();
@@ -47,7 +49,8 @@ test('a client books after a taken time, then reschedules and cancels', async ({
 
   // Cancel the new one.
   const booked = mine.filter({ hasText: '11:00 AM' });
-  await booked.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await booked.getByRole('button', { name: 'Appointment actions' }).click();
+  await booked.getByRole('menuitem', { name: 'Cancel' }).click();
   await booked.getByLabel('Reason (optional)').fill('Plans changed.');
   await booked.getByRole('button', { name: 'Cancel this appointment' }).click();
   await expect(page.getByText('Your appointment was cancelled.')).toBeVisible();
@@ -64,6 +67,7 @@ test.describe('a client in another time zone', () => {
 
   test('sees which of their days a free time falls on', async ({ page }) => {
     await page.goto(portal('/lvp/appointments'));
+    await page.getByRole('button', { name: 'Schedule an Appointment' }).first().click();
     await page.getByRole('button', { name: /Tax consultation/ }).click();
     await page.getByLabel('Day').fill(nextWeek(0));
     // The firm's Monday 1 PM and 3 PM (EDT) are Monday 11 PM and Tuesday 1 AM in Dhaka.
