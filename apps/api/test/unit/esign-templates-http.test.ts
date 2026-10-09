@@ -1,5 +1,5 @@
-// R13 step 9, templates over HTTP: EsignTemplatesController's list, get, PATCH, archive, packet
-// and duplicate routes and save-as-template, their pipes, the status codes (archive 200;
+// R13 step 9, templates over HTTP: EsignTemplatesController's list, get, PATCH, archive, packet,
+// use and duplicate routes and save-as-template, their pipes, the status codes (archive 200; use,
 // duplicate and save-as-template 201), the packet's headers, the module switch and the 404s
 // across firms and for another member's PRIVATE template, with the in-memory ports
 // (no database). A stand-in for TenantGuard puts the caller's firm and role on the request, as in
@@ -32,7 +32,7 @@ import {
 } from './esign-fakes.js';
 
 const w = esignWorld();
-const templates = new InMemoryTemplateRepository();
+const templates = new InMemoryTemplateRepository(w.repo);
 
 @Global()
 @Module({
@@ -112,6 +112,7 @@ const routes = (id: string): [Method, string, object | undefined][] => [
   ['patch', `/${id}`, { name: 'Fake name' }],
   ['post', `/${id}/archive`, {}],
   ['get', `/${id}/packet`, undefined],
+  ['post', `/${id}/use`, { roles: [] }],
   ['post', `/${id}/duplicate`, { name: 'Fake copy' }],
 ];
 const saveAs = (requestId: string) => `/api/v1/esign/requests/${requestId}/save-as-template`;
@@ -184,12 +185,19 @@ describe('Firm Sign templates over HTTP', () => {
     expect(Buffer.from(res.body as Buffer).toString()).toBe('pdf:2');
   });
 
-  it('saves a request as a template and duplicates it (201 each)', async () => {
+  it('saves a request as a template, uses it and duplicates it (201 each)', async () => {
     const requestId = await draft();
     const saved = await call('post', saveAs(requestId), ownerA(), { name: 'Fake saved' });
     expect(saved.status).toBe(201);
     const t = EsignTemplateDetail.parse(saved.body);
     expect([t.visibility, t.pageCount]).toEqual(['PRIVATE', 1]);
+    const used = await call('post', `/${t.id}/use`, ownerA(), { clientId: w.ids.c2 });
+    expect(used.status).toBe(201);
+    expect(EsignRequestDetail.parse(used.body)).toMatchObject({
+      status: 'DRAFT',
+      source: 'TEMPLATE',
+      template: { id: t.id, version: 1 },
+    });
     const dup = await call('post', `/${t.id}/duplicate`, ownerA(), { name: 'Fake dup' });
     expect([dup.status, EsignTemplateDetail.parse(dup.body).version]).toEqual([201, 1]);
     const taken = await call('post', saveAs(requestId), ownerA(), { name: 'Fake saved' });
@@ -206,6 +214,10 @@ describe('Firm Sign templates over HTTP', () => {
       ['patch', `/${t.record.id}`, { name: 'Fake', extra: 1 }],
       ['get', '?archived=maybe', undefined],
       ['get', '?extra=1', undefined],
+      ['post', `/${t.record.id}/use`, { roles: 'all' }],
+      ['post', `/${t.record.id}/use`, { engagementId: randomUUID() }],
+      ['post', `/${t.record.id}/use`, { roles: [{ key: 'client' }, { key: 'client' }] }],
+      ['post', `/${t.record.id}/use`, { roles: [{ key: 'client', authMethod: 'ACCESS_CODE' }] }],
       ['post', `/${t.record.id}/duplicate`, {}],
       ['post', `/${t.record.id}/duplicate`, { name: 'Fake', visibility: 'ALL' }],
       ['post', saveAs('not-a-uuid'), { name: 'Fake' }],

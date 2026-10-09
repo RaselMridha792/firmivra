@@ -59,6 +59,7 @@ import type {
 import type {
   EsignListedTemplate,
   EsignTemplateContent,
+  EsignTemplateDraft,
   EsignTemplateFilter,
   EsignTemplatePatch,
   EsignTemplateRecord,
@@ -224,6 +225,7 @@ export class InMemoryEsignRepository implements EsignRepository {
       replacesRequestId: null,
       replacedByRequestId: null,
       expiryWarnedAt: null,
+      template: null,
     };
     const parts = { documents: [], pagePlan: [], recipients: [], fields: [] };
     this.rows.of(businessId).set(record.id, { record, parts });
@@ -627,6 +629,10 @@ export class InMemoryDirectory implements EsignDirectory {
   clientLogin(businessId: string, id: string) {
     return Promise.resolve(this.logins.of(businessId).get(id) ?? null);
   }
+  clientLogins(businessId: string, clientId: string) {
+    const all = [...this.logins.of(businessId).values()];
+    return Promise.resolve(all.filter((l) => l.clientId === clientId));
+  }
   member(businessId: string, userId: string) {
     return Promise.resolve(this.members.of(businessId).get(userId) ?? null);
   }
@@ -925,6 +931,9 @@ export interface TemplateRow {
 export class InMemoryTemplateRepository implements EsignTemplateRepository {
   readonly rows = new PerFirm<TemplateRow>();
 
+  /** `use` writes its drafts into the requests fake. */
+  constructor(private readonly requests?: InMemoryEsignRepository) {}
+
   create(
     businessId: string,
     template: NewEsignTemplate,
@@ -936,6 +945,13 @@ export class InMemoryTemplateRepository implements EsignTemplateRepository {
     const version = { ...first, version: 1, savedAt: now, savedByUserId: template.ownerUserId };
     this.insert(businessId, { record, versions: [version] });
     return Promise.resolve(structuredClone(record));
+  }
+
+  createDraft(businessId: string, draft: EsignTemplateDraft): Promise<EsignRequestRecord> {
+    if (!this.requests) throw new Error('InMemoryTemplateRepository needs the requests fake');
+    this.requests.insert(businessId, { record: draft.record, parts: draft.parts });
+    this.requests.timelines.of(businessId).set(draft.record.id, [structuredClone(draft.event)]);
+    return Promise.resolve(structuredClone(draft.record));
   }
 
   list(businessId: string, f: EsignTemplateFilter): Promise<EsignListedTemplate[]> {

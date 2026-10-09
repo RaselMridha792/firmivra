@@ -14,12 +14,14 @@ import type { z } from 'zod';
 import {
   DuplicateEsignTemplateBody,
   EsignRequestId,
+  type EsignRequestDetail,
   type EsignTemplateDetail,
   EsignTemplateId,
   type EsignTemplateList,
   ListEsignTemplatesQuery,
   SaveEsignTemplateBody,
   UpdateEsignTemplateBody,
+  UseEsignTemplateBody,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
 import { RequiresModule } from '../../common/modules/requires-module.js';
@@ -27,6 +29,7 @@ import type { AuthContext, TenantContext } from '../../common/request-context.js
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 import { actorOf } from '../requests/requests.controller.js';
 import { EsignTemplateCopyService } from './template-copy.service.js';
+import { EsignTemplateUseService } from './template-use.service.js';
 import { EsignTemplatesService } from './templates.service.js';
 
 export const templateIdPipe = new ZodValidationPipe(EsignTemplateId);
@@ -39,6 +42,7 @@ export class EsignTemplatesController {
   constructor(
     private readonly templates: EsignTemplatesService,
     private readonly copies: EsignTemplateCopyService,
+    private readonly uses: EsignTemplateUseService,
   ) {}
 
   @Get()
@@ -93,6 +97,17 @@ export class EsignTemplatesController {
   ): Promise<StreamableFile> {
     const bytes = await this.templates.packet(tenant.businessId, actorOf(auth, tenant), id);
     return new StreamableFile(bytes, { type: 'application/pdf', length: bytes.byteLength });
+  }
+
+  /** 201: the new DRAFT. */
+  @Post(':templateId/use')
+  use(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('templateId', templateIdPipe) id: string,
+    @Body(new ZodValidationPipe(UseEsignTemplateBody)) body: z.output<typeof UseEsignTemplateBody>,
+  ): Promise<EsignRequestDetail> {
+    return this.uses.use(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   /** 201: the copy. */

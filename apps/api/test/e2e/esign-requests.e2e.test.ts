@@ -60,6 +60,7 @@ const withTemplateId = (id: string): Route[] => [
   ['patch', template(id), { name: 'Fake template' }],
   ['post', `${template(id)}/archive`, {}],
   ['get', `${template(id)}/packet`, undefined],
+  ['post', `${template(id)}/use`, { roles: [] }],
   ['post', `${template(id)}/duplicate`, { name: 'Fake copy' }],
 ];
 const ROUTES: Route[] = [
@@ -166,6 +167,7 @@ describe('Firm Sign draft routes', () => {
       ['patch', template(anyId), {}],
       ['patch', template(anyId), { visibility: 'EVERYONE' }],
       ['get', '/api/v1/esign/templates?archived=maybe', undefined],
+      ['post', `${template(anyId)}/use`, { engagementId: randomUUID() }],
       ['post', `${template(anyId)}/duplicate`, {}],
       ['post', `${base(anyId)}/save-as-template`, { name: '' }],
       ...['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1'].map((query): Route => [

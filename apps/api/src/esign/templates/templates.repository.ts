@@ -6,6 +6,8 @@ import type {
   EsignTemplateVisibility,
 } from '@firmivra/types';
 import type { PageSize } from '../engine/engine.types.js';
+import type { Replacement } from '../lifecycle/lifecycle.repository.js';
+import type { EsignRequestRecord } from '../requests/esign.repository.js';
 
 // Firm Sign's templates storage (R13). Like the other esign ports, every method takes the firm
 // (`businessId`, from the tenant context) first, and the Prisma implementation (with r0_esign:
@@ -87,6 +89,9 @@ export type NewEsignTemplate = Pick<
   'id' | 'name' | 'description' | 'visibility' | 'ownerUserId'
 >;
 
+/** A DRAFT made from a template, with its own ids throughout (its file already in the store). */
+export type EsignTemplateDraft = Replacement;
+
 export interface EsignTemplateRepository {
   /** The matching templates with their newest version, by updatedAt descending. */
   list(businessId: string, filter: EsignTemplateFilter): Promise<EsignListedTemplate[]>;
@@ -122,6 +127,11 @@ export interface EsignTemplateRepository {
     template: NewEsignTemplate,
     first: EsignTemplateContent & { note: string | null },
   ): Promise<EsignTemplateRecord | 'NAME_TAKEN'>;
+  /**
+   * `use`: inserts the DRAFT (its `template` set) with its document, page plan, recipients, fields
+   * and CREATED event, in one transaction, and answers it as written. The template never changes.
+   */
+  createDraft(businessId: string, draft: EsignTemplateDraft): Promise<EsignRequestRecord>;
 }
 
 export const TEMPLATE_REPOSITORY = Symbol('ESIGN_TEMPLATE_REPOSITORY');
