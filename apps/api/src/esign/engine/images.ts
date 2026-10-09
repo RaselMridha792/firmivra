@@ -69,17 +69,17 @@ const ADAM7 = [
  * A PNG checked the whole way before anything else decodes it: every chunk's CRC, IHDR's fields
  * against the spec, a size within IMAGE_LIMITS, and image data that inflates to exactly the
  * expected length with a valid filter byte on every row. A PNG that fails any of this can make
- * a decoder spin or blow up memory, so it's undefined here.
+ * a decoder spin or blow up memory, so it's undefined here. `strict` also refuses bytes after IEND.
  */
-export function parsePng(b: Uint8Array): PngInfo | undefined {
+export function parsePng(b: Uint8Array, { strict = false } = {}): PngInfo | undefined {
   try {
-    return readPng(b);
+    return readPng(b, strict);
   } catch {
     return undefined; // a read past the end, or data that doesn't inflate
   }
 }
 
-function readPng(b: Uint8Array): PngInfo | undefined {
+function readPng(b: Uint8Array, strict: boolean): PngInfo | undefined {
   if (!PNG.every((x, i) => b[i] === x)) return undefined;
   const v = view(b);
   let header: { width: number; height: number; depth: number; colour: number; laced: boolean };
@@ -119,6 +119,7 @@ function readPng(b: Uint8Array): PngInfo | undefined {
     } else if (type === 'IDAT') {
       data.push(body);
     } else if (type === 'IEND') {
+      if (strict && at !== b.length) return undefined;
       break;
     }
   }

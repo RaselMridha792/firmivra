@@ -43,3 +43,14 @@ test('a bad website is caught before saving', async ({ page }) => {
   await expect(page.getByLabel('Website')).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByText('Changes saved.')).toHaveCount(0);
 });
+
+test('the header shows the new firm name after a Profile save, without a reload', async ({
+  page,
+}) => {
+  await page.goto(app('/settings/profile'));
+  await expect(page.getByTestId('firm-name')).toHaveText('LVP Accounting & Taxes');
+  await page.getByLabel('Display name (DBA)').fill('LVP Tax Partners');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Changes saved.')).toBeVisible();
+  await expect(page.getByTestId('firm-name')).toHaveText('LVP Tax Partners');
+});
