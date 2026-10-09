@@ -1,7 +1,7 @@
-// R13 step 6, requests API parts 1d and 1e: a DRAFT's files on the in-memory ports (esign-fakes.ts),
-// R18's in-memory store and a fake PDF engine: uploads (ticket, confirm and its refusals),
-// copies from the client's vault, removal, and the page viewer's bytes; access (cross-firm and
-// cross-client 404s) and an audit of ids only. Synthetic data only.
+// R13 step 6, requests API parts 1d and 1e: a DRAFT's files on the in-memory ports
+// (esign-fakes.ts), R18's in-memory store and a fake PDF engine: uploads (ticket, confirm and its
+// refusals), copies from the client's vault, removal, and the page viewer's bytes; access
+// (cross-firm, cross-client and approver-only 404s) and an audit of ids only. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -122,6 +122,7 @@ describe('uploads', () => {
       'esign.document_added',
       'esign.upload_started',
       'esign.document_added',
+      'esign.request_viewed',
     ]);
   });
 
@@ -232,7 +233,18 @@ describe('uploads', () => {
     });
     const s = await uploaded(id, content, content, undefined, staff);
     await docs.confirmUpload(w.a, staff, id, s.ticket.uploadToken);
-    expect((await requests.get(w.a, staff, id)).recipients[0]?.status).toBe('WAITING');
+    const { recipients, documents } = await requests.get(w.a, staff, id);
+    expect(recipients[0]?.status).toBe('WAITING');
+    // The approver may read the request, but uploads, confirm and remove are writes: 404.
+    const manager: EsignActor = { userId: w.users.managerA, role: 'MANAGER' };
+    const token = (await start(id, content, staff)).ticket.uploadToken;
+    for (const work of [
+      start(id, content, manager),
+      docs.confirmUpload(w.a, manager, id, token),
+      docs.removeDocument(w.a, manager, id, documents[0]!.id),
+    ]) {
+      expect(await refused(work)).toEqual([404, 'NOT_FOUND']);
+    }
     w.repo.seed(w.a, id, (row) => {
       row.record.status = 'SENT';
     });

@@ -12,25 +12,33 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import type { Database } from '@firmivra/db';
+import { DATABASE } from '../../database/database.module.js';
 
 // The per-firm module switch (R13, shared with R14): Firm Sign ('esign') and calculators.
 
 export type FirmModule = 'esign' | 'calculators';
 
 /**
- * Whether a module is on for a firm. The real one reads the firm's enabled modules
- * (`enabled_modules`, migration r0_esign; changed only by `app_set_business_module`) through
- * `forBusiness(businessId)`. Until that migration is on main, `ModulesNotMigrated` answers off for
- * every firm, so module routes stay closed.
+ * Whether a module is on for a firm: `business_settings.enabled_modules` (SYSTEM-DESIGN, "Module
+ * switch"), read through `forBusiness(businessId)`. No settings row means every module is off.
+ * Migration r0_esign adds the lock: only `app_set_business_module` will change that column.
  */
 export interface BusinessModules {
   isEnabled(businessId: string, module: FirmModule): Promise<boolean>;
 }
 export const BUSINESS_MODULES = Symbol('BUSINESS_MODULES');
 
-export class ModulesNotMigrated implements BusinessModules {
-  isEnabled(): Promise<boolean> {
-    return Promise.resolve(false);
+@Injectable()
+export class PrismaBusinessModules implements BusinessModules {
+  constructor(@Inject(DATABASE) private readonly database: Database) {}
+
+  async isEnabled(businessId: string, module: FirmModule): Promise<boolean> {
+    const settings = await this.database.forBusiness(businessId).businessSettings.findUnique({
+      where: { businessId },
+      select: { enabledModules: true },
+    });
+    return settings?.enabledModules.includes(module) ?? false;
   }
 }
 
@@ -76,7 +84,7 @@ export const RequiresModule = (module: FirmModule) =>
   applyDecorators(SetMetadata(MODULE_KEY, module), UseGuards(ModuleGuard));
 
 @Module({
-  providers: [{ provide: BUSINESS_MODULES, useClass: ModulesNotMigrated }, ModuleGuard],
+  providers: [{ provide: BUSINESS_MODULES, useClass: PrismaBusinessModules }, ModuleGuard],
   exports: [BUSINESS_MODULES, ModuleGuard],
 })
 export class ModulesModule {}
