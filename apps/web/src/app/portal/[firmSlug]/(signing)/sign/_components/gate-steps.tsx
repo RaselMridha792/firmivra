@@ -1,25 +1,33 @@
 'use client';
 
-import { ESIGN_CODE_LENGTH, ESIGN_CODE_MINUTES, ESIGN_ERRORS } from '@firmivra/types';
+import {
+  ApiRequestError,
+  ESIGN_CODE_LENGTH,
+  ESIGN_CODE_MINUTES,
+  ESIGN_ERRORS,
+} from '@firmivra/types';
 import { Button, Card, Checkbox, Input } from '@firmivra/ui';
 import { type FormEvent, useEffect, useState } from 'react';
 import { ConsentText } from '../../../../../../components/esign/consent-text';
 import { PageState } from '../../../../../../components/page-state';
 import { errorCode, errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useLost } from './lost';
 import type { StepProps } from './signer-page';
 
 const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
 
 /** VERIFY_EMAIL: a 6-digit code to the signer's email proves the link reached the right person. */
-export function EmailCodeStep({ signing, state, onState }: StepProps) {
+export function EmailCodeStep({ signing, state, onState, onLost }: StepProps) {
   const send = useApiMutation(() => signing.sendCode());
   const verify = useApiMutation((code: string) => signing.verifyCode({ code }));
   const [code, setCode] = useState('');
   const [codeError, setCodeError] = useState<string>();
+  // The last code sent. Kept while a new one is asked for (or fails): the last one still works.
+  const [sent, setSent] = useState<{ sentTo: string; resendAfter: string } | null>(null);
   // "Send a new code" waits until the API would take it (`resendAfter`), not into a 429.
   const [canResend, setCanResend] = useState(false);
-  const resendAfter = send.data?.resendAfter;
+  const resendAfter = sent?.resendAfter;
   useEffect(() => {
     if (!resendAfter) return;
     const wait = Math.max(0, new Date(resendAfter).getTime() - Date.now());
@@ -31,7 +39,21 @@ export function EmailCodeStep({ signing, state, onState }: StepProps) {
     setCanResend(false);
     setCode('');
     setCodeError(undefined);
-    send.mutate(undefined);
+    verify.reset();
+    send.mutate(undefined, {
+      onSuccess: (s) => setSent(s),
+      onError: (err) => {
+        // A code went out a moment ago (a reload, or this device's clock is behind): the code
+        // form, with that code, and a new one once the API takes it.
+        if (errorCode(err) === 'CODE_TOO_SOON') {
+          const wait = (err instanceof ApiRequestError && err.retryAfter) || 60;
+          setSent((last) => ({
+            sentTo: last?.sentTo ?? state.codeSentTo ?? 'your email',
+            resendAfter: new Date(Date.now() + wait * 1000).toISOString(),
+          }));
+        } else onLost(err);
+      },
+    });
   }
 
   function submit(e: FormEvent) {
@@ -41,10 +63,9 @@ export function EmailCodeStep({ signing, state, onState }: StepProps) {
       return;
     }
     setCodeError(undefined);
-    verify.mutate(code, { onSuccess: onState });
+    verify.mutate(code, { onSuccess: onState, onError: onLost });
   }
 
-  const sent = send.data;
   const sendError = message(send.error);
   return (
     <Card title="Confirm it's you">
@@ -103,7 +124,7 @@ export function EmailCodeStep({ signing, state, onState }: StepProps) {
 const ACCESS_CODE = /^[A-Za-z0-9]{4,20}$/;
 
 /** VERIFY_ACCESS_CODE: the code the sender gave the signer some other way (phone, in person). */
-export function AccessCodeStep({ signing, state, onState }: StepProps) {
+export function AccessCodeStep({ signing, state, onState, onLost }: StepProps) {
   const verify = useApiMutation((code: string) => signing.verifyAccessCode({ code }));
   const [code, setCode] = useState('');
   const [error, setError] = useState<string>();
@@ -117,7 +138,7 @@ export function AccessCodeStep({ signing, state, onState }: StepProps) {
       return;
     }
     setError(undefined);
-    verify.mutate(clean, { onSuccess: onState });
+    verify.mutate(clean, { onSuccess: onState, onError: onLost });
   }
 
   return (
@@ -129,10 +150,22 @@ export function AccessCodeStep({ signing, state, onState }: StepProps) {
         <Input
           label="Access code"
           autoComplete="off"
-          autoCapitalize="characters"
+          // Codes may be lower-case: the phone keyboard must not change them.
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          error={error ?? message(verify.error)}
+          error={
+            error ??
+            (verify.error
+              ? errorMessage(verify.error, {
+                  ...ESIGN_ERRORS,
+                  // No new access code comes from this page: the sender gives one.
+                  CODE_LOCKED: `Too many tries. Ask ${state.senderName} for help.`,
+                })
+              : undefined)
+          }
         />
         <div>
           <Button type="submit" disabled={verify.isPending}>
@@ -145,8 +178,9 @@ export function AccessCodeStep({ signing, state, onState }: StepProps) {
 }
 
 /** CONSENT: the firm's e-signature consent, accepted before the document opens. */
-export function ConsentStep({ signing, firmSlug, opening, state, onState }: StepProps) {
+export function ConsentStep({ signing, firmSlug, opening, state, onState, onLost }: StepProps) {
   const consent = useApiQuery(['signing', firmSlug, opening, 'consent'], () => signing.consent());
+  useLost(consent.error, onLost);
   const accept = useApiMutation((versionId: string) =>
     signing.acceptConsent({ versionId, agree: true }),
   );
@@ -166,7 +200,7 @@ export function ConsentStep({ signing, firmSlug, opening, state, onState }: Step
         if (errorCode(err) === 'CONSENT_OUTDATED') {
           setAgreed(false);
           void consent.refetch();
-        }
+        } else onLost(err);
       },
     });
   }

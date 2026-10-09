@@ -7,6 +7,7 @@ import { PdfPages } from '../../../../../../components/esign/pdf-pages';
 import { PageState } from '../../../../../../components/page-state';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useLost } from './lost';
 import type { StepProps } from './signer-page';
 
 const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
@@ -15,10 +16,11 @@ const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
  * SIGN: the document with the signer's own fields. Adopting a signature, filling the fields,
  * finishing and declining come in signer flow 2.
  */
-export function SignStep({ signing, firmSlug, opening }: StepProps) {
+export function SignStep({ signing, firmSlug, opening, onLost }: StepProps) {
   const envelope = useApiQuery(['signing', firmSlug, opening, 'envelope'], () =>
     signing.envelope(),
   );
+  useLost(envelope.error, onLost);
   return (
     <PageState query={envelope} isEmpty={() => false}>
       {(e) => <SignView envelope={e} />}
@@ -29,7 +31,15 @@ export function SignStep({ signing, firmSlug, opening }: StepProps) {
 function SignView({ envelope }: { envelope: SignerEnvelope }) {
   const fields = envelope.fields.map((f) => toOverlay(f, envelope));
   const recipients = [{ id: envelope.me.recipientId, name: envelope.me.name, colorIndex: 0 }];
-  const count = envelope.fields.length;
+  // DATE_SIGNED is filled in by Firmivra; signatures and initials are signed, the rest typed.
+  const signs = envelope.fields.filter((f) => ['SIGNATURE', 'INITIALS'].includes(f.type)).length;
+  const typed = envelope.fields.filter(
+    (f) => !['SIGNATURE', 'INITIALS', 'DATE_SIGNED'].includes(f.type),
+  ).length;
+  const todo = [
+    signs && `${signs} ${signs === 1 ? 'place' : 'places'} to sign`,
+    typed && `${typed} ${typed === 1 ? 'field' : 'fields'} to fill in`,
+  ].filter(Boolean);
   return (
     <div className="flex flex-col gap-4">
       {envelope.message && (
@@ -38,9 +48,13 @@ function SignView({ envelope }: { envelope: SignerEnvelope }) {
         </Card>
       )}
       <p className="text-sm text-text">
-        {count
-          ? `You have ${count} ${count === 1 ? 'field' : 'fields'} to fill in, marked on the pages.`
-          : 'You sign on the signature page at the end of the document.'}
+        {envelope.autoSignaturePage
+          ? 'You sign on the signature page at the end of the document.'
+          : envelope.me.kind === 'APPROVER'
+            ? 'Read the document, then approve it.'
+            : todo.length
+              ? `You have ${todo.join(' and ')}, marked on the pages.`
+              : 'There is nothing for you to fill in on this document.'}
       </p>
       <PdfPages
         source={envelope.packetUrl}
@@ -78,8 +92,9 @@ function toOverlay(f: SignerEnvelope['fields'][number], envelope: SignerEnvelope
 }
 
 /** COPY: a completed request's signed document and certificate, from the copy link. */
-export function CopyStep({ signing, firmSlug, opening }: StepProps) {
+export function CopyStep({ signing, firmSlug, opening, onLost }: StepProps) {
   const copy = useApiQuery(['signing', firmSlug, opening, 'copy'], () => signing.copy());
+  useLost(copy.error, onLost);
   const download = useApiMutation((file: SignerCopyFile) => signing.downloadCopy(file));
   return (
     <Card title="Your signed copy">
@@ -100,6 +115,7 @@ export function CopyStep({ signing, firmSlug, opening }: StepProps) {
                     onClick={() =>
                       download.mutate(f.file, {
                         onSuccess: (link) => window.location.assign(link.url),
+                        onError: onLost,
                       })
                     }
                   >
