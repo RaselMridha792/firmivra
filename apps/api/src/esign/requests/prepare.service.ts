@@ -128,7 +128,7 @@ export class EsignPrepareService {
     return this.merge(businessId, actor, record, fields);
   }
 
-  /** The rules' readiness check, plus APPROVER_MISSING (below). */
+  /** The rules' readiness check; Signing Settings' requireApproval adds APPROVER_MISSING. */
   async readiness(businessId: string, actor: EsignActor, id: string): Promise<EsignReadiness> {
     const { record } = await this.requests.reach(businessId, actor, id, 'read');
     return this.check(businessId, actor, record, await this.repo.parts(businessId, id));
@@ -146,7 +146,7 @@ export class EsignPrepareService {
       this.repo.defaults(businessId),
       this.repo.consentPublished(businessId),
     ]);
-    const result = this.rules.readiness({
+    return this.rules.readiness({
       documents: parts.documents,
       clientId: record.clientId,
       engagementId: record.engagementId,
@@ -158,20 +158,8 @@ export class EsignPrepareService {
       expiryDays: record.expiryDays,
       reminders: record.reminders,
       consentPublished,
+      approvalRequired: defaults.requireApproval,
     });
-    // R18 follow-up: ReadinessInput has no `approvalRequired` yet, so Signing Settings'
-    // requireApproval is checked here until EsignRules.readiness takes it.
-    if (defaults.requireApproval && !parts.recipients.some((r) => r.kind === 'APPROVER')) {
-      result.problems.push({
-        code: 'APPROVER_MISSING',
-        recipientId: null,
-        fieldId: null,
-        documentId: null,
-        mergeKey: null,
-      });
-      result.ready = false;
-    }
-    return result;
   }
 
   /**
