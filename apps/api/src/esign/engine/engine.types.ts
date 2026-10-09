@@ -35,7 +35,10 @@ export class EsignEngineError extends Error {
   }
 }
 
-/** A page size in PDF points, before any rotation (EsignDocument.pageSizes). */
+/**
+ * A page size in PDF points as a viewer shows it: the visible box turned by the page's own
+ * /Rotate, before any plan rotation (EsignDocument.pageSizes).
+ */
 export type PageSize = EsignDocument['pageSizes'][number];
 
 /** One stored file of a request: a PDF, or a JPG or PNG that becomes one page. */
