@@ -141,8 +141,10 @@ function ReasonDialog({
     onDone(next);
   };
   // Closing mid-request would drop what happens next (opening the new draft).
-  const leave = () => {
-    if (!action.isPending) onClose();
+  // Not while it runs; stopping Escape's cancel event keeps the dialog open.
+  const leave = (event?: { preventDefault?: () => void }) => {
+    if (action.isPending) event?.preventDefault?.();
+    else onClose();
   };
   return (
     <Modal open title={title} onClose={leave}>
