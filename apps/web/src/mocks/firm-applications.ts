@@ -577,6 +577,14 @@ export function createFirmApplicationsMock(): FirmApplicationsClient {
       const key = parseInput(FirmApplicationId, id);
       const { slug } = parseInput(ApproveFirmApplicationRequest, body);
       const row = pending(find(key));
+      // Like the API: the owner invite takes at most 120 characters (rows from before Oct 8).
+      if ([...row.contactName].length > 120) {
+        throw fail(
+          409,
+          'OWNER_NAME_TOO_LONG',
+          "The primary administrator's name can't be used for the owner invite",
+        );
+      }
       const chosen = slug ?? suggest(row.legalName);
       if (taken(chosen)) throw fail(409, 'SLUG_TAKEN', 'This portal address is not available');
       const created = firm(nextId++, row.legalName, chosen, 'PENDING_SETUP');
