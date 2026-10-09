@@ -128,7 +128,16 @@ info:
     - Email copies: events named like a NotifyService template (`document.requested`,
       `appointment.*`, `invoice.sent`, `payment.received`) send that email to each new client
       recipient's login address, with a portal link built by `notificationLink`. The templates are
-      written for clients, so staff get bell items only. NotifyService skips the email when the
+      written for clients, so staff get bell items only. Each copy has an outbox row
+      (`notification_deliveries`, EMAIL, written with its bell item): tried once inline, then the
+      `email-retries` job (same lock rule as the reminders) tries a FAILED one, or a QUEUED one a
+      stopped task left, every 5 minutes, fewest attempts first, at most 5 attempts in all; SENT
+      and SKIPPED (the login is no longer ACTIVE, or the record no longer stands: an appointment
+      cancelled or moved since, an invoice canceled, a record gone) are final. A retry claims the
+      row first (`attempts` must still match), so two tasks never send the same copy; a task that
+      stops between the send and the status update leaves the row unsent, so it is sent again
+      after 5 minutes (at least once). `last_error` holds the error's name only. The actor's own
+      confirmation has no bell item, so no row: one attempt. NotifyService skips the email when the
       person switched the category off (step 5). An email says "You can turn off emails like
       this" only when it names a `recipient` (an account with preferences) and is not
       `ALWAYS_SENT`; NotifyService checks the firm (UnknownFirmError) before it reads them.
