@@ -32,8 +32,9 @@ export function createLeadsClient(request: ApiRequest) {
       request(LeadDetail, `${one(id)}/review`, { method: 'POST', body: {} }),
     /**
      * 409 INVALID_STATUS (already converted or declined), DUPLICATE_EMAIL (a new client's email is
-     * another client's: pass that `clientId`), CLIENT_ARCHIVED; 404 for a client or member not in
-     * this firm; 403 FORBIDDEN when Staff name another member or a client not theirs.
+     * another client's: pass that `clientId`), CLIENT_ARCHIVED; 404 for a client the member does
+     * not reach (Staff: not theirs) or a member not active in this firm; 403 FORBIDDEN when Staff
+     * assign someone else.
      */
     convert: async (id: string, body: ConvertLeadRequest = {}): Promise<ConvertLeadResponse> =>
       request(ConvertLeadResponse, `${one(id)}/convert`, {
