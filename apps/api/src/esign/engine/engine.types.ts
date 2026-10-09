@@ -241,7 +241,7 @@ export interface ReadinessInput {
 
 export interface EsignRules {
   readiness(input: ReadinessInput): EsignReadiness;
-  /** The recipients whose turn it is now (SIGNER and APPROVER not yet done). */
+  /** The signers whose turn it is now (approvers act before sending; CCs never sign). */
   currentTurn(routing: EsignRouting, recipients: RuleRecipient[]): string[];
   /** The request's status after a recipient's status changed (open requests only). */
   statusAfter(recipients: RuleRecipient[], current: EsignRequestStatus): EsignRequestStatus;
