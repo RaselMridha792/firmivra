@@ -5,10 +5,7 @@ import { loadNotifyConfig, type NotifyConfig } from './config.js';
 import { createNotifyService } from './notify.service.js';
 import { NOTIFY_SERVICE } from './notify.types.js';
 
-/**
- * The checked email and SMS settings (`NotifyConfig`), for the notification preferences: SMS
- * switches show only once texts can go out (`sms.mode === 'sns'`).
- */
+/** The checked email and SMS settings (`NotifyConfig`), and whether the reminder jobs run. */
 export const NOTIFY_CONFIG = Symbol('NOTIFY_CONFIG');
 
 /**

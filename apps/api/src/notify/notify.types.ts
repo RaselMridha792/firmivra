@@ -1,4 +1,4 @@
-import type { NotificationCategory } from '@firmivra/types';
+import type { EsignEventType, NotificationCategory } from '@firmivra/types';
 
 /**
  * NotifyService (R6): the one way the API sends email and SMS. Every stream calls
@@ -88,7 +88,63 @@ export interface NotifyTemplates {
   // ----- Invoices (R7; no amounts in messages) -----
   'invoice.sent': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
   'payment.received': IgnoredFirmName & { name: string; invoiceNumber: string; link: string };
+
+  // ----- Firm Sign (R13): titles, names, dates, links and the sender's own note on a request;
+  // never a field value, document content or a decline or void reason -----
+  /**
+   * Asks a recipient to sign. `link` is `{PORTAL_BASE_URL}/{slug}/sign#t=<token>`: it carries the
+   * token, so never log it. `message` is the sender's own note (capped at 1000 characters).
+   */
+  'esign.request': EsignRecipientData & { senderName: string; message: string | null };
+  /** The 6-digit code that opens a signing link, valid 15 minutes. */
+  'esign.code': { code: string; title: string };
+  'esign.reminder': EsignRecipientData;
+  /** The request expires at `expiresAt` (shown in the firm's time zone). */
+  'esign.expiring': EsignRecipientData & { expiresAt: Date };
+  /**
+   * Everyone signed. An external signer gets `copyLink` (read-only copy, 30 days); a portal
+   * client gets `portalLink` instead.
+   */
+  'esign.completed': EsignNamed &
+    ({ copyLink: string; portalLink?: never } | { portalLink: string; copyLink?: never });
+  /** To the sender. Never the decline reason: it can hold client content. `link`: the workspace. */
+  'esign.declined': EsignNamed & { signerName: string; link: string };
+  /** To the recipients: the firm cancelled it. No reason. */
+  'esign.voided': EsignNamed;
+  /** To an internal approver. `link`: the request in the workspace. */
+  'esign.approval-requested': EsignNamed & { senderName: string; link: string };
+  /**
+   * To the sender: what happened. `signerName` for VIEWED and SIGNED; `waitingOn` (SIGNED only)
+   * names the signers whose turn it is now ("Waiting on Another Signer", spec section 23).
+   */
+  'esign.staff-update': EsignNamed & {
+    event: EsignStaffEvent;
+    signerName?: string | null;
+    waitingOn?: string[] | null;
+    link: string;
+  };
 }
+
+/** The person the email is for (their name, or empty for "Hello,") and the request's title. */
+export interface EsignNamed {
+  name: string;
+  /** The request's title (capped at 200 characters). */
+  title: string;
+}
+
+export interface EsignRecipientData extends EsignNamed {
+  /** The signing link (carries the token: never log it). */
+  link: string;
+}
+
+/** The timeline events a sender is told about (declined has its own template). */
+export const ESIGN_STAFF_EVENTS = [
+  'VIEWED',
+  'SIGNED',
+  'COMPLETED',
+  'EXPIRED',
+] as const satisfies readonly EsignEventType[];
+export type EsignStaffEvent = (typeof ESIGN_STAFF_EVENTS)[number];
 
 export interface AppointmentData extends IgnoredFirmName {
   name: string;
@@ -121,6 +177,15 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'appointment.reminder': 'email',
   'invoice.sent': 'email',
   'payment.received': 'email',
+  'esign.request': 'email',
+  'esign.code': 'email',
+  'esign.reminder': 'email',
+  'esign.expiring': 'email',
+  'esign.completed': 'email',
+  'esign.declined': 'email',
+  'esign.voided': 'email',
+  'esign.approval-requested': 'email',
+  'esign.staff-update': 'email',
   'begin-online.resume-link': 'email',
   'lead.confirmation': 'email',
   'lead.received': 'email',
@@ -152,6 +217,15 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'appointment.reminder': 'firm',
   'invoice.sent': 'firm',
   'payment.received': 'firm',
+  'esign.request': 'firm',
+  'esign.code': 'firm',
+  'esign.reminder': 'firm',
+  'esign.expiring': 'firm',
+  'esign.completed': 'firm',
+  'esign.declined': 'firm',
+  'esign.voided': 'firm',
+  'esign.approval-requested': 'firm',
+  'esign.staff-update': 'firm',
   'begin-online.resume-link': 'firm',
   'lead.confirmation': 'firm',
   'lead.received': 'firm',
@@ -174,6 +248,11 @@ export const ALWAYS_SENT: ReadonlySet<NotifyTemplate> = new Set<NotifyTemplate>(
   'firm-application.info-requested',
   'firm-application.approved',
   'firm-application.declined',
+  // Firm Sign: the code, a request to sign and its expiry warning are part of a transaction the
+  // recipient is in the middle of; reminders and the rest follow preferences.
+  'esign.code',
+  'esign.request',
+  'esign.expiring',
   // A Begin Online visitor has no account, so no preferences; an invitation is a decision.
   'begin-online.resume-link',
   'lead.confirmation',
@@ -201,6 +280,16 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'appointment.reminder': 'APPOINTMENTS',
   'invoice.sent': 'BILLING',
   'payment.received': 'BILLING',
+  // No e-sign category yet: Firm Sign notices are document notices, except the always-sent ones.
+  'esign.request': 'ACCOUNT',
+  'esign.code': 'ACCOUNT',
+  'esign.reminder': 'DOCUMENTS',
+  'esign.expiring': 'ACCOUNT',
+  'esign.completed': 'DOCUMENTS',
+  'esign.declined': 'DOCUMENTS',
+  'esign.voided': 'DOCUMENTS',
+  'esign.approval-requested': 'DOCUMENTS',
+  'esign.staff-update': 'DOCUMENTS',
   'begin-online.resume-link': 'ACCOUNT',
   'lead.confirmation': 'ACCOUNT',
   'lead.received': 'INTAKE',
