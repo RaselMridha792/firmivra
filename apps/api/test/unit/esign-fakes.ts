@@ -56,6 +56,11 @@ import type {
   SignerLink,
   SignerPendingAttachment,
 } from '../../src/esign/signer/signer.repository.js';
+import type {
+  EsignConsentRecord,
+  EsignSettingsRepository,
+  NewEsignConsent,
+} from '../../src/esign/settings/settings.repository.js';
 
 export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
   expiryDays: 30,
@@ -719,6 +724,55 @@ export class InMemorySignerRepository implements EsignSignerRepository {
     });
     if (ok) await this.addEvent(businessId, requestId, write.event);
     return ok;
+  }
+}
+
+/**
+ * Signing Settings over the request and signer fakes: changing the defaults or publishing a
+ * consent version shows in what new requests take and in what signers accept.
+ */
+export class InMemorySettingsRepository implements EsignSettingsRepository {
+  /** Each firm's consent versions, oldest first, and its members' job titles. */
+  readonly versions = new Map<string, EsignConsentRecord[]>();
+  readonly titles = new PerFirm<string>();
+
+  constructor(
+    private readonly requests: InMemoryEsignRepository,
+    private readonly signers?: InMemorySignerRepository,
+  ) {}
+
+  defaults(businessId: string): Promise<EsignDefaults> {
+    return this.requests.defaults(businessId);
+  }
+
+  async updateDefaults(businessId: string, patch: Partial<EsignDefaults>) {
+    const next = { ...(await this.defaults(businessId)), ...structuredClone(patch) };
+    this.requests.firmDefaults.set(businessId, next);
+    return structuredClone(next);
+  }
+
+  consentVersions(businessId: string): Promise<EsignConsentRecord[]> {
+    return Promise.resolve(structuredClone([...(this.versions.get(businessId) ?? [])].reverse()));
+  }
+
+  publishConsent(businessId: string, consent: NewEsignConsent): Promise<EsignConsentRecord> {
+    const all = this.versions.get(businessId) ?? [];
+    const v = { ...structuredClone(consent), id: randomUUID(), version: all.length + 1 };
+    this.versions.set(businessId, [...all, v]);
+    this.requests.consent.add(businessId);
+    const { id, version, bodyMarkdown } = v;
+    this.signers?.consents.set(businessId, { id, version, bodyMarkdown });
+    return Promise.resolve(structuredClone(v));
+  }
+
+  jobTitle(businessId: string, userId: string): Promise<string | null> {
+    return Promise.resolve(this.titles.of(businessId).get(userId) ?? null);
+  }
+
+  setJobTitle(businessId: string, userId: string, jobTitle: string | null): Promise<void> {
+    if (jobTitle === null) this.titles.of(businessId).delete(userId);
+    else this.titles.of(businessId).set(userId, jobTitle);
+    return Promise.resolve();
   }
 }
 

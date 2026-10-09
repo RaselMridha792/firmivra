@@ -18,6 +18,9 @@ import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 import { EsignSendService } from './requests/send.service.js';
+import { EsignSettingsController } from './settings/settings.controller.js';
+import { SETTINGS_REPOSITORY } from './settings/settings.repository.js';
+import { EsignSettingsService } from './settings/settings.service.js';
 import { EsignSignerController } from './signer/signer.controller.js';
 import { EsignSignerFilesService } from './signer/signer-files.service.js';
 import { SIGNER_REPOSITORY } from './signer/signer.repository.js';
@@ -36,6 +39,7 @@ import { EsignSignerService } from './signer/signer.service.js';
     EsignRequestsController,
     EsignDocumentsController,
     EsignSignerController,
+    EsignSettingsController,
   ],
   providers: [
     EsignRequestsService,
@@ -47,10 +51,12 @@ import { EsignSignerService } from './signer/signer.service.js';
     EsignSignerFilesService,
     EsignCompletionService,
     EsignCompletionJob,
+    EsignSettingsService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
     { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
+    { provide: SETTINGS_REPOSITORY, useValue: notMigrated('EsignSettingsRepository') },
   ],
 })
 export class EsignModule {}
