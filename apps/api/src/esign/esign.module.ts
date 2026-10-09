@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { ModulesModule } from '../common/modules/requires-module.js';
 import { EsignEngineModule } from './engine/engine.module.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
@@ -14,6 +15,9 @@ import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 import { EsignSendService } from './requests/send.service.js';
+import { EsignSignerController } from './signer/signer.controller.js';
+import { type EsignSignerRepository, SIGNER_REPOSITORY } from './signer/signer.repository.js';
+import { EsignSignerService } from './signer/signer.service.js';
 
 /**
  * Firm Sign (R13). Behind the firm's 'esign' module (ModulesModule): off for a firm until
@@ -22,16 +26,26 @@ import { EsignSendService } from './requests/send.service.js';
  * stand-in until migration r0_esign adds its tables.
  */
 @Module({
-  imports: [ModulesModule, EsignEngineModule],
-  controllers: [EsignStatusController, EsignRequestsController, EsignDocumentsController],
+  imports: [ModulesModule, EsignEngineModule, PortalInfoModule],
+  controllers: [
+    EsignStatusController,
+    EsignRequestsController,
+    EsignDocumentsController,
+    EsignSignerController,
+  ],
   providers: [
     EsignRequestsService,
     EsignDocumentsService,
     EsignPrepareService,
     EsignListService,
     EsignSendService,
+    EsignSignerService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
+    {
+      provide: SIGNER_REPOSITORY,
+      useValue: notMigrated<EsignSignerRepository>('EsignSignerRepository'),
+    },
   ],
 })
 export class EsignModule {}

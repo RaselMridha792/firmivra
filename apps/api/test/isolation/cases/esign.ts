@@ -21,3 +21,22 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'POST /api/v1/esign/requests/:id/documents/from-vault': OFF,
   'GET /api/v1/esign/requests/:id/documents/:documentId/content': OFF,
 };
+
+// The signer routes are public: no staff or client session and no record id in the URL. The firm
+// comes from the slug and the recipient from the sealed fv_sign_{slug} cookie, bound to that slug
+// (other firms' tokens and cookies: test/unit/esign-signer.test.ts).
+const SIGNER =
+  'Public Firm Sign signer route: firm from the slug, recipient from the sealed slug-bound cookie';
+
+export const excluded: CaseModule['excluded'] = {
+  'POST /api/v1/portal/:firmSlug/sign/session': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/session/end': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/state': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/code/send': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/code/verify': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/access-code': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/consent': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/consent': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/packet': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/decline': SIGNER,
+};

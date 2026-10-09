@@ -42,6 +42,11 @@ import type {
   NewEsignRequest,
 } from '../../src/esign/requests/esign.repository.js';
 import type { EsignRequestStatus } from '@firmivra/types';
+import type { EsignCodeKind } from '../../src/esign/engine/engine.types.js';
+import type {
+  EsignSignerRepository,
+  SignerLink,
+} from '../../src/esign/signer/signer.repository.js';
 
 export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
   expiryDays: 30,
@@ -408,6 +413,131 @@ export class InMemoryEsignRepository implements EsignRepository {
     // An edit asks for approval again.
     for (const r of row.parts.recipients) if (r.kind === 'APPROVER') r.status = 'WAITING';
     return Promise.resolve(true);
+  }
+}
+
+/**
+ * The signer tables over InMemoryEsignRepository's requests: link hashes, token versions, pinned
+ * consent, codes (only hashes, with their tries and the sends of the last hour) and consents.
+ */
+export class InMemorySignerRepository implements EsignSignerRepository {
+  /** Each firm's links, by token hash. */
+  readonly links = new PerFirm<SignerLink>();
+  /** Each firm's recipients' token versions (0 unless set) and pinned consent. */
+  readonly versions = new PerFirm<number>();
+  readonly pinned = new PerFirm<string>();
+  /** Each firm's open codes, by `${recipientId}:${kind}`. */
+  readonly codes = new PerFirm<{
+    hash: string | null;
+    expiresAt: Date | null;
+    tries: number;
+    sends: Date[];
+  }>();
+  /** Each firm's newest consent version. */
+  readonly consents = new Map<string, { id: string; version: number; bodyMarkdown: string }>();
+
+  constructor(private readonly requests: InMemoryEsignRepository) {}
+
+  findLink(businessId: string, tokenHash: string) {
+    return Promise.resolve(structuredClone(this.links.of(businessId).get(tokenHash) ?? null));
+  }
+
+  async signer(businessId: string, requestId: string, recipientId: string) {
+    const request = await this.requests.findRequest(businessId, requestId);
+    const { recipients } = await this.requests.parts(businessId, requestId);
+    const recipient = recipients.find((r) => r.id === recipientId && r.kind === 'SIGNER');
+    if (!request || !recipient) return null;
+    const tokenVersion = this.versions.of(businessId).get(recipientId) ?? 0;
+    const consentVersionId = this.pinned.of(businessId).get(recipientId) ?? null;
+    return { request, recipient, tokenVersion, consentVersionId };
+  }
+
+  issueCode(
+    businessId: string,
+    recipientId: string,
+    code: { hash: string; sentAt: Date; expiresAt: Date },
+  ): Promise<'OK' | 'TOO_SOON'> {
+    const key = `${recipientId}:EMAIL`;
+    const old = this.codes.of(businessId).get(key);
+    const at = code.sentAt.getTime();
+    const sends = (old?.sends ?? []).filter((d) => d.getTime() > at - 3_600_000);
+    const last = sends.at(-1);
+    if ((last && at - last.getTime() < 60_000) || sends.length >= 5) {
+      return Promise.resolve('TOO_SOON');
+    }
+    const row = {
+      hash: code.hash,
+      expiresAt: code.expiresAt,
+      tries: 0,
+      sends: [...sends, code.sentAt],
+    };
+    this.codes.of(businessId).set(key, row);
+    return Promise.resolve('OK');
+  }
+
+  takeCodeTry(businessId: string, recipientId: string, kind: EsignCodeKind) {
+    const codes = this.codes.of(businessId);
+    const key = `${recipientId}:${kind}`;
+    let row = codes.get(key);
+    if (!row && kind === 'EMAIL') return Promise.resolve(null);
+    if (!row) codes.set(key, (row = { hash: null, expiresAt: null, tries: 0, sends: [] }));
+    const triesBefore = row.tries++;
+    return Promise.resolve({ hash: row.hash, expiresAt: row.expiresAt, triesBefore });
+  }
+
+  clearCode(businessId: string, recipientId: string, kind: EsignCodeKind) {
+    const key = `${recipientId}:${kind}`;
+    const row = this.codes.of(businessId).get(key);
+    if (row && kind === 'ACCESS') row.tries = 0;
+    else this.codes.of(businessId).delete(key);
+    return Promise.resolve();
+  }
+
+  addEvent(businessId: string, requestId: string, event: EsignEventRecord) {
+    const timeline = this.requests.timelines.of(businessId);
+    timeline.set(requestId, [...(timeline.get(requestId) ?? []), structuredClone(event)]);
+    return Promise.resolve();
+  }
+
+  currentConsent(businessId: string) {
+    return Promise.resolve(this.consents.get(businessId) ?? null);
+  }
+
+  async acceptConsent(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    versionId: string,
+    event: EsignEventRecord,
+  ) {
+    if (this.consents.get(businessId)?.id !== versionId) return false;
+    this.pinned.of(businessId).set(recipientId, versionId);
+    await this.addEvent(businessId, requestId, event);
+    return true;
+  }
+
+  async decline(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    write: { at: Date; reason: string | null; event: EsignEventRecord },
+  ) {
+    const found = await this.signer(businessId, requestId, recipientId);
+    const open = ['SENT', 'DELIVERED', 'VIEWED', 'PARTIALLY_SIGNED'];
+    if (
+      !found ||
+      !open.includes(found.request.status) ||
+      ['SIGNED', 'DECLINED'].includes(found.recipient.status)
+    ) {
+      return false;
+    }
+    this.requests.seed(businessId, requestId, (row) => {
+      row.record.status = 'DECLINED';
+      const me = row.parts.recipients.find((r) => r.id === recipientId)!;
+      Object.assign(me, { status: 'DECLINED', declinedAt: write.at, declineReason: write.reason });
+    });
+    await this.addEvent(businessId, requestId, write.event);
+    return true;
   }
 }
 

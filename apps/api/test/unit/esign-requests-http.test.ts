@@ -31,6 +31,7 @@ import {
 } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
+import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
 import {
   BUSINESS_MODULES,
   ModuleGuard,
@@ -98,6 +99,9 @@ beforeAll(async () => {
     .useValue(w.store)
     .overrideProvider(PDF_ENGINE)
     .useValue(fakePdf)
+    // The signer routes' firm lookup (not used by these routes).
+    .overrideProvider(PortalInfoService)
+    .useValue({ activeFirm: () => Promise.reject(new Error('not used here')) })
     .compile();
   app = moduleRef.createNestApplication();
   // What AuthGuard and TenantGuard set, from test headers.
