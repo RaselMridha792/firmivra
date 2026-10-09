@@ -534,5 +534,10 @@ export const AppointmentErrorCode = z.enum([
    * range works and this code goes away.
    */
   'CUTOFF_NOT_SUPPORTED',
+  /**
+   * 503, for now: members' meeting links cannot be saved until R0 adds memberships.meeting_url
+   * (every member reads as having none until then). Then this code goes away.
+   */
+  'MEETING_LINKS_UNAVAILABLE',
 ]);
 export type AppointmentErrorCode = z.infer<typeof AppointmentErrorCode>;

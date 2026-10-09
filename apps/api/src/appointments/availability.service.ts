@@ -6,6 +6,8 @@ import type {
   BlockedTimesQuery,
   CreateBlockedTimeRequest,
   MemberAvailability,
+  MemberRef,
+  SetMeetingLinkRequest,
   SetWorkingHoursRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
@@ -22,10 +24,12 @@ import {
 } from './calendar-data.js';
 import { lockForBlock, retryWhenBusy, tryLock, workingHoursLockKey } from './calendar-locks.js';
 import { errors } from './errors.js';
+import { linkOf, MEETING_LINKS, type MeetingLinkStore } from './meeting-links.js';
 
 type BlocksQuery = z.output<typeof BlockedTimesQuery>;
 type BlockBody = z.output<typeof CreateBlockedTimeRequest>;
 type HoursBody = z.output<typeof SetWorkingHoursRequest>;
+type LinkBody = z.output<typeof SetMeetingLinkRequest>;
 
 const blockSelect = {
   id: true,
@@ -58,12 +62,6 @@ function toBlockedTime(row: BlockRow, names: ReadonlyMap<string, string>): Block
  */
 export const BLOCK_LIMITS = { perCalendar: 200 };
 
-/**
- * Every member's meeting link reads as none until R0's memberships.meeting_url lands; R14's
- * meeting-link API then reads the column (never log it: it can carry a passcode).
- */
-const NO_MEETING_URL = null;
-
 /** Owner and Admin change anyone's; Staff only their own (a whole-firm block is a manager's). */
 function mayChange(actor: FirmActor, userId: string | null): void {
   if (actor.role === 'STAFF' && userId?.toLowerCase() !== actor.userId.toLowerCase()) {
@@ -82,6 +80,7 @@ export class AvailabilityService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
   ) {}
 
   /** One transaction in the firm's scope, tried again while a lock it needs is busy. */
@@ -92,17 +91,15 @@ export class AvailabilityService {
   async get(businessId: string): Promise<Availability> {
     return this.inFirm(businessId, async (tx) => {
       const members = await activeMembers(tx, businessId);
-      const hours = await workingHours(
-        tx,
-        businessId,
-        members.map((m) => m.userId),
-      );
+      const userIds = members.map((m) => m.userId);
+      const hours = await workingHours(tx, businessId, userIds);
+      const links = await this.links.get(tx, businessId, userIds);
       return {
         timezone: await firmTimeZone(tx, businessId),
         members: members.map((member) => ({
           member,
           hours: hours.get(member.userId) ?? [],
-          meetingUrl: NO_MEETING_URL,
+          meetingUrl: links.get(member.userId) ?? null,
         })),
       };
     });
@@ -132,8 +129,7 @@ export class AvailabilityService {
           })),
         });
       }
-      const hours = await workingHours(tx, businessId, [userId]);
-      return { member, hours: hours.get(userId) ?? [], meetingUrl: NO_MEETING_URL };
+      return this.memberAvailability(tx, businessId, member);
     });
     await this.audit.log(
       'working_hours.set',
@@ -141,6 +137,43 @@ export class AvailabilityService {
       { ranges: result.hours.length },
     );
     return result;
+  }
+
+  /**
+   * Sets or clears (null) the member's default meeting link, under the same rule as their working
+   * hours. Existing appointments keep their details. Audited as set or cleared only, never the link.
+   */
+  async setMeetingLink(
+    businessId: string,
+    actor: FirmActor,
+    userId: string,
+    body: LinkBody,
+  ): Promise<MemberAvailability> {
+    mayChange(actor, userId);
+    const result = await this.inFirm(businessId, async (tx) => {
+      const member = await activeMember(tx, businessId, userId);
+      await this.links.set(tx, businessId, member.userId, body.meetingUrl);
+      return this.memberAvailability(tx, businessId, member);
+    });
+    await this.audit.log(
+      'meeting_link.set',
+      { type: 'meeting_link', id: userId },
+      { userId, set: body.meetingUrl !== null },
+    );
+    return result;
+  }
+
+  private async memberAvailability(
+    tx: TxClient,
+    businessId: string,
+    member: MemberRef,
+  ): Promise<MemberAvailability> {
+    const hours = await workingHours(tx, businessId, [member.userId]);
+    return {
+      member,
+      hours: hours.get(member.userId) ?? [],
+      meetingUrl: await linkOf(this.links, tx, businessId, member.userId),
+    };
   }
 
   /** Blocks touching [from, to); with `userId`, that member's and the whole firm's. */

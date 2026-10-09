@@ -8,6 +8,7 @@ import {
   type MemberAvailability,
   MemberId,
   type OkResponse,
+  SetMeetingLinkRequest,
   SetWorkingHoursRequest,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
@@ -18,8 +19,8 @@ import { AvailabilityService } from './availability.service.js';
 import { firmActor } from './request-actors.js';
 
 /**
- * Working hours (R12 step 2): everyone reads every active member's week; Owner and Admin set
- * anyone's, Staff their own (403 otherwise).
+ * Working hours (R12 step 2) and default meeting links (R14): everyone reads every active
+ * member's week and link; Owner and Admin set anyone's, Staff their own (403 otherwise).
  */
 @Controller('business/availability')
 @Roles(...FIRM_STAFF)
@@ -40,6 +41,22 @@ export class AvailabilityController {
     body: z.output<typeof SetWorkingHoursRequest>,
   ): Promise<MemberAvailability> {
     return this.availability.setWorkingHours(
+      tenant.businessId,
+      firmActor(auth, tenant),
+      userId,
+      body,
+    );
+  }
+
+  @Put(':userId/meeting-link')
+  setMeetingLink(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('userId', new ZodValidationPipe(idParam(MemberId))) userId: string,
+    @Body(new ZodValidationPipe(SetMeetingLinkRequest))
+    body: z.output<typeof SetMeetingLinkRequest>,
+  ): Promise<MemberAvailability> {
+    return this.availability.setMeetingLink(
       tenant.businessId,
       firmActor(auth, tenant),
       userId,

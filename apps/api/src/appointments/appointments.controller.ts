@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   type Appointment,
@@ -17,6 +17,7 @@ import {
   FirmSlotsQuery,
   idParam,
   RescheduleBody,
+  UpdateBody,
 } from './appointments.input.js';
 import { AppointmentsService } from './appointments.service.js';
 import { firmActor, optionalBody } from './request-actors.js';
@@ -81,6 +82,17 @@ export class AppointmentsController {
     @Body(new ZodValidationPipe(RescheduleBody)) body: z.output<typeof RescheduleBody>,
   ): Promise<Appointment> {
     return this.appointments.reschedule(tenant.businessId, firmActor(auth, tenant), id, body);
+  }
+
+  /** Edit location (R14): kind and details only. */
+  @Patch(':id')
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(UpdateBody)) body: z.output<typeof UpdateBody>,
+  ): Promise<Appointment> {
+    return this.appointments.update(tenant.businessId, firmActor(auth, tenant), id, body);
   }
 
   @Post(':id/cancel')
