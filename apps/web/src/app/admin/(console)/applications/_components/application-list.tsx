@@ -8,11 +8,11 @@ import Link from 'next/link';
 import { useMe } from '../../../../../components/signed-in';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { formatPhone } from './application-cards';
 import { applicationCountsKey, applicationListKey } from './application-data';
 import {
   cellClass,
   firstCellClass,
-  formatPhone,
   ListPager,
   ListTable,
   SearchBox,
@@ -88,7 +88,7 @@ export function ApplicationList() {
 
   return (
     <div className="flex w-full flex-col gap-5">
-      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <header className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
         <div>
           <h1
             data-testid="page-title"
@@ -100,7 +100,7 @@ export function ApplicationList() {
             Review and manage new firm applications. Approve firms to activate their accounts.
           </p>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row xl:mt-2">
+        <div className="flex flex-col gap-3 sm:flex-row 2xl:mt-2">
           <SearchBox
             label="Search applications"
             className="sm:w-80"
@@ -109,7 +109,7 @@ export function ApplicationList() {
               setSearch(event.target.value);
               setPage(1);
             }}
-            placeholder="Search applications by business name, owner, or email..."
+            placeholder="Search by business, owner, or email..."
           />
           <select
             aria-label="Filter by status"
@@ -158,8 +158,18 @@ export function ApplicationList() {
               icon={FileText}
               tone="info"
             />
-            <StatCard label="Approved" value={data.approved} icon={CircleCheck} tone="success" />
-            <StatCard label="Declined" value={data.declined} icon={X} tone="danger" />
+            <StatCard
+              label="Approved This Month"
+              value={data.approvedThisMonth}
+              icon={CircleCheck}
+              tone="success"
+            />
+            <StatCard
+              label="Declined This Month"
+              value={data.declinedThisMonth}
+              icon={X}
+              tone="danger"
+            />
             <StatCard label="Total Applications" value={data.all} icon={UsersRound} tone="purple" />
           </section>
         )}
@@ -205,17 +215,16 @@ export function ApplicationList() {
       >
         {(data) => (
           <>
-            <Card className="overflow-hidden !p-0" aria-label="Applications">
+            <Card variant="elevated" className="overflow-hidden !p-0" aria-label="Applications">
               <ListTable
                 head={[
-                  '#',
-                  'Business Name',
-                  'Owner / Contact',
-                  'Email',
-                  'Phone',
-                  'Submitted',
-                  'Status',
-                  'Actions',
+                  { label: '#', center: true },
+                  { label: 'Business Name' },
+                  { label: 'Owner / Contact' },
+                  { label: 'Email' },
+                  { label: 'Submitted' },
+                  { label: 'Status' },
+                  { label: 'Actions', center: true },
                 ]}
               >
                 {data.items.map((application, index) => {
@@ -233,13 +242,13 @@ export function ApplicationList() {
                       >
                         {application.legalName}
                       </th>
-                      <td className={`${cellClass} break-words`}>{application.contactName}</td>
-                      <td className={`${cellClass} whitespace-nowrap`}>
-                        {application.contactEmail}
+                      <td className={`${cellClass} break-words`}>
+                        {application.contactName}
+                        <span className="block whitespace-nowrap text-muted">
+                          {formatPhone(application.contactPhone) ?? '—'}
+                        </span>
                       </td>
-                      <td className={`${cellClass} whitespace-nowrap`}>
-                        {formatPhone(application.contactPhone)}
-                      </td>
+                      <td className={`${cellClass} break-all`}>{application.contactEmail}</td>
                       <td className={`${cellClass} whitespace-nowrap`}>
                         {day}
                         <span className="block">{time}</span>
@@ -250,7 +259,7 @@ export function ApplicationList() {
                       <td className={`${cellClass} text-center`}>
                         <Link
                           aria-label={`Open application for ${application.legalName}`}
-                          className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-5 py-3 font-semibold text-white hover:bg-platform-navy-raised"
+                          className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-4 py-2.5 font-semibold text-white hover:bg-platform-navy-raised"
                           href={`/applications/${application.id}`}
                         >
                           Open Application

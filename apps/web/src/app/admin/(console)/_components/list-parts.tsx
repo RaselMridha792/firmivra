@@ -16,13 +16,6 @@ const tones: Record<StatTone, string> = {
   purple: 'bg-purple-soft text-purple',
 };
 
-/** +1XXXXXXXXXX shows as (XXX) XXX-XXXX; anything else as stored. */
-export function formatPhone(value: string | null | undefined) {
-  if (!value) return '—';
-  const match = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(value);
-  return match ? `(${match[1]}) ${match[2]}-${match[3]}` : value;
-}
-
 export function StatCard({
   label,
   value,
@@ -38,11 +31,11 @@ export function StatCard({
   action?: { label: string; onClick: () => void };
 }) {
   return (
-    <Card variant="elevated" className="flex items-center gap-5 !p-5">
+    <Card variant="elevated" className="flex items-center gap-4 !p-5 2xl:gap-5">
       <span
-        className={`flex size-15 shrink-0 items-center justify-center rounded-xl ${tones[tone]}`}
+        className={`flex size-13 shrink-0 items-center justify-center rounded-xl 2xl:size-15 ${tones[tone]}`}
       >
-        <Icon aria-hidden className="size-8" />
+        <Icon aria-hidden className="size-7 2xl:size-8" />
       </span>
       <span className="min-w-0">
         <span className="block text-2xl font-bold text-heading">{value}</span>
@@ -51,7 +44,7 @@ export function StatCard({
           <button
             type="button"
             onClick={action.onClick}
-            className="mt-1 inline-flex items-center gap-2 text-sm font-medium text-link hover:underline"
+            className="mt-1 inline-flex items-center gap-2 whitespace-nowrap text-sm font-medium text-link hover:underline"
           >
             {action.label}
             <ArrowRight aria-hidden className="size-4" />
@@ -88,20 +81,30 @@ export function SearchBox({
 export const selectClass =
   'h-11 rounded-control border border-border bg-surface px-3 text-sm text-text focus:outline-2 focus:outline-focus';
 
-/** The table's frame: header row on bg-subtle, a divider between cells. */
-export function ListTable({ head, children }: { head: string[]; children: ReactNode }) {
+/** A column: its header text, and whether its cells are centred. */
+export type ListColumn = { label: string; center?: boolean };
+
+/** The table's frame: header row on bg-canvas, a divider between cells. `#` is the row number. */
+export function ListTable({ head, children }: { head: ListColumn[]; children: ReactNode }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-5xl border-collapse text-left text-sm text-text">
-        <thead className="bg-subtle text-heading">
+      <table className="w-full min-w-4xl border-collapse text-left text-sm text-text">
+        <thead className="bg-canvas text-heading">
           <tr>
-            {head.map((label) => (
+            {head.map(({ label, center }) => (
               <th
                 key={label}
                 scope="col"
-                className={`whitespace-nowrap px-4 py-4 font-medium ${label === '#' ? 'w-14 text-center' : ''} ${label === 'Actions' ? 'text-center' : ''}`}
+                className={`px-3 py-4 font-medium ${label === '#' ? 'w-12' : ''} ${center ? 'text-center' : ''}`}
               >
-                {label}
+                {label === '#' ? (
+                  <>
+                    <span aria-hidden>#</span>
+                    <span className="sr-only">Row</span>
+                  </>
+                ) : (
+                  label
+                )}
               </th>
             ))}
           </tr>
@@ -113,8 +116,8 @@ export function ListTable({ head, children }: { head: string[]; children: ReactN
 }
 
 /** A body cell; every cell after the first draws the divider on its left. */
-export const cellClass = 'border-l border-border px-4 py-4';
-export const firstCellClass = 'px-4 py-4 text-center';
+export const cellClass = 'border-l border-border px-3 py-4';
+export const firstCellClass = 'px-3 py-4 text-center';
 
 /** "Showing 1–5 of 8 …" and the chevron pager under a list. */
 export function ListPager({
@@ -143,7 +146,7 @@ export function ListPager({
   return (
     <footer className="flex flex-col gap-3 px-2 sm:flex-row sm:items-center sm:justify-between">
       <p aria-live="polite" className="text-sm text-muted">
-        Showing {first === last ? last : `${first}–${last}`} of {total} {noun}
+        Showing {total === 1 ? 1 : `${first}–${last}`} of {total} {noun}
       </p>
       <nav aria-label={`${noun[0]?.toUpperCase()}${noun.slice(1)} pages`} className="flex gap-2">
         <button

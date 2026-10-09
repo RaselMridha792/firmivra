@@ -49,7 +49,7 @@ export function StatusPill({ status }: { status: FirmApplicationReviewStatus }) 
   return (
     <span
       data-testid="application-status"
-      className={`inline-flex rounded-pill px-3 py-1 text-sm font-medium ${statusTones[status]}`}
+      className={`inline-flex whitespace-nowrap rounded-pill px-3 py-1 text-sm font-medium ${statusTones[status]}`}
     >
       {statusNames[status]}
     </span>

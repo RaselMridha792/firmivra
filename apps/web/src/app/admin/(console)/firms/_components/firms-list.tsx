@@ -7,10 +7,10 @@ import { useState, type FormEvent } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
+import { formatPhone } from '../../applications/_components/application-cards';
 import {
   cellClass,
   firstCellClass,
-  formatPhone,
   ListPager,
   ListTable,
   SearchBox,
@@ -88,7 +88,7 @@ export function FirmsList() {
 
   return (
     <div className="flex w-full flex-col gap-5">
-      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <header className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
         <div>
           <h1
             data-testid="page-title"
@@ -100,7 +100,7 @@ export function FirmsList() {
             Manage approved firms and their access to the platform.
           </p>
         </div>
-        <form onSubmit={searchFirms} className="flex flex-col gap-3 sm:flex-row xl:mt-2">
+        <form onSubmit={searchFirms} className="flex flex-col gap-3 sm:flex-row 2xl:mt-2">
           <SearchBox
             label="Search firms"
             className="sm:w-96"
@@ -192,7 +192,7 @@ export function FirmsList() {
 
               {data.items.length ? (
                 <>
-                  <Card className="overflow-hidden !p-0">
+                  <Card variant="elevated" className="overflow-hidden !p-0">
                     <ul data-testid="firm-list" className="divide-y divide-border sm:hidden">
                       {data.items.map((firm) => (
                         <li key={firm.id} data-testid="firm-row" className="space-y-3 p-4">
@@ -208,6 +208,11 @@ export function FirmsList() {
                                 {firm.owner?.email ? (
                                   <span className="block break-all font-normal text-muted">
                                     {firm.owner.email}
+                                  </span>
+                                ) : null}
+                                {firm.owner?.phone ? (
+                                  <span className="block font-normal text-muted">
+                                    {formatPhone(firm.owner.phone)}
                                   </span>
                                 ) : null}
                               </dd>
@@ -231,14 +236,13 @@ export function FirmsList() {
                     <div className="hidden sm:block">
                       <ListTable
                         head={[
-                          '#',
-                          'Business Name',
-                          'Owner / Primary Contact',
-                          'Email',
-                          'Phone',
-                          'Plan',
-                          'Status',
-                          'Date Approved',
+                          { label: '#', center: true },
+                          { label: 'Business Name' },
+                          { label: 'Owner / Primary Contact' },
+                          { label: 'Email' },
+                          { label: 'Plan' },
+                          { label: 'Status' },
+                          { label: 'Date Approved' },
                         ]}
                       >
                         {data.items.map((firm, index) => (
@@ -252,13 +256,13 @@ export function FirmsList() {
                             </th>
                             <td className={`${cellClass} break-words`}>
                               {firm.owner?.name ?? 'Not assigned'}
+                              {firm.owner?.phone ? (
+                                <span className="block whitespace-nowrap text-muted">
+                                  {formatPhone(firm.owner.phone)}
+                                </span>
+                              ) : null}
                             </td>
-                            <td className={`${cellClass} whitespace-nowrap`}>
-                              {firm.owner?.email ?? '—'}
-                            </td>
-                            <td className={`${cellClass} whitespace-nowrap`}>
-                              {formatPhone(firm.owner?.phone)}
-                            </td>
+                            <td className={`${cellClass} break-all`}>{firm.owner?.email ?? '—'}</td>
                             <td className={cellClass}>{firm.plan ? FIRM_PLANS[firm.plan] : '—'}</td>
                             <td className={cellClass}>
                               <StatusBadge status={firm.status} />
@@ -282,7 +286,7 @@ export function FirmsList() {
                   />
                 </>
               ) : (
-                <Card data-testid="firms-empty" className="!p-10 text-center">
+                <Card variant="elevated" data-testid="firms-empty" className="!p-10 text-center">
                   <Building2 aria-hidden className="mx-auto size-9 text-muted" />
                   <p className="mt-3 font-semibold text-heading">No firms found</p>
                   <p className="mt-1 text-sm text-muted">

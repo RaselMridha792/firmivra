@@ -20,10 +20,27 @@ test('loads applications from the API mock, filters rows and pages results', asy
   await page.getByRole('combobox', { name: 'Filter by date range' }).selectOption('7');
   await expect(page.getByText(/of [1-6] applications/)).toBeVisible();
   await page.getByRole('combobox', { name: 'Filter by date range' }).selectOption('all');
+  await expect(
+    page.getByTestId('application-row').filter({ hasText: '(404) 555-010' }),
+  ).not.toHaveCount(0);
   await page.getByRole('button', { name: 'Next applications page' }).click();
   await expect(page.getByTestId('application-row')).toHaveCount(3);
   await expect(page.getByText('Showing 6–8 of 8 applications')).toBeVisible();
+  await page.getByRole('button', { name: 'Page 1' }).click();
+  await expect(page.getByText('Showing 1–5 of 8 applications')).toBeVisible();
+  await page.getByRole('button', { name: 'Page 2' }).click();
+  await expect(page.getByText('Showing 6–8 of 8 applications')).toBeVisible();
 });
+
+for (const width of [1440, 1280]) {
+  test(`the applications table fits at ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(admin('/applications'));
+    await expect(page.getByTestId('application-row').first()).toBeVisible();
+    const table = page.locator('table').locator('..');
+    expect(await table.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  });
+}
 
 test('reviews an unreadable application from its stored columns without losing actions', async ({
   page,
