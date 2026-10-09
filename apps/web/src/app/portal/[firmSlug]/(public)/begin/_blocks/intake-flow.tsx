@@ -126,6 +126,57 @@ export function IntakePage({ firmSlug, form }: { firmSlug: string; form: IntakeF
   );
 }
 
+/** Each form's buttons, as its mockups word them. */
+const WORDING: Record<
+  IntakeFormKey,
+  {
+    back: (title: string, step: number) => string;
+    next: string;
+    later: string;
+    laterAsLink?: boolean;
+    submit: string;
+  }
+> = {
+  ANNUAL_TAX: {
+    back: () => 'Back',
+    next: 'Continue to Next Step',
+    later: 'Save and Continue Later',
+    submit: 'Submit Intake Form',
+  },
+  QUARTERLY_TAX: {
+    back: () => 'Back',
+    next: 'Continue to Next Step',
+    later: 'Save and Continue Later',
+    submit: 'Submit Intake Form',
+  },
+  BOOKKEEPING: {
+    back: (title) => `Back to ${title}`,
+    next: 'Continue to Next Step',
+    later: 'Save & Exit',
+    submit: 'Submit Intake Form',
+  },
+  PAYROLL: {
+    back: (_, step) => `Back to Step ${step}`,
+    next: 'Continue to Next Step',
+    later: 'Exit Form',
+    submit: 'Submit Form',
+  },
+  TAX_PLANNING: {
+    back: () => 'Previous',
+    next: 'Next Step',
+    later: 'Save and Continue Later',
+    laterAsLink: true,
+    submit: 'Submit Intake Form',
+  },
+  BUSINESS_DEVELOPMENT: {
+    back: () => 'Previous',
+    next: 'Next Step',
+    later: 'Save and Continue Later',
+    laterAsLink: true,
+    submit: 'Submit Intake Form',
+  },
+};
+
 /** The firm's current agreements for this form (R14): signed on the review step. */
 function useAgreements(firmSlug: string, form: IntakeFormKey) {
   return useApiQuery(['begin-online', firmSlug, form, 'agreements'], () =>
@@ -505,7 +556,8 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
 
   const failure = save.error ?? submit.error ?? resumeLink.error;
   const failureText = failure ? errorMessage(failure, BEGIN_ONLINE_ERRORS) : '';
-  const nextStep = steps[index + 1];
+  const previous = steps[index - 1];
+  const words = WORDING[form];
   // The review step's info-only panels ("Review Your Information...") come before the answers.
   const infoOnly = (sec: IntakeStep['sections'][number]) =>
     sec.fields.every((f) => f.type === 'info');
@@ -541,12 +593,17 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         title={fill(definition.title)}
         subtitle={definition.subtitle ? fill(definition.subtitle) : undefined}
       />
+      {/* Every step of the form, as the mockups number them; one the answers leave out is marked. */}
       <IntakeStepper
-        steps={steps.map((s, i) => ({ id: i + 1, label: fill(s.title) }))}
-        current={index + 1}
+        steps={definition.steps.map((s, i) => ({
+          id: i + 1,
+          label: fill(s.title),
+          skipped: !shown.steps.has(s.key),
+        }))}
+        current={definition.steps.findIndex((s) => s.key === step.key) + 1}
         onEdit={(id) => {
-          const target = steps[id - 1];
-          if (target) void jump(target.key);
+          const target = definition.steps[id - 1];
+          if (target && shown.steps.has(target.key)) void jump(target.key);
         }}
       />
       {step.subtitle && <p className="mb-2 text-center text-xs">{fill(step.subtitle)}</p>}
@@ -614,33 +671,46 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
           </p>
         )}
         <footer className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
-            {index > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {previous && (
               <Button
                 variant="outline"
+                data-testid="intake-back"
                 onClick={() => void back()}
                 disabled={save.isPending}
                 className="min-w-32"
               >
                 <ArrowLeft aria-hidden="true" className="size-4" />
-                Previous
+                {words.back(fill(previous.title), definition.steps.indexOf(previous) + 1)}
               </Button>
             )}
-            <Button
-              variant="ghost"
-              onClick={() => void later()}
-              disabled={save.isPending || resumeLink.isPending}
-            >
-              <Save aria-hidden="true" className="size-4" />
-              Save and Continue Later
-            </Button>
+            {words.laterAsLink ? (
+              <button
+                type="button"
+                onClick={() => void later()}
+                disabled={save.isPending || resumeLink.isPending}
+                className="min-h-11 px-2 text-sm underline"
+              >
+                {words.later}
+              </button>
+            ) : (
+              <Button
+                variant="ghost"
+                onClick={() => void later()}
+                disabled={save.isPending || resumeLink.isPending}
+              >
+                <Save aria-hidden="true" className="size-4" />
+                {words.later}
+              </Button>
+            )}
           </div>
-          <Button type="submit" disabled={save.isPending || submit.isPending} className="min-w-40">
-            {step.review
-              ? 'Submit Intake Form'
-              : nextStep
-                ? `Continue to ${fill(nextStep.title)}`
-                : 'Continue'}
+          <Button
+            type="submit"
+            data-testid="intake-next"
+            disabled={save.isPending || submit.isPending}
+            className="min-w-40"
+          >
+            {step.review ? words.submit : words.next}
             <ArrowRight aria-hidden="true" className="size-4" />
           </Button>
         </footer>
