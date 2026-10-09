@@ -25,7 +25,7 @@ let firmId = '';
 const ownerId = randomUUID();
 const ownerEmail = `owner-${slug}@example.test`;
 const docIds: string[] = [];
-const outbox: { kind: 'email' | 'sms'; to: string }[] = [];
+const outbox: { kind: 'email' | 'sms' | 'registered'; to: string }[] = [];
 let portalOrigin = '';
 let lastViewer = 0;
 const newViewer = () => `198.19.${++lastViewer}.1`;
@@ -133,7 +133,10 @@ beforeAll(async () => {
         Promise.resolve()
       ),
       smsCode: (m: { to: string }) => (outbox.push({ kind: 'sms', to: m.to }), Promise.resolve()),
-      alreadyRegistered: () => Promise.resolve(),
+      alreadyRegistered: (m: { to: string }) => (
+        outbox.push({ kind: 'registered', to: m.to }),
+        Promise.resolve()
+      ),
       signUpApproved: () => Promise.resolve(),
       signUpDeclined: () => Promise.resolve(),
     })
@@ -255,5 +258,74 @@ describe('sign-up with the phone code optional (SMS fallback)', () => {
     } finally {
       await db.disconnect();
     }
+  });
+
+  it('answers an email whose sign-up completed at the email step exactly like a new one', async () => {
+    const tag = randomUUID().slice(0, 6);
+    const form = (email: string) => ({
+      name: 'Same Answer',
+      email,
+      phone: '+17705550144',
+      password: 'Client-password-1',
+      accountType: 'INDIVIDUAL',
+      accepted: { termsVersion: 1, privacyVersion: 1 },
+    });
+    // A sign-up completed without the phone code (legal acceptances written, phone unverified).
+    const takenEmail = `r6-taken-${tag}@example.test`;
+    const first = visitor();
+    await first.signUp(form(takenEmail));
+    expect((await first.post('/verify-email', { code: '000000' })).body).toMatchObject({
+      step: 'DONE',
+    });
+    const before = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({ where: { email: takenEmail } }),
+    );
+    const freshEmail = `r6-fresh-${tag}@example.test`;
+    // Same length, so the cookies can be compared to the character.
+    expect(freshEmail.length).toBe(takenEmail.length);
+
+    const taken = visitor();
+    const fresh = visitor();
+    const strip = (r: Response) => {
+      const body = r.body as { email?: string; resendAvailableAt?: string | null; error?: object };
+      return {
+        status: r.status,
+        body: {
+          ...body,
+          email: undefined,
+          resendAvailableAt: body.resendAvailableAt === null,
+          error: body.error ? { ...body.error, requestId: undefined } : undefined,
+        },
+        cookie: ((r.headers['set-cookie'] as unknown as string[] | undefined) ?? [])
+          .map((c) => c.split(';')[0]?.length)
+          .join(','),
+      };
+    };
+    const pair = async (call: (v: ReturnType<typeof visitor>) => Promise<Response>) => {
+      const [a, b] = [await call(taken), await call(fresh)];
+      expect(strip(a)).toEqual(strip(b));
+      return a;
+    };
+    expect(
+      (await pair((v) => v.signUp(form(v === taken ? takenEmail : freshEmail)))).body,
+    ).toMatchObject({ step: 'VERIFY_EMAIL' });
+    expect((await pair((v) => v.state())).body).toMatchObject({ step: 'VERIFY_EMAIL' });
+    expect(codeOf(await pair((v) => v.post('/verify-email', { code: '111111' })))).toBe(
+      'CODE_INVALID',
+    );
+    expect(codeOf(await pair((v) => v.post('/verify-phone', { code: '000000' })))).toBe(
+      'WRONG_STEP',
+    );
+
+    // The owner of the email hears about it; the completed sign-up is not taken over.
+    expect(outbox.filter((m) => m.to === takenEmail).map((m) => m.kind)).toEqual([
+      'email',
+      'registered',
+    ]);
+    expect(codeOf(await taken.post('/verify-email', { code: '000000' }))).toBe('CODE_INVALID');
+    const after = await asOwner({ kind: 'business', businessId: firmId }, (tx) =>
+      tx.clientAccount.findFirstOrThrow({ where: { email: takenEmail } }),
+    );
+    expect([after.userId, after.status]).toEqual([before.userId, 'PENDING_APPROVAL']);
   });
 });

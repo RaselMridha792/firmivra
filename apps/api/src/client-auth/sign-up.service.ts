@@ -318,7 +318,13 @@ export class SignUpService {
         await this.log(s.businessId, s.userId, 'client_account.verified', account.id, {
           phoneVerified: false,
         });
-        return this.stateOf(s, expiresAt);
+        // The sign-up is complete: a busy database while reading the state never makes it an error.
+        return this.stateOf(s, expiresAt).catch(() => ({
+          step: 'DONE' as const,
+          email: s.email,
+          phoneMasked: maskPhone(s.phone),
+          resendAvailableAt: null,
+        }));
       }
       // The email is proved: a busy database or a refused SMS never turns this into an error.
       try {
