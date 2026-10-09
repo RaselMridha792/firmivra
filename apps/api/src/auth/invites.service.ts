@@ -242,6 +242,10 @@ export class InvitesService {
   ): Promise<InviteResult> {
     if (link.kind === 'invite') assertMayInvite(invitedBy, link.role);
     if (fromPlatform && invitedBy) throw new Error('A platform invite has no inviting member');
+    // Before any login is created (checked again on the role read in the transaction).
+    if (fromPlatform && link.kind === 'invite' && link.role !== 'OWNER') {
+      throw new Error('Only an owner link is sent by the platform');
+    }
 
     const firm = this.db.forBusiness(businessId);
     const business = await firm.business.findUnique({
@@ -344,18 +348,30 @@ export class InvitesService {
     // commit, under the same per-person lock, revoking any link sent in between.
     const inviteId =
       made.inviteId ??
-      (await this.db.withScope({ kind: 'platform' }, async (tx) => {
-        await lockStaffInvites(tx, businessId, userId);
-        await tx.invite.updateMany({
-          where: { membershipId, acceptedAt: null, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-        const row = await tx.invite.create({
-          data: inviteRow(membershipId, made),
-          select: { id: true },
-        });
-        return row.id;
-      }));
+      (await this.db.withScope(
+        { kind: 'platform' },
+        async (tx) => {
+          await lockStaffInvites(tx, businessId, userId);
+          // Counted again under the lock: two sends at once both passed the first count, and
+          // only now does each see the other's link (platform scope reads the links it sent).
+          const toThisPerson = await tx.invite.count({
+            where: { businessId, membershipId, createdAt: { gt: since } },
+          });
+          if (toThisPerson >= INVITE_LIMITS.perPerson) throw tooManyInvites();
+          await tx.invite.updateMany({
+            where: { businessId, membershipId, acceptedAt: null, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+          const row = await tx.invite.create({
+            data: inviteRow(membershipId, made),
+            select: { id: true },
+          });
+          return row.id;
+        },
+        // It can wait on the per-person lock held by an invite transaction that may run 15 s.
+        // The database module's default is 15 s today too; this keeps it once that default goes.
+        OUTSIDE_CALL_LIMITS,
+      ));
 
     // Audited before sending: a failed send still leaves the invite on record.
     await this.auditInFirm(
@@ -452,8 +468,6 @@ export class InvitesService {
     businessId: string;
     membershipId: string;
     invitedBy: Inviter | null;
-    /** As CreateInviteInput's: a new owner link from Firmivra. */
-    fromPlatform?: boolean;
   }): Promise<InviteResult> {
     const membership = await this.db.forBusiness(input.businessId).membership.findUnique({
       where: { id: input.membershipId },
@@ -463,12 +477,11 @@ export class InvitesService {
     if (membership.status !== 'INVITED') throw notInvited();
     // Checked again on the role the membership has in the invite transaction.
     assertMayInvite(input.invitedBy, membership.role);
-    return this.invite(
-      input.businessId,
-      input.invitedBy,
-      { kind: 'resend', membershipId: input.membershipId, userId: membership.userId },
-      input.fromPlatform,
-    );
+    return this.invite(input.businessId, input.invitedBy, {
+      kind: 'resend',
+      membershipId: input.membershipId,
+      userId: membership.userId,
+    });
   }
 
   /**

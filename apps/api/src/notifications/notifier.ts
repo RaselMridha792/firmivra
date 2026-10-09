@@ -252,8 +252,10 @@ async function stillLive(
       where: { businessId, id },
       select: { status: true, startsAt: true },
     });
+    // Not once it has started: a late copy of a booking or a reminder helps nobody.
     return (
       a?.status === 'SCHEDULED' &&
+      a.startsAt.getTime() > Date.now() &&
       (typeof payload.startsAt !== 'string' || a.startsAt.toISOString() === payload.startsAt)
     );
   }
@@ -484,7 +486,7 @@ export class Notifier {
   /**
    * Retries one email copy from the outbox (the job calls it for a QUEUED or FAILED delivery):
    * rebuilt from its bell item (the record's safe values) and the recipient's login as it is now.
-   * SKIPPED when the login is no longer ACTIVE, or the record no longer stands (`stillLive`).
+   * SKIPPED when the login is no longer the ACTIVE PRIMARY one, or the record no longer stands (`stillLive`).
    * `busy`: another task claimed it first.
    */
   async retryDelivery(
@@ -508,8 +510,9 @@ export class Notifier {
       if (!(await stillLive(db, businessId, event, n.entityId, (n.payload ?? {}) as Payload))) {
         return 'skip';
       }
+      // Only the PRIMARY login gets client copies (q27), as when the copy was first written.
       const login = await db.clientAccount.findFirst({
-        where: { businessId, userId: n.recipientUserId, status: 'ACTIVE' },
+        where: { businessId, userId: n.recipientUserId, status: 'ACTIVE', portalRole: 'PRIMARY' },
         select: accountSelect,
       });
       if (!login) return 'skip';
@@ -546,8 +549,9 @@ export class Notifier {
       if (claimed.count !== 1) return 'busy';
       const error = await send();
       const status = error === null ? 'SENT' : error === 'skip' ? 'SKIPPED' : 'FAILED';
+      // Only while this claim is the latest: a later claim's outcome is never overwritten.
       await db.notificationDelivery.updateMany({
-        where: { businessId, id: deliveryId },
+        where: { businessId, id: deliveryId, attempts: attempts + 1 },
         data: {
           status,
           sentAt: status === 'SENT' ? new Date() : null,

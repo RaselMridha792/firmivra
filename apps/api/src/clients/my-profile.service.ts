@@ -21,9 +21,15 @@ import { Notifier } from '../notifications/notifier.js';
 import { changedFields, NO_DATE_OF_BIRTH, readDateOfBirth } from './client-secrets.js';
 
 type UpdateBody = z.output<typeof UpdateMyProfileRequest>;
-/** The PRIMARY login's number, from the value read in the firm's transaction to the new one. */
-type LoginPhoneMove = { userId: string; from: string | null; to: string | null };
+/** Whose login number follows which firm's client record. */
+type LoginPhoneMove = { businessId: string; clientId: string; userId: string };
 type NameChangeBody = z.output<typeof RequestNameChangeRequest>;
+
+/** The login's number for a record's phone: only one texts may go to (SmsPhone: US numbers). */
+const loginPhoneOf = (phone: string | null) =>
+  phone === null ? null : (SmsPhone.safeParse(phone).data ?? null);
+/** Rounds of "write, then check the record still has that number" before giving up (logged). */
+const MOVE_ATTEMPTS = 5;
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const primaryOnly = () =>
@@ -159,7 +165,7 @@ export class MyProfileService {
 
   /** The primary login edits phone, address and the additional information. */
   async update(businessId: string, clientAccountId: string, body: UpdateBody): Promise<MyProfile> {
-    let newLoginPhone: LoginPhoneMove | null = null;
+    let loginMove: LoginPhoneMove | null = null;
     const mine = await this.inFirm(businessId, async (tx) => {
       const current = await this.mine(tx, businessId, clientAccountId, true);
       if (current.account.portalRole !== 'PRIMARY') throw primaryOnly();
@@ -173,10 +179,10 @@ export class MyProfileService {
         // R6: the PRIMARY login's own number follows (texts and the SMS switch read users.phone),
         // only if texts may go to it (SmsPhone: US numbers only); any other number leaves the
         // login with none. A new or removed number is unverified and clears every SMS choice, in
-        // this transaction.
+        // this transaction. The login itself moves after the commit (moveLoginPhone), on every
+        // phone save: a concurrent save may have read users.phone before an earlier move ran.
         const { userId } = current.account;
-        const loginPhone =
-          body.phone === null ? null : (SmsPhone.safeParse(body.phone).data ?? null);
+        const loginPhone = loginPhoneOf(body.phone);
         const user = await tx.user.findFirst({ where: { id: userId }, select: { phone: true } });
         if (user && user.phone !== loginPhone) {
           await tx.clientAccount.updateMany({
@@ -184,8 +190,8 @@ export class MyProfileService {
             data: { phoneVerifiedAt: null },
           });
           await this.notifier.phoneChanged(businessId, userId, tx);
-          newLoginPhone = { userId, from: user.phone, to: loginPhone };
         }
+        if (user) loginMove = { businessId, clientId, userId };
       }
       const profile: Prisma.ClientProfileUncheckedUpdateInput = {};
       if (body.address) {
@@ -215,9 +221,9 @@ export class MyProfileService {
       { type: 'client', id: mine.client.id },
       { fields: changedFields(body) },
     );
-    if (newLoginPhone) {
-      const { userId } = newLoginPhone;
-      await this.moveLoginPhone(newLoginPhone).catch((e: unknown) => {
+    if (loginMove) {
+      const { userId } = loginMove;
+      await this.moveLoginPhone(loginMove).catch((e: unknown) => {
         const name = e instanceof Error ? e.name : 'unknown';
         this.logger.error(`My Profile: login phone not moved for user ${userId}: ${name}`);
       });
@@ -231,16 +237,29 @@ export class MyProfileService {
    * already off). A client login belongs to one firm only (client_accounts.user_id is unique), so
    * no other firm holds SMS choices for it. If this step fails, the firm's record has the new
    * number, the login keeps the old one, and no SMS choice is left on (logged with the user id).
-   * The write holds only while the login still has the number read in the firm's transaction, so
-   * a slower earlier save cannot overwrite a later one.
+   * The login moves to the number the record ENDS at, not to the one this save wrote: write it,
+   * then read the record again, and repeat if a concurrent save changed it meanwhile. Whichever
+   * save writes last read the record after that write, so after any number of concurrent saves
+   * users.phone matches the final clients.phone (no lock held across the two scopes, so a busy
+   * connection pool cannot stall).
    */
-  private async moveLoginPhone({ userId, from, to }: LoginPhoneMove): Promise<void> {
-    const { count } = await this.database
-      .forUser(userId)
-      .user.updateMany({ where: { id: userId, phone: from }, data: { phone: to } });
-    if (count === 0) {
-      this.logger.warn(`My Profile: login phone of user ${userId} changed meanwhile; kept`);
+  private async moveLoginPhone({ businessId, clientId, userId }: LoginPhoneMove): Promise<void> {
+    const recordPhone = async () =>
+      (
+        await this.database
+          .forBusiness(businessId)
+          .client.findFirstOrThrow({ where: { businessId, id: clientId }, select: { phone: true } })
+      ).phone;
+    let phone = await recordPhone();
+    for (let attempt = 1; attempt <= MOVE_ATTEMPTS; attempt++) {
+      await this.database
+        .forUser(userId)
+        .user.updateMany({ where: { id: userId }, data: { phone: loginPhoneOf(phone) } });
+      const now = await recordPhone();
+      if (now === phone) return;
+      phone = now;
     }
+    this.logger.warn(`My Profile: login phone of user ${userId} kept changing; left as last seen`);
   }
 
   /**
