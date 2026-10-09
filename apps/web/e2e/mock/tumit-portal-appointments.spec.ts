@@ -7,16 +7,13 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const portal = (path: string) => `http://portal.localhost:${port}${path}`;
 
 test.use({ timezoneId: 'America/New_York' });
+// The mock puts its week after today and treats New York as a fixed UTC-4, while the screens
+// use the real zone. Run on a summer Wednesday: EDT is UTC-4, and next week is past the cutoffs.
+test.beforeEach(({ page }) => page.clock.setFixedTime(new Date('2026-07-08T12:00:00-04:00')));
 
-/** A day of next week (0 is Monday) in the firm's time zone, where the mock puts its week. */
-function nextWeek(offset: number) {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
-    new Date(),
-  );
-  const day = new Date(`${today}T00:00:00Z`);
-  const ahead = ((8 - day.getUTCDay()) % 7 || 7) + offset;
-  return new Date(day.getTime() + ahead * 86_400_000).toISOString().slice(0, 10);
-}
+/** A day of the mock's week ('YYYY-MM-DD'): 0 is next Monday, July 13. */
+const nextWeek = (offset: number) =>
+  new Date(Date.UTC(2026, 6, 13 + offset)).toISOString().slice(0, 10);
 
 test('a client books after a taken time, then reschedules and cancels', async ({ page }) => {
   await page.goto(portal('/lvp/appointments'));
@@ -24,7 +21,9 @@ test('a client books after a taken time, then reschedules and cancels', async ({
   const mine = page.getByTestId('my-appointment');
   await expect(mine).toHaveCount(2);
 
-  // Book: a kind, a day, a free time. 10 AM is offered, but Jamie is already busy then.
+  // Book: a kind, a day, a free time. The mock offers 10 AM though Jamie is busy then, and
+  // answers SLOT_TAKEN as the API does when someone took a time meanwhile (the API itself leaves
+  // the client's own busy times out).
   await page.getByRole('button', { name: /Tax consultation/ }).click();
   await page.getByLabel('Day').fill(nextWeek(0));
   await page.getByRole('button', { name: '10:00 AM' }).click();
@@ -40,6 +39,7 @@ test('a client books after a taken time, then reschedules and cancels', async ({
   // Reschedule Tuesday's appointment to 3 PM the same day.
   const tuesday = mine.filter({ hasText: 'Tue' });
   await tuesday.getByRole('button', { name: 'Reschedule' }).click();
+  await expect(tuesday.getByRole('button', { name: '2:00 PM (current)' })).toBeDisabled();
   await tuesday.getByRole('button', { name: '3:00 PM' }).click();
   await tuesday.getByRole('button', { name: /^Move to/ }).click();
   await expect(page.getByText('Your appointment was moved.')).toBeVisible();
@@ -57,4 +57,17 @@ test('a client books after a taken time, then reschedules and cancels', async ({
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(375);
+});
+
+test.describe('a client in another time zone', () => {
+  test.use({ timezoneId: 'Asia/Dhaka' });
+
+  test('sees which of their days a free time falls on', async ({ page }) => {
+    await page.goto(portal('/lvp/appointments'));
+    await page.getByRole('button', { name: /Tax consultation/ }).click();
+    await page.getByLabel('Day').fill(nextWeek(0));
+    // The firm's Monday 1 PM and 3 PM (EDT) are Monday 11 PM and Tuesday 1 AM in Dhaka.
+    await expect(page.getByRole('button', { name: '11:00 PM', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Tue 1:00 AM', exact: true })).toBeVisible();
+  });
 });

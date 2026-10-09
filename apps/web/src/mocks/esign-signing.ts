@@ -480,6 +480,7 @@ export type ExtrasKeys =
   | 'decideApproval'
   | 'inPerson'
   | 'roles'
+  | 'approvers'
   | 'bulk'
   | 'report';
 export type TemplateExtrasKeys = 'versions' | 'restoreVersion' | 'duplicate' | 'bulkSend';
