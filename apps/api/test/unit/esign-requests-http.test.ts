@@ -1,43 +1,30 @@
-// R13 step 6, requests API part 1, over HTTP: EsignModule's status route and the module switch
-// with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
-// role on the request, as the global guards do in the app; the guards themselves are tested in
-// guards.test.ts and the e2e suite. Synthetic data only.
+// R13 step 6, requests API part 1: the module switch over HTTP, with an in-memory switch (no
+// database). A stand-in for TenantGuard puts the caller's firm and role on the request, as the
+// global guards do in the app; the real guard stack is in test/e2e/esign-status.e2e.test.ts.
+// Synthetic data only.
 import { randomUUID } from 'node:crypto';
-import {
-  Controller,
-  ExecutionContext,
-  Get,
-  Global,
-  type INestApplication,
-  Module,
-  type ModuleMetadata,
-} from '@nestjs/common';
+import { Controller, ExecutionContext, Get, type INestApplication, Module } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EsignStatus } from '@firmivra/types';
-import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
 import {
   BUSINESS_MODULES,
+  type FirmModule,
   ModuleGuard,
   ModulesModule,
-  ModulesNotMigrated,
   RequiresModule,
 } from '../../src/common/modules/requires-module.js';
-import { CODE_HASHER, ESIGN_STORE } from '../../src/esign/engine/engine.types.js';
-import { EsignModule } from '../../src/esign/esign.module.js';
-import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
-import { ESIGN_REPOSITORY, notMigrated } from '../../src/esign/requests/esign.repository.js';
-import { esignWorld, fakeHasher } from './esign-fakes.js';
 
-const w = esignWorld();
-
-@Global()
-@Module({ providers: [{ provide: AuditService, useValue: w.audit }], exports: [AuditService] })
-class FakeAuditModule {}
+const firmA = randomUUID();
+const firmB = randomUUID();
+const on = new Set([`${firmA}:esign`, `${firmB}:esign`]);
+const modules = {
+  isEnabled: (businessId: string, module: FirmModule) =>
+    Promise.resolve(on.has(`${businessId}:${module}`)),
+};
 
 /** A route behind the module switch, as the requests routes are (part 1b). */
 @Controller('probe')
@@ -49,33 +36,22 @@ class ProbeController {
   }
 }
 
+@Module({ imports: [ModulesModule], controllers: [ProbeController] })
+class ProbeModule {}
+
 let app: INestApplication;
 
 beforeAll(async () => {
-  const metadata: ModuleMetadata = {
-    imports: [EsignModule, FakeAuditModule, ModulesModule],
-    controllers: [ProbeController],
-  };
-  const moduleRef = await Test.createTestingModule(metadata)
-    .overrideProvider(ESIGN_REPOSITORY)
-    .useValue(w.repo)
-    .overrideProvider(ESIGN_DIRECTORY)
-    .useValue(w.directory)
+  const moduleRef = await Test.createTestingModule({ imports: [ProbeModule] })
     .overrideProvider(BUSINESS_MODULES)
-    .useValue(w.modules)
-    .overrideProvider(CODE_HASHER)
-    .useValue(fakeHasher)
-    .overrideProvider(ESIGN_STORE)
-    .useValue(w.store)
+    .useValue(modules)
     .compile();
   app = moduleRef.createNestApplication();
   // What AuthGuard and TenantGuard set, from test headers.
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    const user = req.get('x-test-user');
     const firm = req.get('x-test-firm');
-    const role = req.get('x-test-role') as 'OWNER' | 'ADMIN' | 'STAFF' | 'CLIENT';
-    if (user && firm) {
-      req.auth = { userId: user, cognitoSub: user, pool: role === 'CLIENT' ? 'CLIENT' : 'STAFF' };
+    const role = req.get('x-test-role') as 'OWNER' | 'CLIENT';
+    if (firm) {
       req.tenant =
         role === 'CLIENT'
           ? { businessId: firm, role, kind: 'client', clientAccountId: randomUUID() }
@@ -92,61 +68,34 @@ afterAll(async () => {
   await app.close();
 });
 
-type Caller = { user: string; firm: string; role: 'OWNER' | 'STAFF' | 'CLIENT' };
-const ownerA = (): Caller => ({ user: w.users.ownerA, firm: w.a, role: 'OWNER' });
-const staffA2 = (): Caller => ({ user: w.users.staffA2, firm: w.a, role: 'STAFF' });
-const ownerB = (): Caller => ({ user: w.users.ownerB, firm: w.b, role: 'OWNER' });
-const clientA = (): Caller => ({ user: randomUUID(), firm: w.a, role: 'CLIENT' });
-
-function call(path: string, who: Caller) {
-  return request(app.getHttpServer())
-    .get(`/api/v1${path}`)
-    .set('x-test-user', who.user)
-    .set('x-test-firm', who.firm)
-    .set('x-test-role', who.role);
-}
+const probe = (firm: string, role: 'OWNER' | 'CLIENT') =>
+  request(app.getHttpServer())
+    .get('/api/v1/probe')
+    .set('x-test-firm', firm)
+    .set('x-test-role', role);
 const errorOf = (res: request.Response) => [
   res.status,
   (res.body as { error?: { code: string } }).error?.code,
 ];
 
-describe('Firm Sign over HTTP', () => {
-  it('answers status in every case: on with the role, off with none (never MODULE_OFF)', async () => {
-    const on = await call('/esign/status', ownerA());
-    expect(EsignStatus.parse(on.body)).toEqual({ enabled: true, myEsignRole: 'OWNER' });
-    const staff = await call('/esign/status', staffA2());
-    expect(staff.body).toEqual({ enabled: true, myEsignRole: 'STAFF' });
-    w.modules.set(w.a, 'esign', false);
+describe('@RequiresModule over HTTP', () => {
+  it('closes the route when off: 403 MODULE_OFF for staff, 404 for clients, per firm', async () => {
+    expect((await probe(firmA, 'OWNER')).status).toBe(200);
+    on.delete(`${firmA}:esign`);
     try {
-      const off = await call('/esign/status', ownerA());
-      expect([off.status, off.body]).toEqual([200, { enabled: false, myEsignRole: null }]);
-      // Firm B's switch is its own.
-      expect((await call('/esign/status', ownerB())).body).toEqual({
-        enabled: true,
-        myEsignRole: 'OWNER',
-      });
+      expect(errorOf(await probe(firmA, 'OWNER'))).toEqual([403, 'MODULE_OFF']);
+      expect(errorOf(await probe(firmA, 'CLIENT'))).toEqual([404, 'NOT_FOUND']);
+      expect((await probe(firmB, 'OWNER')).status).toBe(200);
     } finally {
-      w.modules.set(w.a, 'esign', true);
-    }
-  });
-
-  it('closes @RequiresModule routes when off: 403 MODULE_OFF for staff, 404 for clients', async () => {
-    expect((await call('/probe', ownerA())).status).toBe(200);
-    w.modules.set(w.a, 'esign', false);
-    try {
-      expect(errorOf(await call('/probe', ownerA()))).toEqual([403, 'MODULE_OFF']);
-      expect(errorOf(await call('/probe', clientA()))).toEqual([404, 'NOT_FOUND']);
-      expect((await call('/probe', ownerB())).status).toBe(200);
-    } finally {
-      w.modules.set(w.a, 'esign', true);
+      on.add(`${firmA}:esign`);
     }
   });
 });
 
 describe('the module switch (ModuleGuard)', () => {
   const guardFor = (enabled: boolean) => {
-    const modules = { isEnabled: () => Promise.resolve(enabled) };
-    return new ModuleGuard(new Reflector(), modules);
+    const fixed = { isEnabled: () => Promise.resolve(enabled) };
+    return new ModuleGuard(new Reflector(), fixed);
   };
   const handler = () => undefined;
   Reflect.defineMetadata('firmivra:module', 'esign', handler);
@@ -178,12 +127,5 @@ describe('the module switch (ModuleGuard)', () => {
     expect(await answer(guardFor(true).canActivate(ctx(undefined)))).toBe('404 NOT_FOUND');
     // A route without @RequiresModule is not the guard's business.
     expect(await answer(guardFor(false).canActivate(ctx(staffTenant, () => 1)))).toBe('allowed');
-  });
-
-  it('is off for every firm until the modules column exists, and the stand-ins fail loudly', async () => {
-    expect(await new ModulesNotMigrated().isEnabled()).toBe(false);
-    const stand = notMigrated<{ findRequest(): Promise<unknown>; then?: unknown }>('Repo');
-    expect(stand.then).toBeUndefined();
-    expect(() => stand.findRequest()).toThrow(/Repo.findRequest is not available yet/);
   });
 });
