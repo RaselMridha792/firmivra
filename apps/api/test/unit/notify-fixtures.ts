@@ -62,4 +62,15 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'appointment.reminder': appointment,
   'invoice.sent': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
   'payment.received': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
+  'begin-online.resume-link': {
+    link: 'https://portal.example.test/sample/begin/resume#token=synthetic-token',
+    expiresAt: new Date('2026-10-30T13:00:00Z'),
+  },
+  'lead.confirmation': { serviceName: 'Annual Tax' },
+  'lead.received': { serviceName: 'Annual Tax', link: 'https://app.example.test/leads/1' },
+  'client.portal-invite': {
+    name: 'Robin Example',
+    signUpLink: 'https://portal.example.test/sample/sign-up',
+  },
+  'message.new': { name: 'Robin Example', link },
 };

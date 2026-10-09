@@ -416,6 +416,75 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
       ],
     };
   },
+
+  'begin-online.resume-link': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `Continue your request with ${firm}`,
+      blocks: [
+        text('Hello,'),
+        text(`Here is your link to continue the request you started with ${firm}.`),
+        button('Continue my request', link(d, 'link', o)),
+        small(
+          `The link works until ${dateTime(d, 'expiresAt', b.timeZone)}. A new link replaces this one. If you did not start a request, you can ignore this email.`,
+        ),
+      ],
+    };
+  },
+
+  'lead.confirmation': (d, b) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `${firm} received your request`,
+      blocks: [
+        text('Hello,'),
+        text(
+          `Thank you. ${firm} received your request for ${required(d, 'serviceName')} and will be in touch by email.`,
+        ),
+        small('If you did not send this request, you can ignore this email.'),
+      ],
+    };
+  },
+
+  'lead.received': (d, b, o) => ({
+    channel: 'email',
+    subject: `New Begin Online request: ${required(d, 'serviceName')}`,
+    blocks: [
+      text('Hello,'),
+      text(`${b.name} has a new Begin Online request for ${required(d, 'serviceName')}.`),
+      button('Review the request', link(d, 'link', o)),
+    ],
+  }),
+
+  'client.portal-invite': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `${firm} invites you to its client portal`,
+      blocks: [
+        hello(d),
+        text(
+          `${firm} accepted your request. Create your client portal account with this email address to share documents, sign forms and message the firm.`,
+        ),
+        button('Create my account', link(d, 'signUpLink', o)),
+      ],
+    };
+  },
+
+  'message.new': (d, b, o) => {
+    const firm = b.name;
+    return {
+      channel: 'email',
+      subject: `New message on ${firm}`,
+      blocks: [
+        hello(d),
+        text('You have a new message. Open it to read and reply.'),
+        button('Read the message', link(d, 'link', o)),
+      ],
+    };
+  },
 };
 
 // ---------- Layout ----------
