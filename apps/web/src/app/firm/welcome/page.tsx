@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight, Building2, LogIn, UserRoundCheck } from 'lucide-react';
-import { Card } from '@firmivra/ui';
+import { Card, PageContainer } from '@firmivra/ui';
 import { BrandLockup } from '../../../components/app-shell/brand-lockup';
 
 export const metadata: Metadata = { title: 'Welcome' };
@@ -29,8 +29,8 @@ const options = [
 
 export default function WelcomePage() {
   return (
-    <main className="min-h-screen bg-canvas px-4 py-8 sm:px-8 sm:py-12">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col justify-center gap-8">
+    <main className="min-h-screen bg-canvas py-8 sm:py-12">
+      <PageContainer className="flex min-h-[calc(100vh-4rem)] flex-col justify-center gap-8">
         <header className="rounded-2xl bg-brand-900 px-6 py-7 text-white shadow-card sm:px-10 sm:py-9">
           <BrandLockup subtitle="Firm workspace" />
           <div className="mt-8 max-w-2xl">
@@ -70,7 +70,7 @@ export default function WelcomePage() {
             </Card>
           ))}
         </section>
-      </div>
+      </PageContainer>
     </main>
   );
 }

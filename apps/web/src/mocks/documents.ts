@@ -78,6 +78,8 @@ export function documentFixtures(): Readonly<Fixtures> {
   ];
   const category = (n: number) => ({ id: categoryId(n), name: categories[n - 1]!.name });
   const client = { name: 'Jamie Sample', byClient: true };
+  // Another login of the same household (the spouse): My Documents names who uploaded what.
+  const spouse = { name: 'Riley Sample', byClient: true };
   const staff = { name: mockStaff.name, byClient: false };
   const doc = (n: number, data: Partial<FirmDocument> & { fileName: string }): FirmDocument => ({
     id: docId(n),
@@ -105,6 +107,7 @@ export function documentFixtures(): Readonly<Fixtures> {
       contentType: 'image/jpeg',
       category: category(3),
       taxYear: null,
+      uploadedBy: spouse,
     }),
     doc(5, {
       fileName: 'Engagement_Letter_2025.pdf',
@@ -545,6 +548,8 @@ export function createMyDocumentsMock(): MyDocumentsClient {
     sizeBytes: d.sizeBytes,
     taxYear: d.taxYear,
     status: STATUS[s.scanOf(d)],
+    // The household login's name on its own uploads; never a staff name (the firm's files).
+    uploadedBy: sourceOf(d) === 'MINE' && d.uploadedBy ? { name: d.uploadedBy.name } : null,
     uploadedAt: d.createdAt,
   });
   const findMine = (id: string) => {
