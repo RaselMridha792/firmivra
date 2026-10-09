@@ -469,6 +469,7 @@ export class FirmApplicationsService {
         name: row.contactName,
         role: 'OWNER',
         invitedBy: null,
+        fromPlatform: true,
       });
     } catch (e) {
       this.logger.warn(`Firm application ${id}: the owner invite was not sent (${failureOf(e)})`);
@@ -541,6 +542,7 @@ export class FirmApplicationsService {
             businessId: firm.id,
             membershipId: owner.id,
             invitedBy: null,
+            fromPlatform: true,
           })
         : await this.invites.createInvite({
             businessId: firm.id,
@@ -548,6 +550,7 @@ export class FirmApplicationsService {
             name: row.contactName,
             role: 'OWNER',
             invitedBy: null,
+            fromPlatform: true,
           });
     await this.audit.log(
       'firm_application.owner_invite_resent',
