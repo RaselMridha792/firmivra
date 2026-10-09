@@ -39,6 +39,7 @@ import {
 } from '../storage/document-storage.js';
 import { AgreementFilesService, AgreementUploadTokens } from './agreement-files.service.js';
 import { AGREEMENTS_CONFIG, agreementsConfig, AgreementsService } from './agreements.service.js';
+import { IntakeSignaturesService } from './intake-signatures.service.js';
 
 const idPipe = new ZodValidationPipe(AgreementPathId);
 /** A version in the path: plain digits ("2", not "02" or "2e0"). */
@@ -208,6 +209,7 @@ export class MyIntakeAgreementsController {
   providers: [
     AgreementsService,
     AgreementFilesService,
+    IntakeSignaturesService,
     // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
     {
@@ -223,6 +225,6 @@ export class MyIntakeAgreementsController {
     },
     { provide: AGREEMENTS_CONFIG, useFactory: () => agreementsConfig() },
   ],
-  exports: [AgreementsService, AgreementFilesService],
+  exports: [AgreementsService, AgreementFilesService, IntakeSignaturesService],
 })
 export class AgreementsModule {}

@@ -1,7 +1,7 @@
 'use client';
 
 import type { ListFirmApplicationsResponse } from '@firmivra/types';
-import { ChartColumn } from 'lucide-react';
+import { ChartColumn, ChevronDown } from 'lucide-react';
 import { useId, useState } from 'react';
 import { PageState } from '../../../../components/page-state';
 import { api } from '../../../../lib/api';
@@ -42,8 +42,9 @@ export function PlatformGrowth() {
     <>
       <SectionTitle
         icon={ChartColumn}
+        nowrap
         action={
-          <>
+          <span className="relative ml-auto shrink-0">
             <label className="sr-only" htmlFor={id}>
               Range
             </label>
@@ -51,7 +52,7 @@ export function PlatformGrowth() {
               id={id}
               value={range}
               onChange={(event) => setRange(Number(event.target.value) as Range)}
-              className="min-h-0 rounded-control border border-border bg-surface px-3 py-1.5 text-sm text-text"
+              className="min-h-0 appearance-none rounded-control border border-border bg-surface py-1.5 pl-2.5 pr-7 text-sm text-text"
             >
               {RANGES.map((days) => (
                 <option key={days} value={days}>
@@ -59,7 +60,11 @@ export function PlatformGrowth() {
                 </option>
               ))}
             </select>
-          </>
+            <ChevronDown
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 right-2 size-4 -translate-y-1/2 text-muted"
+            />
+          </span>
         }
       >
         Platform Growth <span className="text-sm font-normal text-muted">(Beta)</span>

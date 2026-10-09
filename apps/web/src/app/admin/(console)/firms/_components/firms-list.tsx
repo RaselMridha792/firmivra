@@ -7,10 +7,12 @@ import { useState, type FormEvent } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { useApiQuery } from '../../../../../lib/query';
-import { formatPhone } from '../../applications/_components/application-cards';
 import {
   cellClass,
+  EmailText,
+  emailCellClass,
   firstCellClass,
+  formatPhone,
   ListPager,
   ListTable,
   SearchBox,
@@ -206,8 +208,8 @@ export function FirmsList() {
                               <dd className="mt-1 break-words font-medium text-text">
                                 {firm.owner?.name ?? 'Not assigned'}
                                 {firm.owner?.email ? (
-                                  <span className="block break-all font-normal text-muted">
-                                    {firm.owner.email}
+                                  <span className="block font-normal text-muted wrap-anywhere">
+                                    <EmailText value={firm.owner.email} />
                                   </span>
                                 ) : null}
                                 {firm.owner?.phone ? (
@@ -262,7 +264,9 @@ export function FirmsList() {
                                 </span>
                               ) : null}
                             </td>
-                            <td className={`${cellClass} break-all`}>{firm.owner?.email ?? '—'}</td>
+                            <td className={`${cellClass} ${emailCellClass}`}>
+                              {firm.owner?.email ? <EmailText value={firm.owner.email} /> : '—'}
+                            </td>
                             <td className={cellClass}>{firm.plan ? FIRM_PLANS[firm.plan] : '—'}</td>
                             <td className={cellClass}>
                               <StatusBadge status={firm.status} />
