@@ -10,11 +10,35 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
-import { IntakeChoiceList, IntakeList, IntakeView } from '@firmivra/types';
+import { IntakeChoiceList, IntakeList, IntakeView, UploadTicket } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { IntakesService } from '../../src/intake/intakes.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
+import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import { pdf, sha256 } from '../office-files.js';
+
+/** Storage in memory: `objects.set(key, bytes)` is the browser's PUT. */
+const objects = new Map<string, Buffer>();
+const storage: DocumentStorage = {
+  presignUpload: (f) =>
+    Promise.resolve({ url: `memory:${f.key}`, headers: { 'content-type': f.contentType } }),
+  head: (key, { checksum = false } = {}) => {
+    const b = objects.get(key);
+    return Promise.resolve(
+      b
+        ? { sizeBytes: b.length, sha256: checksum ? sha256(b) : null, contentEncoding: null }
+        : null,
+    );
+  },
+  read: (key) => Promise.resolve(objects.get(key) ?? null),
+  remove: (key) => {
+    objects.delete(key);
+    return Promise.resolve();
+  },
+  presignDownload: (f) => Promise.resolve(`memory:${f.key}?download`),
+} as DocumentStorage;
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -59,7 +83,7 @@ async function tokenFor(email: string): Promise<string> {
 }
 
 async function portal(
-  method: 'get' | 'post' | 'put',
+  method: 'get' | 'post' | 'put' | 'delete',
   path: string,
   who: { email: string },
   body?: object,
@@ -203,7 +227,12 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(DOCUMENT_STORAGE)
+    .useValue(storage)
+    .overrideProvider(DOCUMENTS_CONFIG)
+    .useValue({ bucket: 'unused', region: 'us-east-1', forcePathStyle: true, scanMode: 'local' })
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -407,13 +436,49 @@ describe('firm: send, review, correct and unlock', () => {
   });
 });
 
+describe('portal: uploads', () => {
+  const bytes = pdf('intake upload');
+  const ticket = (intakeId: string, slot: string, who = people.one) =>
+    portal('post', `/${intakeId}/uploads`, who, {
+      slot,
+      fileName: `${slot}.pdf`,
+      contentType: 'application/pdf',
+      sizeBytes: bytes.length,
+      sha256: sha256(bytes),
+    });
+
+  it("puts a file in an open intake's slot, and takes it out again", async () => {
+    // The intake of ids.tax is IN_PROGRESS (version 3) after the firm unlocked it.
+    const t = UploadTicket.parse(ok(await ticket(ids.intake, 'incomeDocuments'), 201).body);
+    objects.set(t.url.slice('memory:'.length), bytes);
+    const withFile = view(
+      await portal('post', `/${ids.intake}/uploads/confirm`, people.one, {
+        uploadToken: t.uploadToken,
+      }),
+    );
+    const file = withFile.uploads.find((u) => u.slot === 'incomeDocuments')!;
+    expect(file).toMatchObject({ fileName: 'incomeDocuments.pdf', scanStatus: 'CLEAN' });
+    const stored = await inFirm((tx) =>
+      tx.document.findUniqueOrThrow({ where: { id: file.documentId } }),
+    );
+    expect(stored).toMatchObject({ intakeId: ids.intake, intakeSlot: 'incomeDocuments' });
+
+    const removed = view(
+      await portal('delete', `/${ids.intake}/uploads/${file.documentId}`, people.one),
+    );
+    expect(removed.uploads.some((u) => u.documentId === file.documentId)).toBe(false);
+  });
+
+  it('refuses a slot that is not an upload field, another client, and a locked intake', async () => {
+    expect(codeOf(await ticket(ids.intake, 'firstName'))).toBe('VALIDATION_FAILED');
+    expect((await ticket(ids.intake, 'incomeDocuments', people.two)).status).toBe(404);
+    const b = await portal('post', `/${ids.intake}/uploads`, people.clientB, {}, ids.slugB);
+    expect([400, 404]).toContain(b.status);
+  });
+});
+
 describe('portal: submit', () => {
-  const signer = {
-    name: 'One Sample',
-    userId: people.one.id,
-    ip: '203.0.113.7',
-    userAgent: 'test',
-  };
+  const signer = people.one.id;
   const file = (intakeId: string, slot: string) =>
     inFirm((tx) =>
       tx.document
@@ -446,6 +511,7 @@ describe('portal: submit', () => {
     const signed: number[] = [];
     const sign = async (_tx: unknown, v: { version: number }) => {
       signed.push(v.version);
+      return { name: 'One Sample', signedAt: new Date(), ip: '203.0.113.7', userAgent: 'test' };
     };
     await save(intake.id, 'personal', {
       firstName: 'One',

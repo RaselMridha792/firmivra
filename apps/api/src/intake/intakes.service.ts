@@ -22,7 +22,7 @@ import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
 import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
-import { lockVersion, prepareSubmit, type SlotFile, type SubmitSigner } from './intake-submit.js';
+import { lockVersion, prepareSubmit, type SignedBy, type SlotFile } from './intake-submit.js';
 
 /** Statuses in which the client can change the answers. */
 export const OPEN_STATUSES: IntakeStatus[] = ['SENT', 'IN_PROGRESS', 'NEEDS_CORRECTION'];
@@ -37,13 +37,14 @@ const changed = () =>
   conflict('INTAKE_CHANGED', 'The form changed while it was being sent. Review it and send again.');
 
 /**
- * Records the signatures of the version being submitted, in the submit's transaction: R14's
- * intake signing service (sign()). Throws to refuse the submit.
+ * Signs the version being submitted, in the submit's transaction, after its final answers are
+ * written: R14's intake signing service (sign()), which stores the intake_signatures row and
+ * returns its evidence. Throws to refuse the submit.
  */
 export type IntakeSigning = (
   tx: TxClient,
   ids: { businessId: string; intakeId: string; submissionId: string; version: number },
-) => Promise<void>;
+) => Promise<SignedBy>;
 
 /** Who may reach an intake: the client of its engagement (portal) or a member (firm). */
 export type IntakeReach =
@@ -467,7 +468,7 @@ export class IntakesService {
     businessId: string,
     reach: IntakeReach & { kind: 'client' },
     id: string,
-    signer: SubmitSigner,
+    submittedByUserId: string,
     sign: IntakeSigning,
   ): Promise<IntakeView> {
     const before = await this.inFirm(businessId, async (tx) => ({
@@ -502,8 +503,14 @@ export class IntakesService {
           data: { intakeId: null, intakeSlot: null },
         });
       }
-      await sign(tx, { businessId, intakeId: id, submissionId: draft.id, version: draft.version });
-      await lockVersion(tx, { businessId, intakeId: id, submissionId: draft.id }, answers, signer);
+      await lockVersion(
+        tx,
+        { businessId, intakeId: id, submissionId: draft.id },
+        answers,
+        submittedByUserId,
+        () =>
+          sign(tx, { businessId, intakeId: id, submissionId: draft.id, version: draft.version }),
+      );
       return this.view(tx, businessId, await this.row(tx, businessId, reach, id));
     });
     await this.audit.log(
