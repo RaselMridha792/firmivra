@@ -32,6 +32,8 @@ export const APPOINTMENT_REMINDER_QUIET_MS = 2 * 60 * 60_000;
 export const EMAIL_MAX_ATTEMPTS = 5;
 /** A failed copy waits this long before its next try; a QUEUED one this long before it is taken. */
 export const EMAIL_RETRY_AFTER_MS = 5 * 60_000;
+/** A reminder whose notify() failed is left out of the runs this long. */
+export const REMINDER_BACKOFF_MS = 5 * 60_000;
 /** Per firm and run; the rest waits for the next run. */
 const BATCH = 50;
 /** The lock's transaction is capped at 30 s (MAX_TRANSACTION_MS); a run stops starting work here. */
@@ -60,6 +62,12 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger('ReminderJobs');
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  /**
+   * Reminders whose notify() failed, by job and record id, with the time of the failure: left out
+   * of the runs for REMINDER_BACKOFF_MS, so a few that always fail never fill a firm's batch and
+   * hold up the rest. In memory: a restart (or another task) just tries them again.
+   */
+  private readonly failedAt = new Map<string, number>();
 
   constructor(
     @Inject(DATABASE) private readonly database: Database,
@@ -77,7 +85,12 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
 
   start(intervalMs = JOB_INTERVAL_MS): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.tick(), intervalMs);
+    this.timer = setInterval(() => {
+      // tick() handles each job's errors; this keeps a later change from an unhandled rejection.
+      this.tick().catch((error: unknown) =>
+        this.logger.error(`tick failed (${error instanceof Error ? error.name : 'Error'})`),
+      );
+    }, intervalMs);
     this.timer.unref();
   }
 
@@ -125,6 +138,16 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
+  /** The ids of this job's reminders that failed within REMINDER_BACKOFF_MS of `now`. */
+  private backingOff(job: ReminderJob, now: Date): string[] {
+    const ids: string[] = [];
+    for (const [key, at] of this.failedAt) {
+      if (now.getTime() - at >= REMINDER_BACKOFF_MS) this.failedAt.delete(key);
+      else if (key.startsWith(`${job}:`)) ids.push(key.slice(job.length + 1));
+    }
+    return ids;
+  }
+
   private async firms(options: JobRunOptions): Promise<string[]> {
     const rows = await this.database.forPlatform().business.findMany({
       where: {
@@ -141,6 +164,7 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
     const now = options.now ?? new Date();
     const quietSince = new Date(now.getTime() - APPOINTMENT_REMINDER_QUIET_MS);
     const deadline = Date.now() + BUDGET_MS;
+    const backingOff = this.backingOff('appointment-reminders', now);
     let sent = 0;
     for (const businessId of await this.firms(options)) {
       if (Date.now() > deadline) break;
@@ -148,6 +172,7 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
       const due = await db.appointment.findMany({
         where: {
           businessId,
+          id: { notIn: backingOff },
           status: 'SCHEDULED',
           reminderSentAt: null,
           startsAt: { gt: now, lte: new Date(now.getTime() + APPOINTMENT_REMINDER_AHEAD_MS) },
@@ -167,7 +192,10 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
           audience: 'both',
           eventKey: `appointment.reminder:${a.id}:${a.startsAt.toISOString()}`,
         });
-        if (result.failed) continue;
+        if (result.failed) {
+          this.failedAt.set(`appointment-reminders:${a.id}`, now.getTime());
+          continue;
+        }
         // Only for the time that was reminded: a reschedule meanwhile keeps its own reminder.
         const { count } = await db.appointment.updateMany({
           where: { businessId, id: a.id, startsAt: a.startsAt, reminderSentAt: null },
@@ -182,13 +210,19 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
   private async noteReminders(options: JobRunOptions): Promise<number> {
     const now = options.now ?? new Date();
     const deadline = Date.now() + BUDGET_MS;
+    const backingOff = this.backingOff('note-reminders', now);
     let sent = 0;
     for (const businessId of await this.firms(options)) {
       if (Date.now() > deadline) break;
       // Firm scope without an actor sees only due reminders, never the note (R0's policy).
       const db = this.database.forBusiness(businessId);
       const due = await db.clientNoteReminder.findMany({
-        where: { businessId, remindedAt: null, remindAt: { lte: now } },
+        where: {
+          businessId,
+          id: { notIn: backingOff },
+          remindedAt: null,
+          remindAt: { lte: now },
+        },
         select: { id: true, remindAt: true },
         orderBy: { remindAt: 'asc' },
         take: BATCH,
@@ -201,7 +235,10 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
           recordId: r.id,
           eventKey: `client-note.reminder:${r.id}:${r.remindAt.toISOString()}`,
         });
-        if (result.failed) continue;
+        if (result.failed) {
+          this.failedAt.set(`note-reminders:${r.id}`, now.getTime());
+          continue;
+        }
         const { count } = await db.clientNoteReminder.updateMany({
           where: { businessId, id: r.id, remindAt: r.remindAt, remindedAt: null },
           data: { remindedAt: now },
@@ -215,7 +252,10 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * The outbox (notification_deliveries): email copies that failed, or that a stopped task left
    * QUEUED, are tried again after EMAIL_RETRY_AFTER_MS, up to EMAIL_MAX_ATTEMPTS in all; then they
-   * stay FAILED (with the error's name) for support.
+   * stay FAILED (with the error's name) for support. Fewest attempts first, so rows that keep
+   * failing never hold up new ones. A task that stops between the send and the status update
+   * leaves the row QUEUED (or FAILED) with its attempt counted: it is sent again after
+   * EMAIL_RETRY_AFTER_MS (at least once, not exactly once).
    */
   private async emailRetries(options: JobRunOptions): Promise<number> {
     const now = options.now ?? new Date();
@@ -232,7 +272,7 @@ export class ReminderJobs implements OnApplicationBootstrap, OnModuleDestroy {
           updatedAt: { lte: new Date(now.getTime() - EMAIL_RETRY_AFTER_MS) },
         },
         select: { id: true, attempts: true },
-        orderBy: { updatedAt: 'asc' },
+        orderBy: [{ attempts: 'asc' }, { updatedAt: 'asc' }],
         take: BATCH,
       });
       for (const d of due) {

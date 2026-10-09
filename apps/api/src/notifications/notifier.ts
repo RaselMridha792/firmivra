@@ -233,6 +233,37 @@ const EMAIL_EVENTS = new Set<NotificationEvent>([
   'payment.received',
 ] satisfies (NotificationEvent & NotifyTemplate)[]);
 
+/**
+ * Whether the record an outbox email is about still stands when the copy is retried (up to ~25
+ * minutes later): an appointment still SCHEDULED at the time the email names (a later change sends
+ * its own email), an invoice not CANCELED (any status for payment.received, which happened). The
+ * record is re-read through the firm's scope by the bell item's entity id. Other events have no
+ * state that would make the email wrong and send as before.
+ */
+async function stillLive(
+  db: ReturnType<Database['forBusiness']>,
+  businessId: string,
+  event: NotificationEvent,
+  id: string,
+  payload: Payload,
+): Promise<boolean> {
+  if (event.startsWith('appointment.')) {
+    const a = await db.appointment.findFirst({
+      where: { businessId, id },
+      select: { status: true, startsAt: true },
+    });
+    return (
+      a?.status === 'SCHEDULED' &&
+      (typeof payload.startsAt !== 'string' || a.startsAt.toISOString() === payload.startsAt)
+    );
+  }
+  if (event === 'invoice.sent' || event === 'payment.received') {
+    const i = await db.invoice.findFirst({ where: { businessId, id }, select: { status: true } });
+    return !!i && (event === 'payment.received' || i.status !== 'CANCELED');
+  }
+  return true;
+}
+
 const accountSelect = { userId: true, email: true, user: { select: { name: true } } } as const;
 const memberSelect = { userId: true, user: { select: { name: true } } } as const;
 
@@ -453,7 +484,8 @@ export class Notifier {
   /**
    * Retries one email copy from the outbox (the job calls it for a QUEUED or FAILED delivery):
    * rebuilt from its bell item (the record's safe values) and the recipient's login as it is now.
-   * SKIPPED when the login is no longer ACTIVE. `busy`: another task claimed it first.
+   * SKIPPED when the login is no longer ACTIVE, or the record no longer stands (`stillLive`).
+   * `busy`: another task claimed it first.
    */
   async retryDelivery(
     businessId: string,
@@ -473,6 +505,9 @@ export class Notifier {
       const n = d?.notification;
       const event = n ? eventOfType(n.type) : null;
       if (!n || !event || !EMAIL_EVENTS.has(event)) return 'skip';
+      if (!(await stillLive(db, businessId, event, n.entityId, (n.payload ?? {}) as Payload))) {
+        return 'skip';
+      }
       const login = await db.clientAccount.findFirst({
         where: { businessId, userId: n.recipientUserId, status: 'ACTIVE' },
         select: accountSelect,
