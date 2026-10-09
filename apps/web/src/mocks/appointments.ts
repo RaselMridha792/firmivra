@@ -266,6 +266,7 @@ function freeStarts(
   fromDay: number,
   toDay: number,
   excludeAppointmentId?: string,
+  clientId?: string,
 ) {
   const slots: Slot[] = [];
   const now = Date.now();
@@ -289,7 +290,7 @@ function freeStarts(
             (a) =>
               a.id !== excludeAppointmentId &&
               a.status === 'SCHEDULED' &&
-              a.staff.userId === member.userId &&
+              (a.staff.userId === member.userId || a.client.id === clientId) &&
               overlaps(a, slot),
           ) ||
           s.blocks.some(
@@ -599,12 +600,20 @@ export function createAppointmentsMock(options: { role?: MockFirmRole } = {}): A
       const t = s.types.find((x) => x.id === q.typeId);
       if (!t) throw errors.notFound();
       if (t.archivedAt) throw errors.typeArchived();
+      // As the API: a move keeps its own length and its client's other appointments are taken;
+      // a clientId does the same for a booking (Staff: their own clients, else 404).
+      const moving = q.excludeAppointmentId ? find(q.excludeAppointmentId) : undefined;
+      if (q.clientId && staffOnly && !assigned(q.clientId)) throw errors.notFound();
+      const minutes = moving
+        ? (Date.parse(moving.endsAt) - Date.parse(moving.startsAt)) / MINUTE
+        : t.durationMinutes;
+      const clientId = moving?.client.id ?? q.clientId;
       const [from, to] = dayRange(q.from, q.to);
       const who = q.staffUserId
         ? [member(q.staffUserId)].filter((m) => m !== undefined)
         : members();
       const slots = who.flatMap((m) =>
-        freeStarts(s, m, t.durationMinutes, from, to, q.excludeAppointmentId),
+        freeStarts(s, m, minutes, from, to, q.excludeAppointmentId, clientId),
       );
       return copy({
         timezone: TIMEZONE,

@@ -24,6 +24,7 @@ import {
   appointmentSelect,
   type AppointmentRow,
   busyTimes,
+  clientBusy,
   dateSpan,
   type FirmActor,
   firmTimeZone,
@@ -184,10 +185,20 @@ export class AppointmentsService {
       if (!type) throw errors.notFound();
       // As booking it: an archived type is 409, never an empty list (#108 review).
       if (type.archivedAt) throw errors.typeArchived();
-      // Rescheduling: Staff may exclude only an appointment they see in full (else 404).
-      if (q.excludeAppointmentId) {
-        await this.findInFull(tx, businessId, actor, q.excludeAppointmentId);
+      // Rescheduling: Staff may exclude only an appointment they see in full (else 404). The move
+      // keeps its own length (reschedule does), and its client's other appointments are taken.
+      const moving = q.excludeAppointmentId
+        ? await this.findInFull(tx, businessId, actor, q.excludeAppointmentId)
+        : null;
+      // Booking for a client: Staff only for their own clients (else 404), as booking it.
+      if (q.clientId && actor.role === 'STAFF') {
+        const mine = await tx.client.findFirst({
+          where: { businessId, id: q.clientId, assignedUserId: actor.userId },
+          select: { id: true },
+        });
+        if (!mine) throw errors.notFound();
       }
+      const clientId = moving?.clientId ?? q.clientId;
       const members = q.staffUserId
         ? [await activeMember(tx, businessId, q.staffUserId)]
         : await activeMembers(tx, businessId);
@@ -202,15 +213,17 @@ export class AppointmentsService {
         timeZone,
         from: q.from,
         to: q.to,
-        minutes: type.durationMinutes,
+        minutes: moving
+          ? (moving.endsAt.getTime() - moving.startsAt.getTime()) / MINUTE
+          : type.durationMinutes,
         notBefore: Date.now(),
       };
+      const clients = clientId ? clientBusy(busy, clientId, q.excludeAppointmentId) : [];
       const slots = members.flatMap((staff) =>
-        freeStarts(
-          query,
-          hours.get(staff.userId) ?? [],
-          memberBusy(busy, staff.userId, q.excludeAppointmentId),
-        ).map((s) => ({ startsAt: iso(s.start), endsAt: iso(s.end), staff })),
+        freeStarts(query, hours.get(staff.userId) ?? [], [
+          ...memberBusy(busy, staff.userId, q.excludeAppointmentId),
+          ...clients,
+        ]).map((s) => ({ startsAt: iso(s.start), endsAt: iso(s.end), staff })),
       );
       slots.sort(
         (a, b) => a.startsAt.localeCompare(b.startsAt) || a.staff.name.localeCompare(b.staff.name),
@@ -261,7 +274,7 @@ export class AppointmentsService {
         (locationKind === 'VIDEO'
           ? await linkOf(this.links, tx, businessId, body.staffUserId)
           : null);
-      await lockForBooking(tx, businessId, body.staffUserId);
+      await lockForBooking(tx, businessId, body.staffUserId, client.id);
       const created = await tx.appointment.create({
         data: {
           businessId,
@@ -310,7 +323,7 @@ export class AppointmentsService {
         current,
         staffUserId,
       );
-      await lockForBooking(tx, businessId, staffUserId);
+      await lockForBooking(tx, businessId, staffUserId, current.clientId);
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: {

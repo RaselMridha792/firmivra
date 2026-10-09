@@ -286,7 +286,7 @@ export class MyAppointmentsService {
         type.locationKind === 'VIDEO'
           ? await linkOf(this.links, tx, businessId, staff.userId)
           : null;
-      await lockForBooking(tx, businessId, staff.userId);
+      await lockForBooking(tx, businessId, staff.userId, me.clientId);
       const created = await tx.appointment.create({
         data: {
           businessId,
@@ -331,7 +331,7 @@ export class MyAppointmentsService {
         current,
         staff.userId,
       );
-      await lockForBooking(tx, businessId, staff.userId);
+      await lockForBooking(tx, businessId, staff.userId, current.clientId);
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: {

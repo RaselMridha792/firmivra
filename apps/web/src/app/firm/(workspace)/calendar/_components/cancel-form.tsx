@@ -5,23 +5,37 @@ import { Button, Input } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { api } from '../../../../../lib/api';
-import { errorMessage } from '../../../../../lib/errors';
+import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
-import { APPOINTMENTS, CALENDAR_ERRORS } from './shared';
+import { CALENDAR, CALENDAR_ERRORS, GONE } from './shared';
 
 /** Cancels an appointment, with an optional reason the history keeps. */
-export function CancelForm({ id, onDone }: { id: string; onDone: () => void }) {
+export function CancelForm({
+  id,
+  onDone,
+  onStale,
+}: {
+  id: string;
+  onDone: () => void;
+  /** Reloads the appointment after someone else changed it. */
+  onStale: () => void;
+}) {
   const form = useForm({
     resolver: zodResolver(CancelAppointmentRequest),
     defaultValues: { reason: '' },
   });
   const cancel = useApiMutation(
     (body: CancelAppointmentRequest) => api.appointments.cancel(id, body),
-    { invalidate: APPOINTMENTS },
+    { invalidate: CALENDAR },
   );
   return (
     <form
-      onSubmit={form.handleSubmit((body) => cancel.mutate(body, { onSuccess: onDone }))}
+      onSubmit={form.handleSubmit((body) =>
+        cancel.mutate(body, {
+          onSuccess: onDone,
+          onError: (error) => (GONE.has(errorCode(error) ?? '') ? onStale() : undefined),
+        }),
+      )}
       noValidate
       className="flex flex-col items-start gap-3 rounded-card border border-border p-4"
     >
