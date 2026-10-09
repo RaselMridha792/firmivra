@@ -294,7 +294,6 @@ export function createMessagesMock(options: { role?: MockFirmRole } = {}): Messa
     list: async (query = {}) => {
       await mockDelay();
       const q = parseInput(ListMessageThreadsQuery, query);
-      if (q.clientId) clientOf(q.clientId);
       const rows = threads
         .filter((t) => reach.has(t.clientId) && (!q.clientId || t.clientId === q.clientId))
         .filter((t) => matches(t, SIDE, q))
