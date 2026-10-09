@@ -6,8 +6,8 @@ import {
   ENTITY_TYPES,
   FIRM_PLANS,
   FIRM_SERVICES,
-  PRACTICE_TYPES,
   FirmApplicationId,
+  type BusinessStatus,
   type FirmApplicationRecord,
 } from '@firmivra/types';
 import { Button, Card, Modal } from '@firmivra/ui';
@@ -76,11 +76,11 @@ const longDate = (value: string) =>
     year: 'numeric',
   }).format(new Date(value));
 
-const FIRM_STATUS: Record<string, { label: string; tone: string }> = {
+const FIRM_STATUS: Partial<Record<BusinessStatus, { label: string; tone: string }>> = {
   ACTIVE: { label: 'Active', tone: 'bg-success-soft text-success' },
   PENDING_SETUP: { label: 'Pending Setup', tone: 'bg-warning-soft text-warning' },
 };
-const firmStatus = (status: string) =>
+const firmStatus = (status: BusinessStatus) =>
   FIRM_STATUS[status] ?? { label: humanize(status), tone: 'bg-disabled text-muted' };
 
 function ApplicationRecord({
@@ -139,7 +139,6 @@ function ApplicationRecord({
         ['Business Name', application.legalName],
         ...(application.dbaName ? [['DBA', application.dbaName] as const] : []),
         ['Business Type', ENTITY_TYPES[business.entityType]],
-        ['Practice Type', PRACTICE_TYPES[business.practiceType]],
         ['Services Offered', business.services.map((item) => FIRM_SERVICES[item]).join(', ')],
         ['EIN (if applicable)', business.einLast4 ? `••••${business.einLast4}` : 'Not provided'],
         ...(business.email ? [['Business Email', mail(business.email)] as const] : []),
@@ -188,12 +187,13 @@ function ApplicationRecord({
             </span>,
           ],
           ['Portal Address', `/${firm.slug}`],
-          ...(application.ownerInvite
+          // Only while the owner has not accepted: the timeline already records the invite.
+          ...(application.ownerInvite && application.ownerInvite.status !== 'ACCEPTED'
             ? [
                 [
                   'Owner Invite',
-                  application.ownerInvite.status === 'ACCEPTED'
-                    ? 'Accepted'
+                  application.ownerInvite.status === 'EXPIRED'
+                    ? `Expired ${dateParts(application.ownerInvite.expiresAt)[0]}`
                     : `${humanize(application.ownerInvite.status)}, expires ${dateParts(application.ownerInvite.expiresAt)[0]}`,
                 ] as const,
               ]
@@ -277,10 +277,13 @@ function ApplicationRecord({
             Notes saved.
           </p>
         )}
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-muted">Notes are only visible to Firmivra administrators.</p>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="min-w-0 flex-1 text-xs text-muted">
+            Notes are only visible to Firmivra administrators.
+          </p>
           <Button
             type="submit"
+            className="shrink-0"
             disabled={busy || notes.trim() === (application.internalNotes ?? '').trim()}
           >
             {saveNotes.isPending ? 'Saving…' : 'Save Note'}
@@ -304,7 +307,7 @@ function ApplicationRecord({
   const status = firm ? firmStatus(firm.status) : null;
 
   return (
-    <section className="flex w-full flex-col gap-5 rounded-card bg-surface p-4 shadow-md md:p-6">
+    <section className="flex w-full flex-col gap-5 rounded-card bg-surface p-4 shadow-md md:p-5">
       <Link
         href="/applications"
         className="inline-flex w-fit items-center gap-3 text-base font-medium text-link"
@@ -317,8 +320,8 @@ function ApplicationRecord({
           {notice}
         </p>
       ) : null}
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <header className="flex flex-wrap items-start justify-between gap-4 xl:flex-nowrap">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-4">
             <h1
               data-testid="page-title"
@@ -349,10 +352,10 @@ function ApplicationRecord({
           )}
         </div>
         {canDecide && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <Button
               disabled={busy}
-              className="enabled:!bg-success"
+              className="enabled:!bg-success enabled:hover:!bg-success/90"
               onClick={() => openAction('approve')}
             >
               <Check aria-hidden className="size-4" />
@@ -360,7 +363,7 @@ function ApplicationRecord({
             </Button>
             <Button
               variant="outline"
-              className="enabled:!bg-info-soft"
+              className="enabled:!bg-info-soft enabled:hover:!bg-folder-hover"
               disabled={busy}
               onClick={() => openAction('request-info')}
             >
@@ -369,7 +372,7 @@ function ApplicationRecord({
             </Button>
             <Button
               variant="outline"
-              className="enabled:!border-danger enabled:!bg-danger-soft enabled:!text-danger"
+              className="enabled:!border-danger enabled:!bg-danger-soft enabled:!text-danger enabled:hover:!bg-danger/15"
               disabled={busy}
               onClick={() => openAction('decline')}
             >
@@ -381,13 +384,14 @@ function ApplicationRecord({
         {/* Edit Firm Details and Deactivate Firm wait for their API; only working buttons show. */}
         {firm && (
           <a
-            href={`${appBaseUrl}/`}
+            href={appBaseUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover"
+            className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover"
           >
             <ExternalLink aria-hidden className="size-4" />
             Open Firm Workspace
+            <span className="sr-only"> (opens in a new tab)</span>
           </a>
         )}
       </header>

@@ -2,7 +2,7 @@
 
 import type { FirmApplicationEvent, FirmApplicationRecord } from '@firmivra/types';
 import { Card } from '@firmivra/ui';
-import { CircleCheck, type LucideIcon } from 'lucide-react';
+import { CircleCheck, Clock3, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { dateParts } from './application-ui';
 
@@ -30,13 +30,13 @@ export function FieldCard({
   fields: readonly Field[];
 }) {
   return (
-    <Card className="!p-4">
+    <Card className="!p-3">
       <CardHeading icon={icon}>{title}</CardHeading>
       <dl className="mt-4 overflow-hidden rounded-control bg-canvas text-sm">
         {fields.map(([label, value]) => (
           <div key={label} className="grid grid-cols-5 border-b border-surface last:border-b-0">
-            <dt className="col-span-2 px-3 py-1.5 text-muted">{label}</dt>
-            <dd className="col-span-3 border-l border-surface px-3 py-1.5 break-words text-text">
+            <dt className="col-span-2 px-2 py-1.5 text-muted">{label}</dt>
+            <dd className="col-span-3 border-l border-surface px-2 py-1.5 break-words text-text">
               {typeof value === 'string' ? value.trim() || '—' : (value ?? '—')}
             </dd>
           </div>
@@ -55,32 +55,40 @@ export function formatPhone(value: string | null | undefined) {
 /** The documents table; "No documents uploaded." in its body when there are none. */
 export function DocumentsTable({ documents }: { documents: FirmApplicationRecord['documents'] }) {
   return (
-    <table className="mt-4 w-full overflow-hidden rounded-control border border-border text-left text-sm">
-      <thead className="bg-folder-surface text-text">
-        <tr>
-          <th className="px-3 py-2 font-medium">Document Name</th>
-          <th className="px-3 py-2 font-medium">File</th>
-          <th className="px-3 py-2 text-right font-medium">Uploaded</th>
-        </tr>
-      </thead>
-      <tbody>
-        {documents.length ? (
-          documents.map((document) => (
-            <tr key={document.id} className="border-t border-border">
-              <td className="px-3 py-2">{document.name}</td>
-              <td className="px-3 py-2 break-all">{document.fileName}</td>
-              <td className="px-3 py-2 text-right">{dateParts(document.uploadedAt)[0]}</td>
-            </tr>
-          ))
-        ) : (
+    <div className="mt-4 overflow-hidden rounded-control border border-border">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-folder-surface text-text">
           <tr>
-            <td colSpan={3} className="px-3 py-4 text-center text-muted">
-              No documents uploaded.
-            </td>
+            <th scope="col" className="px-3 py-2 font-medium">
+              Document Name
+            </th>
+            <th scope="col" className="px-3 py-2 font-medium">
+              File
+            </th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">
+              Uploaded
+            </th>
           </tr>
-        )}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {documents.length ? (
+            documents.map((document) => (
+              <tr key={document.id} className="border-t border-border">
+                <td className="px-3 py-2">{document.name}</td>
+                <td className="px-3 py-2 break-all">{document.fileName}</td>
+                <td className="px-3 py-2 text-right">{dateParts(document.uploadedAt)[0]}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={3} className="px-3 py-4 text-center text-muted">
+                No documents uploaded.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -97,13 +105,16 @@ const EVENT_TITLES: Record<FirmApplicationEvent['type'], string> = {
 export function Timeline({ application }: { application: FirmApplicationRecord }) {
   if (!application.history.length)
     return <p className="mt-4 text-sm text-muted">No application history yet.</p>;
-  const describe = (event: FirmApplicationEvent) =>
-    event.message ||
-    (event.type === 'SUBMITTED'
-      ? `Application received from ${application.contactName} (${application.contactEmail}).`
-      : event.by
-        ? `Recorded by ${event.by.name}.`
-        : 'Recorded by the firm owner.');
+  // The API sends OWNER_INVITED and FIRM_ACTIVATED without a `by`, so each type has its own line.
+  const describe = (event: FirmApplicationEvent) => {
+    if (event.message) return event.message;
+    if (event.type === 'SUBMITTED')
+      return `Application received from ${application.contactName} (${application.contactEmail}).`;
+    if (event.type === 'OWNER_INVITED')
+      return `Activation link sent to ${application.primaryAdmin?.email ?? application.contactEmail}.`;
+    if (event.type === 'FIRM_ACTIVATED') return 'The owner finished setup; the firm is active.';
+    return event.by ? `Recorded by ${event.by.name}.` : 'Recorded by a Firmivra administrator.';
+  };
   return (
     <ol className="mt-4 flex flex-col">
       {application.history.map((event) => {
@@ -114,7 +125,7 @@ export function Timeline({ application }: { application: FirmApplicationRecord }
             className="relative grid grid-cols-7 gap-3 pb-4 pl-6 text-sm before:absolute before:top-2 before:bottom-0 before:left-1.5 before:border-l-2 before:border-folder-border last:before:hidden"
           >
             <span aria-hidden className="absolute top-1 left-0 size-3 rounded-pill bg-link" />
-            <time dateTime={event.at} className="col-span-2 text-muted">
+            <time dateTime={event.at} className="col-span-2 whitespace-nowrap text-muted">
               {day}
               <span className="block">{time}</span>
             </time>
@@ -136,7 +147,11 @@ export function ActiveFeatures({ active }: { active: boolean }) {
       {['Firm Workspace Access', 'Client Portal Access', 'Document Storage', 'Basic Settings'].map(
         (feature) => (
           <li key={feature} className="flex items-center gap-3 py-1">
-            <CircleCheck aria-hidden className="size-5 shrink-0 text-success" />
+            {active ? (
+              <CircleCheck aria-hidden className="size-5 shrink-0 text-success" />
+            ) : (
+              <Clock3 aria-hidden className="size-5 shrink-0 text-muted" />
+            )}
             <span className="flex-1 text-text">{feature}</span>
             <span
               className={`rounded-pill px-2 py-0.5 text-xs font-semibold ${active ? 'bg-surface text-success' : 'bg-surface text-warning'}`}

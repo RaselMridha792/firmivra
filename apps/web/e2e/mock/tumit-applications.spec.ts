@@ -61,6 +61,20 @@ test('approves an application and refreshes its status, list and counts', async 
   // Approved: the title shows the new firm's status, and the line under it the approval date.
   await expect(page.getByTestId('application-status')).toHaveText('Pending Setup');
   await expect(page.getByTestId('approved-firm-summary')).toContainText('Approved on');
+  // Once approved: no decision buttons, a link to the firm site, and the owner invite in the timeline.
+  await expect(page.getByRole('button', { name: 'Approve Application' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /Open Firm Workspace/ })).toHaveAttribute(
+    'href',
+    /^https?:\/\/app\.[^/]+\/$/,
+  );
+  await expect(page.getByText('(404) 555-0103', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'riley@sample-ledger.example.test' }),
+  ).toHaveAttribute('href', 'mailto:riley@sample-ledger.example.test');
+  await expect(page.getByText('Owner Invited', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('Activation link sent to riley@sample-ledger.example.test.'),
+  ).toBeVisible();
   await page.getByRole('link', { name: /Back to Applications/i }).click();
   await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Approved (4)' })).toBeVisible();
