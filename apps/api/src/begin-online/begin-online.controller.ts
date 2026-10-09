@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Module, Param, Post, Put, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Module,
+  Param,
+  Post,
+  Put,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
@@ -6,7 +18,13 @@ import {
   type BeginDraft,
   type BeginOnlineForm,
   type BeginOnlineServiceList,
+  ConfirmUploadRequest,
+  CreateDraftUploadRequest,
+  type DraftUpload,
+  ResumeDraftRequest,
+  type ResumeLinkSent,
   SaveDraftStepRequest,
+  type UploadTicket,
   StartDraftRequest,
 } from '@firmivra/types';
 import { Public } from '../auth/decorators.js';
@@ -14,11 +32,17 @@ import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { BeginOnlineService } from './begin-online.service.js';
+import { DRAFT_UPLOAD_PROVIDERS, DraftUploadsService } from './draft-uploads.service.js';
+import { ResumeLinksService } from './resume-links.service.js';
 
 /** Per viewer IP, in memory (see configure-app.ts): a new draft is the scarce one. */
 export const BEGIN_ONLINE_THROTTLE = {
   start: { default: { limit: 5, ttl: 60_000 } },
   save: { default: { limit: 60, ttl: 60_000 } },
+  /** Emails: few per IP (the per-draft and per-firm limits are counted in the database). */
+  resumeLink: { default: { limit: 5, ttl: 600_000 } },
+  resume: { default: { limit: 10, ttl: 60_000 } },
+  upload: { default: { limit: 30, ttl: 60_000 } },
 };
 
 /**
@@ -28,7 +52,11 @@ export const BEGIN_ONLINE_THROTTLE = {
  */
 @Controller('portal/:firmSlug/begin-online')
 export class BeginOnlineController {
-  constructor(private readonly beginOnline: BeginOnlineService) {}
+  constructor(
+    private readonly beginOnline: BeginOnlineService,
+    private readonly links: ResumeLinksService,
+    private readonly uploads: DraftUploadsService,
+  ) {}
 
   @Get('services')
   @Public()
@@ -73,11 +101,76 @@ export class BeginOnlineController {
   ): Promise<BeginDraft> {
     return this.beginOnline.saveStep(slug, stepKey, body.answers, req);
   }
+
+  @Post('drafts/current/resume-link')
+  @Public()
+  @HttpCode(200)
+  @Throttle(BEGIN_ONLINE_THROTTLE.resumeLink)
+  resumeLink(
+    @Param('firmSlug') slug: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ResumeLinkSent> {
+    return this.links.send(slug, req, res);
+  }
+
+  @Post('drafts/resume')
+  @Public()
+  @HttpCode(200)
+  @Throttle(BEGIN_ONLINE_THROTTLE.resume)
+  resume(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(ResumeDraftRequest)) body: z.output<typeof ResumeDraftRequest>,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<BeginDraft> {
+    return this.links.resume(slug, body.token, res);
+  }
+
+  @Post('drafts/current/uploads')
+  @Public()
+  @HttpCode(200)
+  @Throttle(BEGIN_ONLINE_THROTTLE.upload)
+  createUpload(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(CreateDraftUploadRequest))
+    body: z.output<typeof CreateDraftUploadRequest>,
+    @Req() req: Request,
+  ): Promise<UploadTicket> {
+    return this.uploads.ticket(slug, req, body);
+  }
+
+  @Post('drafts/current/uploads/confirm')
+  @Public()
+  @HttpCode(200)
+  @Throttle(BEGIN_ONLINE_THROTTLE.upload)
+  confirmUpload(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(ConfirmUploadRequest)) body: z.output<typeof ConfirmUploadRequest>,
+    @Req() req: Request,
+  ): Promise<DraftUpload> {
+    return this.uploads.confirm(slug, req, body.uploadToken);
+  }
+
+  @Delete('drafts/current/uploads/:id')
+  @Public()
+  @Throttle(BEGIN_ONLINE_THROTTLE.upload)
+  deleteUpload(
+    @Param('firmSlug') slug: string,
+    @Param('id') id: string,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    return this.uploads.remove(slug, req, id);
+  }
 }
 
 @Module({
   imports: [PortalInfoModule, FieldEncryptionModule],
   controllers: [BeginOnlineController],
-  providers: [BeginOnlineService],
+  providers: [
+    BeginOnlineService,
+    ResumeLinksService,
+    DraftUploadsService,
+    ...DRAFT_UPLOAD_PROVIDERS,
+  ],
 })
 export class BeginOnlineModule {}

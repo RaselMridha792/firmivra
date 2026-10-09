@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { FirmSlug } from '../schemas.js';
+import { ScanStatus } from '../db-enums.js';
+import {
+  CreateMyUploadRequest,
+  fileNameFitsType,
+  UPLOAD_LIMITS,
+  UploadContentType,
+} from '../documents/schemas.js';
 import {
   IntakeFormDefinition,
   IntakeFormKey,
@@ -136,6 +143,21 @@ export type StartDraftRequest = z.input<typeof StartDraftRequest>;
 export const SaveDraftStepRequest = z.strictObject({ answers: IntakeAnswersInput });
 export type SaveDraftStepRequest = z.input<typeof SaveDraftStepRequest>;
 
+/**
+ * A file of the draft, in an upload slot of its form. `scanStatus`: PENDING while the malware scan
+ * runs; only CLEAN and PENDING files count for a required slot (COUNTED_UPLOAD_STATUSES).
+ */
+export const DraftUpload = z.object({
+  id: z.uuid(),
+  slot: IntakeKey,
+  fileName: z.string(),
+  contentType: UploadContentType,
+  sizeBytes: z.number().int(),
+  scanStatus: ScanStatus,
+  createdAt: DateTime,
+});
+export type DraftUpload = z.infer<typeof DraftUpload>;
+
 /** The draft as the visitor sees it. SSNs and EINs only as `{ last4 }`. */
 export const BeginDraft = z
   .object({
@@ -150,12 +172,57 @@ export const BeginDraft = z
     savedSteps: z.array(IntakeKey),
     /** When the draft runs out unless it is saved again (30 days from the last save). */
     draftExpiresAt: DateTime,
+    /** Its files, oldest first (`createUpload`; files are added only while it is a draft). */
+    uploads: z.array(DraftUpload),
   })
   .refine((d) => intakeNumbersMasked(d.definition, d.answers), {
     message: 'An SSN or EIN must come back masked',
     path: ['answers'],
   });
 export type BeginDraft = z.infer<typeof BeginDraft>;
+
+// ---------- Resume links ----------
+
+/**
+ * POST .../drafts/current/resume-link answers when the draft now runs out. The email holds a link
+ * `{portal}/{slug}/begin/resume#token=...` (the key in the fragment, never sent to a server); a
+ * new link replaces the old one and this browser's cookie.
+ */
+export const ResumeLinkSent = z.object({ draftExpiresAt: DateTime });
+export type ResumeLinkSent = z.infer<typeof ResumeLinkSent>;
+
+/** POST .../drafts/resume: the fragment's token, in the body (never in a URL). */
+export const ResumeDraftRequest = z.strictObject({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'This link is not complete'),
+});
+export type ResumeDraftRequest = z.input<typeof ResumeDraftRequest>;
+
+/** The resume page's `#token=...`, or null. */
+export function resumeTokenFromHash(hash: string): string | null {
+  const token = new URLSearchParams(hash.replace(/^#/, '')).get('token');
+  return token && ResumeDraftRequest.safeParse({ token }).success ? token : null;
+}
+
+// ---------- Uploads ----------
+const { fileName, contentType, sizeBytes, sha256 } = CreateMyUploadRequest.shape;
+
+/**
+ * POST .../drafts/current/uploads: a file for an upload slot of the draft's form (PDF, JPG, PNG,
+ * .xlsx or .docx, at most 10 MB). Then PUT it to the ticket's URL and `confirmUpload`
+ * (ConfirmUploadRequest), as with documents (`uploadFile()` in apps/web/src/lib/upload.ts).
+ */
+export const CreateDraftUploadRequest = z
+  .strictObject({ slot: IntakeKey, fileName, contentType, sizeBytes, sha256 })
+  .superRefine((body, ctx) => {
+    if (!fileNameFitsType(body.fileName, body.contentType)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['fileName'],
+        message: `The file name must end in ${UPLOAD_LIMITS.types[body.contentType].join(' or ')}`,
+      });
+    }
+  });
+export type CreateDraftUploadRequest = z.input<typeof CreateDraftUploadRequest>;
 
 /** `error.details` of a 400 VALIDATION_FAILED about answers (the same as intake submit's). */
 export const BeginOnlineValidationDetails = z.object({ issues: z.array(IntakeIssue) });
@@ -171,6 +238,18 @@ export const BeginOnlineErrorCode = z.enum([
   'DRAFT_EXPIRED',
   /** 409: the firm published a new version of the form meanwhile: reload it and start again. */
   'FORM_CHANGED',
+  /** 410: a resume link that is not (or no longer) valid: replaced, expired or sent. */
+  'RESUME_LINK_EXPIRED',
+  /** 409: the slot (its `maxFiles`) or the draft (50 files) is full. */
+  'TOO_MANY_FILES',
+  /** 410: the upload ticket expired or was used. */
+  'UPLOAD_EXPIRED',
+  /** 409: the stored file is not the described one (size, checksum or type). */
+  'UPLOAD_MISMATCH',
+  'FILE_PASSWORD_PROTECTED',
+  'FILE_HAS_MACROS',
+  /** 503: files or email can't be reached right now. */
+  'SERVICE_UNAVAILABLE',
   /** 429: too many requests; try again later. */
   'RATE_LIMITED',
   /** 503: SSNs and EINs can't be saved right now. */
@@ -184,6 +263,13 @@ export const BEGIN_ONLINE_ERRORS = {
   DRAFT_NOT_FOUND: 'We could not find your saved form. Please start again.',
   DRAFT_EXPIRED: 'Your saved form has expired. Please start again.',
   FORM_CHANGED: 'This form was just updated. Please reload the page.',
+  RESUME_LINK_EXPIRED: 'This link has expired or was replaced by a newer one.',
+  TOO_MANY_FILES: 'No more files can be added here.',
+  UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
+  UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
+  FILE_PASSWORD_PROTECTED: 'Remove the password and upload the file again.',
+  FILE_HAS_MACROS: 'Save it as a regular .xlsx or .docx without macros and upload again.',
+  SERVICE_UNAVAILABLE: 'This is not available right now. Please try again in a moment.',
   RATE_LIMITED: 'Too many attempts. Please try again later.',
   ENCRYPTION_UNAVAILABLE: 'Your answers cannot be saved right now. Please try again later.',
 } as const satisfies Record<BeginOnlineErrorCode, string>;

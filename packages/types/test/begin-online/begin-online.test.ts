@@ -8,6 +8,9 @@ import {
   BUSINESS_DEVELOPMENT_FORM,
   createBeginOnlineClient,
   createRequest,
+  CreateDraftUploadRequest,
+  ResumeDraftRequest,
+  resumeTokenFromHash,
   INTAKE_FORMS,
   PAYROLL_FORM,
   SaveDraftStepRequest,
@@ -36,7 +39,9 @@ const draft = {
   answers: { firstName: 'Avery', ssn: { last4: '6789' } },
   savedSteps: ['personal'],
   draftExpiresAt: '2026-11-08T09:00:00.000Z',
+  uploads: [],
 };
+const token = 'A'.repeat(42) + '_';
 
 describe('Begin Online contract', () => {
   it('a draft never carries a full SSN or EIN', () => {
@@ -112,5 +117,47 @@ describe('Begin Online contract', () => {
       'PUT /api/v1/portal/lvp/begin-online/drafts/current/steps/personal',
       'POST /api/v1/portal/lvp/begin-online/drafts',
     ]);
+  });
+
+  it('reads the resume token from the fragment only when it is complete', () => {
+    expect(resumeTokenFromHash(`#token=${token}`)).toBe(token);
+    expect(resumeTokenFromHash(`#token=${token.slice(1)}`)).toBeNull();
+    expect(resumeTokenFromHash('')).toBeNull();
+    expect(ResumeDraftRequest.safeParse({ token }).success).toBe(true);
+    expect(ResumeDraftRequest.safeParse({ token, extra: 1 }).success).toBe(false);
+  });
+
+  it("an upload names its slot and fits R5's file rules", () => {
+    const file = {
+      slot: 'governmentId',
+      fileName: 'id.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 100,
+      sha256: 'a'.repeat(64),
+    };
+    expect(CreateDraftUploadRequest.safeParse(file).success).toBe(true);
+    for (const bad of [
+      { ...file, slot: 'Not a key' },
+      { ...file, sizeBytes: 10 * 1024 * 1024 + 1 },
+      { ...file, fileName: 'id.docx' },
+      { ...file, contentType: 'text/html' },
+      { ...file, leadId: id },
+    ]) {
+      expect(CreateDraftUploadRequest.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  it('calls the resume and upload routes', async () => {
+    const { fn, calls } = fakeFetch({ ok: true });
+    const api = createBeginOnlineClient(createRequest({ baseUrl: '/api/v1', fetch: fn }), 'lvp');
+    await api.sendResumeLink().catch(() => undefined);
+    await api.resume({ token }).catch(() => undefined);
+    await api.deleteUpload(id);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'POST /api/v1/portal/lvp/begin-online/drafts/current/resume-link',
+      'POST /api/v1/portal/lvp/begin-online/drafts/resume',
+      `DELETE /api/v1/portal/lvp/begin-online/drafts/current/uploads/${id}`,
+    ]);
+    expect(calls[1]?.body).toEqual({ token });
   });
 });

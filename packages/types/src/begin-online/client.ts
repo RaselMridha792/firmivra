@@ -5,10 +5,16 @@ import {
   BeginOnlineForm,
   BeginOnlineServiceList,
   BeginOnlineSlug,
+  CreateDraftUploadRequest,
+  DraftUpload,
+  ResumeDraftRequest,
+  ResumeLinkSent,
   SaveDraftStepRequest,
   StartDraftRequest,
 } from './schemas.js';
 import { z } from 'zod';
+import { OkResponse } from '../schemas.js';
+import { ConfirmUploadRequest, UploadTicket } from '../documents/schemas.js';
 
 /**
  * `api.beginOnline(firmSlug)`: Begin Online on a firm's portal site, signed out. Every call
@@ -54,6 +60,51 @@ export function createBeginOnlineClient(request: ApiRequest, firmSlug: string) {
       request(BeginDraft, `${drafts()}/current/steps/${parseInput(IntakeKey, stepKey)}`, {
         method: 'PUT',
         body: parseInput(SaveDraftStepRequest, body),
+      }),
+    /**
+     * Emails the draft's contact a link to continue on another device (the firm's branding, the
+     * link only). The new link replaces the old one and this browser's cookie; the draft gets
+     * its 30 days again. 404 NOT_FOUND or DRAFT_NOT_FOUND; 410 DRAFT_EXPIRED; 429 RATE_LIMITED
+     * (5 a day per draft, and per IP); 503 SERVICE_UNAVAILABLE (the email did not go out: the
+     * draft stays open in this browser, try again).
+     */
+    sendResumeLink: async () =>
+      request(ResumeLinkSent, `${drafts()}/current/resume-link`, { method: 'POST', body: {} }),
+    /**
+     * The resume page: trades the link's token (`resumeTokenFromHash(location.hash)`) for this
+     * browser's cookie and answers the draft. 410 RESUME_LINK_EXPIRED for any token that does
+     * not open a live draft; 404 NOT_FOUND; 429 RATE_LIMITED.
+     */
+    resume: async (body: ResumeDraftRequest) =>
+      request(BeginDraft, `${drafts()}/resume`, {
+        method: 'POST',
+        body: parseInput(ResumeDraftRequest, body),
+      }),
+    /**
+     * Step 1 of an upload for a slot of the draft's form (then PUT, then `confirmUpload`; use
+     * `uploadFile()`). 400 VALIDATION_FAILED (not an upload slot of the form, type, size); 404
+     * NOT_FOUND or DRAFT_NOT_FOUND; 409 TOO_MANY_FILES; 410 DRAFT_EXPIRED; 429 RATE_LIMITED;
+     * 503 SERVICE_UNAVAILABLE.
+     */
+    createUpload: async (body: CreateDraftUploadRequest) =>
+      request(UploadTicket, `${drafts()}/current/uploads`, {
+        method: 'POST',
+        body: parseInput(CreateDraftUploadRequest, body),
+      }),
+    /**
+     * Step 3: saves the file once the stored bytes are the described file. 404 DRAFT_NOT_FOUND;
+     * 409 TOO_MANY_FILES, UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS; 410
+     * UPLOAD_EXPIRED or DRAFT_EXPIRED; 503 SERVICE_UNAVAILABLE.
+     */
+    confirmUpload: async (body: ConfirmUploadRequest) =>
+      request(DraftUpload, `${drafts()}/current/uploads/confirm`, {
+        method: 'POST',
+        body: parseInput(ConfirmUploadRequest, body),
+      }),
+    /** Removes a file of the draft. 404 NOT_FOUND or DRAFT_NOT_FOUND; 410 DRAFT_EXPIRED. */
+    deleteUpload: async (id: string) =>
+      request(OkResponse, `${drafts()}/current/uploads/${parseInput(z.uuid(), id)}`, {
+        method: 'DELETE',
       }),
   };
 }

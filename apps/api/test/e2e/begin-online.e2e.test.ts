@@ -19,6 +19,40 @@ import {
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
+import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
+import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import { pdf, sha256 } from '../office-files.js';
+
+/** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
+class MemoryStorage implements DocumentStorage {
+  readonly objects = new Map<string, Buffer>();
+  presignUpload(file: { key: string; contentType: string }) {
+    return Promise.resolve({
+      url: `memory:${file.key}`,
+      headers: { 'content-type': file.contentType },
+    });
+  }
+  head(key: string) {
+    const b = this.objects.get(key);
+    return Promise.resolve(b ? { sizeBytes: b.length, sha256: null, contentEncoding: null } : null);
+  }
+  read(key: string) {
+    return Promise.resolve(this.objects.get(key) ?? null);
+  }
+  remove(key: string) {
+    this.objects.delete(key);
+    return Promise.resolve();
+  }
+  presignDownload(file: { key: string }) {
+    return Promise.resolve(`memory:${file.key}?download`);
+  }
+  put(ticket: { url: string }, bytes: Buffer) {
+    this.objects.set(ticket.url.slice('memory:'.length), bytes);
+  }
+}
+const storage = new MemoryStorage();
+const outbox: NotifyMessage[] = [];
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -119,7 +153,19 @@ beforeAll(async () => {
     DATABASE_URL_APP: fx.appUrl,
   });
   portalOrigin = new URL(env.PORTAL_BASE_URL).origin;
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+    .overrideProvider(NOTIFY_SERVICE)
+    .useValue({
+      send: (message: NotifyMessage) => {
+        outbox.push(message);
+        return Promise.resolve();
+      },
+    })
+    .overrideProvider(DOCUMENT_STORAGE)
+    .useValue(storage)
+    .overrideProvider(DOCUMENTS_CONFIG)
+    .useValue({ bucket: 'unused', region: 'us-east-1', forcePathStyle: true, scanMode: 'local' })
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.init();
@@ -366,5 +412,171 @@ describe('Begin Online drafts', () => {
     const codes: number[] = [];
     for (let i = 0; i < 6; i++) codes.push((await v.post('/drafts', body)).status);
     expect(codes).toEqual([201, 201, 201, 201, 201, 429]);
+  });
+});
+
+describe('Begin Online resume links', () => {
+  it('emails a link that replaces the key: the old cookie stops, the fragment token opens the draft', async () => {
+    const v = visitor(firms.a.slug);
+    const draft = BeginDraft.parse((await v.post('/drafts', annualStart())).body);
+    const oldCookie = v.cookie;
+    const sent = await v.post('/drafts/current/resume-link', {});
+    expect(sent.status).toBe(200);
+    expect(v.cookie).not.toBe(oldCookie);
+    const mail = outbox.at(-1)!;
+    expect(mail).toMatchObject({
+      template: 'begin-online.resume-link',
+      to: `avery.${run}@example.com`,
+      businessId: firms.a.id,
+    });
+    expect(Object.keys(mail.data).sort()).toEqual(['expiresAt', 'link']);
+    const link = (mail.data as { link: string }).link;
+    const portal = `${portalOrigin}/${firms.a.slug}/begin/resume#token=`;
+    expect(link.startsWith(portal)).toBe(true);
+    const token = link.slice(portal.length);
+    expect(v.cookie.endsWith(`=${token}`)).toBe(true);
+
+    const old = visitor(firms.a.slug);
+    old.cookie = oldCookie;
+    expect(codeOf(await old.get('/drafts/current'))).toBe('DRAFT_NOT_FOUND');
+    expect(codeOf(await old.post('/drafts/resume', { token: oldCookie.split('=')[1] }))).toBe(
+      'RESUME_LINK_EXPIRED',
+    );
+
+    const other = visitor(firms.a.slug);
+    const resumed = await other.post('/drafts/resume', { token });
+    expect(resumed.status).toBe(200);
+    expect(BeginDraft.parse(resumed.body).leadId).toBe(draft.leadId);
+    expect(other.cookie.endsWith(`=${token}`)).toBe(true);
+    expect((await other.get('/drafts/current')).status).toBe(200);
+
+    // Unknown, another firm's and expired tokens all answer the same.
+    const b = visitor(firms.b.slug);
+    expect(codeOf(await b.post('/drafts/resume', { token }))).toBe('RESUME_LINK_EXPIRED');
+    const unknown = randomBytes(32).toString('base64url');
+    expect(codeOf(await other.post('/drafts/resume', { token: unknown }))).toBe(
+      'RESUME_LINK_EXPIRED',
+    );
+    await asOwner(
+      firms.a.id,
+      (tx) =>
+        tx.$executeRaw`UPDATE leads SET draft_expires_at = now() - interval '1 minute'
+                      WHERE id = ${draft.leadId}::uuid`,
+    );
+    const expired = await visitor(firms.a.slug).post('/drafts/resume', { token });
+    expect([expired.status, codeOf(expired)]).toEqual([410, 'RESUME_LINK_EXPIRED']);
+
+    const audits = await asOwner(firms.a.id, (tx) =>
+      tx.auditLog.findMany({ where: { entityId: draft.leadId } }),
+    );
+    expect(audits.map((a) => a.action)).toEqual(
+      expect.arrayContaining(['begin_online.resume_link_sent', 'begin_online.draft_resumed']),
+    );
+    expect(JSON.stringify(audits.map((a) => a.metadata))).not.toContain(token);
+  });
+
+  it('sends at most 5 links a day per draft (counted in the database)', async () => {
+    const v = visitor(firms.a.slug);
+    BeginDraft.parse((await v.post('/drafts', annualStart())).body);
+    const codes: (string | number)[] = [];
+    for (let i = 0; i < 6; i++) {
+      // A new IP each time, so only the per-draft limit applies.
+      const r = await request(app.getHttpServer())
+        .post(`/api/v1/portal/${firms.a.slug}/begin-online/drafts/current/resume-link`)
+        .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
+        .set('origin', portalOrigin)
+        .set('cookie', v.cookie)
+        .send({});
+      const set = (r.headers['set-cookie'] as unknown as string[] | undefined)?.[0];
+      if (set) v.cookie = set.split(';')[0]!;
+      codes.push(r.status === 200 ? 200 : codeOf(r)!);
+    }
+    expect(codes).toEqual([200, 200, 200, 200, 200, 'RATE_LIMITED']);
+    expect((await v.get('/drafts/current')).status).toBe(200);
+  });
+});
+
+describe('Begin Online uploads', () => {
+  const file = (bytes: Buffer, slot = 'governmentId', fields: Record<string, unknown> = {}) => ({
+    slot,
+    fileName: 'id-card.pdf',
+    contentType: 'application/pdf',
+    sizeBytes: bytes.length,
+    sha256: sha256(bytes),
+    ...fields,
+  });
+
+  it('uploads into a slot of the form, under the firm prefix, and deletes while a draft', async () => {
+    const v = visitor(firms.a.slug);
+    const draft = BeginDraft.parse((await v.post('/drafts', annualStart())).body);
+    const bytes = pdf('synthetic id');
+    const ticket = await v.post('/drafts/current/uploads', file(bytes));
+    expect(ticket.status).toBe(200);
+    storage.put(ticket.body as { url: string }, bytes);
+    const confirmed = await v.post('/drafts/current/uploads/confirm', {
+      uploadToken: ticket.body.uploadToken,
+    });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body).toMatchObject({ slot: 'governmentId', scanStatus: 'CLEAN' });
+    expect(
+      (await v.post('/drafts/current/uploads/confirm', { uploadToken: ticket.body.uploadToken }))
+        .status,
+    ).toBe(410);
+    const row = await asOwner(firms.a.id, (tx) =>
+      tx.leadUpload.findUniqueOrThrow({ where: { id: confirmed.body.id } }),
+    );
+    expect(row.s3Key.startsWith(`tenant/${firms.a.id}/leads/${draft.leadId}/`)).toBe(true);
+    const current = BeginDraft.parse((await v.get('/drafts/current')).body);
+    expect(current.uploads.map((u) => u.id)).toEqual([confirmed.body.id]);
+
+    // Another browser (another draft) can't confirm or delete it.
+    const other = visitor(firms.a.slug);
+    BeginDraft.parse((await other.post('/drafts', annualStart())).body);
+    expect(
+      (
+        await other.post('/drafts/current/uploads/confirm', {
+          uploadToken: ticket.body.uploadToken,
+        })
+      ).status,
+    ).toBe(410);
+    expect((await other.del(`/drafts/current/uploads/${confirmed.body.id}`)).status).toBe(404);
+
+    expect((await v.del(`/drafts/current/uploads/${confirmed.body.id}`)).status).toBe(200);
+    expect(storage.objects.has(row.s3Key)).toBe(false);
+    expect(BeginDraft.parse((await v.get('/drafts/current')).body).uploads).toEqual([]);
+  });
+
+  it('refuses a slot not in the form, an oversize or mistyped file, and bytes that differ', async () => {
+    const v = visitor(firms.a.slug);
+    BeginDraft.parse((await v.post('/drafts', annualStart())).body);
+    const bytes = pdf();
+    for (const body of [
+      file(bytes, 'firstName'),
+      file(bytes, 'noSuchSlot'),
+      file(bytes, 'governmentId', { sizeBytes: 10 * 1024 * 1024 + 1 }),
+      file(bytes, 'governmentId', { fileName: 'id-card.exe' }),
+      file(bytes, 'governmentId', { contentType: 'text/html', fileName: 'x.html' }),
+    ]) {
+      const res = await v.post('/drafts/current/uploads', body);
+      expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    const ticket = await v.post('/drafts/current/uploads', file(bytes));
+    storage.put(ticket.body as { url: string }, pdf('other bytes, same length?'));
+    const res = await v.post('/drafts/current/uploads/confirm', {
+      uploadToken: ticket.body.uploadToken,
+    });
+    expect([res.status, codeOf(res)]).toEqual([409, 'UPLOAD_MISMATCH']);
+  });
+
+  it('takes no files once the draft expired', async () => {
+    const v = visitor(firms.a.slug);
+    const draft = BeginDraft.parse((await v.post('/drafts', annualStart())).body);
+    await asOwner(
+      firms.a.id,
+      (tx) =>
+        tx.$executeRaw`UPDATE leads SET draft_expires_at = now() - interval '1 minute'
+                      WHERE id = ${draft.leadId}::uuid`,
+    );
+    expect(codeOf(await v.post('/drafts/current/uploads', file(pdf())))).toBe('DRAFT_EXPIRED');
   });
 });

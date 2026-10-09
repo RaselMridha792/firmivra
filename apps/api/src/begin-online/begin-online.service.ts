@@ -4,6 +4,8 @@ import type { Request, Response } from 'express';
 import type { Database, Prisma, ScopedClient } from '@firmivra/db';
 import {
   BeginDraft,
+  DraftUpload,
+  type ScanStatus,
   beginOnlineContact,
   type BeginOnlineForm,
   type BeginOnlineService as ServiceCard,
@@ -48,7 +50,28 @@ export interface Draft {
   definition: IntakeFormDefinition;
   intakeId: string;
   submission: { id: string; answers: Values; savedSteps: string[] };
+  uploads: DraftUpload[];
 }
+
+const UPLOAD_FIELDS = {
+  id: true,
+  slot: true,
+  fileName: true,
+  contentType: true,
+  sizeBytes: true,
+  scanStatus: true,
+  createdAt: true,
+} as const;
+/** A lead upload as the visitor sees it. */
+export const draftUpload = (u: {
+  id: string;
+  slot: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  scanStatus: ScanStatus;
+  createdAt: Date;
+}): DraftUpload => DraftUpload.parse({ ...u, createdAt: u.createdAt.toISOString() });
 
 /**
  * Begin Online drafts (R11 step 3): public, on a firm's portal site. The firm comes from the slug
@@ -193,6 +216,7 @@ export class BeginOnlineService {
       definition,
       intakeId: ids.intake,
       submission: { id: ids.submission, answers: toStore, savedSteps: [body.step] },
+      uploads: [],
     });
   }
 
@@ -291,6 +315,7 @@ export class BeginOnlineService {
         draftExpiresAt: true,
         resumeExpiresAt: true,
         service: { select: { id: true, kind: true, name: true } },
+        uploads: { orderBy: { createdAt: 'asc' }, select: UPLOAD_FIELDS },
         intakes: {
           orderBy: { createdAt: 'asc' },
           take: 1,
@@ -329,6 +354,7 @@ export class BeginOnlineService {
       definition: readDefinition(intake.form.definition, kind, intake.form.version),
       intakeId: intake.id,
       submission: { ...submission, answers: submission.answers as Values },
+      uploads: lead.uploads.map(draftUpload),
     };
   }
 
@@ -341,6 +367,7 @@ export class BeginOnlineService {
       answers: await maskStoredNumbers(draft.definition, draft.submission.answers),
       savedSteps: draft.submission.savedSteps,
       draftExpiresAt: draft.draftExpiresAt.toISOString(),
+      uploads: draft.uploads,
     });
   }
 
