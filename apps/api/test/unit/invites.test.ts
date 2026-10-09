@@ -19,6 +19,8 @@ const env = loadEnv({
 
 const audit = { log: vi.fn().mockResolvedValue(undefined) };
 const mailer = { send: vi.fn().mockResolvedValue(undefined) };
+/** The R6 helper: these tests cover invites, not the bell item it writes on a join. */
+const notifier = { notify: vi.fn().mockResolvedValue({ written: 0 }) } as never;
 
 describe('InvitesService.activate', () => {
   it('answers 410 when the database clock says the link expired, and sets no password', async () => {
@@ -68,7 +70,14 @@ describe('InvitesService.activate', () => {
       hasPassword: vi.fn().mockResolvedValue(false),
       setPassword: vi.fn().mockResolvedValue(undefined),
     };
-    const service = new InvitesService(db, identity as never, mailer, audit as never, env);
+    const service = new InvitesService(
+      db,
+      identity as never,
+      mailer,
+      audit as never,
+      env,
+      notifier,
+    );
 
     const err = await service.activate('token', 'New-password-12').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(GoneException);
@@ -111,7 +120,14 @@ describe('InvitesService.createInvite', () => {
       createUser: vi.fn().mockResolvedValue('sub-orphan'),
       disableUser: vi.fn().mockResolvedValue(undefined),
     };
-    const service = new InvitesService(db, identity as never, mailer, audit as never, env);
+    const service = new InvitesService(
+      db,
+      identity as never,
+      mailer,
+      audit as never,
+      env,
+      notifier,
+    );
 
     await service.createInvite({
       businessId: 'b1',
@@ -142,6 +158,7 @@ describe('InvitesService.createInvite', () => {
       mailer,
       audit as never,
       env,
+      notifier,
     );
     await expect(
       service.createInvite({
@@ -228,7 +245,7 @@ function invitedMember(options: {
   } as unknown as Database;
   const sent = { send: vi.fn().mockResolvedValue(undefined) };
   const audited = { log: vi.fn().mockResolvedValue(undefined) };
-  const service = new InvitesService(db, {} as never, sent, audited as never, env);
+  const service = new InvitesService(db, {} as never, sent, audited as never, env, notifier);
   const resend = () =>
     service.resendInvite({
       businessId: 'b1',
@@ -458,7 +475,7 @@ function openLink() {
     hasPassword: vi.fn().mockResolvedValue(false),
     setPassword: vi.fn().mockResolvedValue(undefined),
   };
-  const service = new InvitesService(db, identity as never, mailer, audit as never, env);
+  const service = new InvitesService(db, identity as never, mailer, audit as never, env, notifier);
   return { service, identity, withScope };
 }
 

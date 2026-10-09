@@ -19,6 +19,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { MeModule } from '../me/me.controller.js';
 import { MeService } from '../me/me.service.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { ACTIVATION_MAILER, LogActivationMailer } from './activation-mailer.js';
 import { ChallengeSessions } from './challenge-session.js';
 import { Public } from './decorators.js';
@@ -190,7 +191,7 @@ export class AdminSignInController extends SignInRoutes {
 }
 
 @Module({
-  imports: [MeModule],
+  imports: [MeModule, NotificationsModule],
   controllers: [StaffSignInController, AdminSignInController, InvitesController],
   providers: [
     SignInService,
