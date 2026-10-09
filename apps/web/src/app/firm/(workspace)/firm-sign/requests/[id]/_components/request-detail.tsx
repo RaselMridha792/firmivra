@@ -5,6 +5,7 @@ import { Button, Card } from '@firmivra/ui';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { EsignGate } from '../../../../../../../components/esign/esign-gate';
+import { canCreate } from '../../../../../../../components/esign/esign-role';
 import { shortDate } from '../../../../../../../components/esign/format';
 import { StatusBadge } from '../../../../../../../components/esign/status-badge';
 import { PageState } from '../../../../../../../components/page-state';
@@ -14,14 +15,15 @@ import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { RecipientActions } from './recipient-actions';
 import { RequestActions } from './request-actions';
 import { Recipients } from './recipients';
+import { SaveAsTemplate } from './save-as-template';
 import { Timeline } from './timeline';
 
 /** One signature request (/firm-sign/requests/{id}): where it is, who signed, and what happened. */
 export function RequestDetail({ id }: { id: string }) {
-  return <EsignGate>{() => <Detail id={id} />}</EsignGate>;
+  return <EsignGate>{(role) => <Detail id={id} canSave={canCreate(role)} />}</EsignGate>;
 }
 
-function Detail({ id }: { id: string }) {
+function Detail({ id, canSave }: { id: string; canSave: boolean }) {
   const request = useApiQuery(['esign', 'requests', id], () => api.esign.get(id));
   // The timeline's data, loading alongside the request rather than after it.
   useApiQuery(['esign', 'requests', id, 'events'], () => api.esign.events(id));
@@ -37,7 +39,7 @@ function Detail({ id }: { id: string }) {
       <PageState query={request} isEmpty={() => false}>
         {(r) => (
           <>
-            <Header r={r} />
+            <Header r={r} canSave={canSave} />
             <Notices r={r} />
             <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
               <div className="flex flex-col gap-6">
@@ -83,7 +85,7 @@ function nextStep(r: EsignRequestDetail): string | null {
   }
 }
 
-function Header({ r }: { r: EsignRequestDetail }) {
+function Header({ r, canSave }: { r: EsignRequestDetail; canSave: boolean }) {
   const next = nextStep(r);
   const edit = r.allowedActions.includes('EDIT');
   const inPerson = r.allowedActions.includes('START_IN_PERSON');
@@ -113,6 +115,12 @@ function Header({ r }: { r: EsignRequestDetail }) {
         </div>
       )}
       <RequestActions r={r} />
+      {/* Any request with pages can become a template; a Viewer can't make one. */}
+      {canSave && r.pagePlan.length > 0 && (
+        <div>
+          <SaveAsTemplate r={r} />
+        </div>
+      )}
     </Card>
   );
 }
