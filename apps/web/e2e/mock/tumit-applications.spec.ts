@@ -39,7 +39,7 @@ test('reviews an unreadable application from its stored columns without losing a
   await row.getByRole('link', { name: 'Open Application' }).click();
 
   await expect(page.getByRole('heading', { name: 'Sample Harbor Tax Services' })).toBeVisible();
-  await expect(page.getByText('Drew Sample')).toBeVisible();
+  await expect(page.getByText('Drew Sample', { exact: true })).toBeVisible();
   await expect(
     page.getByText('The application form could not be read', { exact: true }),
   ).toHaveCount(4);
@@ -58,8 +58,9 @@ test('approves an application and refreshes its status, list and counts', async 
   await expect(page.getByRole('heading', { name: 'Automated Checks' })).toBeVisible();
   await page.getByRole('button', { name: 'Approve Application' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm approval' }).click();
-  await expect(page.getByTestId('application-status')).toHaveText('Approved');
-  await expect(page.getByTestId('approved-firm-summary')).toBeVisible();
+  // Approved: the title shows the new firm's status, and the line under it the approval date.
+  await expect(page.getByTestId('application-status')).toHaveText('Pending Setup');
+  await expect(page.getByTestId('approved-firm-summary')).toContainText('Approved on');
   await page.getByRole('link', { name: /Back to Applications/i }).click();
   await expect(page.getByRole('tab', { name: 'Pending (3)' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Approved (4)' })).toBeVisible();
