@@ -178,10 +178,15 @@ function newSession(scenario: Scenario): Session {
 
 const signerState = (s: Session): SignerState => ({
   step: s.step,
-  title: s.scenario === 'copy' ? 'Tax Engagement Letter 2026' : 'Bookkeeping Services Agreement',
+  title:
+    s.scenario === 'copy'
+      ? 'Tax Engagement Letter 2026'
+      : s.scenario === 'inPerson'
+        ? 'Engagement Letter (in person)'
+        : 'Bookkeeping Services Agreement',
   senderName: 'Mock User',
   firmName: mockBusiness.name,
-  signerName: 'Jamie Sample',
+  signerName: s.scenario === 'inPerson' ? 'Taylor Sample' : 'Jamie Sample',
   codeSentTo: s.step === 'VERIFY_EMAIL' ? 'j***@example.test' : null,
   requestStatus: s.step === 'COPY' ? 'COMPLETED' : s.step === 'CLOSED' ? 'EXPIRED' : null,
   expiresAt: s.step === 'CLOSED' ? null : iso(Date.now() + 10 * DAY),

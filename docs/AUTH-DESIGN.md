@@ -135,8 +135,8 @@ When a request completes, each external signer gets an email with a copy link. I
 
 - A staff member starts an in-person session for one recipient from the request (`POST /api/v1/esign/requests/{id}/in-person` with `recipientId` in the body). The answer's one-time link opens the signer pages on the portal in a new tab; the staff tab shows the lock screen. The office computer or tablet then shows only that recipient's signing screens, with firm branding and no Firmivra or firm data.
 - While the kiosk is open, the API marks that staff sign-in session as locked, on the server, not only in the browser. Every firm route except the kiosk's own signing routes and the exit route answers 403, so a client at the kiosk cannot reach firm data by changing the address.
-- Leaving the kiosk back to the staff view needs the same staff member to type their password again. The API checks it against Cognito (`AdminInitiateAuth` on the staff pool), or against local auth when `AUTH_MODE=local`. Wrong tries are throttled; after 5, the session is signed out instead of unlocked.
-- If the kiosk is left alone for `ESIGN_KIOSK_IDLE_MINUTES` (15) it times out and the staff session is signed out, never unlocked.
+- Leaving the kiosk back to the staff view needs the same staff member to type their password again. The API checks it against Cognito (`AdminInitiateAuth` on the staff pool), or against local auth when `AUTH_MODE=local`. Wrong tries are throttled; after 5 (`ESIGN_KIOSK_PASSWORD_TRIES`), the session is signed out instead of unlocked, and its refresh token is revoked so the browser's silent refresh cannot re-send the exit.
+- If the kiosk is left alone for `ESIGN_KIOSK_IDLE_MINUTES` (15) it times out and the staff session is signed out (refresh token revoked too), never unlocked.
 - Events record `IN_PERSON_STARTED`, `IN_PERSON_ENDED`, delivery `IN_PERSON` and the host staff member.
 
 ## Local development

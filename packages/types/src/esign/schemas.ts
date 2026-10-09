@@ -34,9 +34,10 @@ import {
 //
 // Every firm route needs the firm's 'esign' module (403 MODULE_OFF when it is off; read
 // `status()` first, which never fails for that). Access, on every route:
-// - Owner and Admin (and a Firm Sign MANAGER): every request of the firm.
-// - Staff: requests they send, and requests for clients assigned to them. Any other request
-//   answers 404, as if it did not exist. A VIEWER reads the same and changes nothing (403).
+// - Owner and Admin: every request of the firm.
+// - Staff and a Firm Sign MANAGER: requests they send, and requests for clients assigned to them.
+//   Any other request answers 404, as if it did not exist. A VIEWER reads the same and changes
+//   nothing (403). An approver also sees the requests they approve (extras.ts).
 // A request is prepared as a DRAFT (documents, page plan, recipients, fields, settings), checked
 // with `readiness()`, then sent; from then on only the lifecycle actions apply (remind, void,
 // correct a recipient, replace, resend the completed copy). Completed, declined, expired and
@@ -567,7 +568,13 @@ export const EsignPutRecipientsBody = z.strictObject({
         r.who.type === 'CLIENT_LOGIN' ? [r.who.clientAccountId] : [],
       );
       return new Set(logins).size === logins.length;
-    }, 'A portal login can be a recipient only once'),
+    }, 'A portal login can be a recipient only once')
+    .refine((list) => {
+      const approvers = list.flatMap((r) =>
+        r.kind === 'APPROVER' && r.who.type === 'STAFF' ? [r.who.userId] : [],
+      );
+      return new Set(approvers).size === approvers.length;
+    }, 'A member can approve a request only once'),
 });
 export type EsignPutRecipientsBody = z.input<typeof EsignPutRecipientsBody>;
 

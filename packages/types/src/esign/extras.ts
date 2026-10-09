@@ -16,7 +16,9 @@ const DateTime = z.iso.datetime({ offset: true });
 // Who approves: an APPROVER recipient is a STAFF member who is an Owner, Admin or Firm Sign
 // Manager and is not the request's sender. PUT recipients and `use` (template) answer 409
 // APPROVER_NOT_ALLOWED otherwise, and the rule is checked again on submit and on each decision
-// (a member whose role changed since answers 403 NOT_AN_APPROVER).
+// (a member whose role changed since answers 403 NOT_AN_APPROVER). An approver always opens, lists
+// (the NEEDS_MY_APPROVAL filter) and decides the requests they approve, whatever the client
+// assignment; they see nothing else of that client.
 
 /**
  * POST /esign/requests/{id}/submit-for-approval (the sender, Owner, Admin, Manager): a DRAFT whose
@@ -144,6 +146,8 @@ export type DuplicateEsignTemplateBody = z.input<typeof DuplicateEsignTemplateBo
  * NOT_YOUR_TURN, RECIPIENT_DONE, REQUEST_CLOSED.
  */
 export const ESIGN_KIOSK_IDLE_MINUTES = 15;
+/** Wrong staff passwords on `exit` before the staff member is signed out. */
+export const ESIGN_KIOSK_PASSWORD_TRIES = 5;
 
 export const StartEsignInPersonBody = z.strictObject({ recipientId: z.uuid() });
 export type StartEsignInPersonBody = z.input<typeof StartEsignInPersonBody>;
@@ -157,7 +161,7 @@ export const EsignInPersonSession = z.object({
    * An absolute URL on the portal site, `<PORTAL_BASE_URL>/<slug>/sign#t=<token>`: open it in a new
    * tab of the same browser. The signer starts at the consent step.
    */
-  signingUrl: z.string(),
+  signingUrl: z.url(),
   startedAt: DateTime,
   /** The link stops working after this (15 minutes) if signing has not started. */
   expiresAt: DateTime,
@@ -170,8 +174,10 @@ export type EsignInPersonState = z.infer<typeof EsignInPersonState>;
 
 /**
  * POST /esign/in-person/exit: unlocks the staff session with the staff member's own password and
- * ends the signer's session on the portal. 400 PASSWORD_WRONG; after 5 wrong passwords the staff
- * member is signed out (401). Allowed while locked.
+ * ends the signer's session on the portal. 400 PASSWORD_WRONG; after ESIGN_KIOSK_PASSWORD_TRIES wrong
+ * passwords the staff member is signed out (401). That sign-out, like the idle one, also revokes
+ * the refresh token, so the browser's silent refresh cannot re-send the exit. Allowed while
+ * locked.
  */
 export const ExitEsignInPersonBody = z.strictObject({
   password: z.string().min(1).max(256),

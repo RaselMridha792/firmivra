@@ -541,8 +541,13 @@ export function createEsignMock(
 
   const assigned = (clientId: string | undefined) =>
     clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === mockStaff.userId);
+  /** An approver always sees the requests they approve, whatever the client assignment. */
+  const approves = (r: EsignRequestDetail) =>
+    r.recipients.some(
+      (x) => x.kind === 'APPROVER' && x.link.type === 'STAFF' && x.link.userId === me.userId,
+    );
   const visible = (r: EsignRequestDetail) =>
-    firmWide || r.sender.userId === me.userId || assigned(r.client?.id);
+    firmWide || r.sender.userId === me.userId || assigned(r.client?.id) || approves(r);
   const moduleOn = async () => {
     await mockDelay();
     if (!enabled) throw fail(403, 'MODULE_OFF', 'Firm Sign is off for this firm');
@@ -572,12 +577,6 @@ export function createEsignMock(
     if (r.status !== 'DRAFT') throw invalidState();
     return r;
   };
-  /** A DRAFT about to change: every approval so far is cleared. */
-  const edit = (requestId: string) => {
-    const r = draft(requestId);
-    for (const x of r.recipients) if (x.kind === 'APPROVER') x.status = 'WAITING';
-    return r;
-  };
   /** The Owner, or Sam once he is a Firm Sign Manager. */
   const mayApprove = (userId: string) =>
     userId === mockMe.userId ||
@@ -605,7 +604,10 @@ export function createEsignMock(
     });
     esignStore().events.set(r.id, list);
   };
+  /** After a change; a changed DRAFT loses every approval so far. */
   const touched = (r: EsignRequestDetail) => {
+    if (r.status === 'DRAFT')
+      for (const x of r.recipients) if (x.kind === 'APPROVER') x.status = 'WAITING';
     r.lastActivityAt = iso(Date.now());
     derive(r);
   };
@@ -617,8 +619,10 @@ export function createEsignMock(
         x.link.userId === me.userId &&
         x.status !== 'APPROVED',
     );
+    if (role === 'VIEWER') return r.sentAt ? ['DOWNLOAD'] : [];
+    const approvers = r.recipients.filter((x) => x.kind === 'APPROVER');
     if (r.status === 'DRAFT')
-      return r.recipients.some((x) => x.kind === 'APPROVER')
+      return approvers.some((x) => x.status !== 'APPROVED')
         ? ['EDIT', 'DISCARD', 'SUBMIT_FOR_APPROVAL']
         : ['EDIT', 'DISCARD', 'SEND'];
     if (r.status === 'NEEDS_APPROVAL') return approver ? ['APPROVE', 'VOID'] : ['VOID'];
@@ -692,7 +696,7 @@ export function createEsignMock(
   /** The client a request may be for: one the caller may see, not archived. */
   const clientFor = (clientId: string): Client => {
     const c = clientFixtures().find((x) => x.id === clientId && !x.archivedAt);
-    if (!c || (role === 'STAFF' && !assigned(c.id))) throw notFound();
+    if (!c || (!firmWide && !assigned(c.id))) throw notFound();
     return { id: c.id, displayName: c.displayName };
   };
   /** One of the client's PENDING or ACTIVE services. */
@@ -843,7 +847,7 @@ export function createEsignMock(
     update: async (requestId, body) => {
       await on();
       const input = parseInput(UpdateEsignRequestBody, body);
-      const r = edit(requestId);
+      const r = draft(requestId);
       const { clientId, engagementId, ...rest } = input;
       if (clientId !== undefined && clientId !== (r.client?.id ?? null)) {
         if (r.recipients.some((x) => x.link.type === 'CLIENT_LOGIN')) {
@@ -864,7 +868,7 @@ export function createEsignMock(
     },
     discard: async (requestId) => {
       await on();
-      const r = edit(requestId);
+      const r = draft(requestId);
       if (r.sentAt) throw invalidState();
       const list = esignStore().details;
       list.splice(list.indexOf(r), 1);
@@ -877,7 +881,7 @@ export function createEsignMock(
         throw fail(400, 'FILE_TYPE_NOT_ALLOWED', 'Only PDF, JPG and PNG files');
       }
       const input = parseInput(CreateEsignUploadBody, body);
-      const r = edit(requestId);
+      const r = draft(requestId);
       const n = nextId++;
       uploads.set(`mock-esign-upload-${n}`, {
         requestId: r.id,
@@ -896,7 +900,7 @@ export function createEsignMock(
     confirmUpload: async (requestId, body) => {
       await on();
       const { uploadToken } = parseInput(ConfirmEsignUploadBody, body);
-      const r = edit(requestId);
+      const r = draft(requestId);
       const upload = uploads.get(uploadToken);
       if (!upload || upload.requestId !== r.id) {
         throw fail(410, 'UPLOAD_EXPIRED', 'This upload has expired');
@@ -936,7 +940,7 @@ export function createEsignMock(
     addFromVault: async (requestId, body) => {
       await on();
       const { documentId } = parseInput(EsignFromVaultBody, body);
-      const r = edit(requestId);
+      const r = draft(requestId);
       const source = documentFixtures().documents.find(
         (x) => x.id === documentId && x.clientId === r.client?.id,
       );
@@ -970,7 +974,7 @@ export function createEsignMock(
     removeDocument: async (requestId, documentId) => {
       await on();
       const docId = parseInput(EsignDocumentId, documentId);
-      const r = edit(requestId);
+      const r = draft(requestId);
       if (!r.documents.some((d) => d.id === docId)) throw notFound();
       const kept = r.pagePlan.filter((p) => p.documentId !== docId);
       remapFields(r, kept);
@@ -994,7 +998,7 @@ export function createEsignMock(
     putPagePlan: async (requestId, body) => {
       await on();
       const { pages } = parseInput(EsignPutPagePlanBody, body);
-      const r = edit(requestId);
+      const r = draft(requestId);
       for (const p of pages) {
         const d = r.documents.find((x) => x.id === p.documentId);
         if (!d || p.page >= d.pageCount) throw fail(400, 'VALIDATION_FAILED', 'Unknown page');
@@ -1013,7 +1017,7 @@ export function createEsignMock(
     putRecipients: async (requestId, body) => {
       await on();
       const input = parseInput(EsignPutRecipientsBody, body);
-      const r = edit(requestId);
+      const r = draft(requestId);
       const used = new Set<number>();
       const list: EsignRecipient[] = input.recipients.map((x) => {
         const old = x.id ? r.recipients.find((o) => o.id === x.id) : undefined;
@@ -1095,7 +1099,7 @@ export function createEsignMock(
     putFields: async (requestId, body) => {
       await on();
       const input = parseInput(EsignPutFieldsBody, body);
-      const r = edit(requestId);
+      const r = draft(requestId);
       r.fields = input.fields.map((f) => {
         if (f.id && !r.fields.some((o) => o.id === f.id)) {
           throw fail(400, 'VALIDATION_FAILED', 'Unknown field');
