@@ -29,6 +29,8 @@ import type { FirmActor } from './document-records.js';
 import { DocumentRequestsService } from './document-requests.service.js';
 import { createS3Client, DOCUMENT_STORAGE, S3DocumentStorage } from './document-storage.js';
 import { FirmDocumentsService } from './firm-documents.service.js';
+import { MyDocumentsController } from './my-documents.controller.js';
+import { MyDocumentsService } from './my-documents.service.js';
 import { UploadTokens } from './upload-token.js';
 import { UploadsService } from './uploads.service.js';
 
@@ -171,7 +173,7 @@ export class DocumentsController {
 }
 
 @Module({
-  controllers: [DocumentsController],
+  controllers: [DocumentsController, MyDocumentsController],
   providers: [
     // Settings are checked when the app starts, so a bad SCAN_MODE never reaches a request.
     { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
@@ -188,6 +190,7 @@ export class DocumentsController {
     },
     UploadsService,
     FirmDocumentsService,
+    MyDocumentsService,
     DocumentRequestsService,
   ],
 })

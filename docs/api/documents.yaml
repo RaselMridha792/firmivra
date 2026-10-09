@@ -100,10 +100,12 @@ info:
       AUTHORIZED login sees only what it uploaded itself as `MINE`, an empty `FIRM` list and only
       open requests; it uploads only for an open request (403 without a `requestId`), never sees
       `INTERNAL` files and never answers "I don't have this" (403). Every upload records the
-      login that made it, and portal items carry the uploader's name (`MyDocument.uploadedBy`:
-      the household login's name on a `MINE` file; null on the firm's files, so no staff names
-      reach the portal, and on a file with no known uploader). (The portal routes come in R5 API
-      part 2.)
+      login that made it (`uploaded_by_user_id`, and the client account in the sealed token and
+      the audit), and portal items carry the uploader's name (`MyDocument.uploadedBy`: the
+      household login's name on a `MINE` file; null on the firm's files, so no staff names reach
+      the portal, and on a file with no known uploader). An AUTHORIZED login's `upload-targets`
+      lists only the services with an open request, and its `document-requests` only the open
+      requests.
     - **Request emails.** "Request a document" emails every ACTIVE portal login of the client
       (`document.requested`: the title, the due date and a link to the portal; R6 applies their
       preferences). A failed email never undoes the request.
@@ -453,6 +455,7 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/CreateMyUploadRequest' } } }
       responses:
         '200': { $ref: '#/components/responses/UploadTicket' }
+        '403': { description: 'FORBIDDEN: an AUTHORIZED login without a requestId' }
         '409': { description: 'NO_OPEN_SERVICE, REQUEST_CLOSED or CATEGORY_ARCHIVED' }
         '404': { $ref: '#/components/responses/NotFound' }
   /portal/{firmSlug}/me/documents/uploads/confirm:
@@ -463,7 +466,8 @@ paths:
       requestBody: { $ref: '#/components/requestBodies/ConfirmUploadRequest' }
       responses:
         '200': { description: MyDocument (status CHECKING) }
-        '409': { description: 'UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS' }
+        '403': { description: 'FORBIDDEN: the login is AUTHORIZED now and the upload has no request' }
+        '409': { description: 'UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED, FILE_HAS_MACROS, NO_OPEN_SERVICE, REQUEST_CLOSED or CATEGORY_ARCHIVED' }
         '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed or is busy; nothing is deleted' }
         '410': { description: UPLOAD_EXPIRED }
   /portal/{firmSlug}/me/document-categories:
@@ -492,8 +496,9 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/NotAvailableRequest' } } }
       responses:
         '200': { description: MyDocumentRequest }
+        '403': { description: 'FORBIDDEN: an AUTHORIZED login' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: REQUEST_CLOSED }
+        '409': { description: 'NO_OPEN_SERVICE (an archived client) or REQUEST_CLOSED' }
 
 components:
   parameters:

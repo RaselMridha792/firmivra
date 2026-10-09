@@ -4,6 +4,7 @@ import type {
   CreateDocumentRequestRequest,
   FirmDocumentRequest,
   ListDocumentRequestsQuery,
+  MyDocumentRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -14,23 +15,30 @@ import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import {
   type FirmActor,
   findTarget,
+  forbidden,
   holdEngagement,
+  isOpen,
+  lockClient,
   lockReachableClient,
   lockRequest,
   notFound,
+  OPEN_REQUEST,
   peopleOf,
+  type PortalCaller,
+  portalLogin,
   reachableClient,
   refusal,
   type RequestRow,
   requestSelect,
   toFirmRequest,
+  toMyRequest,
 } from './document-records.js';
 
 type ListQuery = z.output<typeof ListDocumentRequestsQuery>;
 type CreateBody = z.output<typeof CreateDocumentRequestRequest>;
 type Decision = 'accepted' | 'rejected' | 'cancelled';
 
-/** The list shows at most this many (contract: FirmDocumentRequestList). */
+/** The lists show at most this many (contract: FirmDocumentRequestList, MyDocumentRequestList). */
 export const MAX_REQUESTS = 200;
 
 const calendarDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -38,11 +46,12 @@ const calendarDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
 /**
  * Document requests (R5 step 7). The firm asks for a document within an open service ("Request a
  * document"), then accepts the upload, marks it missing (the client is asked again, with the
- * reason) or cancels it; requests are never deleted. The client's side (its list, an upload that
- * makes a request SUBMITTED, "I don't have this") comes with the portal routes. Staff reach only
- * the clients assigned to them (others are 404). Changes lock the client, then the request (the
- * module's lock order). Every list and change is audited with ids and codes only, never titles
- * or reasons.
+ * reason) or cancels it; requests are never deleted. The client answers with an upload (confirm
+ * makes it SUBMITTED) or "I don't have this" (NOT_AVAILABLE, with a reason). Staff reach only
+ * the clients assigned to them (others are 404). Household logins (Rasel, q12): an AUTHORIZED
+ * login sees only the open requests and never answers "I don't have this" (403). Changes lock
+ * the client, then the request (the module's lock order). Every list and change is audited with
+ * ids and codes only, never titles or reasons.
  */
 @Injectable()
 export class DocumentRequestsService {
@@ -58,6 +67,8 @@ export class DocumentRequestsService {
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
+
+  // ---------- Firm ----------
 
   /** The client's requests, newest first. */
   async list(
@@ -256,5 +267,76 @@ export class DocumentRequestsService {
     } catch {
       this.logger.warn(`Could not tell the client about document request ${request.id}`);
     }
+  }
+
+  // ---------- Portal ----------
+
+  /**
+   * The client's requests, open ones first, then the newest; cancelled ones left out. An
+   * AUTHORIZED login sees only the open ones.
+   */
+  async mine(caller: PortalCaller): Promise<MyDocumentRequest[]> {
+    const { items, clientId } = await this.inFirm(caller.businessId, async (tx) => {
+      const login = await portalLogin(tx, caller);
+      if (!login.clientId) return { items: [], clientId: null };
+      const where = { businessId: caller.businessId, clientId: login.clientId };
+      const order = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
+      const open = await tx.documentRequest.findMany({
+        where: { ...where, status: { in: [...OPEN_REQUEST] } },
+        orderBy: [...order],
+        take: MAX_REQUESTS,
+        select: requestSelect,
+      });
+      const closed = login.household
+        ? await tx.documentRequest.findMany({
+            where: { ...where, status: { notIn: [...OPEN_REQUEST, 'CANCELLED'] } },
+            orderBy: [...order],
+            take: MAX_REQUESTS - open.length,
+            select: requestSelect,
+          })
+        : [];
+      return { items: [...open, ...closed].map(toMyRequest), clientId: login.clientId };
+    });
+    if (clientId) {
+      await this.audit.log(
+        'document_requests.listed',
+        { type: 'client', id: clientId },
+        { count: items.length, clientAccountId: caller.clientAccountId },
+      );
+    }
+    return items;
+  }
+
+  /**
+   * "I don't have this", with the client's reason: 403 for an AUTHORIZED login, 404 for a
+   * request that isn't this client's, 409 NO_OPEN_SERVICE for an archived client (as its
+   * uploads), then REQUEST_CLOSED unless it is open (REQUESTED or REJECTED). Lock order: the
+   * client, then the request.
+   */
+  async notAvailable(caller: PortalCaller, id: string, reason: string): Promise<MyDocumentRequest> {
+    return this.inFirm(caller.businessId, async (tx) => {
+      const login = await portalLogin(tx, caller);
+      if (!login.household) throw forbidden();
+      const client = login.clientId && (await lockClient(tx, caller.businessId, login.clientId));
+      if (!client) throw notFound();
+      const locked = await lockRequest(tx, caller.businessId, id);
+      if (locked?.client_id !== login.clientId) throw notFound();
+      // An archived client has no open service, as for its uploads.
+      if (client.archived) throw refusal('NO_OPEN_SERVICE');
+      if (!isOpen(locked.status)) throw refusal('REQUEST_CLOSED');
+      const row = await tx.documentRequest.update({
+        where: { id },
+        data: { status: 'NOT_AVAILABLE', statusNote: reason },
+        select: requestSelect,
+      });
+      await this.audit.logIn(
+        tx,
+        'document_request.not_available',
+        { type: 'document_request', id: row.id },
+        { clientId: row.clientId, from: locked.status, clientAccountId: caller.clientAccountId },
+        { businessId: caller.businessId },
+      );
+      return toMyRequest(row);
+    });
   }
 }
