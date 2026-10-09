@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { INVOICE_ERRORS } from '@firmivra/types';
-import { databaseErrorCode, type Database, type Prisma, type TxClient } from '@firmivra/db';
+import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
   CancelInvoiceRequest,
   CreateInvoiceRequest,
@@ -18,12 +18,15 @@ import {
   likeEscape,
 } from '../../clients/clients.service.js';
 import { DATABASE } from '../../database/database.module.js';
+import { isUniqueViolation } from '../../workspaces/common.js';
 import {
   CHECKOUT_LIMITS,
   expireCheckout,
+  lockInvoice,
   openCheckouts,
   paymentInProgress,
   providerUnavailable,
+  withStripeHold,
 } from '../checkout/checkout-sessions.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 import { InvoiceNotices } from './invoice-notices.js';
@@ -48,8 +51,6 @@ type DraftBody = z.output<typeof UpdateInvoiceRequest>;
 
 export const archived = () => conflict('CLIENT_ARCHIVED', 'Restore the client first');
 export const notDraft = () => conflict('NOT_DRAFT', 'Only a draft can be changed');
-const isUniqueViolation = (e: unknown) =>
-  (e as { code?: unknown } | null)?.code === 'P2002' || databaseErrorCode(e) === '23505';
 
 /**
  * The firm's invoices (R7 step 7; contract in packages/types/src/payments). Owner and Admin reach
@@ -218,8 +219,13 @@ export class InvoicesService {
     });
   }
 
-  /** `INV-{year}-{4 digits}`: the next in the firm for the firm's calendar year. */
+  /**
+   * `INV-{year}-{4 digits}`: the next in the firm for the firm's calendar year. Creates in one
+   * firm take their numbers one at a time (a transaction-scoped advisory lock), so two at once
+   * never pick the same one.
+   */
   private async nextNumber(tx: TxClient, businessId: string): Promise<string> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invoice-number:${businessId}`}))`;
     const year = (await firmToday(tx, businessId)).today.slice(0, 4);
     const [row] = await tx.$queryRaw<{ n: number | null }[]>`
       SELECT max(substring(number from '^INV-[0-9]{4}-([0-9]+)$')::int) AS n
@@ -257,7 +263,7 @@ export class InvoicesService {
         );
         return toInvoice(row, (await firmToday(tx, businessId)).today);
       });
-    // Two creates at once can pick the same number: the unique index refuses one; it tries again.
+    // A number someone else took anyway (a create outside this service) is tried once more.
     return attempt().catch((e: unknown) => {
       if (isUniqueViolation(e)) return attempt();
       throw e;
@@ -346,7 +352,10 @@ export class InvoicesService {
     return this.database.withScope(
       { kind: 'business', businessId },
       async (tx) => {
-        const current = await this.load(tx, businessId, actor, id, true);
+        // In reach first (404 otherwise), then the row, waiting briefly (409 while a Pay Now runs).
+        await this.load(tx, businessId, actor, id);
+        await lockInvoice(tx, businessId, id);
+        const current = await this.load(tx, businessId, actor, id);
         if (current.status === 'PAID' || current.status === 'CANCELED') {
           throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
         }
@@ -355,9 +364,12 @@ export class InvoicesService {
         const unsettled = current.payments.some((p) => p.status === 'PENDING');
         if (unsettled) {
           if (!this.stripe) throw providerUnavailable();
-          for (const open of await openCheckouts(tx, this.stripe, businessId, id)) {
-            await expireCheckout(tx, this.stripe, businessId, open);
-          }
+          const stripe = this.stripe;
+          await withStripeHold(async () => {
+            for (const open of await openCheckouts(tx, stripe, this.audit, businessId, id)) {
+              await expireCheckout(tx, stripe, this.audit, businessId, id, open);
+            }
+          });
         }
         await tx.invoice.update({
           where: { businessId_id: { businessId, id } },
@@ -373,7 +385,7 @@ export class InvoicesService {
           tx,
           'invoice.canceled',
           { type: 'invoice', id },
-          { fromStatus: current.status, totalCents: row.totalCents },
+          { clientId: row.clientId, fromStatus: current.status, totalCents: row.totalCents },
         );
         return toInvoice(row, (await firmToday(tx, businessId)).today);
       },

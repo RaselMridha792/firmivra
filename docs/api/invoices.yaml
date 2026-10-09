@@ -90,7 +90,7 @@ info:
     | `DUPLICATE_CHECK_NUMBER` | check whose number (any case) is live on this invoice already |
     | `ALREADY_VOIDED` | void of an offline payment voided already |
     | `CLIENT_ARCHIVED` | create, update or send for an archived client |
-    | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe |
+    | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe, or while another one of these on the invoice still talks to Stripe (retry) |
     | `NOT_PAYABLE` | Pay Now on an invoice that is upcoming, paid, canceled or has nothing left to pay |
     | `PAYMENTS_NOT_SET_UP` | Pay Now while the firm's Stripe account cannot take charges |
     | `NOT_REFUNDABLE` | refund of a payment that is not `SUCCEEDED` (pending, failed, refunded in full) |
@@ -142,7 +142,13 @@ info:
       `payments` row with the session id (`cs_...`) as `processor_ref` and the firm's `account_id`.
       Answer `{ url, expiresAt }`, `expiresAt` from the session's `expires_at` as Stripe returns
       it. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
-      inserted. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) come from the environment
+      inserted.
+    - **Holding the row.** Pay Now and cancel wait at most 1 s for the invoice's row (another
+      one talking to Stripe holds it), then answer `409 PAYMENT_IN_PROGRESS`. At most three of
+      them per API process wait on Stripe while holding a row; one more answers
+      `503 SERVICE_BUSY` with `Retry-After: 5`. A pending checkout older than its session (60
+      minutes plus 15) that Stripe no longer answers for (account disconnected or replaced) is
+      marked `FAILED` (`checkout_expired`), so it never blocks the invoice. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) come from the environment
       (Secrets Manager on AWS), never from code.
     - **Payments in answers.** A `PENDING` payment is listed (and `paymentProcessing` is true)
       only once its checkout completed and Stripe's result is pending (a bank debit). A checkout
@@ -394,7 +400,7 @@ paths:
     post:
       tags: [firm]
       operationId: sendInvoice
-      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, ZERO_TOTAL, DUE_DATE_PASSED, CLIENT_ARCHIVED
+      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED, in that order
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200': { $ref: '#/components/responses/Invoice' }
