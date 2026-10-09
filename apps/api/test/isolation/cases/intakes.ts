@@ -1,4 +1,5 @@
-// Intake forms of a client's engagement: the portal side (fill in, upload) and the firm's review.
+// Intake forms of a client's engagement: the portal side (contract B: read, fill in, upload,
+// submit) and the firm's send and review.
 import { createHash, randomUUID } from 'node:crypto';
 import type { CaseModule } from '../world.js';
 
@@ -155,10 +156,6 @@ export const records: CaseModule['records'] = {
 };
 
 export const cases: CaseModule['cases'] = {
-  'POST /api/v1/portal/:firmSlug/me/intakes': {
-    params: {},
-    bodyIds: { engagementId: 'engagement' },
-  },
   // Found, then already sent: 409 INTAKE_LOCKED (the signature's agreement ids are NOT_RECORDS).
   'POST /api/v1/portal/:firmSlug/me/intakes/:id/submit': {
     params: { id: 'submittedIntake' },
@@ -192,8 +189,8 @@ export const cases: CaseModule['cases'] = {
     body: { uploadToken: 'fake-token' },
     expect: 410,
   },
-  'DELETE /api/v1/portal/:firmSlug/me/intakes/:id/uploads/:documentId': {
-    params: { id: 'intake', documentId: 'intakeUpload' },
+  'DELETE /api/v1/portal/:firmSlug/me/intakes/:id/uploads/:uploadId': {
+    params: { id: 'intake', uploadId: 'intakeUpload' },
   },
   'GET /api/v1/business/clients/:id/intakes': { params: { id: 'client' } },
   'POST /api/v1/business/engagements/:id/intakes': { params: { id: 'engagement' }, body: {} },

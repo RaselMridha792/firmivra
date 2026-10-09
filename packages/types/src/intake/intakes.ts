@@ -6,22 +6,21 @@ import { text } from '../clients/text.js';
 import { ServiceRef } from '../engagements/schemas.js';
 import { IntakeAnswers } from './answers.js';
 import { IntakeFormDefinition } from './definition.js';
-import { IntakeId } from './schemas.js';
+import { IntakeId, refuseFullNumbers } from './schemas.js';
 
-// Portal intake forms (R11 step 5) and the firm's side of them. An intake is one form, for one of
-// the client's engagements; its answers are versioned. The client fills the current version
-// (autosave per step) and submits it with the firm's agreements signed; a submitted version is
-// locked. The firm can ask for changes (Needs Correction, with a note) or unlock it (Owner and
-// Admin): both start the next version from the last answers, to be signed again.
-// Portal routes: /api/v1/portal/{firmSlug}/me/intakes (the client from the session, never the
-// URL). Firm routes: /api/v1/business/... (Staff: their own clients only; others are 404).
+// The firm's side of portal intake forms (R11 step 5): a client's intakes, sending one, review,
+// Needs Correction and unlock. An intake is one form, for one of the client's engagements; its
+// answers are versioned. Owner and Admin can ask for changes (Needs Correction, with a note) or
+// unlock it: both start the next version from the last answers, to be signed again.
+// The client's side is contract B (schemas.ts and client.ts, `api.myIntakes(slug)`).
+// Firm routes: /api/v1/business/... (Staff: their own clients only; others are 404).
 // SSN and EIN answers always come back as `{ last4 }`.
 
 const DateTime = z.iso.datetime({ offset: true });
 
 /**
- * A file the client uploaded into one of the form's upload slots, as the API's IntakeView carries
- * it (contract B's portal shape is IntakeUpload in schemas.ts).
+ * A file the client uploaded into one of the form's upload slots, as the firm's IntakeView carries
+ * it (the portal's shape is contract B's IntakeUpload in schemas.ts).
  */
 export const IntakeFile = z.object({
   documentId: z.uuid(),
@@ -54,7 +53,7 @@ export const IntakeSummary = z.object({
 });
 export type IntakeSummary = z.infer<typeof IntakeSummary>;
 
-/** One intake with its form and answers, to fill (portal) or review (firm). */
+/** One intake with its form and answers, as the firm reviews it (a full SSN or EIN fails to parse). */
 export const IntakeView = IntakeSummary.extend({
   definition: IntakeFormDefinition,
   answers: IntakeAnswers,
@@ -63,26 +62,11 @@ export const IntakeView = IntakeSummary.extend({
   /** False while the client can change the answers (SENT, IN_PROGRESS, NEEDS_CORRECTION). */
   locked: z.boolean(),
   uploads: z.array(IntakeFile),
-});
+}).superRefine(refuseFullNumbers);
 export type IntakeView = z.infer<typeof IntakeView>;
 
 export const IntakeList = z.object({ items: z.array(IntakeSummary).max(200) });
 export type IntakeList = z.infer<typeof IntakeList>;
-
-/** One of the client's ACTIVE engagements whose service has an intake form, and its intake. */
-export const IntakeChoice = z.object({
-  engagement: z.object({ id: z.uuid(), title: z.string(), taxYear: z.number().int().nullable() }),
-  service: ServiceRef,
-  /** The newest intake for this engagement, if one was started or sent. */
-  intake: IntakeSummary.nullable(),
-});
-export type IntakeChoice = z.infer<typeof IntakeChoice>;
-export const IntakeChoiceList = z.object({ items: z.array(IntakeChoice).max(200) });
-export type IntakeChoiceList = z.infer<typeof IntakeChoiceList>;
-
-/** POST /portal/{firmSlug}/me/intakes: start (or open the open) intake of an engagement. */
-export const StartIntakeRequest = z.strictObject({ engagementId: z.uuid() });
-export type StartIntakeRequest = z.input<typeof StartIntakeRequest>;
 
 /** POST /business/engagements/{id}/intakes: send the client the service's intake form. */
 export const SendIntakeRequest = z.strictObject({ dueOn: CalendarDate.optional() });

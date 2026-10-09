@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -8,17 +9,20 @@ import {
 import type { Database, TxClient } from '@firmivra/db';
 import {
   type CreateIntakeUploadRequest,
+  INTAKE_ERRORS,
   INTAKE_LIMITS,
   intakeFields,
-  type IntakeView,
+  IntakeUpload,
+  type OkResponse,
   type UploadTicket,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { UploadsService } from '../storage/uploads.service.js';
+import { refusal } from '../storage/document-records.js';
 import { readDefinition } from './intake-forms.js';
-import { IntakesService, OPEN_STATUSES } from './intakes.service.js';
+import { requireChangeable, toIntakeUpload, uploadSelect } from './intakes.service.js';
 
 type UploadBody = z.output<typeof CreateIntakeUploadRequest>;
 
@@ -28,23 +32,28 @@ export interface IntakeUploader {
   userId: string;
   clientAccountId: string;
   clientId: string;
+  /** Only the client's PRIMARY login changes an intake (contract B: 403 FORBIDDEN otherwise). */
+  primary: boolean;
 }
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const conflict = (code: string, message: string) => new ConflictException({ code, message });
-const locked = () => conflict('INTAKE_LOCKED', 'This form was already sent to the firm');
+const forbidden = () =>
+  new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
 
 /**
- * Files in a portal intake's upload slots (R11 step 5). R5's upload steps (ticket, PUT, confirm)
- * with the intake and slot sealed into the ticket; the document gets both on insert (R0's rule),
- * so it counts toward the slot from the start. Only while the intake is open.
+ * Files in a portal intake's upload slots (contract B's createUpload, confirmUpload and
+ * removeUpload). R5's upload steps (ticket, PUT, confirm) with the intake and slot sealed into
+ * the ticket; the document gets both on insert (R0's rule), so it counts toward the slot from the
+ * start. Each step: 404 for another client's intake, 403 FORBIDDEN for a login that isn't the
+ * PRIMARY one, 410 INTAKE_EXPIRED, 409 INTAKE_LOCKED, all under the intake row's FOR NO KEY
+ * UPDATE lock (the submit takes the same one first).
  */
 @Injectable()
 export class IntakeUploadsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly uploads: UploadsService,
-    private readonly intakes: IntakesService,
     private readonly audit: AuditService,
   ) {}
 
@@ -52,7 +61,10 @@ export class IntakeUploadsService {
     return this.database.withScope({ kind: 'business', businessId }, fn);
   }
 
-  /** Step 1: 404 for another client's intake; 409 INTAKE_LOCKED or TOO_MANY_FILES. */
+  /**
+   * Step 1: then 409 NO_OPEN_SERVICE when the intake's engagement isn't ACTIVE, 400 for a slot
+   * that isn't an upload field, 409 TOO_MANY_FILES.
+   */
   async createUpload(
     who: IntakeUploader,
     intakeId: string,
@@ -82,16 +94,20 @@ export class IntakeUploadsService {
   }
 
   /**
-   * Step 3: the intake must still be open and the slot still have room. Another client's intake
-   * is 404 before the token is looked at, as on every route that names one.
+   * Step 3: the intake must still be open and the slot still have room, checked inside the
+   * transaction that adds the file after the intake row's FOR NO KEY UPDATE lock, so confirms at
+   * once never pass `maxFiles` or INTAKE_LIMITS.maxFiles. Another client's intake is 404, and a
+   * login that isn't the PRIMARY one 403, before the token is looked at. Answers the new file.
    */
   async confirmUpload(
     who: IntakeUploader,
     intakeId: string,
     uploadToken: string,
-  ): Promise<IntakeView> {
+  ): Promise<IntakeUpload> {
     await this.inFirm(who.businessId, (tx) => this.ownIntake(tx, who, intakeId));
-    await this.uploads.confirm(
+    if (!who.primary) throw forbidden();
+    let slot = '';
+    const documentId = await this.uploads.confirm(
       {
         pool: 'CLIENT',
         businessId: who.businessId,
@@ -101,20 +117,30 @@ export class IntakeUploadsService {
       uploadToken,
       async (tx, claim) => {
         if (claim.intakeId !== intakeId || !claim.intakeSlot) throw notFound();
+        slot = claim.intakeSlot;
         const client = await this.lockClient(tx, who);
         await this.checkSlot(tx, who, intakeId, claim.intakeSlot);
         return client;
       },
     );
-    return this.intakes.get(who.businessId, { kind: 'client', clientId: who.clientId }, intakeId);
+    const file = await this.database.forBusiness(who.businessId).document.findFirst({
+      where: { businessId: who.businessId, id: documentId, clientId: who.clientId },
+      select: uploadSelect,
+    });
+    if (!file) throw notFound();
+    // As confirmed: a submit that committed since may have taken it out of a hidden slot.
+    return IntakeUpload.parse(toIntakeUpload({ ...file, intakeSlot: file.intakeSlot ?? slot }));
   }
 
-  /** Takes a file out of its slot while the intake is open; it stays one of the client's documents. */
+  /**
+   * Takes a file out of its slot while the intake is open ("Replace"); it stays one of the
+   * client's documents. 404 for a file that isn't in this intake.
+   */
   async removeUpload(
     who: IntakeUploader,
     intakeId: string,
     documentId: string,
-  ): Promise<IntakeView> {
+  ): Promise<OkResponse> {
     await this.inFirm(who.businessId, async (tx) => {
       await this.lockIntake(tx, who, intakeId);
       const removed = await tx.document.updateMany({
@@ -124,7 +150,7 @@ export class IntakeUploadsService {
       if (removed.count === 0) throw notFound();
     });
     await this.audit.log('intake.upload_removed', { type: 'intake', id: intakeId }, { documentId });
-    return this.intakes.get(who.businessId, { kind: 'client', clientId: who.clientId }, intakeId);
+    return { ok: true };
   }
 
   private async lockClient(tx: TxClient, who: IntakeUploader): Promise<{ archived: boolean }> {
@@ -145,7 +171,10 @@ export class IntakeUploadsService {
     if (!row) throw notFound();
   }
 
-  /** The client's open intake, held for this transaction. */
+  /**
+   * The client's intake, held for this transaction (FOR NO KEY UPDATE, as the submit): 404, then
+   * 403 for a login that isn't the PRIMARY one, then 410 INTAKE_EXPIRED or 409 INTAKE_LOCKED.
+   */
   private async lockIntake(tx: TxClient, who: IntakeUploader, intakeId: string) {
     const [row] = await tx.$queryRaw<{ id: string }[]>`
       SELECT i.id FROM intakes i
@@ -159,10 +188,12 @@ export class IntakeUploadsService {
       select: {
         status: true,
         form: { select: { version: true, definition: true } },
-        engagement: { select: { id: true, taxYear: true, service: { select: { kind: true } } } },
+        engagement: {
+          select: { id: true, status: true, taxYear: true, service: { select: { kind: true } } },
+        },
       },
     });
-    if (!OPEN_STATUSES.includes(intake.status)) throw locked();
+    requireChangeable(intake.status, who);
     return intake;
   }
 
@@ -175,6 +206,7 @@ export class IntakeUploadsService {
   ): Promise<{ engagementId: string; taxYear: number | null }> {
     const intake = await this.lockIntake(tx, who, intakeId);
     const engagement = intake.engagement!;
+    if (engagement.status !== 'ACTIVE') throw refusal('NO_OPEN_SERVICE');
     const definition = readDefinition(intake.form, engagement.service.kind);
     const field = intakeFields(definition).find((f) => f.key === slot);
     if (field?.type !== 'upload') {
@@ -189,7 +221,7 @@ export class IntakeUploadsService {
     const total = files.reduce((n, f) => n + f._count._all, 0);
     // On confirm the new file is not saved yet, so the limits are the same as on the ticket.
     if (inSlot >= field.maxFiles || total >= INTAKE_LIMITS.maxFiles) {
-      throw conflict('TOO_MANY_FILES', 'This upload has its most files: remove one first');
+      throw conflict('TOO_MANY_FILES', INTAKE_ERRORS.TOO_MANY_FILES);
     }
     return { engagementId: engagement.id, taxYear: engagement.taxYear };
   }
