@@ -12,24 +12,39 @@ export function Select({ label, options, error, id, className = '', ...props }: 
   const fieldId = id ?? generatedId;
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={fieldId} className="text-sm font-medium">
+      <label htmlFor={fieldId} className="text-sm font-medium text-text">
         {label}
       </label>
-      <select
-        id={fieldId}
-        aria-invalid={!!error}
-        aria-describedby={error ? `${fieldId}-error` : undefined}
-        className={`w-full rounded-control border border-control-border bg-surface px-3 py-2 text-base disabled:bg-disabled ${className}`}
-        {...props}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      <div className="relative">
+        <select
+          id={fieldId}
+          aria-invalid={!!error}
+          aria-describedby={error ? `${fieldId}-error` : undefined}
+          className={`w-full appearance-none rounded-control border bg-surface py-2 pl-3 pr-10 text-base text-text focus:outline-2 focus:outline-accent-500 disabled:bg-disabled ${error ? 'border-danger' : 'border-border'} ${className}`}
+          {...props}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        {/* The mockups' thin chevron in place of the native arrow. */}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </div>
       {error ? (
-        <p id={`${fieldId}-error`} className="text-sm text-danger">
+        <p id={`${fieldId}-error`} className="text-xs text-danger">
           {error}
         </p>
       ) : null}
@@ -43,8 +58,16 @@ export function Checkbox({ label, id, className = '', ...props }: CheckboxProps)
   const generatedId = useId();
   const fieldId = id ?? generatedId;
   return (
-    <label htmlFor={fieldId} className={`flex min-h-11 items-center gap-3 text-sm ${className}`}>
-      <input {...props} id={fieldId} type="checkbox" className="h-4 w-4 shrink-0" />
+    <label
+      htmlFor={fieldId}
+      className={`flex min-h-11 items-center gap-3 text-base text-text ${className}`}
+    >
+      <input
+        {...props}
+        id={fieldId}
+        type="checkbox"
+        className="size-5 shrink-0 rounded-sm border-border accent-action"
+      />
       <span>{label}</span>
     </label>
   );
