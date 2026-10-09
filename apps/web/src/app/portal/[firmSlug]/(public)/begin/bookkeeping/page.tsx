@@ -1,18 +1,13 @@
-import { PageContainer } from '@firmivra/ui';
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { IntakePage } from '../_blocks/intake-flow';
 
 export const metadata: Metadata = { title: 'Bookkeeping' };
 
-export default function BookkeepingPage() {
-  return (
-    <PageContainer className="py-8">
-      <PagePlaceholder
-        title="Bookkeeping"
-        ticket="N07b"
-        owner="Arfan"
-        mockup="begin-online/Bookkeeping*.png (4 files)"
-      />
-    </PageContainer>
-  );
+export default async function BookkeepingPage({
+  params,
+}: {
+  params: Promise<{ firmSlug: string }>;
+}) {
+  const { firmSlug } = await params;
+  return <IntakePage firmSlug={firmSlug} form="BOOKKEEPING" />;
 }

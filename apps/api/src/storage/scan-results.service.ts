@@ -3,6 +3,7 @@ import type { Database, ScanStatus } from '@firmivra/db';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { lockRequest } from './document-records.js';
+import { refusedUpload } from './uploads.service.js';
 
 /**
  * One GuardDuty Malware Protection for S3 result, as its EventBridge event gives it
@@ -20,10 +21,18 @@ export interface ScanResult {
  * accepted unscanned (CLEAN, q24); PENDING when the scan broke on our side (the alarm and a
  * rescan); UNKNOWN for a documents key with no document yet (the confirm may still come: the
  * handler leaves the message for redelivery, then dead-letters it to the alarm); IGNORED for a
- * key outside the documents prefixes or a document whose result is already set (delete it).
+ * key outside the documents prefixes, a document whose result is already set, or an upload the
+ * confirm refused (its object is deleted; delete the message).
  */
 export type ScanOutcome =
   'CLEAN' | 'INFECTED' | 'FAILED' | 'UNSCANNED' | 'PENDING' | 'UNKNOWN' | 'IGNORED';
+
+/**
+ * How far back a scan result looks for its upload's refusal: wider than confirm's 30 minutes, so
+ * a result that GuardDuty or EventBridge delivers late is still IGNORED, not dead-lettered. A
+ * refused key never gets a document (confirm finds the refusal under the key's lock).
+ */
+const SCAN_REFUSALS_SINCE_MS = 24 * 60 * 60_000;
 
 /** UNSUPPORTED because of the file itself (docs/api/documents.yaml, "Scan results"). */
 const FILE_REASON =
@@ -58,8 +67,9 @@ function statusFor(
  * REQUESTED, in the same transaction. q24: UNSUPPORTED with PASSWORD_PROTECTED on a PDF is
  * accepted unscanned (CLEAN, the reason audited); other file reasons are FAILED; everything else
  * is our side and leaves the file PENDING for the alarm and a rescan. A result that comes before
- * the confirm saves its document is UNKNOWN, for redelivery. Lock order: the request, then the
- * document. Audited with ids and codes only.
+ * the confirm saves its document is UNKNOWN, for redelivery; one for an upload the confirm
+ * refused (its `document.upload_refused` audit row) is IGNORED, so it never reaches the alarm.
+ * Lock order: the request, then the document. Audited with ids and codes only.
  */
 @Injectable()
 export class ScanResultsService {
@@ -79,6 +89,11 @@ export class ScanResultsService {
         select: { id: true, clientId: true, requestId: true, contentType: true },
       });
       if (!doc) {
+        // GuardDuty scanned the PUT of a file the confirm then refused and deleted: nothing to do.
+        if (await refusedUpload(tx, businessId, uploadId, { sinceMs: SCAN_REFUSALS_SINCE_MS })) {
+          this.logger.log(`Scan result for refused upload ${uploadId}; ignored`);
+          return 'IGNORED';
+        }
         // GuardDuty scans on the PUT; the confirm that saves the document can come later.
         this.logger.warn(`Scan result for upload ${uploadId} has no document yet; redeliver`);
         return 'UNKNOWN';

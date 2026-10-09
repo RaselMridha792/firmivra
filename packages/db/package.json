@@ -19,6 +19,7 @@
     "@aws-sdk/client-cognito-identity-provider": "^3.1146.0",
     "@firmivra/config-eslint": "workspace:*",
     "@firmivra/config-typescript": "workspace:*",
+    "@firmivra/types": "workspace:*",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
     "dotenv": "^18.0.5",
