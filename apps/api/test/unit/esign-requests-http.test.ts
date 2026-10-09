@@ -1,5 +1,5 @@
-// R13 step 6, requests API parts 1b to 1d, over HTTP: EsignModule's status, draft, page plan,
-// recipients and upload routes, pipes
+// R13 step 6, requests API parts 1b to 1e, over HTTP: EsignModule's status, draft, page plan,
+// recipients and document routes, pipes
 // and the module switch
 // with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
 // role on the request, as the global guards do in the app; the guards themselves are tested in
@@ -271,7 +271,7 @@ describe('Firm Sign documents over HTTP', () => {
     return EsignRequestDetail.parse(created.body).id;
   };
 
-  it('uploads, confirms and removes a file', async () => {
+  it('uploads, confirms, serves once CLEAN and removes a file', async () => {
     const id = await newDraft();
     const base = `/esign/requests/${id}/documents`;
     const started = await send('post', `${base}/uploads`, ownerA(), facts);
@@ -287,6 +287,22 @@ describe('Firm Sign documents over HTTP', () => {
       410,
       'UPLOAD_EXPIRED',
     ]);
+
+    const path = `${base}/${doc.id}/content`;
+    expect(errorOf(await call(path, ownerA()))).toEqual([409, 'SCAN_PENDING']);
+    w.repo.seed(w.a, id, (row) => {
+      for (const d of row.parts.documents) d.scanStatus = 'CLEAN';
+    });
+    const bytes = await call(path, ownerA()).buffer(true);
+    expect([bytes.status, bytes.get('content-type'), bytes.get('cache-control')]).toEqual([
+      200,
+      'application/pdf',
+      'no-store',
+    ]);
+    expect(bytes.get('cross-origin-resource-policy')).toBe('same-origin');
+    expect((bytes.body as Buffer).toString()).toBe('pdf:2');
+    expect(errorOf(await call(path, ownerB()))).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await call(path, staffA2()))).toEqual([404, 'NOT_FOUND']);
 
     expect(errorOf(await send('delete', `${base}/${doc.id}`, ownerB()))).toEqual([
       404,
@@ -314,7 +330,12 @@ describe('Firm Sign documents over HTTP', () => {
       404,
       'NOT_FOUND',
     ]);
-    expect(errorOf(await send('delete', `${base}/not-a-uuid`, ownerA()))).toEqual([
+    expect(
+      errorOf(await send('post', `${base}/from-vault`, ownerA(), { documentId: 'x' })),
+    ).toEqual([400, 'VALIDATION_FAILED']);
+    const vault = await send('post', `${base}/from-vault`, ownerA(), { documentId: randomUUID() });
+    expect(errorOf(vault)).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await call(`${base}/not-a-uuid/content`, ownerA()))).toEqual([
       400,
       'VALIDATION_FAILED',
     ]);
@@ -329,7 +350,9 @@ describe('Firm Sign documents over HTTP', () => {
       for (const res of [
         await send('post', `${base}/uploads`, ownerA(), facts),
         await send('post', `${base}/uploads/confirm`, ownerA(), { uploadToken: 'x' }),
+        await send('post', `${base}/from-vault`, ownerA(), { documentId: doc }),
         await send('delete', `${base}/${doc}`, ownerA()),
+        await send('get', `${base}/${doc}/content`, ownerA()),
       ]) {
         expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
       }

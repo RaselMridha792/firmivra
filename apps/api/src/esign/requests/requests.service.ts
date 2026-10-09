@@ -347,7 +347,8 @@ export class EsignRequestsService {
     if (!(await write)) throw esignRefusal('INVALID_STATE');
   }
 
-  private async reachableClient(businessId: string, actor: EsignActor, clientId: string) {
+  /** A client the caller reaches and that is not archived; else 404. */
+  async reachableClient(businessId: string, actor: EsignActor, clientId: string) {
     const client = await this.directory.client(businessId, clientId);
     const reached =
       client && !client.archived && (seesAll(actor) || client.assignedUserId === actor.userId);

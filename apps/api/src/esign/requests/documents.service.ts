@@ -11,6 +11,8 @@ import type { z } from 'zod';
 import {
   type CreateEsignUploadBody,
   ESIGN_ERRORS,
+  ESIGN_UPLOAD_TYPES,
+  type EsignContentType,
   type EsignDocument,
   type EsignField,
   type EsignRequestDetail,
@@ -26,6 +28,7 @@ import {
   PDF_ENGINE,
   type PdfEngine,
 } from '../engine/engine.types.js';
+import { ESIGN_DIRECTORY, type EsignDirectory } from './esign-directory.js';
 import {
   ESIGN_REPOSITORY,
   type EsignRepository,
@@ -33,17 +36,27 @@ import {
 } from './esign.repository.js';
 import { type EsignActor, esignRefusal, EsignRequestsService } from './requests.service.js';
 
-type Store = Pick<EsignStore, 'keyFor' | 'presignUpload' | 'head' | 'read' | 'remove'>;
+type Store = Pick<
+  EsignStore,
+  'keyFor' | 'presignUpload' | 'head' | 'read' | 'copyFromVault' | 'remove'
+>;
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const expired = () =>
   new GoneException({ code: 'UPLOAD_EXPIRED', message: ESIGN_ERRORS.UPLOAD_EXPIRED });
 const sha256 = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const entity = (id: string) => ({ type: 'esign_request', id });
+const isEsignType = (type: string): type is EsignContentType => type in ESIGN_UPLOAD_TYPES;
+
+/** A CLEAN file's bytes for the page viewer. */
+export interface EsignContent {
+  bytes: Uint8Array;
+  contentType: EsignContentType;
+}
 
 /**
- * A DRAFT's files (R13 step 6, part 1d): uploads in three steps as in Documents, and removal
- * (from-vault and the page viewer's bytes come in part 1e). Access is the requests service's
+ * A DRAFT's files (R13 step 6, parts 1d and 1e): uploads in three steps as in Documents, copies
+ * from the client's vault, removal, and the bytes for the page viewer. Access is the requests service's
  * (404 for what the caller may not see). Files sit under tenant/<businessId>/esign/<requestId>/
  * (EsignStore checks every key). The audit log and the log get ids only.
  */
@@ -54,6 +67,7 @@ export class EsignDocumentsService {
   constructor(
     @Inject(EsignRequestsService) private readonly requests: EsignRequestsService,
     @Inject(ESIGN_REPOSITORY) private readonly repo: EsignRepository,
+    @Inject(ESIGN_DIRECTORY) private readonly directory: EsignDirectory,
     @Inject(ESIGN_STORE) private readonly store: Store,
     @Inject(PDF_ENGINE) private readonly pdf: Pick<PdfEngine, 'inspect'>,
     @Inject(AuditService) private readonly audit: Pick<AuditService, 'log'>,
@@ -132,6 +146,45 @@ export class EsignDocumentsService {
     });
   }
 
+  /**
+   * Copies one of the request's client's documents, when the caller reaches that client (404
+   * otherwise, another client's document included): a CLEAN PDF, JPG or PNG.
+   */
+  async addFromVault(
+    businessId: string,
+    actor: EsignActor,
+    id: string,
+    sourceId: string,
+  ): Promise<EsignDocument> {
+    const record = await this.requests.draft(businessId, actor, id);
+    if (!record.clientId) throw notFound();
+    await this.requests.reachableClient(businessId, actor, record.clientId);
+    const source = await this.directory.document(businessId, sourceId);
+    if (!source || source.clientId !== record.clientId) throw notFound();
+    const { contentType } = source;
+    if (!isEsignType(contentType)) throw esignRefusal('FILE_TYPE_NOT_ALLOWED');
+    if (source.scanStatus === 'PENDING') throw esignRefusal('SCAN_PENDING');
+    if (source.scanStatus !== 'CLEAN') throw esignRefusal('FILE_BLOCKED');
+    const documentId = randomUUID();
+    const key = this.store.keyFor(businessId, id, `source/${documentId}`);
+    await this.store.copyFromVault(businessId, source.s3Key, key);
+    return this.removingOnRefusal(businessId, key, async () => {
+      const bytes = await this.store.read(businessId, key);
+      // The copy must be the file that was scanned.
+      if (!bytes || sha256(bytes) !== source.sha256) throw esignRefusal('FILE_BLOCKED');
+      return this.add(businessId, actor, id, bytes, {
+        id: documentId,
+        fileName: source.fileName,
+        contentType,
+        sizeBytes: bytes.byteLength,
+        sourceDocumentId: source.id,
+        scanStatus: 'CLEAN',
+        s3Key: key,
+        sha256: source.sha256,
+      });
+    });
+  }
+
   /** Removes the file, its pages and the fields on them, then the stored object. */
   async removeDocument(
     businessId: string,
@@ -162,6 +215,28 @@ export class EsignDocumentsService {
     });
     await this.removeObject(businessId, doc.id, doc.s3Key);
     return this.requests.get(businessId, actor, id);
+  }
+
+  /** A CLEAN file's bytes, in any status (409 SCAN_PENDING, FILE_BLOCKED). */
+  async content(
+    businessId: string,
+    actor: EsignActor,
+    id: string,
+    documentId: string,
+  ): Promise<EsignContent> {
+    await this.requests.reach(businessId, actor, id);
+    const { documents } = await this.repo.parts(businessId, id);
+    const doc = documents.find((d) => d.id === documentId);
+    if (!doc) throw notFound();
+    if (doc.scanStatus === 'PENDING') throw esignRefusal('SCAN_PENDING');
+    if (doc.scanStatus !== 'CLEAN') throw esignRefusal('FILE_BLOCKED');
+    const bytes = await this.store.read(businessId, doc.s3Key);
+    if (!bytes || sha256(bytes) !== doc.sha256) {
+      this.logger.warn(`Esign document ${doc.id}: the stored file is not the checked one`);
+      throw esignRefusal('FILE_BLOCKED');
+    }
+    await this.audit.log('esign.document_read', entity(id), { documentId });
+    return { bytes, contentType: doc.contentType };
   }
 
   /** Reads pages and sizes (409 PDF_ENCRYPTED, PDF_UNREADABLE) and adds the file to the draft. */

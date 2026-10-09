@@ -1,4 +1,14 @@
-import { BadRequestException, Body, Controller, Delete, Param, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  Param,
+  Post,
+  StreamableFile,
+} from '@nestjs/common';
 import type { z } from 'zod';
 import {
   ConfirmEsignUploadBody,
@@ -7,6 +17,7 @@ import {
   ESIGN_UPLOAD_TYPES,
   EsignDocumentId,
   type EsignDocument,
+  EsignFromVaultBody,
   EsignRequestId,
   type EsignRequestDetail,
   type UploadTicket,
@@ -19,6 +30,7 @@ import { EsignDocumentsService } from './documents.service.js';
 import { actorOf } from './requests.controller.js';
 
 const idPipe = new ZodValidationPipe(EsignRequestId);
+const documentIdPipe = new ZodValidationPipe(EsignDocumentId);
 
 /** Another type is 400 FILE_TYPE_NOT_ALLOWED, as the client answers before sending anything. */
 class UploadBodyPipe extends ZodValidationPipe<typeof CreateEsignUploadBody> {
@@ -37,7 +49,7 @@ class UploadBodyPipe extends ZodValidationPipe<typeof CreateEsignUploadBody> {
   }
 }
 
-/** A DRAFT's files (contract: packages/types/src/esign). */
+/** A DRAFT's files and the page viewer's bytes (contract: packages/types/src/esign). */
 @Controller('esign/requests/:id/documents')
 @Roles(...FIRM_STAFF)
 @RequiresModule('esign')
@@ -66,14 +78,44 @@ export class EsignDocumentsController {
     return this.documents.confirmUpload(tenant.businessId, actor, id, body.uploadToken);
   }
 
+  @Post('from-vault')
+  addFromVault(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(EsignFromVaultBody)) body: z.output<typeof EsignFromVaultBody>,
+  ): Promise<EsignDocument> {
+    const actor = actorOf(auth, tenant);
+    return this.documents.addFromVault(tenant.businessId, actor, id, body.documentId);
+  }
+
   @Delete(':documentId')
   remove(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
-    @Param('documentId', new ZodValidationPipe(EsignDocumentId)) documentId: string,
+    @Param('documentId', documentIdPipe) documentId: string,
   ): Promise<EsignRequestDetail> {
     const actor = actorOf(auth, tenant);
     return this.documents.removeDocument(tenant.businessId, actor, id, documentId);
+  }
+
+  /** The bytes for the page viewer on this site only: never cached, never framed elsewhere. */
+  @Get(':documentId/content')
+  @Header('Cache-Control', 'no-store')
+  @Header('Cross-Origin-Resource-Policy', 'same-origin')
+  @Header('Content-Disposition', 'attachment')
+  async content(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Param('documentId', documentIdPipe) documentId: string,
+  ): Promise<StreamableFile> {
+    const actor = actorOf(auth, tenant);
+    const file = await this.documents.content(tenant.businessId, actor, id, documentId);
+    return new StreamableFile(file.bytes, {
+      type: file.contentType,
+      length: file.bytes.byteLength,
+    });
   }
 }

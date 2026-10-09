@@ -1,12 +1,13 @@
-// R13 step 6, requests API part 1d: a DRAFT's files on the in-memory ports (esign-fakes.ts),
-// R18's in-memory store and a fake PDF engine: uploads (ticket, confirm and its refusals) and
-// removal; access (cross-firm and
+// R13 step 6, requests API parts 1d and 1e: a DRAFT's files on the in-memory ports (esign-fakes.ts),
+// R18's in-memory store and a fake PDF engine: uploads (ticket, confirm and its refusals),
+// copies from the client's vault, removal, and the page viewer's bytes; access (cross-firm and
 // cross-client 404s) and an audit of ids only. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { EsignDocument, type EsignField, UploadTicket } from '@firmivra/types';
 import { EsignDocumentsService } from '../../src/esign/requests/documents.service.js';
+import type { DirectoryDocument } from '../../src/esign/requests/esign-directory.js';
 import {
   type EsignActor,
   EsignRequestsService,
@@ -24,7 +25,7 @@ const ownerB = (): EsignActor => ({ userId: w.users.ownerB, role: 'OWNER' });
 beforeEach(() => {
   w = esignWorld();
   requests = new EsignRequestsService(w.repo, w.directory, w.modules, w.store, w.audit, fakeHasher);
-  docs = new EsignDocumentsService(requests, w.repo, w.store, fakePdf, w.audit);
+  docs = new EsignDocumentsService(requests, w.repo, w.directory, w.store, fakePdf, w.audit);
   owner = { userId: w.users.ownerA, role: 'OWNER' };
   staff = { userId: w.users.staffA, role: 'STAFF' };
   staff2 = { userId: w.users.staffA2, role: 'STAFF' };
@@ -239,6 +240,89 @@ describe('uploads', () => {
   });
 });
 
+describe('from the vault', () => {
+  const vault = (clientId: string, change: Partial<DirectoryDocument> = {}, text = 'pdf:2') => {
+    const bytes = bytesOf(text);
+    const id = randomUUID();
+    const s3Key = `tenant/${w.a}/documents/${id}`;
+    w.store.objects.set(s3Key, { bytes, contentType: 'application/pdf' });
+    const doc: DirectoryDocument = {
+      id,
+      clientId,
+      fileName: 'return.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: bytes.byteLength,
+      sha256: sha(bytes),
+      s3Key,
+      scanStatus: 'CLEAN',
+      ...change,
+    };
+    w.directory.documents.of(w.a).set(id, doc);
+    return id;
+  };
+
+  it('copies a CLEAN client document as a CLEAN file with its pages', async () => {
+    const id = await draft();
+    const source = vault(w.ids.c1);
+    const doc = await docs.addFromVault(w.a, staff, id, source);
+    expect(EsignDocument.parse(doc)).toMatchObject({
+      sourceDocumentId: source,
+      scanStatus: 'CLEAN',
+      pageCount: 2,
+      fileName: 'return.pdf',
+    });
+    const detail = await requests.get(w.a, owner, id);
+    expect(detail.pagePlan).toHaveLength(2);
+    expect(w.store.objects.has(`tenant/${w.a}/esign/${id}/source/${doc.id}`)).toBe(true);
+    expect(w.audit.entries.at(-1)).toEqual({
+      action: 'esign.document_added',
+      entity: { type: 'esign_request', id },
+      metadata: { documentId: doc.id, sourceDocumentId: source, pageCount: 2 },
+    });
+  });
+
+  it('refuses unscanned, blocked, other-type and unreadable files', async () => {
+    const id = await draft();
+    const cases: [string, string][] = [
+      [vault(w.ids.c1, { scanStatus: 'PENDING' }), 'SCAN_PENDING'],
+      [vault(w.ids.c1, { scanStatus: 'INFECTED' }), 'FILE_BLOCKED'],
+      [vault(w.ids.c1, { scanStatus: 'FAILED' }), 'FILE_BLOCKED'],
+      [vault(w.ids.c1, { contentType: 'application/vnd.ms-excel' }), 'FILE_TYPE_NOT_ALLOWED'],
+      [vault(w.ids.c1, { sha256: '0'.repeat(64) }), 'FILE_BLOCKED'],
+      [vault(w.ids.c1, {}, 'encrypted'), 'PDF_ENCRYPTED'],
+    ];
+    for (const [source, code] of cases) {
+      expect(await refused(docs.addFromVault(w.a, owner, id, source))).toEqual([409, code]);
+    }
+    // Nothing copied stays behind.
+    const esign = [...w.store.objects.keys()].filter((k) => k.includes('/esign/'));
+    expect(esign).toEqual([]);
+  });
+
+  it('answers 404 for another client’s or firm’s document, no client, and an unassigned Staff', async () => {
+    const id = await draft();
+    expect(await refused(docs.addFromVault(w.a, owner, id, vault(w.ids.c2)))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    expect(await refused(docs.addFromVault(w.a, owner, id, randomUUID()))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    const source = vault(w.ids.c1);
+    expect(await refused(docs.addFromVault(w.b, ownerB(), id, source))).toEqual([404, 'NOT_FOUND']);
+    const noClient = await draft(owner, null);
+    expect(await refused(docs.addFromVault(w.a, owner, noClient, source))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    // Staff2 sends this request, but c1 is not assigned to them: its vault stays closed.
+    const own = await draft(staff2, null);
+    await requests.update(w.a, owner, own, { clientId: w.ids.c1 });
+    expect(await refused(docs.addFromVault(w.a, staff2, own, source))).toEqual([404, 'NOT_FOUND']);
+  });
+});
+
 describe('removing a file', () => {
   it('drops its pages and their fields, re-indexes the rest and deletes the stored file', async () => {
     const id = await draft();
@@ -296,5 +380,38 @@ describe('removing a file', () => {
       409,
       'INVALID_STATE',
     ]);
+  });
+});
+
+describe('the page viewer’s bytes', () => {
+  it('serves a CLEAN file in any status; 409 until then, 404 to others', async () => {
+    const id = await draft();
+    const content = bytesOf('pdf:1');
+    const doc = await confirm(id, (await uploaded(id, content)).ticket.uploadToken);
+    const read = (actor = owner, firm = w.a) => docs.content(firm, actor, id, doc.id);
+    const scan = (status: 'CLEAN' | 'INFECTED') =>
+      w.repo.seed(w.a, id, (row) => {
+        for (const d of row.parts.documents) d.scanStatus = status;
+      });
+    expect(await refused(read())).toEqual([409, 'SCAN_PENDING']);
+    scan('CLEAN');
+    const file = await read(staff);
+    expect([Buffer.from(file.bytes).toString(), file.contentType]).toEqual([
+      'pdf:1',
+      'application/pdf',
+    ]);
+    w.repo.seed(w.a, id, (row) => {
+      row.record.status = 'SENT';
+    });
+    expect((await read()).bytes).toEqual(content);
+    expect(await refused(read(staff2))).toEqual([404, 'NOT_FOUND']);
+    expect(await refused(read(ownerB(), w.b))).toEqual([404, 'NOT_FOUND']);
+    expect(await refused(docs.content(w.a, owner, id, randomUUID()))).toEqual([404, 'NOT_FOUND']);
+    // A stored file that changed since its check is blocked.
+    const key = `tenant/${w.a}/esign/${id}/source/${doc.id}`;
+    await w.store.put(w.a, key, bytesOf('pdf:9'), 'application/pdf');
+    expect(await refused(read())).toEqual([409, 'FILE_BLOCKED']);
+    scan('INFECTED');
+    expect(await refused(read())).toEqual([409, 'FILE_BLOCKED']);
   });
 });

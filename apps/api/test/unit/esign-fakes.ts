@@ -17,6 +17,7 @@ import {
 import { MemoryEsignStore } from '../../src/esign/engine/esign-store.js';
 import type {
   DirectoryClient,
+  DirectoryDocument,
   DirectoryEngagement,
   DirectoryLogin,
   DirectoryMember,
@@ -199,6 +200,7 @@ export class InMemoryDirectory implements EsignDirectory {
   readonly engagements = new PerFirm<DirectoryEngagement>();
   readonly logins = new PerFirm<DirectoryLogin>();
   readonly members = new PerFirm<DirectoryMember>();
+  readonly documents = new PerFirm<DirectoryDocument>();
 
   client(businessId: string, id: string) {
     return Promise.resolve(this.clients.of(businessId).get(id) ?? null);
@@ -211,6 +213,9 @@ export class InMemoryDirectory implements EsignDirectory {
   }
   member(businessId: string, userId: string) {
     return Promise.resolve(this.members.of(businessId).get(userId) ?? null);
+  }
+  document(businessId: string, id: string) {
+    return Promise.resolve(this.documents.of(businessId).get(id) ?? null);
   }
 }
 
