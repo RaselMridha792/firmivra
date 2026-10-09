@@ -317,12 +317,28 @@ export const EsignField = z.object({
 });
 export type EsignField = z.infer<typeof EsignField>;
 
+/** Whole days between `min` and `max`, with words a form can show under the field. */
+const days = (min: number, max: number, what: string) =>
+  z
+    .number({ error: `Enter the ${what} in days` })
+    .int(`Enter the ${what} in whole days`)
+    .min(min, `The ${what} must be at least ${min} ${min === 1 ? 'day' : 'days'}`)
+    .max(max, `The ${what} can be at most ${max} days`);
+/** Days from sending until a request expires: 1 to 365. */
+export const EsignExpiryDays = days(1, 365, 'expiry');
+/** Days before expiry that open signers get a warning: 0 (none) to 30. */
+export const EsignExpiryWarningDays = days(0, 30, 'warning');
+
 /** The default reminders: the first after `firstAfterDays`, then every `everyDays`, at most `max`. */
 export const EsignReminders = z.strictObject({
-  firstAfterDays: z.number().int().min(1).max(60),
-  everyDays: z.number().int().min(1).max(60),
+  firstAfterDays: days(1, 60, 'first reminder'),
+  everyDays: days(1, 60, 'time between reminders'),
   /** 0 turns automatic reminders off. */
-  max: z.number().int().min(0).max(10),
+  max: z
+    .number({ error: 'Enter how many reminders to send' })
+    .int('Enter a whole number of reminders')
+    .min(0, 'The number of reminders can’t be negative')
+    .max(10, 'Send at most 10 reminders'),
 });
 export type EsignReminders = z.infer<typeof EsignReminders>;
 
@@ -336,10 +352,10 @@ export const EsignRequestDetail = EsignRequestRow.extend({
   routing: EsignRouting,
   engagement: ServiceRef.nullable(),
   /** Days from sending until it expires (the expiry date is set when it is sent). */
-  expiryDays: z.number().int().min(1).max(365),
+  expiryDays: EsignExpiryDays,
   reminders: z.object(EsignReminders.shape),
   /** Days before expiry that open signers get a warning; 0 for none. */
-  expiryWarningDays: z.number().int().min(0).max(30),
+  expiryWarningDays: EsignExpiryWarningDays,
   documents: z.array(EsignDocument),
   /** The packet's pages in order. Pages left out of it are not sent. */
   pagePlan: z.array(z.object(EsignPage.shape)),
@@ -403,9 +419,9 @@ export const UpdateEsignRequestBody = z
     clientId: z.uuid().nullable().optional(),
     engagementId: z.uuid().nullable().optional(),
     routing: EsignRouting.optional(),
-    expiryDays: z.number().int().min(1).max(365).optional(),
+    expiryDays: EsignExpiryDays.optional(),
     reminders: EsignReminders.optional(),
-    expiryWarningDays: z.number().int().min(0).max(30).optional(),
+    expiryWarningDays: EsignExpiryWarningDays.optional(),
   })
   .refine((b) => Object.keys(b).length > 0, 'Change at least one thing');
 export type UpdateEsignRequestBody = z.input<typeof UpdateEsignRequestBody>;
@@ -497,6 +513,11 @@ export const EsignWhoExternal = z.strictObject({
   phone: Phone.optional(),
 });
 
+/** A code the firm gives an ACCESS_CODE signer another way. Only its hash is stored. */
+export const EsignAccessCode = z
+  .string()
+  .regex(/^[A-Za-z0-9]{4,20}$/, 'Use 4 to 20 letters or digits');
+
 /**
  * One recipient in PUT /esign/requests/{id}/recipients. `id` keeps an existing recipient (and its
  * fields and colour); leave it out for a new one. Who they are:
@@ -522,10 +543,7 @@ export const EsignPutRecipient = z
     delivery: EsignDelivery.default('EMAIL'),
     authMethod: EsignChosenAuthMethod.default('EMAIL_CODE'),
     /** Required for a new ACCESS_CODE; leave it out to keep the code already set. */
-    accessCode: z
-      .string()
-      .regex(/^[A-Za-z0-9]{4,20}$/, 'Use 4 to 20 letters or digits')
-      .optional(),
+    accessCode: EsignAccessCode.optional(),
   })
   .superRefine((r, ctx) => {
     if (r.role === 'CUSTOM' && !r.roleLabel) {

@@ -9,10 +9,13 @@ import {
   EsignApprovalBody,
   EsignBulkBatch,
   EsignBulkSendBody,
+  EsignExpiryDays,
+  EsignExpiryWarningDays,
   EsignReadinessCode,
   EsignPutFieldsBody,
   EsignPutRecipient,
   EsignPutRecipientsBody,
+  EsignReminders,
   EsignReportQuery,
 } from '../../src/index.js';
 
@@ -226,5 +229,35 @@ describe('PUT fields body size', () => {
   it('refuses more than 2,000 choices across all fields', () => {
     const body = { fields: fieldsWith(ESIGN_MAX_FIELD_OPTIONS / ESIGN_MAX_FIELDS + 1) };
     expect(EsignPutFieldsBody.safeParse(body).success).toBe(false);
+  });
+});
+
+describe('approvers', () => {
+  it('lists who may approve', async () => {
+    const { fn, calls } = fakeFetch(200, {
+      items: [{ user: { userId: id, name: 'Owner' }, esignRole: 'OWNER' }],
+    });
+    const list = await createEsignClient(request(fn)).approvers();
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET /api/v1/esign/approvers']);
+    expect(list.items[0]!.esignRole).toBe('OWNER');
+  });
+});
+
+describe('friendly limits on expiry and reminders', () => {
+  const message = (r: { success: boolean; error?: { issues: { message: string }[] } }) =>
+    r.error?.issues[0]?.message;
+  it('says what is wrong', () => {
+    expect(message(EsignExpiryDays.safeParse(400))).toBe('The expiry can be at most 365 days');
+    expect(message(EsignExpiryDays.safeParse(0))).toBe('The expiry must be at least 1 day');
+    expect(message(EsignExpiryWarningDays.safeParse(31))).toBe(
+      'The warning can be at most 30 days',
+    );
+    expect(message(EsignExpiryDays.safeParse(2.5))).toBe('Enter the expiry in whole days');
+    expect(message(EsignReminders.safeParse({ firstAfterDays: 61, everyDays: 3, max: 3 }))).toBe(
+      'The first reminder can be at most 60 days',
+    );
+    expect(message(EsignReminders.safeParse({ firstAfterDays: 3, everyDays: 3, max: 11 }))).toBe(
+      'Send at most 10 reminders',
+    );
   });
 });

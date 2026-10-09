@@ -324,6 +324,7 @@ describe('open the link', () => {
       action: 'esign.signer_link_opened',
       entity: { type: 'esign_recipient', id: me.id },
       metadata: { requestId: id },
+      at: { businessId: w.a },
     });
   });
 
@@ -805,6 +806,7 @@ describe('adopt', () => {
       action: 'esign.signer_adopted',
       entity: { type: 'esign_recipient', id: me.id },
       metadata: { requestId: id, method: 'UPLOADED' },
+      at: { businessId: w.a },
     });
   });
 

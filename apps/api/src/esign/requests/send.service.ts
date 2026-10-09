@@ -83,7 +83,7 @@ export class EsignSendService {
     const turnIds = this.rules.currentTurn(record.routing, rule);
     const { turn, links, mailed } = this.startTurn(firm.slug, parts.recipients, turnIds);
     const now = new Date();
-    const emailIds = await this.repo.sendDraft(
+    const sent = await this.repo.sendDraft(
       businessId,
       id,
       {
@@ -105,7 +105,8 @@ export class EsignSendService {
       },
       record.lastActivityAt,
     );
-    if (!emailIds) throw esignRefusal('INVALID_STATE');
+    if (!sent) throw esignRefusal('INVALID_STATE');
+    const { emailIds } = sent;
     await this.audit.log('esign.request_sent', entity(id), {
       clientId: record.clientId,
       recipientIds: turn.map((t) => t.recipientId),
@@ -115,7 +116,7 @@ export class EsignSendService {
       const emailId = emailIds[i];
       if (emailId) await this.invite(businessId, emailId, r, links.get(r.id)!, record, sender);
     }
-    return this.requests.current(businessId, id);
+    return this.requests.answer(businessId, sent.request);
   }
 
   /** A turn: EMAIL gets a one-time token (`turn` has its hash; `links`, memory only, the token). */
