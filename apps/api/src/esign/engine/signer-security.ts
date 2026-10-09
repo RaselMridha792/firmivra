@@ -38,7 +38,7 @@ function crc32(bytes: Uint8Array): number {
  */
 export class PngSignatureCheck implements SignatureImageCheck {
   check(png: Uint8Array): SignatureImageResult {
-    if (png.byteLength > SIGNATURE_LIMITS.maxBytes) return { ok: false, reason: 'TOO_LARGE' };
+    if (png.byteLength > SIGNATURE_LIMITS.maxBytes) return { ok: false, reason: 'TOO_MANY_BYTES' };
     if (png.byteLength < 8 || PNG_MAGIC.some((b, i) => png[i] !== b)) return NOT_PNG;
     const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
     let at = 8;
@@ -63,7 +63,7 @@ export class PngSignatureCheck implements SignatureImageCheck {
       } else if (type === 'IEND') {
         if (!idat || end !== png.byteLength) return NOT_PNG;
         if (width > SIGNATURE_LIMITS.maxWidth || height > SIGNATURE_LIMITS.maxHeight) {
-          return { ok: false, reason: 'TOO_BIG' };
+          return { ok: false, reason: 'TOO_MANY_PIXELS' };
         }
         return { ok: true, width, height };
       }
@@ -138,12 +138,16 @@ const Sealed = z.object({
   requestId: z.uuid(),
   recipientId: z.uuid(),
   tokenVersion: z.number().int().min(0),
-  authPassed: z.boolean(),
+  purpose: z.enum(['SIGN', 'COPY']),
+  emailCodePassed: z.boolean(),
+  accessCodePassed: z.boolean(),
+  consentVersionId: z.uuid().nullable(),
 });
 
 /**
  * fv_sign_{slug}: the signer's session after opening their link, sealed (JWE) with the clients
  * pool's key and bound to its slug, so it never opens on another firm's signing routes.
+ * HttpOnly, SameSite=Strict (set by a same-site call after the signing page loads).
  */
 export class SealedSignerCookie implements SignerCookie {
   private readonly sealer: Sealer<z.infer<typeof Sealed>>;
@@ -163,7 +167,7 @@ export class SealedSignerCookie implements SignerCookie {
     return {
       httpOnly: true,
       secure: this.secure,
-      sameSite: 'lax',
+      sameSite: 'strict',
       path: `/api/v1/portal/${checkSlug(slug)}/sign`,
       maxAge: ttlSeconds * 1000,
     };

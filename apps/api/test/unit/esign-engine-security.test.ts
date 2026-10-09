@@ -45,11 +45,11 @@ describe('PngSignatureCheck', () => {
   });
 
   it('refuses images over 1600x600 and files over 200 KB', () => {
-    expect(check.check(png(1601, 10))).toEqual({ ok: false, reason: 'TOO_BIG' });
-    expect(check.check(png(10, 601))).toEqual({ ok: false, reason: 'TOO_BIG' });
+    expect(check.check(png(1601, 10))).toEqual({ ok: false, reason: 'TOO_MANY_PIXELS' });
+    expect(check.check(png(10, 601))).toEqual({ ok: false, reason: 'TOO_MANY_PIXELS' });
     const noisy = png(400, 200, { noise: true });
     expect(noisy.byteLength).toBeGreaterThan(200 * 1024);
-    expect(check.check(noisy)).toEqual({ ok: false, reason: 'TOO_LARGE' });
+    expect(check.check(noisy)).toEqual({ ok: false, reason: 'TOO_MANY_BYTES' });
   });
 });
 
@@ -102,7 +102,10 @@ describe('SealedSignerCookie', () => {
     requestId: randomUUID(),
     recipientId: randomUUID(),
     tokenVersion: 2,
-    authPassed: false,
+    purpose: 'SIGN',
+    emailCodePassed: true,
+    accessCodePassed: false,
+    consentVersionId: null,
   };
 
   it('names and scopes the cookie per firm', () => {
@@ -110,7 +113,7 @@ describe('SealedSignerCookie', () => {
     expect(cookie.options('lvp', 1800)).toEqual({
       httpOnly: true,
       secure: true,
-      sameSite: 'lax',
+      sameSite: 'strict',
       path: '/api/v1/portal/lvp/sign',
       maxAge: 1_800_000,
     });
@@ -122,6 +125,11 @@ describe('SealedSignerCookie', () => {
     const sealed = await cookie.seal(session, 600);
     expect(await cookie.open('lvp', sealed)).toEqual(session);
     expect(await cookie.open('other-firm', sealed)).toBeUndefined();
+  });
+
+  it('keeps each step, the purpose and the pinned consent', async () => {
+    const copy = { ...session, purpose: 'COPY' as const, consentVersionId: randomUUID() };
+    expect(await cookie.open('lvp', await cookie.seal(copy, 600))).toEqual(copy);
   });
 
   it('refuses a tampered, expired or foreign cookie', async () => {
