@@ -120,13 +120,29 @@ export interface PdfEngine {
 // ---------- Store ----------
 
 /** Firm Sign's objects in the documents bucket, always under tenant/<businessId>/esign/. */
+export interface EsignStoredObject {
+  sizeBytes: number;
+  contentType: string | null;
+  contentEncoding: string | null;
+}
+
 export interface EsignStore {
   /** tenant/<businessId>/esign/<requestId>/<name>. */
   keyFor(businessId: string, requestId: string, name: string): string;
   /** Every method refuses (throws) a key outside tenant/<businessId>/. */
   put(businessId: string, key: string, bytes: Uint8Array, contentType: string): Promise<void>;
   read(businessId: string, key: string): Promise<Uint8Array | null>;
-  head(businessId: string, key: string): Promise<{ sizeBytes: number } | null>;
+  /** HEAD: size, Content-Type and Content-Encoding (the upload confirm checks both), or null. */
+  head(businessId: string, key: string): Promise<EsignStoredObject | null>;
+  /**
+   * A presigned PUT for exactly this file (staff source files, signer attachments): Content-Type,
+   * Content-Length and the SHA-256 are signed, as for R5's document uploads.
+   */
+  presignUpload(
+    businessId: string,
+    key: string,
+    file: { contentType: string; sizeBytes: number; sha256: string },
+  ): Promise<{ url: string; headers: Record<string, string> }>;
   /** Copies a vault document (tenant/<businessId>/documents/...) into the request's folder. */
   copyFromVault(businessId: string, sourceKey: string, key: string): Promise<void>;
   presignDownload(

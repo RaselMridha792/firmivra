@@ -8,7 +8,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
-  type S3Client,
+  S3Client,
 } from '@aws-sdk/client-s3';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
@@ -104,7 +104,11 @@ describe('memory store', () => {
     const key = store.keyFor(firmA, requestA, 'source/1.pdf');
     await store.put(firmA, key, bytes, 'application/pdf');
     expect(await store.read(firmA, key)).toEqual(bytes);
-    expect(await store.head(firmA, key)).toEqual({ sizeBytes: bytes.byteLength });
+    expect(await store.head(firmA, key)).toEqual({
+      sizeBytes: bytes.byteLength,
+      contentType: 'application/pdf',
+      contentEncoding: null,
+    });
 
     const vault = `tenant/${firmA}/documents/${randomUUID()}`;
     store.objects.set(vault, { bytes, contentType: 'application/pdf' });
@@ -146,6 +150,7 @@ describe('S3 store reads', () => {
         sent.push(command);
         return Promise.resolve({
           ContentLength: bytes.length,
+          ContentType: 'application/pdf',
           Body: { transformToByteArray: () => Promise.resolve(bytes) },
         });
       },
@@ -153,7 +158,11 @@ describe('S3 store reads', () => {
     const store = new S3EsignStore(s3, 'fake-bucket');
     const key = store.keyFor(firmA, requestA, 'packet.pdf');
     expect(await store.read(firmA, key)).toEqual(bytes);
-    expect(await store.head(firmA, key)).toEqual({ sizeBytes: bytes.length });
+    expect(await store.head(firmA, key)).toEqual({
+      sizeBytes: bytes.length,
+      contentType: 'application/pdf',
+      contentEncoding: null,
+    });
     await store.remove(firmA, key);
     expect(sent.map((c) => c?.constructor)).toEqual([
       GetObjectCommand,
@@ -166,6 +175,32 @@ describe('S3 store reads', () => {
     await expect(store.head(firmA, other)).rejects.toThrow(EsignKeyError);
     expect(() => store.remove(firmA, other)).toThrow(EsignKeyError);
     expect(sent).toHaveLength(3);
+  });
+});
+
+describe('presigned uploads', () => {
+  const sha256 = 'ab'.repeat(32);
+  const file = { contentType: 'application/pdf', sizeBytes: 1234, sha256 };
+
+  it('signs a PUT for exactly the file, only for keys in the firm', async () => {
+    const s3 = new S3Client({
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'FAKEKEY', secretAccessKey: 'fake-secret' },
+    });
+    const store = new S3EsignStore(s3, 'fake-bucket');
+    const key = store.keyFor(firmA, requestA, 'attachments/a.pdf');
+    const { url, headers } = await store.presignUpload(firmA, key, file);
+    expect(url).toContain(key);
+    expect(url).toContain('content-length');
+    expect(headers).toEqual({
+      'content-type': 'application/pdf',
+      'x-amz-checksum-sha256': Buffer.from(sha256, 'hex').toString('base64'),
+    });
+    const other = `tenant/${firmB}/esign/${requestA}/a.pdf`;
+    expect(() => store.presignUpload(firmA, other, file)).toThrow(EsignKeyError);
+    const memory = new MemoryEsignStore();
+    expect(() => memory.presignUpload(firmA, other, file)).toThrow(EsignKeyError);
+    expect((await memory.presignUpload(firmA, key, file)).headers).toEqual(headers);
   });
 });
 

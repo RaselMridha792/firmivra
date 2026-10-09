@@ -1,6 +1,11 @@
-import { CopyObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { S3DocumentStorage } from '../../storage/document-storage.js';
-import type { EsignStore } from './engine.types.js';
+import {
+  CopyObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  type S3Client,
+} from '@aws-sdk/client-s3';
+import { S3DocumentStorage, statusOf } from '../../storage/document-storage.js';
+import type { EsignStore, EsignStoredObject } from './engine.types.js';
 
 // Firm Sign's objects in the documents bucket (R18 step 4). Every key is chosen by the API and
 // checked against the caller's firm: a bug elsewhere can never read or write another firm's file
@@ -65,9 +70,29 @@ export class S3EsignStore implements EsignStore {
     return this.objects.read(checkKey(businessId, key));
   }
 
-  async head(businessId: string, key: string) {
-    const found = await this.objects.head(checkKey(businessId, key));
-    return found && { sizeBytes: found.sizeBytes };
+  async head(businessId: string, key: string): Promise<EsignStoredObject | null> {
+    const Key = checkKey(businessId, key);
+    try {
+      const head = await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key }));
+      return {
+        sizeBytes: head.ContentLength ?? -1,
+        contentType: head.ContentType || null,
+        contentEncoding: head.ContentEncoding || null,
+      };
+    } catch (error) {
+      // Without s3:ListBucket a missing key answers 403 (as in S3DocumentStorage.head).
+      const status = statusOf(error);
+      if (status === 404 || status === 403) return null;
+      throw error;
+    }
+  }
+
+  presignUpload(
+    businessId: string,
+    key: string,
+    file: { contentType: string; sizeBytes: number; sha256: string },
+  ) {
+    return this.objects.presignUpload({ ...file, key: checkKey(businessId, key) });
   }
 
   async copyFromVault(businessId: string, sourceKey: string, key: string) {
@@ -109,9 +134,30 @@ export class MemoryEsignStore implements EsignStore {
     return Promise.resolve(this.objects.get(checkKey(businessId, key))?.bytes.slice() ?? null);
   }
 
-  head(businessId: string, key: string) {
+  head(businessId: string, key: string): Promise<EsignStoredObject | null> {
     const found = this.objects.get(checkKey(businessId, key));
-    return Promise.resolve(found ? { sizeBytes: found.bytes.byteLength } : null);
+    return Promise.resolve(
+      found
+        ? {
+            sizeBytes: found.bytes.byteLength,
+            contentType: found.contentType,
+            contentEncoding: null,
+          }
+        : null,
+    );
+  }
+
+  presignUpload(
+    businessId: string,
+    key: string,
+    file: { contentType: string; sizeBytes: number; sha256: string },
+  ) {
+    const url = `memory://${checkKey(businessId, key)}`;
+    const checksum = Buffer.from(file.sha256, 'hex').toString('base64');
+    return Promise.resolve({
+      url,
+      headers: { 'content-type': file.contentType, 'x-amz-checksum-sha256': checksum },
+    });
   }
 
   copyFromVault(businessId: string, sourceKey: string, key: string) {
