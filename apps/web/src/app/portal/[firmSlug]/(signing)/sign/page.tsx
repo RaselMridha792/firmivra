@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../components/page-placeholder';
+import { SignerPreview } from './_components/signer-preview';
 
 export const metadata: Metadata = { title: 'Sign documents' };
 
 export default function SignDocumentsPage() {
-  return <PagePlaceholder title="Sign documents" ticket="R13" owner="R13-web" />;
+  return <SignerPreview />;
 }

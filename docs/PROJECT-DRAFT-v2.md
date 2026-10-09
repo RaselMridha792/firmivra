@@ -139,10 +139,21 @@ What stays from the original draft: the tech stack, the security bar, the screen
 - Messages: subject threads, attachments to the vault, read receipts, email notice without content
 - Appointments: firm calendar, staff availability, working hours and blocked time, client booking that writes the same record staff see, no double booking, location or video details, confirmations, reminders, reschedule and cancel where allowed, change notifications on both sides
 - Invoices and payments: hosted checkout, paid only after verified webhook, duplicate events processed once
-- E-signature: embedded signing, signed PDF stored in the vault, never deleted
+- E-signature (Firm Sign, built in): our own signing engine, no outside vendor; the signed PDF and its certificate are filed in the vault, never deleted (see "Firm Sign" below)
 - Notifications: in-app bell that opens a Notification Center (read and unread, history, mark as read, opens the related record), email and SMS, per-user preferences
 - Calculators: working front-end calculators with validated inputs and estimate disclaimers, Tax Return Calculator first
 - Service workspaces: firm-side pages per service for status, tasks, documents, notes, messages and reports, tied to the engagement
+
+#### Firm Sign
+
+Decided 8 Oct: e-signature is built in, not DocuSign or Dropbox Sign. Spec: Octavia's "Firm Sign Developer Specification". Contract: `docs/api/esign.yaml`.
+
+- Engine: pdf-lib on the API builds the packet, stamps values and signatures, flattens form fields and writes the certificate. No vendor and no webhook.
+- Data: the `esign_*` tables (requests, documents, recipients, fields, verification codes, events, settings, consent versions, templates, bulk batches), each with `business_id` and RLS. `esign_events` is append-only.
+- Signers: a link on the portal host (`portal.firmivra.com/{slug}/sign`), an email code, then the firm's consent text (version pinned). A signed-in client can sign from the Signature center. Details in `docs/AUTH-DESIGN.md`.
+- Completion: the PDF is flattened, a certificate is added, and the SHA-256 values of the original, the final PDF and the certificate are stored. The final PDF and the certificate are filed as `FIRM_TO_CLIENT` documents in a keep-forever 'Signed Documents' category with legal hold.
+- Scan exception: a `documents` row may start `CLEAN` only for the server-made final PDF or certificate of a completed request, with its key under `tenant/<id>/esign/<request>/final/` or `/certificate/`. Signer attachments and uploaded signature images always wait for the GuardDuty scan.
+- Module switch: `esign` (and `calculators`) live in `business_settings.enabled_modules`. Only `app_set_business_module(business, module, enabled, reason)` changes them; the migrate role alone runs it, through `packages/db/scripts/set-module.mjs` (`MODULE_CHANGE=<slug>:<module>:on|off MODULE_REASON=...`), and each change writes a `module.enabled` or `module.disabled` audit row. When off, firm routes answer 403 `MODULE_OFF` and signer routes 404; `GET /esign/status` and the portal's signatures status never error.
 
 ### G) Tax & Accounting pack (LVP beta)
 
@@ -276,7 +287,8 @@ Every API request runs the same four checks: who is signed in, which business th
 |Background jobs|SQS + Lambda + EventBridge Scheduler|Every job message carries tenant_id; malware scan, reminders, retention|
 |Malware scan|GuardDuty Malware Protection for S3 (or ClamAV Lambda)|Same for all businesses|
 |Email / SMS|Amazon SES (SPF, DKIM, DMARC) and Amazon SNS, decided 4 Oct|Sender name per business; custom sending domain later|
-|E-signature and payments|Stripe with hosted checkout (decided 4 Oct); DocuSign or Dropbox Sign|Stripe Connect so each business is paid into its own account (to confirm)|
+|Payments|Stripe with hosted checkout (decided 4 Oct)|Stripe Connect so each business is paid into its own account (to confirm)|
+|E-signature|Firm Sign, built in (decided 8 Oct): pdf-lib on the API|No outside vendor and no webhook; signed files stay in the business's own S3 prefix and key|
 |Security and monitoring|WAF, CloudTrail, GuardDuty, Security Hub, CloudWatch, Secrets Manager|Alerts tagged by tenant|
 |IaC and CI/CD|Terraform or AWS CDK; GitHub Actions + OIDC|Staging and production; preview environments optional|
 
@@ -322,7 +334,9 @@ The original draft's model stays: every document, intake, signature, invoice and
 |intake_submissions|tenant_id, id, engagement_id, form_type, form_version, answers (JSONB), state, version, submitted_at|New row on every change|
 |documents|tenant_id, id, engagement_id, client_id, s3_key, original_name, mime, size, sha256, category, tax_year, direction, scan_status, retention_until, legal_hold, uploaded_by, deleted_at|s3_key under tenant/<id>/|
 |document_requests|tenant_id, id, engagement_id, title, status, not_applicable_reason, due_date|"I don't have this document" lives here|
-|signature_requests|tenant_id, id, engagement_id, doc_type, provider_envelope_id, status, signed_at, signer_ip, document_hash|Never deleted|
+|esign_requests|tenant_id, id, client_id, engagement_id, status, original_sha256, final_sha256, certificate_sha256, final_document_id, certificate_document_id|Firm Sign; frozen once sent, never deleted after send|
+|esign_recipients, esign_fields|tenant_id, request_id; signer, order, auth method, token_hash, signed_at, signer_ip; field type, page, position, value_enc|Only the link token's SHA-256 is stored|
+|esign_events|tenant_id, request_id, recipient_id, type, actor, ip, user_agent, created_at|Append-only; feeds the certificate|
 |invoices, payments|tenant_id, number, line_items, amount_cents, status, processor_ref; processor_event_id (unique)|No card data; webhook idempotency|
 |message_threads, messages|tenant_id, client_id, subject; sender, body, attachment_document_id, read_at|Attachments in the vault|
 |appointments|tenant_id, client_id, service, type, method, starts_at, external_ref|Free 5-minute call is phone-only (LVP)|
@@ -359,7 +373,8 @@ REST API at /api/v1, split by audience. Every request carries a Cognito token. T
 |---|---|---|
 |Public|POST /public/business-signup, POST /public/verify, GET /public/tenant-by-host (branding only)|Rate limited, no auth|
 |Platform|/platform/applications, /platform/applications/{id}/approve, /reject, /platform/tenants, /platform/tenants/{id}/suspend, /platform/audit-log, /platform/support-grants|Super Admin pool + authenticator MFA|
-|Workspace|/workspace/setup, /workspace/queues, /workspace/clients (CRUD, invite, deactivate), /workspace/clients/{id}.*, /workspace/client-signups, /workspace/engagements/{id}/status, /workspace/document-requests, /workspace/documents/{id}, /workspace/invoices, /workspace/signature-requests, /workspace/notes, /workspace/tasks, /workspace/team, /workspace/roles, /workspace/settings, /workspace/cms.*, /workspace/audit-log, /workspace/export|Staff pool + membership + permission per route|
+|Workspace|/workspace/setup, /workspace/queues, /workspace/clients (CRUD, invite, deactivate), /workspace/clients/{id}.*, /workspace/client-signups, /workspace/engagements/{id}/status, /workspace/document-requests, /workspace/documents/{id}, /workspace/invoices, /esign/* (Firm Sign), /workspace/notes, /workspace/tasks, /workspace/team, /workspace/roles, /workspace/settings, /workspace/cms.*, /workspace/audit-log, /workspace/export|Staff pool + membership + permission per route|
+|Firm Sign signer|/portal/{slug}/sign/* (session, code, consent, envelope, adopt, finish, decline, completed copy)|Public, strict throttle; link token in the URL fragment, then the `fv_sign_{slug}` cookie and an email code; 404 when the module is off|
 |Client|/client/me, /client/dashboard, /client/engagements, /client/intakes/{id} (GET, PUT, submit), /client/documents (upload-url, complete, list, download-url, delete), /client/document-requests, /client/tax-returns, /client/threads, /client/signatures, /client/invoices/{id}/checkout, /client/appointments, /client/notifications, /client/resources, /client/members, /client/sensitive/reveal|Client pool + tenant match + client scope|
 
 ### Webhooks (public, signature-verified)
@@ -367,13 +382,12 @@ REST API at /api/v1, split by audience. Every request carries a Cognito token. T
 |Path|Source|Verification|
 |---|---|---|
 |POST /webhooks/payments|Payment processor|Provider signature + idempotency on event ID; tenant taken from the stored invoice, never from the payload|
-|POST /webhooks/esign|E-signature provider|HMAC signature; signed PDF stored in the business's vault|
 |POST /webhooks/scheduling|Scheduling provider, if external|Secret token per business|
 |S3 / GuardDuty events to SQS|AWS internal|IAM, not public|
 
 ### Third-party services
 
-- E-signature: DocuSign, Dropbox Sign or Adobe Sign, with IRS e-signature rules for Form 8879
+- E-signature: none. Firm Sign is built in (decided 8 Oct). Remote signing of Form 8879 waits for the identity check IRS Pub 1345 requires
 - Payments: Stripe (decided 4 Oct); Connect for per-business payouts still to confirm
 - Fee from refund: the tax software's bank product; the portal only stores the preference
 - Email / SMS: Amazon SES and Amazon SNS (decided 4 Oct), with A2P 10DLC registration
@@ -411,7 +425,8 @@ REST API at /api/v1, split by audience. Every request carries a Cognito token. T
 - [ ] No public S3 object; downloads only via time-limited signed URLs; SSN and EIN encrypted at field level with the business's key
 - [ ] Uploads blocked without an open engagement; malware files held
 - [ ] Intake auto-save, resume, versioning and conditional fields work
-- [ ] Payment and e-signature webhooks reject forged signatures and process duplicates once
+- [ ] Payment webhooks reject forged signatures and process duplicates once
+- [ ] Firm Sign: a PDF goes to 2 sequential signers with link plus email code and consent; the final PDF and certificate are filed with their SHA-256 values; unknown, expired, used and wrong-firm links all get the same answer
 - [ ] No SSN, amounts or document content in email or SMS; no trackers on signed-in pages
 - [ ] Audit log records all important actions and nobody can delete it; WAF, CloudTrail and GuardDuty alerts active
 - [ ] Backup restore documented; all screens tested on desktop and mobile
@@ -443,7 +458,7 @@ Delivery: Oct 18, 2026. It includes everything above except payroll operations, 
 ## Inputs needed
 
 - Firmivra AWS account and GitHub organization, with least-privilege developer access
-- Choice of e-signature, payment, SMS and scheduling providers, and the tax software bank product for "Pay from my refund"
+- Choice of payment, SMS and scheduling providers (e-signature is built in), and the tax software bank product for "Pay from my refund"
 - Firmivra legal entity, address and contacts for Terms and Privacy
 - LVP's real business phone and address (mockups show (770) 123-4567, 555 numbers, and 1993 vs 1393 Duncan Lane)
 - LVP's final service agreement text, remaining Useful Links URLs (13 of about 35 provided), and prior-year returns 2020–2024 if they are to be imported
