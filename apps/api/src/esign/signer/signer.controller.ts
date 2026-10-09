@@ -57,6 +57,7 @@ export class EsignSignerController {
 
   @Post('session/end')
   @HttpCode(200)
+  @Throttle(STEPS)
   end(@Param('firmSlug') slug: string, @Res({ passthrough: true }) res: Response) {
     return this.signer.end(slug, res);
   }
@@ -134,6 +135,7 @@ export class EsignSignerController {
 
   @Post('adopt')
   @HttpCode(200)
+  @Throttle(STEPS)
   async adopt(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerAdoptBody)) body: Out<typeof SignerAdoptBody>,
@@ -144,6 +146,7 @@ export class EsignSignerController {
 
   @Post('finish')
   @HttpCode(200)
+  @Throttle(STEPS)
   async finish(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerFinishBody)) body: Out<typeof SignerFinishBody>,
@@ -154,6 +157,7 @@ export class EsignSignerController {
 
   @Post('decline')
   @HttpCode(200)
+  @Throttle(STEPS)
   async decline(
     @Param('firmSlug') slug: string,
     @Body(new ZodValidationPipe(SignerDeclineBody)) body: Out<typeof SignerDeclineBody>,
