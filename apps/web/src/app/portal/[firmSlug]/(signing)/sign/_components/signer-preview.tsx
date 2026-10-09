@@ -34,13 +34,15 @@ const sampleField = (
   h: 0.05,
   required: type !== 'TEXT',
   label: null,
+  value: null,
   filled: false,
 });
 const FIELDS: OverlayField[] = [
   sampleField('f-sign-jordan', 'r-jordan', 'SIGNATURE', 0.18, 0.78),
   sampleField('f-date-jordan', 'r-jordan', 'DATE_SIGNED', 0.62, 0.78, 0.2),
   sampleField('f-sign-riley', 'r-riley', 'SIGNATURE', 0.18, 0.86),
-  sampleField('f-note-sender', null, 'TEXT', 0.62, 0.86, 0.2),
+  { ...sampleField('f-fee-sender', null, 'TEXT', 0.62, 0.86, 0.2), value: 'Fee: $450' },
+  { ...sampleField('f-ref-riley', 'r-riley', 'TEXT', 0.18, 0.7), label: 'Spouse name' },
 ];
 
 /**

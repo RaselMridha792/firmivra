@@ -81,28 +81,31 @@ test('without WebAssembly, the signer is told scanned pages may be blank', async
   await expect(page.getByTestId('pdf-no-wasm')).toContainText('Open it in another browser');
 });
 
-test("fields sit on the page in their recipient's colour, other people's faded", async ({
+test("fields sit on the page in their recipient's colour, other signers' faded", async ({
   page,
 }) => {
   await page.goto(signPage);
   const first = page.locator('[data-page="1"]');
-  await expect(first.getByTestId('esign-field')).toHaveCount(4);
+  const fields = first.getByTestId('esign-field');
+  await expect(fields).toHaveCount(5);
   await expect(page.locator('[data-page="2"]').getByTestId('esign-field')).toHaveCount(0);
+  // The signer here is Jordan: their fields stay bright, Riley's fade.
   const mine = first.getByLabel('Signature (required), Jordan Sample');
-  await expect(mine).toBeVisible();
   await expect(mine).not.toHaveClass(/opacity-40/);
-  await expect(first.getByLabel('Signature (required), Riley Sample')).toHaveClass(/opacity-40/);
-  await expect(first.getByLabel('Text, Sender')).toBeVisible();
-  // Placed by fractions of the page: the signature starts 18% in and 78% down.
+  const riley = first.getByLabel('Signature (required), Riley Sample');
+  await expect(riley).toHaveClass(/opacity-40/);
+  // A custom label shows on the box, not only to screen readers.
+  await expect(first.getByLabel('Spouse name, Riley Sample')).toContainText('Spouse name');
+  // The sender's prefilled value is shown, readable, in the neutral colour.
+  const fee = first.getByLabel('Text, Sender: Fee: $450');
+  await expect(fee).toContainText('Fee: $450');
+  await expect(fee).not.toHaveClass(/opacity-40/);
+  // Placed by fractions of the page: Jordan's signature starts 18% in and 78% down.
   const pageBox = (await first.boundingBox())!;
   const fieldBox = (await mine.boundingBox())!;
   expect(Math.abs(fieldBox.x - pageBox.x - pageBox.width * 0.18)).toBeLessThan(2);
   expect(Math.abs(fieldBox.y - pageBox.y - pageBox.height * 0.78)).toBeLessThan(2);
-  // Two recipients, two colours.
-  const colours = await first
-    .getByTestId('esign-field')
-    .evaluateAll((els) => [
-      ...new Set(els.slice(0, 3).map((e) => getComputedStyle(e).borderTopColor)),
-    ]);
-  expect(colours).toHaveLength(2);
+  // Jordan, Riley and the sender: three colours.
+  const colour = (l: typeof mine) => l.evaluate((e) => getComputedStyle(e).borderTopColor);
+  expect(new Set([await colour(mine), await colour(riley), await colour(fee)]).size).toBe(3);
 });

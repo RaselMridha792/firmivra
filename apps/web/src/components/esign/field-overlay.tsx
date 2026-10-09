@@ -1,22 +1,8 @@
 'use client';
 
-import type { EsignField, EsignFieldType, EsignRecipient } from '@firmivra/types';
-import { recipientColor, recipientWash } from './recipient-colors';
-
-export const FIELD_TYPE_LABELS: Record<EsignFieldType, string> = {
-  SIGNATURE: 'Signature',
-  INITIALS: 'Initials',
-  DATE_SIGNED: 'Date signed',
-  PRINTED_NAME: 'Name',
-  EMAIL: 'Email',
-  PHONE: 'Phone',
-  ADDRESS: 'Address',
-  TEXT: 'Text',
-  CHECKBOX: 'Checkbox',
-  RADIO: 'Choice',
-  DROPDOWN: 'Dropdown',
-  ATTACHMENT: 'Attachment',
-};
+import type { EsignField, EsignRecipient } from '@firmivra/types';
+import { FIELD_TYPE_LABELS } from './field-labels';
+import { recipientColor, SENDER_COLOR, washOf } from './recipient-colors';
 
 export type OverlayField = Pick<
   EsignField,
@@ -30,6 +16,7 @@ export type OverlayField = Pick<
   | 'h'
   | 'required'
   | 'label'
+  | 'value'
   | 'filled'
 >;
 export type OverlayRecipient = Pick<EsignRecipient, 'id' | 'name' | 'colorIndex'>;
@@ -41,9 +28,15 @@ interface FieldOverlayProps {
   pageIndex: number;
   /** The selected field (editor) or the current one (signer's Next). */
   activeId?: string | null;
-  /** The signer's own recipient id: other people's fields fade, theirs stay bright. */
+  /** The signer's own recipient id: other signers' fields fade, theirs stay bright. */
   ownerId?: string;
   onSelect?: (fieldId: string) => void;
+}
+
+/** Keeps a box on its page: the schema checks each number alone, not x + w or y + h. */
+function clamp(start: number, size: number) {
+  const s = Math.min(Math.max(size, 0), 1);
+  return { start: Math.min(Math.max(start, 0), 1 - s), size: s };
 }
 
 /**
@@ -59,19 +52,27 @@ export function FieldOverlay({
   ownerId,
   onSelect,
 }: FieldOverlayProps) {
-  const byId = new Map(recipients.map((r) => [r.id, r]));
   return (
     <>
       {fields
         .filter((f) => f.pageIndex === pageIndex)
         .map((f) => {
-          const recipient = f.recipientId ? byId.get(f.recipientId) : undefined;
-          // Sender-filled fields have no recipient: they take the neutral colour.
-          const colour = recipient?.colorIndex ?? 7;
+          const recipient = f.recipientId
+            ? recipients.find((r) => r.id === f.recipientId)
+            : undefined;
+          const colour = recipient ? recipientColor(recipient.colorIndex) : SENDER_COLOR;
           const name = recipient?.name ?? 'Sender';
-          const label = `${f.label || FIELD_TYPE_LABELS[f.type]}${f.required ? ' (required)' : ''}`;
-          const others = ownerId !== undefined && f.recipientId !== ownerId;
+          const title = f.label || FIELD_TYPE_LABELS[f.type];
+          // A value the sender filled in is shown as it will print; the signer must see it.
+          const value = !f.recipientId && f.value ? f.value : null;
+          const label = `${title}${f.required ? ' (required)' : ''}, ${name}${
+            value ? `: ${value}` : ''
+          }${f.filled ? ', done' : ''}`;
+          // Only other signers' fields fade; the sender's stay readable.
+          const others = ownerId !== undefined && !!f.recipientId && f.recipientId !== ownerId;
           const active = f.id === activeId;
+          const x = clamp(f.x, f.w);
+          const y = clamp(f.y, f.h);
           const Box = onSelect ? 'button' : 'div';
           return (
             <Box
@@ -84,27 +85,33 @@ export function FieldOverlay({
               data-recipient={f.recipientId ?? undefined}
               data-filled={f.filled || undefined}
               data-active={active || undefined}
-              aria-label={`${label}, ${name}${f.filled ? ', done' : ''}`}
+              aria-label={label}
               className={`@container absolute flex min-w-0 items-start overflow-hidden rounded-control border-2 text-left text-xs leading-tight ${
                 active ? 'outline-2 outline-offset-2 outline-focus' : ''
               } ${others ? 'opacity-40' : ''}`}
               // Where the field sits and whose it is: data from the request, not design values.
               style={{
-                left: `${f.x * 100}%`,
-                top: `${f.y * 100}%`,
-                width: `${f.w * 100}%`,
-                height: `${f.h * 100}%`,
-                borderColor: recipientColor(colour),
-                borderStyle: f.filled ? 'solid' : 'dashed',
-                backgroundColor: recipientWash(colour),
-                color: recipientColor(colour),
+                left: `${x.start * 100}%`,
+                top: `${y.start * 100}%`,
+                width: `${x.size * 100}%`,
+                height: `${y.size * 100}%`,
+                borderColor: colour,
+                borderStyle: f.filled || value ? 'solid' : 'dashed',
+                backgroundColor: washOf(colour),
+                color: colour,
               }}
             >
               <span className="truncate px-1 font-medium">
-                {FIELD_TYPE_LABELS[f.type]}
-                {f.required && <span aria-hidden="true"> *</span>}
-                {/* The name when the box has room for it (the colour and aria-label always say it). */}
-                <span className="hidden font-normal @[10rem]:inline"> · {name}</span>
+                {value ? (
+                  <span className="text-text">{value}</span>
+                ) : (
+                  <>
+                    {title}
+                    {f.required && <span aria-hidden="true"> *</span>}
+                    {/* The name when the box has room (the colour and aria-label always say it). */}
+                    <span className="hidden font-normal @[10rem]:inline"> · {name}</span>
+                  </>
+                )}
               </span>
             </Box>
           );
