@@ -28,8 +28,9 @@ info:
     template the caller may not see is 404). Firm Sign roles (`EsignAccessRole`, `GET
     /esign/status`):
     - OWNER and ADMIN: everything, Signing Settings and Firm Sign roles included.
-    - MANAGER (a Staff member made one, contract 3): every request and template, approves and
-      voids; not Signing Settings or roles.
+    - MANAGER (a Staff member made one, contract 3): sees the requests STAFF would (their own and
+      their assigned clients'), and also approves and changes every FIRM template; not Signing
+      Settings or roles.
     - STAFF: their own requests and their assigned clients' requests; templates that are FIRM or
       their own, and they change only their own.
     - VIEWER (a Staff member made one, contract 3): reads what STAFF could see and changes
@@ -47,12 +48,16 @@ info:
 
     ## Who sees what
 
-    - **Owner and Admin** (and a Firm Sign **Manager**): every request of the firm.
-    - **Staff**: requests they send, and requests for the clients assigned to them. Any other
+    - **Owner and Admin**: every request of the firm.
+    - **Staff** and a Firm Sign **Manager**: requests they send, and requests for the clients
+      assigned to them. Any other
       request answers `404`, as if it did not exist, on every route.
     - A Firm Sign **Viewer** reads what Staff could, and changes nothing (`403 FORBIDDEN`).
     - `myEsignRole` in `GET /esign/status` says which of these the caller is. Manager and Viewer
-      come with the roles contract; until then Staff are `STAFF`.
+      come with the roles contract; until then Staff are `STAFF`. The mock takes
+      `NEXT_PUBLIC_API_MOCK_ESIGN_ROLE=MANAGER` or `VIEWER`.
+    - **Approvers** are STAFF recipients who are an Owner, Admin or Manager and not the sender
+      (`409 APPROVER_NOT_ALLOWED`).
 
     ## A request's life
 
@@ -1323,7 +1328,7 @@ components:
       description: '`UNAUTHENTICATED`: not signed in'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Forbidden:
-      description: '`MODULE_OFF` (Firm Sign is off; mock: `NEXT_PUBLIC_API_MOCK_ESIGN=off`), `FORBIDDEN` (a Viewer changing something) or `ORIGIN_NOT_ALLOWED`'
+      description: '`MODULE_OFF` (Firm Sign is off; mock: `NEXT_PUBLIC_API_MOCK_ESIGN=off`), `FORBIDDEN` (a Viewer changing something), `KIOSK_LOCKED` (an in-person signing is open on this session), `NOT_AN_APPROVER` or `ORIGIN_NOT_ALLOWED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
       description: '`NOT_FOUND`: no such request, file, recipient or client, or one the caller may not see'
@@ -1332,7 +1337,7 @@ components:
       description: '`CODE_LOCKED`, `CODE_TOO_SOON` or `RATE_LIMITED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Conflict:
-      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`, `ROLE_FIXED`, `NOT_IN_PERSON`'
+      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`, `ROLE_FIXED`, `NOT_IN_PERSON`, `APPROVER_NOT_ALLOWED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
   schemas:

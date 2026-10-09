@@ -63,12 +63,15 @@ Target merge windows in brackets (Dhaka).
 
 ## Decisions in contract 3
 
+- Approvers: a STAFF recipient who is an Owner, Admin or Manager and not the sender (409 APPROVER_NOT_ALLOWED). If the last approval's send fails, the approvals stand and the request stays a DRAFT; any edit to a DRAFT clears its approvals.
 - Approvals: `submitForApproval` moves a DRAFT whose only readiness problem is APPROVAL_PENDING to NEEDS_APPROVAL; each APPROVER recipient decides with `decideApproval`. The last approval sends it at once in the sender's name; a rejection (a note is required) puts it back to DRAFT and clears the approvals. Notes are staff only. Signing Settings' `requireApproval` adds the readiness problem APPROVER_MISSING.
-- Roles: Owner and Admin keep their access; a Staff member can be made MANAGER (sees every request, approves) or VIEWER (reads only) by an Owner or Admin (`PUT /esign/roles/{userId}`).
-- Template versions: using a template copies its newest version and records `template: {id, version}` on the request; `save-as-version` and `restore` add a version, nothing is overwritten. Duplicate starts again at version 1.
-- In person: a signer with delivery IN_PERSON signs on the staff member's device. `inPerson.start` gives a fresh one-time portal link (15 minutes to start) and locks the staff session (every other firm route answers 403 KIOSK_LOCKED) until `inPerson.exit` with the staff password; 5 wrong passwords sign the staff member out. Events record IN_PERSON_STARTED and IN_PERSON_ENDED; the signer's auth method is IN_PERSON.
+- Roles: Owner and Admin keep their access; a Staff member can be made MANAGER (sees what Staff sees, approves, manages every FIRM template) or VIEWER (reads only) by an Owner or Admin (`PUT /esign/roles/{userId}`).
+- Template versions: using a template copies its newest version and records `template: {id, version}` on the request; `save-as-version` and `restore` add a version, nothing is overwritten. Duplicate starts again at version 1, with the source's visibility unless given.
+- In person: a signer with delivery IN_PERSON signs on the staff member's device. `inPerson.start` gives a fresh one-time portal link (15 minutes to start) and locks the staff session (every other firm route answers 403 KIOSK_LOCKED) until `inPerson.exit` with the staff password; 5 wrong passwords sign the staff member out, and so do ESIGN_KIOSK_IDLE_MINUTES (15) idle. `signingUrl` is absolute on the portal site; the mock link is MOCK_SIGNING_TOKENS.inPerson. KIOSK_LOCKED also has words in apps/web/src/lib/errors.ts. Events record IN_PERSON_STARTED and IN_PERSON_ENDED; the signer's auth method is IN_PERSON.
 - Bulk send: from a template, one separate request per client (at most 200), sent by the job runner; a client whose request can't be sent stays a DRAFT and the batch row names the problem.
-- Reports: by the day sent, at most a year, with totals and activity by sender; Staff and Viewers count only the requests they may open.
+- Reports: by the day sent, at most a year, with totals and activity by sender; Managers, Staff and Viewers count only the requests they may open.
+- Bulk rows name their problem as a readiness or error code; ESIGN_READINESS_TEXT gives words for every readiness code. The client checks BULK_LIMIT before sending.
+- Storage the r0_esign draft needs for contract 3 (kiosk lock per staff session, approval notes, template versions, bulk batches) is listed on issue #156.
 
 ## Needs from others
 
