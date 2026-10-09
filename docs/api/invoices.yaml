@@ -143,13 +143,16 @@ info:
       Answer `{ url, expiresAt }`, `expiresAt` from the session's `expires_at` as Stripe returns
       it. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
       inserted.
-    - **Holding the row.** Pay Now and cancel wait at most 1 s for the invoice's row (another
-      one talking to Stripe holds it), then answer `409 PAYMENT_IN_PROGRESS`. At most three of
+    - **Holding the row.** Pay Now and cancel of one invoice run one at a time: in one API process
+      a second one waits at most 1 s for the first without a database connection, and across
+      processes for the invoice's row, then answers `409 PAYMENT_IN_PROGRESS`. At most three of
       them per API process wait on Stripe while holding a row; one more answers
       `503 SERVICE_BUSY` with `Retry-After: 5`. A pending checkout older than its session (60
-      minutes plus 15) that Stripe no longer answers for (account disconnected or replaced) is
-      marked `FAILED` (`checkout_expired`), so it never blocks the invoice. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) come from the environment
-      (Secrets Manager on AWS), never from code.
+      minutes plus 15) that Stripe says is gone (missing, account disconnected or replaced) is
+      marked `FAILED` (`checkout_expired`), so it never blocks the invoice; a timeout or a 5xx is
+      `503` and marks nothing, since the checkout may have been paid. Update and send answer
+      `NOT_DRAFT` before taking the row. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`)
+      come from the environment (Secrets Manager on AWS), never from code.
     - **Payments in answers.** A `PENDING` payment is listed (and `paymentProcessing` is true)
       only once its checkout completed and Stripe's result is pending (a bank debit). A checkout
       that is open, or expired unpaid, is not listed. `failureCode` goes to the firm only.
