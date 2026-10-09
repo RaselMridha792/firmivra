@@ -1,4 +1,5 @@
-// End-to-end: the Firm Sign draft routes (R13 step 6, part 1b) through the real guard stack.
+// End-to-end: the Firm Sign draft, page plan, recipients and file routes (R13 step 6, parts 1b
+// to 1d) through the real guard stack.
 // The esign tables come with r0_esign, so this covers what answers before the repository: 401
 // signed out, 403 for clients, 403 MODULE_OFF while the firm's module is off, and 400 for a bad
 // id or body where it is on. Synthetic data only.
@@ -19,12 +20,31 @@ let app: INestApplication;
 /** A firm of this file only, with Firm Sign on. */
 const onOwner = { id: randomUUID(), email: `r13-req-${randomUUID()}@on.test` };
 const anyId = randomUUID();
-const ROUTES = [
+const base = (id: string) => `/api/v1/esign/requests/${id}`;
+type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
+type Route = readonly [Method, string, object | undefined];
+const upload = {
+  fileName: 'Fake letter.pdf',
+  contentType: 'application/pdf',
+  sizeBytes: 1000,
+  sha256: 'a'.repeat(64),
+};
+const pages = { pages: [{ documentId: randomUUID(), page: 0, rotation: 0 }] };
+/** Every route with a request id, with a valid body: only the id or the guards can refuse it. */
+const withId = (id: string): Route[] => [
+  ['get', base(id), undefined],
+  ['patch', base(id), { title: 'Fake letter' }],
+  ['delete', base(id), undefined],
+  ['put', `${base(id)}/page-plan`, pages],
+  ['put', `${base(id)}/recipients`, { recipients: [] }],
+  ['post', `${base(id)}/documents/uploads`, upload],
+  ['post', `${base(id)}/documents/uploads/confirm`, { uploadToken: 'fake-token' }],
+  ['delete', `${base(id)}/documents/${randomUUID()}`, undefined],
+];
+const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
-  ['get', `/api/v1/esign/requests/${anyId}`, undefined],
-  ['patch', `/api/v1/esign/requests/${anyId}`, { title: 'Fake letter' }],
-  ['delete', `/api/v1/esign/requests/${anyId}`, undefined],
-] as const;
+  ...withId(anyId),
+];
 
 beforeAll(async () => {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
@@ -62,17 +82,21 @@ afterAll(async () => {
   await app.close();
 });
 
-async function send(
-  method: 'get' | 'post' | 'patch' | 'delete',
-  path: string,
-  email: string | null,
-  body?: object,
-) {
-  const headers: Record<string, string> = {};
-  if (email) {
+/** Dev tokens by email, fetched once each (the dev-token route allows 30 a minute). */
+const tokens = new Map<string, string>();
+async function tokenFor(email: string): Promise<string> {
+  let token = tokens.get(email);
+  if (!token) {
     const res = await request(app.getHttpServer()).post('/api/v1/dev/token').send({ email });
-    headers.authorization = `Bearer ${(res.body as { token: string }).token}`;
+    token = (res.body as { token: string }).token;
+    tokens.set(email, token);
   }
+  return token;
+}
+
+async function send(method: Method, path: string, email: string | null, body?: object) {
+  const headers: Record<string, string> = {};
+  if (email) headers.authorization = `Bearer ${await tokenFor(email)}`;
   const req = request(app.getHttpServer())[method](path).set(headers);
   return body ? req.send(body) : req;
 }
@@ -95,13 +119,24 @@ describe('Firm Sign draft routes', () => {
     }
   });
 
-  it('validates the id and the body where the module is on (400)', async () => {
-    const bad = '/api/v1/esign/requests/not-a-uuid';
-    for (const method of ['get', 'patch', 'delete'] as const) {
-      const body = method === 'patch' ? { title: 'Fake' } : undefined;
-      expect(answer(await send(method, bad, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
+  it('validates the ids and the body where the module is on (400)', async () => {
+    for (const [method, path, body] of withId('not-a-uuid')) {
+      expect(answer(await send(method, path, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
     }
-    const noTitle = await send('post', '/api/v1/esign/requests', onOwner.email, { title: '' });
-    expect(answer(noTitle)).toBe('400 VALIDATION_FAILED');
+    const badBodies: Route[] = [
+      ['post', '/api/v1/esign/requests', { title: '' }],
+      ['put', `${base(anyId)}/page-plan`, { pages: [] }],
+      ['put', `${base(anyId)}/recipients`, { recipients: 'everyone' }],
+      ['post', `${base(anyId)}/documents/uploads`, { ...upload, sizeBytes: 0 }],
+      ['post', `${base(anyId)}/documents/uploads/confirm`, { uploadToken: '' }],
+      ['delete', `${base(anyId)}/documents/not-a-uuid`, undefined],
+    ];
+    for (const [method, path, body] of badBodies) {
+      expect(answer(await send(method, path, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
+    }
+    // A type Firm Sign never takes is named as such, before anything is stored.
+    const exe = { ...upload, fileName: 'Fake.exe', contentType: 'application/x-msdownload' };
+    const res = await send('post', `${base(anyId)}/documents/uploads`, onOwner.email, exe);
+    expect(answer(res)).toBe('400 FILE_TYPE_NOT_ALLOWED');
   });
 });

@@ -4,7 +4,7 @@
 // (cross-firm, cross-client and approver-only 404s) and an audit of ids only. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EsignDocument, type EsignField, UploadTicket } from '@firmivra/types';
 import { EsignDocumentsService } from '../../src/esign/requests/documents.service.js';
 import type { DirectoryDocument } from '../../src/esign/requests/esign-directory.js';
@@ -417,6 +417,27 @@ describe('removing a file', () => {
       409,
       'INVALID_STATE',
     ]);
+  });
+
+  it('refuses (409) when the draft changed between the read and the removal', async () => {
+    const id = await draft();
+    const file = await confirm(id, (await uploaded(id, bytesOf('pdf:1'))).ticket.uploadToken);
+    const parts = w.repo.parts.bind(w.repo);
+    // Another write (a PUT fields, say) lands after the service read the draft.
+    vi.spyOn(w.repo, 'parts').mockImplementationOnce(async (businessId, requestId) => {
+      const read = await parts(businessId, requestId);
+      await w.repo.updateDraft(businessId, requestId, { title: 'Fake raced' });
+      return read;
+    });
+    const audited = w.audit.entries.length;
+    expect(await refused(docs.removeDocument(w.a, owner, id, file.id))).toEqual([
+      409,
+      'INVALID_STATE',
+    ]);
+    expect(w.store.removed).toEqual([]);
+    expect(w.audit.entries).toHaveLength(audited);
+    const after = await requests.get(w.a, owner, id);
+    expect(after.documents.map((d) => d.id)).toEqual([file.id]);
   });
 });
 

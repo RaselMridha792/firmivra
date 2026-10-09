@@ -133,7 +133,7 @@ export class InMemoryEsignRepository implements EsignRepository {
     fields: EsignField[],
     readAt: Date,
   ) {
-    return this.write(
+    return this.written(
       businessId,
       id,
       (row) => Object.assign(row.parts, structuredClone({ pagePlan, fields })),
@@ -148,7 +148,7 @@ export class InMemoryEsignRepository implements EsignRepository {
     fields: EsignField[],
     readAt: Date,
   ) {
-    return this.write(
+    return this.written(
       businessId,
       id,
       (row) => Object.assign(row.parts, structuredClone({ recipients, fields })),
@@ -197,7 +197,7 @@ export class InMemoryEsignRepository implements EsignRepository {
     fields: EsignField[],
     readAt: Date,
   ) {
-    return this.write(
+    return this.written(
       businessId,
       id,
       (row) => {
@@ -213,6 +213,18 @@ export class InMemoryEsignRepository implements EsignRepository {
     const row = this.rows.of(businessId).get(id);
     if (!row) throw new Error('no such request');
     change(row);
+  }
+
+  /** A write that answers the request as written, or null when refused. */
+  private async written(
+    businessId: string,
+    id: string,
+    change: (row: Row) => unknown,
+    readAt: Date,
+  ): Promise<EsignRequestRecord | null> {
+    if (!(await this.write(businessId, id, change, readAt))) return null;
+    const row = this.rows.of(businessId).get(id);
+    return row ? structuredClone(row.record) : null;
   }
 
   private write(

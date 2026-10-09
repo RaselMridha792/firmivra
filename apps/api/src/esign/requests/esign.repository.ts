@@ -121,7 +121,12 @@ export interface EsignRepository {
   /** A member's Firm Sign access (OWNER and ADMIN follow the firm role); null if not a member. */
   esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
   // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt and
-  // refuses (false, null or INVALID_STATE; changing nothing) when it is not, or no longer exists.
+  // refuses (null or INVALID_STATE; changing nothing) when it is not, or no longer exists. The
+  // lastActivityAt written is strictly later than the value it replaces (the Prisma
+  // implementation writes GREATEST(now(), old + 1 ms), never now() alone): it is the version the
+  // `readAt` checks below compare, so an equal value would hide a write in between, and a value
+  // that only differs below the millisecond (Postgres keeps microseconds, a JS Date does not)
+  // would refuse every later write.
   // TODO(r0_esign): every Prisma draft write also resets every APPROVER recipient to WAITING in
   // the same transaction (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
   /**
@@ -146,8 +151,9 @@ export interface EsignRepository {
     id: string,
   ): Promise<Pick<EsignDocumentRecord, 'id' | 's3Key'>[] | null>;
   // The two below replace what the service computed from parts() read before the write, so each
-  // also refuses (false) unless the request's lastActivityAt is still `readAt`: checked under the
-  // FOR UPDATE lock, a write in between (a PUT fields, say) is never silently reverted.
+  // also refuses (null) unless the request's lastActivityAt is still `readAt`: checked under the
+  // FOR UPDATE lock, a write in between (a PUT fields, say) is never silently reverted. Each
+  // returns the request as written, read in the same transaction.
   /** Replaces the page plan and the fields (moved with their pages) together. */
   savePagePlan(
     businessId: string,
@@ -155,7 +161,7 @@ export interface EsignRepository {
     pagePlan: EsignPage[],
     fields: EsignField[],
     readAt: Date,
-  ): Promise<boolean>;
+  ): Promise<EsignRequestRecord | null>;
   /** Replaces the recipients and the fields (those of removed signers dropped) together. */
   saveRecipients(
     businessId: string,
@@ -163,7 +169,7 @@ export interface EsignRepository {
     recipients: EsignRecipientRecord[],
     fields: EsignField[],
     readAt: Date,
-  ): Promise<boolean>;
+  ): Promise<EsignRequestRecord | null>;
   // Uploads between createUpload and confirmUpload (draft writes from addDocument on).
   saveUpload(businessId: string, upload: EsignPendingUpload): Promise<void>;
   /**
@@ -186,8 +192,9 @@ export interface EsignRepository {
     document: NewEsignDocument,
   ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'>;
   /**
-   * Deletes the file and replaces the page plan and the fields (those pages' removed). Like the
-   * saves above, false unless lastActivityAt is still `readAt`.
+   * Deletes the file and replaces the page plan and the fields (those pages' removed), and
+   * returns the request as written. Like the saves above, null unless lastActivityAt is still
+   * `readAt`.
    */
   removeDocument(
     businessId: string,
@@ -196,7 +203,7 @@ export interface EsignRepository {
     pagePlan: EsignPage[],
     fields: EsignField[],
     readAt: Date,
-  ): Promise<boolean>;
+  ): Promise<EsignRequestRecord | null>;
 }
 
 export const ESIGN_REPOSITORY = Symbol('ESIGN_REPOSITORY');
