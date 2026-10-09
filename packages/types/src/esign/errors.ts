@@ -65,7 +65,8 @@ export const EsignErrorCode = z.enum([
   'SIGNATURE_REQUIRED',
   /**
    * 409 (use template, bulk send): say who fills each role that could not be filled from the
-   * client, and give the access code each ACCESS_CODE role needs (unless IN_PERSON).
+   * client, and give the access code each ACCESS_CODE role needs (unless IN_PERSON); in a bulk
+   * send, choose another sign-in check for such a role instead (no shared codes).
    */
   'TEMPLATE_ROLES_UNFILLED',
   /** 409 (templates): another active template has that name. */
@@ -132,7 +133,7 @@ export const ESIGN_ERRORS = {
     'Choose who fills each role in this template, and set an access code where one is needed.',
   TEMPLATE_NAME_TAKEN: 'Another template already has this name.',
   TEMPLATE_HAS_CLIENT_FILES:
-    "Files from a client's vault can't go into a template. Upload a blank copy instead.",
+    "Files from the client's documents can't go into a template. Upload a blank copy instead.",
   IMAGE_INVALID: 'Use a PNG image of at most 200 KB and 1600 by 600 pixels.',
   NOT_AN_APPROVER: 'Only this request’s approvers can approve it.',
   ROLE_FIXED: 'Owners and Admins always have full access to Firm Sign.',

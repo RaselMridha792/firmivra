@@ -143,16 +143,20 @@ info:
     member sets their own job title (the Staff Title merge field).
 
     A template copies a request's uploaded files, recipients (as roles, never who they were),
-    fields, the sender's own typed values and settings; it never takes anything of one client:
-    no client or service, no merge-filled or signer values (merge keys stay), and no file from
-    the client's documents (`409 TEMPLATE_HAS_CLIENT_FILES`: upload a blank copy instead).
+    fields and settings; it never takes anything of one client: no client or service, no
+    merge-filled or signer values (merge keys stay), no sender-typed values unless the body sets
+    `keepSenderValues: true`, and no file from the client's documents
+    (`409 TEMPLATE_HAS_CLIENT_FILES`: upload a blank copy instead; `SCAN_PENDING` or
+    `FILE_BLOCKED` for a file not yet CLEAN).
     `SaveEsignTemplateBody` lists exactly what is copied. A new template is PRIVATE unless saved
     as FIRM. The page viewer reads its packet from `GET /esign/templates/{templateId}/packet`
     (`api.esign.templates.packetUrl(id)`). Using one makes a new DRAFT and never changes the
     template. CLIENT, SPOUSE (when the client has that login) and PREPARER roles fill
     themselves; `roles[]` (`EsignTemplateRoleFill`) names who fills the others and sets a
     role's delivery and access code. A role whose method is ACCESS_CODE needs its code unless
-    it signs IN_PERSON (`409 TEMPLATE_ROLES_UNFILLED` names every role still open).
+    it signs IN_PERSON (`409 TEMPLATE_ROLES_UNFILLED` names every role still open). A bulk send
+    never takes an access code (`EsignBulkRoleFill`, 400): one code would be shared by every
+    client, so an ACCESS_CODE role needs another `authMethod` there.
 
     ## Status codes
 
@@ -1028,7 +1032,7 @@ paths:
       tags: [esign-admin]
       operationId: esignTemplatePacket
       x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
-      summary: "The template’s packet PDF, for the page viewer on the same site (`EsignTemplateDetail.packetUrl`, `api.esign.templates.packetUrl(id)`). Anyone who may see the template: FIRM ones, and PRIVATE ones to their owner, Owner and Admin; any other is 404. CLEAN bytes only: a template only ever holds CLEAN files (save-as-template answers 409 SCAN_PENDING otherwise). Archived templates still answer"
+      summary: "The template’s packet PDF, for the page viewer on the same site (`EsignTemplateDetail.packetUrl`, `api.esign.templates.packetUrl(id)`). Anyone who may see the template: FIRM ones, and PRIVATE ones to their owner, Owner and Admin; any other is 404. CLEAN bytes only: a template only ever holds CLEAN files (save-as-template answers 409 SCAN_PENDING or FILE_BLOCKED otherwise). Archived templates still answer"
       responses:
         '200':
           description: 'The packet, `Cache-Control: no-store`'
@@ -1079,7 +1083,7 @@ paths:
       tags: [esign-admin]
       operationId: saveEsignTemplate
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: A template from the request, PRIVATE unless saved as FIRM; never a client's files or values (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_NAME_TAKEN, SCAN_PENDING
+      summary: A template from the request, PRIVATE unless saved as FIRM; never a client's files or values, and sender-typed values only with `keepSenderValues: true` (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_NAME_TAKEN, SCAN_PENDING, FILE_BLOCKED
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '201':
@@ -1134,7 +1138,7 @@ paths:
       tags: [esign-extras]
       operationId: saveEsignTemplateVersion
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: "The request becomes the template’s next version, copied as save-as-template does (`SaveEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_ARCHIVED, SCAN_PENDING"
+      summary: "The request becomes the template’s next version, copied as save-as-template does (`SaveEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_ARCHIVED, SCAN_PENDING, FILE_BLOCKED"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '201':
@@ -1291,7 +1295,7 @@ paths:
       tags: [esign-extras]
       operationId: bulkSendEsignTemplate
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: "One separate request per client (`EsignBulkSendBody` → 202 `EsignBulkBatch`); `roles[]` as in use (`EsignBulkRoleFill`, never a client login). 400 BULK_LIMIT; 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED"
+      summary: "One separate request per client (`EsignBulkSendBody` → 202 `EsignBulkBatch`); `roles[]` as in use (`EsignBulkRoleFill`, never a client login or an access code). 400 BULK_LIMIT, VALIDATION_FAILED (an access code); 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '202':

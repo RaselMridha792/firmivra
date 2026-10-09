@@ -4,10 +4,12 @@ import {
   createEsignClient,
   createRequest,
   ESIGN_ERRORS,
+  EsignBulkRoleFill,
   EsignBulkSendBody,
   EsignErrorCode,
   EsignTemplateRoleFill,
   SaveEsignTemplateBody,
+  SaveEsignTemplateVersionBody,
   UseEsignTemplateBody,
 } from '../../src/index.js';
 
@@ -26,10 +28,29 @@ describe('save as template', () => {
     );
   });
 
+  it('drops the sender’s typed values unless the body keeps them', () => {
+    expect(SaveEsignTemplateBody.parse({ name: 'Letter' }).keepSenderValues).toBe(false);
+    expect(SaveEsignTemplateBody.parse({ name: 'Letter', keepSenderValues: false })).toMatchObject({
+      keepSenderValues: false,
+    });
+    expect(
+      SaveEsignTemplateBody.parse({ name: 'Letter', keepSenderValues: true }).keepSenderValues,
+    ).toBe(true);
+    expect(
+      SaveEsignTemplateBody.safeParse({ name: 'Letter', keepSenderValues: 'yes' }).success,
+    ).toBe(false);
+    // save-as-version copies the same way.
+    expect(SaveEsignTemplateVersionBody.parse({ templateId: id }).keepSenderValues).toBe(false);
+    expect(
+      SaveEsignTemplateVersionBody.parse({ templateId: id, keepSenderValues: true })
+        .keepSenderValues,
+    ).toBe(true);
+  });
+
   it('has a code and words for a client’s files', () => {
     expect(EsignErrorCode.safeParse('TEMPLATE_HAS_CLIENT_FILES').success).toBe(true);
     expect(ESIGN_ERRORS.TEMPLATE_HAS_CLIENT_FILES).toBe(
-      "Files from a client's vault can't go into a template. Upload a blank copy instead.",
+      "Files from the client's documents can't go into a template. Upload a blank copy instead.",
     );
   });
 });
@@ -91,10 +112,40 @@ describe('filling template roles', () => {
   it('uses the same rules in bulk send, never a client login', () => {
     const bulk = (roles: unknown[]) =>
       EsignBulkSendBody.safeParse({ clients: [{ clientId: id }], roles, confirm: true }).success;
-    expect(bulk([{ key: 'client', accessCode: 'Ab12' }])).toBe(true);
-    expect(bulk([{ key: 'witness', who: external, authMethod: 'ACCESS_CODE' }])).toBe(false);
+    expect(bulk([{ key: 'client', delivery: 'IN_PERSON' }])).toBe(true);
+    expect(bulk([{ key: 'witness', who: external, authMethod: 'EMAIL_CODE' }])).toBe(true);
+    expect(bulk([{ key: 'witness', who: external, delivery: 'PORTAL' }])).toBe(false);
     expect(bulk([{ key: 'client', who: { type: 'CLIENT_LOGIN', clientAccountId: id } }])).toBe(
       false,
+    );
+  });
+
+  it('refuses access codes in bulk send: every client would share one', () => {
+    const message =
+      'A bulk send can’t use an access code: every client would share it. Choose another check';
+    const code = EsignBulkRoleFill.safeParse({ key: 'client', accessCode: 'Ab12' });
+    expect(code.success).toBe(false);
+    expect(code.error?.issues).toEqual([
+      expect.objectContaining({ path: ['accessCode'], message }),
+    ]);
+    const method = EsignBulkRoleFill.safeParse({
+      key: 'witness',
+      who: external,
+      authMethod: 'ACCESS_CODE',
+      accessCode: 'Ab12',
+    });
+    expect(method.success).toBe(false);
+    const alone = EsignBulkRoleFill.safeParse({
+      key: 'witness',
+      who: external,
+      authMethod: 'ACCESS_CODE',
+    });
+    expect(alone.error?.issues).toEqual([
+      expect.objectContaining({ path: ['authMethod'], message }),
+    ]);
+    // The same fill is fine when the template is used for one client.
+    expect(EsignTemplateRoleFill.safeParse({ key: 'client', accessCode: 'Ab12' }).success).toBe(
+      true,
     );
   });
 });

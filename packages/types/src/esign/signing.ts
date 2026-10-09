@@ -23,7 +23,9 @@ import { EsignContentType, EsignFieldId } from './schemas.js';
 // - Steps, in order: VERIFY_EMAIL or VERIFY_ACCESS_CODE (when the sender asked for it), CONSENT,
 //   then SIGN. A signer whose turn has not come is WAITING; one who finished is DONE.
 // - A signed-in client who starts from the Signature center (`api.mySignatures(slug).startSigning`)
-//   skips the email code: the portal sign-in already proved who they are.
+//   skips the email code: the portal sign-in already proved who they are. PORTAL_SESSION does
+//   not replace the recipient's chosen method: the portal session is the check there (no email
+//   or access code), and the chosen method, ACCESS_CODE included, still applies to emailed links.
 // - Responses never carry the request's internal note or another signer's field values.
 
 /** The email code: 6 digits, valid 15 minutes, 5 tries. */

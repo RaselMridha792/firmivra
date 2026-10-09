@@ -202,11 +202,13 @@ export type EsignTemplateDetail = z.infer<typeof EsignTemplateDetail>;
  * `visibility` says FIRM. Nothing of one client may reach a template, so exactly this is copied:
  * - Copied: the files the sender uploaded (their pages, order and rotation), the recipients as
  *   roles (kind, role, label, routing order, auth method, colour; never who they were), every
- *   field's place, type, label, options and merge key, the sender's own typed values (fields with
- *   no recipient and no merge key), and routing, expiry, reminders, email subject and message.
+ *   field's place, type, label, options and merge key, and routing, expiry, reminders, email
+ *   subject and message.
  * - Not copied: the client, service, internal note and recipients' names, emails and access
  *   codes; values filled from merge fields (the merge key stays, so the next request fills it
- *   from its own client); anything a signer entered.
+ *   from its own client); anything a signer entered; and the sender's own typed values (fields
+ *   with no recipient and no merge key), which may name the client, unless the body sets
+ *   `keepSenderValues: true`.
  * - Refused: a file copied from the client's documents (`from-vault`, INTERNAL ones included):
  *   409 TEMPLATE_HAS_CLIENT_FILES; remove it and upload a blank copy instead. Files still being
  *   checked or blocked: 409 SCAN_PENDING, FILE_BLOCKED.
@@ -216,6 +218,12 @@ export const SaveEsignTemplateBody = z.strictObject({
   name: text(200, 'one', 'Name the template'),
   description: text(1000, 'many').optional(),
   visibility: EsignTemplateVisibility.default('PRIVATE'),
+  /**
+   * Keep the sender's own typed values (text the sender filled in for no recipient, with no
+   * merge key). Left out or false, they are dropped: only the sender can tell they hold nothing
+   * of this client, so the screen asks before sending true.
+   */
+  keepSenderValues: z.boolean().default(false),
 });
 export type SaveEsignTemplateBody = z.input<typeof SaveEsignTemplateBody>;
 
@@ -280,13 +288,30 @@ export const EsignTemplateRoleFill = z
   .superRefine(checkRoleFill);
 export type EsignTemplateRoleFill = z.input<typeof EsignTemplateRoleFill>;
 
-/** A bulk send's role fill: as EsignTemplateRoleFill, but never a client login (extras.ts). */
+/**
+ * A bulk send's role fill: as EsignTemplateRoleFill, but never a client login and never an access
+ * code: one code would be shared by every client's request (up to 200), so the body refuses
+ * `accessCode` and `authMethod` ACCESS_CODE (400). A template role whose own method is
+ * ACCESS_CODE needs another `authMethod` here unless it signs IN_PERSON, or the API answers 409
+ * TEMPLATE_ROLES_UNFILLED.
+ */
 export const EsignBulkRoleFill = z
   .strictObject({
     ...roleFillShape,
     who: z.discriminatedUnion('type', [EsignWhoStaff, EsignWhoExternal]).optional(),
   })
-  .superRefine(checkRoleFill);
+  .superRefine((r, ctx) => {
+    if (r.accessCode !== undefined || r.authMethod === 'ACCESS_CODE') {
+      ctx.addIssue({
+        code: 'custom',
+        path: [r.accessCode !== undefined ? 'accessCode' : 'authMethod'],
+        message:
+          'A bulk send can’t use an access code: every client would share it. Choose another check',
+      });
+      return;
+    }
+    checkRoleFill(r, ctx);
+  });
 export type EsignBulkRoleFill = z.input<typeof EsignBulkRoleFill>;
 
 /**

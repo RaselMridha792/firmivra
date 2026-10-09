@@ -8,6 +8,7 @@ import {
   type EsignTemplateDetail,
   type EsignTemplateRole,
   type EsignPutRecipient,
+  EsignPutRecipientsBody,
   EsignTemplateId,
   type MemberRef,
   type MySignatureRow,
@@ -648,10 +649,14 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
   })));
 
 /**
- * What save-as-template and save-as-version refuse (SaveEsignTemplateBody): files still being
- * checked, and any file copied from the client's documents.
+ * What save-as-template and save-as-version refuse (SaveEsignTemplateBody): blocked files
+ * (FILE_BLOCKED), files still being checked (SCAN_PENDING), and any file copied from the
+ * client's documents.
  */
 export const checkTemplateSource = (r: EsignRequestDetail): void => {
+  if (r.documents.some((d) => d.scanStatus === 'INFECTED' || d.scanStatus === 'FAILED')) {
+    throw fail(409, 'FILE_BLOCKED', 'A file couldn’t be checked');
+  }
   if (r.documents.some((d) => d.scanStatus !== 'CLEAN')) {
     throw fail(409, 'SCAN_PENDING', 'A file is still being checked');
   }
@@ -741,8 +746,9 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
           mergeKey: f.mergeKey,
           options: [...f.options],
           groupKey: f.groupKey,
-          // Only the sender's own typed values: never a merge-filled or a signer's value.
-          value: f.recipientId === null && !f.mergeKey ? f.value : null,
+          // Never a merge-filled or a signer's value; the sender's own typed values only when
+          // the body asks (keepSenderValues).
+          value: input.keepSenderValues && f.recipientId === null && !f.mergeKey ? f.value : null,
         })),
         routing: r.routing,
         expiryDays: r.expiryDays,
@@ -877,6 +883,20 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
             `Choose who fills: ${open.map((role) => role.key).join(', ')}`,
           );
         }
+        // Check the role fills before the draft exists, so a 400 leaves no orphan DRAFT.
+        const recipientsBody = parseInput(EsignPutRecipientsBody, {
+          recipients: t.roles.map((role) => ({
+            kind: role.kind,
+            role: role.role,
+            roleLabel: role.roleLabel ?? undefined,
+            routingOrder: role.routingOrder,
+            who: who.get(role.key)!,
+            delivery: fills.get(role.key)?.delivery,
+            authMethod: methodOf(role),
+            accessCode:
+              methodOf(role) === 'ACCESS_CODE' ? fills.get(role.key)?.accessCode : undefined,
+          })),
+        });
         const created = await ctx.client.create({
           title: input.title ?? t.name,
           clientId: input.clientId,
@@ -908,39 +928,33 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
         r.emailSubject = t.emailSubject;
         r.emailMessage = t.emailMessage;
         // The mock's own recipients and fields calls check and fill in the rest, as the API does.
-        const withRecipients = await ctx.client.putRecipients(r.id, {
-          recipients: t.roles.map((role) => ({
-            kind: role.kind,
-            role: role.role,
-            roleLabel: role.roleLabel ?? undefined,
-            routingOrder: role.routingOrder,
-            who: who.get(role.key)!,
-            delivery: fills.get(role.key)?.delivery,
-            authMethod: methodOf(role),
-            accessCode:
-              methodOf(role) === 'ACCESS_CODE' ? fills.get(role.key)?.accessCode : undefined,
-          })),
-        });
-        const recipientOf = new Map(
-          t.roles.map((role, i) => [role.key, withRecipients.recipients[i]?.id ?? null]),
-        );
-        await ctx.client.putFields(r.id, {
-          fields: t.fields.map((f) => ({
-            recipientId: f.roleKey ? (recipientOf.get(f.roleKey) ?? null) : null,
-            type: f.type,
-            pageIndex: f.pageIndex,
-            x: f.x,
-            y: f.y,
-            w: f.w,
-            h: f.h,
-            required: f.required,
-            label: f.label ?? undefined,
-            mergeKey: f.mergeKey ?? undefined,
-            options: f.options.length > 0 ? f.options : undefined,
-            groupKey: f.groupKey ?? undefined,
-            value: f.value ?? undefined,
-          })),
-        });
+        // A later refusal (an inactive login, say) discards the new draft too.
+        try {
+          const withRecipients = await ctx.client.putRecipients(r.id, recipientsBody);
+          const recipientOf = new Map(
+            t.roles.map((role, i) => [role.key, withRecipients.recipients[i]?.id ?? null]),
+          );
+          await ctx.client.putFields(r.id, {
+            fields: t.fields.map((f) => ({
+              recipientId: f.roleKey ? (recipientOf.get(f.roleKey) ?? null) : null,
+              type: f.type,
+              pageIndex: f.pageIndex,
+              x: f.x,
+              y: f.y,
+              w: f.w,
+              h: f.h,
+              required: f.required,
+              label: f.label ?? undefined,
+              mergeKey: f.mergeKey ?? undefined,
+              options: f.options.length > 0 ? f.options : undefined,
+              groupKey: f.groupKey ?? undefined,
+              value: f.value ?? undefined,
+            })),
+          });
+        } catch (e) {
+          await ctx.client.discard(r.id);
+          throw e;
+        }
         ctx.record(r, 'EDITED');
         return ctx.client.get(r.id);
       },

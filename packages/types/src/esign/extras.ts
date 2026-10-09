@@ -117,12 +117,15 @@ export type EsignTemplateVersionList = z.infer<typeof EsignTemplateVersionList>;
 /**
  * POST /esign/requests/{id}/save-as-version (the template's owner, Owner, Admin): the request's
  * packet, recipients (as roles), fields and settings become the template's next version. It
- * copies, leaves out and refuses exactly what save-as-template does (SaveEsignTemplateBody: 409
- * TEMPLATE_HAS_CLIENT_FILES, SCAN_PENDING). 409 TEMPLATE_ARCHIVED.
+ * copies, leaves out and refuses exactly what save-as-template does (SaveEsignTemplateBody: the
+ * sender's own typed values only with `keepSenderValues: true`; 409 TEMPLATE_HAS_CLIENT_FILES,
+ * SCAN_PENDING, FILE_BLOCKED). 409 TEMPLATE_ARCHIVED.
  */
 export const SaveEsignTemplateVersionBody = z.strictObject({
   templateId: z.uuid(),
   note: text(500, 'many').optional(),
+  /** As SaveEsignTemplateBody's: the sender's own typed values are dropped unless true. */
+  keepSenderValues: z.boolean().default(false),
 });
 export type SaveEsignTemplateVersionBody = z.input<typeof SaveEsignTemplateVersionBody>;
 
@@ -203,14 +206,16 @@ export const ESIGN_BULK_MAX = 200;
 
 /**
  * POST /esign/templates/{id}/bulk-send (Owner and Admin for any client; Manager and Staff for
- * their own assigned clients): one separate request per client, each with its own signers, audit trail and signed
- * copy; no request ever holds two clients. CLIENT, SPOUSE and PREPARER roles fill themselves for
- * each client; `roles` gives the same person for every other role (a STAFF member or an EXTERNAL
- * person, never a client login), and a role's delivery and access code, with the same rules as
- * `use` (EsignBulkRoleFill). An access code given here is the same on every client's request. Answers 202 with the batch; the job runner creates and sends the
- * requests. A client whose request can't be sent (a readiness problem) stays a DRAFT and the batch
- * row says why. 400 BULK_LIMIT (the client checks it before sending), 409 TEMPLATE_ARCHIVED,
- * TEMPLATE_ROLES_UNFILLED, APPROVER_NOT_ALLOWED.
+ * their own assigned clients): one separate request per client, each with its own signers,
+ * audit trail and signed copy; no request ever holds two clients. CLIENT, SPOUSE and PREPARER
+ * roles fill themselves for each client; `roles` gives the same person for every other role (a
+ * STAFF member or an EXTERNAL person, never a client login), and a role's delivery and auth
+ * method, with the same rules as `use` (EsignBulkRoleFill) but never an access code: one code
+ * would be shared by every client's request, so the body refuses one (400) and a template
+ * ACCESS_CODE role needs another `authMethod` (or IN_PERSON). Answers 202 with the batch; the job
+ * runner creates and sends the requests. A client whose request can't be sent (a readiness
+ * problem) stays a DRAFT and the batch row says why. 400 BULK_LIMIT (the client checks it before
+ * sending), 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED, APPROVER_NOT_ALLOWED.
  */
 export const EsignBulkSendBody = z
   .strictObject({
