@@ -69,6 +69,7 @@ export class RefundsService {
         // One refund per key, also after Stripe has forgotten the idempotency key (24 hours): a
         // refund already made with this key is answered as it is, never made twice.
         const theirs = await stripeCall('refunds.list', payment.id, () =>
+          // One page (100): far more refunds than one payment ever has.
           stripe.listRefunds(payment.accountId, { paymentIntent }),
         );
         let made: StripeRefund | null =

@@ -372,7 +372,10 @@ export class StripeWebhookService {
     if (!row) return; // Never counted: ignored.
     await this.linkPayment(ctx, row.paymentId);
     if (row.status === 'SUCCEEDED') {
-      this.logger.error(`Stripe failed refund ${row.id}, already confirmed here`);
+      // Money the firm was told went back did not: logged for an alarm (R8), ids only.
+      this.logger.error(
+        `Refund mismatch on refund ${row.id}: Stripe failed it, already confirmed here`,
+      );
       return;
     }
     if (row.status !== 'PENDING') return;
