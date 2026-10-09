@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import type { ConvertLeadRequest, ConvertLeadResponse, DownloadLink } from '@firmivra/types';
 import type { z } from 'zod';
@@ -10,6 +10,7 @@ import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { NotifyDeliveryError } from '../notify/notify.service.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
+import { storageUnavailable } from '../storage/document-records.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../storage/document-storage.js';
 import { conflict, handled, LeadsService, notFound, OPEN, REVIEWED } from './leads.service.js';
 
@@ -149,7 +150,7 @@ export class LeadConvertService {
     if (!file) throw notFound();
     const unavailable = () => conflict('FILE_NOT_AVAILABLE', 'This file is not available');
     if (file.scanStatus !== 'CLEAN') throw unavailable();
-    const stored = await this.storage.head(file.s3Key, { checksum: true });
+    const stored = await this.s3('HEAD', () => this.storage.head(file.s3Key, { checksum: true }));
     if (
       stored?.sizeBytes !== file.sizeBytes ||
       stored.sha256 !== file.sha256 ||
@@ -158,11 +159,13 @@ export class LeadConvertService {
       this.logger.warn(`Lead upload ${file.id}: the stored file is not the confirmed one`); // ids only
       throw unavailable();
     }
-    const url = await this.storage.presignDownload({
-      key: file.s3Key,
-      fileName: file.fileName,
-      contentType: file.contentType,
-    });
+    const url = await this.s3('presign GET', () =>
+      this.storage.presignDownload({
+        key: file.s3Key,
+        fileName: file.fileName,
+        contentType: file.contentType,
+      }),
+    );
     const expiresAt = new Date(Date.now() + 300_000).toISOString();
     await this.audit.log(
       'lead_upload.download_link_issued',
@@ -170,6 +173,21 @@ export class LeadConvertService {
       { leadId: id, expiresAt },
     );
     return { url, expiresAt };
+  }
+
+  /**
+   * A storage call: a failure (no store, a timeout, S3 busy) is 503 SERVICE_UNAVAILABLE with
+   * Retry-After, as for documents. The log names the operation and the error's name only.
+   */
+  private async s3<T>(operation: string, call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      const name = error instanceof Error ? error.name : typeof error;
+      this.logger.warn(`Storage ${operation} failed: ${name}; 503`);
+      throw storageUnavailable();
+    }
   }
 
   private async activeMember(tx: TxClient, businessId: string, userId: string): Promise<void> {
