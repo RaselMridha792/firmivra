@@ -70,3 +70,19 @@ test('filters the firms list and stays usable at mobile width', async ({ page })
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(375);
 });
+
+test('the firm stat cards filter the list, and the table fits at 1280 px', async ({ page }) => {
+  await mockAdminSession(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(admin('/firms'));
+  await page.getByRole('button', { name: 'View Inactive' }).click();
+  await expect(page.getByRole('tab', { name: /^Inactive \(/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(page.getByRole('row', { name: /Old Example Firm/ })).toBeVisible();
+  const table = page.locator('table').locator('..');
+  await expect
+    .poll(() => table.evaluate((el) => el.scrollWidth - el.clientWidth))
+    .toBeLessThanOrEqual(0);
+});

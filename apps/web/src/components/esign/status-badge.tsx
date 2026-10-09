@@ -24,10 +24,10 @@ export const STATUS_TONE: Record<EsignRequestStatus, Tone> = {
 export function StatusBadge({ status }: { status: EsignRequestStatus }) {
   const tone = STATUS_TONE[status];
   const label = ESIGN_STATUS_LABELS[status];
-  // The Badge has no accent tone yet: Partially Signed uses the accent tokens directly.
+  // The Badge has no accent tone yet. Teal text on its tint is under 4.5:1, so the words are dark.
   if (tone === 'accent') {
     return (
-      <span className="inline-flex rounded-pill bg-accent-soft px-3 py-1 text-xs font-semibold text-accent">
+      <span className="inline-flex rounded-pill bg-accent-soft px-3 py-1 text-xs font-semibold text-heading">
         {label}
       </span>
     );
