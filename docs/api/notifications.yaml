@@ -39,8 +39,9 @@ info:
     - **Preferences.** The bell is always on; preferences choose the email and SMS copies per
       category. Nothing saved means email on, SMS off. `ACCOUNT` (sign-in and security) is
       `locked`: always sent, shown with its switches disabled, and a request that changes it is
-      refused (`400`). `channels` lists what to show switches for: `EMAIL` always, `SMS` once texts
-      can be sent (R6 step 2) and the person has a verified phone number. While `SMS` is not
+      refused (`400`). `channels` lists what to show switches for: `EMAIL` always, `SMS` when the
+      person has a phone number (q27: the switch only stores the choice; no text goes out until
+      SMS is switched on in config). While `SMS` is not
       listed, every item answers `sms: false` and a change with `sms: true` is refused (`400`);
       turning SMS off is always allowed. A new or removed phone number clears every SMS choice, so
       texts start only after the person opts in for that number.
@@ -90,25 +91,65 @@ info:
     ## Rules for the API (R6 step 7)
 
     - Recipients: a `client` event goes to the client's ACTIVE `PRIMARY` portal login only, until
-      member permissions exist (a `SPOUSE` or `AUTHORIZED` login gets no bell items in beta);
-      `client-note.reminder` goes only to the note's owner (`ClientNoteReminder.userId`). Staff
-      recipients per event are still open (R6-notify.md, Open).
+      member permissions exist (a `SPOUSE` or `AUTHORIZED` login gets no bell items in beta, also
+      not for its own `account.password-changed`). The one exception: `client-note.reminder`
+      goes only to the note's owner (`ClientNoteReminder.userId`), whatever its portal role, since
+      a private note is that login's own.
+    - Staff recipients (q27, Rasel): a `staff` event **never** reaches a Staff member who is not
+      assigned to the record's client. It goes to the client's assigned member
+      (`clients.assigned_user_id`, while that membership is ACTIVE) and always to the firm's
+      ACTIVE Owners and Admins (also when the record has no client: a sign-up waiting,
+      `staff.joined`). The client's row is locked `FOR SHARE` while the recipients are chosen.
+      `account.password-changed` reaches only that person, and only with a place in the firm.
+      The person who caused the event (`actorUserId`) gets no bell item for their own action; a
+      client who acted still gets the event's email copy (the confirmation of a booking or a
+      payment), once per `eventKey`.
+    - The helper: `Notifier.notify({ businessId, event, recordId, audience?, actorUserId?,
+      eventKey? })` (`apps/api/src/notifications/notifier.ts`), called after the caller's change
+      commits. It reads the record (of the event's kind) in the firm's own scope: its client, the
+      recipients and the safe values for the text. Callers never pass a URL, a client id or text.
+      `audience` picks the side of a `both` event. `message.received` goes one way (the
+      client's message reaches the firm, the firm's reaches the client), so its `audience` is
+      required and must be `client` or `staff`. It rejects only a programming error
+      (`NotificationInputError`); a database or delivery failure is logged with ids only and the
+      caller's change stands. It resolves `{ written }` (0 when there is nobody to notify), and
+      `{ written: 0, failed: true }` when the bell items could not be written, so a job retries
+      the same call. `eventKey` makes a retry write nothing new (and send no second email). The
+      bell item never depends on preferences (there is no in-app switch).
+    - Email copies: events named like a NotifyService template (`document.requested`,
+      `appointment.*`, `invoice.sent`, `payment.received`) send that email to each new client
+      recipient's login address, with a portal link built by `notificationLink`. The templates are
+      written for clients, so staff get bell items only. NotifyService skips the email when the
+      person switched the category off (step 5). An email says "You can turn off emails like
+      this" only when it names a `recipient` (an account with preferences) and is not
+      `ALWAYS_SENT`; NotifyService checks the firm (UnknownFirmError) before it reads them.
     - Every query filters by the firm (`TenantPrisma.db`) **and** `recipient_user_id` = the
       caller's user. Tenant-isolation e2e: firm B's member gets `404` for firm A's notification,
       and so does a second member of the same firm; a client of firm A gets `404` at firm B's
       portal.
-    - `type` holds the event name; `entity_type` and `entity_id` hold `target.kind` and
-      `target.id`. `target.clientId` (firm site only) comes from the record when read, never from
-      `payload`. Title and body are made per event from `payload` when read; an unknown event gets
-      a plain line for its category, never the raw payload.
+    - `type` holds the event name with `-` written `_` (the column allows lower-case words, dots
+      and underscores only: `document-request.accepted` is stored `document_request.accepted`);
+      `entity_type` and `entity_id` hold `target.kind` and `target.id`. `target.clientId` (firm
+      site only) comes from the record when read, never from `payload`. `payload` holds safe
+      values the helper read from the record (titles, due dates, invoice numbers, the client's
+      name on staff items, an appointment's time and the firm's time zone), never a file name,
+      an amount, a subject or a message's or note's text. Title and body are made per event and
+      site from it when read; an unknown event gets a plain line for its category, never the raw
+      payload.
     - `read-all` sets `read_at = now()` where it is null and the notification is not newer than
       the request. `read` keeps the first `read_at`.
     - Preferences: one row per changed category (upsert on `business_id, user_id, category`);
-      `ACCOUNT` is never stored as off. `sms: true` is refused while SMS is not in the person's
-      `channels`; changing or removing the phone number sets every stored `sms` to off. NotifyService (step 5) reads them; `ALWAYS_SENT` messages
-      ignore them. A preference change writes an audit entry (`notification_preferences.updated`
-      with the categories and channels, no other data): it is the person's consent to texts.
-      Reading and marking read are not audited (the person's own items, no client data changes).
+      `ACCOUNT` is never stored. `SMS` is in `channels` when the person has a phone number
+      (`users.phone`, staff or client; q27), whatever `SMS_MODE` says: the choice is stored and
+      used once texts can go out. `sms: true` is refused while SMS is not in the person's
+      `channels`; changing or removing the phone number sets every stored `sms` to off
+      (`Notifier.phoneChanged(businessId, userId)`, for the module that changes the number).
+      NotifyService (step 5) reads them when a message names its `recipient`: it skips a channel
+      the person switched off; `ALWAYS_SENT` messages and `ACCOUNT` ignore them. A preference
+      change writes an audit entry (`notification_preferences.updated`, entity the person's user
+      id, metadata the categories and the switches set, no other data): it is the person's
+      consent to texts. Reading and marking read are not audited (the person's own items, no
+      client data changes).
     - Cursors are opaque (`created_at`, `id` of the last item), so items marked read between
       pages never shift a page. A cursor the API did not make is `400 VALIDATION_FAILED`.
 
