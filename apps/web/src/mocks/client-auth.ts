@@ -154,13 +154,19 @@ function buildFixtures() {
     phoneMasked: '(770) ***-0123',
     resendAvailableAt: '2026-10-07T12:00:45.000Z',
   });
-  /** POST .../auth/sign-up/verify-email, GET .../auth/sign-up on /sign-up/verify-phone */
+  /**
+   * POST .../auth/sign-up/verify-email with SIGNUP_PHONE_VERIFICATION=required, GET
+   * .../auth/sign-up on /sign-up/verify-phone
+   */
   const signUpVerifyPhone = SignUpState.parse({
     ...signUpVerifyEmail,
     step: 'VERIFY_PHONE',
     resendAvailableAt: '2026-10-07T12:01:30.000Z',
   });
-  /** POST .../auth/sign-up/verify-phone, GET .../auth/sign-up on /sign-up/done */
+  /**
+   * POST .../auth/sign-up/verify-phone, or verify-email with SIGNUP_PHONE_VERIFICATION=optional
+   * (the API's default, the SMS fallback); GET .../auth/sign-up on /sign-up/done
+   */
   const signUpDone = SignUpState.parse({
     ...signUpVerifyEmail,
     step: 'DONE',
@@ -271,6 +277,12 @@ export const MOCK_CODE = '000000';
 /** Sign-in with this password answers INVALID_CREDENTIALS; any other password works. */
 export const MOCK_WRONG_PASSWORD = 'Wrong-password-1';
 
+/**
+ * NEXT_PUBLIC_API_MOCK_SIGNUP_PHONE=required walks the SMS code step after verify-email, like the
+ * API's SIGNUP_PHONE_VERIFICATION=required. Otherwise (the API's default, the SMS fallback)
+ * verify-email ends the sign-up at DONE and no SMS code is due.
+ */
+const SIGNUP_PHONE_REQUIRED = process.env.NEXT_PUBLIC_API_MOCK_SIGNUP_PHONE === 'required';
 const RESEND_GAP_MS = 45_000;
 const pause = () => new Promise((resolve) => setTimeout(resolve, 250));
 const fail = (status: number, body: { error: { code: string; message: string } }) =>
@@ -290,12 +302,18 @@ export interface PortalAuthMockOptions {
   mfa?: boolean;
   /** The firm takes no sign-ups: sign-up answers 403 SIGN_UP_CLOSED. */
   signUpClosed?: boolean;
+  /**
+   * The API's SIGNUP_PHONE_VERIFICATION: `optional` ends the sign-up at verify-email, `required`
+   * goes on to the SMS code. Default: NEXT_PUBLIC_API_MOCK_SIGNUP_PHONE, else `optional`.
+   */
+  phoneVerification?: 'optional' | 'required';
 }
 
 /**
  * An in-memory `portalAuth(slug)`. Only the `lvp` portal exists (other slugs answer 404).
- * Walk a sign-up: signUp, then verifyEmail and verifyPhone with MOCK_CODE (any other code is
- * CODE_INVALID); signing in afterwards answers the pending account, as the API does. As in the
+ * Walk a sign-up: signUp, then verifyEmail (and verifyPhone when the phone code is required, see
+ * `phoneVerification`) with MOCK_CODE (any other code is CODE_INVALID); signing in afterwards
+ * answers the pending account, as the API does. As in the
  * API, a changed email or phone gets its code only once the 45 s gap since the last code has
  * passed (until then the old code no longer works: press Resend), and a session has 10 code
  * requests. After SIGN_UP_WRONG_EMAIL_CODES wrong email codes the sign-up ends at CONTACT_FIRM
@@ -310,6 +328,8 @@ export function createPortalAuthMock(
   const { portalInfo, termsDocument, privacyDocument, meActive, mePending, errors } =
     clientAuthFixtures();
   const known = firmSlug.toLowerCase() === 'lvp';
+  const phoneRequired =
+    (options.phoneVerification ?? (SIGNUP_PHONE_REQUIRED ? 'required' : 'optional')) === 'required';
   type Walk = {
     step: SignUpState['step'];
     email: string;
@@ -428,6 +448,12 @@ export function createPortalAuthMock(
         s.wrongEmailCodes += 1;
         if (s.wrongEmailCodes >= SIGN_UP_WRONG_EMAIL_CODES) s.step = 'CONTACT_FIRM';
         throw fail(400, errors.codeInvalid);
+      }
+      if (!phoneRequired) {
+        // SMS fallback: the email completes the sign-up; the phone stays saved, unverified.
+        s.step = 'DONE';
+        signedUp.add(s.email);
+        return state();
       }
       s.step = 'VERIFY_PHONE';
       // The SMS code goes out when the gap allows, as in the API.

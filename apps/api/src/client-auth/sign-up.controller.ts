@@ -16,6 +16,7 @@ import { SignInModule } from '../auth/sign-in.controller.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { NotifyClientCodeSender } from '../notify/adapters.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
 import { CLIENT_CODE_SENDER } from './client-code-sender.js';
@@ -116,7 +117,7 @@ export class SignUpController {
 }
 
 @Module({
-  imports: [SignInModule, PortalInfoModule],
+  imports: [SignInModule, PortalInfoModule, NotificationsModule],
   controllers: [SignUpController],
   providers: [
     SignUpService,
