@@ -24,7 +24,12 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { uploadFile } from '../../../../../../lib/upload';
 import { usePortal } from '../../../layout';
 import { IntakeStepper, SectionPanel } from './form-blocks';
-import { AgreementPanel, type AgreementState, agreementComplete } from './intake-agreement';
+import {
+  AgreementPanel,
+  type AgreementState,
+  agreementSignature,
+  emptyAgreement,
+} from './intake-agreement';
 import type { Fill } from './intake-fields';
 import { IntakeReview } from './intake-review';
 import { StepSections } from './intake-step';
@@ -237,7 +242,7 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
   const [uploads, setUploads] = useState<IntakeUpload[]>(draft.uploads);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState('');
-  const [agreement, setAgreement] = useState<AgreementState>({ agreed: false, name: '', date: '' });
+  const [agreement, setAgreement] = useState<AgreementState>(emptyAgreement);
   const [agreementError, setAgreementError] = useState('');
   const topRef = useRef<HTMLDivElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
@@ -269,6 +274,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
     const s = definition.steps.find((x) => x.key === key)!;
     return client.saveStep(form, key, { answers: stepAnswers(s, values) });
   });
+  // The firm's current agreements for this form (R14), signed on the review step.
+  const agreements = useApiQuery(['begin-online', firmSlug, form, 'agreements'], () =>
+    api.publicAgreements(firmSlug).block({ form }),
+  );
+  // TODO(R15): send `signature` with the answers once contract B's SubmitIntakeRequest has it.
   const submit = useApiMutation(() => client.submit(form, { answers: stepAnswers(step, values) }));
   const resumeLink = useApiMutation(() => client.emailResumeLink({ email: draft.contact.email }));
 
@@ -326,18 +336,30 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         return;
       }
     }
-    if (!agreementComplete(agreement)) {
-      setAgreementError(
-        'Read and accept the agreement, then type your full name and the date to sign.',
-      );
+    if (!agreements.data) {
+      setAgreementError("The agreement couldn't be loaded. Please try again.");
+      void agreements.refetch();
+      return;
+    }
+    const signed = agreementSignature(agreements.data, agreement);
+    if ('error' in signed) {
+      setAgreementError(signed.error);
       return;
     }
     setAgreementError('');
     try {
       const done = await submit.mutateAsync();
       router.push(`/${firmSlug}/begin/done?form=${BEGIN_ONLINE_SERVICES[done.form].path}`);
-    } catch {
-      // Shown below the buttons.
+    } catch (error) {
+      // A newer agreement or Terms version: show the current one to read and sign again.
+      if (
+        error instanceof ApiRequestError &&
+        (error.code === 'AGREEMENT_OUTDATED' || error.code === 'TERMS_OUTDATED')
+      ) {
+        setAgreement((a) => ({ ...a, ticked: [], acceptLegal: false }));
+        void agreements.refetch();
+      }
+      // The message is shown below the buttons.
     }
   }
 
@@ -434,7 +456,11 @@ function IntakeFlow({ firmSlug, draft }: { firmSlug: string; draft: BeginDraft }
         </div>
         {step.review && (
           <AgreementPanel
-            title={fill(definition.title)}
+            firmSlug={firmSlug}
+            block={agreements.data}
+            failed={agreements.isError}
+            onRetry={() => void agreements.refetch()}
+            form={form}
             value={agreement}
             onChange={setAgreement}
             error={agreementError}

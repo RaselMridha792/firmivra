@@ -323,11 +323,15 @@ export function ReviewCard({
   );
 }
 
-export function ReviewRows({ rows }: { rows: [string, ReactNode][] }) {
+/** Label, answer and an optional key (the field's key when two labels read the same). */
+export function ReviewRows({ rows }: { rows: [string, ReactNode, string?][] }) {
   return (
     <dl className="overflow-hidden rounded-control border border-folder-border text-xs">
-      {rows.map(([label, value]) => (
-        <div key={label} className="grid grid-cols-2 border-b border-folder-border last:border-0">
+      {rows.map(([label, value, id]) => (
+        <div
+          key={id ?? label}
+          className="grid grid-cols-2 border-b border-folder-border last:border-0"
+        >
           <dt className="border-r border-folder-border px-2 py-1 text-firm-primary">{label}</dt>
           <dd className="min-w-0 px-2 py-1 break-words text-muted">{value || 'Not provided'}</dd>
         </div>

@@ -129,8 +129,13 @@ for (const f of FORMS) {
     await page.getByRole('button', { name: 'Submit Intake Form' }).click();
     await expect(page.getByRole('alert').last()).toBeVisible();
     await fillStep(page);
-    await page.getByLabel('Full Name (type your name to sign) *').fill('Avery Example');
-    await page.getByLabel('Date *', { exact: true }).fill('2026-10-10');
+    // R14's agreement block: its required boxes (ticked by fillStep), then the typed signature.
+    await expect(page.getByRole('region', { name: /agreement/i }).first()).toBeVisible();
+    await page.getByLabel('Printed Name *').fill('Avery Example');
+    await page.getByLabel('Signature (type your name exactly as printed) *').fill('Avery Exampel');
+    await page.getByRole('button', { name: 'Submit Intake Form' }).click();
+    await expect(page.getByText('Type your name exactly as printed.')).toBeVisible();
+    await page.getByLabel('Signature (type your name exactly as printed) *').fill('Avery Example');
     await page.getByRole('button', { name: 'Submit Intake Form' }).click();
     await expect(page).toHaveURL(`${origin}/lvp/begin/done?form=${f.path}`, { timeout: 20_000 });
   });

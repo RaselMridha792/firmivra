@@ -157,9 +157,10 @@ export function IntakeReview({
             {step.sections.map((section) => {
               const rows = section.fields
                 .filter((f) => f.type !== 'info' && shownFields.has(f.key))
-                .map((f): [string, ReactNode] => [
+                .map((f): [string, ReactNode, string] => [
                   fill(f.label),
                   answerView(f, values[f.key], fill, uploads),
+                  f.key,
                 ]);
               if (!rows.length) return null;
               return (
