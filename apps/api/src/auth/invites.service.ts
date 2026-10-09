@@ -9,6 +9,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
@@ -198,7 +199,9 @@ export class InvitesService {
     @Inject(ACTIVATION_MAILER) private readonly mailer: ActivationMailer,
     private readonly audit: AuditService,
     @Inject(ENV) private readonly env: Env,
-    private readonly notifier: Notifier,
+    // Absent in R4's own InvitesService (owner-invites.ts), which only creates invites: the
+    // link is used through this module's service, which writes the bell item.
+    @Optional() private readonly notifier?: Notifier,
   ) {}
 
   /**
@@ -520,6 +523,7 @@ export class InvitesService {
    * anything else is logged with the id and never fails the join.
    */
   private async joined(businessId: string, membershipId: string, userId: string): Promise<void> {
+    if (!this.notifier) return;
     try {
       await this.notifier.notify({
         businessId,
