@@ -24,6 +24,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import type { Construct } from 'constructs';
 import { type EnvConfig, resourceName } from '../config';
+import { firmKeyStatements } from '../firm-key-policy';
 import type { AuthStack } from './auth-stack';
 import type { DataStack } from './data-stack';
 import type { EmailStack } from './email-stack';
@@ -253,6 +254,22 @@ export class AppStack extends Stack {
       });
 
     // ---------- API ----------
+    // R4 submit: HMAC-SHA256 of the EIN into firm_applications.ein_hash (the duplicate-EIN check).
+    // Never rotate it and never change its name or generation settings: CloudFormation would make a
+    // new value and every stored hash would stop matching. Kept if the stack is deleted.
+    // 64 hex characters: 32 random bytes.
+    const einHashKey = new secretsmanager.Secret(this, 'EinHashKey', {
+      secretName: `firmivra/${config.envName}/firm-applications/ein-hash-key`,
+      description: 'HMAC key for firm_applications.ein_hash (R4). Never rotate or regenerate.',
+      generateSecretString: {
+        passwordLength: 64,
+        excludePunctuation: true,
+        excludeUppercase: true,
+        excludeCharacters: 'ghijklmnopqrstuvwxyz',
+        includeSpace: false,
+      },
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
+    });
     const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', {
       family: name('api'),
       cpu: config.task.cpu,
@@ -281,6 +298,8 @@ export class AppStack extends Stack {
         COGNITO_ADMINS_CLIENT_ID: auth.admins.client.userPoolClientId,
         S3_DOCUMENTS_BUCKET: data.documentsBucket.bucketName,
         KMS_MODE: 'kms',
+        // The firm keys' env tag and alias (firm-keys.ts); the create-firm-key command runs only on dev.
+        APP_ENV: config.envName,
         DOCUMENTS_KMS_KEY_ID: data.documentsKey.keyArn,
         ...(email
           ? {
@@ -296,6 +315,7 @@ export class AppStack extends Stack {
         COGNITO_STAFF_CLIENT_SECRET: ecs.Secret.fromSecretsManager(auth.clientSecrets, 'STAFF'),
         COGNITO_CLIENTS_CLIENT_SECRET: ecs.Secret.fromSecretsManager(auth.clientSecrets, 'CLIENTS'),
         COGNITO_ADMINS_CLIENT_SECRET: ecs.Secret.fromSecretsManager(auth.clientSecrets, 'ADMINS'),
+        EIN_HASH_KEY: ecs.Secret.fromSecretsManager(einHashKey),
       },
     });
     const apiRole = apiTask.taskRole;
@@ -314,6 +334,10 @@ export class AppStack extends Stack {
         resources: [data.documentsKey.keyArn],
       }),
     );
+    // Each firm's own key (src/firm-key-policy.ts): make, name and use, all tag-conditioned.
+    for (const statement of firmKeyStatements(config.envName, config.region, config.account)) {
+      apiRole.addToPrincipalPolicy(statement);
+    }
     email?.identity.grantSendEmail(apiRole);
     apiRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
