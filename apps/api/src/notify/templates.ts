@@ -1,5 +1,12 @@
 import { type Branding, FIRMIVRA_BRANDING, hexColor } from './branding.js';
-import { type NotifyTemplate, type NotifyTemplates, TEMPLATE_SENDER } from './notify.types.js';
+import {
+  ESIGN_STAFF_EVENTS,
+  type EsignNamed,
+  type EsignStaffEvent,
+  type NotifyTemplate,
+  type NotifyTemplates,
+  TEMPLATE_SENDER,
+} from './notify.types.js';
 
 /**
  * Subject, plain text and simple HTML for every template (R6 step 3). A message holds the
@@ -165,6 +172,25 @@ function calendarDate(value: string): string {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(date);
 }
 
+/** At most `max` characters (whole code points), with an ellipsis when cut. */
+function capped(value: string, max: number): string {
+  const chars = Array.from(value);
+  if (chars.length <= max) return value;
+  const kept = chars.slice(0, max - 1).join('');
+  return `${kept.trimEnd()}…`;
+}
+
+/** A Firm Sign request's title: one line, at most 200 characters (as the API accepts it). */
+const esignTitle = (data: Pick<EsignNamed, 'title'>): string =>
+  capped(required(data, 'title'), 200);
+
+/** The sender's own note, or null when there is none; at most 1000 characters. */
+function optionalMessage(data: { message: string | null }): string | null {
+  const value = field(data, 'message');
+  const shown = typeof value === 'string' ? multiLine(value) : '';
+  return shown ? capped(shown, 1000) : null;
+}
+
 // ---------- Blocks ----------
 
 const text = (value: string): Block => ({ kind: 'text', text: value });
@@ -204,6 +230,26 @@ function appointment(
     ],
   };
 }
+
+/** Firm Sign's staff updates in plain words. */
+const ESIGN_EVENT_TEXT: Record<EsignStaffEvent, (signer: string, title: string) => string> = {
+  VIEWED: (signer, title) => `${signer} opened "${title}".`,
+  SIGNED: (signer, title) => `${signer} signed "${title}".`,
+  COMPLETED: (_signer, title) => `Everyone has signed "${title}". The signed copy is filed.`,
+  EXPIRED: (_signer, title) => `"${title}" expired before everyone signed.`,
+  BOUNCED: (signer, title) =>
+    `The email asking ${signer} to sign "${title}" could not be delivered.`,
+};
+
+function esignEvent(data: NotifyTemplates['esign.staff-update']): EsignStaffEvent {
+  const event = field(data, 'event');
+  if (!ESIGN_STAFF_EVENTS.includes(event as EsignStaffEvent)) {
+    throw new NotifyTemplateError('Template data needs event');
+  }
+  return event as EsignStaffEvent;
+}
+
+const NO_FORWARD = 'This link is for you only. Please do not forward this email.';
 
 // ---------- Templates ----------
 
@@ -413,6 +459,144 @@ const TEMPLATES: { [T in NotifyTemplate]: Build<T> } = {
           `Thank you. ${firm} received your payment for invoice ${required(d, 'invoiceNumber')}.`,
         ),
         button('View invoice', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  'esign.request': (d, b, o) => {
+    const firm = b.name;
+    const sender = required(d, 'senderName');
+    const title = esignTitle(d);
+    const message = optionalMessage(d);
+    return {
+      channel: 'email',
+      subject: `${firm} asks you to sign "${title}"`,
+      blocks: [
+        hello(d),
+        text(`${sender} at ${firm} asks you to sign "${title}".`),
+        ...(message === null ? [] : [quote(`Message from ${sender}`, message)]),
+        button('Review and sign', link(d, 'link', o)),
+        small(NO_FORWARD),
+      ],
+    };
+  },
+
+  'esign.code': (d, b) => ({
+    channel: 'email',
+    subject: `Your ${b.name} signing code`,
+    blocks: [
+      text(`Use this code to open "${esignTitle(d)}" from ${b.name}:`),
+      { kind: 'code', code: code(d) },
+      small(
+        'The code expires in 15 minutes. Never share it. If you did not ask for a code, you can ignore this email.',
+      ),
+    ],
+  }),
+
+  'esign.reminder': (d, b, o) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `Reminder: ${b.name} is waiting for your signature`,
+      blocks: [
+        hello(d),
+        text(`This is a reminder that ${b.name} asked you to sign "${title}".`),
+        button('Review and sign', link(d, 'link', o)),
+        small(NO_FORWARD),
+      ],
+    };
+  },
+
+  'esign.expiring': (d, b, o) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `"${title}" from ${b.name} expires soon`,
+      blocks: [
+        hello(d),
+        text(
+          `The request from ${b.name} to sign "${title}" expires on ${dateTime(d, 'expiresAt', b.timeZone)}.`,
+        ),
+        button('Review and sign', link(d, 'link', o)),
+        small(NO_FORWARD),
+      ],
+    };
+  },
+
+  'esign.completed': (d, b, o) => {
+    const title = esignTitle(d);
+    const copy = field(d, 'copyLink') !== undefined;
+    return {
+      channel: 'email',
+      subject: `"${title}" is signed`,
+      blocks: [
+        hello(d),
+        text(`Everyone has signed "${title}" for ${b.name}.`),
+        ...(copy
+          ? [
+              button('Download your copy', link(d, 'copyLink', o)),
+              small('The link works for 30 days and asks for a code we email you. ' + NO_FORWARD),
+            ]
+          : [
+              text('You can find the signed copy in your client portal.'),
+              button('Open the client portal', link(d, 'portalLink', o)),
+            ]),
+      ],
+    };
+  },
+
+  // To the sender. Never the reason: it can hold client content.
+  'esign.declined': (d, _b, o) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `"${title}" was declined`,
+      blocks: [
+        hello(d),
+        text(`${required(d, 'signerName')} declined to sign "${title}".`),
+        button('View the request', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  // To the recipients. No reason.
+  'esign.voided': (d, b) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `${b.name} cancelled "${title}"`,
+      blocks: [
+        hello(d),
+        text(`${b.name} cancelled the request to sign "${title}". You do not need to do anything.`),
+        text(`If you have questions, please contact ${b.name} directly.`),
+      ],
+    };
+  },
+
+  'esign.approval-requested': (d, _b, o) => {
+    const title = esignTitle(d);
+    return {
+      channel: 'email',
+      subject: `Approval needed: "${title}"`,
+      blocks: [
+        hello(d),
+        text(`${required(d, 'senderName')} asks you to approve sending "${title}" for signature.`),
+        button('Review the request', link(d, 'link', o)),
+      ],
+    };
+  },
+
+  'esign.staff-update': (d, _b, o) => {
+    const title = esignTitle(d);
+    const signerValue = field(d, 'signerName');
+    const signer = (typeof signerValue === 'string' && oneLine(signerValue)) || 'A recipient';
+    return {
+      channel: 'email',
+      subject: `Update on "${title}"`,
+      blocks: [
+        hello(d),
+        text(ESIGN_EVENT_TEXT[esignEvent(d)](signer, title)),
+        button('View the request', link(d, 'link', o)),
       ],
     };
   },
