@@ -4,6 +4,8 @@
 // - a member of firm Q gets 404 on firm P's records by id, on every route that takes one;
 // - a client of firm P gets 404 at firm Q's portal, on every client route;
 // - client Y gets 404 on client X's records in the same firm;
+// - a record id in a body (cases' `bodyIds`) is refused (4xx) when it is firm P's in firm Q, or
+//   client X's for client Y, with the rest of the request their own;
 // - none of those refusals changed a row of firm P;
 // - firm Q's lists and client Y's portal lists show none of firm P's or client X's records;
 // - the Super Admin routes refuse firm and client sessions, and the firm and portal routes
@@ -12,7 +14,8 @@
 //   case's `expect`), so a 404 above is the wall and not a broken case.
 //
 // Adding a route: put its case in test/isolation/cases/<module>.ts (one file per module; see
-// world.ts for the shapes). A route with a record param needs `cases`; a record it names that no
+// world.ts for the shapes). A route with a record param or a record id in its body schema needs
+// `cases`; a record it names that no
 // file creates yet needs `records`; a route that is neither a firm nor a portal route goes in
 // `excluded` with the reason.
 import { readdirSync } from 'node:fs';
@@ -118,6 +121,9 @@ const people = {
 const admin: Person = fx.users.admin;
 /** The world the refusal tests share: one of each record. */
 let base: World;
+/** One of each record in firm Q, and a second set in firm P (client Y's), for the body swaps. */
+let q: World;
+let peer: World;
 const tokens = new Map<string, string>();
 
 async function tokenFor(who: Person, pool: 'STAFF' | 'CLIENT' | 'ADMIN'): Promise<string> {
@@ -146,22 +152,22 @@ async function call(route: ApiRoute, path: string, actor: Actor, body?: object):
 
 const show = (res: Response) => `${res.status} ${JSON.stringify(res.body).slice(0, 300)}`;
 
-/** A world of firm P's records with at least `keys` in it. */
-function buildWorld(keys: string[]): Promise<World> {
-  return runInScope(db, { kind: 'business', businessId: firms.p.id }, async (tx) => {
+/** A world of firm P's (or Q's) records with at least `keys` in it. */
+function buildWorld(keys: string[], k: 'p' | 'q' = 'p'): Promise<World> {
+  return runInScope(db, { kind: 'business', businessId: firms[k].id }, async (tx) => {
     const world = new World(RECORDS, {
       tx,
-      businessId: firms.p.id,
-      owner: people.ownerP,
-      own: own.p,
+      businessId: firms[k].id,
+      owner: k === 'p' ? people.ownerP : people.ownerQ,
+      own: own[k],
     });
     await world.getAll(keys);
     return world;
   });
 }
 
-/** A hash of every row of firm P, table by table, except the audit log (reads write to it). */
-async function fingerprint(): Promise<Record<string, string>> {
+/** Every table with a business_id, except the audit log (reads write to it). */
+async function businessTables(): Promise<string[]> {
   const tables = await db.$queryRaw<{ name: string }[]>`
     SELECT c.table_name AS name FROM information_schema.columns c
     JOIN information_schema.tables t
@@ -169,12 +175,18 @@ async function fingerprint(): Promise<Record<string, string>> {
     WHERE c.table_schema = 'public' AND c.column_name = 'business_id'
       AND t.table_type = 'BASE TABLE' AND c.table_name <> 'audit_logs'
     ORDER BY 1`;
+  return tables.map((t) => t.name.replace(/"/g, ''));
+}
+
+/** A hash of every row of firm P, table by table. */
+async function fingerprint(): Promise<Record<string, string>> {
+  const tables = await businessTables();
   return runInScope(db, { kind: 'business', businessId: firms.p.id }, async (tx) => {
     const out: Record<string, string> = {};
-    for (const { name } of tables) {
+    for (const name of tables) {
       const [row] = await tx.$queryRawUnsafe<{ n: number; h: string }[]>(
         `SELECT count(*)::int AS n, md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), ''))
-           AS h FROM "${name.replace(/"/g, '')}" t WHERE business_id = $1::uuid`,
+           AS h FROM "${name}" t WHERE business_id = $1::uuid`,
         firms.p.id,
       );
       out[name] = `${row?.n ?? 0}:${row?.h ?? ''}`;
@@ -224,11 +236,12 @@ beforeAll(async () => {
       own[k] = {
         service: await service('ANNUAL_TAX', 'Fake annual tax'),
         bookkeeping: await service('BOOKKEEPING', 'Fake bookkeeping'),
-        taxStatus: (await tx.taxStatus.create({ data: { businessId, name: 'Fake status' } })).id,
       };
     });
   }
   base = await buildWorld(Object.keys(RECORDS));
+  q = await buildWorld(Object.keys(RECORDS), 'q');
+  peer = await buildWorld(Object.keys(RECORDS));
 
   const env = loadEnv({
     ...process.env,
@@ -267,20 +280,104 @@ const ready = (r: ApiRoute) => {
 const recordsOf = (c: RecordCase, world: World) =>
   Object.fromEntries(Object.entries(c.params).map(([param, key]) => [param, world.rec[key]!]));
 
-const bodyOf = (c: RecordCase | undefined, ids: OwnIds, world: World) =>
-  typeof c?.body === 'function'
-    ? c.body({
-        own: ids,
-        rec: Object.fromEntries((c.bodyRecords ?? []).map((k) => [k, world.rec[k]!])),
-      })
-    : c?.body;
+/**
+ * The case's body, its `bodyIds` from `world`, except `swap.field`, which gets `swap.id`; with
+ * `swap.alone`, the other `bodyIds` are left out. A list field gets a list of one.
+ */
+function bodyOf(
+  route: ApiRoute,
+  ids: OwnIds,
+  world: World,
+  swap?: { field: string; id: string; alone?: boolean },
+): object | undefined {
+  const c = CASES[keyOf(route)];
+  const body = typeof c?.body === 'function' ? c.body({ own: ids }) : c?.body;
+  if (!c?.bodyIds) return body;
+  const out: Record<string, unknown> = { ...body };
+  for (const [field, key] of Object.entries(c.bodyIds)) {
+    if (swap?.alone && field !== swap.field) continue;
+    const id = field === swap?.field ? swap.id : world.rec[key]!;
+    out[field] = route.bodyIdFields.find((f) => f.path === field)?.list ? [id] : id;
+  }
+  return out;
+}
+
+const codeOf = (res: Response) => (res.body as { error?: { code?: string } }).error?.code;
+const leaked = (res: Response, ids: string[]) => {
+  const text = JSON.stringify(res.body);
+  return ids.filter((id) => text.includes(id));
+};
+const firmPIds = () => [
+  firms.p.id,
+  ...Object.values(base.rec),
+  ...Object.values(peer.rec),
+  ...Object.values(own.p),
+];
+/** How many body ids the cases of these routes name (that `only` keeps). */
+const bodyIdCount = (pred: (r: ApiRoute) => boolean, only = (_: string) => true) =>
+  routes
+    .filter(pred)
+    .flatMap((r) => Object.values(CASES[keyOf(r)]?.bodyIds ?? {}))
+    .filter(only).length;
+
+/**
+ * Sends each record the cases' bodies name, one at a time, from firm P's base world, in a
+ * request otherwise all `other`'s (its path records and its other body records), and again
+ * without the other body records where they are optional (one check can't hide behind another).
+ * Expects a refusal: a 4xx, not the case's `expect` (what P's people get for their own), the
+ * same status and code as a random id gets (so it says nothing of P's record), naming none of
+ * firm P's other records.
+ */
+async function bodySwaps(
+  list: ApiRoute[],
+  other: World,
+  actor: Actor,
+  slug: string,
+  ids: OwnIds,
+  only: (record: string) => boolean = () => true,
+) {
+  const failures: string[] = [];
+  let sent = 0;
+  for (const route of list.filter(ready)) {
+    const c = CASES[keyOf(route)];
+    const entries = Object.entries(c?.bodyIds ?? {});
+    for (const [field, record] of entries) {
+      if (!c || !only(record)) continue;
+      for (const alone of entries.length > 1 ? [false, true] : [false]) {
+        const path = fill(route, slug, recordsOf(c, other));
+        const send = (id: string) =>
+          call(route, path, actor, bodyOf(route, ids, other, { field, id, alone }));
+        const theirs = base.rec[record]!;
+        const res = await send(theirs);
+        if (alone && codeOf(res) === 'VALIDATION_FAILED') continue; // another body id is required
+        sent++;
+        const label = `${keyOf(route)} ${field}${alone ? ' alone' : ''}`;
+        if (res.status < 400 || res.status >= 500 || res.status === c.expect)
+          failures.push(`${label}: ${show(res)}`);
+        const unknown = await send(randomUUID());
+        if (unknown.status !== res.status || codeOf(unknown) !== codeOf(res))
+          failures.push(`${label}: ${show(res)}, but a random id gets ${show(unknown)}`);
+        const named = leaked(
+          res,
+          firmPIds().filter((id) => id !== theirs),
+        );
+        if (named.length) failures.push(`${label}: the refusal names ${named.join(', ')}`);
+      }
+    }
+  }
+  return { failures, sent };
+}
 
 const HOW_TO_ADD =
   'Add it in test/isolation/cases/<module>.ts: `cases` maps "METHOD /api/v1/path" to ' +
-  '{ params: { <param>: "<record>" }, body?, expect? }; a record no file creates yet goes in ' +
+  '{ params: { <param>: "<record>" }, bodyIds?: { <field>: "<record>" }, body?, expect? }; a ' +
+  'record no file creates yet goes in ' +
   '`records` as { create(ctx) { ...return id } } (see world.ts); a route that is neither a firm ' +
   'nor a portal route goes in `excluded` with the reason; a firm or portal route behind a module ' +
-  'that is off in every firm goes in `moduleOff` with the reason until the module is on.';
+  'that is off in every firm goes in `moduleOff` with the reason until the module is on; a body ' +
+  'uuid or `...Id` field that names no record goes in NOT_RECORDS (body-ids.ts) with the reason. ' +
+  '"No zod schema the suite can read" and "nested body ids aren\'t swept yet" need the reader in ' +
+  'body-ids.ts or the sweep extended (R21), not a case.';
 
 describe('tenant isolation (R8 step 2)', () => {
   it('every route is covered: a case per record route, an excluded reason for the rest', () => {
@@ -301,25 +398,36 @@ describe('tenant isolation (R8 step 2)', () => {
       }
       if (key in EXCLUDED) problems.push(`${key}: a firm or portal route can't be excluded`);
       const params = recordParams(route);
+      const fields = route.bodyIdFields.map((f) => f.path);
       const c = CASES[key];
       if (key in MODULE_OFF) {
         if (c) problems.push(`${key} (${c.file}): has a case, so it can't be in moduleOff too`);
         continue;
       }
-      if (params.length === 0) {
-        if (c) problems.push(`${key} (${c.file}): has no record param, so no case`);
+      if (route.bodyUnreadable) problems.push(`${key}: ${route.bodyUnreadable}`);
+      for (const f of fields.filter((f) => f.includes('.') || f.includes('*')))
+        problems.push(`${key}: ${f}: nested body ids aren't swept yet`);
+      if (params.length === 0 && fields.length === 0) {
+        if (c) problems.push(`${key} (${c.file}): has no record param or body id, so no case`);
         continue;
       }
       if (!c) {
-        problems.push(`${key}: no case for :${params.join(', :')}`);
+        problems.push(
+          `${key}: no case for ${[...params.map((p) => `:${p}`), ...fields].join(', ')}`,
+        );
         continue;
       }
+      const named = Object.keys(c.bodyIds ?? {});
+      if (named.sort().join(',') !== [...fields].sort().join(','))
+        problems.push(
+          `${key} (${c.file}): bodyIds map ${named.join(',') || 'nothing'}, the body has ${fields.join(',') || 'none'}`,
+        );
       const mapped = Object.keys(c.params).sort().join(',');
       if (mapped !== [...params].sort().join(','))
         problems.push(
           `${key} (${c.file}): params map ${mapped || 'nothing'}, the path has ${params.join(',')}`,
         );
-      for (const rec of [...Object.values(c.params), ...(c.bodyRecords ?? [])])
+      for (const rec of [...Object.values(c.params), ...Object.values(c.bodyIds ?? {})])
         if (!(rec in base.rec))
           problems.push(`${key} (${c.file}): no record "${rec}" in any records export`);
     }
@@ -354,7 +462,7 @@ describe('tenant isolation (R8 step 2)', () => {
           route,
           path,
           as.firm(people.ownerQ, firms.p.id),
-          bodyOf(c, own.p, base),
+          bodyOf(route, own.p, base),
         );
         if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
       }
@@ -365,16 +473,40 @@ describe('tenant isolation (R8 step 2)', () => {
       const failures: string[] = [];
       for (const route of routes.filter(isFirmRoute).filter(ready)) {
         const c = CASES[keyOf(route)];
-        if (!c) continue;
+        if (!c || recordParams(route).length === 0) continue;
         const res = await call(
           route,
           fill(route, firms.q.slug, recordsOf(c, base)),
           as.firm(people.ownerQ, firms.q.id),
-          bodyOf(c, own.q, base),
+          bodyOf(route, own.q, q),
         );
         if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
       }
       expect(failures).toEqual([]);
+    });
+
+    it("a member of firm Q is refused firm P's records named in a body, in firm Q", async () => {
+      const actor = as.firm(people.ownerQ, firms.q.id);
+      const res = await bodySwaps(routes.filter(isFirmRoute), q, actor, firms.q.slug, own.q);
+      expect(res.failures).toEqual([]);
+      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isFirmRoute));
+    });
+
+    it("a client of firm Q is refused firm P's records named in a body", async () => {
+      const actor = as.client(q.client!);
+      const res = await bodySwaps(routes.filter(isPortalRoute), q, actor, firms.q.slug, own.q);
+      expect(res.failures).toEqual([]);
+      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute));
+    });
+
+    it("client Y is refused client X's records named in a body, in the same firm", async () => {
+      const actor = as.client(peer.client!);
+      const only = (record: string) => RECORDS[record]?.clientPrivate === true;
+      const portal = routes.filter(isPortalRoute);
+      const res = await bodySwaps(portal, peer, actor, firms.p.slug, own.p, only);
+      expect(res.failures).toEqual([]);
+      expect(res.sent).toBeGreaterThanOrEqual(bodyIdCount(isPortalRoute, only));
+      expect(res.sent).toBeGreaterThan(0);
     });
 
     it("a client of firm P gets 404 at firm Q's portal, on every client route", async () => {
@@ -385,7 +517,7 @@ describe('tenant isolation (R8 step 2)', () => {
           route,
           fill(route, firms.q.slug, c ? recordsOf(c, base) : {}),
           as.client(base.client!),
-          bodyOf(c, own.q, base),
+          bodyOf(route, own.q, base),
         );
         if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
       }
@@ -403,7 +535,7 @@ describe('tenant isolation (R8 step 2)', () => {
           route,
           fill(route, firms.p.slug, recordsOf(c, base)),
           as.client(people.clientY),
-          bodyOf(c, own.p, base),
+          bodyOf(route, own.p, base),
         );
         if (res.status !== 404) failures.push(`${keyOf(route)}: ${show(res)}`);
       }
@@ -417,6 +549,22 @@ describe('tenant isolation (R8 step 2)', () => {
       expect(JSON.stringify(res.body)).not.toContain(base.rec.client!);
     });
 
+    it("no row of firm Q names a record of firm P's", async () => {
+      const hits: string[] = [];
+      const pIds = firmPIds();
+      await runInScope(db, { kind: 'business', businessId: firms.q.id }, async (tx) => {
+        for (const name of await businessTables()) {
+          const rows = await tx.$queryRawUnsafe<{ t: string }[]>(
+            `SELECT t::text AS t FROM "${name}" t WHERE business_id = $1::uuid`,
+            firms.q.id,
+          );
+          for (const id of pIds)
+            if (rows.some((r) => r.t.includes(id))) hits.push(`${name}: ${id}`);
+        }
+      });
+      expect(hits).toEqual([]);
+    });
+
     it("no refused request changed a row of firm P's", async () => {
       const after = await fingerprint();
       expect(Number(after.clients?.split(':')[0])).toBeGreaterThan(0);
@@ -425,15 +573,10 @@ describe('tenant isolation (R8 step 2)', () => {
   });
 
   describe('lists, counts and search', () => {
-    const firmPIds = () => [firms.p.id, ...Object.values(base.rec), ...Object.values(own.p)];
     const privateIds = () =>
       Object.entries(base.rec)
         .filter(([key]) => RECORDS[key]?.clientPrivate)
         .map(([, id]) => id);
-    const leaked = (res: Response, ids: string[]) => {
-      const text = JSON.stringify(res.body);
-      return ids.filter((id) => text.includes(id));
-    };
 
     it("firm Q's lists show none of firm P's records", async () => {
       const failures: string[] = [];
@@ -517,7 +660,7 @@ describe('tenant isolation (R8 step 2)', () => {
         const c = CASES[keyOf(route)];
         const path = fill(route, firms.p.slug, c ? recordsOf(c, base) : {});
         const actor = isPortalRoute(route) ? as.admin() : { ...as.admin(), firmId: firms.p.id };
-        const res = await call(route, path, actor, bodyOf(c, own.p, base));
+        const res = await call(route, path, actor, bodyOf(route, own.p, base));
         if (!refused(res.status)) failures.push(`${keyOf(route)}: ${show(res)}`);
       }
       expect(failures).toEqual([]);
@@ -542,6 +685,28 @@ describe('tenant isolation (R8 step 2)', () => {
     expect(failures).toEqual([]);
   });
 
+  it("the body cases' control: firm Q's own people reach them with Q's own records", async () => {
+    const me = routes.find((r) => keyOf(r) === 'GET /api/v1/portal/:firmSlug/me')!;
+    expect((await call(me, fill(me, firms.q.slug), as.client(q.client!))).status).toBe(200);
+    expect((await call(me, fill(me, firms.p.slug), as.client(peer.client!))).status).toBe(200);
+    const failures: string[] = [];
+    for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r)).filter(ready)) {
+      const c = CASES[keyOf(route)];
+      if (!c?.bodyIds) continue;
+      const keys = ['client', ...Object.values(c.params), ...Object.values(c.bodyIds)];
+      const world = await buildWorld(keys, 'q');
+      const res = await call(
+        route,
+        fill(route, firms.q.slug, recordsOf(c, world)),
+        isPortalRoute(route) ? as.client(world.client!) : as.firm(people.ownerQ, firms.q.id),
+        bodyOf(route, own.q, world),
+      );
+      const ok = c.expect === undefined ? is2xx(res.status) : res.status === c.expect;
+      if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
   it("the positive control: firm P's Owner and client X reach every case", async () => {
     const failures: string[] = [];
     for (const route of routes.filter((r) => isFirmRoute(r) || isPortalRoute(r)).filter(ready)) {
@@ -551,13 +716,17 @@ describe('tenant isolation (R8 step 2)', () => {
       const world =
         route.method === 'GET'
           ? base
-          : await buildWorld([...Object.values(c.params), ...(c.bodyRecords ?? []), 'client']);
+          : await buildWorld([
+              'client',
+              ...Object.values(c.params),
+              ...Object.values(c.bodyIds ?? {}),
+            ]);
       const portal = isPortalRoute(route);
       const res = await call(
         route,
         fill(route, firms.p.slug, recordsOf(c, world)),
         portal ? as.client(world.client!) : as.firm(people.ownerP, firms.p.id),
-        bodyOf(c, own.p, world),
+        bodyOf(route, own.p, world),
       );
       const ok = c.expect === undefined ? is2xx(res.status) : res.status === c.expect;
       if (!ok) failures.push(`${keyOf(route)} (${c.file}): ${show(res)}`);
