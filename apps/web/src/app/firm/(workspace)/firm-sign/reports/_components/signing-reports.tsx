@@ -102,7 +102,7 @@ function Reports() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 data-testid="page-title" className="text-3xl font-semibold text-heading">
+      <h1 data-testid="page-title" className="font-display text-3xl text-heading">
         Signing reports
       </h1>
       <Card>
