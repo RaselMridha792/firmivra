@@ -370,7 +370,10 @@ describe('who may make a firm key (lead rule 4)', () => {
     expect(using(/CreateKeyCommand|CreateAliasCommand/)).toEqual([
       'firm-applications/firm-keys.ts',
     ]);
-    // R4 approve adds itself here when it lands.
-    expect(using(/\.ensureKey\(/)).toEqual(['firm-applications/create-firm-key.ts']);
+    // And R4 approve's job (outside the request).
+    expect(using(/\.ensureKey\(/)).toEqual([
+      'firm-applications/create-firm-key.ts',
+      'firm-applications/firm-key-job.ts',
+    ]);
   });
 });

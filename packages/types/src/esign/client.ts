@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import { z } from 'zod';
 import { ApiRequestError, type ApiRequest, parseInput, toQuery } from '../client.js';
 import { portalMe } from '../clients/client.js';
 import { FirmSlug, OkResponse } from '../schemas.js';
@@ -70,10 +70,33 @@ import {
   SignerState,
   SignerVerifyCodeBody,
 } from './signing.js';
+import {
+  DuplicateEsignTemplateBody,
+  ESIGN_BULK_MAX,
+  EsignApprovalBody,
+  EsignApproverList,
+  EsignBulkBatch,
+  EsignBulkSendBody,
+  EsignInPersonSession,
+  EsignInPersonState,
+  EsignMemberRole,
+  EsignMemberRoleList,
+  EsignReport,
+  EsignReportQuery,
+  EsignTemplateVersionList,
+  ExitEsignInPersonBody,
+  RestoreEsignTemplateVersionBody,
+  SaveEsignTemplateVersionBody,
+  SetEsignMemberRoleBody,
+  StartEsignInPersonBody,
+  SubmitEsignApprovalBody,
+} from './extras.js';
 
 const BASE = '/esign';
 const one = (id: string) => `${BASE}/requests/${parseInput(EsignRequestId, id)}`;
 const template = (id: string) => `${BASE}/templates/${parseInput(EsignTemplateId, id)}`;
+const Uuid = z.uuid();
+const Version = z.number().int().min(1);
 
 /**
  * `api.esign` (apps/web/src/lib/api.ts): Firm Sign's signature requests, for the firm
@@ -84,7 +107,8 @@ const template = (id: string) => `${BASE}/templates/${parseInput(EsignTemplateId
  *     finish: (uploadToken) => api.esign.confirmUpload(requestId, { uploadToken }),
  *   })
  * Bad input rejects with ApiRequestError(400, 'VALIDATION_FAILED') before anything is sent.
- * `baseUrl` is the one given to `createRequest` (for `documentContentUrl`).
+ * `baseUrl` is the one given to `createRequest` (for `documentContentUrl` and
+ * `templates.packetUrl`).
  */
 export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
   const post = <S extends z.ZodType>(schema: S, path: string, body: unknown) =>
@@ -206,13 +230,78 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
     events: async (id: string): Promise<EsignEventList> =>
       request(EsignEventList, `${one(id)}/events`),
 
-    /** A new template from this request (see SaveEsignTemplateBody). */
+    /** A new template, PRIVATE unless asked (see SaveEsignTemplateBody). 409 TEMPLATE_HAS_CLIENT_FILES. */
     saveAsTemplate: async (id: string, body: SaveEsignTemplateBody): Promise<EsignTemplateDetail> =>
       post(
         EsignTemplateDetail,
         `${one(id)}/save-as-template`,
         parseInput(SaveEsignTemplateBody, body),
       ),
+
+    /** The request becomes the template's next version (see SaveEsignTemplateVersionBody). */
+    saveAsVersion: async (
+      id: string,
+      body: SaveEsignTemplateVersionBody,
+    ): Promise<EsignTemplateDetail> =>
+      post(
+        EsignTemplateDetail,
+        `${one(id)}/save-as-version`,
+        parseInput(SaveEsignTemplateVersionBody, body),
+      ),
+
+    /** DRAFT to NEEDS_APPROVAL. 409 NOT_READY or INVALID_STATE. */
+    submitForApproval: async (
+      id: string,
+      body: SubmitEsignApprovalBody,
+    ): Promise<EsignRequestDetail> =>
+      post(
+        EsignRequestDetail,
+        `${one(id)}/submit-for-approval`,
+        parseInput(SubmitEsignApprovalBody, body),
+      ),
+    /** An approver's decision. 403 NOT_AN_APPROVER; 409 INVALID_STATE or RECIPIENT_DONE. */
+    decideApproval: async (id: string, body: EsignApprovalBody): Promise<EsignRequestDetail> =>
+      post(EsignRequestDetail, `${one(id)}/approval`, parseInput(EsignApprovalBody, body)),
+
+    /** In-person signing on this device (see StartEsignInPersonBody). */
+    inPerson: {
+      start: async (id: string, body: StartEsignInPersonBody): Promise<EsignInPersonSession> =>
+        post(
+          EsignInPersonSession,
+          `${one(id)}/in-person`,
+          parseInput(StartEsignInPersonBody, body),
+        ),
+      /** The caller's open session, if any. Works while locked. */
+      state: async (): Promise<EsignInPersonState> =>
+        request(EsignInPersonState, `${BASE}/in-person`),
+      /** Unlock with the staff member's password. 400 PASSWORD_WRONG. Works while locked. */
+      exit: async (body: ExitEsignInPersonBody): Promise<OkResponse> =>
+        post(OkResponse, `${BASE}/in-person/exit`, parseInput(ExitEsignInPersonBody, body)),
+    },
+
+    /** Who may approve a request (see EsignApproverList). */
+    approvers: async (): Promise<EsignApproverList> =>
+      request(EsignApproverList, `${BASE}/approvers`),
+
+    /** Firm Sign access per member (Owner and Admin only; 403 FORBIDDEN otherwise). */
+    roles: {
+      list: async (): Promise<EsignMemberRoleList> => request(EsignMemberRoleList, `${BASE}/roles`),
+      /** 409 ROLE_FIXED or NOT_A_MEMBER. */
+      set: async (userId: string, body: SetEsignMemberRoleBody): Promise<EsignMemberRole> =>
+        put(
+          EsignMemberRole,
+          `${BASE}/roles/${parseInput(Uuid, userId)}`,
+          parseInput(SetEsignMemberRoleBody, body),
+        ),
+    },
+
+    /** A bulk send's progress (see EsignBulkSendBody). */
+    bulk: async (batchId: string): Promise<EsignBulkBatch> =>
+      request(EsignBulkBatch, `${BASE}/bulk/${parseInput(Uuid, batchId)}`),
+
+    /** Totals and activity by sender for a date range (see EsignReportQuery). */
+    report: async (query: EsignReportQuery): Promise<EsignReport> =>
+      request(EsignReport, `${BASE}/reports${toQuery(parseInput(EsignReportQuery, query))}`),
 
     /** Signing Settings. Changes are Owner and Admin only (403 FORBIDDEN). */
     settings: {
@@ -241,6 +330,12 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
         ),
       get: async (templateId: string): Promise<EsignTemplateDetail> =>
         request(EsignTemplateDetail, template(templateId)),
+      /**
+       * Same-origin address of the template's packet, for the page viewer (pdfjs fetches it with
+       * the session cookie); the same as `get().packetUrl`. Not a call: nothing is sent until the
+       * viewer loads it.
+       */
+      packetUrl: (templateId: string): string => `${baseUrl}${template(templateId)}/packet`,
       /** 409 TEMPLATE_NAME_TAKEN or TEMPLATE_ARCHIVED. */
       update: async (
         templateId: string,
@@ -253,6 +348,44 @@ export function createEsignClient(request: ApiRequest, baseUrl = '/api/v1') {
       /** Archived templates can't be used; requests made from them keep their copy. */
       archive: async (templateId: string): Promise<EsignTemplateDetail> =>
         post(EsignTemplateDetail, `${template(templateId)}/archive`, {}),
+      /** Every saved version, newest first. */
+      versions: async (templateId: string): Promise<EsignTemplateVersionList> =>
+        request(EsignTemplateVersionList, `${template(templateId)}/versions`),
+      /** Copies an older version into a new newest one. */
+      restoreVersion: async (
+        templateId: string,
+        version: number,
+        body: RestoreEsignTemplateVersionBody = {},
+      ): Promise<EsignTemplateDetail> =>
+        post(
+          EsignTemplateDetail,
+          `${template(templateId)}/versions/${parseInput(Version, version)}/restore`,
+          parseInput(RestoreEsignTemplateVersionBody, body),
+        ),
+      /** A copy the caller owns. 409 TEMPLATE_NAME_TAKEN. */
+      duplicate: async (
+        templateId: string,
+        body: DuplicateEsignTemplateBody,
+      ): Promise<EsignTemplateDetail> =>
+        post(
+          EsignTemplateDetail,
+          `${template(templateId)}/duplicate`,
+          parseInput(DuplicateEsignTemplateBody, body),
+        ),
+      /**
+       * One request per client; answers the batch (202). More than ESIGN_BULK_MAX clients rejects
+       * here with 400 BULK_LIMIT before anything is sent.
+       */
+      bulkSend: async (templateId: string, body: EsignBulkSendBody): Promise<EsignBulkBatch> => {
+        if (Array.isArray(body.clients) && body.clients.length > ESIGN_BULK_MAX) {
+          throw new ApiRequestError(400, 'BULK_LIMIT', ESIGN_ERRORS.BULK_LIMIT);
+        }
+        return post(
+          EsignBulkBatch,
+          `${template(templateId)}/bulk-send`,
+          parseInput(EsignBulkSendBody, body),
+        );
+      },
       /** A new DRAFT from the template. */
       use: async (templateId: string, body: UseEsignTemplateBody): Promise<EsignRequestDetail> =>
         post(
@@ -276,7 +409,7 @@ export function createMySignaturesClient(request: ApiRequest, firmSlug: string) 
   return {
     status: async (): Promise<MySignaturesStatus> =>
       request(MySignaturesStatus, `${base()}/status`),
-    /** Requests where one of the client's logins is a recipient, newest first. */
+    /** Requests where the signed-in login's own recipients are, newest first. */
     list: async (query: ListMySignaturesQuery = {}): Promise<MySignatureList> =>
       request(MySignatureList, `${base()}${toQuery(parseInput(ListMySignaturesQuery, query))}`),
     /**

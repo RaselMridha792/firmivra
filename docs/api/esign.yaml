@@ -8,13 +8,16 @@ info:
     detail, and the client record's Signatures tab), signed by recipients on the portal host
     (`/{slug}/sign`), and listed in the portal's Signature center. Contract 1 is the firm side;
     contract 2 adds the signer routes, the Signature center, Signing Settings and consent
-    versions, and templates (save as template, use a template). Contract 3 adds the extras.
+    versions, and templates (save as template, use a template). Contract 3 (`extras.ts`, tag
+    esign-extras) adds approvals, Firm Sign roles (Manager, Viewer), template versions and
+    duplicate, in-person signing (with the staff session locked until the password is entered
+    again), bulk send (one request per client) and reports.
 
     **Source of truth:** the zod schemas in `packages/types/src/esign/` (`enums.ts`,
     `schemas.ts`, `errors.ts`), with typed calls in `createEsignClient` (web: `api.esign`) and
     `createMySignaturesClient` (web: `api.mySignatures(slug)`) and `createSigningClient` (web:
     `api.signing(slug)`); contract 2's schemas are in `admin.ts` and `signing.ts`. Mock mode:
-    `apps/web/src/mocks/esign.ts` and `esign-signing.ts`
+    `apps/web/src/mocks/esign.ts`, `esign-signing.ts` and `esign-extras.ts`
     (`NEXT_PUBLIC_API_MOCK=esign,mySignatures,signing`), with the mockup's counters and rows and
     a token for every signer step (`MOCK_SIGNING_TOKENS`). Schemas below name their zod schema; if this file and the zod schemas
     differ, the zod schemas win.
@@ -25,8 +28,9 @@ info:
     template the caller may not see is 404). Firm Sign roles (`EsignAccessRole`, `GET
     /esign/status`):
     - OWNER and ADMIN: everything, Signing Settings and Firm Sign roles included.
-    - MANAGER (a Staff member made one, contract 3): every request and template, approves and
-      voids; not Signing Settings or roles.
+    - MANAGER (a Staff member made one, contract 3): sees the requests STAFF would (their own and
+      their assigned clients'), and also approves and changes every FIRM template; not Signing
+      Settings or roles.
     - STAFF: their own requests and their assigned clients' requests; templates that are FIRM or
       their own, and they change only their own.
     - VIEWER (a Staff member made one, contract 3): reads what STAFF could see and changes
@@ -44,12 +48,18 @@ info:
 
     ## Who sees what
 
-    - **Owner and Admin** (and a Firm Sign **Manager**): every request of the firm.
-    - **Staff**: requests they send, and requests for the clients assigned to them. Any other
+    - **Owner and Admin**: every request of the firm.
+    - **Staff** and a Firm Sign **Manager**: requests they send, and requests for the clients
+      assigned to them. Any other
       request answers `404`, as if it did not exist, on every route.
     - A Firm Sign **Viewer** reads what Staff could, and changes nothing (`403 FORBIDDEN`).
     - `myEsignRole` in `GET /esign/status` says which of these the caller is. Manager and Viewer
-      come with the roles contract; until then Staff are `STAFF`.
+      come with the roles contract; until then Staff are `STAFF`. The mock takes
+      `NEXT_PUBLIC_API_MOCK_ESIGN_ROLE=MANAGER` or `VIEWER`.
+    - An **approver** always opens, lists and decides the requests they approve, whatever the
+      client assignment.
+    - **Approvers** are STAFF recipients who are an Owner, Admin or Manager and not the sender
+      (`409 APPROVER_NOT_ALLOWED`).
 
     ## A request's life
 
@@ -119,7 +129,7 @@ info:
 
     ## Signature center (contract 2)
 
-    A signed-in client lists the requests where one of their logins is a recipient
+    A signed-in client lists the requests where the signed-in login's own recipients are
     (`GET /portal/{slug}/me/signatures?tab=PENDING|SIGNED`), opens an ACTION_NEEDED one without
     an email code (`POST .../{recipientId}/session`, which sets the same signer cookie; then the
     signer routes from CONSENT on), and downloads a COMPLETED one's files. The client comes from
@@ -130,10 +140,33 @@ info:
     `GET/PUT /esign/settings` holds the firm's defaults (expiry, reminders, warning, auth method,
     approval switch, email message); only Owner and Admin change them. Consent texts are
     insert-only versions; nothing is sent before the first one (readiness `NO_CONSENT`). Any
-    member sets their own job title (the Staff Title merge field). A template copies a request's
-    packet, recipients (as roles) and fields; using one makes a new DRAFT and never changes the
-    template. CLIENT, SPOUSE (when the client has that login) and PREPARER roles fill themselves; the others need `roles[].who`
-    (`409 TEMPLATE_ROLES_UNFILLED`).
+    member sets their own job title (the Staff Title merge field).
+
+    A template copies a request's uploaded files, recipients (as roles, never who they were),
+    fields and settings; it never takes anything of one client: no client or service, no
+    merge-filled or signer values (merge keys stay), no sender-typed values unless the body sets
+    `keepSenderValues: true`, and no file from the client's documents
+    (`409 TEMPLATE_HAS_CLIENT_FILES`: upload a blank copy instead; `SCAN_PENDING` or
+    `FILE_BLOCKED` for a file not yet CLEAN).
+    `SaveEsignTemplateBody` lists exactly what is copied. A new template is PRIVATE unless saved
+    as FIRM. The page viewer reads its packet from `GET /esign/templates/{templateId}/packet`
+    (`api.esign.templates.packetUrl(id)`). Using one makes a new DRAFT and never changes the
+    template. CLIENT, SPOUSE (when the client has that login) and PREPARER roles fill
+    themselves; `roles[]` (`EsignTemplateRoleFill`) names who fills the others and sets a
+    role's delivery and access code. A role whose method is ACCESS_CODE needs its code unless
+    it signs IN_PERSON (`409 TEMPLATE_ROLES_UNFILLED` names every role still open). A bulk send
+    never takes an access code (`EsignBulkRoleFill`, 400): one code would be shared by every
+    client, so an ACCESS_CODE role needs another `authMethod` there.
+
+    ## Status codes
+
+    A POST that creates something answers `201`: a request (`create`, `replace`, a template's
+    `use`), a file (`confirm`, `from-vault`), an upload ticket, a template (`save-as-template`,
+    `duplicate`), a template version (`save-as-version`, `restore`) or a consent version. A POST
+    that acts on something that already exists answers `200` (send, remind, void, correct,
+    approvals, archive, in-person, a signer's attachment confirm, which fills a field, and every
+    other signer and Signature center step). Bulk send answers
+    `202` (the job runner does the work). GET, PUT, PATCH and DELETE answer `200`.
 
 servers:
   - url: /api/v1
@@ -144,6 +177,7 @@ tags:
   - name: esign
   - name: esign-portal
   - name: esign-signer
+  - name: esign-extras
   - name: esign-admin
 
 paths:
@@ -250,7 +284,7 @@ paths:
       tags: [esign]
       operationId: createEsignUpload
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: Upload step 1 (`CreateEsignUploadBody`, PDF, JPG or PNG; another type is 400 `FILE_TYPE_NOT_ALLOWED` from the client, before anything is sent); answers an `UploadTicket` (docs/api/documents.yaml)
+      summary: Upload step 1 (`CreateEsignUploadBody`, PDF, JPG or PNG; another type is 400 `FILE_TYPE_NOT_ALLOWED`, from the client before anything is sent and from the server too); answers an `UploadTicket` (docs/api/documents.yaml)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '201':
@@ -275,9 +309,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '410':
-          description: '`UPLOAD_EXPIRED`'
-          content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+        '410': { $ref: '#/components/responses/Gone' }
 
   /esign/requests/{id}/documents/from-vault:
     parameters: [{ $ref: '#/components/parameters/RequestId' }]
@@ -365,7 +397,7 @@ paths:
       tags: [esign]
       operationId: putEsignFields
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: The whole field list (`PutFieldsBody`)
+      summary: The whole field list (`PutFieldsBody`; at most 500 fields and 2,000 choices, so it stays under the 2 MB JSON limit)
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '200': { $ref: '#/components/responses/Detail' }
@@ -522,6 +554,7 @@ paths:
         '200':
           description: '`EsignEventList`'
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -770,7 +803,7 @@ paths:
       security: [{ signerCookie: [] }]
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -794,7 +827,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '410': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
 
   /portal/{firmSlug}/sign/copy:
     parameters:
@@ -927,7 +960,7 @@ paths:
       summary: Publish a new version (`PublishEsignConsentBody` → `EsignConsentVersion`); Owner and Admin
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -992,6 +1025,23 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /esign/templates/{templateId}/packet:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-admin]
+      operationId: esignTemplatePacket
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
+      summary: "The template’s packet PDF, for the page viewer on the same site (`EsignTemplateDetail.packetUrl`, `api.esign.templates.packetUrl(id)`). Anyone who may see the template: FIRM ones, and PRIVATE ones to their owner, Owner and Admin; any other is 404. CLEAN bytes only: a template only ever holds CLEAN files (save-as-template answers 409 SCAN_PENDING or FILE_BLOCKED otherwise). Archived templates still answer"
+      responses:
+        '200':
+          description: 'The packet, `Cache-Control: no-store`'
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /esign/templates/{templateId}/archive:
     parameters:
       - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1015,10 +1065,10 @@ paths:
       tags: [esign-admin]
       operationId: useEsignTemplate
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: A new DRAFT from it (`UseEsignTemplateBody` → `EsignRequestDetail`); 409 TEMPLATE_ROLES_UNFILLED, TEMPLATE_ARCHIVED, ENGAGEMENT_MISMATCH
+      summary: A new DRAFT from it (`UseEsignTemplateBody` → `EsignRequestDetail`); `roles[]` sets who, delivery and access code (`EsignTemplateRoleFill`); 409 TEMPLATE_ROLES_UNFILLED (no one, or no access code), TEMPLATE_ARCHIVED, ENGAGEMENT_MISMATCH
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
-        '200':
+        '201':
           description: The zod schema in the summary
           content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -1033,7 +1083,26 @@ paths:
       tags: [esign-admin]
       operationId: saveEsignTemplate
       x-roles: [OWNER, ADMIN, MANAGER, STAFF]
-      summary: A template from the request (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_NAME_TAKEN, SCAN_PENDING
+      summary: A template from the request, PRIVATE unless saved as FIRM; never a client's files or values, and sender-typed values only with `keepSenderValues: true` (`SaveEsignTemplateBody` → `EsignTemplateDetail`); 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_NAME_TAKEN, SCAN_PENDING, FILE_BLOCKED
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ---------- Contract 3: extras (packages/types/src/esign/extras.ts) ----------
+  /esign/requests/{id}/submit-for-approval:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-extras]
+      operationId: submitEsignApproval
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: "DRAFT to NEEDS_APPROVAL; approvers are emailed (`SubmitEsignApprovalBody` → `EsignRequestDetail`). 409 NOT_READY, INVALID_STATE"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '200':
@@ -1043,6 +1112,232 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/approval:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-extras]
+      operationId: decideEsignApproval
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: "An approver approves or rejects (`EsignApprovalBody` → `EsignRequestDetail`); the last approval sends it. 403 NOT_AN_APPROVER; 409 INVALID_STATE, RECIPIENT_DONE"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/save-as-version:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-extras]
+      operationId: saveEsignTemplateVersion
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: "The request becomes the template’s next version, copied as save-as-template does (`SaveEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_HAS_CLIENT_FILES, TEMPLATE_ARCHIVED, SCAN_PENDING, FILE_BLOCKED"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/in-person:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-extras]
+      operationId: startEsignInPerson
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: "Hand this device to an IN_PERSON signer and lock the staff session (`StartEsignInPersonBody` → `EsignInPersonSession`). 409 NOT_IN_PERSON, NOT_YOUR_TURN, RECIPIENT_DONE, REQUEST_CLOSED"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/in-person:
+    get:
+      tags: [esign-extras]
+      operationId: getEsignInPerson
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
+      summary: "The caller’s open in-person session (→ `EsignInPersonState`); allowed while locked"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/in-person/exit:
+    post:
+      tags: [esign-extras]
+      operationId: exitEsignInPerson
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
+      summary: "Unlock with the staff password (`ExitEsignInPersonBody` → `OkResponse`); allowed while locked. 400 PASSWORD_WRONG; 401 after 5 wrong"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/approvers:
+    get:
+      tags: [esign-extras]
+      operationId: esignApprovers
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: Who may approve a request, for the approver picker (`EsignApproverList`). Active Owners, Admins and Managers, without the caller; names only
+      responses:
+        '200':
+          description: '`EsignApproverList`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/roles:
+    get:
+      tags: [esign-extras]
+      operationId: listEsignRoles
+      x-roles: [OWNER, ADMIN]
+      summary: "Every active member’s Firm Sign access, Owner and Admin only (→ `EsignMemberRoleList`)"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/roles/{userId}:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [esign-extras]
+      operationId: setEsignRole
+      x-roles: [OWNER, ADMIN]
+      summary: "A Staff member’s Firm Sign access (`SetEsignMemberRoleBody` → `EsignMemberRole`). 409 ROLE_FIXED, NOT_A_MEMBER"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/templates/{templateId}/versions:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-extras]
+      operationId: listEsignTemplateVersions
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
+      summary: "Every saved version, newest first (→ `EsignTemplateVersionList`)"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /esign/templates/{templateId}/versions/{version}/restore:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    post:
+      tags: [esign-extras]
+      operationId: restoreEsignTemplateVersion
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: "Copies an older version into a new newest one (`RestoreEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_ARCHIVED"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/templates/{templateId}/duplicate:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [esign-extras]
+      operationId: duplicateEsignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: "A copy the caller owns, at version 1 (`DuplicateEsignTemplateBody` → `EsignTemplateDetail`). 409 TEMPLATE_NAME_TAKEN"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '201':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/templates/{templateId}/bulk-send:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [esign-extras]
+      operationId: bulkSendEsignTemplate
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: "One separate request per client (`EsignBulkSendBody` → 202 `EsignBulkBatch`); `roles[]` as in use (`EsignBulkRoleFill`, never a client login or an access code). 400 BULK_LIMIT, VALIDATION_FAILED (an access code); 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '202':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/bulk/{batchId}:
+    parameters:
+      - { name: batchId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-extras]
+      operationId: getEsignBulkBatch
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
+      summary: "A bulk send’s rows (→ `EsignBulkBatch`)"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /esign/reports:
+    parameters:
+      - { name: from, in: query, required: true, schema: { type: string, format: date } }
+      - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      - { name: status, in: query, schema: { $ref: '#/components/schemas/EsignRequestStatus' } }
+      - { name: senderId, in: query, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-extras]
+      operationId: getEsignReport
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF, VIEWER]
+      summary: "Totals and activity by sender for requests sent in a range of at most a year (`EsignReportQuery` → `EsignReport`)"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
   parameters:
@@ -1087,16 +1382,19 @@ components:
       description: '`UNAUTHENTICATED`: not signed in'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Forbidden:
-      description: '`MODULE_OFF` (Firm Sign is off; mock: `NEXT_PUBLIC_API_MOCK_ESIGN=off`), `FORBIDDEN` (a Viewer changing something) or `ORIGIN_NOT_ALLOWED`'
+      description: '`MODULE_OFF` (Firm Sign is off; mock: `NEXT_PUBLIC_API_MOCK_ESIGN=off`), `FORBIDDEN` (a Viewer changing something), `KIOSK_LOCKED` (an in-person signing is open on this session), `NOT_AN_APPROVER` or `ORIGIN_NOT_ALLOWED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     NotFound:
-      description: '`NOT_FOUND`: no such request, file, recipient or client, or one the caller may not see'
+      description: '`NOT_FOUND`: no such request, file, recipient, client or template, or one the caller may not see. `LINK_INVALID` on the signer routes: any unknown, expired, used or other firm''s link, a missing signer cookie, or Firm Sign off (one answer for all of them)'
+      content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
+    Gone:
+      description: '`UPLOAD_EXPIRED` (`EsignErrorCode`): the upload ticket is too old or was used; start the upload again'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     TooMany:
       description: '`CODE_LOCKED`, `CODE_TOO_SOON` or `RATE_LIMITED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
     Conflict:
-      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`'
+      description: 'See `EsignErrorCode`: `INVALID_STATE`, `REQUEST_CLOSED`, `NOT_READY`, `PDF_ENCRYPTED`, `PDF_UNREADABLE`, `TOO_MANY_PAGES`, `SCAN_PENDING`, `FILE_BLOCKED`, `FILE_TYPE_NOT_ALLOWED`, `UPLOAD_MISMATCH`, `ENGAGEMENT_MISMATCH`, `RECIPIENTS_LINKED`, `LOGIN_NOT_ACTIVE`, `NOT_A_MEMBER`, `PAGE_HAS_FIELDS`, `REMIND_TOO_SOON`, `RECIPIENT_DONE`, `NOT_YOUR_TURN`, `REQUIRED_FIELDS_MISSING`, `TEMPLATE_ARCHIVED`, `WRONG_STEP`, `CONSENT_OUTDATED`, `SIGNATURE_REQUIRED`, `TEMPLATE_ROLES_UNFILLED`, `TEMPLATE_NAME_TAKEN`, `TEMPLATE_HAS_CLIENT_FILES`, `ROLE_FIXED`, `NOT_IN_PERSON`, `APPROVER_NOT_ALLOWED`'
       content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } }
 
   schemas:
