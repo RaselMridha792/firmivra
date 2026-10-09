@@ -21,6 +21,11 @@ import { EsignSendService } from './requests/send.service.js';
 import { EsignTemplateCopyService } from './templates/template-copy.service.js';
 import { EsignTemplateUseService } from './templates/template-use.service.js';
 import {
+  EsignTemplateVersionSaveController,
+  EsignTemplateVersionsController,
+} from './templates/template-versions.controller.js';
+import { EsignTemplateVersionsService } from './templates/template-versions.service.js';
+import {
   EsignTemplateSaveController,
   EsignTemplatesController,
 } from './templates/templates.controller.js';
@@ -42,6 +47,8 @@ import { EsignTemplatesService } from './templates/templates.service.js';
     EsignLifecycleController,
     EsignTemplatesController,
     EsignTemplateSaveController,
+    EsignTemplateVersionsController,
+    EsignTemplateVersionSaveController,
   ],
   providers: [
     EsignRequestsService,
@@ -54,6 +61,7 @@ import { EsignTemplatesService } from './templates/templates.service.js';
     EsignTemplatesService,
     EsignTemplateCopyService,
     EsignTemplateUseService,
+    EsignTemplateVersionsService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },

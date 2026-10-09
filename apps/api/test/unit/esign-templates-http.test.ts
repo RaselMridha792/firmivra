@@ -1,16 +1,21 @@
-// R13 step 9, templates over HTTP: EsignTemplatesController's list, get, PATCH, archive, packet,
-// use and duplicate routes and save-as-template, their pipes, the status codes (archive 200; use,
-// duplicate and save-as-template 201), the packet's headers, the module switch and the 404s
-// across firms and for another member's PRIVATE template, with the in-memory ports
-// (no database). A stand-in for TenantGuard puts the caller's firm and role on the request, as in
-// esign-requests-http.test.ts. Synthetic data only.
+// R13 steps 9 and 10, templates over HTTP: the list, get, PATCH, archive, packet, use, duplicate,
+// versions and restore routes and save-as-template and save-as-version, their pipes, the status
+// codes (archive 200; use, duplicate, restore and both saves 201), the packet's headers, the
+// module switch and the 404s across firms and for another member's PRIVATE template, with the
+// in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and role on the
+// request, as in esign-requests-http.test.ts. Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import { Global, type INestApplication, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EsignRequestDetail, EsignTemplateDetail, EsignTemplateList } from '@firmivra/types';
+import {
+  EsignRequestDetail,
+  EsignTemplateDetail,
+  EsignTemplateList,
+  EsignTemplateVersionList,
+} from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
 import { BUSINESS_MODULES, ModulesModule } from '../../src/common/modules/requires-module.js';
@@ -114,8 +119,11 @@ const routes = (id: string): [Method, string, object | undefined][] => [
   ['get', `/${id}/packet`, undefined],
   ['post', `/${id}/use`, { roles: [] }],
   ['post', `/${id}/duplicate`, { name: 'Fake copy' }],
+  ['get', `/${id}/versions`, undefined],
+  ['post', `/${id}/versions/1/restore`, {}],
 ];
 const saveAs = (requestId: string) => `/api/v1/esign/requests/${requestId}/save-as-template`;
+const saveVersion = (requestId: string) => `/api/v1/esign/requests/${requestId}/save-as-version`;
 
 /** A DRAFT for c1 by the owner with one uploaded 1-page file. */
 async function draft() {
@@ -204,6 +212,26 @@ describe('Firm Sign templates over HTTP', () => {
     expect(errorOf(taken)).toEqual([409, 'TEMPLATE_NAME_TAKEN']);
   });
 
+  it('saves a version, lists versions and restores one (201, 200, 201)', async () => {
+    const requestId = await draft();
+    const t = EsignTemplateDetail.parse(
+      (await call('post', saveAs(requestId), ownerA(), { name: 'Fake versioned' })).body,
+    );
+    const v2 = await call('post', saveVersion(requestId), ownerA(), { templateId: t.id });
+    expect([v2.status, EsignTemplateDetail.parse(v2.body).version]).toEqual([201, 2]);
+    const list = await call('get', `/${t.id}/versions`, ownerA());
+    expect(list.status).toBe(200);
+    const versions = EsignTemplateVersionList.parse(list.body).items;
+    expect(versions.map((v) => [v.version, v.current])).toEqual([
+      [2, true],
+      [1, false],
+    ]);
+    const restored = await call('post', `/${t.id}/versions/1/restore`, ownerA(), {
+      note: 'Fake back',
+    });
+    expect([restored.status, EsignTemplateDetail.parse(restored.body).version]).toEqual([201, 3]);
+  });
+
   it('validates ids, bodies and the query with the contract (400)', async () => {
     const t = await seedTemplate(w.a, templates, w.store, w.users.ownerA);
     const bad: [Method, string, object | undefined][] = [
@@ -223,6 +251,15 @@ describe('Firm Sign templates over HTTP', () => {
       ['post', saveAs('not-a-uuid'), { name: 'Fake' }],
       ['post', saveAs(randomUUID()), { name: '' }],
       ['post', saveAs(randomUUID()), { name: 'Fake', keepSenderValues: 'yes' }],
+      ...['0', 'abc', '1.5', '-1'].map((v): [Method, string, object] => [
+        'post',
+        `/${t.record.id}/versions/${v}/restore`,
+        {},
+      ]),
+      ['post', `/${t.record.id}/versions/1/restore`, { extra: 1 }],
+      ['post', saveVersion(randomUUID()), {}],
+      ['post', saveVersion(randomUUID()), { templateId: 'not-a-uuid' }],
+      ['post', saveVersion('not-a-uuid'), { templateId: t.record.id }],
     ];
     for (const [method, path, body] of bad) {
       expect(errorOf(await call(method, path, ownerA(), body))).toEqual([400, 'VALIDATION_FAILED']);
@@ -242,6 +279,8 @@ describe('Firm Sign templates over HTTP', () => {
     for (const who of [ownerB(), clientA()]) {
       const res = await call('post', saveAs(requestId), who, { name: 'Fake cross' });
       expect(errorOf(res)).toEqual([404, 'NOT_FOUND']);
+      const version = await call('post', saveVersion(requestId), who, { templateId: t.record.id });
+      expect(errorOf(version)).toEqual([404, 'NOT_FOUND']);
     }
     expect(EsignTemplateList.parse((await call('get', '', ownerB())).body).items).toEqual([]);
     expect((await templates.find(w.a, t.record.id))?.name).toBe(t.record.name);
@@ -254,6 +293,7 @@ describe('Firm Sign templates over HTTP', () => {
         ['get', '', undefined] as const,
         ...routes(randomUUID()),
         ['post', saveAs(randomUUID()), { name: 'Fake' }] as const,
+        ['post', saveVersion(randomUUID()), { templateId: randomUUID() }] as const,
       ]) {
         expect(errorOf(await call(method, path, ownerA(), body))).toEqual([403, 'MODULE_OFF']);
       }

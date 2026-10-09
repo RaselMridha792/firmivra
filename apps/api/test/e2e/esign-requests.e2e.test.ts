@@ -52,6 +52,7 @@ const withId = (id: string): Route[] => [
   ['post', `${base(id)}/recipients/${randomUUID()}/correct`, { name: 'Fake Name' }],
   ['post', `${base(id)}/replace`, { reason: 'Fake reason' }],
   ['post', `${base(id)}/save-as-template`, { name: 'Fake template' }],
+  ['post', `${base(id)}/save-as-version`, { templateId: randomUUID() }],
 ];
 const template = (id: string) => `/api/v1/esign/templates/${id}`;
 /** Every template route with a template id, with a valid body. */
@@ -62,6 +63,8 @@ const withTemplateId = (id: string): Route[] => [
   ['get', `${template(id)}/packet`, undefined],
   ['post', `${template(id)}/use`, { roles: [] }],
   ['post', `${template(id)}/duplicate`, { name: 'Fake copy' }],
+  ['get', `${template(id)}/versions`, undefined],
+  ['post', `${template(id)}/versions/1/restore`, {}],
 ];
 const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
@@ -170,6 +173,9 @@ describe('Firm Sign draft routes', () => {
       ['post', `${template(anyId)}/use`, { engagementId: randomUUID() }],
       ['post', `${template(anyId)}/duplicate`, {}],
       ['post', `${base(anyId)}/save-as-template`, { name: '' }],
+      ['post', `${base(anyId)}/save-as-version`, { templateId: 'not-a-uuid' }],
+      ['post', `${template(anyId)}/versions/0/restore`, {}],
+      ['post', `${template(anyId)}/versions/1/restore`, { note: 'x'.repeat(501) }],
       ...['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1'].map((query): Route => [
         'get',
         `/api/v1/esign/requests?${query}`,

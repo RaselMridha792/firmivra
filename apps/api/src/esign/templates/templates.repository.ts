@@ -132,6 +132,18 @@ export interface EsignTemplateRepository {
    * and CREATED event, in one transaction, and answers it as written. The template never changes.
    */
   createDraft(businessId: string, draft: EsignTemplateDraft): Promise<EsignRequestRecord>;
+  /** Every version of the firm's template, newest first; empty for another firm's. */
+  versions(businessId: string, id: string): Promise<EsignTemplateVersionRecord[]>;
+  /**
+   * Inserts the next version (the newest + 1, saved now by `savedByUserId`) and makes it the
+   * newest, under the template's lock as `update`; versions are never changed or deleted.
+   */
+  addVersion(
+    businessId: string,
+    id: string,
+    version: EsignTemplateContent & { note: string | null; savedByUserId: string },
+    readAt: Date,
+  ): Promise<EsignTemplateRecord | null>;
 }
 
 export const TEMPLATE_REPOSITORY = Symbol('ESIGN_TEMPLATE_REPOSITORY');

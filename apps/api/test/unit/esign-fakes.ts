@@ -995,6 +995,24 @@ export class InMemoryTemplateRepository implements EsignTemplateRepository {
     return this.write(businessId, id, readAt, (row) => (row.record.archivedAt = new Date()));
   }
 
+  versions(businessId: string, id: string) {
+    const all = this.rows.of(businessId).get(id)?.versions ?? [];
+    return Promise.resolve(structuredClone([...all].reverse()));
+  }
+
+  addVersion(
+    businessId: string,
+    id: string,
+    version: EsignTemplateContent & { note: string | null; savedByUserId: string },
+    readAt: Date,
+  ) {
+    return this.write(businessId, id, readAt, (row) => {
+      row.record.version += 1;
+      const saved = { ...structuredClone(version), version: row.record.version };
+      row.versions.push({ ...saved, savedAt: new Date() });
+    });
+  }
+
   /** Test set-up: stores a template and its versions as given. */
   insert(businessId: string, row: TemplateRow): void {
     this.rows.of(businessId).set(row.record.id, structuredClone(row));

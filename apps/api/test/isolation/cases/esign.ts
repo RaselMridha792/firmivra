@@ -33,4 +33,7 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'POST /api/v1/esign/templates/:templateId/use': OFF,
   'POST /api/v1/esign/templates/:templateId/duplicate': OFF,
   'POST /api/v1/esign/requests/:id/save-as-template': OFF,
+  'POST /api/v1/esign/requests/:id/save-as-version': OFF,
+  'GET /api/v1/esign/templates/:templateId/versions': OFF,
+  'POST /api/v1/esign/templates/:templateId/versions/:version/restore': OFF,
 };
