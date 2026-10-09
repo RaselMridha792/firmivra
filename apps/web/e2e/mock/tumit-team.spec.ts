@@ -17,6 +17,7 @@ test('an owner invites, changes a role, resends and deactivates', async ({ page 
 
   await page.getByLabel('Role for Sam Staff').selectOption('ADMIN');
   await expect(page.getByLabel('Role for Sam Staff')).toHaveValue('ADMIN');
+  await expect(page.getByText("Sam Staff's role changed.")).toBeVisible();
 
   const expired = rows.filter({ hasText: 'Eli Expired' });
   await expect(expired).toContainText('Invite expired');
