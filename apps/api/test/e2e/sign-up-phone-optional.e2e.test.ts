@@ -21,6 +21,9 @@ const fx = inject('fixtures');
 let app: INestApplication;
 const slug = `r6-sms-off-${randomUUID().slice(0, 8)}`;
 let firmId = '';
+// The firm's own owner, so the shared fixtures' owners keep exactly their memberships.
+const ownerId = randomUUID();
+const ownerEmail = `owner-${slug}@example.com`;
 const docIds: string[] = [];
 const outbox: { kind: 'email' | 'sms'; to: string }[] = [];
 let portalOrigin = '';
@@ -68,7 +71,7 @@ async function firmCall(method: 'get' | 'post', path: string, body?: object) {
   const { token } = (
     await request(app.getHttpServer())
       .post('/api/v1/dev/token')
-      .send({ email: fx.users.ownerA.email })
+      .send({ email: ownerEmail })
       .expect(200)
   ).body as { token: string };
   const req = request(app.getHttpServer())
@@ -81,13 +84,24 @@ async function firmCall(method: 'get' | 'post', path: string, body?: object) {
 
 beforeAll(async () => {
   firmId = (
-    await asOwner({ kind: 'platform' }, (tx) =>
-      tx.business.create({ data: { slug, name: 'R6 SMS Fallback Firm', status: 'ACTIVE' } }),
-    )
+    await asOwner({ kind: 'platform' }, async (tx) => {
+      await tx.user.create({
+        data: {
+          id: ownerId,
+          cognitoSub: ownerId,
+          pool: 'STAFF',
+          email: ownerEmail,
+          name: 'Fake owner',
+        },
+      });
+      return tx.business.create({
+        data: { slug, name: 'R6 SMS Fallback Firm', status: 'ACTIVE' },
+      });
+    })
   ).id;
   await asOwner({ kind: 'business', businessId: firmId }, async (tx) => {
     await tx.membership.create({
-      data: { businessId: firmId, userId: fx.users.ownerA.id, role: 'OWNER', status: 'ACTIVE' },
+      data: { businessId: firmId, userId: ownerId, role: 'OWNER', status: 'ACTIVE' },
     });
     for (const kind of ['TERMS', 'PRIVACY'] as const) {
       const doc = await tx.firmLegalDocument.create({
@@ -96,7 +110,7 @@ beforeAll(async () => {
           kind,
           version: 1,
           body: `# ${kind}`,
-          publishedByUserId: fx.users.ownerA.id,
+          publishedByUserId: ownerId,
         },
       });
       docIds.push(doc.id);
