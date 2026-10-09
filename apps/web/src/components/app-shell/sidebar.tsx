@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRightFromLine, ChevronDown } from 'lucide-react';
+import { ChevronDown, LogOut } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -30,34 +30,34 @@ export function Sidebar({
           <Image src={firmivraLockup} alt="" priority className="h-19 w-16 object-contain" />
           <span className="font-sans text-4xl font-semibold tracking-tight">Firmivra</span>
         </div>
-        <p className="-mt-4 ml-16 whitespace-nowrap text-xs tracking-widest uppercase">
-          {subtitle}
-        </p>
+        <p className="-mt-4 ml-16 whitespace-nowrap text-xs tracking-brand uppercase">{subtitle}</p>
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-3">
+      <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
         {sections.map((items, i) => (
           <ul
             key={items[0]?.label ?? 'group'}
-            className={`flex flex-col gap-1 ${i > 0 ? 'border-t border-brand-700 pt-2' : ''}`}
+            className={`flex flex-col gap-1 ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
           >
             {items.map((item) => {
               const Icon = item.icon;
               const body = (
                 <>
-                  <Icon aria-hidden className="size-5 shrink-0" />
-                  <span className="flex-1">{item.label}</span>
+                  <Icon aria-hidden className="size-6 shrink-0" />
+                  <span className="flex-1 whitespace-nowrap">{item.label}</span>
                   {item.soon ? (
-                    <span className="rounded-control bg-brand-700 px-2 py-0.5 text-xs">Soon</span>
+                    <span className="rounded-pill bg-platform-navy-raised px-3 py-0.5 text-xs text-brand-100">
+                      Soon
+                    </span>
                   ) : null}
                   {item.badge ? (
-                    <span className="rounded-control bg-brand-500 px-2 py-0.5 text-xs font-semibold">
+                    <span className="min-w-6 rounded-pill bg-brand-500 px-2 py-0.5 text-center text-xs font-semibold">
                       {item.badge}
                     </span>
                   ) : null}
                 </>
               );
-              const row = 'flex items-center gap-3 rounded-control px-3 py-3 text-sm';
+              const row = 'flex items-center gap-4 px-6 py-3 text-base';
               if (!item.href) {
                 return (
                   <li key={item.label} aria-disabled="true" className={`${row} text-brand-100`}>
@@ -74,10 +74,10 @@ export function Sidebar({
                     aria-current={active ? 'page' : undefined}
                     className={
                       row +
-                      ' border-l-2 ' +
+                      ' border-l-4 ' +
                       (active
-                        ? 'border-accent-500 bg-brand-700 font-semibold'
-                        : 'border-transparent hover:bg-brand-700')
+                        ? 'border-info bg-navigation-hover font-semibold'
+                        : 'border-transparent hover:bg-navigation-hover')
                     }
                   >
                     {body}
@@ -89,9 +89,9 @@ export function Sidebar({
         ))}
       </div>
 
-      <div className="flex flex-col gap-4 border-t border-brand-700 px-3 pb-10 pt-5">
-        <div className="flex items-center gap-3 px-3">
-          <span className="flex size-10 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-900">
+      <div className="mx-6 flex flex-col gap-4 border-t border-platform-navy-raised pb-10 pt-5">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 items-center justify-center rounded-full bg-disabled text-sm font-semibold text-brand-900">
             {initials(me.user.name)}
           </span>
           <span className="flex flex-1 flex-col text-sm">
@@ -103,10 +103,10 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => void signOut()}
-          className="flex items-center gap-3 rounded-control px-3 py-2 text-sm hover:bg-brand-700"
+          className="-mx-3 flex items-center gap-4 rounded-control px-3 py-2 text-base hover:bg-navigation-hover"
         >
-          <ArrowRightFromLine aria-hidden className="size-5" />
-          Log out
+          <LogOut aria-hidden className="size-6" />
+          Logout
         </button>
       </div>
     </nav>

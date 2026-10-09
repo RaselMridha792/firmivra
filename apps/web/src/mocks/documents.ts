@@ -390,7 +390,7 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
       throw fail(409, 'REQUEST_CLOSED', 'This request is closed');
     }
     if (change.status !== 'CANCELLED' && r.status !== 'SUBMITTED') {
-      throw fail(409, 'NOTHING_SUBMITTED', 'Nothing has been uploaded for this request yet');
+      throw fail(409, 'NOTHING_SUBMITTED', 'Nothing new has been uploaded for this request');
     }
     if (change.status === 'ACCEPTED') {
       // Only a clean newest file is accepted (a blocked one puts the request back to REQUESTED).
@@ -398,7 +398,7 @@ export function createDocumentsMock(options: { role?: MockFirmRole } = {}): Docu
       const scan = newest && s.scanOf(newest);
       if (scan === 'PENDING') throw fail(409, 'SCAN_PENDING', 'The file is still being checked');
       if (scan !== 'CLEAN') {
-        throw fail(409, 'NOTHING_SUBMITTED', 'Nothing has been uploaded for this request yet');
+        throw fail(409, 'NOTHING_SUBMITTED', 'Nothing new has been uploaded for this request');
       }
     }
     return s.replaceRequest({ ...r, ...change });
