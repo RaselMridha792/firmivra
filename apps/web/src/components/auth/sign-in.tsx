@@ -1,6 +1,6 @@
 'use client';
 import { useAuthReady } from './use-auth-ready';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,14 +12,23 @@ import { useApiMutation } from '../../lib/query';
 import { errorMessage } from '../../lib/errors';
 import { Mfa } from './mfa';
 
+/**
+ * Email and password, then MFA. `email` fixes the sign-in email (read-only), `title` and
+ * `children` (shown above the form) give the screen's context, and `onSignedIn` runs once
+ * signed in, in place of opening the workspace.
+ */
 export function SignIn({
   site,
   email,
+  title = 'Welcome Back',
+  children,
   onSignedIn,
 }: {
   site: 'firm' | 'admin';
   email?: string;
-  onSignedIn?: () => Promise<void>;
+  title?: string;
+  children?: ReactNode;
+  onSignedIn?: () => void;
 }) {
   const client = site === 'admin' ? adminAuth : staffAuth;
   const ready = useAuthReady();
@@ -34,8 +43,8 @@ export function SignIn({
     const result = await action();
     form.resetField('password');
     if (!result || result.status === 'SIGNED_IN') {
-      if (onSignedIn) await onSignedIn();
-      router.replace('/');
+      if (onSignedIn) onSignedIn();
+      else router.replace('/');
     } else {
       const setup =
         result.status === 'MFA_SETUP_REQUIRED'
@@ -59,8 +68,9 @@ export function SignIn({
     );
   return (
     <>
-      <AuthFrame site={site} title="Welcome Back">
+      <AuthFrame site={site} title={title}>
         <h1 className="sr-only">{site === 'admin' ? 'Super Admin console' : 'Firm workspace'}</h1>
+        {children}
         {mutation.isError ? (
           <p role="alert" className="mt-4 text-sm text-danger">
             {errorMessage(mutation.error)}
@@ -82,6 +92,7 @@ export function SignIn({
                 type="email"
                 autoComplete="username"
                 placeholder="Enter your email address"
+                readOnly={email !== undefined}
                 error={form.formState.errors.email?.message}
                 {...form.register('email')}
               />
