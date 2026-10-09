@@ -1,7 +1,7 @@
 // R13 step 6, requests API part 1b, over HTTP: EsignModule's status and draft routes, pipes
-// and the module switch with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
-// role on the request, as the global guards do in the app; the guards themselves are tested in
-// guards.test.ts and the e2e suite. Synthetic data only.
+// and the module switch with the in-memory ports (no database). A stand-in for TenantGuard
+// puts the caller's firm and role on the request, as the global guards do in the app; the
+// guards themselves are tested in guards.test.ts and the e2e suite. Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import {
   Controller,

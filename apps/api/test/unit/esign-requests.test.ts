@@ -4,7 +4,7 @@
 // own rows, writes reach DRAFTs only). Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EsignRequestDetail } from '@firmivra/types';
 import {
   type EsignActor,
@@ -318,6 +318,16 @@ describe('drafts', () => {
       entity: { type: 'esign_request', id: d.id },
       metadata: { documentIds: [file.id] },
     });
+  });
+
+  it('still deletes the files when the discard audit fails after the delete', async () => {
+    const d = await draft(staff, w.ids.c1);
+    const file = doc(2, 0);
+    w.repo.seed(w.a, d.id, (row) => row.parts.documents.push(file));
+    vi.spyOn(w.audit, 'log').mockRejectedValueOnce(new Error('audit down'));
+    expect(await svc.discard(w.a, staff, d.id)).toEqual({ ok: true });
+    expect(await refused(svc.get(w.a, owner, d.id))).toEqual([404, 'NOT_FOUND']);
+    expect(w.store.removed).toEqual([{ businessId: w.a, key: file.s3Key }]);
   });
 });
 
