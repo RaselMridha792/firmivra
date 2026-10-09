@@ -5,8 +5,9 @@ info:
   description: |
     The firm's intake agreements (Settings > Terms & Privacy > Agreements) and the block a
     visitor or client signs before an intake submits (Begin Online and the portal intake tab).
-    R14, from Rasel's decision 3 (Oct 8); the tables are #155's (`intake_agreements`,
-    `intake_agreement_versions`, `intake_signatures`).
+    R14, from Rasel's decision 3 (Oct 8); the tables are #155's (`firm_agreements`,
+    `firm_agreement_versions`, `firm_agreement_files`, `intake_signatures`,
+    `intake_signature_agreements`).
 
     **Source of truth:** the zod schemas in `packages/types/src/agreements/schemas.ts` and the
     signature capture in `packages/types/src/esign/capture.ts`, with typed calls in
@@ -18,7 +19,7 @@ info:
 
     | Page | Calls |
     | --- | --- |
-    | Settings > Agreements (list) | `list`, `create`, `archive` |
+    | Settings > Agreements (list) | `list` (agreements, plus the firm's services to pick from), `create`, `archive` |
     | Agreement editor | `get`, `getVersion`, `publish`; the PDF with `uploadFile()` (`createUpload`, PUT, `confirmUpload`), then `file` until CLEAN, `download` |
     | Begin Online, review step | `publicAgreements(slug).block({ form })`, `downloadPdf(agreementId, version)` |
     | Portal intake, review step | `myIntakeAgreements(slug).block(intakeId)`, `publicAgreements(slug).downloadPdf(agreementId, version)` |
@@ -32,8 +33,10 @@ info:
     - **The block:** Begin Online asks with `?form=<IntakeFormKey>`; the API resolves the firm's
       unarchived Begin Online service of that kind (none: `404`) and answers the firm-wide
       agreement, then that service's published, unarchived agreements (sort order, then
-      creation). The portal intake asks by intake id and the API resolves the intake's form the
-      same way. `legal` is null unless the firm has published both Terms and Privacy, and always
+      creation). Until R0's `services.begin_online` lands, "the Begin Online service" is the
+      first unarchived service of that kind (sort order, creation, id). The portal intake asks
+      by intake id and the API uses the intake's form's service (`intakes.form_id ->
+      intake_forms.service_id`, what #155's checks use), not a lookup by kind. `legal` is null unless the firm has published both Terms and Privacy, and always
       null on the portal route.
     - **Series and versions:** each firm has one firm-wide agreement (`ALL_INTAKES`) and up to 9
       unarchived service agreements per service (`SERVICE`; a 10th answers `409
@@ -42,7 +45,7 @@ info:
       new version is current from the moment it is published). `expectedCurrentVersion` guards against two people publishing
       at once (`409 VERSION_CONFLICT`). The firm-wide agreement needs at least one required
       acknowledgment and can't be archived (`409 FIRM_WIDE_REQUIRED`).
-    - **PDF original:** with `AGREEMENT_PDF_REQUIRED` on (default) each version needs a PDF whose
+    - **PDF original:** with `AGREEMENT_PDF_REQUIRED` on (off by default until the PDF upload routes land) each version needs a PDF whose
       scan is CLEAN (`409 PDF_REQUIRED`, `FILE_NOT_READY`, `FILE_BLOCKED`). `PDF_REQUIRED` is a
       publish code only: a submit never answers it (the signature sends nothing for the PDF; the
       API pins the version's `pdf_sha256`). `createUpload` takes `uploadFile()`'s facts with
@@ -61,7 +64,11 @@ info:
       ACKNOWLEDGMENT_REQUIRED` (a required box not ticked), `400 SIGNATURE_MISMATCH` (the
       database's name comparison differs, e.g. a no-break space; the API maps the
       `intake_signatures_typed_matches` check to it, never a 500) and `409 TERMS_OUTDATED`
-      (Begin Online: Terms or Privacy changed). Each ticked box is listed once and belongs to a
+      (Begin Online: Terms or Privacy changed). Any other difference from the current
+      set also answers `409 AGREEMENT_OUTDATED`: an agreement added or archived since the block
+      loaded, one for another service, or the same version with another `bodySha256`. An
+      unknown acknowledgment key answers `400 VALIDATION_FAILED`. The API checks these before
+      #155's CHECKs, so none becomes a 500. Each ticked box is listed once and belongs to a
       signed agreement (`400 VALIDATION_FAILED`). `acceptLegal` is required on Begin Online when
       the block's `legal` is set and refused on a portal submit (`400 VALIDATION_FAILED`).
     - **Text:** titles and acknowledgment labels are one line; acknowledgment text and the
