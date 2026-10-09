@@ -1,0 +1,363 @@
+openapi: 3.1.0
+info:
+  title: Firmivra messages and notes API
+  version: 0.1.0
+  description: |
+    Messages between a firm and its clients, the firm's internal notes, and each client login's
+    private note: the firm's Messages pages and the client record's Messages and Notes tabs
+    (Nahid, F10) and the portal's Messages and Notes tab (R17, N09).
+
+    **Source of truth:** the zod schemas in `packages/types/src/messages/schemas.ts`, with typed
+    calls in `createMessagesClient` (web: `api.messages`), `createClientNotesClient`
+    (`api.clientNotes`), `createMyMessagesClient` (`api.myMessages(slug)`) and
+    `createMyNotesClient` (`api.myNotes(slug)`). Mock mode: `apps/web/src/mocks/messages.ts`
+    (`NEXT_PUBLIC_API_MOCK=messages,clientNotes,myMessages,myNotes`). If this file and the zod
+    schemas differ, the zod schemas win.
+
+    ## Rules
+
+    - **Reach.** Firm routes: Owner and Admin reach every client's threads and notes; Staff only
+      their assigned clients'. Anything else, and anything of another firm, is `404 NOT_FOUND`,
+      by thread id, note id and client id alike. Portal routes answer only the signed-in client's
+      threads: the client and the login come from the session, never from the path or the body.
+      Another client's thread, also at the same firm, is `404`. At another firm's portal the
+      browser has no session for that firm (`401`); a session with no place there is `404`.
+    - **Every login of the client** (primary, spouse, authorized) reads and writes the same
+      threads, as the database allows.
+    - **Messages never change.** No edit and no delete. The firm may close the client's replies
+      (`repliesEnabled: false`); the client then reads but cannot reply (`409 REPLIES_CLOSED`).
+      The firm can always write.
+    - **Read state.** One state per message for the whole receiving side: any staff member's read
+      counts for the firm, any of the client's logins for the client. A `GET` never marks
+      anything read: the page calls `POST .../read` when a thread opens. `POST .../unread` marks
+      the other side's latest message unread again (the "Mark unread" link; `409 NOTHING_TO_MARK`
+      when there is none). The firm sees `readAt` on its own messages as the read receipt; the
+      portal sees only `unread` on the firm's messages.
+    - **Badges.** `GET .../unread-count` is cheap: poll it at most once a minute and when the tab
+      gets focus. The portal badge counts unread firm messages; the firm's answers the client
+      messages it has not read, in total and per client.
+    - **The portal never sees a staff name.** The firm's messages show as `from: FIRM` (the firm's
+      name on screen). Another login of the same client shows as `HOUSEHOLD` with its name.
+    - **Internal notes** are the firm's only. No portal route exists for them, and no thread or
+      message response carries them. The author, the Owner and Admins may edit and delete one
+      (`403 FORBIDDEN` for other Staff, who still read them).
+    - **Private notes** belong to one client login. Only that login ever reads them: never a
+      staff role, never another login of the same client (the database enforces it too). Each
+      save keeps the earlier version; the latest is shown. The optional reminder goes out by the
+      notification sender (bell, and email when the person has it on); no staff task.
+    - **Notices.** A new message adds a bell item (`message.received`) for the other side and
+      sends an email without the message text: the client's primary login, or on the firm side
+      the assigned staff member plus every Owner and Admin. No second email for a thread while
+      the recipient still has an unread message in it.
+    - **Audit.** Thread created, message sent, replies closed or reopened, internal note
+      created, edited and deleted: ids only, never message or note text. A private note's save
+      and reminder change are logged without the note's id, text or date.
+    - **Errors in order:** `415 UNSUPPORTED_MEDIA_TYPE`, `403 ORIGIN_NOT_ALLOWED`, `401
+      UNAUTHENTICATED`, `400 BUSINESS_REQUIRED` (firm site, several firms, no `x-business-id`),
+      `404 NOT_FOUND` (no place in the firm), `403 BUSINESS_INACTIVE` or
+      `BUSINESS_SETUP_REQUIRED`, `403 FORBIDDEN` (wrong role), `400 VALIDATION_FAILED`, `404
+      NOT_FOUND` (the record), then the route's own `403` or `409` (`MessageErrorCode`, words in `MESSAGE_ERRORS`).
+    - Every change comes from the browser (see "Calling the API from the web app" in auth.yaml).
+
+    ## Pages and calls
+
+    | Page | Calls |
+    | --- | --- |
+    | Firm: Messages inbox (`/messages`) | `GET business/message-threads` (search, `unread=true`, paged), `GET .../unread-count` |
+    | Firm: client record, Messages tab | `GET business/clients/{id}/message-threads`, `POST` (new thread) |
+    | Firm: a thread | `GET business/message-threads/{id}`, `POST .../read`, `POST .../messages`, `PATCH` (replies), `POST .../unread` |
+    | Firm: client record, Notes; service workspaces | `GET business/clients/{id}/notes` (`engagementId`), `POST`, `PATCH`/`DELETE business/notes/{id}` |
+    | Portal: Messages and Notes (`/{firm}/messages`) | `GET me/messages` (filter, search), `POST me/messages`, `GET me/messages/{id}`, `POST .../read`, `POST .../unread`, `POST .../messages`; Notes card: `GET me/notes`, `PUT me/notes`, `PUT`/`DELETE me/notes/reminder` |
+    | Portal sidebar badge | `GET me/messages/unread-count` |
+
+servers:
+  - url: /api/v1
+    description: Same host as the site.
+
+tags:
+  - name: firm
+    description: Firm site (Owner, Admin, Staff; Staff only their assigned clients).
+  - name: portal
+    description: The signed-in client, on their firm's portal.
+
+paths:
+  /business/message-threads:
+    get:
+      tags: [firm]
+      operationId: messageInbox
+      summary: Every thread the caller may see, newest activity first
+      parameters:
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/Unread' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { $ref: '#/components/responses/MessageThreadList' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/message-threads/unread-count:
+    get:
+      tags: [firm]
+      operationId: firmUnreadMessageCount
+      responses:
+        '200':
+          description: '`FirmUnreadCount`: `{ total, byClient: [{ clientId, count }] }`.'
+        default: { $ref: '#/components/responses/Error' }
+  /business/clients/{clientId}/message-threads:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }]
+    get:
+      tags: [firm]
+      operationId: clientMessageThreads
+      parameters:
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/Unread' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { $ref: '#/components/responses/MessageThreadList' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [firm]
+      operationId: createMessageThread
+      summary: A new thread with its first message
+      description: |
+        `CreateMessageThreadRequest`: subject, body, optional `engagementId` (one of this client's,
+        else `404`), optional `related` record, optional `repliesEnabled` (default true). `409
+        CLIENT_ARCHIVED` for an archived client. Notifies the client.
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`MessageThreadDetail`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/message-threads/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [firm]
+      operationId: getMessageThread
+      summary: The thread and its messages, oldest first. Marks nothing read.
+      responses:
+        '200': { description: '`MessageThreadDetail`.' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [firm]
+      operationId: updateMessageThread
+      summary: Close or reopen the client's replies (`{ repliesEnabled }`): Owner, Admin, and Staff on their own clients
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '200': { description: '`MessageThread`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/message-threads/{id}/messages:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: sendMessage
+      summary: The firm's reply (`{ body }`), also while the client's replies are closed
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`Message`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/message-threads/{id}/read:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: markThreadRead
+      summary: Marks every client message in the thread read, for the whole firm
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { description: '`MessageThread`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/message-threads/{id}/unread:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [firm]
+      operationId: markThreadUnread
+      summary: Marks the client's latest message unread (`409 NOTHING_TO_MARK` if none)
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { description: '`MessageThread`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/clients/{clientId}/notes:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }]
+    get:
+      tags: [firm]
+      operationId: listInternalNotes
+      summary: The firm's internal notes on the client, newest first
+      parameters:
+        - { name: engagementId, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: '`{ items: InternalNote[] }`.' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [firm]
+      operationId: createInternalNote
+      summary: '`{ body, engagementId? }` (the engagement must be this client''s, else `404`)'
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`InternalNote`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /business/notes/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [firm]
+      operationId: updateInternalNote
+      summary: '`{ body }`. The author, the Owner and Admins (`403 FORBIDDEN` otherwise)'
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '200': { description: '`InternalNote`.' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [firm]
+      operationId: deleteInternalNote
+      summary: The author, the Owner and Admins (`403 FORBIDDEN` otherwise)
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { description: '`{ ok: true }`.' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /portal/{firmSlug}/me/messages:
+    parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+    get:
+      tags: [portal]
+      operationId: myMessages
+      summary: The client's threads, newest activity first
+      parameters:
+        - name: filter
+          in: query
+          description: '`all` (default), `from-firm` (the firm opened it) or `sent` (this login opened it).'
+          schema: { type: string, enum: [all, from-firm, sent] }
+        - { $ref: '#/components/parameters/Search' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: '`MyMessageThreadList`.' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [portal]
+      operationId: createMyMessageThread
+      summary: '"Send a Message": `{ subject, body }`. Notifies the firm.'
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`MyMessageThreadDetail`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/messages/unread-count:
+    parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+    get:
+      tags: [portal]
+      operationId: myUnreadMessageCount
+      responses:
+        '200': { description: '`{ count }`: unread firm messages (the sidebar badge).' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/messages/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - { $ref: '#/components/parameters/Id' }
+    get:
+      tags: [portal]
+      operationId: getMyMessageThread
+      summary: The thread and its messages, oldest first. Marks nothing read.
+      responses:
+        '200': { description: '`MyMessageThreadDetail`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/messages/{id}/messages:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - { $ref: '#/components/parameters/Id' }
+    post:
+      tags: [portal]
+      operationId: replyToMyMessageThread
+      summary: '`{ body }`. `409 REPLIES_CLOSED` when the firm closed replies.'
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '201': { description: '`MyMessage`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/messages/{id}/read:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - { $ref: '#/components/parameters/Id' }
+    post:
+      tags: [portal]
+      operationId: markMyThreadRead
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { description: '`MyMessageThread`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/messages/{id}/unread:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - { $ref: '#/components/parameters/Id' }
+    post:
+      tags: [portal]
+      operationId: markMyThreadUnread
+      summary: The firm's latest message unread again (`409 NOTHING_TO_MARK` if none)
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { description: '`MyMessageThread`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/notes:
+    parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+    get:
+      tags: [portal]
+      operationId: myNote
+      summary: This login's latest private note (`{ note: null }` before the first save)
+      responses:
+        '200': { description: '`MyNoteResponse`.' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      tags: [portal]
+      operationId: saveMyNote
+      summary: '"Save Note": `{ body, remindAt? }`, a new version'
+      description: |
+        `remindAt`: a future time sets or moves the reminder, `null` removes it, and leaving it
+        out carries the current reminder to the new version only while it is unsent and still in
+        the future; a reminder already sent is never sent again, and one already due but not sent yet
+        still goes out.
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '200': { description: '`MyNoteResponse`.' }
+        default: { $ref: '#/components/responses/Error' }
+  /portal/{firmSlug}/me/notes/reminder:
+    parameters: [{ $ref: '#/components/parameters/FirmSlug' }]
+    put:
+      tags: [portal]
+      operationId: setMyNoteReminder
+      summary: '`{ remindAt }` (future) on the latest note. `404` before the first save.'
+      requestBody: { $ref: '#/components/requestBodies/Json' }
+      responses:
+        '200': { description: '`MyNoteResponse`.' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [portal]
+      operationId: removeMyNoteReminder
+      summary: Removes the reminder. Repeating is harmless.
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200': { description: '`MyNoteResponse`.' }
+        default: { $ref: '#/components/responses/Error' }
+
+components:
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    ClientId: { name: clientId, in: path, required: true, schema: { type: string, format: uuid } }
+    FirmSlug: { name: firmSlug, in: path, required: true, schema: { type: string } }
+    Search:
+      name: search
+      in: query
+      description: Matches the subject and the messages' text. At most 100 characters.
+      schema: { type: string, maxLength: 100 }
+    Unread:
+      name: unread
+      in: query
+      description: '`true` keeps threads with unread client messages.'
+      schema: { type: string, enum: ['true', 'false'] }
+    Cursor: { name: cursor, in: query, description: Opaque, from `nextCursor`., schema: { type: string } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+  requestBodies:
+    Json:
+      required: true
+      content: { application/json: { schema: { type: object } } }
+    Empty:
+      required: true
+      content: { application/json: { schema: { type: object, maxProperties: 0 } } }
+  responses:
+    MessageThreadList:
+      description: '`MessageThreadList`: `{ items: MessageThread[], nextCursor }`.'
+    Error:
+      description: '`{ error: { code, message, requestId, details? } }`, codes as in "Errors in order".'

@@ -201,7 +201,8 @@ export type NotificationPreference = z.infer<typeof NotificationPreference>;
 export const NotificationPreferences = z.object({
   /**
    * The channels that can reach this person now, in display order: show a switch only for these.
-   * EMAIL always; SMS once texts can be sent (R6) and the person has a verified phone number.
+   * EMAIL always; SMS when the person has a phone number (q27: the switch only stores the choice
+   * until SMS is switched on in config).
    * While SMS is not listed, every item answers `sms: false` and an update with `sms: true` is
    * refused (400). Turning SMS off is always allowed. A change of phone number clears every SMS
    * choice: the person opts in again for the new number.
