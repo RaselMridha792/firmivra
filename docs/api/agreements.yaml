@@ -5,12 +5,13 @@ info:
   description: |
     The firm's intake agreements (Settings > Terms & Privacy > Agreements) and the block a
     visitor or client signs before an intake submits (Begin Online and the portal intake tab).
-    R14, from Rasel's decision 3 (Oct 8) and `plans/areas/agreements.md`.
+    R14, from Rasel's decision 3 (Oct 8); the tables are #155's (`intake_agreements`,
+    `intake_agreement_versions`, `intake_signatures`).
 
     **Source of truth:** the zod schemas in `packages/types/src/agreements/schemas.ts` and the
     signature capture in `packages/types/src/esign/capture.ts`, with typed calls in
-    `createAgreementsClient` and `createPublicAgreementsClient` (web: `api.agreements` and
-    `api.publicAgreements(slug)`). Mock mode: `apps/web/src/mocks/agreements.ts`. If this file and
+    `createAgreementsClient`, `createPublicAgreementsClient` and `createMyIntakeAgreementsClient`
+    (web: `api.agreements`, `api.publicAgreements(slug)` and `api.myIntakeAgreements(slug)`). Mock mode: `apps/web/src/mocks/agreements.ts`. If this file and
     the zod schemas differ, the zod schemas win.
 
     ## Pages and calls
@@ -19,29 +20,58 @@ info:
     | --- | --- |
     | Settings > Agreements (list) | `list`, `create`, `archive` |
     | Agreement editor | `get`, `getVersion`, `publish`; the PDF with `uploadFile()` (`createUpload`, PUT, `confirmUpload`), then `file` until CLEAN, `download` |
-    | Begin Online and portal intake, agreement step | `publicAgreements(slug).block({ serviceId })`, `downloadPdf(agreementId, version)` |
+    | Begin Online, review step | `publicAgreements(slug).block({ form })`, `downloadPdf(agreementId, version)` |
+    | Portal intake, review step | `myIntakeAgreements(slug).block(intakeId)`, `publicAgreements(slug).downloadPdf(agreementId, version)` |
     | Intake submit (R11) | `signature: IntakeSignatureInput` in the submit body |
 
-    - **Who:** firm routes are for the Owner and Admin (`403 FORBIDDEN` for staff) and work while
-      the firm is Pending Setup. Public routes need no sign-in; the firm comes from the slug, and
-      an unknown or inactive firm, another firm's service or agreement, or an archived agreement
-      answers `404`.
-    - **Series and versions:** each firm has one firm-wide agreement (`ALL_INTAKES`) and any
-      number of service agreements (`SERVICE`, one service each). Versions are numbered from 1
-      and never edited or deleted. `expectedCurrentVersion` guards against two people publishing
+    - **Who:** firm routes are for the Owner and Admin (`401` signed out, `403 FORBIDDEN` for
+      staff) and work while the firm is Pending Setup. Public routes need no sign-in; the firm
+      comes from the slug, and an unknown or inactive firm, a form the firm does not offer,
+      another firm's agreement, or an archived agreement answers `404`. The portal intake route
+      needs the client's sign-in; another client's or firm's intake answers `404`.
+    - **The block:** Begin Online asks with `?form=<IntakeFormKey>`; the API resolves the firm's
+      unarchived Begin Online service of that kind (none: `404`) and answers the firm-wide
+      agreement, then that service's published, unarchived agreements (sort order, then
+      creation). The portal intake asks by intake id and the API resolves the intake's form the
+      same way. `legal` is null unless the firm has published both Terms and Privacy, and always
+      null on the portal route.
+    - **Series and versions:** each firm has one firm-wide agreement (`ALL_INTAKES`) and up to 9
+      unarchived service agreements per service (`SERVICE`; a 10th answers `409
+      SERVICE_AGREEMENT_LIMIT`), so a signature holds at most 10. Versions are numbered from 1
+      (at most 2,147,483,647) and never edited or deleted; `effectiveDate` is display only (a
+      new version is current from the moment it is published). `expectedCurrentVersion` guards against two people publishing
       at once (`409 VERSION_CONFLICT`). The firm-wide agreement needs at least one required
       acknowledgment and can't be archived (`409 FIRM_WIDE_REQUIRED`).
     - **PDF original:** with `AGREEMENT_PDF_REQUIRED` on (default) each version needs a PDF whose
-      scan is CLEAN (`409 PDF_REQUIRED`, `FILE_NOT_READY`, `FILE_BLOCKED`). PDF only, 10 MB and 200
-      pages at most, no password (`409 NOT_A_PDF`, `FILE_PASSWORD_PROTECTED`, `TOO_MANY_PAGES`).
-      Downloads are 5-minute attachment links.
+      scan is CLEAN (`409 PDF_REQUIRED`, `FILE_NOT_READY`, `FILE_BLOCKED`). `PDF_REQUIRED` is a
+      publish code only: a submit never answers it (the signature sends nothing for the PDF; the
+      API pins the version's `pdf_sha256`). `createUpload` takes `uploadFile()`'s facts with
+      `contentType: application/pdf`. PDF only, 10 MB and 200 pages at most, no password
+      (`409 NOT_A_PDF`, `FILE_PASSWORD_PROTECTED`, `TOO_MANY_PAGES`, `UPLOAD_MISMATCH`).
+      Downloads are 5-minute attachment links. The public PDF route serves the current version
+      only.
     - **Signing:** the signer reads every agreement in the block, ticks the required boxes, prints
       a name and types it again as the signature (`SignatureCaptureInput`). The API records the
       versions, their text and PDF SHA-256 values, the ticked boxes with their text, the
-      database's time, the IP and user agent, and an evidence SHA-256. A newer version answers
-      `409 AGREEMENT_OUTDATED`; no published firm-wide version answers `409 NO_INTAKE_AGREEMENT`.
-    - **Rendering:** agreement text is Markdown, rendered with `<Markdown>` from packages/ui (raw
-      HTML off, `https:` and `mailto:` links only). Never `dangerouslySetInnerHTML`.
+      database's time, the IP and user agent, and an evidence SHA-256 (`IntakeSignatureSummary`).
+      Submit codes (`INTAKE_SIGNING_ERRORS`, which R11's error maps include): `409
+      NO_INTAKE_AGREEMENT` (no published firm-wide version), `409 AGREEMENT_OUTDATED` (a newer
+      version; `details` is `AgreementOutdatedDetails`, the current block, though
+      `ApiRequestError` keeps no `details` yet, so screens reload the block), `400
+      ACKNOWLEDGMENT_REQUIRED` (a required box not ticked), `400 SIGNATURE_MISMATCH` (the
+      database's name comparison differs, e.g. a no-break space; the API maps the
+      `intake_signatures_typed_matches` check to it, never a 500) and `409 TERMS_OUTDATED`
+      (Begin Online: Terms or Privacy changed). Each ticked box is listed once and belongs to a
+      signed agreement (`400 VALIDATION_FAILED`). `acceptLegal` is required on Begin Online when
+      the block's `legal` is set and refused on a portal submit (`400 VALIDATION_FAILED`).
+    - **Text:** titles and acknowledgment labels are one line; acknowledgment text and the
+      Markdown body may have line breaks. None may hold control characters (but tab and line
+      breaks in multi-line text), lone surrogates or bidi overrides (`400`, never a 500).
+    - **Rendering:** the block is served to signed-out visitors on the portal origin every firm
+      shares, so the renderer is the only wall. Agreement text is Markdown rendered with raw
+      HTML off, images off, and links only to `https:` and `mailto:` (others render as text).
+      Never `dangerouslySetInnerHTML`. R14 builds `<Markdown>` in packages/ui (branch
+      `rasel/R14-markdown`, pending); screens use only that component.
     - **Writes:** JSON bodies from the app site only (`415`, `403 ORIGIN_NOT_ALLOWED`).
     - **Audit:** publish, archive and upload are logged with ids and version numbers, never the
       text; a signature is logged with its id and versions, never the name, IP or user agent.
@@ -75,6 +105,7 @@ paths:
       responses:
         '201': { $ref: '#/components/responses/FirmAgreementSummary' }
         '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/AgreementConflict' }
@@ -89,6 +120,7 @@ paths:
       summary: The series with every version, newest first
       responses:
         '200': { $ref: '#/components/responses/FirmAgreementDetail' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
 
@@ -104,6 +136,7 @@ paths:
       responses:
         '201': { $ref: '#/components/responses/AgreementVersion' }
         '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/AgreementConflict' }
@@ -119,6 +152,7 @@ paths:
       summary: One version in full
       responses:
         '200': { $ref: '#/components/responses/AgreementVersion' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
 
@@ -132,6 +166,7 @@ paths:
       summary: Archive a service agreement (no body; repeating changes nothing)
       responses:
         '200': { $ref: '#/components/responses/FirmAgreementSummary' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/AgreementConflict' }
@@ -144,10 +179,9 @@ paths:
       summary: Step 1 of 3, a one-time PUT URL for the PDF (5 minutes)
       requestBody: { $ref: '#/components/requestBodies/CreateAgreementUploadRequest' }
       responses:
-        '201':
-          description: UploadTicket (documents.yaml)
-          content: { application/json: { schema: { $ref: './documents.yaml#/components/schemas/UploadTicket' } } }
+        '201': { $ref: './documents.yaml#/components/responses/UploadTicket' }
         '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
 
   /business/agreements/files/confirm:
@@ -161,6 +195,7 @@ paths:
         content: { application/json: { schema: { $ref: './documents.yaml#/components/schemas/ConfirmUploadRequest' } } }
       responses:
         '201': { $ref: '#/components/responses/AgreementFile' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/AgreementConflict' }
         '410': { $ref: '#/components/responses/AgreementConflict' }
@@ -175,6 +210,7 @@ paths:
       summary: The file and its scan (poll until CLEAN)
       responses:
         '200': { $ref: '#/components/responses/AgreementFile' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
 
@@ -188,6 +224,7 @@ paths:
       summary: A 5-minute attachment link to a CLEAN file
       responses:
         '200': { $ref: '#/components/responses/DownloadLink' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/AgreementConflict' }
@@ -195,20 +232,40 @@ paths:
   /portal/{firmSlug}/intake-agreements:
     parameters:
       - { $ref: '#/components/parameters/FirmSlug' }
-      - name: serviceId
+      - name: form
         in: query
-        required: false
-        schema: { type: string, format: uuid }
+        required: true
+        description: The Begin Online form (`IntakeFormKey`, e.g. `BOOKKEEPING`)
+        schema:
+          type: string
+          enum: [ANNUAL_TAX, QUARTERLY_TAX, BOOKKEEPING, PAYROLL, TAX_PLANNING, BUSINESS_DEVELOPMENT]
     get:
       tags: [public]
       security: []
       operationId: getIntakeAgreementBlock
-      summary: The agreements to sign for an intake (the firm-wide one first)
+      summary: The agreements a Begin Online visitor signs for a form (the firm-wide one first)
       responses:
         '200':
           description: IntakeAgreementBlock
           content: { application/json: { schema: { $ref: '#/components/schemas/IntakeAgreementBlock' } } }
         '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+
+  /portal/{firmSlug}/me/intakes/{intakeId}/agreements:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - { name: intakeId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [public]
+      security: [{ portalCookie: [] }]
+      operationId: getMyIntakeAgreementBlock
+      summary: The agreements the signed-in client signs for one of their intakes (legal is null)
+      responses:
+        '200':
+          description: IntakeAgreementBlock
+          content: { application/json: { schema: { $ref: '#/components/schemas/IntakeAgreementBlock' } } }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
 
   /portal/{firmSlug}/intake-agreements/{agreementId}/versions/{version}/pdf:
@@ -228,10 +285,11 @@ paths:
 components:
   securitySchemes:
     firmCookie: { type: apiKey, in: cookie, name: fv_access }
+    portalCookie: { type: apiKey, in: cookie, name: 'fv_portal_{slug}_access', description: The firm's portal access cookie (client-auth.yaml) }
   parameters:
     AgreementId: { name: agreementId, in: path, required: true, schema: { type: string, format: uuid } }
     FileId: { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
-    Version: { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    Version: { name: version, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 2147483647 } }
     FirmSlug: { name: firmSlug, in: path, required: true, schema: { type: string } }
   requestBodies:
     CreateAgreementRequest:
@@ -259,9 +317,7 @@ components:
     AgreementFile:
       description: AgreementFile
       content: { application/json: { schema: { type: object, description: 'zod AgreementFile' } } }
-    DownloadLink:
-      description: DownloadLink (url and expiresAt, 5 minutes)
-      content: { application/json: { schema: { $ref: './documents.yaml#/components/schemas/DownloadLink' } } }
+    DownloadLink: { $ref: './documents.yaml#/components/responses/DownloadLink' }
     AgreementConflict:
       description: 'An `AgreementErrorCode` (see AGREEMENT_ERRORS for the text users see)'
       content: { application/json: { schema: { $ref: './client-auth.yaml#/components/schemas/ApiError' } } }
@@ -270,3 +326,7 @@ components:
     IntakeSignatureInput:
       type: object
       description: 'zod IntakeSignatureInput: `signature` in the intake submit bodies (R11)'
+    AgreementOutdatedDetails: { type: object, description: 'zod AgreementOutdatedDetails (the current IntakeAgreementBlock)' }
+    IntakeSignatureSummary:
+      type: object
+      description: 'zod IntakeSignatureSummary: the signature on a submitted intake (R11 detail views)'
