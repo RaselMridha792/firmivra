@@ -1,4 +1,5 @@
-// Begin Online leads in the firm's inbox: review, convert, decline and the visitor's files.
+// Begin Online leads in the firm's inbox: review and decline. (Convert and the visitor's files come
+// with rasel/R15-leads; the lead keeps its file so that branch adds only its cases.)
 import { createHash, randomUUID } from 'node:crypto';
 import type { CaseModule } from '../world.js';
 
@@ -72,12 +73,5 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/leads/:id/decline': {
     params: { id: 'lead' },
     body: { reason: 'Fake reason' },
-  },
-  // Converts into a new client with the lead's own (unique) email.
-  'POST /api/v1/business/leads/:id/convert': { params: { id: 'lead' }, body: {} },
-  // No file store in tests: found, then 503.
-  'GET /api/v1/business/leads/:id/uploads/:uploadId/download': {
-    params: { id: 'lead', uploadId: 'leadUpload' },
-    expect: 503,
   },
 };
