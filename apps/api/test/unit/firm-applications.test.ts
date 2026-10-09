@@ -48,7 +48,7 @@ describe('slugBase: the portal address approve suggests', () => {
   });
 });
 
-describe('ownerNameOk: what the owner invite takes (R0 invites_name)', () => {
+describe('ownerNameOk: what the owner invite takes (CreateInviteRequest.name)', () => {
   it('takes up to 120 characters, counted as the database counts them', () => {
     expect(ownerNameOk('Casey Example')).toBe(true);
     expect(ownerNameOk('L'.repeat(120))).toBe(true);
@@ -62,5 +62,11 @@ describe('ownerNameOk: what the owner invite takes (R0 invites_name)', () => {
     expect(ownerNameOk('Casey\tExample')).toBe(false);
     expect(ownerNameOk('Casey\nExample')).toBe(false);
     expect(ownerNameOk('Casey\u0085Example')).toBe(false);
+  });
+
+  it('refuses invisible and direction characters the invite form refuses', () => {
+    for (const c of ['\u200b', '\u202e', '\u2028', '\u3164']) {
+      expect(ownerNameOk(`Casey${c}Example`), c.codePointAt(0)?.toString(16)).toBe(false);
+    }
   });
 });

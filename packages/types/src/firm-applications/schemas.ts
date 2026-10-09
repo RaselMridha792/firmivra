@@ -652,9 +652,9 @@ export const FirmApplicationErrorCode = z.enum([
   /** 409: no owner link to send (not approved, or the owner has already signed in). */
   'INVITE_NOT_NEEDED',
   /**
-   * 409 on approve: the primary administrator's name is over 120 characters, too long for the
-   * owner invite. Only applications from before Oct 8 can hold one (up to 200); Phase 1 has no
-   * edit, so the applicant applies again.
+   * 409 on approve: the primary administrator's name can't be used for the owner invite (over 120
+   * characters, or characters the invite refuses). Only applications from before Oct 8 can hold
+   * one; Phase 1 has no edit, so the applicant applies again.
    */
   'OWNER_NAME_TOO_LONG',
 ]);

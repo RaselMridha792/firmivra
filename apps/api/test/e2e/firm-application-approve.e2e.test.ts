@@ -28,6 +28,7 @@ const ids = {
   declined: randomUUID(),
   taken: randomUUID(),
   longName: randomUUID(),
+  zeroWidth: randomUUID(),
   resume: randomUUID(),
   twice: randomUUID(),
   unreadable: randomUUID(),
@@ -117,6 +118,7 @@ beforeAll(async () => {
       ['declined', 3],
       ['taken', 4],
       ['longName', 5],
+      ['zeroWidth', 9],
       ['resume', 6],
       ['twice', 7],
     ];
@@ -127,7 +129,12 @@ beforeAll(async () => {
           id: ids[key],
           legalName: data.business.legalName,
           // Rows from before #107 could hold a name up to 200 characters.
-          contactName: key === 'longName' ? 'L'.repeat(121) : data.primaryAdmin.fullName,
+          contactName:
+            key === 'longName'
+              ? 'L'.repeat(121)
+              : key === 'zeroWidth'
+                ? 'Casey\u200bExample'
+                : data.primaryAdmin.fullName,
           contactEmail: data.primaryAdmin.email,
           contactPhone: data.primaryAdmin.phone,
           data,
@@ -271,12 +278,14 @@ describe('Approve', () => {
     await approve(ids.taken, { slug: 'fine', extra: 1 }).expect(400);
   });
 
-  it('refuses an owner name over 120 characters before deciding: 409 OWNER_NAME_TOO_LONG', async () => {
-    const res = await approve(ids.longName).expect(409);
-    expect(res.body.error.code).toBe('OWNER_NAME_TOO_LONG');
-    const { application, audit } = await stateOf(ids.longName);
-    expect(application.status).toBe('PENDING_REVIEW');
-    expect(audit).toEqual([]);
+  it('refuses an owner name the invite would refuse (too long, a zero-width space) before deciding: 409 OWNER_NAME_TOO_LONG', async () => {
+    for (const id of [ids.longName, ids.zeroWidth]) {
+      const res = await approve(id).expect(409);
+      expect(res.body.error.code).toBe('OWNER_NAME_TOO_LONG');
+      const { application, audit } = await stateOf(id);
+      expect(application.status).toBe('PENDING_REVIEW');
+      expect(audit).toEqual([]);
+    }
   });
 
   it('finishes an application approved without a firm, with no second decision', async () => {

@@ -11,6 +11,7 @@ import {
   type AdminDashboard,
   type AdminRef,
   type BusinessSummary,
+  CreateInviteRequest,
   type FirmApplicationCheck,
   type FirmApplicationCounts,
   type FirmApplicationEvent,
@@ -74,19 +75,17 @@ const slugTaken = () =>
   new ConflictException({ code: 'SLUG_TAKEN', message: 'Another firm has this portal address' });
 
 /**
- * Whether the owner invite (step 3) would take this name: R0's `invites_name` rule, something
- * besides spaces, at most 120 characters (code points, as char_length counts) and no control
- * characters. Submit has kept the primary administrator's name to it since #107; older rows could
- * hold up to 200 characters.
+ * Whether the owner invite (step 3) would take this name: the invite's own rule
+ * (`CreateInviteRequest.name`: one line of at most 120 characters, no invisible or direction
+ * characters), which also covers R0's `invites_name`. Submit has kept the primary administrator's
+ * name to it since #107; older rows could hold up to 200 characters.
  */
-export function ownerNameOk(name: string): boolean {
-  return name.trim() !== '' && [...name].length <= 120 && !/\p{Cc}/u.test(name);
-}
+export const ownerNameOk = (name: string): boolean =>
+  CreateInviteRequest.shape.name.safeParse(name).success;
 const ownerNameTooLong = () =>
   new ConflictException({
     code: 'OWNER_NAME_TOO_LONG',
-    message:
-      "The primary administrator's name is too long for the owner invite (over 120 characters)",
+    message: "The primary administrator's name can't be used for the owner invite",
   });
 
 /**
