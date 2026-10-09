@@ -5,9 +5,11 @@
 import { randomBytes } from 'node:crypto';
 import request from 'supertest';
 import Stripe from 'stripe';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
+import { InvoiceNotices } from '../../src/payments/invoices/invoice-notices.js';
 import { FakeStripeGateway } from '../../src/payments/stripe/fake-stripe.js';
 import { StripeWebhookService } from '../../src/payments/webhooks/stripe-webhook.service.js';
 import { expectOk, Invoice, nyDay, startInvoiceApp, TEST_WEBHOOK_SECRET } from './invoice-setup.js';
@@ -326,6 +328,55 @@ describe('POST /webhooks/stripe', () => {
       tx.auditLog.count({ where: { entityId: payment.id, action: 'payment.succeeded' } }),
     );
     expect(audits).toBe(1);
+  });
+
+  it('refuses a session with no currency, and never alarms on a session that is not the payment’s', async () => {
+    const { invoiceId, payment } = await checkoutStarted();
+    const errors = vi.spyOn(Logger.prototype, 'error');
+    try {
+      const { currency: _currency, ...noCurrency } = session(payment);
+      expectOk(await deliver(event('checkout.session.completed', accountA(), noCurrency)));
+      // Another session naming this payment, with a wrong amount: not this payment's, no alarm.
+      const other = session(payment, {
+        id: `cs_test_${randomBytes(8).toString('hex')}`,
+        amount_total: 1,
+      });
+      expectOk(await deliver(event('checkout.session.completed', accountA(), other)));
+      expect(errors.mock.calls.filter(([m]) => String(m).includes('Amount mismatch'))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+    expect(await stateOf(invoiceId)).toEqual({ invoice: 'OPEN', payments: [['PENDING', null]] });
+  });
+
+  it('records a payment of an invoice canceled meanwhile, and tells no one it was received', async () => {
+    const { invoiceId, payment } = await checkoutStarted();
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+    try {
+      await runInScope(owner, { kind: 'business', businessId: t.ids.firmA }, (tx) =>
+        tx.invoice.update({
+          where: { id: invoiceId },
+          data: { status: 'CANCELED', canceledAt: new Date(), cancelReason: 'Billed by mistake' },
+        }),
+      );
+    } finally {
+      await owner.$disconnect();
+    }
+    const sent: string[] = [];
+    const notices = t.app.get(InvoiceNotices);
+    const spy = vi.spyOn(notices, 'send').mockImplementation(async (name) => {
+      sent.push(name);
+    });
+    try {
+      expectOk(await deliver(event('checkout.session.completed', accountA(), session(payment))));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await stateOf(invoiceId)).toEqual({
+      invoice: 'CANCELED',
+      payments: [['SUCCEEDED', null]],
+    });
+    expect(sent).toEqual([]);
   });
 
   it('never fails a payment that already succeeded', async () => {
