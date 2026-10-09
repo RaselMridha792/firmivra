@@ -14,6 +14,7 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { AVAILABILITY, CALENDAR_ERRORS } from '../../../calendar/_components/shared';
 import {
   dayLabel,
+  isCalendarDate,
   localParts,
   timeLabel,
   todayIn,
@@ -117,8 +118,8 @@ function AddBlock({
     invalidate: AVAILABILITY,
   });
   const submit = () => {
-    if (![start.date, start.time, end.date, end.time].every(Boolean)) {
-      setProblem('Choose when the block starts and ends.');
+    if (![start.time, end.time].every(Boolean) || ![start.date, end.date].every(isCalendarDate)) {
+      setProblem('Choose when the block starts and ends, from 2000 to 2100.');
       return;
     }
     const body = {
@@ -128,8 +129,16 @@ function AddBlock({
       reason,
     };
     const checked = CreateBlockedTimeRequest.safeParse(body);
-    setProblem(checked.success ? '' : (checked.error.issues[0]?.message ?? 'Check the times.'));
-    if (checked.success) block.mutate(body, { onSuccess: () => setReason('') });
+    // The API also refuses a block that has already ended; say so before asking it.
+    const ended = Date.parse(body.endsAt) <= Date.now();
+    setProblem(
+      ended
+        ? 'A block must end in the future.'
+        : checked.success
+          ? ''
+          : (checked.error.issues[0]?.message ?? 'Check the times.'),
+    );
+    if (checked.success && !ended) block.mutate(body, { onSuccess: () => setReason('') });
   };
 
   return (
