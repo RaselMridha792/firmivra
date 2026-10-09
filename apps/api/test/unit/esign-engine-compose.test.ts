@@ -2,11 +2,18 @@
 // sizes, refusals (encrypted, malformed, XFA, over 100 pages), the page plan's order and
 // rotation, and JPG and PNG files becoming one page each.
 import { randomUUID } from 'node:crypto';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
 import { EsignEngineError, type SourceFile } from '../../src/esign/engine/engine.types.js';
 import { compose, imagePageSize, inspect } from '../../src/esign/engine/pdf-compose.js';
-import { encryptedPdf, JPG_4X2, pdf, png, xfaPdf } from './esign-engine-fixtures.js';
+import {
+  encryptedPdf,
+  JPG_4X2,
+  JPG_4X2_EXIF_90,
+  pdf,
+  png,
+  xfaPdf,
+} from './esign-engine-fixtures.js';
 
 const PDF = 'application/pdf' as const;
 const refusal = async (p: Promise<unknown>) => {
@@ -63,6 +70,21 @@ describe('inspect', () => {
     big.set(new TextEncoder().encode('%PDF-1.7'));
     expect(await refusal(inspect({ contentType: PDF, bytes: big }))).toBe('PDF_UNREADABLE');
     expect(await refusal(inspect({ contentType: 'image/png', bytes: big }))).toBe('PDF_UNREADABLE');
+  });
+
+  it('refuses huge images from their header, before decoding', async () => {
+    const huge = png(1, 1);
+    new DataView(huge.buffer).setUint32(16, 20_000); // IHDR width
+    expect(await refusal(inspect({ contentType: 'image/png', bytes: huge }))).toBe(
+      'PDF_UNREADABLE',
+    );
+  });
+
+  it('shows a phone photo upright (EXIF orientation)', async () => {
+    expect(await inspect({ contentType: 'image/jpeg', bytes: JPG_4X2_EXIF_90 })).toEqual({
+      pageCount: 1,
+      pageSizes: [{ width: 396, height: 792 }],
+    });
   });
 
   it('refuses more than 100 pages', async () => {
@@ -124,6 +146,9 @@ describe('compose', () => {
     const page = { documentId: a.documentId, page: 0, rotation: 0 } as const;
     const out = await PDFDocument.load(await compose([a], [page, page]));
     expect(out.getPageCount()).toBe(2);
+    // Each copy has its own content, so a stamp on one never shows on the other.
+    const [one, two] = out.getPages().map((p) => p.node.get(PDFName.of('Contents')));
+    expect(String(one)).not.toBe(String(two));
   });
 
   it('turns JPG and PNG files into pages of their inspected size', async () => {
@@ -146,6 +171,20 @@ describe('compose', () => {
       [{ width: 264, height: 792 }, 90],
       [{ width: 792, height: 396 }, 0],
     ]);
+  });
+
+  it('turns a phone photo by its EXIF orientation, then by the plan', async () => {
+    const photo: SourceFile = {
+      documentId: randomUUID(),
+      contentType: 'image/jpeg',
+      bytes: JPG_4X2_EXIF_90,
+    };
+    const out = await PDFDocument.load(
+      await compose([photo], [{ documentId: photo.documentId, page: 0, rotation: 90 }]),
+    );
+    const page = out.getPage(0);
+    // Stored landscape (792x396), shown upright after EXIF's 90, then the plan's 90.
+    expect([page.getSize(), page.getRotation().angle]).toEqual([{ width: 792, height: 396 }, 180]);
   });
 
   it('refuses a plan over 100 pages and an encrypted file', async () => {

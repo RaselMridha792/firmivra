@@ -6,6 +6,7 @@ import {
   type PageSize,
   type SourceFile,
 } from './engine.types.js';
+import { type ImageHeader, readImageHeader } from './images.js';
 
 // Inspect and compose (R18 step 3). Everything runs in memory on files of at most 10 MB.
 
@@ -78,10 +79,26 @@ function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
 
 /** Embeds a JPG or PNG; a broken image is PDF_UNREADABLE. */
 async function embedImage(doc: PDFDocument, file: Pick<SourceFile, 'contentType' | 'bytes'>) {
-  if (file.bytes.byteLength > UPLOAD_LIMITS.maxBytes) throw new EsignEngineError('PDF_UNREADABLE');
-  return unreadable(() =>
+  const header = imageHeader(file);
+  const image = await unreadable(() =>
     file.contentType === 'image/png' ? doc.embedPng(file.bytes) : doc.embedJpg(file.bytes),
   );
+  return { image, header };
+}
+
+/** Size and EXIF turn from the header, before decoding; huge or broken images are refused. */
+function imageHeader(file: Pick<SourceFile, 'contentType' | 'bytes'>): ImageHeader {
+  if (file.bytes.byteLength > UPLOAD_LIMITS.maxBytes) throw new EsignEngineError('PDF_UNREADABLE');
+  if (file.contentType === 'application/pdf') throw new Error('Not an image');
+  return readImageHeader(file.contentType, file.bytes);
+}
+
+/** An image's page as shown: upright after its EXIF turn, fitted to Letter. */
+function imageShownSize(header: ImageHeader): PageSize {
+  const turned = header.turn % 180 !== 0;
+  return turned
+    ? imagePageSize(header.height, header.width)
+    : imagePageSize(header.width, header.height);
 }
 
 /** Pages and their shown sizes; an image is one page. */
@@ -93,8 +110,8 @@ export async function inspect(
     const pageSizes = doc.getPages().map(shownSize);
     return { pageCount: pageSizes.length, pageSizes };
   }
-  const image = await embedImage(await PDFDocument.create(), file);
-  return { pageCount: 1, pageSizes: [imagePageSize(image.width, image.height)] };
+  // The header is enough: nothing is decoded to inspect an image.
+  return { pageCount: 1, pageSizes: [imageShownSize(imageHeader(file))] };
 }
 
 /**
@@ -108,7 +125,7 @@ export async function compose(files: SourceFile[], plan: EsignPage[]): Promise<U
   const byId = new Map(files.map((f) => [f.documentId, f]));
   const out = await PDFDocument.create({ updateMetadata: false });
 
-  // Copy each PDF's planned pages in one call (once per plan entry, duplicates included).
+  // Copy each PDF's planned pages, once per plan entry.
   const copied = new Map<string, PDFPage[]>();
   const images = new Map<string, Awaited<ReturnType<typeof embedImage>>>();
   for (const file of files) {
@@ -119,7 +136,24 @@ export async function compose(files: SourceFile[], plan: EsignPage[]): Promise<U
     for (const index of wanted) {
       if (index >= src.getPageCount()) throw new Error(`Page ${index} is not in the file`);
     }
-    copied.set(file.documentId, await unreadable(() => out.copyPages(src, wanted)));
+    // One copyPages call shares objects between copies of the same page, so a stamp on one
+    // would show on the other: each repeat of a page is copied in a later call of its own.
+    const rounds: number[][] = [];
+    const seen = new Map<number, number>();
+    for (const index of wanted) {
+      const round = seen.get(index) ?? 0;
+      seen.set(index, round + 1);
+      (rounds[round] ??= []).push(index);
+    }
+    const copies: PDFPage[][] = [];
+    for (const round of rounds) copies.push(await unreadable(() => out.copyPages(src, round)));
+    seen.clear();
+    const pages = wanted.map((index) => {
+      const round = seen.get(index) ?? 0;
+      seen.set(index, round + 1);
+      return copies[round]![rounds[round]!.indexOf(index)]!;
+    });
+    copied.set(file.documentId, pages);
   }
 
   for (const entry of plan) {
@@ -132,11 +166,15 @@ export async function compose(files: SourceFile[], plan: EsignPage[]): Promise<U
       page = out.addPage(next);
     } else {
       if (entry.page !== 0) throw new Error('An image has only page 0');
-      const image = images.get(file.documentId) ?? (await embedImage(out, file));
-      images.set(file.documentId, image);
-      const { width, height } = imagePageSize(image.width, image.height);
+      const embedded = images.get(file.documentId) ?? (await embedImage(out, file));
+      images.set(file.documentId, embedded);
+      // The page holds the image as stored; its /Rotate shows it upright (EXIF), then the plan.
+      const shown = imageShownSize(embedded.header);
+      const turned = embedded.header.turn % 180 !== 0;
+      const [width, height] = turned ? [shown.height, shown.width] : [shown.width, shown.height];
       page = out.addPage([width, height]);
-      page.drawImage(image, { x: 0, y: 0, width, height });
+      page.drawImage(embedded.image, { x: 0, y: 0, width, height });
+      page.setRotation(degrees(embedded.header.turn));
     }
     page.setRotation(degrees((ownRotation(page) + entry.rotation) % 360));
   }
