@@ -259,15 +259,16 @@ ALTER TABLE intake_signatures ADD CONSTRAINT intake_signatures_lead_or_client
 ALTER TABLE intake_signatures ADD CONSTRAINT intake_signatures_names
   CHECK (btrim(printed_name) <> '' AND char_length(printed_name) <= 200
          AND btrim(signature_text) <> '' AND char_length(signature_text) <= 200);
--- No hidden characters in a signed name (packages/types esign/capture.ts): C0 and C1 controls,
--- the soft hyphen, zero-width and bidi marks, line and paragraph separators, word joiners and
--- invisible operators, bidi isolates and the byte order mark.
+-- No hidden characters in a signed name: packages/types clients/text.ts ONE_LINE. Controls,
+-- line and paragraph separators, invisible and bidi-override characters, blank-looking fillers,
+-- the byte order mark and the tag block. The zero-width non-joiner and joiner, the soft hyphen
+-- and the direction marks stay allowed: real names use them.
 CREATE FUNCTION app_no_hidden_characters(value text) RETURNS boolean
   LANGUAGE sql
   IMMUTABLE
   AS $$
   SELECT value IS NULL
-      OR value !~ '[\x01-\x1f\x7f-\x9f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]'
+      OR value !~ '[\x01-\x1f\x7f-\x9f\u061c\u180e\u200b\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u206f\u115f\u1160\u2800\u3164\uffa0\ufeff\ufff9-\ufffb\U000e0000-\U000e007f]'
 $$;
 
 -- The comparison form of a signed name: NFC, runs of whitespace as one space, trimmed, lower case.
@@ -438,8 +439,9 @@ DECLARE
   series firm_agreements%ROWTYPE;
   last_version int;
 BEGIN
-  -- FOR SHARE: an archive that runs at the same time waits, then sees this version.
-  SELECT * INTO series FROM firm_agreements a WHERE a.id = NEW.agreement_id FOR SHARE;
+  -- Locked: a publish or an archive at the same time waits, and so does a signature reading the
+  -- series FOR SHARE, so "the next version" and "the current version" are never stale.
+  SELECT * INTO series FROM firm_agreements a WHERE a.id = NEW.agreement_id FOR NO KEY UPDATE;
   IF series.archived_at IS NOT NULL THEN
     RAISE EXCEPTION 'firm agreement versions: the agreement is archived'
       USING ERRCODE = 'check_violation';
@@ -531,7 +533,7 @@ DECLARE
 BEGIN
   SELECT * INTO sig FROM intake_signatures s WHERE s.id = NEW.signature_id;
   SELECT * INTO ver FROM firm_agreement_versions v WHERE v.id = NEW.agreement_version_id;
-  SELECT * INTO series FROM firm_agreements a WHERE a.id = ver.agreement_id;
+  SELECT * INTO series FROM firm_agreements a WHERE a.id = ver.agreement_id FOR SHARE;
   IF sig.id IS NULL OR ver.id IS NULL THEN
     RAISE EXCEPTION 'intake signature agreements: unknown signature or agreement version'
       USING ERRCODE = 'foreign_key_violation';
