@@ -64,6 +64,8 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - Fahad (optional): a handwriting font token for typed signatures; until then they use `--font-display` italic.
 - Fahad (optional): eight recipient colour tokens `--color-recipient-0` to `-7` in packages/ui. `recipient-colors.ts` uses them when they exist and mixes the existing tokens until then.
 
+- R13-api: the report's `status` filter matches exactly, so Sent leaves out Delivered (which reads Sent everywhere else); folding DELIVERED into SENT, as the list does, would let the page offer one Sent choice.
+
 ## Progress log
 
 - 2026-10-08: pdf.js spike done, verdict above (loader on branch `rasel/R13-web-pdf-spike`, goes in with the PdfPages viewer PR).
@@ -76,3 +78,4 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - 2026-10-09: FieldOverlay PR #193 (#172 merged): fields drawn on each page from their fractions, in the recipient's colour (`recipient-colors.ts`, eight colours by `colorIndex`; sender fields in a neutral ninth) with the field's label and the recipient's name (name hidden when the box is narrow; colour and aria-label always say it), a sender's prefilled value shown as text, dashed until filled, kept inside the page, other signers' fields faded for a signer, a button when the editor passes `onSelect`. Sample fields on `/{firm}/sign`; spec checks placement, colours and fading.
 - 2026-10-09: #172 merged. #172 follow-ups in #193: the viewer test-compiles an empty wasm module (catches a CSP without `'wasm-unsafe-eval'` as well as missing WebAssembly), the warning says "on another device" (every iOS browser is Safari underneath) with "before you sign" only for `purpose="sign"`, a CCITT fax page in the scanned sample (decoded by jbig2.wasm) with a pixel spec, and no extra copy of decoder bytes (pdf.js copies them itself).
 - 2026-10-09: All requests PR (stacked on #199): `RequestsTable` (search, status, client and last-activity filters, API cursor pages; shared by Recent Documents, All requests and a client's Signatures tab), `StatusBadge` (the mockup's colours; Delivered reads Sent), `/firm-sign/requests` with the five quick filters and their counts, `?status=` from a dashboard counter.
+- 2026-10-09: Signing reports PR (stacked on #239): `/firm-sign/reports` with From/To (the last 30 days on this device by default), status (sent ones only) and sender filters; eight totals (sent, completion rate, average time to complete, outstanding, completed, declined, expired, voided) and Activity by sender; a chosen sender stays chosen when the dates change; a bad range shows its error and no stale numbers. `e2e/mock/esign-reports.spec.ts`.
