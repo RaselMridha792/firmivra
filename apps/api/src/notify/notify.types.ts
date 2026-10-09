@@ -55,7 +55,7 @@ export interface NotifyTemplates {
   /** The firm converted the lead: an invitation to sign up on the client portal. */
   'client.portal-invite': IgnoredFirmName & { name: string; signUpLink: string };
   /** A new message in a thread. Never the message text: the reader opens the link. */
-  'message.new': IgnoredFirmName & { name: string; link: string };
+  'message.received': IgnoredFirmName & { name: string; link: string };
 
   // ----- Firm applications (R4; Firmivra's own messages, businessId null) -----
   /**
@@ -125,7 +125,7 @@ export const TEMPLATE_CHANNEL: Readonly<Record<NotifyTemplate, NotifyChannel>> =
   'lead.confirmation': 'email',
   'lead.received': 'email',
   'client.portal-invite': 'email',
-  'message.new': 'email',
+  'message.received': 'email',
 };
 
 /**
@@ -156,7 +156,7 @@ export const TEMPLATE_SENDER: Readonly<Record<NotifyTemplate, NotifySender>> = {
   'lead.confirmation': 'firm',
   'lead.received': 'firm',
   'client.portal-invite': 'firm',
-  'message.new': 'firm',
+  'message.received': 'firm',
 };
 
 /**
@@ -205,7 +205,7 @@ export const TEMPLATE_CATEGORY: Readonly<Record<NotifyTemplate, NotificationCate
   'lead.confirmation': 'ACCOUNT',
   'lead.received': 'INTAKE',
   'client.portal-invite': 'ACCOUNT',
-  'message.new': 'MESSAGES',
+  'message.received': 'MESSAGES',
 };
 
 export interface NotifyMessage<T extends NotifyTemplate = NotifyTemplate> {

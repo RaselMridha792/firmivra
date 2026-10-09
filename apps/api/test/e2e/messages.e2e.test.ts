@@ -461,7 +461,7 @@ describe('reach and isolation', () => {
 
 describe('notices', () => {
   const secret = randomUUID();
-  const mail = () => outbox.splice(0).filter((m) => m.template === 'message.new');
+  const mail = () => outbox.splice(0).filter((m) => m.template === 'message.received');
 
   it('emails the primary login, with no text and once per unread run; a bell item too', async () => {
     mail();

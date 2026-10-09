@@ -24,7 +24,7 @@ const errorName = (error: unknown) => {
 
 /**
  * The notices for a new message (R20 step 6), after it commits: the bell item
- * (`message.received`, through R6's Notifier) and the `message.new` email with only the
+ * (`message.received`, through R6's Notifier) and the `message.received` email with only the
  * recipient's name and a link built from config, never the message text. Recipients as q27: the
  * client's ACTIVE PRIMARY login; on the firm side the client's assigned member and every Owner
  * and Admin (ACTIVE). No second email for a thread while that side still has an earlier unread
@@ -126,14 +126,16 @@ export class MessageNotices {
       if ('userId' in r.recipient && r.recipient.userId === m.senderUserId) continue;
       try {
         await this.sender.send({
-          template: 'message.new',
+          template: 'message.received',
           to: r.to,
           businessId: m.businessId,
           recipient: r.recipient,
           data: { name: r.name, link },
         });
       } catch (error) {
-        this.logger.warn(`message.new for message ${m.messageId} not sent (${errorName(error)})`);
+        this.logger.warn(
+          `message.received email for message ${m.messageId} not sent (${errorName(error)})`,
+        );
       }
     }
   }
