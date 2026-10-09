@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation } from '../../../../../lib/query';
-import { APPOINTMENTS, CALENDAR_ERRORS } from './shared';
+import { CALENDAR, CALENDAR_ERRORS, GONE } from './shared';
 import { SlotPicker } from './slot-picker';
 import { localParts, timeLabel } from './time';
 
@@ -19,14 +19,22 @@ export function RescheduleForm({
   timeZone,
   members,
   onDone,
+  onStale,
 }: {
   appointment: AppointmentDetail;
   timeZone: string;
   members: MemberAvailability[];
   onDone: () => void;
+  /** Reloads the appointment after someone else changed it. */
+  onStale: () => void;
 }) {
   const [date, setDate] = useState(() => localParts(appointment.startsAt, timeZone).date);
-  const [staff, setStaff] = useState(appointment.staff.userId);
+  // The same person by default, unless they are no longer on the team (not in the list).
+  const [staff, setStaff] = useState(() =>
+    members.some(({ member }) => member.userId === appointment.staff.userId)
+      ? appointment.staff.userId
+      : (members[0]?.member.userId ?? ''),
+  );
   const [picked, setPicked] = useState<Slot | null>(null);
   const [round, setRound] = useState(0);
   const move = useApiMutation(
@@ -35,7 +43,7 @@ export function RescheduleForm({
         startsAt: slot.startsAt,
         staffUserId: slot.staff.userId,
       }),
-    { invalidate: APPOINTMENTS },
+    { invalidate: CALENDAR },
   );
 
   if (!appointment.type) {
@@ -79,7 +87,10 @@ export function RescheduleForm({
           picked &&
           move.mutate(picked, {
             onSuccess: onDone,
-            onError: (error) => (errorCode(error) === 'SLOT_TAKEN' ? taken() : undefined),
+            onError: (error) => {
+              if (errorCode(error) === 'SLOT_TAKEN') taken();
+              if (GONE.has(errorCode(error) ?? '')) onStale();
+            },
           })
         }
       >

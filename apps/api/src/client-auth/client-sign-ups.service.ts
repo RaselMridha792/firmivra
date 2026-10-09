@@ -190,7 +190,9 @@ export class ClientSignUpsService {
     try {
       await this.sender.signUpApproved({
         to: account.email,
+        businessId: actor.businessId,
         businessName: firm.name,
+        name: account.user.name,
         signInUrl: `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}/sign-in`,
       });
     } catch {
@@ -245,7 +247,12 @@ export class ClientSignUpsService {
     );
     const firm = await this.firm(actor.businessId);
     try {
-      await this.sender.signUpDeclined({ to: account.email, businessName: firm.name });
+      await this.sender.signUpDeclined({
+        to: account.email,
+        businessId: actor.businessId,
+        businessName: firm.name,
+        name: account.user.name,
+      });
     } catch {
       // Ids only (hard rule 4). The decline stands; R6's retries own delivery.
       this.logger.warn(`Could not send the decline notice for client account ${account.id}`);
