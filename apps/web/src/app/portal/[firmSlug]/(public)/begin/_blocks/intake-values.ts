@@ -13,6 +13,7 @@ import {
   intakeUploadCounts,
   type MaskedNumber,
   type ScanStatus,
+  shownIntakeKeys,
 } from '@firmivra/types';
 
 // What the screen holds for each answer while the person types, and the conversion to and from
@@ -193,6 +194,34 @@ export function stepAnswers(
     if (v !== undefined) out[f.key] = v;
   }
   return out as IntakeAnswers;
+}
+
+/**
+ * The step's screen values after a save: a field the answers hide was saved as null (and a row's
+ * hidden field left out), so it is emptied here too. A masked SSN kept on screen would otherwise
+ * come back as `{ last4 }` with no stored number behind it, and the next save would refuse it.
+ */
+export function clearHidden(
+  definition: IntakeFormDefinition,
+  step: IntakeStep,
+  values: ScreenValues,
+): ScreenValues {
+  const shown = shownIntakeKeys(definition, allAnswers(definition, values)).fields;
+  const out: ScreenValues = { ...values };
+  for (const f of intakeStepFields(step)) {
+    if (!shown.has(f.key)) {
+      out[f.key] = toScreen(f, undefined);
+    } else if (f.type === 'group' && Array.isArray(values[f.key])) {
+      out[f.key] = (values[f.key] as ScreenRow[]).map((row) => {
+        const next: ScreenRow = { ...row };
+        for (const sub of f.fields) {
+          if (!intakeConditionHolds(sub.showIf, row)) next[sub.key] = emptyScalar(sub);
+        }
+        return next;
+      });
+    }
+  }
+  return out;
 }
 
 /** Every answer of the form, for the condition checks and the submit check. */
