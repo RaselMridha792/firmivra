@@ -87,6 +87,14 @@ export interface CaseModule {
   moduleOff?: Record<string, string>;
 }
 
+/**
+ * Creates a login in its own short platform-scope transaction, committed at once. A world's
+ * transaction never inserts a user itself: each user insert bumps the day's signup counter row
+ * for its pool (users_count_signups), so a long transaction that adds STAFF and CLIENT users
+ * holds both rows and deadlocks with another test file adding them in the other order.
+ */
+export type NewUser = (user: Person & { pool: 'STAFF' | 'CLIENT'; name: string }) => Promise<void>;
+
 export class World {
   readonly rec: Record<string, string> = {};
   client?: Person;
@@ -95,6 +103,7 @@ export class World {
   constructor(
     private readonly defs: Record<string, RecordDef>,
     private readonly base: Omit<SeedContext, 'get' | 'set' | 'person' | 'setClient'>,
+    private readonly newUser: NewUser,
   ) {}
 
   get(key: string): Promise<string> {
@@ -126,9 +135,7 @@ export class World {
       person: async (label, pool) => {
         const id = randomUUID();
         const email = `iso-${label}-${id.slice(0, 8)}@iso.test`;
-        await this.base.tx.user.create({
-          data: { id, cognitoSub: id, pool, email, name: `Fake ${label}` },
-        });
+        await this.newUser({ id, email, pool, name: `Fake ${label}` });
         return { id, email };
       },
       setClient: (person) => {
