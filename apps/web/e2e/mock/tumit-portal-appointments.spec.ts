@@ -21,7 +21,9 @@ test('a client books after a taken time, then reschedules and cancels', async ({
   const mine = page.getByTestId('my-appointment');
   await expect(mine).toHaveCount(2);
 
-  // Book: a kind, a day, a free time. 10 AM is offered, but Jamie is already busy then.
+  // Book: a kind, a day, a free time. The mock offers 10 AM though Jamie is busy then, and
+  // answers SLOT_TAKEN as the API does when someone took a time meanwhile (the API itself leaves
+  // the client's own busy times out).
   await page.getByRole('button', { name: /Tax consultation/ }).click();
   await page.getByLabel('Day').fill(nextWeek(0));
   await page.getByRole('button', { name: '10:00 AM' }).click();
