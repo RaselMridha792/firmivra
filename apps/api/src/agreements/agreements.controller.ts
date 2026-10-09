@@ -24,6 +24,7 @@ import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { AGREEMENTS_CONFIG, agreementsConfig, AgreementsService } from './agreements.service.js';
+import { IntakeSignaturesService } from './intake-signatures.service.js';
 
 const idPipe = new ZodValidationPipe(AgreementPathId);
 /** A version in the path: plain digits ("2", not "02" or "2e0"). */
@@ -137,8 +138,9 @@ export class MyIntakeAgreementsController {
   controllers: [AgreementsController, PublicAgreementsController, MyIntakeAgreementsController],
   providers: [
     AgreementsService,
+    IntakeSignaturesService,
     { provide: AGREEMENTS_CONFIG, useFactory: () => agreementsConfig() },
   ],
-  exports: [AgreementsService],
+  exports: [AgreementsService, IntakeSignaturesService],
 })
 export class AgreementsModule {}
