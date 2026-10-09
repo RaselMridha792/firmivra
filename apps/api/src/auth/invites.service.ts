@@ -7,7 +7,9 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { Database, TxClient } from '@firmivra/db';
 import {
@@ -21,6 +23,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE, OUTSIDE_CALL_LIMITS } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { ACTIVATION_MAILER, type ActivationMailer } from './activation-mailer.js';
 import { runFlow } from './auth-errors.js';
 import { IDENTITY_PROVIDER, type IdentityProvider } from './identity/identity-provider.js';
@@ -194,12 +197,18 @@ async function retryOnConflict<T>(fn: () => Promise<T>): Promise<T> {
  */
 @Injectable()
 export class InvitesService {
+  private readonly logger = new Logger(InvitesService.name);
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     @Inject(IDENTITY_PROVIDER) private readonly identity: IdentityProvider,
     @Inject(ACTIVATION_MAILER) private readonly mailer: ActivationMailer,
     private readonly audit: AuditService,
     @Inject(ENV) private readonly env: Env,
+    // Absent in R4's own InvitesService (owner-invites.ts), which only creates invites: the
+    // link is used through this module's service, which writes the bell item. Without
+    // NotificationsModule in the importing module, `staff.joined` is skipped silently.
+    @Optional() private readonly notifier?: Notifier,
   ) {}
 
   /**
@@ -233,6 +242,10 @@ export class InvitesService {
   ): Promise<InviteResult> {
     if (link.kind === 'invite') assertMayInvite(invitedBy, link.role);
     if (fromPlatform && invitedBy) throw new Error('A platform invite has no inviting member');
+    // Before any login is created (checked again on the role read in the transaction).
+    if (fromPlatform && link.kind === 'invite' && link.role !== 'OWNER') {
+      throw new Error('Only an owner link is sent by the platform');
+    }
 
     const firm = this.db.forBusiness(businessId);
     const business = await firm.business.findUnique({
@@ -335,18 +348,30 @@ export class InvitesService {
     // commit, under the same per-person lock, revoking any link sent in between.
     const inviteId =
       made.inviteId ??
-      (await this.db.withScope({ kind: 'platform' }, async (tx) => {
-        await lockStaffInvites(tx, businessId, userId);
-        await tx.invite.updateMany({
-          where: { membershipId, acceptedAt: null, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-        const row = await tx.invite.create({
-          data: inviteRow(membershipId, made),
-          select: { id: true },
-        });
-        return row.id;
-      }));
+      (await this.db.withScope(
+        { kind: 'platform' },
+        async (tx) => {
+          await lockStaffInvites(tx, businessId, userId);
+          // Counted again under the lock: two sends at once both passed the first count, and
+          // only now does each see the other's link (platform scope reads the links it sent).
+          const toThisPerson = await tx.invite.count({
+            where: { businessId, membershipId, createdAt: { gt: since } },
+          });
+          if (toThisPerson >= INVITE_LIMITS.perPerson) throw tooManyInvites();
+          await tx.invite.updateMany({
+            where: { businessId, membershipId, acceptedAt: null, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+          const row = await tx.invite.create({
+            data: inviteRow(membershipId, made),
+            select: { id: true },
+          });
+          return row.id;
+        },
+        // It can wait on the per-person lock held by an invite transaction that may run 15 s.
+        // The database module's default is 15 s today too; this keeps it once that default goes.
+        OUTSIDE_CALL_LIMITS,
+      ));
 
     // Audited before sending: a failed send still leaves the invite on record.
     await this.auditInFirm(
@@ -443,8 +468,6 @@ export class InvitesService {
     businessId: string;
     membershipId: string;
     invitedBy: Inviter | null;
-    /** As CreateInviteInput's: a new owner link from Firmivra. */
-    fromPlatform?: boolean;
   }): Promise<InviteResult> {
     const membership = await this.db.forBusiness(input.businessId).membership.findUnique({
       where: { id: input.membershipId },
@@ -454,12 +477,11 @@ export class InvitesService {
     if (membership.status !== 'INVITED') throw notInvited();
     // Checked again on the role the membership has in the invite transaction.
     assertMayInvite(input.invitedBy, membership.role);
-    return this.invite(
-      input.businessId,
-      input.invitedBy,
-      { kind: 'resend', membershipId: input.membershipId, userId: membership.userId },
-      input.fromPlatform,
-    );
+    return this.invite(input.businessId, input.invitedBy, {
+      kind: 'resend',
+      membershipId: input.membershipId,
+      userId: membership.userId,
+    });
   }
 
   /**
@@ -526,6 +548,7 @@ export class InvitesService {
       { type: 'membership', id: found.membership.id },
       { inviteId: found.inviteId, via: 'activate' },
     );
+    await this.joined(found.businessId, found.membership.id, user.id);
     return { userId: user.id, sub: user.cognitoSub };
   }
 
@@ -541,6 +564,26 @@ export class InvitesService {
       { type: 'membership', id: found.membership.id },
       { inviteId: found.inviteId, via: 'accept' },
     );
+    await this.joined(found.businessId, found.membership.id, auth.userId);
+  }
+
+  /**
+   * A new member joined: a bell item for the firm's Owners and Admins, never the joiner (R6,
+   * `staff.joined`, the membership's id only). The helper resolves on a database failure;
+   * anything else is logged with the id and never fails the join.
+   */
+  private async joined(businessId: string, membershipId: string, userId: string): Promise<void> {
+    if (!this.notifier) return;
+    try {
+      await this.notifier.notify({
+        businessId,
+        event: 'staff.joined',
+        recordId: membershipId,
+        actorUserId: userId,
+      });
+    } catch (e) {
+      this.logger.warn(`staff.joined for membership ${membershipId} not written (${errorName(e)})`);
+    }
   }
 
   private activationLink(token: string): string {

@@ -18,10 +18,9 @@ import { deriveKey, poolSecrets } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
-import { canonicalIp, networkOf } from './network.js';
-
-export { canonicalIp, networkOf };
+import { canonicalIp, networkOf } from '../common/network.js';
 import { PortalInfoService } from './portal-info.controller.js';
 import {
   SIGN_UP_SECONDS,
@@ -187,6 +186,7 @@ export class SignUpService {
     private readonly codes: VerificationCodesService,
     private readonly sessions: SignUpSessions,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
     @Inject(ENV) private readonly env: Env,
   ) {
     this.secure = env.NODE_ENV === 'production';
@@ -344,6 +344,7 @@ export class SignUpService {
         });
       });
       await this.log(s.businessId, s.userId, 'client_account.verified', account.id);
+      await this.submitted(s.businessId, account.id, s.userId);
       return this.stateOf(s, expiresAt);
     });
   }
@@ -960,6 +961,26 @@ export class SignUpService {
             expiresAt * 1000,
           );
     return { step, ...shown, resendAvailableAt: new Date(at).toISOString() };
+  }
+
+  /**
+   * The sign-up is complete and waits in the firm's queue: a bell item for the firm's Owners and
+   * Admins (R6, `client.signup-submitted`, the client account's id only). The helper resolves on
+   * a database failure; anything else is logged with the id and never fails the sign-up.
+   */
+  private async submitted(businessId: string, accountId: string, actorUserId: string) {
+    try {
+      await this.notifier.notify({
+        businessId,
+        event: 'client.signup-submitted',
+        recordId: accountId,
+        actorUserId,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `client.signup-submitted for client account ${accountId} not written (${errorName(e)})`,
+      );
+    }
   }
 
   /** Audit rows belong to the firm even on these signed-out routes; the actor is the attempt. */
