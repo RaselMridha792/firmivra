@@ -3,7 +3,6 @@ import type { Request, Response } from 'express';
 import type { Database, TxClient } from '@firmivra/db';
 import { beginOnlineCookie, type DraftSubmitted } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
-import { requestContext } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
@@ -70,7 +69,6 @@ export class DraftSubmitService {
       draft.submission.answers,
       before,
     );
-    const context = requestContext.getStore();
     const done = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const lead = await holdLead(tx, draft);
       await tx.$executeRaw`SELECT 1 FROM intakes WHERE id = ${intakeId}::uuid FOR UPDATE`;
@@ -101,13 +99,15 @@ export class DraftSubmitService {
         await tx.leadUpload.deleteMany({ where: { id: { in: hidden.map((f) => f.id) } } });
       }
       const ids = { businessId, intakeId, submissionId: current.id };
-      await sign(tx, { ...ids, version: current.version });
-      const submittedAt = await lockVersion(tx, ids, answers, {
-        name: `${lead.first_name} ${lead.last_name}`,
-        userId: null,
-        ip: context?.ip ?? null,
-        userAgent: context?.userAgent ?? null,
+      // Answers first, then the signature (R14 freezes them), then the version submitted.
+      await lockVersion(tx, ids, answers, null, () =>
+        sign(tx, { ...ids, version: current.version }),
+      );
+      const { submittedAt } = await tx.intakeSubmission.findUniqueOrThrow({
+        where: { id: current.id },
+        select: { submittedAt: true },
       });
+      if (!submittedAt) throw new Error('The version was not submitted');
       await tx.lead.update({
         where: { id: leadId },
         data: { status: 'SUBMITTED', submittedAt, resumeTokenHash: null, resumeExpiresAt: null },
@@ -187,8 +187,8 @@ export class DraftSubmitService {
 
 /** Locks the lead while it is still this live draft with this key, or 404 / 410. */
 async function holdLead(tx: TxClient, draft: Draft) {
-  const rows = await tx.$queryRaw<{ first_name: string; last_name: string; email: string }[]>`
-    SELECT first_name, last_name, email FROM leads
+  const rows = await tx.$queryRaw<{ email: string }[]>`
+    SELECT email FROM leads
      WHERE id = ${draft.leadId}::uuid AND status = 'DRAFT' AND draft_expires_at > now()
        AND resume_token_hash = ${draft.hash}
        FOR UPDATE`;
