@@ -79,24 +79,9 @@ export class EsignSendService {
       this.directory.member(businessId, actor.userId),
       this.directory.member(businessId, record.senderUserId),
     ]);
-    const portal = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${firm.slug}`;
     const rule = parts.recipients.map((r) => ({ ...r, hasAccessCode: r.accessCodeHash !== null }));
-    const turnIds = new Set(this.rules.currentTurn(record.routing, rule));
-    /** Each emailed recipient's link: it carries the raw token, so it lives only in memory. */
-    const links = new Map<string, string>();
-    const turn = parts.recipients
-      .filter((r) => turnIds.has(r.id))
-      .map((r) => {
-        if (r.delivery === 'IN_PERSON') return { recipientId: r.id, tokenHash: null };
-        if (r.delivery === 'PORTAL') {
-          links.set(r.id, `${portal}/signatures`);
-          return { recipientId: r.id, tokenHash: null };
-        }
-        const { token, hash } = this.tokens.issue();
-        links.set(r.id, `${portal}/sign#t=${token}`);
-        return { recipientId: r.id, tokenHash: hash };
-      });
-    const mailed = parts.recipients.filter((r) => links.has(r.id) && r.email);
+    const turnIds = this.rules.currentTurn(record.routing, rule);
+    const { turn, links, mailed } = this.startTurn(firm.slug, parts.recipients, turnIds);
     const now = new Date();
     const emailIds = await this.repo.sendDraft(
       businessId,
@@ -133,6 +118,24 @@ export class EsignSendService {
     return this.requests.current(businessId, id);
   }
 
+  /** A turn: EMAIL gets a one-time token (`turn` has its hash; `links`, memory only, the token). */
+  startTurn(slug: string, all: EsignRecipientRecord[], ids: string[]) {
+    const portal = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${slug}`;
+    const links = new Map<string, string>();
+    const recipients = all.filter((r) => ids.includes(r.id));
+    const turn = recipients.map((r) => {
+      if (r.delivery === 'IN_PERSON') return { recipientId: r.id, tokenHash: null };
+      if (r.delivery === 'PORTAL') {
+        links.set(r.id, `${portal}/signatures`);
+        return { recipientId: r.id, tokenHash: null };
+      }
+      const { token, hash } = this.tokens.issue();
+      links.set(r.id, `${portal}/sign#t=${token}`);
+      return { recipientId: r.id, tokenHash: hash };
+    });
+    return { turn, links, mailed: recipients.filter((r) => links.has(r.id) && r.email) };
+  }
+
   /** Composes the packet, stores it under its own hash (a lost race never overwrites it). */
   private async storePacket(businessId: string, id: string, parts: EsignRequestParts) {
     const files = await Promise.all(
@@ -159,7 +162,7 @@ export class EsignSendService {
    * One invitation. A failure leaves the request sent and the email FAILED in the outbox; the log
    * gets the email's id and the error's class name only (never the address, link or token).
    */
-  private async invite(
+  async invite(
     businessId: string,
     emailId: string,
     r: EsignRecipientRecord,

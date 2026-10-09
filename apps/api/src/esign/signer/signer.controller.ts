@@ -1,4 +1,16 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Inject,
+  Param,
+  Post,
+  Req,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
@@ -7,6 +19,10 @@ import {
   SignerAccessCodeBody,
   type SignerCodeSent,
   type SignerConsent,
+  SignerAdoptBody,
+  SignerDeclineBody,
+  type SignerEnvelope,
+  SignerFinishBody,
   SignerSessionBody,
   type SignerState,
   SignerVerifyCodeBody,
@@ -20,7 +36,7 @@ const ATTEMPTS = { default: { limit: 10, ttl: 60_000 } };
 const SENDS = { default: { limit: 5, ttl: 60_000 } };
 type Out<S extends z.ZodType> = z.output<S>;
 
-/** The signer pages' API (docs/api/esign.yaml), slice 1: public, the token then the cookie. */
+/** The signer pages' API (docs/api/esign.yaml): public, the token then the cookie. */
 @Controller('portal/:firmSlug/sign')
 @Public()
 export class EsignSignerController {
@@ -35,6 +51,12 @@ export class EsignSignerController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<SignerState> {
     return this.signer.open(slug, body.token, res);
+  }
+
+  @Post('session/end')
+  @HttpCode(200)
+  end(@Param('firmSlug') slug: string, @Res({ passthrough: true }) res: Response) {
+    return this.signer.end(slug, res);
   }
 
   @Get('state')
@@ -90,5 +112,51 @@ export class EsignSignerController {
   ): Promise<SignerState> {
     const call = await this.signer.call(slug, req, 'CONSENT');
     return this.signer.acceptConsent(call, body.versionId, res);
+  }
+
+  @Get('envelope')
+  async envelope(@Param('firmSlug') slug: string, @Req() req: Request): Promise<SignerEnvelope> {
+    return this.signer.envelope(await this.signer.call(slug, req, 'SIGN'));
+  }
+
+  /** The bytes for the page viewer on the portal only: never cached, never framed elsewhere. */
+  @Get('packet')
+  @Header('Cache-Control', 'no-store')
+  @Header('Cross-Origin-Resource-Policy', 'same-origin')
+  @Header('Content-Disposition', 'attachment')
+  async packet(@Param('firmSlug') slug: string, @Req() req: Request): Promise<StreamableFile> {
+    const bytes = await this.signer.packet(await this.signer.call(slug, req, 'SIGN'));
+    return new StreamableFile(bytes, { type: 'application/pdf', length: bytes.byteLength });
+  }
+
+  @Post('adopt')
+  @HttpCode(200)
+  async adopt(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(SignerAdoptBody)) body: Out<typeof SignerAdoptBody>,
+    @Req() req: Request,
+  ): Promise<SignerEnvelope> {
+    return this.signer.adopt(await this.signer.call(slug, req, 'SIGN'), body);
+  }
+
+  @Post('finish')
+  @HttpCode(200)
+  async finish(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(SignerFinishBody)) body: Out<typeof SignerFinishBody>,
+    @Req() req: Request,
+  ): Promise<SignerState> {
+    return this.signer.finish(await this.signer.call(slug, req, 'SIGN'), body.values);
+  }
+
+  @Post('decline')
+  @HttpCode(200)
+  async decline(
+    @Param('firmSlug') slug: string,
+    @Body(new ZodValidationPipe(SignerDeclineBody)) body: Out<typeof SignerDeclineBody>,
+    @Req() req: Request,
+  ): Promise<SignerState> {
+    const call = await this.signer.call(slug, req, 'CONSENT', 'SIGN');
+    return this.signer.decline(call, body.reason ?? null);
   }
 }

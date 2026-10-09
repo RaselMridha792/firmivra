@@ -1,6 +1,8 @@
+import type { EsignRequestStatus, SignatureMethod } from '@firmivra/types';
 import type { EsignCodeKind } from '../engine/engine.types.js';
 import type {
   EsignEventRecord,
+  EsignQueuedTemplate,
   EsignRecipientRecord,
   EsignRequestRecord,
 } from '../requests/esign.repository.js';
@@ -13,7 +15,7 @@ export interface SignerLink {
   requestId: string;
   recipientId: string;
   tokenVersion: number;
-  /** SIGN: the invitation's link. COPY: the completed-copy link (slice 2). */
+  /** SIGN: the invitation's link. COPY: the completed-copy link (slice 3). */
   purpose: 'SIGN' | 'COPY';
 }
 
@@ -23,7 +25,34 @@ export interface SignerRecord {
   /** esign_recipients.token_version: correcting the recipient raises it. */
   tokenVersion: number;
   consentVersionId: string | null;
+  /** What the signer adopted (never the signature itself); null before `adopt`. */
+  adopted: { method: SignatureMethod; hasInitials: boolean } | null;
 }
+
+/** A typed mark's text, or a PNG that passed SIGNATURE_IMAGE_CHECK. */
+export type AdoptedMark = { method: SignatureMethod; text: string | null; png: Uint8Array | null };
+/** POST adopt's signature and initials; adopting again replaces them. */
+export type SignerAdoption = {
+  printedName: string;
+  signature: AdoptedMark;
+  initials: AdoptedMark | null;
+};
+
+/** What POST finish writes, in one transaction under the request's FOR UPDATE lock. */
+export interface SignerFinishWrite {
+  signedAt: Date;
+  /** Their field values (esign_fields.value and filled). */
+  values: { fieldId: string; value: string }[];
+  status: EsignRequestStatus;
+  /** Completion hook: all signed. PARTIALLY_SIGNED, marked due, until the PDF is filed. */
+  allSigned: boolean;
+  /** The next signers: SENT, with their link token's hash (as EsignSendWrite). */
+  turn: { recipientId: string; tokenHash: string | null }[];
+  emails: { recipientId: string; template: EsignQueuedTemplate }[];
+  event: EsignEventRecord;
+}
+
+type Signer = [businessId: string, requestId: string, recipientId: string];
 
 export interface EsignSignerRepository {
   /** The SIGNER recipient a link token's SHA-256 belongs to. */
@@ -55,6 +84,19 @@ export interface EsignSignerRepository {
     recipientId: string,
     versionId: string,
     event: EsignEventRecord,
+  ): Promise<boolean>;
+  // The writes below apply (and set lastActivityAt) only while the request is open and the
+  // recipient has not signed or declined; else false (null), writing nothing.
+  /** The first envelope read: the recipient VIEWED, the request `status`, the event. */
+  markViewed(
+    ...a: [...Signer, write: { at: Date; status: EsignRequestStatus; event: EsignEventRecord }]
+  ): Promise<boolean>;
+  adopt(...a: [...Signer, adoption: SignerAdoption]): Promise<boolean>;
+  /** SIGNED and the rest of `write` (email ids answered); null unless lastActivityAt = `readAt`. */
+  finish(...a: [...Signer, write: SignerFinishWrite, readAt: Date]): Promise<string[] | null>;
+  /** The recipient and the request DECLINED, with the reason (timeline only) and the event. */
+  decline(
+    ...a: [...Signer, write: { at: Date; reason: string | null; event: EsignEventRecord }]
   ): Promise<boolean>;
 }
 

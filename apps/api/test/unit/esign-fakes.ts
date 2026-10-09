@@ -45,6 +45,8 @@ import type { EsignRequestStatus } from '@firmivra/types';
 import type { EsignCodeKind } from '../../src/esign/engine/engine.types.js';
 import type {
   EsignSignerRepository,
+  SignerAdoption,
+  SignerFinishWrite,
   SignerLink,
 } from '../../src/esign/signer/signer.repository.js';
 
@@ -449,7 +451,11 @@ export class InMemorySignerRepository implements EsignSignerRepository {
     if (!request || !recipient) return null;
     const tokenVersion = this.versions.of(businessId).get(recipientId) ?? 0;
     const consentVersionId = this.pinned.of(businessId).get(recipientId) ?? null;
-    return { request, recipient, tokenVersion, consentVersionId };
+    const adoption = this.adoptions.of(businessId).get(recipientId);
+    const adopted = adoption
+      ? { method: adoption.signature.method, hasInitials: adoption.initials !== null }
+      : null;
+    return { request, recipient, tokenVersion, consentVersionId, adopted };
   }
 
   issueCode(
@@ -514,6 +520,121 @@ export class InMemorySignerRepository implements EsignSignerRepository {
     this.pinned.of(businessId).set(recipientId, versionId);
     await this.addEvent(businessId, requestId, event);
     return true;
+  }
+
+  /** Each firm's adopted signatures, by recipient. */
+  readonly adoptions = new PerFirm<SignerAdoption>();
+  /** Each firm's signer values, by field id, and the requests marked for completion. */
+  readonly values = new PerFirm<string>();
+  readonly completionDue = new Set<string>();
+
+  /**
+   * Applies the change while the request is open and the recipient has not finished (and, with
+   * `readAt`, unchanged since), bumping lastActivityAt like the Prisma writes.
+   */
+  private change(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    apply: (row: { record: EsignRequestRecord; parts: EsignRequestParts }) => void,
+    readAt?: Date,
+  ): boolean {
+    let ok = false;
+    this.requests.seed(businessId, requestId, (row) => {
+      const me = row.parts.recipients.find((r) => r.id === recipientId);
+      const open = ['SENT', 'DELIVERED', 'VIEWED', 'PARTIALLY_SIGNED'];
+      if (!me || !open.includes(row.record.status) || ['SIGNED', 'DECLINED'].includes(me.status))
+        return;
+      if (readAt && row.record.lastActivityAt.getTime() !== readAt.getTime()) return;
+      const last = row.record.lastActivityAt.getTime();
+      row.record.lastActivityAt = new Date(Math.max(Date.now(), last + 1));
+      apply(row);
+      ok = true;
+    });
+    return ok;
+  }
+
+  async markViewed(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    write: { at: Date; status: EsignRequestStatus; event: EsignEventRecord },
+  ) {
+    if ((await this.signer(businessId, requestId, recipientId))?.recipient.viewedAt) return false;
+    const ok = this.change(businessId, requestId, recipientId, (row) => {
+      const me = row.parts.recipients.find((r) => r.id === recipientId)!;
+      Object.assign(me, { status: 'VIEWED', viewedAt: write.at });
+      row.record.status = write.status;
+    });
+    if (ok) await this.addEvent(businessId, requestId, write.event);
+    return ok;
+  }
+
+  adopt(businessId: string, requestId: string, recipientId: string, adoption: SignerAdoption) {
+    const ok = this.change(businessId, requestId, recipientId, () =>
+      this.adoptions.of(businessId).set(recipientId, adoption),
+    );
+    return Promise.resolve(ok);
+  }
+
+  async finish(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    write: SignerFinishWrite,
+    readAt: Date,
+  ) {
+    const outbox = this.requests.outbox.of(businessId);
+    const ids: string[] = [];
+    const ok = this.change(
+      businessId,
+      requestId,
+      recipientId,
+      (row) => {
+        const me = row.parts.recipients.find((r) => r.id === recipientId)!;
+        Object.assign(me, { status: 'SIGNED', signedAt: write.signedAt });
+        row.record.status = write.status;
+        for (const v of write.values) this.values.of(businessId).set(v.fieldId, v.value);
+        if (write.allSigned) this.completionDue.add(requestId);
+        for (const t of write.turn) {
+          const r = row.parts.recipients.find((x) => x.id === t.recipientId)!;
+          Object.assign(r, { status: 'SENT', sentAt: write.signedAt });
+          if (t.tokenHash) {
+            const link = {
+              requestId,
+              recipientId: r.id,
+              tokenVersion: 0,
+              purpose: 'SIGN' as const,
+            };
+            this.links.of(businessId).set(t.tokenHash, link);
+          }
+        }
+        for (const e of write.emails) {
+          const emailId = randomUUID();
+          outbox.set(emailId, { ...e, status: 'QUEUED', error: null });
+          ids.push(emailId);
+        }
+      },
+      readAt,
+    );
+    if (!ok) return null;
+    await this.addEvent(businessId, requestId, write.event);
+    return ids;
+  }
+
+  async decline(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    write: { at: Date; reason: string | null; event: EsignEventRecord },
+  ) {
+    const ok = this.change(businessId, requestId, recipientId, (row) => {
+      row.record.status = 'DECLINED';
+      const me = row.parts.recipients.find((r) => r.id === recipientId)!;
+      Object.assign(me, { status: 'DECLINED', declinedAt: write.at, declineReason: write.reason });
+    });
+    if (ok) await this.addEvent(businessId, requestId, write.event);
+    return ok;
   }
 }
 

@@ -1,4 +1,4 @@
-// End-to-end: the Firm Sign signer routes, slice 1 (portal/{slug}/sign), through the real guard
+// End-to-end: the Firm Sign signer routes, slices 1 and 2 (portal/{slug}/sign), through the real guard
 // stack. The signer tables come with r0_esign, so this covers what answers before the
 // repository: 404 LINK_INVALID without a cookie, with a forged or other firm's cookie, for an
 // unknown or inactive firm and while Firm Sign is off (the contract's one answer for signer
@@ -20,6 +20,8 @@ let app: INestApplication;
 /** A firm of this file only, with Firm Sign on. */
 const onSlug = `r13-sign-${randomUUID().slice(0, 8)}`;
 const TOKEN = 'A'.repeat(43);
+const FIELD = randomUUID();
+const TYPED = { printedName: 'Fake Signer', method: 'TYPED', typedSignature: 'Fake Signer' };
 /** Every signer route that reads the cookie, with a valid body (code/send: its own test). */
 const COOKIE_ROUTES = [
   ['get', 'state', undefined],
@@ -27,6 +29,11 @@ const COOKIE_ROUTES = [
   ['post', 'access-code', { code: 'FAKE1234' }],
   ['get', 'consent', undefined],
   ['post', 'consent', { versionId: randomUUID(), agree: true }],
+  ['get', 'envelope', undefined],
+  ['get', 'packet', undefined],
+  ['post', 'adopt', { signature: TYPED }],
+  ['post', 'finish', { values: [] }],
+  ['post', 'decline', {}],
 ] as const;
 
 beforeAll(async () => {
@@ -107,6 +114,27 @@ describe('Firm Sign signer routes', () => {
       ['access-code', { code: '!!' }],
       ['consent', { versionId: randomUUID(), agree: false }],
       ['consent', { versionId: 'nope', agree: true }],
+      ['decline', { reason: 'x'.repeat(501) }],
+      ['decline', { extra: true }],
+      ['adopt', {}],
+      [
+        'adopt',
+        { signature: { printedName: 'Fake Signer', method: 'TYPED', typedSignature: 'Other' } },
+      ],
+      ['adopt', { signature: { printedName: 'Fake', method: 'DRAWN', imagePng: 'not-a-png' } }],
+      ['adopt', { signature: TYPED, initials: { method: 'TYPED', text: 'x'.repeat(11) } }],
+      ['finish', {}],
+      ['finish', { values: [{ fieldId: 'nope', value: 'x' }] }],
+      [
+        'finish',
+        {
+          values: [
+            { fieldId: FIELD, value: 'a' },
+            { fieldId: FIELD, value: 'b' },
+          ],
+        },
+      ],
+      ['finish', { values: [{ fieldId: FIELD, value: 'x'.repeat(1001) }] }],
     ] as const;
     for (const [path, body] of bad) {
       expect(answer(await send('post', onSlug, path, body))).toBe('400 VALIDATION_FAILED');
@@ -117,5 +145,13 @@ describe('Firm Sign signer routes', () => {
     const answers = [];
     for (let i = 0; i < 6; i++) answers.push(answer(await send('post', onSlug, 'code/send', {})));
     expect(answers).toEqual([...Array<string>(5).fill('404 LINK_INVALID'), '429 RATE_LIMITED']);
+  });
+
+  it('session/end clears the cookie on its path', async () => {
+    const res = await send('post', onSlug, 'session/end', {});
+    expect(res.status).toBe(200);
+    expect(String(res.headers['set-cookie'])).toContain(
+      `fv_sign_${onSlug}=; Path=/api/v1/portal/${onSlug}/sign;`,
+    );
   });
 });
