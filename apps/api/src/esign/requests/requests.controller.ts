@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import type { z } from 'zod';
 import {
   CreateEsignRequestBody,
@@ -18,7 +27,7 @@ const idPipe = new ZodValidationPipe(EsignRequestId);
 
 /** The firm comes from TenantGuard; firm roles only (see @Roles). */
 function actorOf(auth: AuthContext, tenant: TenantContext): EsignActor {
-  if (tenant.kind !== 'staff') throw new Error('Firm Sign routes are for firm members');
+  if (tenant.kind !== 'staff') throw new NotFoundException({ code: 'NOT_FOUND' });
   return { userId: auth.userId, role: tenant.role };
 }
 
