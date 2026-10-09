@@ -5,15 +5,13 @@ import { expect, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 
-/** A day of next week (0 Monday) in the firm's time zone, where the mock puts its week. */
-function nextWeek(offset: number) {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
-    new Date(),
-  );
-  const day = new Date(`${today}T00:00:00Z`);
-  const ahead = ((8 - day.getUTCDay()) % 7 || 7) + offset;
-  return new Date(day.getTime() + ahead * 86_400_000).toISOString().slice(0, 10);
-}
+// The mock puts its week after today and treats New York as a fixed UTC-4, while the screens
+// use the real zone. Run on a summer Wednesday: EDT is UTC-4, and next week is past the cutoffs.
+test.beforeEach(({ page }) => page.clock.setFixedTime(new Date('2026-07-08T12:00:00-04:00')));
+
+/** A day of the mock's week ('YYYY-MM-DD'): 0 is next Monday, July 13. */
+const nextWeek = (offset: number) =>
+  new Date(Date.UTC(2026, 6, 13 + offset)).toISOString().slice(0, 10);
 
 test('working hours are checked, then saved', async ({ page }) => {
   await page.goto(app('/settings/availability'));
@@ -32,6 +30,8 @@ test('working hours are checked, then saved', async ({ page }) => {
   await mockUser.getByLabel('Saturday to').fill('12:00');
   await mockUser.getByRole('button', { name: 'Save working hours' }).click();
   await expect(mockUser.getByText('Working hours saved.')).toBeVisible();
+  await mockUser.getByLabel('Saturday to').fill('13:00');
+  await expect(mockUser.getByText('Working hours saved.')).toHaveCount(0);
 
   // One person at a time: yours first, then anyone else's.
   await page.getByLabel('Whose hours').selectOption({ label: 'Sam Staff' });

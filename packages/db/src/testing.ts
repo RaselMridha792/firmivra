@@ -74,7 +74,9 @@ export async function prepareTestDatabase(
       message_threads, messages, message_attachments, client_private_notes, client_note_reminders,
       invoices, invoice_lines, payments, payment_events, content_items, calculator_definitions,
       stripe_accounts, firm_application_status_history, verification_codes, tax_returns,
-      payment_refunds, platform_user_signups, platform_owner_invites CASCADE`);
+      payment_refunds, platform_user_signups, platform_owner_invites, firm_agreements,
+      firm_agreement_files, firm_agreement_versions, intake_signatures, intake_signature_agreements
+      CASCADE`);
   } finally {
     await owner.end();
   }
