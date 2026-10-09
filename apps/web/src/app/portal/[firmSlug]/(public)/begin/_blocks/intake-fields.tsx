@@ -80,7 +80,8 @@ function OptionList({
           onChange={(event) => onChange(event.target.checked ? options.map((o) => o.value) : [])}
         />
       )}
-      {cards ? (
+      {/* Options with help text read as cards: a bold title and its help beneath (the mockups). */}
+      {cards || options.some((o) => o.help) ? (
         <div className="grid gap-2 md:grid-cols-3">
           {options.map((o) => {
             const on = chosen.includes(o.value);
@@ -145,7 +146,7 @@ function OptionList({
               <Radio
                 key={o.value}
                 name={name}
-                label={o.help ? `${o.label}: ${o.help}` : o.label}
+                label={o.label}
                 className="gap-2! text-xs! sm:min-h-6!"
                 checked={chosen.includes(o.value)}
                 onChange={() => toggle(o.value, true)}
@@ -302,11 +303,9 @@ export function ScalarInput({
       );
     case 'state':
       return field.multiple ? (
-        <OptionList
-          name={name}
+        <StatesInput
+          fieldKey={field.key}
           label={label}
-          options={STATE_OPTIONS}
-          multiple
           value={value}
           onChange={onChange}
           error={error}
@@ -462,6 +461,65 @@ export function InfoNote({ label, text }: { label: string; text: string }) {
       <p>
         <strong className="text-heading">{label}</strong> {text}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Several states, as the mockups ask ("Select state(s)"): a dropdown that adds a state and a
+ * removable chip for each one chosen, instead of 51 checkboxes.
+ */
+function StatesInput({
+  fieldKey,
+  label,
+  value,
+  onChange,
+  error,
+}: {
+  fieldKey: string;
+  label: string;
+  value: ScreenScalar;
+  onChange: (value: ScreenScalar) => void;
+  error?: string | undefined;
+}) {
+  const chosen = Array.isArray(value) ? value : [];
+  const nameOf = (code: string) => STATE_OPTIONS.find((o) => o.value === code)?.label ?? code;
+  return (
+    <div className="min-w-0 space-y-1 [&_label]:text-xs [&_label]:text-firm-primary">
+      <Select
+        label={label}
+        error={error}
+        className={compactInput}
+        data-field={fieldKey}
+        options={[
+          { value: '', label: chosen.length ? 'Add another state' : 'Select state(s)' },
+          ...STATE_OPTIONS.filter((o) => !chosen.includes(o.value)),
+        ]}
+        value=""
+        onChange={(event) => {
+          if (event.target.value) onChange([...chosen, event.target.value]);
+        }}
+      />
+      {chosen.length > 0 && (
+        <ul aria-label={`${label}: chosen`} className="flex flex-wrap gap-1">
+          {chosen.map((code) => (
+            <li
+              key={code}
+              className="flex items-center gap-1 rounded-control border border-folder-border bg-folder-surface px-2 py-0.5 text-xs"
+            >
+              {nameOf(code)}
+              <button
+                type="button"
+                aria-label={`Remove ${nameOf(code)}`}
+                className="min-h-6 px-1"
+                onClick={() => onChange(chosen.filter((c) => c !== code))}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

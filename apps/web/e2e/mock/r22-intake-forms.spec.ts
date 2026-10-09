@@ -9,13 +9,13 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const origin = `http://portal.localhost:${port}`;
 
 const FORMS = [
-  // The first return type (Personal) hides step 2, Business Income & Expenses.
-  { path: 'annual-tax', title: 'Annual Tax Intake Form', steps: 3 },
-  { path: 'quarterly-tax', title: 'Quarterly Tax Intake Form', steps: 4 },
-  { path: 'bookkeeping', title: 'Business Bookkeeping Intake Form', steps: 4 },
-  { path: 'payroll', title: 'Payroll Services Intake Form', steps: 3 },
-  { path: 'tax-planning', title: 'Tax Planning Intake Form', steps: 4 },
-  { path: 'business-development', title: 'Business Development Intake Form', steps: 4 },
+  // The first return type (Personal) leaves out step 2, Business Income & Expenses.
+  { path: 'annual-tax', title: 'Annual Tax Intake Form', steps: [1, 3, 4] },
+  { path: 'quarterly-tax', title: 'Quarterly Tax Intake Form', steps: [1, 2, 3, 4] },
+  { path: 'bookkeeping', title: 'Business Bookkeeping Intake Form', steps: [1, 2, 3, 4] },
+  { path: 'payroll', title: 'Payroll Services Intake Form', steps: [1, 2, 3] },
+  { path: 'tax-planning', title: 'Tax Planning Intake Form', steps: [1, 2, 3, 4] },
+  { path: 'business-development', title: 'Business Development Intake Form', steps: [1, 2, 3, 4] },
 ] as const;
 
 const PDF = {
@@ -93,7 +93,7 @@ async function fillStep(page: Page) {
 }
 
 async function continueTo(page: Page, step: number) {
-  await page.getByRole('button', { name: /^Continue/ }).click();
+  await page.getByTestId('intake-next').click();
   await expect(current(page).getByRole('button')).toHaveText(String(step), { timeout: 20_000 });
 }
 
@@ -104,39 +104,39 @@ for (const f of FORMS) {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(f.title);
 
     // Required fields stop Continue on the first step, with errors by the fields.
-    await page.getByRole('button', { name: /^Continue/ }).click();
+    await page.getByTestId('intake-next').click();
     await expect(page.getByRole('alert').first()).toContainText('Please complete the highlighted');
     await expect(form(page).locator('[aria-invalid="true"]').first()).toBeVisible();
 
-    for (let step = 1; step < f.steps; step += 1) {
+    for (let n = 0; n < f.steps.length - 1; n += 1) {
       await fillStep(page);
-      await continueTo(page, step + 1);
-      if (step === 1) {
+      await continueTo(page, f.steps[n + 1]!);
+      if (n === 0) {
         // Previous goes back with the answers kept.
-        await page.getByRole('button', { name: 'Previous' }).click();
+        await page.getByTestId('intake-back').click();
         await expect(current(page).getByRole('button')).toHaveText('1');
-        await continueTo(page, 2);
+        await continueTo(page, f.steps[1]!);
       }
     }
 
     // The review: a card per step with Edit, then the review step's own fields and the agreement.
     const review = page.getByTestId('intake-review');
     await expect(review).toBeVisible();
-    await expect(review.getByRole('button', { name: /^Edit / })).toHaveCount(f.steps - 1);
+    await expect(review.getByRole('button', { name: /^Edit / })).toHaveCount(f.steps.length - 1);
     await expect(review).not.toContainText('123456789');
     await page.screenshot({ path: test.info().outputPath(`${f.path}-review.png`), fullPage: true });
 
-    await page.getByRole('button', { name: 'Submit Intake Form' }).click();
+    await page.getByTestId('intake-next').click();
     await expect(page.getByRole('alert').last()).toBeVisible();
     await fillStep(page);
     // R14's agreement block: its required boxes (ticked by fillStep), then the typed signature.
     await expect(page.getByRole('region', { name: /agreement/i }).first()).toBeVisible();
     await page.getByLabel('Full Name *', { exact: true }).fill('Avery Example');
     await page.getByLabel('Signature (type your full name) *').fill('Avery Exampel');
-    await page.getByRole('button', { name: 'Submit Intake Form' }).click();
+    await page.getByTestId('intake-next').click();
     await expect(page.getByText('Type your name exactly as printed.')).toBeVisible();
     await page.getByLabel('Signature (type your full name) *').fill('Avery Example');
-    await page.getByRole('button', { name: 'Submit Intake Form' }).click();
+    await page.getByTestId('intake-next').click();
     await expect(page).toHaveURL(`${origin}/lvp/begin/done?form=${f.path}`, { timeout: 20_000 });
   });
 }
@@ -202,7 +202,8 @@ test('a field the answers hide never blocks the save (a leftover spouse SSN)', a
   await page.getByRole('radio', { name: 'Single', exact: true }).check();
   await expect(page.getByLabel('Spouse SSN *')).toHaveCount(0);
   await fillStep(page);
-  await continueTo(page, 2);
+  // Step 2 (business) is left out for a personal return.
+  await continueTo(page, 3);
 });
 
 test('leaving and reopening a form loads the saved answers, not the first ones', async ({
@@ -224,7 +225,7 @@ test('leaving and reopening a form loads the saved answers, not the first ones',
   await expect(page).toHaveURL(`${origin}/lvp/begin`);
   await page.getByRole('link', { name: /Tax Planning Intake Form/ }).click();
   await expect(current(page).getByRole('button')).toHaveText('2', { timeout: 20_000 });
-  await page.getByRole('button', { name: 'Previous' }).click();
+  await page.getByTestId('intake-back').click();
   await expect(form(page).locator('form input[data-type="text"]:visible').first()).toHaveValue(
     'Saved Name',
   );
@@ -242,7 +243,7 @@ test('after a submit, opening the service again starts a new form with a notice'
   await fillStep(page);
   await page.getByLabel('Full Name *', { exact: true }).fill('Avery Example');
   await page.getByLabel('Signature (type your full name) *').fill('Avery Example');
-  await page.getByRole('button', { name: 'Submit Intake Form' }).click();
+  await page.getByTestId('intake-next').click();
   await expect(page).toHaveURL(`${origin}/lvp/begin/done?form=payroll`, { timeout: 20_000 });
   await page.getByRole('link', { name: 'Back to Begin Online' }).click();
   await page.getByRole('link', { name: /Payroll Intake Form/ }).click();
@@ -250,4 +251,61 @@ test('after a submit, opening the service again starts a new form with a notice'
     timeout: 20_000,
   });
   await expect(page.getByRole('button', { name: 'Start My Form' })).toBeVisible();
+});
+
+test('an SSN is masked, can be shown, and nothing is kept in browser storage', async ({ page }) => {
+  await start(page, 'annual-tax');
+  const ssn = page.getByLabel('Social Security Number (SSN) *');
+  await ssn.fill('123456789');
+  await expect(ssn).toHaveAttribute('type', 'password');
+  await page.getByRole('button', { name: 'Show Social Security Number (SSN)' }).click();
+  await expect(ssn).toHaveAttribute('type', 'text');
+  expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+});
+
+test('group rows add and remove; a grid totals its amounts', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page, 'quarterly-tax');
+  await fillStep(page);
+  await continueTo(page, 2);
+  await fillStep(page);
+  await continueTo(page, 3);
+  await fillStep(page);
+  // Business Expenses for Each Quarter totals each quarter's column.
+  const total = page.locator('[data-total]').first();
+  await expect(total).toHaveText(/^\$[1-9][\d,]*\.\d{2}$/);
+
+  const group = page.locator('[data-group]').first();
+  if ((await group.count()) > 0) {
+    const before = Number(await group.getAttribute('data-rows'));
+    await group.getByRole('button').last().click();
+    await expect(group).toHaveAttribute('data-rows', String(before + 1));
+    await group
+      .getByRole('button', { name: /^Remove / })
+      .last()
+      .click();
+    await expect(group).toHaveAttribute('data-rows', String(before));
+  }
+});
+
+test('a file of a refused type is not uploaded; Edit on the review opens its step', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page, 'annual-tax');
+  await fillStep(page);
+  await continueTo(page, 3);
+  const slot = page.locator('[data-slot]').first();
+  await slot.locator('input[type=file]').setInputFiles({
+    name: 'synthetic.exe',
+    mimeType: 'application/x-msdownload',
+    buffer: Buffer.from('MZ synthetic'),
+  });
+  await expect(slot).toContainText('synthetic.exe:');
+  await expect(slot.getByRole('listitem')).toHaveCount(0);
+
+  await fillStep(page);
+  await continueTo(page, 4);
+  await page.getByRole('button', { name: /^Edit Personal/ }).click();
+  await expect(current(page).getByRole('button')).toHaveText('1', { timeout: 20_000 });
 });

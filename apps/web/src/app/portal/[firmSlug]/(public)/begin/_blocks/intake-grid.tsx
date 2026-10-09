@@ -4,6 +4,17 @@ import type { IntakeGridField } from '@firmivra/types';
 import { formatCents, issueKey, type ScreenGrid, toCents } from './intake-values';
 import type { Fill } from './intake-fields';
 
+/** The first column's heading, as the mockups name it (the grid's title is its caption). */
+const ROW_HEADER: Readonly<Record<string, string>> = {
+  businessIncome: 'Income Source / Type',
+  grossReceipts: 'Income Source / Type',
+  incomeTaxesPaid: 'Tax Type',
+  federalPayments: 'Quarter',
+  payrollWages: 'Quarter',
+  businessExpenses: 'Expense Category',
+  expenses: 'Expense Category',
+};
+
 /**
  * A grid field: rows by columns of amounts, dates or notes (income by Q1 to Q4 and Total Annual).
  * With `totalLabel` a footer row sums each currency column as the person types (shown, not stored).
@@ -30,6 +41,10 @@ export function GridInput({
   const wide = field.columns.length > 2;
   return (
     <div className="min-w-0">
+      <p className="mb-1 text-xs font-medium text-firm-primary">
+        {label}
+        {field.required ? ' *' : ''}
+      </p>
       {field.help && <p className="mb-1 text-xs text-muted">{fill(field.help)}</p>}
       <div
         className="w-full min-w-0 overflow-x-auto rounded-control border border-folder-border"
@@ -42,7 +57,7 @@ export function GridInput({
           <thead className="bg-folder-surface text-heading">
             <tr>
               <th scope="col" className="px-2 py-1 font-semibold">
-                {label}
+                {ROW_HEADER[field.key] ?? 'Description'}
               </th>
               {field.columns.map((col) => (
                 <th key={col.key} scope="col" className="px-2 py-1 font-semibold">
