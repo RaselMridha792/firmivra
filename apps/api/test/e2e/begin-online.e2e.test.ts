@@ -23,7 +23,9 @@ import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
+import { INTAKE_SIGNING } from '../../src/begin-online/signing.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import { publishFirmWideAgreement, TEST_LEAD_SIGNING } from '../intake-signing.js';
 import { pdf, sha256 } from '../office-files.js';
 
 /** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
@@ -167,6 +169,9 @@ beforeAll(async () => {
     .useValue(storage)
     .overrideProvider(DOCUMENTS_CONFIG)
     .useValue({ bucket: 'unused', region: 'us-east-1', forcePathStyle: true, scanMode: 'local' })
+    // Writes the signature row the database needs (the placeholder writes none).
+    .overrideProvider(INTAKE_SIGNING)
+    .useValue(TEST_LEAD_SIGNING)
     .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
@@ -611,14 +616,14 @@ describe('Begin Online submit', () => {
   const signature = { printedName: 'Avery Example', typedSignature: '  avery   EXAMPLE ' };
 
   /** A CLEAN file in `slot`, inserted as confirm would, with its object in storage. */
-  async function addFile(leadId: string, slot: string) {
+  async function addFile(leadId: string, slot: string, firm = firms.a) {
     const bytes = pdf(slot);
-    const key = `tenant/${firms.a.id}/leads/${leadId}/${randomUUID()}`;
+    const key = `tenant/${firm.id}/leads/${leadId}/${randomUUID()}`;
     storage.objects.set(key, bytes);
-    await asOwner(firms.a.id, async (tx) => {
+    await asOwner(firm.id, async (tx) => {
       const row = await tx.leadUpload.create({
         data: {
-          businessId: firms.a.id,
+          businessId: firm.id,
           leadId,
           slot,
           fileName: `${slot}.pdf`,
@@ -658,7 +663,57 @@ describe('Begin Online submit', () => {
       await tx.membership.create({
         data: { businessId: firms.a.id, userId: team.staff.id, role: 'STAFF', status: 'ACTIVE' },
       });
+      // Firm A has its firm-wide intake agreement published; firm B has none.
+      await publishFirmWideAgreement(tx, firms.a.id, team.owner.id);
     });
+  });
+
+  it('without a published firm-wide agreement: 409 NO_INTAKE_AGREEMENT and nothing changes', async () => {
+    const v = visitor(firms.b.slug);
+    const married = { ...complete, filingStatus: 'MARRIED_FILING_JOINTLY' };
+    const start = { ...annualStart(), serviceId: services.b };
+    const draft = BeginDraft.parse(
+      (await v.post('/drafts', { ...start, answers: stepAnswers('personal', married) })).body,
+    );
+    const hidden = await addFile(draft.leadId, 'spouseGovernmentId', firms.b);
+    await addFile(draft.leadId, 'governmentId', firms.b);
+    const personal = { ...stepAnswers('personal'), ssn: { last4: '3456' } };
+    expect((await v.put('/drafts/current/steps/personal', { answers: personal })).status).toBe(200);
+    for (const step of ['documents', 'review']) {
+      expect(
+        (await v.put(`/drafts/current/steps/${step}`, { answers: stepAnswers(step) })).status,
+      ).toBe(200);
+    }
+    const read = () =>
+      asOwner(firms.b.id, (tx) =>
+        tx.lead.findUniqueOrThrow({
+          where: { id: draft.leadId },
+          include: {
+            intakes: { include: { submissions: true, signatures: true } },
+            uploads: { orderBy: { slot: 'asc' } },
+          },
+        }),
+      );
+    const before = await read();
+    const sentBefore = outbox.length;
+
+    const res = await v.post('/drafts/current/submit', signature);
+    expect([res.status, codeOf(res)]).toEqual([409, 'NO_INTAKE_AGREEMENT']);
+    expect(res.body.error.message).toBe(
+      "This form can't be signed right now. Please contact the firm.",
+    );
+    expect(res.headers['set-cookie']).toBeUndefined();
+
+    const after = await read();
+    expect(after).toEqual(before);
+    expect(after.status).toBe('DRAFT');
+    expect(after.intakes[0]?.submissions[0]?.submittedAt).toBeNull();
+    expect(after.intakes[0]?.signatures).toEqual([]);
+    expect(after.uploads.map((u) => u.slot)).toEqual(['governmentId', 'spouseGovernmentId']);
+    expect(storage.objects.has(hidden)).toBe(true);
+    expect(outbox.length).toBe(sentBefore);
+    // The draft is still open with the same cookie.
+    expect((await v.get('/drafts/current')).status).toBe(200);
   });
 
   it('checks the whole form, removes hidden-slot files, locks the version and emails', async () => {
