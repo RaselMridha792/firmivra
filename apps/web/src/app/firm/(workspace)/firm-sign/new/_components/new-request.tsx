@@ -20,7 +20,14 @@ import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { requestKey } from '../../requests/[id]/prepare/_components/steps';
 import { ClientPicker } from './client-picker';
 import { TEMPLATES, templateKey } from '../../templates/_components/keys';
-import { askedRoles, draftOf, type RoleDraft, TemplateRoles, toWho } from './template-roles';
+import {
+  askedRoles,
+  draftOf,
+  needsCode,
+  type RoleDraft,
+  TemplateRoles,
+  toWho,
+} from './template-roles';
 
 /** Step 0 of a request (/firm-sign/new): its name, client and service; then the wizard. */
 export function NewRequest({ clientId, templateId }: { clientId?: string; templateId?: string }) {
@@ -99,22 +106,32 @@ function StartForm({
   function fromTemplateSubmit() {
     const t = template.data;
     if (!t || t.archivedAt) return;
-    const chosen = askedRoles(t.roles).map((r) => ({ r, who: toWho(draftOf(roles, r, clientId)) }));
-    const missing = Object.fromEntries(
-      chosen.filter((c) => c.who === null).map((c) => [c.r.key, 'Choose who']),
-    );
+    const chosen = askedRoles(t.roles).map((r) => {
+      const d = draftOf(roles, r, clientId);
+      return { r, who: toWho(d), code: needsCode(r) ? d.accessCode.trim() : '' };
+    });
+    const missing: Record<string, string> = {};
+    for (const c of chosen) {
+      if (c.who === null) missing[c.r.key] = 'Choose who';
+      if (needsCode(c.r) && !c.code) missing[`${c.r.key}.accessCode`] = 'Set an access code';
+    }
     if (Object.keys(missing).length) return setRoleErrors(missing);
-    const given = chosen.filter((c) => c.who);
+    const given = chosen.filter((c) => c.who || c.code);
     const parsed = UseEsignTemplateBody.safeParse({
       ...(title.trim() && { title }),
       ...(clientId && { clientId }),
       ...(engagementId && { engagementId }),
-      roles: given.map((c) => ({ key: c.r.key, who: c.who })),
+      roles: given.map((c) => ({
+        key: c.r.key,
+        ...(c.who && { who: c.who }),
+        ...(c.code && { accessCode: c.code }),
+      })),
     });
     if (!parsed.success) {
       const next: Record<string, string> = {};
       for (const issue of parsed.error.issues) {
-        const [first, index, , box] = issue.path;
+        const [first, index, part, inner] = issue.path;
+        const box = inner ?? (part === 'who' ? undefined : part);
         const role = first === 'roles' && typeof index === 'number' ? given[index]?.r : undefined;
         if (role) next[box ? `${role.key}.${String(box)}` : role.key] ??= issue.message;
         else if (first === 'title') setTitleError(issue.message);

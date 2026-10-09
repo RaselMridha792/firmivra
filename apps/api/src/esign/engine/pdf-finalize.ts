@@ -255,7 +255,7 @@ const SIGNATURE_PAGE = { width: 612, height: 792 } as const;
 function signaturePage(
   doc: PDFDocument,
   signer: SignaturePageSigner,
-  image: PDFImage,
+  image: PDFImage | undefined,
   font: PDFFont,
   timeZone: string,
 ) {
@@ -267,13 +267,20 @@ function signaturePage(
   );
   text('Signature page', 72, 700, 20);
   text('Signed electronically with Firm Sign.', 72, 676, 10);
-  const scale = Math.min(300 / image.width, 90 / image.height);
-  page.drawImage(image, {
-    x: 72,
-    y: 560,
-    width: image.width * scale,
-    height: image.height * scale,
-  });
+  if (image) {
+    const scale = Math.min(300 / image.width, 90 / image.height);
+    page.drawImage(image, {
+      x: 72,
+      y: 560,
+      width: image.width * scale,
+      height: image.height * scale,
+    });
+  } else {
+    // A typed signature: the signer's text on the line, shrunk to fit its 328 points.
+    const typed = printableWith(font, signer.typed ?? '');
+    const size = Math.max(10, Math.min(28, 320 / Math.max(font.widthOfTextAtSize(typed, 1), 1)));
+    page.drawText(typed, { x: 72, y: 562, size, font, color: INK });
+  }
   page.drawLine({ start: { x: 72, y: 552 }, end: { x: 400, y: 552 }, color: INK, thickness: 0.75 });
   text('Signature', 72, 538, 9);
   text(signer.name, 72, 490, 13);
@@ -293,7 +300,10 @@ export async function finalize(packet: Uint8Array, input: FinalizeInput): Promis
   stripActiveContent(doc);
   const images = new Map<Uint8Array, PDFImage>();
   const pngs = [...input.stamps.flatMap((s) => (s.kind === 'IMAGE' ? [s.png] : []))];
-  for (const png of [...pngs, ...input.signaturePages.map((s) => s.signaturePng)]) {
+  const signaturePngs = input.signaturePages.flatMap((s) =>
+    s.signaturePng ? [s.signaturePng] : [],
+  );
+  for (const png of [...pngs, ...signaturePngs]) {
     if (!images.has(png)) images.set(png, await doc.embedPng(png));
   }
   const pages = doc.getPages();
@@ -303,7 +313,8 @@ export async function finalize(packet: Uint8Array, input: FinalizeInput): Promis
     stamp(page, item, font, images);
   }
   for (const signer of input.signaturePages) {
-    signaturePage(doc, signer, images.get(signer.signaturePng)!, font, input.timeZone);
+    const image = signer.signaturePng && images.get(signer.signaturePng);
+    signaturePage(doc, signer, image || undefined, font, input.timeZone);
   }
   // Appearances were drawn in flatten; pdf-lib's own pass would use Helvetica again.
   return doc.save({ useObjectStreams: false, updateFieldAppearances: false });

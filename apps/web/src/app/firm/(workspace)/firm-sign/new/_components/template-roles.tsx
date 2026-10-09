@@ -11,8 +11,10 @@ export interface RoleDraft {
   userId: string;
   name: string;
   email: string;
+  /** Only for a role whose check is an access code; never kept on the template. */
+  accessCode: string;
 }
-const EMPTY: RoleDraft = { mode: '', userId: '', name: '', email: '' };
+const EMPTY: RoleDraft = { mode: '', userId: '', name: '', email: '', accessCode: '' };
 
 /** The preparer is always the sender; the client and spouse can come from the client's logins. */
 const canFillItself = (r: EsignTemplateRole, clientId: string) =>
@@ -41,10 +43,13 @@ export function toWho(d: RoleDraft): Who | undefined | null {
   return null;
 }
 
+/** The template role asks the signer for a code, which the sender sets on each use. */
+export const needsCode = (r: EsignTemplateRole) => r.authMethod === 'ACCESS_CODE';
+
 /**
  * Who fills each role the template can't fill itself: a member of the firm, or someone outside it.
  * The client and spouse can be left to the client's portal logins. Errors are keyed by role key,
- * and `key.userId`, `key.name`, `key.email` for the boxes under it.
+ * and `key.userId`, `key.name`, `key.email`, `key.accessCode` for the boxes under it.
  */
 export function TemplateRoles({
   roles,
@@ -124,6 +129,19 @@ export function TemplateRoles({
                   error={errors[`${r.key}.email`]}
                   onChange={(e) => set({ email: e.target.value })}
                 />
+              </div>
+            )}
+            {needsCode(r) && (
+              <div className="flex flex-col gap-1">
+                <Input
+                  label={`${roleName(r)}: access code`}
+                  maxLength={20}
+                  autoComplete="off"
+                  value={d.accessCode}
+                  error={errors[`${r.key}.accessCode`]}
+                  onChange={(e) => set({ accessCode: e.target.value })}
+                />
+                <p className="text-sm text-muted">Give the code to the signer yourself.</p>
               </div>
             )}
           </div>

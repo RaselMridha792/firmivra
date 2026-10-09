@@ -64,6 +64,11 @@ export const ESIGN_MAX_PAGES = 100;
 /** The most recipients and fields a request may have. */
 export const ESIGN_MAX_RECIPIENTS = 20;
 export const ESIGN_MAX_FIELDS = 500;
+/**
+ * Choices across all of a request's fields. With it, the largest valid PUT fields body stays under
+ * the API's 2 MB JSON limit, even in 3-byte characters.
+ */
+export const ESIGN_MAX_FIELD_OPTIONS = 2000;
 
 /**
  * Files Firm Sign takes, at most 10 MB each: PDF, JPG and PNG. An image becomes one page. Word
@@ -312,12 +317,28 @@ export const EsignField = z.object({
 });
 export type EsignField = z.infer<typeof EsignField>;
 
+/** Whole days between `min` and `max`, with words a form can show under the field. */
+const days = (min: number, max: number, what: string) =>
+  z
+    .number({ error: `Enter the ${what} in days` })
+    .int(`Enter the ${what} in whole days`)
+    .min(min, `The ${what} must be at least ${min} ${min === 1 ? 'day' : 'days'}`)
+    .max(max, `The ${what} can be at most ${max} days`);
+/** Days from sending until a request expires: 1 to 365. */
+export const EsignExpiryDays = days(1, 365, 'expiry');
+/** Days before expiry that open signers get a warning: 0 (none) to 30. */
+export const EsignExpiryWarningDays = days(0, 30, 'warning');
+
 /** The default reminders: the first after `firstAfterDays`, then every `everyDays`, at most `max`. */
 export const EsignReminders = z.strictObject({
-  firstAfterDays: z.number().int().min(1).max(60),
-  everyDays: z.number().int().min(1).max(60),
+  firstAfterDays: days(1, 60, 'first reminder'),
+  everyDays: days(1, 60, 'time between reminders'),
   /** 0 turns automatic reminders off. */
-  max: z.number().int().min(0).max(10),
+  max: z
+    .number({ error: 'Enter how many reminders to send' })
+    .int('Enter a whole number of reminders')
+    .min(0, 'The number of reminders can’t be negative')
+    .max(10, 'Send at most 10 reminders'),
 });
 export type EsignReminders = z.infer<typeof EsignReminders>;
 
@@ -331,10 +352,10 @@ export const EsignRequestDetail = EsignRequestRow.extend({
   routing: EsignRouting,
   engagement: ServiceRef.nullable(),
   /** Days from sending until it expires (the expiry date is set when it is sent). */
-  expiryDays: z.number().int().min(1).max(365),
+  expiryDays: EsignExpiryDays,
   reminders: z.object(EsignReminders.shape),
   /** Days before expiry that open signers get a warning; 0 for none. */
-  expiryWarningDays: z.number().int().min(0).max(30),
+  expiryWarningDays: EsignExpiryWarningDays,
   documents: z.array(EsignDocument),
   /** The packet's pages in order. Pages left out of it are not sent. */
   pagePlan: z.array(z.object(EsignPage.shape)),
@@ -398,9 +419,9 @@ export const UpdateEsignRequestBody = z
     clientId: z.uuid().nullable().optional(),
     engagementId: z.uuid().nullable().optional(),
     routing: EsignRouting.optional(),
-    expiryDays: z.number().int().min(1).max(365).optional(),
+    expiryDays: EsignExpiryDays.optional(),
     reminders: EsignReminders.optional(),
-    expiryWarningDays: z.number().int().min(0).max(30).optional(),
+    expiryWarningDays: EsignExpiryWarningDays.optional(),
   })
   .refine((b) => Object.keys(b).length > 0, 'Change at least one thing');
 export type UpdateEsignRequestBody = z.input<typeof UpdateEsignRequestBody>;
@@ -492,6 +513,11 @@ export const EsignWhoExternal = z.strictObject({
   phone: Phone.optional(),
 });
 
+/** A code the firm gives an ACCESS_CODE signer another way. Only its hash is stored. */
+export const EsignAccessCode = z
+  .string()
+  .regex(/^[A-Za-z0-9]{4,20}$/, 'Use 4 to 20 letters or digits');
+
 /**
  * One recipient in PUT /esign/requests/{id}/recipients. `id` keeps an existing recipient (and its
  * fields and colour); leave it out for a new one. Who they are:
@@ -517,10 +543,7 @@ export const EsignPutRecipient = z
     delivery: EsignDelivery.default('EMAIL'),
     authMethod: EsignChosenAuthMethod.default('EMAIL_CODE'),
     /** Required for a new ACCESS_CODE; leave it out to keep the code already set. */
-    accessCode: z
-      .string()
-      .regex(/^[A-Za-z0-9]{4,20}$/, 'Use 4 to 20 letters or digits')
-      .optional(),
+    accessCode: EsignAccessCode.optional(),
   })
   .superRefine((r, ctx) => {
     if (r.role === 'CUSTOM' && !r.roleLabel) {
@@ -647,7 +670,11 @@ export const EsignPutFieldsBody = z.strictObject({
   fields: z
     .array(EsignPutField)
     .max(ESIGN_MAX_FIELDS, 'At most 500 fields')
-    .refine(uniqueIds, 'A field can be in the list only once'),
+    .refine(uniqueIds, 'A field can be in the list only once')
+    .refine(
+      (list) => list.reduce((n, f) => n + (f.options?.length ?? 0), 0) <= ESIGN_MAX_FIELD_OPTIONS,
+      'At most 2,000 choices across all fields',
+    ),
 });
 export type EsignPutFieldsBody = z.input<typeof EsignPutFieldsBody>;
 

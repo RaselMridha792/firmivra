@@ -413,8 +413,28 @@ describe('firm: tax returns per client and year', () => {
       engagementId: null,
       document: null,
     });
+    const updates = () =>
+      inFirm(ids.firmA, (tx) =>
+        tx.auditLog.findMany({
+          where: { businessId: ids.firmA, action: 'tax_return.updated', entityId: r.id },
+          select: { entityId: true, metadata: true },
+          orderBy: { createdAt: 'asc' },
+        }),
+      );
+    const before = (await updates()).length;
     const same = await changed(r.id, { taxYear: 2021, formType: '', status: 'IN_PROGRESS' });
     expect(same).toEqual(cleared);
+    // Nothing changed, so nothing is audited either (#219 follow-up).
+    expect((await updates()).length).toBe(before);
+
+    // The audit row names the return's own id, not the spelling of the request path.
+    await changed(r.id.toUpperCase(), { formType: '1040' });
+    const after = await updates();
+    expect(after.length).toBe(before + 1);
+    expect(after.at(-1)).toEqual({
+      entityId: r.id,
+      metadata: { clientId: ids.one, fields: ['formType'] },
+    });
   });
 
   it("links only this client's own documents, never an internal one, and only this client's engagements", async () => {
