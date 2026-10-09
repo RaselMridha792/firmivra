@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import type { CaseModule } from '../world.js';
 
 const later = (days: number) => new Date(Date.now() + days * 86_400_000);
+/** 15:00 UTC in some days: on the 15-minute grid. */
+const at3pm = (days: number) => new Date(later(days).setUTCHours(15, 0, 0, 0)).toISOString();
 
 export const records: CaseModule['records'] = {
   appointmentType: {
@@ -54,9 +56,25 @@ export const cases: CaseModule['cases'] = {
   // Found, but next week's meeting hasn't started.
   'POST /api/v1/business/appointments/:id/complete': { params: { id: 'appointment' }, expect: 409 },
   'POST /api/v1/business/appointments/:id/no-show': { params: { id: 'appointment' }, expect: 409 },
+  'POST /api/v1/business/appointments': {
+    params: {},
+    bodyIds: {
+      clientId: 'client',
+      staffUserId: 'staffUser',
+      typeId: 'appointmentType',
+      engagementId: 'engagement',
+    },
+    body: { startsAt: at3pm(12) },
+  },
   'POST /api/v1/business/appointments/:id/reschedule': {
     params: { id: 'appointment' },
+    bodyIds: { staffUserId: 'staffUser' },
     body: { startsAt: later(9).toISOString() },
+  },
+  'POST /api/v1/business/blocked-times': {
+    params: {},
+    bodyIds: { userId: 'staffUser' },
+    body: { startsAt: later(5).toISOString(), endsAt: later(5.1).toISOString() },
   },
   'PATCH /api/v1/business/appointment-types/:id': {
     params: { id: 'appointmentType' },
@@ -65,6 +83,13 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/appointment-types/:id/archive': { params: { id: 'appointmentType' } },
   'POST /api/v1/business/appointment-types/:id/restore': { params: { id: 'appointmentType' } },
   'DELETE /api/v1/business/blocked-times/:id': { params: { id: 'blockedTime' } },
+  // Found, but no one has working hours, so no slot is free.
+  'POST /api/v1/portal/:firmSlug/me/appointments': {
+    params: {},
+    bodyIds: { typeId: 'appointmentType' },
+    body: { startsAt: at3pm(12) },
+    expect: 409,
+  },
   'POST /api/v1/portal/:firmSlug/me/appointments/:id/cancel': { params: { id: 'appointment' } },
   // Found, but the staff member has no working hours, so no slot is free.
   'POST /api/v1/portal/:firmSlug/me/appointments/:id/reschedule': {
