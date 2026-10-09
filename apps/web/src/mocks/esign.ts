@@ -144,7 +144,14 @@ interface Seed {
   sentAt?: number;
   lastActivityAt: number;
   expiresAt?: number;
+  /** The first signer signs in person (delivery IN_PERSON). */
+  inPerson?: boolean;
 }
+
+/** The SENT request whose first signer, Taylor Sample, signs in person (`inPerson.start`). */
+const IN_PERSON_N = 96;
+export const MOCK_IN_PERSON_REQUEST_ID = '0199b6e0-0000-7000-8000-000000000096';
+export const MOCK_IN_PERSON_RECIPIENT_ID = '0199b6e3-0000-7000-8000-000000000960';
 
 const DOC_STATUS_OF: Partial<Record<EsignRequestStatus, EsignRecipient['status']>> = {
   SENT: 'SENT',
@@ -177,7 +184,7 @@ function seeded(n: number, s: Seed): { detail: EsignRequestDetail; events: Esign
         .replace(/^\.|\.$/g, '')}@example.test`,
       phone: null,
       link: { type: 'EXTERNAL' },
-      delivery: 'EMAIL',
+      delivery: s.inPerson && i === 0 ? 'IN_PERSON' : 'EMAIL',
       authMethod: 'EMAIL_CODE',
       hasAccessCode: false,
       colorIndex: i % 8,
@@ -420,7 +427,7 @@ function buildFixtures(): { details: EsignRequestDetail[]; events: Map<string, E
   const rest: [EsignRequestStatus, number][] = [
     ['DRAFT', 12],
     ['NEEDS_APPROVAL', 2],
-    ['SENT', 13],
+    ['SENT', 12],
     ['DELIVERED', 4],
     ['VIEWED', 10],
     ['PARTIALLY_SIGNED', 6],
@@ -456,10 +463,23 @@ function buildFixtures(): { details: EsignRequestDetail[]; events: Map<string, E
       });
     }
   }
+  // One of the mockup's SENT requests: its signer signs on the staff member's device.
+  seeds.push({
+    title: 'Engagement Letter (in person)',
+    status: 'SENT',
+    client: jamie,
+    sender: mockMe,
+    signers: ['Taylor Sample'],
+    createdAt: oct(8, 10),
+    sentAt: oct(8, 11),
+    lastActivityAt: oct(8, 11),
+    expiresAt: now + 20 * DAY,
+    inPerson: true,
+  });
   const details: EsignRequestDetail[] = [];
   const events = new Map<string, EsignEvent[]>();
   seeds.forEach((s, n) => {
-    const built = seeded(n + 1, s);
+    const built = seeded(s.inPerson ? IN_PERSON_N : n + 1, s);
     details.push(built.detail);
     events.set(built.detail.id, built.events);
   });
@@ -1311,7 +1331,7 @@ export function createEsignMock(
 const VIEWER_CALLS = [
   'status',
   'list',
-  'counters',
+  'summary',
   'get',
   'readiness',
   'mergeValues',
