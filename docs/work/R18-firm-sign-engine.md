@@ -21,7 +21,7 @@
 - [x] 5. Signer security: PNG checks, link tokens, code HMAC (fv-esign-code-v1), sealed `fv_sign_{slug}` cookie.
 - [x] 6. PDF 2: stamp at field fractions in every rotation, flatten AcroForm, automatic signature pages, Noto Sans.
 - [x] 7. Rules: readiness, routing, timing.
-- [ ] 8. Certificate and audit-trail pages, byte-stable.
+- [x] 8. Certificate and audit-trail pages, byte-stable.
 - [ ] 9. events.service on the esign_events model (after r0_esign).
 
 ## Needs from others
@@ -37,3 +37,4 @@
 - Oct 9: #166 store and module. Step 5 (`signer-security.ts`: PNG check, link tokens, code HMAC with LOCAL code 000000 under AUTH_MODE=local, sealed signer cookie with HKDF label fv-esign-signer-v1) on `rasel/R18-signer-security`, stacked on #166.
 - Oct 9: #167 signer security. Step 6 (`pdf-finalize.ts`: flatten, stamp in every rotation and offset MediaBox, signature pages) on `rasel/R18-pdf-finalize`, stacked on #167. Font: Noto Sans Regular from notofonts/latin-greek-cyrillic release NotoSans-v2.015 (unhinted/ttf), SHA-256 f3961a9cde016d41a4879aecda1474d3a36d6bf54fa0e4643de029cc2248b0e8; OFL.txt SHA-256 cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a. Embedded whole: pdf-lib 1.17's subsetter drops Noto glyphs (seen in a render). Covers Latin, Greek and Cyrillic, not Bengali or CJK. `PDF_ENGINE` is provided with the certificate (step 8).
 - Oct 9: #178 PDF 2. Step 7 (`esign-rules.ts`, provided as `ESIGN_RULES`) on `rasel/R18-rules`, stacked on #178. All three rule groups built; R13-api had not said which it keeps, so it may drop any. currentTurn covers signers only (approvers act before sending).
+- Oct 9: #179 rules. Step 8 (`certificate.ts`, `pdf-engine.ts` with `PDF_ENGINE` and `sha256Hex`) on `rasel/R18-certificate`, stacked on #179. Certificate metadata dates are `completedAt`, so the same input gives the same bytes.
