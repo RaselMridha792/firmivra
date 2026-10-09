@@ -14,7 +14,9 @@ import { errors, isPoolBusy, isRetryable } from './errors.js';
 // transactions at once would each miss the other. So:
 // - a booking or a new time for staff member S holds the firm's key and S's key, shared;
 // - blocked time for S holds S's key, exclusive; a whole-firm block holds the firm's key,
-//   exclusive.
+//   exclusive;
+// - a booking or a new time also holds S's and the client's booking keys, exclusive, so two
+//   writes that could overlap never wait on each other inside the exclusion constraints.
 
 /** Someone holds the lock now: the caller's transaction is tried again (retryWhenBusy). */
 export class LockBusy extends Error {
@@ -54,14 +56,27 @@ export async function tryLock(
   if (row?.ok !== true) throw new LockBusy();
 }
 
-/** Before a booking or a new time for `staffUserId`. */
+/**
+ * One booking or new time at a time per staff member and per client. Without it, parallel
+ * inserts that overlap wait on each other in the exclusion constraints' checks and can deadlock,
+ * and each deadlock costs PostgreSQL's deadlock_timeout before one is aborted, so six parallel
+ * bookings could run past BUSY_WAIT_MS (429). Tried, never waited for: the others retry and meet
+ * the winner's row (409 SLOT_TAKEN).
+ */
+export const bookingLockKey = (businessId: string, kind: 'staff' | 'client', id: string) =>
+  `appointment_booking:${businessId.toLowerCase()}:${kind}:${id.toLowerCase()}`;
+
+/** Before a booking or a new time for `staffUserId` with `clientId`. */
 export async function lockForBooking(
   tx: TxClient,
   businessId: string,
   staffUserId: string,
+  clientId: string,
 ): Promise<void> {
   await tryLock(tx, calendarLockKey(businessId), 'shared');
   await tryLock(tx, calendarLockKey(businessId, staffUserId), 'shared');
+  await tryLock(tx, bookingLockKey(businessId, 'staff', staffUserId));
+  await tryLock(tx, bookingLockKey(businessId, 'client', clientId));
 }
 
 /** Before new blocked time for `userId`, or the whole firm when it is null. */

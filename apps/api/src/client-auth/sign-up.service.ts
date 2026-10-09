@@ -20,9 +20,7 @@ import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { Notifier } from '../notifications/notifier.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
-import { canonicalIp, networkOf } from './network.js';
-
-export { canonicalIp, networkOf };
+import { canonicalIp, networkOf } from '../common/network.js';
 import { PortalInfoService } from './portal-info.controller.js';
 import {
   SIGN_UP_SECONDS,
