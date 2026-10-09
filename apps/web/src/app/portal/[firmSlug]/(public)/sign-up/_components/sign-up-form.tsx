@@ -88,7 +88,10 @@ export function SignUpForm() {
         create.mutate(
           { ...fields, accepted },
           {
-            onSuccess: () => router.push(`/${slug}/sign-up/verify-email`),
+            onSuccess: (state) => {
+              queryClient.setQueryData(['sign-up-state', slug], state);
+              router.push(`/${slug}/sign-up/verify-email`);
+            },
             onError: (error) => {
               if (errorCode(error) === 'TERMS_OUTDATED') {
                 form.setValue('agree', false);

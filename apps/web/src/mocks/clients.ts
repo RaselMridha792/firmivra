@@ -402,3 +402,14 @@ export function createMyProfileMock(
     },
   };
 }
+
+let myProfileByFirm: Map<string, MyProfileClient> | undefined;
+
+/** `api.myProfile(slug)` in mock mode: one client per firm, so saved changes stay. */
+export function myProfileMock(firmSlug: string): MyProfileClient {
+  myProfileByFirm ??= new Map();
+  const key = firmSlug.toLowerCase();
+  const found = myProfileByFirm.get(key) ?? createMyProfileMock();
+  myProfileByFirm.set(key, found);
+  return found;
+}

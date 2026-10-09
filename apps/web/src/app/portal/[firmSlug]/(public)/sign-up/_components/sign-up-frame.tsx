@@ -21,7 +21,8 @@ export function SignUpFrame({
   benefits,
   children,
 }: {
-  step: SignUpStepId;
+  /** The sign-up step; none on sign-in and the password pages. */
+  step?: SignUpStepId;
   /** The heading's first words; `highlight` ends it in the firm's accent colour. */
   heading: string;
   highlight: string;
@@ -56,9 +57,11 @@ export function SignUpFrame({
         </ul>
       </section>
       <Card className="lg:col-span-3 md:p-8">
-        <div className="mb-8 flex justify-center">
-          <Stepper steps={SIGN_UP_STEPS} current={step} label="Sign-up progress" />
-        </div>
+        {step ? (
+          <div className="mb-8 flex justify-center">
+            <Stepper steps={SIGN_UP_STEPS} current={step} label="Sign-up progress" />
+          </div>
+        ) : null}
         {children}
         <p className="mt-6 flex items-center justify-center gap-2 text-center text-sm text-text">
           <LockKeyhole aria-hidden className="size-5 shrink-0 text-firm-primary" />
@@ -70,10 +73,22 @@ export function SignUpFrame({
 }
 
 /** The step card's title and subtitle. */
-export function StepHeading({ title, children }: { title: string; children?: ReactNode }) {
+export function StepHeading({
+  title,
+  level = 1,
+  children,
+}: {
+  title: string;
+  /** 2 where the page already has its h1. */
+  level?: 1 | 2;
+  children?: ReactNode;
+}) {
+  const Heading = level === 1 ? 'h1' : 'h2';
   return (
     <header className="mb-6">
-      <h1 className="font-display text-3xl font-bold text-heading md:text-4xl">{title}</h1>
+      <Heading className="font-display text-3xl font-bold text-heading md:text-4xl">
+        {title}
+      </Heading>
       {children ? <p className="mt-2 text-lg text-muted">{children}</p> : null}
     </header>
   );
