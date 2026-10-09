@@ -34,9 +34,10 @@ import {
 //
 // Every firm route needs the firm's 'esign' module (403 MODULE_OFF when it is off; read
 // `status()` first, which never fails for that). Access, on every route:
-// - Owner and Admin (and a Firm Sign MANAGER): every request of the firm.
-// - Staff: requests they send, and requests for clients assigned to them. Any other request
-//   answers 404, as if it did not exist. A VIEWER reads the same and changes nothing (403).
+// - Owner and Admin: every request of the firm.
+// - Staff and a Firm Sign MANAGER: requests they send, and requests for clients assigned to them.
+//   Any other request answers 404, as if it did not exist. A VIEWER reads the same and changes
+//   nothing (403). An approver also sees the requests they approve (extras.ts).
 // A request is prepared as a DRAFT (documents, page plan, recipients, fields, settings), checked
 // with `readiness()`, then sent; from then on only the lifecycle actions apply (remind, void,
 // correct a recipient, replace, resend the completed copy). Completed, declined, expired and
@@ -63,6 +64,11 @@ export const ESIGN_MAX_PAGES = 100;
 /** The most recipients and fields a request may have. */
 export const ESIGN_MAX_RECIPIENTS = 20;
 export const ESIGN_MAX_FIELDS = 500;
+/**
+ * Choices across all of a request's fields. With it, the largest valid PUT fields body stays under
+ * the API's 2 MB JSON limit, even in 3-byte characters.
+ */
+export const ESIGN_MAX_FIELD_OPTIONS = 2000;
 
 /**
  * Files Firm Sign takes, at most 10 MB each: PDF, JPG and PNG. An image becomes one page. Word
@@ -121,6 +127,10 @@ export const EsignAction = z.enum([
   'REPLACE',
   'RESEND_COPY',
   'DOWNLOAD',
+  // Contract 3.
+  'SUBMIT_FOR_APPROVAL',
+  'APPROVE',
+  'START_IN_PERSON',
 ]);
 export type EsignAction = z.infer<typeof EsignAction>;
 
@@ -307,12 +317,28 @@ export const EsignField = z.object({
 });
 export type EsignField = z.infer<typeof EsignField>;
 
+/** Whole days between `min` and `max`, with words a form can show under the field. */
+const days = (min: number, max: number, what: string) =>
+  z
+    .number({ error: `Enter the ${what} in days` })
+    .int(`Enter the ${what} in whole days`)
+    .min(min, `The ${what} must be at least ${min} ${min === 1 ? 'day' : 'days'}`)
+    .max(max, `The ${what} can be at most ${max} days`);
+/** Days from sending until a request expires: 1 to 365. */
+export const EsignExpiryDays = days(1, 365, 'expiry');
+/** Days before expiry that open signers get a warning: 0 (none) to 30. */
+export const EsignExpiryWarningDays = days(0, 30, 'warning');
+
 /** The default reminders: the first after `firstAfterDays`, then every `everyDays`, at most `max`. */
 export const EsignReminders = z.strictObject({
-  firstAfterDays: z.number().int().min(1).max(60),
-  everyDays: z.number().int().min(1).max(60),
+  firstAfterDays: days(1, 60, 'first reminder'),
+  everyDays: days(1, 60, 'time between reminders'),
   /** 0 turns automatic reminders off. */
-  max: z.number().int().min(0).max(10),
+  max: z
+    .number({ error: 'Enter how many reminders to send' })
+    .int('Enter a whole number of reminders')
+    .min(0, 'The number of reminders can’t be negative')
+    .max(10, 'Send at most 10 reminders'),
 });
 export type EsignReminders = z.infer<typeof EsignReminders>;
 
@@ -326,10 +352,10 @@ export const EsignRequestDetail = EsignRequestRow.extend({
   routing: EsignRouting,
   engagement: ServiceRef.nullable(),
   /** Days from sending until it expires (the expiry date is set when it is sent). */
-  expiryDays: z.number().int().min(1).max(365),
+  expiryDays: EsignExpiryDays,
   reminders: z.object(EsignReminders.shape),
   /** Days before expiry that open signers get a warning; 0 for none. */
-  expiryWarningDays: z.number().int().min(0).max(30),
+  expiryWarningDays: EsignExpiryWarningDays,
   documents: z.array(EsignDocument),
   /** The packet's pages in order. Pages left out of it are not sent. */
   pagePlan: z.array(z.object(EsignPage.shape)),
@@ -338,6 +364,12 @@ export const EsignRequestDetail = EsignRequestRow.extend({
   /** The request this one replaces, and the one that replaced it. */
   replacesRequestId: z.uuid().nullable(),
   replacedByRequestId: z.uuid().nullable(),
+  /** The template and version it was made from (source TEMPLATE or BULK); null otherwise. */
+  template: z.object({ id: z.uuid(), version: z.number().int().min(1) }).nullable(),
+  /** Each approver's decision note, for staff (contract 3). Never shown to a signer. */
+  approvalNotes: z.array(
+    z.object({ recipientId: z.uuid(), decision: z.enum(['APPROVE', 'REJECT']), note: z.string() }),
+  ),
   declinedAt: DateTime.nullable(),
   expiredAt: DateTime.nullable(),
   voidedAt: DateTime.nullable(),
@@ -387,9 +419,9 @@ export const UpdateEsignRequestBody = z
     clientId: z.uuid().nullable().optional(),
     engagementId: z.uuid().nullable().optional(),
     routing: EsignRouting.optional(),
-    expiryDays: z.number().int().min(1).max(365).optional(),
+    expiryDays: EsignExpiryDays.optional(),
     reminders: EsignReminders.optional(),
-    expiryWarningDays: z.number().int().min(0).max(30).optional(),
+    expiryWarningDays: EsignExpiryWarningDays.optional(),
   })
   .refine((b) => Object.keys(b).length > 0, 'Change at least one thing');
 export type UpdateEsignRequestBody = z.input<typeof UpdateEsignRequestBody>;
@@ -468,12 +500,27 @@ const uniqueIds = (items: readonly { id?: string | undefined }[]) => {
   return new Set(ids).size === ids.length;
 };
 
+/** Who a recipient is (see EsignPutRecipient). */
+export const EsignWhoClientLogin = z.strictObject({
+  type: z.literal('CLIENT_LOGIN'),
+  clientAccountId: z.uuid(),
+});
+export const EsignWhoStaff = z.strictObject({ type: z.literal('STAFF'), userId: z.uuid() });
+export const EsignWhoExternal = z.strictObject({
+  type: z.literal('EXTERNAL'),
+  name: text(120, 'one', 'Enter the name'),
+  email: Email,
+  phone: Phone.optional(),
+});
+
 /**
  * One recipient in PUT /esign/requests/{id}/recipients. `id` keeps an existing recipient (and its
  * fields and colour); leave it out for a new one. Who they are:
  * - CLIENT_LOGIN: one of the request's client's ACTIVE portal logins (PRIMARY or SPOUSE). The name
  *   and email come from the login (409 LOGIN_NOT_ACTIVE otherwise). Never matched by email.
  * - STAFF: an active member of the firm (an approver, or a preparer who signs); 409 NOT_A_MEMBER.
+ *   An APPROVER is always STAFF: an Owner, Admin or Firm Sign Manager who is not the request's
+ *   sender (409 APPROVER_NOT_ALLOWED).
  * - EXTERNAL: anyone else, by name and email.
  */
 export const EsignPutRecipient = z
@@ -483,18 +530,12 @@ export const EsignPutRecipient = z
     role: EsignRecipientRole,
     roleLabel: text(60).optional(),
     routingOrder: z.number().int().min(1).max(ESIGN_MAX_RECIPIENTS),
-    who: z.discriminatedUnion('type', [
-      z.strictObject({ type: z.literal('CLIENT_LOGIN'), clientAccountId: z.uuid() }),
-      z.strictObject({ type: z.literal('STAFF'), userId: z.uuid() }),
-      z.strictObject({
-        type: z.literal('EXTERNAL'),
-        name: text(120, 'one', 'Enter the name'),
-        email: Email,
-        phone: Phone.optional(),
-      }),
-    ]),
-    /** PORTAL only for a CLIENT_LOGIN; IN_PERSON comes with the in-person contract. */
-    delivery: z.enum(['EMAIL', 'PORTAL']).default('EMAIL'),
+    who: z.discriminatedUnion('type', [EsignWhoClientLogin, EsignWhoStaff, EsignWhoExternal]),
+    /**
+     * PORTAL only for a CLIENT_LOGIN. IN_PERSON: a signer who signs on the firm's device
+     * (`startInPerson`); their auth method is not asked (the staff member vouches).
+     */
+    delivery: EsignDelivery.default('EMAIL'),
     authMethod: EsignChosenAuthMethod.default('EMAIL_CODE'),
     /** Required for a new ACCESS_CODE; leave it out to keep the code already set. */
     accessCode: z
@@ -513,7 +554,14 @@ export const EsignPutRecipient = z
         message: 'Only the client’s own login can sign in the portal',
       });
     }
-    if (r.authMethod === 'ACCESS_CODE' && !r.id && !r.accessCode) {
+    if (r.delivery === 'IN_PERSON' && r.kind !== 'SIGNER') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['delivery'],
+        message: 'Only a signer signs in person',
+      });
+    }
+    if (r.authMethod === 'ACCESS_CODE' && r.delivery !== 'IN_PERSON' && !r.id && !r.accessCode) {
       ctx.addIssue({ code: 'custom', path: ['accessCode'], message: 'Set an access code' });
     }
     if (r.kind === 'APPROVER' && r.who.type !== 'STAFF') {
@@ -541,7 +589,13 @@ export const EsignPutRecipientsBody = z.strictObject({
         r.who.type === 'CLIENT_LOGIN' ? [r.who.clientAccountId] : [],
       );
       return new Set(logins).size === logins.length;
-    }, 'A portal login can be a recipient only once'),
+    }, 'A portal login can be a recipient only once')
+    .refine((list) => {
+      const approvers = list.flatMap((r) =>
+        r.kind === 'APPROVER' && r.who.type === 'STAFF' ? [r.who.userId] : [],
+      );
+      return new Set(approvers).size === approvers.length;
+    }, 'A member can approve a request only once'),
 });
 export type EsignPutRecipientsBody = z.input<typeof EsignPutRecipientsBody>;
 
@@ -614,7 +668,11 @@ export const EsignPutFieldsBody = z.strictObject({
   fields: z
     .array(EsignPutField)
     .max(ESIGN_MAX_FIELDS, 'At most 500 fields')
-    .refine(uniqueIds, 'A field can be in the list only once'),
+    .refine(uniqueIds, 'A field can be in the list only once')
+    .refine(
+      (list) => list.reduce((n, f) => n + (f.options?.length ?? 0), 0) <= ESIGN_MAX_FIELD_OPTIONS,
+      'At most 2,000 choices across all fields',
+    ),
 });
 export type EsignPutFieldsBody = z.input<typeof EsignPutFieldsBody>;
 
@@ -655,10 +713,31 @@ export const EsignReadinessCode = z.enum([
   'REMINDER_AFTER_EXPIRY',
   /** An approver has not approved yet. */
   'APPROVAL_PENDING',
+  /** Signing Settings ask for an approval, and the request has no approver. */
+  'APPROVER_MISSING',
   /** The firm has not published its e-signature consent text (Signing Settings). */
   'NO_CONSENT',
 ]);
 export type EsignReadinessCode = z.infer<typeof EsignReadinessCode>;
+
+/** What users see for each readiness problem (the review step and the bulk batch rows). */
+export const ESIGN_READINESS_TEXT = {
+  NO_DOCUMENTS: 'Add at least one file.',
+  NO_CLIENT: 'Choose the client.',
+  NO_ENGAGEMENT: 'Choose the service to file the signed copy under.',
+  NO_SIGNERS: 'Add at least one signer.',
+  SCAN_PENDING: 'A file is still being checked.',
+  SCAN_BLOCKED: "A file couldn't be checked. Remove it.",
+  SIGNATURE_UNASSIGNED: 'Give every signature field a signer.',
+  RECIPIENT_NO_CONTACT: 'A recipient needs an email address.',
+  ACCESS_CODE_MISSING: 'A recipient needs an access code.',
+  SIGNER_NO_FIELDS: 'A signer has no fields to fill in.',
+  MERGE_MISSING: 'A merge field has no value for this client.',
+  REMINDER_AFTER_EXPIRY: 'The first reminder would come after the request expires.',
+  APPROVAL_PENDING: 'An approver has not approved it yet.',
+  APPROVER_MISSING: 'Your firm asks for an approval first. Add an approver.',
+  NO_CONSENT: 'Publish your firm’s consent text in Signing Settings first.',
+} as const satisfies Record<EsignReadinessCode, string>;
 
 export const EsignReadiness = z.object({
   ready: z.boolean(),
