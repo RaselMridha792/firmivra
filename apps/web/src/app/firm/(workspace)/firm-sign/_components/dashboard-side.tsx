@@ -19,26 +19,14 @@ interface Action {
   href: string;
   /** Who sees it: creating needs more than view access; settings are Owner and Admin. */
   who: 'create' | 'managers' | 'all';
-  soon?: true;
 }
 
 const ACTIONS: Action[] = [
-  {
-    label: 'Create Template',
-    icon: FilePlus,
-    href: '/firm-sign/templates',
-    who: 'create',
-    soon: true,
-  },
-  {
-    label: 'Upload a Template',
-    icon: Upload,
-    href: '/firm-sign/templates?new=1',
-    who: 'create',
-    soon: true,
-  },
-  { label: 'Manage Templates', icon: Layers, href: '/firm-sign/templates', who: 'all', soon: true },
-  { label: 'Bulk Send', icon: Users, href: '/firm-sign/bulk', who: 'create', soon: true },
+  // A template starts as a prepared request, saved with Save as template.
+  { label: 'Create Template', icon: FilePlus, href: '/firm-sign/new', who: 'create' },
+  { label: 'Upload a Template', icon: Upload, href: '/firm-sign/new', who: 'create' },
+  { label: 'Manage Templates', icon: Layers, href: '/firm-sign/templates', who: 'all' },
+  { label: 'Bulk Send', icon: Users, href: '/firm-sign/bulk', who: 'create' },
   // In person starts from a request whose signer signs on this device.
   { label: 'In-Person Signing', icon: Monitor, href: '/firm-sign/requests', who: 'create' },
   {
@@ -46,7 +34,6 @@ const ACTIONS: Action[] = [
     icon: Settings,
     href: '/firm-sign/settings',
     who: 'managers',
-    soon: true,
   },
 ];
 
@@ -62,30 +49,23 @@ export function QuickActions({ role }: { role: EsignAccessRole | null }) {
       <Card>
         <h2 className="mb-4 font-display text-2xl text-heading">Quick Actions</h2>
         <ul className="flex flex-col gap-2">
-          {ACTIONS.filter((a) => visible(a, role)).map(({ label, icon: Icon, href, soon }) => {
+          {ACTIONS.filter((a) => visible(a, role)).map(({ label, icon: Icon, href }) => {
             const body = (
               <>
                 <Icon aria-hidden className="size-5 text-brand-700" />
                 <span className="flex-1">{label}</span>
-                {soon && <span className="text-xs text-muted">Soon</span>}
               </>
             );
             const look =
               'flex min-h-11 items-center gap-3 rounded-control bg-brand-50 px-3 text-sm font-medium text-heading';
             return (
               <li key={label}>
-                {soon ? (
-                  <div aria-disabled="true" className={`${look} opacity-70`}>
-                    {body}
-                  </div>
-                ) : (
-                  <Link
-                    href={href}
-                    className={`${look} hover:bg-brand-100 focus-visible:outline-2 focus-visible:outline-focus`}
-                  >
-                    {body}
-                  </Link>
-                )}
+                <Link
+                  href={href}
+                  className={`${look} hover:bg-brand-100 focus-visible:outline-2 focus-visible:outline-focus`}
+                >
+                  {body}
+                </Link>
               </li>
             );
           })}

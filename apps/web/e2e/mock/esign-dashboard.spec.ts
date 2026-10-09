@@ -28,8 +28,16 @@ test('the dashboard: counters, recent documents and their filters', async ({ pag
   await expect(table.getByRole('link', { name: 'Payroll Authorization', exact: true })).toHaveCount(
     0,
   );
-  // Tiles for screens not built yet say so instead of linking.
-  await expect(page.getByTestId('tile-soon').first()).toContainText('Soon');
+  // Every way to start links to its screen.
+  const start = page.getByRole('group', { name: 'Start a request' });
+  await expect(start.getByRole('link', { name: /Use Template/ })).toHaveAttribute(
+    'href',
+    '/firm-sign/templates',
+  );
+  await expect(start.getByRole('link', { name: /New Signature Request/ })).toHaveAttribute(
+    'href',
+    '/firm-sign/new',
+  );
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
   ).toBeTruthy();

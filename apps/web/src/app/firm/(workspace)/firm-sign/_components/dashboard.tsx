@@ -87,8 +87,6 @@ interface Tile {
   icon: LucideIcon;
   href: string;
   primary?: true;
-  /** Its screen isn't built yet: shown with "Soon", not a link. */
-  soon?: true;
 }
 
 /** The mockup's five ways to start. Each opens the step it names. */
@@ -99,28 +97,26 @@ const TILES: Tile[] = [
     icon: Plus,
     href: '/firm-sign/new',
     primary: true,
-    soon: true,
   },
   {
     title: 'Upload Document',
     text: 'PDF, Word, and more',
     icon: Upload,
-    href: '/firm-sign/new?start=upload',
-    soon: true,
+    // A new request opens on its documents step, where files are uploaded.
+    href: '/firm-sign/new',
   },
   {
     title: 'Use Template',
     text: 'Saved templates',
     icon: FileText,
     href: '/firm-sign/templates',
-    soon: true,
   },
   {
     title: 'Upload a Template',
     text: 'Create and save for future use',
     icon: CloudUpload,
-    href: '/firm-sign/templates?new=1',
-    soon: true,
+    // A template starts as a prepared request, saved with Save as template.
+    href: '/firm-sign/new',
   },
   { title: 'Send from Client Record', text: 'Quick send', icon: Users, href: '/clients' },
 ];
@@ -139,7 +135,7 @@ function StartTiles({ role }: { role: EsignAccessRole | null }) {
       aria-label="Start a request"
       className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
     >
-      {TILES.map(({ title, text, icon: Icon, href, primary, soon }) => {
+      {TILES.map(({ title, text, icon: Icon, href, primary }) => {
         const body = (
           <>
             <span
@@ -148,9 +144,7 @@ function StartTiles({ role }: { role: EsignAccessRole | null }) {
               <Icon aria-hidden className="size-6" />
             </span>
             <span className="font-semibold">{title}</span>
-            <span className={`text-sm ${primary ? 'text-white' : 'text-muted'}`}>
-              {soon ? 'Soon' : text}
-            </span>
+            <span className={`text-sm ${primary ? 'text-white' : 'text-muted'}`}>{text}</span>
           </>
         );
         const look = `flex flex-col items-center gap-2 rounded-card border p-5 text-center shadow-card ${
@@ -158,16 +152,7 @@ function StartTiles({ role }: { role: EsignAccessRole | null }) {
             ? 'border-platform-navy bg-platform-navy text-white'
             : 'border-border bg-brand-50 text-heading'
         }`;
-        return soon ? (
-          <div
-            key={title}
-            aria-disabled="true"
-            data-testid="tile-soon"
-            className={`${look} opacity-70`}
-          >
-            {body}
-          </div>
-        ) : (
+        return (
           <Link
             key={title}
             href={href}
