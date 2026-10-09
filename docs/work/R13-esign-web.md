@@ -64,6 +64,7 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - Fahad (optional): a handwriting font token for typed signatures; until then they use `--font-display` italic.
 - Fahad (optional): eight recipient colour tokens `--color-recipient-0` to `-7` in packages/ui. `recipient-colors.ts` uses them when they exist and mixes the existing tokens until then.
 - Fahad (packages/ui): a link styled as a Button (for example an exported `buttonClass(variant)`); request detail copies the primary Button's classes for its two links until then.
+- R13-api: a mock request waiting on the Owner's approval (for example Terms of Service, NEEDS_APPROVAL, sent by Sam Staff, with Mock User as a STAFF approver) and a ready DRAFT with an approver, so the approvals screens get a mock spec.
 
 ## Progress log
 
