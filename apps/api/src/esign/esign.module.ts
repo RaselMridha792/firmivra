@@ -18,12 +18,15 @@ import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
 import { EsignRequestsService } from './requests/requests.service.js';
 import { EsignSendService } from './requests/send.service.js';
+import { EsignTemplatesController } from './templates/templates.controller.js';
+import { TEMPLATE_REPOSITORY } from './templates/templates.repository.js';
+import { EsignTemplatesService } from './templates/templates.service.js';
 
 /**
  * Firm Sign (R13). Behind the firm's 'esign' module (ModulesModule): off for a firm until
  * `business_settings.enabled_modules` lists 'esign'. The engine's CODE_HASHER, ESIGN_STORE,
- * ESIGN_RULES and PDF_ENGINE come from R18's EsignEngineModule; the EsignRepository is a failing
- * stand-in until migration r0_esign adds its tables.
+ * ESIGN_RULES and PDF_ENGINE come from R18's EsignEngineModule; the esign repositories are failing
+ * stand-ins until migration r0_esign adds their tables.
  */
 @Module({
   imports: [ModulesModule, EsignEngineModule],
@@ -32,6 +35,7 @@ import { EsignSendService } from './requests/send.service.js';
     EsignRequestsController,
     EsignDocumentsController,
     EsignLifecycleController,
+    EsignTemplatesController,
   ],
   providers: [
     EsignRequestsService,
@@ -41,9 +45,11 @@ import { EsignSendService } from './requests/send.service.js';
     EsignSendService,
     EsignLifecycleService,
     EsignLifecycleJob,
+    EsignTemplatesService,
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
+    { provide: TEMPLATE_REPOSITORY, useValue: notMigrated('EsignTemplateRepository') },
   ],
 })
 export class EsignModule {}

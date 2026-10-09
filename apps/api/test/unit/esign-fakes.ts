@@ -56,6 +56,14 @@ import type {
   Replacement,
   VoidWrite,
 } from '../../src/esign/lifecycle/lifecycle.repository.js';
+import type {
+  EsignListedTemplate,
+  EsignTemplateFilter,
+  EsignTemplatePatch,
+  EsignTemplateRecord,
+  EsignTemplateRepository,
+  EsignTemplateVersionRecord,
+} from '../../src/esign/templates/templates.repository.js';
 
 export const ESIGN_TEST_DEFAULTS: EsignDefaults = {
   expiryDays: 30,
@@ -904,3 +912,169 @@ export const sentRecipient = (
   reminderCount: 0,
   ...extra,
 });
+
+/** A stored template and its versions, oldest first. */
+export interface TemplateRow {
+  record: EsignTemplateRecord;
+  versions: EsignTemplateVersionRecord[];
+}
+
+/** Templates per firm; each write checks and writes in one synchronous step (as under a lock). */
+export class InMemoryTemplateRepository implements EsignTemplateRepository {
+  readonly rows = new PerFirm<TemplateRow>();
+
+  list(businessId: string, f: EsignTemplateFilter): Promise<EsignListedTemplate[]> {
+    const search = f.search?.toLowerCase();
+    const listed = [...this.rows.of(businessId).values()]
+      .filter(
+        ({ record: t }) =>
+          (f.visibleTo === null || t.visibility === 'FIRM' || t.ownerUserId === f.visibleTo) &&
+          (t.archivedAt !== null) === f.archived &&
+          (!search || t.name.toLowerCase().includes(search)),
+      )
+      .sort((x, y) => +y.record.updatedAt - +x.record.updatedAt)
+      .map(({ record, versions }) => ({
+        template: record,
+        current: versions.find((v) => v.version === record.version)!,
+      }));
+    return Promise.resolve(structuredClone(listed));
+  }
+
+  find(businessId: string, id: string): Promise<EsignTemplateRecord | null> {
+    const row = this.rows.of(businessId).get(id);
+    return Promise.resolve(row ? structuredClone(row.record) : null);
+  }
+
+  version(businessId: string, id: string, version: number) {
+    const found = this.rows
+      .of(businessId)
+      .get(id)
+      ?.versions.find((v) => v.version === version);
+    return Promise.resolve(found ? structuredClone(found) : null);
+  }
+
+  update(businessId: string, id: string, patch: EsignTemplatePatch, readAt: Date) {
+    if (patch.name && this.taken(businessId, patch.name, id)) {
+      return Promise.resolve('NAME_TAKEN' as const);
+    }
+    return this.write(businessId, id, readAt, (row) => Object.assign(row.record, patch));
+  }
+
+  archive(businessId: string, id: string, readAt: Date) {
+    return this.write(businessId, id, readAt, (row) => (row.record.archivedAt = new Date()));
+  }
+
+  /** Test set-up: stores a template and its versions as given. */
+  insert(businessId: string, row: TemplateRow): void {
+    this.rows.of(businessId).set(row.record.id, structuredClone(row));
+  }
+
+  /** Another active template of the firm has the name (case-insensitive). */
+  taken(businessId: string, name: string, except?: string): boolean {
+    return [...this.rows.of(businessId).values()].some(
+      ({ record: t }) =>
+        t.id !== except && !t.archivedAt && t.name.toLowerCase() === name.toLowerCase(),
+    );
+  }
+
+  /** A write while the template is active and unchanged since `readAt`; updatedAt moves on. */
+  write(
+    businessId: string,
+    id: string,
+    readAt: Date,
+    change: (row: TemplateRow) => unknown,
+  ): Promise<EsignTemplateRecord | null> {
+    const row = this.rows.of(businessId).get(id);
+    if (!row || row.record.archivedAt || +row.record.updatedAt !== +readAt) {
+      return Promise.resolve(null);
+    }
+    change(row);
+    row.record.updatedAt = new Date(Math.max(Date.now(), +readAt + 1));
+    return Promise.resolve(structuredClone(row.record));
+  }
+}
+
+/**
+ * A FIRM template owned by `ownerUserId` with one version: a 2-page packet stored in `store`,
+ * a CLIENT and a PREPARER role, a field each and a merge field. `extra` changes the record.
+ */
+export async function seedTemplate(
+  businessId: string,
+  repo: InMemoryTemplateRepository,
+  store: FakeStore,
+  ownerUserId: string,
+  extra: Partial<EsignTemplateRecord> = {},
+): Promise<TemplateRow> {
+  const id = randomUUID();
+  const bytes = new Uint8Array(Buffer.from('pdf:2'));
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const s3Key = store.keyFor(businessId, id, `template-${sha256}.pdf`);
+  await store.put(businessId, s3Key, bytes, 'application/pdf');
+  const at = new Date(Date.now() - 86_400_000);
+  const role = (key: string, r: 'CLIENT' | 'PREPARER', i: number) => ({
+    key,
+    kind: 'SIGNER' as const,
+    role: r,
+    roleLabel: null,
+    routingOrder: i + 1,
+    authMethod: 'EMAIL_CODE' as const,
+    colorIndex: i,
+  });
+  const field = (roleKey: string | null, extraField: object = {}) => ({
+    id: randomUUID(),
+    roleKey,
+    type: 'SIGNATURE' as const,
+    pageIndex: 1,
+    ...{ x: 0.1, y: 0.8, w: 0.3, h: 0.05 },
+    required: true,
+    label: null,
+    mergeKey: null,
+    options: [],
+    groupKey: null,
+    value: null,
+    ...extraField,
+  });
+  const row: TemplateRow = {
+    record: {
+      id,
+      name: `Fake template ${id.slice(0, 8)}`,
+      description: null,
+      visibility: 'FIRM',
+      ownerUserId,
+      version: 1,
+      createdAt: at,
+      updatedAt: at,
+      archivedAt: null,
+      ...extra,
+    },
+    versions: [
+      {
+        version: 1,
+        savedAt: at,
+        savedByUserId: ownerUserId,
+        note: null,
+        s3Key,
+        sha256,
+        sizeBytes: bytes.byteLength,
+        pageSizes: [
+          { width: 612, height: 792 },
+          { width: 612, height: 792 },
+        ],
+        roles: [role('client', 'CLIENT', 0), role('preparer', 'PREPARER', 1)],
+        fields: [
+          field('client'),
+          field('preparer', { y: 0.9 }),
+          field(null, { type: 'TEXT', pageIndex: 0, mergeKey: 'CLIENT_FULL_NAME' }),
+        ],
+        routing: 'SEQUENTIAL',
+        expiryDays: 30,
+        reminders: { firstAfterDays: 3, everyDays: 3, max: 3 },
+        expiryWarningDays: 2,
+        emailSubject: null,
+        emailMessage: null,
+      },
+    ],
+  };
+  repo.insert(businessId, row);
+  return structuredClone(row);
+}

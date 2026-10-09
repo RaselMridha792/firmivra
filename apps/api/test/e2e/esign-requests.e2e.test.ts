@@ -1,5 +1,5 @@
-// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send and step
-// 8's lifecycle)
+// End-to-end: the Firm Sign request routes (R13 step 6, parts 1b to 2b, step 7's send, step 8's
+// lifecycle and step 9's templates)
 // through the real guard stack. The esign tables come with r0_esign, so this covers what answers
 // before the repository: 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module
 // is off, and 400 for a bad id or body where it is on. Synthetic data only.
@@ -52,11 +52,21 @@ const withId = (id: string): Route[] => [
   ['post', `${base(id)}/recipients/${randomUUID()}/correct`, { name: 'Fake Name' }],
   ['post', `${base(id)}/replace`, { reason: 'Fake reason' }],
 ];
+const template = (id: string) => `/api/v1/esign/templates/${id}`;
+/** Every template route with a template id, with a valid body. */
+const withTemplateId = (id: string): Route[] => [
+  ['get', template(id), undefined],
+  ['patch', template(id), { name: 'Fake template' }],
+  ['post', `${template(id)}/archive`, {}],
+  ['get', `${template(id)}/packet`, undefined],
+];
 const ROUTES: Route[] = [
   ['post', '/api/v1/esign/requests', { title: 'Fake letter' }],
   ['get', '/api/v1/esign/requests', undefined],
   ['get', '/api/v1/esign/requests/summary', undefined],
   ...withId(anyId),
+  ['get', '/api/v1/esign/templates', undefined],
+  ...withTemplateId(anyId),
 ];
 
 beforeAll(async () => {
@@ -133,7 +143,7 @@ describe('Firm Sign draft routes', () => {
   });
 
   it('validates the ids and the body where the module is on (400)', async () => {
-    for (const [method, path, body] of withId('not-a-uuid')) {
+    for (const [method, path, body] of [...withId('not-a-uuid'), ...withTemplateId('nope')]) {
       expect(answer(await send(method, path, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
     }
     const badBodies: Route[] = [
@@ -151,6 +161,9 @@ describe('Firm Sign draft routes', () => {
       ['post', `${base(anyId)}/recipients/${randomUUID()}/correct`, {}],
       ['post', `${base(anyId)}/recipients/not-a-uuid/correct`, { name: 'Fake Name' }],
       ['post', `${base(anyId)}/replace`, {}],
+      ['patch', template(anyId), {}],
+      ['patch', template(anyId), { visibility: 'EVERYONE' }],
+      ['get', '/api/v1/esign/templates?archived=maybe', undefined],
       ...['limit=0', 'status=NOPE', 'cursor=nope', 'extra=1'].map((query): Route => [
         'get',
         `/api/v1/esign/requests?${query}`,
