@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Module, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Module, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import {
   AgreementPathId,
@@ -90,6 +90,7 @@ export class AgreementsController {
   }
 
   @Post(':agreementId/archive')
+  @HttpCode(200)
   archive(
     @CurrentTenant() tenant: TenantContext,
     @Param('agreementId', idPipe) agreementId: string,

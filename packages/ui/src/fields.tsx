@@ -2,6 +2,7 @@
 
 import { useId, type SelectHTMLAttributes, type InputHTMLAttributes } from 'react';
 
+/** `className` styles the <select> itself: set a width on a parent so the chevron follows it. */
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
   error?: string;
@@ -62,12 +63,7 @@ export function Checkbox({ label, id, className = '', ...props }: CheckboxProps)
       htmlFor={fieldId}
       className={`flex min-h-11 items-center gap-3 text-base text-text ${className}`}
     >
-      <input
-        {...props}
-        id={fieldId}
-        type="checkbox"
-        className="size-5 shrink-0 rounded-sm border-border accent-action"
-      />
+      <input {...props} id={fieldId} type="checkbox" className="size-5 shrink-0" />
       <span>{label}</span>
     </label>
   );
