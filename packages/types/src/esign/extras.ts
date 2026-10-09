@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { MemberRef } from '../clients/schemas.js';
 import { text } from '../clients/text.js';
-import { EsignTemplateVisibility } from './admin.js';
+import { EsignBulkRoleFill, EsignTemplateVisibility } from './admin.js';
 import { EsignAccessRole, EsignRequestStatus } from './enums.js';
 import { EsignErrorCode } from './errors.js';
-import { EsignReadinessCode, EsignWhoExternal, EsignWhoStaff } from './schemas.js';
+import { EsignReadinessCode } from './schemas.js';
 
 // Firm Sign (R13), firm side, contract 3: the extras. Approvals, Firm Sign roles (Manager and
 // Viewer), template versions and duplicate, in-person signing, bulk send and reports. Same access
@@ -78,6 +78,19 @@ export const SetEsignMemberRoleBody = z.strictObject({
 });
 export type SetEsignMemberRoleBody = z.input<typeof SetEsignMemberRoleBody>;
 
+/**
+ * GET /esign/approvers (Owner, Admin, Manager, Staff; a Viewer gets 403 FORBIDDEN): who may approve
+ * a request, for the wizard's approver picker. Active Owners, Admins and Managers, by name, without
+ * the caller (a sender can't approve their own request). Names only, no emails.
+ */
+export const EsignApprover = z.object({
+  user: MemberRef,
+  esignRole: z.enum(['OWNER', 'ADMIN', 'MANAGER']),
+});
+export type EsignApprover = z.infer<typeof EsignApprover>;
+export const EsignApproverList = z.object({ items: z.array(EsignApprover) });
+export type EsignApproverList = z.infer<typeof EsignApproverList>;
+
 // ---------- Template versions ----------
 /**
  * One saved version of a template. Using a template copies its newest version; a request records
@@ -103,12 +116,16 @@ export type EsignTemplateVersionList = z.infer<typeof EsignTemplateVersionList>;
 
 /**
  * POST /esign/requests/{id}/save-as-version (the template's owner, Owner, Admin): the request's
- * packet, recipients (as roles), fields and settings become the template's next version. Same
- * checks as save-as-template (409 SCAN_PENDING). 409 TEMPLATE_ARCHIVED.
+ * packet, recipients (as roles), fields and settings become the template's next version. It
+ * copies, leaves out and refuses exactly what save-as-template does (SaveEsignTemplateBody: the
+ * sender's own typed values only with `keepSenderValues: true`; 409 TEMPLATE_HAS_CLIENT_FILES,
+ * SCAN_PENDING, FILE_BLOCKED). 409 TEMPLATE_ARCHIVED.
  */
 export const SaveEsignTemplateVersionBody = z.strictObject({
   templateId: z.uuid(),
   note: text(500, 'many').optional(),
+  /** As SaveEsignTemplateBody's: the sender's own typed values are dropped unless true. */
+  keepSenderValues: z.boolean().default(false),
 });
 export type SaveEsignTemplateVersionBody = z.input<typeof SaveEsignTemplateVersionBody>;
 
@@ -158,8 +175,10 @@ export const EsignInPersonSession = z.object({
   /** The signer's name, for the handoff screen. */
   signerName: z.string(),
   /**
-   * An absolute URL on the portal site, `<PORTAL_BASE_URL>/<slug>/sign#t=<token>`: open it in a new
-   * tab of the same browser. The signer starts at the consent step.
+   * An absolute URL on the portal site. The start answer carries the one-time link,
+   * `<PORTAL_BASE_URL>/<slug>/sign#t=<token>`: open it in a new tab of the same browser; the signer
+   * starts at the consent step. `GET /esign/in-person` answers `<PORTAL_BASE_URL>/<slug>/sign` with
+   * no token (only its hash is stored), so keep the start answer's URL; to reopen, start again.
    */
   signingUrl: z.url(),
   startedAt: DateTime,
@@ -189,13 +208,16 @@ export const ESIGN_BULK_MAX = 200;
 
 /**
  * POST /esign/templates/{id}/bulk-send (Owner and Admin for any client; Manager and Staff for
- * their own assigned clients): one separate request per client, each with its own signers, audit trail and signed
- * copy; no request ever holds two clients. CLIENT, SPOUSE and PREPARER roles fill themselves for
- * each client; `roles` gives the same person for every other role (a STAFF member or an EXTERNAL
- * person, never a client login). Answers 202 with the batch; the job runner creates and sends the
- * requests. A client whose request can't be sent (a readiness problem) stays a DRAFT and the batch
- * row says why. 400 BULK_LIMIT (the client checks it before sending), 409 TEMPLATE_ARCHIVED,
- * TEMPLATE_ROLES_UNFILLED, APPROVER_NOT_ALLOWED.
+ * their own assigned clients): one separate request per client, each with its own signers,
+ * audit trail and signed copy; no request ever holds two clients. CLIENT, SPOUSE and PREPARER
+ * roles fill themselves for each client; `roles` gives the same person for every other role (a
+ * STAFF member or an EXTERNAL person, never a client login), and a role's delivery and auth
+ * method, with the same rules as `use` (EsignBulkRoleFill) but never an access code: one code
+ * would be shared by every client's request, so the body refuses one (400) and a template
+ * ACCESS_CODE role needs another `authMethod` (or IN_PERSON). Answers 202 with the batch; the job
+ * runner creates and sends the requests. A client whose request can't be sent (a readiness
+ * problem) stays a DRAFT and the batch row says why. 400 BULK_LIMIT (the client checks it before
+ * sending), 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED, APPROVER_NOT_ALLOWED.
  */
 export const EsignBulkSendBody = z
   .strictObject({
@@ -211,15 +233,7 @@ export const EsignBulkSendBody = z
       .max(ESIGN_BULK_MAX, 'At most 200 clients'),
     /** Each request's name; the template's name when left out. */
     title: text(200).optional(),
-    roles: z
-      .array(
-        z.strictObject({
-          key: z.string().min(1).max(40),
-          who: z.discriminatedUnion('type', [EsignWhoStaff, EsignWhoExternal]),
-        }),
-      )
-      .max(20)
-      .default([]),
+    roles: z.array(EsignBulkRoleFill).max(20).default([]),
     confirm: z.literal(true),
   })
   .refine((b) => new Set(b.clients.map((c) => c.clientId)).size === b.clients.length, {

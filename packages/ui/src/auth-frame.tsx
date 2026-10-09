@@ -1,18 +1,29 @@
 import type { ReactNode } from 'react';
 import { AuthIcon } from './auth-icon';
-const features = [
-  ['firm', 'Manage Firms', 'Review and approve new firm applications.'],
-  ['users', 'Oversee Users', 'Maintain platform access and permissions.'],
-  ['chart', 'Track Growth', 'Monitor subscriptions, usage and performance.'],
-  ['settings', 'Control Settings', 'Manage platform features and configurations.'],
-] as const;
+const features = {
+  admin: [
+    ['firm', 'Manage Firms', 'Review and approve new firm applications.'],
+    ['users', 'Oversee Users', 'Maintain platform access and permissions.'],
+    ['chart', 'Track Growth', 'Monitor subscriptions, usage and performance.'],
+    ['settings', 'Control Settings', 'Manage platform features and configurations.'],
+  ],
+  firm: [
+    ['users', 'Serve Clients', 'Keep client documents and messages together.'],
+    ['firm', 'Run Your Firm', 'Manage your services, appointments and invoices.'],
+    ['chart', 'Track Work', 'Follow tasks, requests and intake forms.'],
+    ['settings', 'Control Access', 'Give each team member the right access.'],
+  ],
+} as const;
 export function AuthFrame({
   site,
   title,
+  subtitle,
   children,
 }: {
   site: 'firm' | 'admin';
   title: string;
+  /** The line under the title; sign-in and other steps have their own. */
+  subtitle?: string;
   children: ReactNode;
 }) {
   const portal = site === 'admin' ? 'SUPER ADMIN PORTAL' : 'FIRM WORKSPACE';
@@ -23,8 +34,10 @@ export function AuthFrame({
           <div className="auth-logo-light" role="img" aria-label="Firmivra" />
           <p className="auth-portal">{portal}</p>
           <hr />
+          {/* The platform team approves firms; a firm's staff serve their clients. */}
           <h1>
-            Manage. Approve. <span>Grow.</span>
+            {site === 'admin' ? 'Manage. Approve. ' : 'Serve. Organize. '}
+            <span>Grow.</span>
           </h1>
           <p className="auth-description">
             {site === 'admin'
@@ -32,7 +45,7 @@ export function AuthFrame({
               : 'Access your Firmivra workspace to manage your team, clients, documents and services.'}
           </p>
           <div className="auth-features">
-            {features.map(([icon, heading, description], index) => (
+            {features[site].map(([icon, heading, description], index) => (
               <div className="auth-feature" key={heading}>
                 <span aria-hidden="true" className={index % 2 ? 'auth-icon teal' : 'auth-icon'}>
                   <AuthIcon name={icon} />
@@ -54,9 +67,10 @@ export function AuthFrame({
           {title}
         </h2>
         <p className="auth-subtitle">
-          {title === 'Welcome Back'
-            ? `Sign in to access ${site === 'admin' ? 'the Firmivra administrative dashboard' : 'your Firmivra workspace'}.`
-            : 'Complete this step to continue securely.'}
+          {subtitle ??
+            (title === 'Welcome Back'
+              ? `Sign in to access ${site === 'admin' ? 'the Firmivra administrative dashboard' : 'your Firmivra workspace'}.`
+              : 'Complete this step to continue securely.')}
         </p>
         {children}
         <p className="auth-authorized">AUTHORIZED ACCESS ONLY</p>

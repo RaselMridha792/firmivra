@@ -8,6 +8,8 @@ import {
   type EsignTemplateDetail,
   type EsignTemplateRole,
   type EsignPutRecipient,
+  EsignFieldId,
+  EsignPutRecipientsBody,
   EsignTemplateId,
   type MemberRef,
   type MySignatureRow,
@@ -372,6 +374,15 @@ export function createSigningMock(firmSlug: string): SigningClient {
       f.attachmentName = fileName;
       return copy(f);
     },
+    removeAttachment: async (fieldId) => {
+      parseInput(EsignFieldId, fieldId);
+      const s = await at('SIGN');
+      const f = s.fields.find((x) => x.id === fieldId && x.type === 'ATTACHMENT');
+      if (!f || !s.attachments.has(fieldId)) throw fail(404, 'NOT_FOUND', 'Not found');
+      s.attachments.delete(fieldId);
+      f.attachmentName = null;
+      return copy(f);
+    },
     copy: async () => {
       await at('COPY');
       return {
@@ -428,14 +439,14 @@ const MY_ROWS = (): MySignatureRow[] => {
 /**
  * An in-memory `api.mySignatures(slug)`: Jamie Sample's requests at `lvp`. Firm Sign is off for
  * every other firm, and everywhere with NEXT_PUBLIC_API_MOCK_ESIGN=off (`status()` says so; the
- * other calls answer 404).
+ * other calls answer 403 MODULE_OFF).
  */
 export function createMySignaturesMock(firmSlug: string): MySignaturesClient {
   const slug = firmSlug.toLowerCase();
   const enabled = !ESIGN_OFF && slug === mockBusiness.slug;
   const on = async () => {
     await mockDelay();
-    if (!enabled) throw fail(404, 'NOT_FOUND', 'Not found');
+    if (!enabled) throw fail(403, 'MODULE_OFF', 'Firm Sign is not turned on for this firm.');
   };
   const mine = (recipientId: string) => {
     const r = MY_ROWS().find((x) => x.recipientId === recipientId);
@@ -480,6 +491,7 @@ export type ExtrasKeys =
   | 'decideApproval'
   | 'inPerson'
   | 'roles'
+  | 'approvers'
   | 'bulk'
   | 'report';
 export type TemplateExtrasKeys = 'versions' | 'restoreVersion' | 'duplicate' | 'bulkSend';
@@ -646,6 +658,23 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
     emailMessage: null,
   })));
 
+/**
+ * What save-as-template and save-as-version refuse (SaveEsignTemplateBody): blocked files
+ * (FILE_BLOCKED), files still being checked (SCAN_PENDING), and any file copied from the
+ * client's documents.
+ */
+export const checkTemplateSource = (r: EsignRequestDetail): void => {
+  if (r.documents.some((d) => d.scanStatus === 'INFECTED' || d.scanStatus === 'FAILED')) {
+    throw fail(409, 'FILE_BLOCKED', 'A file couldn’t be checked');
+  }
+  if (r.documents.some((d) => d.scanStatus !== 'CLEAN')) {
+    throw fail(409, 'SCAN_PENDING', 'A file is still being checked');
+  }
+  if (r.documents.some((d) => d.sourceDocumentId !== null)) {
+    throw fail(409, 'TEMPLATE_HAS_CLIENT_FILES', 'A file came from the client’s documents');
+  }
+};
+
 /** Signing Settings, templates and save-as-template for the firm-side mock. */
 export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
   const forbidden = () => fail(403, 'FORBIDDEN', 'Only an Owner or Admin can change this');
@@ -683,9 +712,7 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
       const input = parseInput(SaveEsignTemplateBody, body);
       await ctx.on();
       const r = ctx.find(requestId);
-      if (r.documents.some((d) => d.scanStatus !== 'CLEAN')) {
-        throw fail(409, 'SCAN_PENDING', 'A file is still being checked');
-      }
+      checkTemplateSource(r);
       if (r.pagePlan.length === 0) throw fail(409, 'INVALID_STATE', 'Add a document first');
       if (nameTaken(input.name)) throw fail(409, 'TEMPLATE_NAME_TAKEN', 'Name taken');
       const keyOf = (recipientId: string | null) => {
@@ -696,7 +723,7 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
         id: ctx.newId('8'),
         name: input.name,
         description: input.description ?? null,
-        visibility: input.visibility ?? 'FIRM',
+        visibility: input.visibility ?? 'PRIVATE',
         owner: ctx.me,
         pageCount: r.pagePlan.length,
         roleCount: r.recipients.length,
@@ -729,7 +756,9 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
           mergeKey: f.mergeKey,
           options: [...f.options],
           groupKey: f.groupKey,
-          value: f.mergeKey ? null : f.value,
+          // Never a merge-filled or a signer's value; the sender's own typed values only when
+          // the body asks (keepSenderValues).
+          value: input.keepSenderValues && f.recipientId === null && !f.mergeKey ? f.value : null,
         })),
         routing: r.routing,
         expiryDays: r.expiryDays,
@@ -801,6 +830,10 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
         await ctx.on();
         return copy({ ...template(templateId), canEdit: rowOf(template(templateId)).canEdit });
       },
+      packetUrl: (templateId) => {
+        parseInput(EsignTemplateId, templateId);
+        return SAMPLE_PDF_URL;
+      },
       update: async (templateId, body) => {
         const input = parseInput(UpdateEsignTemplateBody, body);
         await ctx.on();
@@ -827,7 +860,7 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
         await ctx.on();
         const t = template(templateId);
         if (t.archivedAt) throw fail(409, 'TEMPLATE_ARCHIVED', 'This template is archived');
-        const given = new Map(input.roles.map((r) => [r.key, r.who]));
+        const fills = new Map(input.roles.map((r) => [r.key, r]));
         const logins = clientFixtures().find((c) => c.id === input.clientId)?.portalLogins ?? [];
         const login = (portalRole: string) =>
           logins.find((l) => l.portalRole === portalRole && l.status === 'ACTIVE');
@@ -842,8 +875,17 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
           if (role.role === 'PREPARER') return { type: 'STAFF', userId: ctx.me.userId };
           return undefined;
         };
-        const who = new Map(t.roles.map((role) => [role.key, given.get(role.key) ?? auto(role)]));
-        const open = t.roles.filter((role) => !who.get(role.key));
+        const who = new Map(
+          t.roles.map((role) => [role.key, fills.get(role.key)?.who ?? auto(role)]),
+        );
+        const methodOf = (role: EsignTemplateRole) =>
+          fills.get(role.key)?.authMethod ?? role.authMethod;
+        const open = t.roles.filter((role) => {
+          const fill = fills.get(role.key);
+          const needsCode =
+            methodOf(role) === 'ACCESS_CODE' && fill?.delivery !== 'IN_PERSON' && !fill?.accessCode;
+          return !who.get(role.key) || needsCode;
+        });
         if (open.length > 0) {
           throw fail(
             409,
@@ -851,6 +893,20 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
             `Choose who fills: ${open.map((role) => role.key).join(', ')}`,
           );
         }
+        // Check the role fills before the draft exists, so a 400 leaves no orphan DRAFT.
+        const recipientsBody = parseInput(EsignPutRecipientsBody, {
+          recipients: t.roles.map((role) => ({
+            kind: role.kind,
+            role: role.role,
+            roleLabel: role.roleLabel ?? undefined,
+            routingOrder: role.routingOrder,
+            who: who.get(role.key)!,
+            delivery: fills.get(role.key)?.delivery,
+            authMethod: methodOf(role),
+            accessCode:
+              methodOf(role) === 'ACCESS_CODE' ? fills.get(role.key)?.accessCode : undefined,
+          })),
+        });
         const created = await ctx.client.create({
           title: input.title ?? t.name,
           clientId: input.clientId,
@@ -882,36 +938,33 @@ export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
         r.emailSubject = t.emailSubject;
         r.emailMessage = t.emailMessage;
         // The mock's own recipients and fields calls check and fill in the rest, as the API does.
-        const withRecipients = await ctx.client.putRecipients(r.id, {
-          recipients: t.roles.map((role) => ({
-            kind: role.kind,
-            role: role.role,
-            roleLabel: role.roleLabel ?? undefined,
-            routingOrder: role.routingOrder,
-            who: who.get(role.key)!,
-            authMethod: role.authMethod === 'ACCESS_CODE' ? 'EMAIL_CODE' : role.authMethod,
-          })),
-        });
-        const recipientOf = new Map(
-          t.roles.map((role, i) => [role.key, withRecipients.recipients[i]?.id ?? null]),
-        );
-        await ctx.client.putFields(r.id, {
-          fields: t.fields.map((f) => ({
-            recipientId: f.roleKey ? (recipientOf.get(f.roleKey) ?? null) : null,
-            type: f.type,
-            pageIndex: f.pageIndex,
-            x: f.x,
-            y: f.y,
-            w: f.w,
-            h: f.h,
-            required: f.required,
-            label: f.label ?? undefined,
-            mergeKey: f.mergeKey ?? undefined,
-            options: f.options.length > 0 ? f.options : undefined,
-            groupKey: f.groupKey ?? undefined,
-            value: f.value ?? undefined,
-          })),
-        });
+        // A later refusal (an inactive login, say) discards the new draft too.
+        try {
+          const withRecipients = await ctx.client.putRecipients(r.id, recipientsBody);
+          const recipientOf = new Map(
+            t.roles.map((role, i) => [role.key, withRecipients.recipients[i]?.id ?? null]),
+          );
+          await ctx.client.putFields(r.id, {
+            fields: t.fields.map((f) => ({
+              recipientId: f.roleKey ? (recipientOf.get(f.roleKey) ?? null) : null,
+              type: f.type,
+              pageIndex: f.pageIndex,
+              x: f.x,
+              y: f.y,
+              w: f.w,
+              h: f.h,
+              required: f.required,
+              label: f.label ?? undefined,
+              mergeKey: f.mergeKey ?? undefined,
+              options: f.options.length > 0 ? f.options : undefined,
+              groupKey: f.groupKey ?? undefined,
+              value: f.value ?? undefined,
+            })),
+          });
+        } catch (e) {
+          await ctx.client.discard(r.id);
+          throw e;
+        }
         ctx.record(r, 'EDITED');
         return ctx.client.get(r.id);
       },

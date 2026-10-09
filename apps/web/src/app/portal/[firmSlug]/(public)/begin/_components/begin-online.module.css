@@ -1,0 +1,23 @@
+.service {
+  background: linear-gradient(135deg, var(--color-accent-soft), var(--color-surface));
+}
+
+.action {
+  background: linear-gradient(to bottom, var(--color-action), var(--color-action-pressed));
+}
+
+.action:hover {
+  background: var(--color-action-hover);
+}
+
+.darkAction {
+  background: linear-gradient(to bottom, var(--color-navigation-hover), var(--color-navigation));
+}
+
+.darkAction:hover {
+  background: var(--color-navigation-hover);
+}
+
+.photoFade {
+  background: linear-gradient(to right, var(--color-subtle), var(--color-transparent) 25%);
+}

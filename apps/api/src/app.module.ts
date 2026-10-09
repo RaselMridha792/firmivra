@@ -28,8 +28,11 @@ import { TaxStatusesModule } from './tax-statuses/tax-statuses.controller.js';
 import { ClientsModule } from './clients/clients.controller.js';
 import { TaxReturnsModule } from './tax-returns/tax-returns.controller.js';
 import { EngagementsModule } from './engagements/engagements.controller.js';
+import { LeadsModule } from './leads/leads.controller.js';
+import { IntakesModule } from './intake/intakes.controller.js';
 import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
+import { AgreementsModule } from './agreements/agreements.controller.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
@@ -37,7 +40,15 @@ import { ContentModule } from './content/content.controller.js';
 import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
+import { BeginOnlineModule } from './begin-online/begin-online.controller.js';
+import { CheckoutModule } from './payments/checkout/checkout.controller.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
+import { RefundsModule } from './payments/refunds/refunds.controller.js';
+import { OfflinePaymentsModule } from './payments/offline/offline-payments.controller.js';
+import { StripeWebhookModule } from './payments/webhooks/stripe-webhook.controller.js';
+import { EsignModule } from './esign/esign.module.js';
+import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
+import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 
 /** Pretty one-line logs in local development, when pino-pretty is installed (not in the image). */
 function prettyTransport(env: Env) {
@@ -86,8 +97,11 @@ export class AppModule {
         ClientsModule,
         TaxReturnsModule,
         EngagementsModule,
+        LeadsModule,
+        IntakesModule,
         MessagesModule,
         SettingsModule,
+        AgreementsModule,
         TeamModule,
         CalculatorsModule,
         ContentModule,
@@ -96,12 +110,20 @@ export class AppModule {
         WorkspacesModule,
         DocumentsModule,
         InvoicesModule,
+        CheckoutModule,
+        StripeWebhookModule,
+        RefundsModule,
+        EsignModule,
+        OfflinePaymentsModule,
+        StripeClientModule,
+        PaymentsSetupModule,
         SignInModule,
         PortalInfoModule,
         SignUpModule,
         PortalSignInModule,
         ClientSignUpsModule,
         BusinessModule,
+        BeginOnlineModule,
         ...(env.AUTH_MODE === 'local' ? [DevModule] : []),
       ],
       // Run in this order on every request. Each skips @Public() routes.

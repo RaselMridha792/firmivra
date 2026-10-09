@@ -1,15 +1,15 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { ResourcePage } from '../_components/resource-page';
 
 export const metadata: Metadata = { title: 'Payroll Resources' };
 
-export default function PayrollResourcesPage() {
+export default function Page() {
   return (
-    <PagePlaceholder
-      title="Payroll Resources"
-      ticket="N10"
-      owner="Nahid"
-      mockup="client-portal/payroll_resources_dashboard.png"
+    <ResourcePage
+      page="payroll"
+      heading="Payroll"
+      highlight="Resources"
+      intro="What every employer needs to know to pay people correctly and on time."
     />
   );
 }

@@ -85,7 +85,7 @@ describe('row-level security coverage', () => {
                    ('message_attachments', 'UPDATE'), ('message_attachments', 'DELETE'),
                    ('client_private_notes', 'UPDATE'), ('client_private_notes', 'DELETE'),
                    ('invoices', 'DELETE'), ('payments', 'DELETE'), ('payment_events', 'DELETE'),
-                   ('payment_refunds', 'DELETE'),
+                   ('payment_refunds', 'DELETE'), ('offline_payments', 'DELETE'),
                    ('businesses', 'DELETE'),
                    ('platform_user_signups', 'INSERT'), ('platform_user_signups', 'UPDATE'),
                    ('platform_user_signups', 'DELETE'),
@@ -100,6 +100,22 @@ describe('row-level security coverage', () => {
                    ('intake_signature_agreements', 'UPDATE'),
                    ('intake_signature_agreements', 'DELETE')) AS p(tbl, privilege)`);
     expect(rows.filter((r) => r.granted).map((r) => `${r.tbl} ${r.privilege}`)).toEqual([]);
+  });
+
+  it('agreements and their files update only the columns the workflow changes', async () => {
+    const { rows } = await client.query<{ col: string }>(`
+      SELECT table_name || '.' || column_name AS col
+      FROM information_schema.column_privileges
+      WHERE grantee = 'firmivra_app' AND privilege_type = 'UPDATE'
+        AND table_name IN ('firm_agreements', 'firm_agreement_files')
+      ORDER BY 1`);
+    expect(rows.map((r) => r.col)).toEqual([
+      'firm_agreement_files.scan_status',
+      'firm_agreement_files.scanned_at',
+      'firm_agreements.archived_at',
+      'firm_agreements.sort_order',
+      'firm_agreements.updated_at',
+    ]);
   });
 
   it('the app role cannot bypass RLS', async () => {

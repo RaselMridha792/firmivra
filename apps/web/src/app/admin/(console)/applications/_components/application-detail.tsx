@@ -6,11 +6,27 @@ import {
   ENTITY_TYPES,
   FIRM_PLANS,
   FIRM_SERVICES,
-  PRACTICE_TYPES,
   FirmApplicationId,
+  type BusinessStatus,
   type FirmApplicationRecord,
 } from '@firmivra/types';
 import { Button, Card, Modal } from '@firmivra/ui';
+import {
+  ArrowLeft,
+  Building2,
+  Check,
+  Database,
+  ExternalLink,
+  FileText,
+  Folder,
+  History,
+  IdCard,
+  MessageSquare,
+  NotepadText,
+  ShieldCheck,
+  UserRound,
+  X,
+} from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useMe } from '../../../../../components/signed-in';
@@ -19,7 +35,17 @@ import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
 import { APPLICATIONS_KEY, applicationDetailKey } from './application-data';
 import {
+  ActiveFeatures,
+  CardHeading,
+  DocumentsTable,
+  type Field,
+  FieldCard,
+  formatPhone,
+  Timeline,
+} from './application-cards';
+import {
   ApplicationPageState,
+  dateParts,
   dateText,
   NoApplicationPermission,
   StatusPill,
@@ -33,12 +59,6 @@ const DECISION_ERRORS: Record<string, string> = {
   SLUG_TAKEN: 'Another firm already uses this portal address.',
   VALIDATION_FAILED: 'Check the text: it may be too long, or the same as your last message.',
 };
-type Field = readonly [label: string, value: string | null | undefined];
-
-function display(value: string | null | undefined) {
-  return value?.trim() || '—';
-}
-
 function humanize(value: string) {
   return value
     .toLowerCase()
@@ -47,30 +67,30 @@ function humanize(value: string) {
     .join(' ');
 }
 
-function FieldCard({ title, fields }: { title: string; fields: readonly Field[] }) {
-  return (
-    <Card>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <dl className="mt-4 divide-y divide-border">
-        {fields.map(([label, value]) => (
-          <div
-            key={label}
-            className="grid grid-cols-[minmax(7rem,.8fr)_minmax(0,1.2fr)] gap-3 py-2 text-sm"
-          >
-            <dt className="text-muted">{label}</dt>
-            <dd className="break-words">{display(value)}</dd>
-          </div>
-        ))}
-      </dl>
-    </Card>
-  );
-}
+/** 'September 28, 2026', in the console's time zone (as dateText). */
+const longDate = (value: string) =>
+  new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(value));
+
+const FIRM_STATUS: Partial<Record<BusinessStatus, { label: string; tone: string }>> = {
+  ACTIVE: { label: 'Active', tone: 'bg-success-soft text-success' },
+  PENDING_SETUP: { label: 'Pending Setup', tone: 'bg-warning-soft text-warning' },
+};
+const firmStatus = (status: BusinessStatus) =>
+  FIRM_STATUS[status] ?? { label: humanize(status), tone: 'bg-disabled text-muted' };
 
 function ApplicationRecord({
   application,
+  appBaseUrl,
   onStale,
 }: {
   application: FirmApplicationRecord;
+  /** The firm workspace site, for "Open Firm Workspace". */
+  appBaseUrl: string;
   /** Reloads the application after someone else changed it. */
   onStale: () => void;
 }) {
@@ -99,31 +119,31 @@ function ApplicationRecord({
   const busy =
     approve.isPending || requestInfo.isPending || decline.isPending || saveNotes.isPending;
   const business = application.business;
-  const address = business
-    ? [
-        business.address.line1,
-        business.address.line2,
-        business.address.city,
-        business.address.state,
-        business.address.postalCode,
-      ]
-        .filter(Boolean)
-        .join(', ')
-    : '';
+  const address = business ? (
+    <>
+      {[business.address.line1, business.address.line2].filter(Boolean).join(', ')}
+      <span className="block">
+        {business.address.city}, {business.address.state} {business.address.postalCode}
+      </span>
+    </>
+  ) : null;
+  const mail = (email: string) => (
+    <a href={`mailto:${email}`} className="break-all text-link hover:underline">
+      {email}
+    </a>
+  );
   const unreadable = 'The application form could not be read';
+  // The mockup's five rows; the other form fields only when the applicant filled them.
   const businessFields: Field[] = business
     ? [
         ['Business Name', application.legalName],
-        ['DBA', application.dbaName],
-        [
-          'Business Type',
-          `${PRACTICE_TYPES[business.practiceType]} · ${ENTITY_TYPES[business.entityType]}`,
-        ],
+        ...(application.dbaName ? [['DBA', application.dbaName] as const] : []),
+        ['Business Type', ENTITY_TYPES[business.entityType]],
         ['Services Offered', business.services.map((item) => FIRM_SERVICES[item]).join(', ')],
-        ['EIN', business.einLast4 ? `••••${business.einLast4}` : 'Not provided'],
-        ['Business Email', business.email],
-        ['Business Phone', business.phone],
-        ['Website', business.website],
+        ['EIN (if applicable)', business.einLast4 ? `••••${business.einLast4}` : 'Not provided'],
+        ...(business.email ? [['Business Email', mail(business.email)] as const] : []),
+        ...(business.phone ? [['Business Phone', formatPhone(business.phone)] as const] : []),
+        ...(business.website ? [['Website', business.website] as const] : []),
         ['Business Address', address],
       ]
     : [
@@ -134,28 +154,67 @@ function ApplicationRecord({
   const adminFields: Field[] = application.primaryAdmin
     ? [
         ['Full Name', application.primaryAdmin.fullName],
-        ['Email', application.primaryAdmin.email],
-        ['Phone', application.primaryAdmin.phone],
+        ['Email', mail(application.primaryAdmin.email)],
+        ['Phone', formatPhone(application.primaryAdmin.phone)],
         ['Title / Role', application.primaryAdmin.title],
-        ['Preferred Contact', humanize(application.primaryAdmin.preferredContact)],
-        ['Alternate Phone', application.primaryAdmin.alternatePhone],
+        ['Preferred Contact Method', humanize(application.primaryAdmin.preferredContact)],
+        ['Alternate Phone', formatPhone(application.primaryAdmin.alternatePhone)],
       ]
     : [
         ['Full Name', application.contactName],
-        ['Email', application.contactEmail],
-        ['Phone', application.contactPhone],
+        ['Email', mail(application.contactEmail)],
+        ['Phone', formatPhone(application.contactPhone)],
         ['Other details', unreadable],
       ];
-  const accountFields: Field[] = application.account
+  const firm = application.firm;
+  const account = application.account;
+  // The firm's own rows come from the firm, decision and invite, so they show even when the form
+  // can't be read (LVP's seeded application).
+  const firmFields: Field[] = firm
     ? [
-        ['Requested Plan', FIRM_PLANS[application.account.requestedPlan]],
-        ['Estimated Team Size', String(application.account.teamSize)],
-        ['Estimated Client Volume', CLIENT_VOLUMES[application.account.clientVolume]],
-        ['How They Heard About Us', application.account.heardFrom],
-        ['Requested Start Date', application.account.requestedStartDate ?? 'As soon as possible'],
-        ['Additional Information', application.account.additionalInfo],
+        ['Start Date', application.decision ? dateParts(application.decision.at)[0] : null],
+        [
+          'Status',
+          <span
+            key="status"
+            className={`rounded-pill px-2 py-0.5 text-xs font-semibold ${firmStatus(firm.status).tone}`}
+          >
+            {firmStatus(firm.status).label}
+          </span>,
+        ],
+        ['Portal Address', `/${firm.slug}`],
+        // Only while the owner has not accepted: the timeline already records the invite.
+        ...(application.ownerInvite && application.ownerInvite.status !== 'ACCEPTED'
+          ? [
+              [
+                'Owner Invite',
+                application.ownerInvite.status === 'EXPIRED'
+                  ? `Expired ${dateParts(application.ownerInvite.expiresAt)[0]}`
+                  : `${humanize(application.ownerInvite.status)}, expires ${dateParts(application.ownerInvite.expiresAt)[0]}`,
+              ] as const,
+            ]
+          : []),
       ]
-    : [['Details', unreadable]];
+    : [];
+  const accountFields: Field[] = !account
+    ? [['Details', unreadable], ...firmFields]
+    : firm
+      ? [
+          ['Plan', FIRM_PLANS[account.requestedPlan]],
+          ['Team Size (Estimated)', String(account.teamSize)],
+          ['Estimated Client Volume', `${CLIENT_VOLUMES[account.clientVolume]} (per year)`],
+          ['How They Heard About Us', account.heardFrom],
+          ...firmFields,
+          ['Additional Information', account.additionalInfo],
+        ]
+      : [
+          ['Requested Plan', FIRM_PLANS[account.requestedPlan]],
+          ['Estimated Team Size', String(account.teamSize)],
+          ['Estimated Client Volume (per year)', CLIENT_VOLUMES[account.clientVolume]],
+          ['How They Heard About Us', account.heardFrom],
+          ['Requested Start Date', account.requestedStartDate ?? 'As soon as possible'],
+          ['Additional Information', account.additionalInfo],
+        ];
   const canDecide = application.status === 'PENDING_REVIEW';
 
   const openAction = (next: Action) => {
@@ -199,77 +258,177 @@ function ApplicationRecord({
     });
   }
 
+  const notesCard = (
+    <Card className="!p-4">
+      <CardHeading icon={NotepadText}>{firm ? 'Notes' : 'Internal Notes'}</CardHeading>
+      <form onSubmit={submitNotes} className="mt-4">
+        <textarea
+          aria-label="Internal notes"
+          value={notes}
+          onChange={(event) => {
+            saveNotes.reset();
+            setNotes(event.target.value);
+          }}
+          rows={2}
+          maxLength={5000}
+          placeholder={`Add internal notes about this ${firm ? 'firm' : 'application'}...`}
+          className="w-full resize-none rounded-control border border-border bg-surface p-3 text-sm"
+        />
+        {saveNotes.error && (
+          <p role="alert" className="mt-2 text-sm text-danger">
+            {errorMessage(saveNotes.error)}
+          </p>
+        )}
+        {saveNotes.isSuccess && (
+          <p role="status" className="mt-2 text-sm text-success">
+            Notes saved.
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="min-w-0 grow basis-40 text-xs text-muted">
+            Notes are only visible to Firmivra administrators.
+          </p>
+          <Button
+            type="submit"
+            className="ml-auto shrink-0"
+            disabled={busy || notes.trim() === (application.internalNotes ?? '').trim()}
+          >
+            {saveNotes.isPending ? 'Saving…' : 'Save Note'}
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+  const historyCard = (
+    <Card className="!p-4">
+      <CardHeading icon={History}>{firm ? 'Recent Activity' : 'Application History'}</CardHeading>
+      <Timeline application={application} />
+    </Card>
+  );
+  const documentsCard = (
+    <Card className="!p-4">
+      <CardHeading icon={Folder}>Documents Submitted</CardHeading>
+      <DocumentsTable documents={application.documents} />
+    </Card>
+  );
+  const status = firm ? firmStatus(firm.status) : null;
+
   return (
-    <div className="flex w-full flex-col gap-5">
-      <Link href="/applications" className="w-fit text-sm font-medium text-brand-700">
-        ← Back to Applications
+    <section className="flex w-full flex-col gap-5 rounded-card bg-surface p-4 shadow-md md:p-5">
+      <Link
+        href="/applications"
+        className="inline-flex w-fit items-center gap-3 text-base font-medium text-link"
+      >
+        <ArrowLeft aria-hidden className="size-5" />
+        Back to Applications
       </Link>
       {notice ? (
         <p role="status" className="rounded-card bg-warning-soft p-3 text-sm text-warning">
           {notice}
         </p>
       ) : null}
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 data-testid="page-title" className="font-serif text-4xl font-semibold tracking-tight">
-            {application.legalName}
-          </h1>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <StatusPill status={application.status} />
-            <span className="text-sm text-muted">
-              Submitted {dateText(application.submittedAt)}
-            </span>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        {/* Below 2xl the decision buttons drop under the title; the firm link stays beside it. */}
+        <div className={`min-w-0 grow ${canDecide ? 'basis-full 2xl:basis-auto' : 'basis-auto'}`}>
+          <div className="flex flex-wrap items-center gap-4">
+            <h1
+              data-testid="page-title"
+              className="font-display text-3xl font-bold tracking-tight text-heading md:text-4xl"
+            >
+              {application.legalName}
+            </h1>
+            {status ? (
+              <span
+                data-testid="application-status"
+                className={`rounded-pill px-3 py-1 text-base font-semibold ${status.tone}`}
+              >
+                {status.label}
+              </span>
+            ) : (
+              <StatusPill status={application.status} />
+            )}
           </div>
+          {firm && application.decision ? (
+            <p data-testid="approved-firm-summary" className="mt-1 text-base text-muted">
+              Approved on {longDate(application.decision.at)}
+              {account ? ` | ${FIRM_PLANS[account.requestedPlan]}` : ''}
+            </p>
+          ) : (
+            <p className="mt-1 text-base text-muted">
+              Submitted on {dateText(application.submittedAt)}
+            </p>
+          )}
         </div>
         {canDecide && (
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={busy}
-              className="enabled:!bg-success"
+              className="enabled:!bg-success enabled:hover:!bg-success/90"
               onClick={() => openAction('approve')}
             >
+              <Check aria-hidden className="size-4" />
               Approve Application
             </Button>
-            <Button variant="outline" disabled={busy} onClick={() => openAction('request-info')}>
+            <Button
+              variant="outline"
+              className="enabled:!bg-info-soft enabled:hover:!bg-folder-hover"
+              disabled={busy}
+              onClick={() => openAction('request-info')}
+            >
+              <MessageSquare aria-hidden className="size-4" />
               Request Information
             </Button>
             <Button
               variant="outline"
-              className="enabled:!border-danger enabled:!text-danger enabled:hover:!bg-danger-soft"
+              className="enabled:!border-danger enabled:!bg-danger-soft enabled:!text-danger enabled:hover:!bg-danger/10"
               disabled={busy}
               onClick={() => openAction('decline')}
             >
+              <X aria-hidden className="size-4" />
               Decline Application
             </Button>
           </div>
         )}
+        {/* Edit Firm Details and Deactivate Firm wait for their API; only working buttons show. */}
+        {firm && (
+          <a
+            href={appBaseUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover"
+          >
+            <ExternalLink aria-hidden className="size-4" />
+            Open Firm Workspace
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        )}
       </header>
 
-      {application.firm && (
-        <Card data-testid="approved-firm-summary">
-          <h2 className="font-semibold">Firm created</h2>
-          <p className="mt-2 text-sm text-muted">
-            {application.firm.name} · {humanize(application.firm.status)} · Portal slug:{' '}
-            {application.firm.slug}
-          </p>
-          {application.ownerInvite && (
-            <p className="mt-1 text-sm text-muted">
-              Owner invite: {humanize(application.ownerInvite.status)}, expires{' '}
-              {dateText(application.ownerInvite.expiresAt)}
-            </p>
-          )}
-        </Card>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <FieldCard title="Business Information" fields={businessFields} />
-        <FieldCard title="Primary Administrator" fields={adminFields} />
-        <FieldCard title="Account Details" fields={accountFields} />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <h2 className="text-lg font-semibold">Credentials</h2>
+      {/* One grid, so rows fill in order at every width. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <FieldCard icon={Building2} title="Business Information" fields={businessFields} />
+        <FieldCard icon={UserRound} title="Primary Administrator" fields={adminFields} />
+        <FieldCard icon={FileText} title="Account Details" fields={accountFields} />
+        {firm ? (
+          <>
+            <Card className="!p-4">
+              <CardHeading icon={Database}>Active Features (Beta)</CardHeading>
+              <ActiveFeatures active={firm.status === 'ACTIVE'} />
+            </Card>
+            {historyCard}
+            {notesCard}
+          </>
+        ) : (
+          <>
+            {documentsCard}
+            {notesCard}
+            {historyCard}
+          </>
+        )}
+        {/* Not in the mockups, but the review needs them (PROJECT-DRAFT-v2: automated checks). */}
+        {firm ? documentsCard : null}
+        <Card className="!p-4">
+          <CardHeading icon={IdCard}>Credentials</CardHeading>
           {!application.formReadable ? (
             <p className="mt-4 text-sm text-muted">{unreadable}</p>
           ) : application.credentials.length ? (
@@ -285,33 +444,14 @@ function ApplicationRecord({
             <p className="mt-4 text-sm text-muted">No credentials submitted.</p>
           )}
         </Card>
-        <Card>
-          <h2 className="text-lg font-semibold">Documents Submitted</h2>
-          {application.documents.length ? (
-            <ul className="mt-4 space-y-3 text-sm">
-              {application.documents.map((document) => (
-                <li key={document.id}>
-                  <p className="font-medium">{document.name}</p>
-                  <p className="text-muted">
-                    {document.fileName} · {dateText(document.uploadedAt)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-4 rounded-control bg-canvas p-4 text-center text-sm text-muted">
-              No documents uploaded.
-            </p>
-          )}
-        </Card>
-        <Card>
-          <h2 className="text-lg font-semibold">Automated Checks</h2>
+        <Card className="!p-4">
+          <CardHeading icon={ShieldCheck}>Automated Checks</CardHeading>
           {application.checks.length ? (
             <ul className="mt-4 space-y-3">
               {application.checks.map((check) => (
                 <li key={check.key} className="flex items-start justify-between gap-3 text-sm">
                   <span>{check.note}</span>
-                  <span className="shrink-0 rounded-control bg-canvas px-2 py-1 text-xs text-muted">
+                  <span className="shrink-0 rounded-pill bg-canvas px-2 py-1 text-xs text-muted">
                     {humanize(check.result)}
                   </span>
                 </li>
@@ -319,64 +459,6 @@ function ApplicationRecord({
             </ul>
           ) : (
             <p className="mt-4 text-sm text-muted">No automated checks returned.</p>
-          )}
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <h2 className="text-lg font-semibold">Internal Notes</h2>
-          <p className="my-3 text-xs text-muted">
-            Notes are only visible to Firmivra administrators.
-          </p>
-          <form onSubmit={submitNotes}>
-            <textarea
-              aria-label="Internal notes"
-              value={notes}
-              onChange={(event) => {
-                saveNotes.reset();
-                setNotes(event.target.value);
-              }}
-              rows={5}
-              maxLength={5000}
-              className="w-full rounded-control border border-border bg-surface p-3 text-sm"
-            />
-            {saveNotes.error && (
-              <p role="alert" className="mt-2 text-sm text-danger">
-                {errorMessage(saveNotes.error)}
-              </p>
-            )}
-            {saveNotes.isSuccess && (
-              <p role="status" className="mt-2 text-sm text-success">
-                Notes saved.
-              </p>
-            )}
-            <Button type="submit" className="mt-3" disabled={busy}>
-              {saveNotes.isPending ? 'Saving…' : 'Save Note'}
-            </Button>
-          </form>
-        </Card>
-        <Card className="lg:col-span-2">
-          <h2 className="text-lg font-semibold">Application History</h2>
-          {application.history.length ? (
-            <ol className="mt-4 space-y-4 border-l border-border pl-5">
-              {application.history.map((event) => (
-                <li
-                  key={`${event.at}-${event.type}-${event.by?.userId ?? 'applicant'}-${event.message ?? ''}`}
-                >
-                  <p className="font-medium">{humanize(event.type)}</p>
-                  <p className="text-sm text-muted">
-                    {event.message ||
-                      (event.by ? `Recorded by ${event.by.name}.` : 'Received from applicant.')}
-                  </p>
-                  <time dateTime={event.at} className="text-xs text-muted">
-                    {dateText(event.at)}
-                  </time>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="mt-4 text-sm text-muted">No application history yet.</p>
           )}
         </Card>
       </div>
@@ -446,11 +528,11 @@ function ApplicationRecord({
           </div>
         ) : null}
       </Modal>
-    </div>
+    </section>
   );
 }
 
-function ApplicationDetailContent({ id }: { id: string }) {
+function ApplicationDetailContent({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
   const { me } = useMe();
   const query = useApiQuery(applicationDetailKey(id), () => api.firmApplications.get(id));
   if (!me.platformAdmin) return <NoApplicationPermission />;
@@ -460,6 +542,7 @@ function ApplicationDetailContent({ id }: { id: string }) {
         <ApplicationRecord
           key={application.id}
           application={application}
+          appBaseUrl={appBaseUrl}
           onStale={() => void query.refetch()}
         />
       )}
@@ -467,7 +550,7 @@ function ApplicationDetailContent({ id }: { id: string }) {
   );
 }
 
-export function ApplicationDetail({ id }: { id: string }) {
+export function ApplicationDetail({ id, appBaseUrl }: { id: string; appBaseUrl: string }) {
   if (!FirmApplicationId.safeParse(id).success) {
     return (
       <Card data-testid="page-not-found">
@@ -477,5 +560,5 @@ export function ApplicationDetail({ id }: { id: string }) {
     );
   }
 
-  return <ApplicationDetailContent id={id} />;
+  return <ApplicationDetailContent id={id} appBaseUrl={appBaseUrl} />;
 }

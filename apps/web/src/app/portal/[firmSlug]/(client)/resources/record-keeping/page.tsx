@@ -1,15 +1,15 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { ResourcePage } from '../_components/resource-page';
 
 export const metadata: Metadata = { title: 'Record Keeping Best Practices' };
 
-export default function RecordKeepingBestPracticesPage() {
+export default function Page() {
   return (
-    <PagePlaceholder
-      title="Record Keeping Best Practices"
-      ticket="N10"
-      owner="Nahid"
-      mockup="client-portal/Record Keeping Best Practices Dashboard.png"
+    <ResourcePage
+      page="record-keeping"
+      heading="Record Keeping"
+      highlight="Best Practices"
+      intro="Stay organized. Stay compliant. Build a stronger business."
     />
   );
 }

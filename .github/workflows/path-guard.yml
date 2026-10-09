@@ -62,13 +62,16 @@ jobs:
                   '_components/',
                   'clients/',
                   'sign-ups/',
-                  'messages/',
-                  'invoices/',
                   'workspaces/',
                 ].map((p) => `${WEB}firm/(workspace)/${p}`),
               ],
-              // Firm Sign under a client is R13-web's (the Oct 18 plan).
-              except: [`${WEB}firm/(workspace)/clients/[id]/signatures/`],
+              // Firm Sign under a client is R13-web's (the Oct 18 plan); a client's
+              // Messages and Invoices tabs are Nahid's F10 (Rasel, Oct 9).
+              except: [
+                `${WEB}firm/(workspace)/clients/[id]/signatures/`,
+                `${WEB}firm/(workspace)/clients/[id]/messages/`,
+                `${WEB}firm/(workspace)/clients/[id]/invoices/`,
+              ],
             },
             tumit: {
               logins: ['tumit-h-r-75'],
@@ -89,21 +92,13 @@ jobs:
                 `${WEB}portal/[firmSlug]/(client)/appointments/`,
               ],
             },
+            // F10 from Oct 9 (Rasel); the portal pages moved to R17, Rasel's own session.
             nahid: {
-              logins: [],
+              logins: ['asratulhasannahid'],
               files: [
-                `${WEB}portal/[firmSlug]/layout.tsx`,
-                `${WEB}portal/[firmSlug]/(public)/`,
-                `${WEB}portal/[firmSlug]/(client)/`,
-              ],
-              except: [
-                `${WEB}portal/[firmSlug]/(public)/begin/`,
-                `${WEB}portal/[firmSlug]/(client)/appointments/`,
-                `${WEB}portal/[firmSlug]/(client)/home/`,
-                // R14's calculators and R13-web's Firm Sign (the Oct 18 plan).
-                `${WEB}portal/[firmSlug]/(client)/calculator/`,
-                `${WEB}portal/[firmSlug]/(public)/calculators/`,
-                `${WEB}portal/[firmSlug]/(client)/signatures/`,
+                ...['messages/', 'invoices/', 'clients/[id]/messages/', 'clients/[id]/invoices/'].map(
+                  (p) => `${WEB}firm/(workspace)/${p}`,
+                ),
               ],
             },
             arfan: {
