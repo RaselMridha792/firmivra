@@ -78,6 +78,19 @@ export const SetEsignMemberRoleBody = z.strictObject({
 });
 export type SetEsignMemberRoleBody = z.input<typeof SetEsignMemberRoleBody>;
 
+/**
+ * GET /esign/approvers (Owner, Admin, Manager, Staff; a Viewer gets 403 FORBIDDEN): who may approve
+ * a request, for the wizard's approver picker. Active Owners, Admins and Managers, by name, without
+ * the caller (a sender can't approve their own request). Names only, no emails.
+ */
+export const EsignApprover = z.object({
+  user: MemberRef,
+  esignRole: z.enum(['OWNER', 'ADMIN', 'MANAGER']),
+});
+export type EsignApprover = z.infer<typeof EsignApprover>;
+export const EsignApproverList = z.object({ items: z.array(EsignApprover) });
+export type EsignApproverList = z.infer<typeof EsignApproverList>;
+
 // ---------- Template versions ----------
 /**
  * One saved version of a template. Using a template copies its newest version; a request records
@@ -146,6 +159,8 @@ export type DuplicateEsignTemplateBody = z.input<typeof DuplicateEsignTemplateBo
  * NOT_YOUR_TURN, RECIPIENT_DONE, REQUEST_CLOSED.
  */
 export const ESIGN_KIOSK_IDLE_MINUTES = 15;
+/** Wrong staff passwords on `exit` before the staff member is signed out. */
+export const ESIGN_KIOSK_PASSWORD_TRIES = 5;
 
 export const StartEsignInPersonBody = z.strictObject({ recipientId: z.uuid() });
 export type StartEsignInPersonBody = z.input<typeof StartEsignInPersonBody>;
@@ -172,8 +187,10 @@ export type EsignInPersonState = z.infer<typeof EsignInPersonState>;
 
 /**
  * POST /esign/in-person/exit: unlocks the staff session with the staff member's own password and
- * ends the signer's session on the portal. 400 PASSWORD_WRONG; after 5 wrong passwords the staff
- * member is signed out (401). Allowed while locked.
+ * ends the signer's session on the portal. 400 PASSWORD_WRONG; after ESIGN_KIOSK_PASSWORD_TRIES wrong
+ * passwords the staff member is signed out (401). That sign-out, like the idle one, also revokes
+ * the refresh token, so the browser's silent refresh cannot re-send the exit. Allowed while
+ * locked.
  */
 export const ExitEsignInPersonBody = z.strictObject({
   password: z.string().min(1).max(256),
