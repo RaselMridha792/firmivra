@@ -8,25 +8,27 @@ import type {
 import { Card } from '@firmivra/ui';
 import {
   ArrowRight,
-  Building,
+  Building2,
   CalendarDays,
-  ChartColumn,
   ChevronRight,
-  CircleCheck,
   Database,
   FileText,
+  Info,
+  LayoutGrid,
   Settings,
+  SquareCheckBig,
   Zap,
-  type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useSyncExternalStore, type ReactNode } from 'react';
+import { useSyncExternalStore } from 'react';
 import { PageState } from '../../../../components/page-state';
 import { useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { mocked } from '../../../../lib/mock';
 import { useApiQuery } from '../../../../lib/query';
 import { attentionItems, dashboardStats, platformModules, systemStatuses } from './dashboard-data';
+import { PlatformGrowth } from './platform-growth';
+import { SectionTitle } from './section-title';
 
 const subscribeToNothing = () => () => {};
 const localDateLabel = () =>
@@ -38,26 +40,6 @@ const localDateLabel = () =>
   }).format(new Date());
 const serverDateLabel = () => '';
 
-function SectionTitle({
-  icon: Icon,
-  children,
-  action,
-}: {
-  icon: LucideIcon;
-  children: ReactNode;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-brand-900">
-        <Icon aria-hidden className="size-5 text-brand-700" />
-        {children}
-      </h2>
-      {action}
-    </div>
-  );
-}
-
 function StatCard({
   stat,
   value,
@@ -68,22 +50,22 @@ function StatCard({
   const Icon = stat.icon;
   const iconTone = {
     blue: 'bg-brand-50 text-brand-700',
-    green: 'bg-success/10 text-success',
-    purple: 'bg-brand-50 text-brand-700',
+    green: 'bg-success-soft text-success',
+    purple: 'bg-purple-soft text-purple',
     gold: 'bg-warning-soft text-warning',
   }[stat.tone];
+  // A figure the API cannot give yet (users, revenue) shows a dash, never a made-up zero.
   const formattedValue =
-    stat.key === 'monthlyRevenueCents'
-      ? value === null
-        ? 'Not available yet'
-        : (value / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-      : value === null
-        ? 'Not available yet'
+    value === null
+      ? '—'
+      : stat.key === 'monthlyRevenueCents'
+        ? (value / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
         : value.toLocaleString('en-US');
+  const linkClass = 'mt-1 inline-flex items-center gap-1 text-sm text-brand-700';
 
   return (
-    <Card data-testid={stat.testId} className="!p-4">
-      <div className="flex items-center gap-6">
+    <Card variant="elevated" data-testid={stat.testId} className="!p-4">
+      <div className="flex items-center gap-4">
         <span
           className={'flex size-16 shrink-0 items-center justify-center rounded-card ' + iconTone}
         >
@@ -92,24 +74,34 @@ function StatCard({
         <div className="min-w-0">
           <p
             data-testid={`${stat.testId}-value`}
-            className={
-              value === null
-                ? 'text-sm font-medium text-muted'
-                : 'text-2xl font-semibold text-brand-900'
-            }
+            title={value === null ? 'Not available yet' : undefined}
+            className="text-3xl font-semibold text-brand-900"
           >
-            {formattedValue}
+            {value === null ? <span aria-hidden>{formattedValue}</span> : formattedValue}
+            {value === null ? <span className="sr-only"> Not available yet</span> : null}
           </p>
-          <p className="text-sm text-text">{stat.label}</p>
+          <p className="flex items-center gap-1 text-base text-text">
+            {stat.label}
+            {stat.key === 'monthlyRevenueCents' ? (
+              <span title="Revenue billed this month" className="inline-flex">
+                <Info aria-hidden className="size-4 text-muted" />
+                <span className="sr-only">(Revenue billed this month)</span>
+              </span>
+            ) : null}
+          </p>
           {stat.href ? (
-            <Link
-              href={stat.href}
-              className="mt-1 inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"
-            >
-              View {stat.href === '/applications' ? 'Applications' : 'Firms'}
+            <Link href={stat.href} className={`${linkClass} hover:underline`}>
+              {stat.linkLabel}
               <ArrowRight aria-hidden className="size-4" />
             </Link>
-          ) : null}
+          ) : (
+            // Users and Billing pages come after the first release (Soon in the menu).
+            <span title="Coming soon" className={linkClass}>
+              {stat.linkLabel}
+              <ArrowRight aria-hidden className="size-4" />
+              <span className="sr-only"> (coming soon)</span>
+            </span>
+          )}
         </div>
       </div>
     </Card>
@@ -134,10 +126,10 @@ function localSubmissionLabel(value: string) {
 const COLUMNS = [
   'xl:col-span-4',
   'xl:col-span-3',
-  'xl:col-span-4',
+  'xl:col-span-5',
   'xl:col-span-3',
   'xl:col-span-3',
-  'xl:col-span-3',
+  'xl:col-span-2',
 ] as const;
 
 function statusPresentation(status: FirmApplicationListItem['status']) {
@@ -148,10 +140,10 @@ function statusPresentation(status: FirmApplicationListItem['status']) {
     .join(' ');
   const tone =
     status === 'APPROVED'
-      ? 'bg-success/10 text-success'
+      ? 'bg-success-soft text-success'
       : status === 'DECLINED'
-        ? 'bg-danger/10 text-danger'
-        : 'bg-accent-500/10 text-accent-600';
+        ? 'bg-danger-soft text-danger'
+        : 'bg-warning-soft text-warning';
   return { label, tone };
 }
 
@@ -167,7 +159,7 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
   return (
     <li
       data-testid="recent-application"
-      className="grid gap-2 rounded-control border border-border p-3 text-sm xl:grid-cols-20 xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-3 xl:py-4"
+      className="grid gap-2 rounded-control border border-border p-3 text-sm xl:grid-cols-20 xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-4 xl:py-4 xl:last:border-b-0"
     >
       <span className={`font-semibold text-text ${COLUMNS[0]}`}>
         <span className="text-xs text-muted xl:hidden">Business: </span>
@@ -177,7 +169,7 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
         <span className="text-xs text-muted xl:hidden">Contact: </span>
         {application.contactName}
       </span>
-      <span className={`break-words xl:truncate ${COLUMNS[2]}`}>
+      <span className={`break-words ${COLUMNS[2]}`}>
         <span className="text-xs text-muted xl:hidden">Email: </span>
         {application.contactEmail}
       </span>
@@ -226,7 +218,7 @@ export function DashboardOverview() {
             Here&apos;s an overview of your Firmivra platform.
           </p>
         </div>
-        <p data-testid="dashboard-date" className="flex items-center gap-3 text-sm text-muted">
+        <p data-testid="dashboard-date" className="flex items-center gap-3 text-base text-text">
           <CalendarDays aria-hidden className="size-5 text-brand-900" />
           {today}
         </p>
@@ -244,13 +236,13 @@ export function DashboardOverview() {
 
       <div className="mt-1 grid gap-4 lg:grid-cols-12 lg:items-start">
         <div className="grid content-start gap-4 lg:col-span-8 xl:col-span-9">
-          <Card className="!p-4 xl:min-h-48">
+          <Card variant="elevated" className="!p-4 xl:min-h-48">
             <SectionTitle
               icon={FileText}
               action={
                 <Link
                   href="/applications"
-                  className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"
+                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-sm text-brand-700 hover:underline"
                 >
                   View All <ArrowRight aria-hidden className="size-4" />
                 </Link>
@@ -258,59 +250,64 @@ export function DashboardOverview() {
             >
               Recent Firm Applications
             </SectionTitle>
-            <div className="hidden gap-2 bg-canvas px-3 py-3 text-xs text-muted xl:grid xl:grid-cols-20">
-              {['Business Name', 'Owner / Contact', 'Email', 'Submitted', 'Status', 'Actions'].map(
-                (label, index) => (
+            <div className="xl:overflow-hidden xl:rounded-card xl:border xl:border-border">
+              <div className="hidden gap-2 bg-subtle px-4 py-3 text-sm font-medium text-text xl:grid xl:grid-cols-20">
+                {[
+                  'Business Name',
+                  'Owner / Contact',
+                  'Email',
+                  'Submitted',
+                  'Status',
+                  'Actions',
+                ].map((label, index) => (
                   <span key={label} className={COLUMNS[index]}>
                     {label}
                   </span>
-                ),
-              )}
+                ))}
+              </div>
+              <PageState<ListFirmApplicationsResponse>
+                query={recent}
+                empty="No applications yet"
+                isEmpty={(result) => result.items.length === 0}
+              >
+                {(result) => (
+                  <ul aria-label="Recent applications" className="grid gap-3 xl:gap-0">
+                    {result.items.map((application) => (
+                      <RecentApplication key={application.id} application={application} />
+                    ))}
+                  </ul>
+                )}
+              </PageState>
             </div>
-            <PageState<ListFirmApplicationsResponse>
-              query={recent}
-              empty="No applications yet"
-              isEmpty={(result) => result.items.length === 0}
-            >
-              {(result) => (
-                <ul aria-label="Recent applications" className="grid gap-3">
-                  {result.items.map((application) => (
-                    <RecentApplication key={application.id} application={application} />
-                  ))}
-                </ul>
-              )}
-            </PageState>
           </Card>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card data-testid="platform-growth" className="!p-4 min-h-70">
-              <SectionTitle icon={ChartColumn}>
-                Platform Growth <span className="text-sm font-normal text-muted">(Beta)</span>
-              </SectionTitle>
-              <p className="flex min-h-40 items-center justify-center text-sm text-muted">
-                Coming soon
-              </p>
+          <div className="grid gap-4 xl:grid-cols-13">
+            <Card variant="elevated" data-testid="platform-growth" className="!p-4 xl:col-span-7">
+              <PlatformGrowth />
             </Card>
-            <Card className="!p-4">
-              <SectionTitle icon={CircleCheck}>Tasks Requiring Attention</SectionTitle>
+            <Card variant="elevated" className="!p-4 xl:col-span-6">
+              <SectionTitle icon={SquareCheckBig} iconClassName="text-purple">
+                Tasks Requiring Attention
+              </SectionTitle>
               <ul className="divide-y divide-border">
                 {attentionItems.map(({ label, key, icon: Icon, href }, index) => {
-                  const count = key && dashboard.data ? (dashboard.data[key] ?? '—') : '—';
-                  const canOpen = href && typeof count === 'number' && count > 0;
+                  // Payments, support and renewals have nothing to count yet, and an unknown count shows 0.
+                  const count = key && dashboard.data ? (dashboard.data[key] ?? 0) : 0;
+                  const canOpen = href && count > 0;
                   return (
                     <li
                       key={label}
-                      className="flex items-center gap-3 border-b border-border py-0.5 first:pt-0 last:border-0 last:pb-0"
+                      className="flex min-h-11 items-center gap-3 border-b border-border py-1 first:pt-0 last:border-0 last:pb-0"
                     >
                       <span
                         className={
                           'flex size-9 shrink-0 items-center justify-center rounded-control ' +
                           [
-                            'bg-brand-50 text-brand-700',
-                            'bg-danger/10 text-danger',
-                            'bg-accent-500/10 text-accent-600',
-                            'bg-brand-100 text-brand-900',
-                            'bg-success/10 text-success',
+                            'bg-purple-soft text-purple',
+                            'bg-danger-soft text-danger',
+                            'bg-warning-soft text-warning',
+                            'bg-purple-soft text-purple',
+                            'bg-accent-soft text-accent',
                           ][index]
                         }
                       >
@@ -327,7 +324,10 @@ export function DashboardOverview() {
                           <ChevronRight aria-hidden className="size-4 shrink-0 text-muted" />
                         </Link>
                       ) : (
-                        <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
+                        <span className="flex min-w-0 flex-1 items-center justify-between gap-2 text-sm text-text">
+                          {label}
+                          <ChevronRight aria-hidden className="size-4 shrink-0 text-muted" />
+                        </span>
                       )}
                     </li>
                   );
@@ -338,8 +338,10 @@ export function DashboardOverview() {
         </div>
 
         <div className="grid content-start gap-4 lg:col-span-4 xl:col-span-3">
-          <Card className="!p-4">
-            <SectionTitle icon={Zap}>Quick Actions</SectionTitle>
+          <Card variant="elevated" className="!p-4">
+            <SectionTitle icon={Zap} iconClassName="text-warning">
+              Quick Actions
+            </SectionTitle>
             <div className="grid gap-2">
               <Link
                 href="/applications"
@@ -351,16 +353,16 @@ export function DashboardOverview() {
               </Link>
               <Link
                 href="/firms"
-                className="flex items-center gap-3 rounded-control bg-accent-500/10 px-3 py-3 text-sm font-medium text-accent-600 hover:bg-accent-500/20"
+                className="flex items-center gap-3 rounded-control bg-success-soft px-3 py-3 text-sm font-medium text-success hover:bg-success-soft/80"
               >
-                <Building aria-hidden className="size-5" />
+                <Building2 aria-hidden className="size-5" />
                 <span className="flex-1">View Firms</span>
                 <ChevronRight aria-hidden className="size-4" />
               </Link>
               <button
                 type="button"
                 disabled
-                className="flex cursor-not-allowed items-center gap-3 rounded-control bg-accent-500/10 px-3 py-3 text-left text-sm text-accent-600"
+                className="flex cursor-not-allowed items-center gap-3 rounded-control bg-purple-soft px-3 py-3 text-left text-sm font-medium text-purple"
               >
                 <Settings aria-hidden className="size-5" />
                 <span className="flex-1">Platform Settings</span>
@@ -369,21 +371,21 @@ export function DashboardOverview() {
             </div>
           </Card>
 
-          <Card data-testid="system-status" className="!p-4">
+          <Card variant="elevated" data-testid="system-status" className="!p-4">
             <SectionTitle icon={Database}>System Status</SectionTitle>
             <ul className="divide-y divide-border">
               {systemStatuses.map((label) => (
-                <li key={label} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
+                <li key={label} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                   <span
                     aria-hidden
                     className={
-                      'size-2 shrink-0 rounded-full ' + (isMockMode ? 'bg-success' : 'bg-muted')
+                      'size-3 shrink-0 rounded-full ' + (isMockMode ? 'bg-success' : 'bg-muted')
                     }
                   />
                   <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
                   <span
                     className={
-                      'flex items-center gap-1.5 text-xs font-semibold ' +
+                      'flex items-center gap-1.5 text-sm font-semibold ' +
                       (isMockMode ? 'text-success' : 'text-muted')
                     }
                   >
@@ -396,31 +398,36 @@ export function DashboardOverview() {
         </div>
       </div>
 
-      <Card className="mt-0.5 !p-4 !pt-3">
-        <SectionTitle icon={Building}>Platform Modules</SectionTitle>
+      <Card variant="elevated" className="mt-0.5 !p-4 !pt-3">
+        <SectionTitle icon={LayoutGrid} iconClassName="text-brand-900">
+          Platform Modules
+        </SectionTitle>
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {platformModules.map(([label, Icon], index) => (
-            <li key={label} className="flex items-center gap-3 rounded-control bg-canvas px-3 py-2">
+            <li
+              key={label}
+              className="flex items-center gap-4 overflow-hidden rounded-control bg-canvas pr-3"
+            >
               <span
                 className={
-                  'flex size-11 shrink-0 items-center justify-center rounded-control ' +
+                  'flex size-15 shrink-0 items-center justify-center rounded-control ' +
                   [
-                    'bg-brand-50 text-brand-700',
-                    'bg-accent-500/10 text-accent-600',
-                    'bg-brand-100 text-brand-900',
-                    'bg-danger/10 text-danger',
-                    'bg-danger/10 text-danger',
-                    'bg-success/10 text-success',
-                    'bg-brand-50 text-brand-700',
-                    'bg-accent-500/10 text-accent-600',
+                    'bg-info-soft text-info',
+                    'bg-info-soft text-info',
+                    'bg-purple-soft text-purple',
+                    'bg-danger-soft text-danger',
+                    'bg-danger-soft text-danger',
+                    'bg-success-soft text-success',
+                    'bg-info-soft text-info',
+                    'bg-info-soft text-info',
                   ][index]
                 }
               >
-                <Icon aria-hidden className="size-5" />
+                <Icon aria-hidden className="size-6" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-text">{label}</span>
-                <span className="text-xs text-muted">Coming Soon</span>
+                <span className="block text-sm font-semibold text-text">{label}</span>
+                <span className="text-sm text-muted">Coming Soon</span>
               </span>
               <ChevronRight aria-hidden className="size-4 text-muted" />
             </li>
