@@ -9,6 +9,7 @@ import { canCreate } from '../../../../../../../../components/esign/esign-role';
 import { PageState } from '../../../../../../../../components/page-state';
 import { api } from '../../../../../../../../lib/api';
 import { DocumentsStep } from './documents-step';
+import { FieldsStep } from './fields-step';
 import { RecipientsStep } from './recipients-step';
 import { ReviewStep } from './review-step';
 import { SettingsStep } from './settings-step';
@@ -124,6 +125,7 @@ function StepNav({ id, current }: { id: string; current: StepId }) {
 function Step({ r, step }: { r: EsignRequestDetail; step: StepId }) {
   if (step === 'documents') return <DocumentsStep r={r} />;
   if (step === 'recipients') return <RecipientsStep key={r.id} r={r} />;
+  if (step === 'fields') return <FieldsStep key={r.id} r={r} />;
   if (step === 'settings') return <SettingsStep key={r.id} r={r} />;
   if (step === 'review') return <ReviewStep r={r} />;
   return (
