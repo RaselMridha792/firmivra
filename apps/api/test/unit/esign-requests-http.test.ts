@@ -1,9 +1,9 @@
-// R13 step 6, requests API parts 1b and 1c, over HTTP: EsignModule's status, draft, page plan
-// and recipients routes, pipes and the module switch with the in-memory ports (no database). A
-// stand-in for TenantGuard puts the caller's firm and role on the request, as the global guards
-// do in the app; the guards themselves are tested in guards.test.ts and the e2e suite.
-// Synthetic data only.
-import { randomUUID } from 'node:crypto';
+// R13 step 6, requests API parts 1b to 1e, over HTTP: EsignModule's status, draft, page plan,
+// recipients and document routes, pipes and the module switch with the in-memory ports (no
+// database). A stand-in for TenantGuard puts the caller's firm and role on the request, as the
+// global guards do in the app; the guards themselves are tested in guards.test.ts and the e2e
+// suite. Synthetic data only.
+import { createHash, randomUUID } from 'node:crypto';
 import {
   Controller,
   ExecutionContext,
@@ -18,7 +18,7 @@ import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EsignRequestDetail, EsignStatus } from '@firmivra/types';
+import { EsignDocument, EsignRequestDetail, EsignStatus, UploadTicket } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
 import {
@@ -27,13 +27,13 @@ import {
   ModulesModule,
   RequiresModule,
 } from '../../src/common/modules/requires-module.js';
-import { CODE_HASHER, ESIGN_STORE } from '../../src/esign/engine/engine.types.js';
+import { CODE_HASHER, ESIGN_STORE, PDF_ENGINE } from '../../src/esign/engine/engine.types.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { ESIGN_REPOSITORY, notMigrated } from '../../src/esign/requests/esign.repository.js';
+import { esignWorld, fakeHasher, fakePdf } from './esign-fakes.js';
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
-import { esignWorld, fakeHasher } from './esign-fakes.js';
 
 const w = esignWorld();
 
@@ -69,6 +69,8 @@ beforeAll(async () => {
     .useValue(fakeHasher)
     .overrideProvider(ESIGN_STORE)
     .useValue(w.store)
+    .overrideProvider(PDF_ENGINE)
+    .useValue(fakePdf)
     .compile();
   app = moduleRef.createNestApplication();
   // What AuthGuard and TenantGuard set, from test headers.
@@ -139,12 +141,12 @@ describe('Firm Sign over HTTP', () => {
     }
   });
 
-  it('closes @RequiresModule routes when off: 403 MODULE_OFF for staff, 404 for clients', async () => {
+  it('closes @RequiresModule routes when off: 403 MODULE_OFF for staff and clients', async () => {
     expect((await call('/probe', ownerA())).status).toBe(200);
     w.modules.set(w.a, 'esign', false);
     try {
       expect(errorOf(await call('/probe', ownerA()))).toEqual([403, 'MODULE_OFF']);
-      expect(errorOf(await call('/probe', clientA()))).toEqual([404, 'NOT_FOUND']);
+      expect(errorOf(await call('/probe', clientA()))).toEqual([403, 'MODULE_OFF']);
       expect((await call('/probe', ownerB())).status).toBe(200);
     } finally {
       w.modules.set(w.a, 'esign', true);
@@ -293,6 +295,114 @@ describe('Firm Sign page plan and recipients over HTTP', () => {
   });
 });
 
+describe('Firm Sign documents over HTTP', () => {
+  const content = new Uint8Array(Buffer.from('pdf:2'));
+  const facts = {
+    fileName: 'letter.pdf',
+    contentType: 'application/pdf',
+    sizeBytes: content.byteLength,
+    sha256: createHash('sha256').update(content).digest('hex'),
+  };
+  const newDraft = async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake letter',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    return EsignRequestDetail.parse(created.body).id;
+  };
+
+  it('uploads, confirms, serves once CLEAN and removes a file', async () => {
+    const id = await newDraft();
+    const base = `/esign/requests/${id}/documents`;
+    const started = await send('post', `${base}/uploads`, ownerA(), facts);
+    expect(started.status).toBe(201);
+    const ticket = UploadTicket.parse(started.body);
+    await w.store.put(w.a, ticket.url.replace('memory://', ''), content, 'application/pdf');
+    const confirm = { uploadToken: ticket.uploadToken };
+    const confirmed = await send('post', `${base}/uploads/confirm`, ownerA(), confirm);
+    expect(confirmed.status).toBe(201);
+    const doc = EsignDocument.parse(confirmed.body);
+    expect([doc.pageCount, doc.scanStatus]).toEqual([2, 'PENDING']);
+    expect(errorOf(await send('post', `${base}/uploads/confirm`, ownerA(), confirm))).toEqual([
+      410,
+      'UPLOAD_EXPIRED',
+    ]);
+
+    const path = `${base}/${doc.id}/content`;
+    expect(errorOf(await call(path, ownerA()))).toEqual([409, 'SCAN_PENDING']);
+    w.repo.seed(w.a, id, (row) => {
+      for (const d of row.parts.documents) d.scanStatus = 'CLEAN';
+    });
+    const bytes = await call(path, ownerA()).buffer(true);
+    expect([bytes.status, bytes.get('content-type'), bytes.get('cache-control')]).toEqual([
+      200,
+      'application/pdf',
+      'no-store',
+    ]);
+    expect(bytes.get('cross-origin-resource-policy')).toBe('same-origin');
+    expect((bytes.body as Buffer).toString()).toBe('pdf:2');
+    expect(errorOf(await call(path, ownerB()))).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await call(path, staffA2()))).toEqual([404, 'NOT_FOUND']);
+
+    expect(errorOf(await send('delete', `${base}/${doc.id}`, ownerB()))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    const removed = await send('delete', `${base}/${doc.id}`, ownerA());
+    const detail = EsignRequestDetail.parse(removed.body);
+    expect([removed.status, detail.documents, detail.pagePlan]).toEqual([200, [], []]);
+  });
+
+  it('refuses other file types (400 FILE_TYPE_NOT_ALLOWED), bad bodies and other firms', async () => {
+    const id = await newDraft();
+    const base = `/esign/requests/${id}/documents`;
+    const word = { ...facts, fileName: 'a.docx', contentType: 'application/msword' };
+    expect(errorOf(await send('post', `${base}/uploads`, ownerA(), word))).toEqual([
+      400,
+      'FILE_TYPE_NOT_ALLOWED',
+    ]);
+    const big = { ...facts, sizeBytes: 10 * 1024 * 1024 + 1 };
+    expect(errorOf(await send('post', `${base}/uploads`, ownerA(), big))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+    expect(errorOf(await send('post', `${base}/uploads`, ownerB(), facts))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    expect(
+      errorOf(await send('post', `${base}/from-vault`, ownerA(), { documentId: 'x' })),
+    ).toEqual([400, 'VALIDATION_FAILED']);
+    const vault = await send('post', `${base}/from-vault`, ownerA(), { documentId: randomUUID() });
+    expect(errorOf(vault)).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await call(`${base}/not-a-uuid/content`, ownerA()))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+  });
+
+  it('answers MODULE_OFF (403) on every document route when off', async () => {
+    const id = await newDraft();
+    const base = `/esign/requests/${id}/documents`;
+    const doc = randomUUID();
+    w.modules.set(w.a, 'esign', false);
+    try {
+      for (const res of [
+        await send('post', `${base}/uploads`, ownerA(), facts),
+        await send('post', `${base}/uploads/confirm`, ownerA(), { uploadToken: 'x' }),
+        await send('post', `${base}/from-vault`, ownerA(), { documentId: doc }),
+        await send('delete', `${base}/${doc}`, ownerA()),
+        await send('get', `${base}/${doc}/content`, ownerA()),
+      ]) {
+        expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
+      }
+    } finally {
+      w.modules.set(w.a, 'esign', true);
+    }
+  });
+});
+
 describe('the module switch (ModuleGuard)', () => {
   const guardFor = (enabled: boolean) => {
     const modules = { isEnabled: () => Promise.resolve(enabled) };
@@ -320,11 +430,11 @@ describe('the module switch (ModuleGuard)', () => {
         `${e.getStatus()} ${e.getResponse().code}`,
     );
 
-  it('lets a firm through when on; off is 403 MODULE_OFF for staff, 404 for clients and public routes', async () => {
+  it('lets a firm through when on; off is 403 MODULE_OFF for staff and clients, 404 for public routes', async () => {
     expect(await answer(guardFor(true).canActivate(ctx(staffTenant)))).toBe('allowed');
     expect(await answer(guardFor(true).canActivate(ctx(clientTenant)))).toBe('allowed');
     expect(await answer(guardFor(false).canActivate(ctx(staffTenant)))).toBe('403 MODULE_OFF');
-    expect(await answer(guardFor(false).canActivate(ctx(clientTenant)))).toBe('404 NOT_FOUND');
+    expect(await answer(guardFor(false).canActivate(ctx(clientTenant)))).toBe('403 MODULE_OFF');
     expect(await answer(guardFor(true).canActivate(ctx(undefined)))).toBe('404 NOT_FOUND');
     // A route without @RequiresModule is not the guard's business.
     expect(await answer(guardFor(false).canActivate(ctx(staffTenant, () => 1)))).toBe('allowed');
@@ -334,5 +444,16 @@ describe('the module switch (ModuleGuard)', () => {
     const stand = notMigrated<{ findRequest(): Promise<unknown>; then?: unknown }>('Repo');
     expect(stand.then).toBeUndefined();
     expect(() => stand.findRequest()).toThrow(/Repo.findRequest is not available yet/);
+  });
+
+  it('answers a signed-in client 403 MODULE_OFF, and 404 only with no firm (public signer routes)', async () => {
+    for (const module of ['esign', 'calculators'] as const) {
+      const h = () => 0;
+      Reflect.defineMetadata('firmivra:module', module, h);
+      expect(await answer(guardFor(false).canActivate(ctx(clientTenant, h)))).toBe(
+        '403 MODULE_OFF',
+      );
+      expect(await answer(guardFor(false).canActivate(ctx(undefined, h)))).toBe('404 NOT_FOUND');
+    }
   });
 });

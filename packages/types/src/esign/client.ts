@@ -13,6 +13,7 @@ import {
   EsignDocumentId,
   EsignDownloadFile,
   EsignEventList,
+  EsignFieldId,
   EsignFromVaultBody,
   EsignMergeValues,
   EsignReadiness,
@@ -401,7 +402,8 @@ export type EsignClient = ReturnType<typeof createEsignClient>;
 
 /**
  * `api.mySignatures(firmSlug)`: the signed-in client's Signature center at one firm (the client
- * comes from the session). Every call but `status()` answers 404 when Firm Sign is off.
+ * comes from the session). Every call but `status()` answers 403 MODULE_OFF when Firm Sign is
+ * off, as every module route does for a signed-in caller; `status()` says `enabled: false`.
  */
 export function createMySignaturesClient(request: ApiRequest, firmSlug: string) {
   const base = () => `${portalMe(firmSlug)}/signatures`;
@@ -477,6 +479,14 @@ export function createSigningClient(request: ApiRequest, firmSlug: string, baseU
         '/attachments/uploads/confirm',
         parseInput(SignerAttachmentConfirmBody, body),
       ),
+    /**
+     * Removes the file from one of their ATTACHMENT fields before they finish: answers the field
+     * with `attachmentName: null`. 404 NOT_FOUND when the field is not theirs or has no file.
+     */
+    removeAttachment: async (fieldId: string): Promise<SignerField> =>
+      request(SignerField, `${base()}/attachments/${parseInput(EsignFieldId, fieldId)}`, {
+        method: 'DELETE',
+      }),
 
     /** Step COPY: the completed request's files. */
     copy: async (): Promise<SignerCopy> => request(SignerCopy, `${base()}/copy`),

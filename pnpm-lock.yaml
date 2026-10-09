@@ -343,6 +343,9 @@ importers:
       '@firmivra/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
+      '@firmivra/types':
+        specifier: workspace:*
+        version: link:../types
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5

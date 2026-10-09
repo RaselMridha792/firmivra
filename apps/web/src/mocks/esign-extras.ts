@@ -269,7 +269,9 @@ export function esignExtrasMock(
       },
       state: async () => {
         await ctx.on();
-        return { session: copy(extras().kiosk) };
+        const k = extras().kiosk;
+        // Like the API: only the link's hash is stored, so the state has no token.
+        return { session: k ? { ...copy(k), signingUrl: k.signingUrl.split('#')[0]! } : null };
       },
       exit: async (body) => {
         const { password } = parseInput(ExitEsignInPersonBody, body);

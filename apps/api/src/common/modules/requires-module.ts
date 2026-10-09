@@ -42,7 +42,10 @@ export class PrismaBusinessModules implements BusinessModules {
   }
 }
 
-/** Firm routes: 403 MODULE_OFF. Portal and public routes: 404, as if the route did not exist. */
+/**
+ * Firm and portal routes (a signed-in member or client): 403 MODULE_OFF, which the isolation
+ * suite checks. Public routes: 404, as if the route did not exist.
+ */
 export function moduleOff(module: FirmModule, side: 'firm' | 'public'): Error {
   if (side === 'public') return new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
   const name = module === 'esign' ? 'Firm Sign' : 'Calculators';
@@ -55,9 +58,9 @@ export function moduleOff(module: FirmModule, side: 'firm' | 'public'): Error {
 const MODULE_KEY = 'firmivra:module';
 
 /**
- * Runs after the global guards (TenantGuard resolved the firm). A staff caller gets 403
- * MODULE_OFF, a client 404. A route with no firm in its context (a public signer route) is
- * refused with 404: such a route checks `BusinessModules` itself once it knows the firm.
+ * Runs after the global guards (TenantGuard resolved the firm). A staff or client caller gets
+ * 403 MODULE_OFF. A route with no firm in its context (a public signer route) is refused with
+ * 404: such a route checks `BusinessModules` itself once it knows the firm.
  */
 @Injectable()
 export class ModuleGuard implements CanActivate {
@@ -73,7 +76,7 @@ export class ModuleGuard implements CanActivate {
     ]);
     if (!module) return true;
     const tenant = ctx.switchToHttp().getRequest<Request>().tenant;
-    const side = tenant?.kind === 'staff' ? 'firm' : 'public';
+    const side = tenant ? 'firm' : 'public';
     if (tenant && (await this.modules.isEnabled(tenant.businessId, module))) return true;
     throw moduleOff(module, side);
   }

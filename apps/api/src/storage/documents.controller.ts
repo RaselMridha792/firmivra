@@ -201,6 +201,7 @@ export class DocumentsController {
     ScanResultsService,
     DocumentScanHandler,
   ],
-  exports: [ScanResultsService],
+  // Portal intake uploads (R11) use the same tickets, confirm and bucket.
+  exports: [UploadsService, DOCUMENT_STORAGE, ScanResultsService],
 })
 export class DocumentsModule {}
