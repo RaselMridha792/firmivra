@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Put,
+} from '@nestjs/common';
 import type { z } from 'zod';
 import {
   CreateEsignRequestBody,
@@ -20,7 +30,7 @@ const idPipe = new ZodValidationPipe(EsignRequestId);
 
 /** The firm comes from TenantGuard; firm roles only (see @Roles). */
 function actorOf(auth: AuthContext, tenant: TenantContext): EsignActor {
-  if (tenant.kind !== 'staff') throw new Error('Firm Sign routes are for firm members');
+  if (tenant.kind !== 'staff') throw new NotFoundException({ code: 'NOT_FOUND' });
   return { userId: auth.userId, role: tenant.role };
 }
 
@@ -56,6 +66,8 @@ export class EsignRequestsController {
     return this.requests.create(tenant.businessId, actorOf(auth, tenant), body);
   }
 
+  // Part 3's fixed paths (GET /esign/requests/summary and the list's siblings) go above this
+  // line: declared after @Get(':id'), Nest would route them here and answer 400 for the id.
   @Get(':id')
   get(
     @CurrentAuth() auth: AuthContext,
