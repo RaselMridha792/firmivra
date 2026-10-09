@@ -126,10 +126,13 @@ export function notLive(status: string): Error {
 }
 
 /**
- * Locks the lead (FOR UPDATE: a parallel save, upload or submit of the draft waits) while it is
- * a live draft; else 410 DRAFT_EXPIRED, 409 DRAFT_SUBMITTED or 404.
+ * Locks the lead's intake (FOR NO KEY UPDATE) and then the lead (FOR UPDATE: a parallel save,
+ * upload, submit or expiry of the draft waits) while it is a live draft; else 410 DRAFT_EXPIRED,
+ * 409 DRAFT_SUBMITTED or 404.
  */
 export async function holdDraft(tx: TxClient, leadId: string): Promise<{ email: string }> {
+  // The submit's and the expiry's lock order everywhere: the lead's intake, then the lead.
+  await tx.$queryRaw`SELECT 1 FROM intakes WHERE lead_id = ${leadId}::uuid FOR NO KEY UPDATE`;
   const rows = await tx.$queryRaw<{ email: string; status: string; live: boolean }[]>`
     SELECT email, status::text AS status, coalesce(draft_expires_at > now(), false) AS live
       FROM leads WHERE id = ${leadId}::uuid

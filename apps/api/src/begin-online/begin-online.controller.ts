@@ -43,6 +43,7 @@ import type { Env } from '../config/env.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { INTAKE_SIGNING, type IntakeSigner } from '../intake/intake-signing.js';
 import { IntakesModule } from '../intake/intakes.controller.js';
+import { BeginOnlineSweep } from './begin-online-sweep.js';
 import { BeginOnlineService } from './begin-online.service.js';
 import { DraftSubmitService } from './draft-submit.service.js';
 import { DRAFT_UPLOAD_PROVIDERS, DraftUploadsService } from './draft-uploads.service.js';
@@ -237,6 +238,7 @@ export class BeginOnlineController {
   controllers: [BeginOnlineController],
   providers: [
     BeginOnlineService,
+    BeginOnlineSweep,
     ResumeLinksService,
     DraftUploadsService,
     DraftSubmitService,

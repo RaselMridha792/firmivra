@@ -501,30 +501,34 @@ export class BeginOnlineService {
   }
 
   /**
-   * A draft past its expiry: its answers are cleared and its uploads deleted while it is still a
-   * draft (R0 allows only that), then it and its intake become EXPIRED and its resume link is
-   * cleared. After commit the stored files are deleted.
+   * A draft past its expiry, in one transaction and in the submit's lock order (the intake, then
+   * the lead): the open version's answers and saved steps are cleared and the uploads deleted
+   * while the lead is still a draft (R0 allows only that), then the lead becomes EXPIRED with its
+   * resume link cleared, then its intake. After commit the stored files are deleted. Used when a
+   * visitor reaches the draft and by BeginOnlineSweep for drafts nobody reopens. Returns whether
+   * this call expired it.
    */
-  private async expire(businessId: string, leadId: string): Promise<void> {
+  async expire(businessId: string, leadId: string): Promise<boolean> {
     const keys = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM intakes WHERE lead_id = ${leadId}::uuid FOR NO KEY UPDATE`;
       const rows = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM leads
          WHERE id = ${leadId}::uuid AND status = 'DRAFT' AND draft_expires_at <= now()
            FOR UPDATE`;
-      if (rows.length === 0) return [];
-      const files = await tx.leadUpload.findMany({ where: { leadId }, select: { s3Key: true } });
-      await tx.leadUpload.deleteMany({ where: { leadId } });
+      if (rows.length === 0) return null;
       await tx.intakeSubmission.updateMany({
         where: { intake: { leadId }, submittedAt: null },
         data: { answers: {}, savedSteps: [] },
       });
-      await tx.intake.updateMany({
-        where: { leadId, status: 'IN_PROGRESS' },
-        data: { status: 'EXPIRED' },
-      });
+      const files = await tx.leadUpload.findMany({ where: { leadId }, select: { s3Key: true } });
+      await tx.leadUpload.deleteMany({ where: { leadId } });
       await tx.lead.update({
         where: { id: leadId },
         data: { status: 'EXPIRED', resumeTokenHash: null, resumeExpiresAt: null },
+      });
+      await tx.intake.updateMany({
+        where: { leadId, status: 'IN_PROGRESS' },
+        data: { status: 'EXPIRED' },
       });
       await this.audit.logIn(
         tx,
@@ -535,11 +539,12 @@ export class BeginOnlineService {
       );
       return files.map((f) => f.s3Key);
     });
-    for (const key of keys) {
+    for (const key of keys ?? []) {
       await this.storage.remove(key).catch((error: unknown) => {
         this.logger.warn(`Could not delete an expired draft's file: ${nameOf(error)}`);
       });
     }
+    return keys !== null;
   }
 
   /**

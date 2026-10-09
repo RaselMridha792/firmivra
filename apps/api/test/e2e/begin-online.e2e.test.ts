@@ -29,6 +29,7 @@ import {
   expiredDraftRefusal,
   hashToken,
 } from '../../src/begin-online/drafts.js';
+import { BeginOnlineSweep } from '../../src/begin-online/begin-online-sweep.js';
 import { ResumeLinksService } from '../../src/begin-online/resume-links.service.js';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
@@ -478,27 +479,68 @@ describe('Begin Online drafts', () => {
     expect(leads.map((l) => l.status)).toEqual(['DRAFT', 'DRAFT']);
   });
 
-  it('a draft past its expiry is 410: its answers and files go, it becomes EXPIRED', async () => {
-    const v = visitor(firms.a.slug);
-    const { leadId } = await start(v);
-    expect((await v.put(`${D}/steps/personal`, { answers: { ssn: '123-45-6789' } })).status).toBe(
-      200,
-    );
-    const key = await addFile(leadId, 'governmentId');
-    await expireDraft(firms.a.id, leadId);
-    expect(codeOf(await v.put(`${D}/steps/personal`, { answers: {} }))).toBe('DRAFT_EXPIRED');
-    expect([(await v.get(D)).status, codeOf(await v.get(D))]).toEqual([410, 'DRAFT_EXPIRED']);
+  /** A draft with answers, a file and a resume link: what an expiry must remove. */
+  async function fullDraft(v: Visitor) {
+    const started = await start(v);
+    const saved = await v.put(`${D}/steps/personal`, { answers: { ssn: '123-45-6789' } });
+    expect(saved.status).toBe(200);
+    const key = await addFile(started.leadId, 'governmentId');
+    const before = outbox.length;
+    await v.post('/resume-link', { email: started.email });
+    await linksIdle();
+    const mail = outbox.slice(before).find((m) => m.to === started.email)!;
+    const token = (mail.data as { link: string }).link.split('#token=')[1]!;
+    return { ...started, key, token };
+  }
+
+  /** The lead after its expiry: EXPIRED, no answers, files or resume link left. */
+  async function expectGone(d: Awaited<ReturnType<typeof fullDraft>>) {
     const lead = await asOwner(firms.a.id, (tx) =>
       tx.lead.findUniqueOrThrow({
-        where: { id: leadId },
+        where: { id: d.leadId },
         include: { intakes: { include: { submissions: true } }, uploads: true },
       }),
     );
-    expect(lead.status).toBe('EXPIRED');
+    expect(lead).toMatchObject({ status: 'EXPIRED', resumeTokenHash: null, resumeExpiresAt: null });
     expect(lead.intakes[0]?.status).toBe('EXPIRED');
     expect(lead.intakes[0]?.submissions[0]).toMatchObject({ answers: {}, savedSteps: [] });
     expect(lead.uploads).toEqual([]);
-    expect(storage.objects.has(key)).toBe(false);
+    expect(storage.objects.has(d.key)).toBe(false);
+    const resumed = await visitor(firms.a.slug).post('/resume', { token: d.token });
+    expect([resumed.status, codeOf(resumed)]).toEqual([410, 'DRAFT_EXPIRED']);
+  }
+
+  it('a draft past its expiry is 410: its answers, files and resume link go, it becomes EXPIRED', async () => {
+    const v = visitor(firms.a.slug);
+    const d = await fullDraft(v);
+    await expireDraft(firms.a.id, d.leadId);
+    expect(codeOf(await v.put(`${D}/steps/personal`, { answers: {} }))).toBe('DRAFT_EXPIRED');
+    expect([(await v.get(D)).status, codeOf(await v.get(D))]).toEqual([410, 'DRAFT_EXPIRED']);
+    await expectGone(d);
+  });
+
+  it('the sweep expires drafts nobody reopens, and only those', async () => {
+    const d = await fullDraft(visitor(firms.a.slug));
+    const live = visitor(firms.a.slug);
+    const other = await start(live);
+    await expireDraft(firms.a.id, d.leadId);
+    const sweep = app.get(BeginOnlineSweep);
+    const result = await sweep.run({ businessIds: [firms.a.id] });
+    expect(result).toMatchObject({ skipped: false });
+    expect(result.skipped === false && result.expired).toBeGreaterThanOrEqual(1);
+    await expectGone(d);
+    expect((await live.get(D)).status).toBe(200);
+    const audit = await asOwner(firms.a.id, (tx) =>
+      tx.auditLog.findMany({ where: { entityId: d.leadId, action: 'begin_online.draft_expired' } }),
+    );
+    expect(audit.map((a) => a.metadata)).toEqual([{ removed: 1 }]);
+    expect(other.leadId).not.toBe(d.leadId);
+    // A second run finds nothing more of this draft.
+    await sweep.run({ businessIds: [firms.a.id] });
+    const again = await asOwner(firms.a.id, (tx) =>
+      tx.auditLog.count({ where: { entityId: d.leadId, action: 'begin_online.draft_expired' } }),
+    );
+    expect(again).toBe(1);
   });
 
   it('needs JSON from the portal itself', async () => {
