@@ -1,4 +1,4 @@
-import { Card } from '@firmivra/ui';
+import { Card, PageContainer } from '@firmivra/ui';
 import * as Icons from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -119,7 +119,7 @@ function AppointmentLink({ firmSlug }: { firmSlug: string }) {
 
 export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; taxYear: number }) {
   return (
-    <div data-theme="begin-online" className="-m-6 bg-surface text-firm-primary">
+    <div data-theme="begin-online" className="bg-surface text-firm-primary">
       <section
         aria-labelledby="begin-heading"
         className="relative isolate flex flex-col overflow-hidden bg-subtle"
@@ -135,139 +135,145 @@ export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; tax
           />
           <div className={`absolute inset-0 hidden md:block ${styles.photoFade}`} />
         </div>
-        <div className="relative max-w-xl px-6 py-5 sm:px-9 lg:px-14">
-          <p className="flex items-center gap-2 text-xs font-semibold tracking-eyebrow text-accent uppercase">
-            <span aria-hidden="true" className="h-px w-7 bg-accent" /> Secure. Simple. Convenient.
-          </p>
-          <h1
-            id="begin-heading"
-            className="mb-2 font-display text-5xl leading-none font-bold tracking-tight sm:text-6xl"
-          >
-            Begin <span className="text-accent">Online</span>
-          </h1>
-          <p className="mb-2 max-w-md font-display text-xl leading-tight font-bold">
-            Complete your intake form and securely submit your documents — all online.
-          </p>
-          <p className="max-w-lg text-sm leading-snug">
-            Our secure online platform makes it easy to provide your information and upload the
-            documents needed for your tax, bookkeeping, payroll or business services. Your
-            information is encrypted and kept confidential, giving you a safe and convenient way to
-            get started.
-          </p>
-          <div className="mt-3 inline-flex max-w-full flex-col items-center gap-1">
-            <AppointmentLink firmSlug={firmSlug} />
-            <p className="text-xs">Let&apos;s find a time that works for you.</p>
-          </div>
-        </div>
-      </section>
-
-      <section id="services" aria-labelledby="services-heading" className="px-5 pt-3 pb-2">
-        <div className="mb-2 text-center">
-          <Eyebrow>Get Started Online</Eyebrow>
-          <h2
-            id="services-heading"
-            className="font-display text-3xl leading-tight font-bold sm:text-4xl"
-          >
-            Choose Your <span className="text-accent">Service</span>
-          </h2>
-          <p className="text-sm">
-            Select a service below to complete the appropriate intake form and securely submit your
-            information.
-          </p>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {services.map(({ slug, title, subtitle, description, button, icon: Icon }, index) => (
-            <Card
-              key={slug}
-              data-testid={`service-${slug}`}
-              className={`flex min-w-0 flex-col items-center rounded-lg border-accent/15! p-2! text-center shadow-none! ${styles.service}`}
+        <PageContainer className="relative">
+          <div className="max-w-xl py-5">
+            <p className="flex items-center gap-2 text-xs font-semibold tracking-eyebrow text-accent uppercase">
+              <span aria-hidden="true" className="h-px w-7 bg-accent" /> Secure. Simple. Convenient.
+            </p>
+            <h1
+              id="begin-heading"
+              className="mb-2 font-display text-5xl leading-none font-bold tracking-tight sm:text-6xl"
             >
-              <div
-                aria-hidden="true"
-                className="mb-1 flex size-16 items-center justify-center rounded-full border border-accent/15 bg-accent-soft"
-              >
-                <Icon className="size-11" strokeWidth={2} />
-              </div>
-              <h3 className="font-display text-xl leading-tight font-bold tracking-tight">
-                {title}
-              </h3>
-              <p className="text-sm leading-tight">{subtitle}</p>
-              <p className="mb-2 text-sm leading-tight">
-                {description.replace('TAX_YEAR', String(taxYear))}
-              </p>
-              <Link
-                href={`/${firmSlug}/begin/${slug}`}
-                data-testid={`intake-${slug}`}
-                className={`mt-auto flex min-h-11 w-full items-center justify-center gap-2 rounded-control px-2 py-2 text-sm font-semibold text-on-action transition-colors ${index % 2 ? styles.darkAction : styles.action}`}
-              >
-                {button}
-                <Icons.ArrowRight aria-hidden="true" className="size-5 shrink-0" />
-              </Link>
-            </Card>
-          ))}
-        </div>
+              Begin <span className="text-accent">Online</span>
+            </h1>
+            <p className="mb-2 max-w-md font-display text-xl leading-tight font-bold">
+              Complete your intake form and securely submit your documents — all online.
+            </p>
+            <p className="max-w-lg text-sm leading-snug">
+              Our secure online platform makes it easy to provide your information and upload the
+              documents needed for your tax, bookkeeping, payroll or business services. Your
+              information is encrypted and kept confidential, giving you a safe and convenient way
+              to get started.
+            </p>
+            <div className="mt-3 inline-flex max-w-full flex-col items-center gap-1">
+              <AppointmentLink firmSlug={firmSlug} />
+              <p className="text-xs">Let&apos;s find a time that works for you.</p>
+            </div>
+          </div>
+        </PageContainer>
       </section>
 
-      <section aria-labelledby="steps-heading" className="px-5 pt-1 pb-3 sm:px-8">
-        <div className="mb-3 text-center">
-          <Eyebrow>It&apos;s Easy</Eyebrow>
-          <h2
-            id="steps-heading"
-            className="font-display text-3xl leading-tight font-bold sm:text-4xl"
-          >
-            4 Simple Steps
-          </h2>
-          <p className="text-sm">
-            Complete your intake form, upload your documents, and we&apos;ll take it from there.
-          </p>
-        </div>
-        <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
-          {steps.map(({ title, description, icon: Icon }, index) => (
-            <li key={title} className="relative text-center">
-              <div className="relative mx-auto mb-1 flex w-full max-w-40 justify-center">
-                <span
-                  className={`absolute top-0 left-0 flex size-9 items-center justify-center rounded-full text-xl font-bold text-on-action ${styles.action}`}
-                >
-                  <span className="sr-only">Step </span>
-                  {index + 1}
-                </span>
+      <section id="services" aria-labelledby="services-heading" className="pt-3 pb-2">
+        <PageContainer>
+          <div className="mb-2 text-center">
+            <Eyebrow>Get Started Online</Eyebrow>
+            <h2
+              id="services-heading"
+              className="font-display text-3xl leading-tight font-bold sm:text-4xl"
+            >
+              Choose Your <span className="text-accent">Service</span>
+            </h2>
+            <p className="text-sm">
+              Select a service below to complete the appropriate intake form and securely submit
+              your information.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {services.map(({ slug, title, subtitle, description, button, icon: Icon }, index) => (
+              <Card
+                key={slug}
+                data-testid={`service-${slug}`}
+                className={`flex min-w-0 flex-col items-center rounded-lg border-accent/15! p-2! text-center shadow-none! ${styles.service}`}
+              >
                 <div
                   aria-hidden="true"
-                  className="mt-2 flex size-18 items-center justify-center rounded-full border border-accent/15 bg-accent-soft"
+                  className="mb-1 flex size-16 items-center justify-center rounded-full border border-accent/15 bg-accent-soft"
                 >
                   <Icon className="size-11" strokeWidth={2} />
                 </div>
-              </div>
-              {index < steps.length - 1 && (
-                <Icons.ArrowRight
-                  aria-hidden="true"
-                  className="absolute top-8 -right-7 hidden size-6 text-accent lg:block"
-                />
-              )}
-              <h3 className="font-display text-xl leading-tight font-bold tracking-tight">
-                {title}
-              </h3>
-              <p className="mx-auto mt-1 max-w-48 text-sm leading-snug">{description}</p>
-            </li>
-          ))}
-        </ol>
-        <div
-          className={`mt-4 flex flex-col items-center justify-center gap-3 rounded-control border border-accent/15 px-5 py-2 text-center text-sm text-text sm:flex-row ${styles.service}`}
-        >
-          <Icons.LockKeyhole aria-hidden="true" className="size-9 shrink-0" />
-          <p>
-            These are the usual steps for all intake forms. The specific questions and documents may
-            vary based on the service you select.
-            <br />
-            Your information is <strong>encrypted</strong> and secure. We take your{' '}
-            <strong>privacy seriously.</strong>
-          </p>
-        </div>
+                <h3 className="font-display text-xl leading-tight font-bold tracking-tight">
+                  {title}
+                </h3>
+                <p className="text-sm leading-tight">{subtitle}</p>
+                <p className="mb-2 text-sm leading-tight">
+                  {description.replace('TAX_YEAR', String(taxYear))}
+                </p>
+                <Link
+                  href={`/${firmSlug}/begin/${slug}`}
+                  data-testid={`intake-${slug}`}
+                  className={`mt-auto flex min-h-11 w-full items-center justify-center gap-2 rounded-control px-2 py-2 text-sm font-semibold text-on-action transition-colors ${index % 2 ? styles.darkAction : styles.action}`}
+                >
+                  {button}
+                  <Icons.ArrowRight aria-hidden="true" className="size-5 shrink-0" />
+                </Link>
+              </Card>
+            ))}
+          </div>
+        </PageContainer>
+      </section>
+
+      <section aria-labelledby="steps-heading" className="pt-1 pb-3">
+        <PageContainer>
+          <div className="mb-3 text-center">
+            <Eyebrow>It&apos;s Easy</Eyebrow>
+            <h2
+              id="steps-heading"
+              className="font-display text-3xl leading-tight font-bold sm:text-4xl"
+            >
+              4 Simple Steps
+            </h2>
+            <p className="text-sm">
+              Complete your intake form, upload your documents, and we&apos;ll take it from there.
+            </p>
+          </div>
+          <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
+            {steps.map(({ title, description, icon: Icon }, index) => (
+              <li key={title} className="relative text-center">
+                <div className="relative mx-auto mb-1 flex w-full max-w-40 justify-center">
+                  <span
+                    className={`absolute top-0 left-0 flex size-9 items-center justify-center rounded-full text-xl font-bold text-on-action ${styles.action}`}
+                  >
+                    <span className="sr-only">Step </span>
+                    {index + 1}
+                  </span>
+                  <div
+                    aria-hidden="true"
+                    className="mt-2 flex size-18 items-center justify-center rounded-full border border-accent/15 bg-accent-soft"
+                  >
+                    <Icon className="size-11" strokeWidth={2} />
+                  </div>
+                </div>
+                {index < steps.length - 1 && (
+                  <Icons.ArrowRight
+                    aria-hidden="true"
+                    className="absolute top-8 -right-7 hidden size-6 text-accent lg:block"
+                  />
+                )}
+                <h3 className="font-display text-xl leading-tight font-bold tracking-tight">
+                  {title}
+                </h3>
+                <p className="mx-auto mt-1 max-w-48 text-sm leading-snug">{description}</p>
+              </li>
+            ))}
+          </ol>
+          <div
+            className={`mt-4 flex flex-col items-center justify-center gap-3 rounded-control border border-accent/15 px-5 py-2 text-center text-sm text-text sm:flex-row ${styles.service}`}
+          >
+            <Icons.LockKeyhole aria-hidden="true" className="size-9 shrink-0" />
+            <p>
+              These are the usual steps for all intake forms. The specific questions and documents
+              may vary based on the service you select.
+              <br />
+              Your information is <strong>encrypted</strong> and secure. We take your{' '}
+              <strong>privacy seriously.</strong>
+            </p>
+          </div>
+        </PageContainer>
       </section>
 
       <section
         aria-labelledby="ready-heading"
-        className="relative isolate overflow-hidden bg-navigation px-6 py-3 text-on-action"
+        className="relative isolate overflow-hidden bg-navigation py-3 text-on-action"
       >
         <div
           aria-hidden="true"
@@ -277,7 +283,7 @@ export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; tax
           aria-hidden="true"
           className="absolute -right-8 -bottom-6 -z-10 h-48 w-12 rotate-35 bg-accent/35"
         />
-        <div className="grid items-center gap-5 text-center lg:grid-cols-4 lg:gap-6">
+        <PageContainer className="grid items-center gap-5 text-center lg:grid-cols-4 lg:gap-6">
           <p className="font-display text-2xl leading-relaxed italic lg:border-r lg:border-on-action/40 lg:pr-5">
             Same Goals
             <br />
@@ -302,7 +308,7 @@ export function BeginOnlineScreen({ firmSlug, taxYear }: { firmSlug: string; tax
               </li>
             ))}
           </ul>
-        </div>
+        </PageContainer>
       </section>
     </div>
   );

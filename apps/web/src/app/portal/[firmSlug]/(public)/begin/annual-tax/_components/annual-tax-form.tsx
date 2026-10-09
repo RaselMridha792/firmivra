@@ -73,7 +73,7 @@ export function AnnualTaxForm({ taxYear, today }: { taxYear: number; today: stri
     <div
       data-theme="begin-online"
       data-testid="annual-tax-form"
-      className={`-m-6 bg-surface px-4 py-3 sm:px-6 ${styles.form}`}
+      className={`bg-surface py-3 ${styles.form}`}
     >
       <header className="mb-2 text-center">
         <h1

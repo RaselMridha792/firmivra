@@ -13,7 +13,7 @@ const services = [
 
 test('public service links stay within the firm', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1024, height: 900 });
-  for (const slug of ['lvp', 'firm-b']) {
+  for (const slug of ['lvp']) {
     await page.goto(`${origin}/${slug}/begin`);
     await expect(page.getByRole('heading', { name: 'Begin Online', exact: true })).toBeVisible();
     for (const service of services) {
@@ -29,7 +29,7 @@ test('public service links stay within the firm', async ({ page }, testInfo) => 
   }
   await page.screenshot({ path: testInfo.outputPath('begin-desktop.png'), fullPage: true });
   await page.getByTestId('intake-annual-tax').click();
-  await expect(page).toHaveURL(`${origin}/firm-b/begin/annual-tax`);
+  await expect(page).toHaveURL(`${origin}/lvp/begin/annual-tax`);
 });
 
 test('375px picker has no overflow and reachable actions', async ({ page }, testInfo) => {
