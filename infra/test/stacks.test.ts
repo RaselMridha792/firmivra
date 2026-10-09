@@ -1025,17 +1025,25 @@ describe('app: GuardDuty malware scan (R1 step 19)', () => {
       Dimensions: [{ Name: 'QueueName', Value: { 'Fn::GetAtt': [q, 'QueueName'] } }],
     });
     const logMetric = (metric: string) => ({ Namespace: 'Firmivra/dev', MetricName: metric });
+    // The queue alarms keep their state when SQS stops sending metrics (about 6 hours after the
+    // last message or call), so dead letters never get a false OK.
     const expected = [
-      ['dead-letters', sqsMetric(dlq().id, 'ApproximateNumberOfMessagesVisible'), 'Maximum', 1],
-      ['stuck', sqsMetric(queue().id, 'ApproximateAgeOfOldestMessage'), 'Maximum', 2400],
-      ['unfinished', logMetric('ScanUnfinished'), 'Sum', 1],
-      ['rejected', logMetric('ScanRejected'), 'Sum', 1],
-      ['last-receive', logMetric('ScanLastReceive'), 'Sum', 1],
+      [
+        'dead-letters',
+        sqsMetric(dlq().id, 'ApproximateNumberOfMessagesVisible'),
+        'Maximum',
+        1,
+        'ignore',
+      ],
+      ['stuck', sqsMetric(queue().id, 'ApproximateAgeOfOldestMessage'), 'Maximum', 2400, 'ignore'],
+      ['unfinished', logMetric('ScanUnfinished'), 'Sum', 1, 'notBreaching'],
+      ['rejected', logMetric('ScanRejected'), 'Sum', 1, 'notBreaching'],
+      ['last-receive', logMetric('ScanLastReceive'), 'Sum', 1, 'notBreaching'],
     ] as const;
     expect(alarms.map((x) => x['AlarmName'])).toEqual(
       expected.map(([n]) => `firmivra-dev-malware-scan-${n}`),
     );
-    for (const [i, [, metric, statistic, threshold]] of expected.entries()) {
+    for (const [i, [, metric, statistic, threshold, missing]] of expected.entries()) {
       expect(alarms[i]).toMatchObject({
         ...metric,
         Statistic: statistic,
@@ -1043,7 +1051,7 @@ describe('app: GuardDuty malware scan (R1 step 19)', () => {
         Period: 300,
         EvaluationPeriods: 1,
         ComparisonOperator: 'GreaterThanOrEqualToThreshold',
-        TreatMissingData: 'notBreaching',
+        TreatMissingData: missing,
         AlarmActions: [ref],
         OKActions: [ref],
       });

@@ -260,6 +260,8 @@ Never: `ScheduleKeyDeletion`, `DisableKey`, `PutKeyPolicy`, `UntagResource`, `Up
 
 Every command is for the dev account and takes `--profile firmivra-dev`. `aws sso login --profile firmivra-dev` first if the session has expired.
 
+In Git Bash, run `export MSYS_NO_PATHCONV=1` first. Otherwise Git Bash turns an argument that starts with `/`, such as the log group `/firmivra/dev/api`, into a Windows path, and `aws logs` refuses it (seen on Oct 10).
+
 **0. The diffs, before review** (read-only). Run on Oct 8 after Rasel's `aws sso login`, results on #101: network, data, email and ci had no differences; auth had property updates only on the three pools (no replacement); app had this PR's changes plus the two usual image-tag lines that every diff without the pipeline's tags shows. The commands:
 
 ```bash
@@ -383,7 +385,7 @@ Nothing here is in AWS before Rasel's yes. Everything is in `firmivra-dev-app` (
   - `stuck`: the oldest result is over 40 minutes old, so the API is not reading the queue.
   - Three on markers in the API log `/firmivra/dev/api` (metric filters, namespace `Firmivra/dev`), each firing again for every new occurrence:
     - `unfinished` (`SCAN_UNFINISHED`): our side could not finish a scan (ACCESS_DENIED, FAILED, UNSUPPORTED without a file reason). The file stays "checking"; rescan it (step 7's command, for one key).
-    - `rejected` (`SCAN_REJECTED`): a message that is not a scan result for this account, region and bucket was deleted. Either AWS changed the event, or our config is wrong.
+    - `rejected` (`SCAN_REJECTED`): a message the API did not take. A GuardDuty result it cannot read, or an unknown status, is kept so it dead-letters for a redrive once the parser reads it (AWS changed the event); a message for another account, region or bucket is deleted (our config is wrong).
     - `last-receive` (`SCAN_LAST_RECEIVE`): a result still without a record goes to the dead-letter queue next.
 - **API task:**
   - `SCAN_RESULTS_QUEUE_URL`;
@@ -400,7 +402,7 @@ Nothing here is in AWS before Rasel's yes. Everything is in `firmivra-dev-app` (
 
 **For the API PR** (the consumer, R5's path). It logs these markers, with ids and codes only:
 - `SCAN_UNFINISHED` for a PENDING outcome;
-- `SCAN_REJECTED` with the message id and the reason for any message it rejects (not JSON, not a scan result, a status outside the five, another account, region or bucket);
+- `SCAN_REJECTED` with the message id and the reason for any message it rejects. A GuardDuty result it cannot read (`UNREADABLE_SCAN_RESULT`) or a status outside the five is kept for a redrive; not JSON, not a GuardDuty scan result, or another account, region or bucket is deleted;
 - `SCAN_LAST_RECEIVE` when it keeps a message on receive 20.
 - A documents result that is `UNKNOWN` and older than the confirm window (event `time` + 15 min ticket + 5 min) is final: `IGNORED`, logged as an orphan upload. `UNKNOWN` stays only for a prefix with no handler yet, so never-confirmed uploads do not fill the dead-letter queue.
 - The API reads the queue URL from the env; it refuses to start in production without it, so it merges after this deploy is green.
@@ -427,6 +429,8 @@ Nothing here is in AWS before Rasel's yes. Everything is in `firmivra-dev-app` (
 ### Step 19 commands (Rasel, after his yes; Git Bash, from the repo root)
 
 Every command is for the dev account and takes `--profile firmivra-dev`. `aws sso login --profile firmivra-dev` first if the session has expired.
+
+In Git Bash, run `export MSYS_NO_PATHCONV=1` first. Otherwise Git Bash turns an argument that starts with `/`, such as the log group `/firmivra/dev/api`, into a Windows path, and `aws logs` refuses it (seen on Oct 10).
 
 **0. The diffs, before review** (read-only), on the infra PR's branch (`git fetch origin && git switch rasel/R1-guardduty-infra`). Post the results on the PR:
 
@@ -483,10 +487,10 @@ aws sns subscribe --topic-arn "$(q AlarmTopicArn)" --protocol email --notificati
 `q` reads a stack output; steps 4, 6 and 8 use it too. Click the link in the confirmation email, then test the path once:
 
 ```bash
-aws cloudwatch set-alarm-state --alarm-name firmivra-dev-malware-scan-dead-letters --state-value ALARM --state-reason "path test" --profile firmivra-dev
+aws cloudwatch set-alarm-state --alarm-name firmivra-dev-malware-scan-rejected --state-value ALARM --state-reason "path test" --profile firmivra-dev
 ```
 
-An email arrives. The alarm goes back to OK at its next evaluation (within 5 minutes) and sends an OK email.
+An email arrives. The alarm goes back to OK at its next evaluation (within 5 minutes) and sends an OK email. The test uses a log-marker alarm on purpose: `dead-letters` and `stuck` keep their state when SQS sends no data (an empty, idle queue), so a forced ALARM on them would stay, and the first real dead letter would send no email.
 
 **4. Plan status** (read-only). The plan's first "Active" event comes before the plan-health rule and the subscription exist, so no email arrives for it. This command is the check, and the rule covers later changes:
 
@@ -512,7 +516,7 @@ Otherwise read the reason code in https://docs.aws.amazon.com/guardduty/latest/u
 - (c) Read the log. Empty output is a fail:
 
 ```bash
-aws logs filter-log-events --log-group-name /firmivra/dev/api --filter-pattern '?"Scan result" ?"SCAN_UNFINISHED"' \
+aws logs filter-log-events --log-group-name /firmivra/dev/api --filter-pattern '?"Scan result" ?"SCAN_UNFINISHED" ?"SCAN_REJECTED"' \
   --start-time $(( ($(date +%s) - 3600) * 1000 )) --query 'events[].message' --output text --profile firmivra-dev
 ```
 
@@ -552,11 +556,13 @@ aws sqs get-queue-attributes --queue-url "$(aws sqs get-queue-url --queue-name f
   --attribute-names ApproximateNumberOfMessages --profile firmivra-dev
 # Once the waiting handler (R13 esign, R14 agreements, R15 leads) is on dev, within 14 days of the upload:
 aws sqs start-message-move-task --source-arn "$(q ScanResultsDeadLetterQueueArn)" --destination-arn "$(q ScanResultsQueueArn)" --profile firmivra-dev
-# Or, when nothing in it is needed (for example the path test's dead letters):
+# Or, when nothing in it is needed:
 aws sqs purge-queue --queue-url "$(aws sqs get-queue-url --queue-name firmivra-dev-malware-scan-results-dlq --query QueueUrl --output text --profile firmivra-dev)" --profile firmivra-dev
 ```
 
 `--destination-arn` is required. Without it, SQS returns messages to their source queue, and the messages EventBridge wrote there itself (delivery failures) have no source queue.
+
+**After a `rejected` email:** the API did not take a queue message. A GuardDuty result it cannot read, or one with a status it does not know, stays in the queue and dead-letters: the `last-receive` and `dead-letters` emails follow. GuardDuty has already tagged those objects, so step 7's loop would skip them. Once the API reads them (a fix merged and deployed), redrive them as above. A message for another account, Region or bucket is deleted: check the results rule and `S3_DOCUMENTS_BUCKET`.
 
 ### Step 19 rollback, per item
 
