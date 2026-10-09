@@ -127,7 +127,7 @@ const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
 /** HKDF label for the key that turns a network into the keyed hash the audit rows keep. */
 const NETWORK_KEY_LABEL = 'fv-auth-network-key-v1';
 /** The most email keys the ceiling warning remembers before it prunes ended windows. */
-const CEILING_WARNED_MAX = 10_000;
+export const CEILING_WARNED_MAX = 10_000;
 /** Staff and Super Admins always pass MFA; the pools require it, and so does the API. */
 const MFA_REQUIRED: ReadonlySet<IdentityPool> = new Set(['STAFF', 'ADMIN']);
 

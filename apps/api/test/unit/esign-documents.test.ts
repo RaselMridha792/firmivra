@@ -1,7 +1,7 @@
-// R13 step 6, requests API parts 1d and 1e: a DRAFT's files on the in-memory ports (esign-fakes.ts),
-// R18's in-memory store and a fake PDF engine: uploads (ticket, confirm and its refusals),
-// copies from the client's vault, removal, and the page viewer's bytes; access (cross-firm and
-// cross-client 404s) and an audit of ids only. Synthetic data only.
+// R13 step 6, requests API parts 1d and 1e: a DRAFT's files on the in-memory ports
+// (esign-fakes.ts), R18's in-memory store and a fake PDF engine: uploads (ticket, confirm and its
+// refusals), copies from the client's vault, removal, and the page viewer's bytes; access
+// (cross-firm, cross-client and approver-only 404s) and an audit of ids only. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -122,6 +122,7 @@ describe('uploads', () => {
       'esign.document_added',
       'esign.upload_started',
       'esign.document_added',
+      'esign.request_viewed',
     ]);
   });
 
@@ -232,7 +233,18 @@ describe('uploads', () => {
     });
     const s = await uploaded(id, content, content, undefined, staff);
     await docs.confirmUpload(w.a, staff, id, s.ticket.uploadToken);
-    expect((await requests.get(w.a, staff, id)).recipients[0]?.status).toBe('WAITING');
+    const { recipients, documents } = await requests.get(w.a, staff, id);
+    expect(recipients[0]?.status).toBe('WAITING');
+    // The approver may read the request, but uploads, confirm and remove are writes: 404.
+    const manager: EsignActor = { userId: w.users.managerA, role: 'MANAGER' };
+    const token = (await start(id, content, staff)).ticket.uploadToken;
+    for (const work of [
+      start(id, content, manager),
+      docs.confirmUpload(w.a, manager, id, token),
+      docs.removeDocument(w.a, manager, id, documents[0]!.id),
+    ]) {
+      expect(await refused(work)).toEqual([404, 'NOT_FOUND']);
+    }
     w.repo.seed(w.a, id, (row) => {
       row.record.status = 'SENT';
     });
@@ -274,7 +286,7 @@ describe('from the vault', () => {
     const detail = await requests.get(w.a, owner, id);
     expect(detail.pagePlan).toHaveLength(2);
     expect(w.store.objects.has(`tenant/${w.a}/esign/${id}/source/${doc.id}`)).toBe(true);
-    expect(w.audit.entries.at(-1)).toEqual({
+    expect(w.audit.entries.find((e) => e.action === 'esign.document_added')).toEqual({
       action: 'esign.document_added',
       entity: { type: 'esign_request', id },
       metadata: { documentId: doc.id, sourceDocumentId: source, pageCount: 2 },
@@ -320,6 +332,31 @@ describe('from the vault', () => {
     const own = await draft(staff2, null);
     await requests.update(w.a, owner, own, { clientId: w.ids.c1 });
     expect(await refused(docs.addFromVault(w.a, staff2, own, source))).toEqual([404, 'NOT_FOUND']);
+  });
+
+  it('lets an approver read a file’s bytes, but not copy from the vault (a write: 404)', async () => {
+    const id = await draft();
+    const content = bytesOf('pdf:1');
+    const doc = await confirm(id, (await uploaded(id, content)).ticket.uploadToken);
+    w.repo.seed(w.a, id, (row) => {
+      for (const d of row.parts.documents) d.scanStatus = 'CLEAN';
+    });
+    await requests.putRecipients(w.a, owner, id, {
+      recipients: [
+        {
+          kind: 'APPROVER',
+          role: 'MANAGER',
+          routingOrder: 1,
+          who: { type: 'STAFF', userId: w.users.managerA },
+          delivery: 'EMAIL',
+          authMethod: 'EMAIL_CODE',
+        },
+      ],
+    });
+    const manager: EsignActor = { userId: w.users.managerA, role: 'MANAGER' };
+    expect((await docs.content(w.a, manager, id, doc.id)).bytes).toEqual(content);
+    const fromVault = docs.addFromVault(w.a, manager, id, vault(w.ids.c1));
+    expect(await refused(fromVault)).toEqual([404, 'NOT_FOUND']);
   });
 });
 

@@ -122,18 +122,41 @@ export interface EsignRepository {
   esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
   /** True once the firm has published a consent version (Signing Settings). */
   consentPublished(businessId: string): Promise<boolean>;
-  // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt,
-  // resets every APPROVER recipient to WAITING (an edit asks for approval again) and returns
-  // false (changing nothing) when it is not, or no longer exists.
-  updateDraft(businessId: string, id: string, patch: EsignDraftPatch): Promise<boolean>;
-  /** Deletes the draft and its documents, pages, recipients and fields. */
-  deleteDraft(businessId: string, id: string): Promise<boolean>;
+  // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt and
+  // refuses (false, null or INVALID_STATE; changing nothing) when it is not, or no longer exists.
+  // TODO(r0_esign): every Prisma draft write also resets every APPROVER recipient to WAITING in
+  // the same transaction (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
+  /**
+   * Applies the patch and returns the request as written. With `clientChange`, it refuses
+   * (RECIPIENTS_LINKED, changing nothing) while a recipient is linked to a client login: the
+   * Prisma implementation checks esign_recipients after taking the FOR UPDATE lock, so a PUT
+   * recipients cannot slip in between. INVALID_STATE: not a DRAFT, or gone.
+   */
+  updateDraft(
+    businessId: string,
+    id: string,
+    patch: EsignDraftPatch,
+    options?: { clientChange?: boolean },
+  ): Promise<EsignRequestRecord | 'INVALID_STATE' | 'RECIPIENTS_LINKED'>;
+  /**
+   * Deletes the draft and its documents, pages, recipients and fields, and returns the deleted
+   * documents (read in the same locked transaction) so their files can be removed; null when it
+   * is not a DRAFT, or gone.
+   */
+  deleteDraft(
+    businessId: string,
+    id: string,
+  ): Promise<Pick<EsignDocumentRecord, 'id' | 's3Key'>[] | null>;
+  // The two below replace what the service computed from parts() read before the write, so each
+  // also refuses (false) unless the request's lastActivityAt is still `readAt`: checked under the
+  // FOR UPDATE lock, a write in between (a PUT fields, say) is never silently reverted.
   /** Replaces the page plan and the fields (moved with their pages) together. */
   savePagePlan(
     businessId: string,
     id: string,
     pagePlan: EsignPage[],
     fields: EsignField[],
+    readAt: Date,
   ): Promise<boolean>;
   /** Replaces the recipients and the fields (those of removed signers dropped) together. */
   saveRecipients(
@@ -141,6 +164,7 @@ export interface EsignRepository {
     id: string,
     recipients: EsignRecipientRecord[],
     fields: EsignField[],
+    readAt: Date,
   ): Promise<boolean>;
   /** Replaces the fields. */
   saveFields(businessId: string, id: string, fields: EsignField[]): Promise<boolean>;
@@ -165,13 +189,17 @@ export interface EsignRepository {
     id: string,
     document: NewEsignDocument,
   ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'>;
-  /** Deletes the file and replaces the page plan and the fields (those pages' removed). */
+  /**
+   * Deletes the file and replaces the page plan and the fields (those pages' removed). Like the
+   * saves above, false unless lastActivityAt is still `readAt`.
+   */
   removeDocument(
     businessId: string,
     id: string,
     documentId: string,
     pagePlan: EsignPage[],
     fields: EsignField[],
+    readAt: Date,
   ): Promise<boolean>;
 }
 

@@ -112,7 +112,9 @@ export class PrismaEsignDirectory implements EsignDirectory {
       where: { businessId, id },
       select: { id: true, displayName: true, assignedUserId: true, archivedAt: true },
     });
-    return row && { ...row, archived: row.archivedAt !== null };
+    if (!row) return null;
+    const { archivedAt, ...client } = row;
+    return { ...client, archived: archivedAt !== null };
   }
 
   engagement(businessId: string, id: string): Promise<DirectoryEngagement | null> {

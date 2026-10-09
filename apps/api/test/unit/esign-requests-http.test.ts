@@ -1,6 +1,5 @@
 // R13 step 6, requests API parts 1b to 2a, over HTTP: EsignModule's status, draft, page plan,
-// recipients, document, fields, merge values and readiness routes, pipes
-// and the module switch
+// recipients, document, fields, merge values and readiness routes, pipes and the module switch
 // with the in-memory ports (no database). A stand-in for TenantGuard puts the caller's firm and
 // role on the request, as the global guards do in the app; the guards themselves are tested in
 // guards.test.ts and the e2e suite. Synthetic data only.
@@ -33,7 +32,6 @@ import {
   BUSINESS_MODULES,
   ModuleGuard,
   ModulesModule,
-  ModulesNotMigrated,
   RequiresModule,
 } from '../../src/common/modules/requires-module.js';
 import { CODE_HASHER, ESIGN_STORE, PDF_ENGINE } from '../../src/esign/engine/engine.types.js';
@@ -41,6 +39,8 @@ import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { ESIGN_REPOSITORY, notMigrated } from '../../src/esign/requests/esign.repository.js';
 import { esignWorld, fakeHasher, fakePdf } from './esign-fakes.js';
+import { ConfigModule } from '../../src/config/config.module.js';
+import { loadEnv } from '../../src/config/env.js';
 
 const w = esignWorld();
 
@@ -62,7 +62,7 @@ let app: INestApplication;
 
 beforeAll(async () => {
   const metadata: ModuleMetadata = {
-    imports: [EsignModule, FakeAuditModule, ModulesModule],
+    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, FakeAuditModule, ModulesModule],
     controllers: [ProbeController],
   };
   const moduleRef = await Test.createTestingModule(metadata)
@@ -258,6 +258,47 @@ describe('Firm Sign page plan and recipients over HTTP', () => {
       404,
       'NOT_FOUND',
     ]);
+  });
+
+  it('reorders the page plan through the pipe; refuses a page twice, another firm and Staff', async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake packet',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const documentId = randomUUID();
+    const page = (n: number) => ({ documentId, page: n, rotation: 0 });
+    w.repo.seed(w.a, id, (row) => {
+      const size = { width: 612, height: 792 };
+      row.parts.documents.push({
+        id: documentId,
+        position: 0,
+        fileName: 'fake.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 1000,
+        pageCount: 2,
+        pageSizes: [size, size],
+        sourceDocumentId: null,
+        scanStatus: 'CLEAN',
+        createdAt: new Date(),
+        s3Key: `tenant/${w.a}/esign/${id}/fake.pdf`,
+        sha256: '0'.repeat(64),
+      });
+      row.parts.pagePlan = [page(0), page(1)] as typeof row.parts.pagePlan;
+    });
+    const path = `/esign/requests/${id}/page-plan`;
+    const reordered = await send('put', path, ownerA(), { pages: [page(1), page(0)] });
+    expect([reordered.status, EsignRequestDetail.parse(reordered.body).pagePlan]).toEqual([
+      200,
+      [page(1), page(0)],
+    ]);
+    const twice = { pages: [page(0), page(0)] };
+    expect(errorOf(await send('put', path, ownerA(), twice))).toEqual([400, 'VALIDATION_FAILED']);
+    for (const who of [ownerB(), staffA2()]) {
+      const res = await send('put', path, who, { pages: [page(0)] });
+      expect(errorOf(res)).toEqual([404, 'NOT_FOUND']);
+    }
   });
 });
 
@@ -519,8 +560,7 @@ describe('the module switch (ModuleGuard)', () => {
     expect(await answer(guardFor(false).canActivate(ctx(staffTenant, () => 1)))).toBe('allowed');
   });
 
-  it('is off for every firm until the modules column exists, and the stand-ins fail loudly', async () => {
-    expect(await new ModulesNotMigrated().isEnabled()).toBe(false);
+  it('fails loudly in a port that is not on main yet', () => {
     const stand = notMigrated<{ findRequest(): Promise<unknown>; then?: unknown }>('Repo');
     expect(stand.then).toBeUndefined();
     expect(() => stand.findRequest()).toThrow(/Repo.findRequest is not available yet/);
