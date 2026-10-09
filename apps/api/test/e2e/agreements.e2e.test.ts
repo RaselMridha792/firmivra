@@ -326,6 +326,12 @@ describe('firm agreements', () => {
   it('lists the firm-wide agreement first and archives service agreements only', async () => {
     const list = FirmAgreementList.parse((await asA('get', '')).body);
     expect(list.items.map((i) => i.id)).toEqual([firmWide, service]);
+    expect(list.services).toContainEqual({
+      id: firms.a.serviceId,
+      name: 'Books',
+      kind: 'BOOKKEEPING',
+    });
+    expect(list.services.map((s) => s.id)).not.toContain(firms.b.serviceId);
 
     const fw = await asA('post', `/${firmWide}/archive`);
     expect([fw.status, codeOf(fw)]).toEqual([409, 'FIRM_WIDE_REQUIRED']);
@@ -343,7 +349,10 @@ describe('firm agreements', () => {
     expect((await asA('post', '', { scope: 'ALL_INTAKES' }, people.staffA)).status).toBe(403);
     const asB = (method: 'get' | 'post', path: string, body?: object) =>
       call(method, path, people.ownerB, firms.b.id, body);
-    expect(FirmAgreementList.parse((await asB('get', '')).body).items).toEqual([]);
+    const listB = FirmAgreementList.parse((await asB('get', '')).body);
+    expect(listB.items).toEqual([]);
+    expect(listB.services.map((s) => s.id)).toContain(firms.b.serviceId);
+    expect(listB.services.map((s) => s.id)).not.toContain(firms.a.serviceId);
     for (const [method, path, body] of [
       ['get', `/${firmWide}`],
       ['get', `/${firmWide}/versions/1`],

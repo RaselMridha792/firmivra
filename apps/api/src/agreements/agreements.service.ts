@@ -174,7 +174,12 @@ export class AgreementsService {
         businessId,
         rows.flatMap((r) => r.versions.map((v) => v.publishedByUserId)),
       );
-      return { items: rows.map((r) => agreementOf(r, names)) };
+      const services = await tx.service.findMany({
+        where: { archivedAt: null },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, name: true, kind: true },
+      });
+      return { items: rows.map((r) => agreementOf(r, names)), services };
     });
   }
 
