@@ -150,6 +150,8 @@ describe('meeting links and cancel cutoffs', () => {
       `https://${'a'.repeat(493)}`,
       // A user name (who the link claims to be), quotes, angle brackets, a backslash, a backtick.
       'https://zoom.us@evil.example/j/1',
+      // A URL parser skips the extra slashes and reads zoom.us as a user name.
+      'https:///zoom.us@evil.example/j/1',
       ...['"', "'", '<', '>', '\\', '`', '\u{e0100}'].map(inside),
     ]) {
       await expect(set(bad)).rejects.toThrow(CHECK);
@@ -301,6 +303,22 @@ describe('leads: tax year, draft expiry and the 90-day cap', () => {
     await expect(
       firmA().lead.update({ where: { id: lead.id }, data: { status: 'EXPIRED' } }),
     ).resolves.toMatchObject({ status: 'EXPIRED' });
+    // An EXPIRED lead takes nothing either.
+    await expect(save({ answers: { fullName: 'Back' } })).rejects.toThrow(/only clear/);
+    await expect(firmA().lead.update({ where: { id: lead.id }, data: relink })).rejects.toThrow(
+      /no new resume link/,
+    );
+    // And an expired draft's intake takes no first version (the INSERT path).
+    const late = await newLead();
+    const lateIntake = await firmA().intake.create({
+      data: { ...A(), formId: more.booksForm, leadId: late.id },
+    });
+    await firmA().lead.update({ where: { id: late.id }, data: { draftExpiresAt: days(-1) } });
+    await expect(
+      firmA().intakeSubmission.create({
+        data: { ...A(), intakeId: lateIntake.id, version: 1, answers: { fullName: 'Late' } },
+      }),
+    ).rejects.toThrow(/only clear/);
   });
 
   it('the tax year is 2000 to 2100, set once while a draft', async () => {

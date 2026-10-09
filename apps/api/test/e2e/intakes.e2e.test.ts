@@ -1,7 +1,9 @@
-// End-to-end: R11 step 5, portal intake forms, and the firm's review, Needs Correction and unlock
-// (contract in packages/types/src/intake/intakes.ts). The client (from the session) starts an
-// intake for an ACTIVE engagement and autosaves it step by step; SSNs are sealed at rest and come
-// back as last 4. A submitted version is locked; Owner and Admin start the next version.
+// End-to-end: R11 step 5, portal intake forms (contract B: packages/types/src/intake/schemas.ts
+// and client.ts, every portal response parsed with its schemas), and the firm's send, review,
+// Needs Correction and unlock (intakes.ts). The firm sends an intake for an ACTIVE engagement; the
+// client (from the session) autosaves it step by step; SSNs are sealed at rest and come back as
+// last 4. Only the PRIMARY login changes it. A submitted version is locked; Owner and Admin start
+// the next version.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -10,7 +12,16 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
-import { IntakeChoiceList, IntakeList, IntakeView, UploadTicket } from '@firmivra/types';
+import {
+  IntakeList,
+  IntakeUpload,
+  IntakeView,
+  MyIntake,
+  MyIntakeList,
+  OkResponse,
+  SavedIntakeStep,
+  UploadTicket,
+} from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { IntakeSignaturesService } from '../../src/agreements/intake-signatures.service.js';
 import type { IntakeSignInput } from '../../src/intake/intake-signing.js';
@@ -50,6 +61,7 @@ const people = {
   staff: person('staff'),
   one: person('one'),
   two: person('two'),
+  spouse: person('spouse'),
   ownerB: person('owner-b'),
   clientB: person('client-b'),
 };
@@ -66,6 +78,8 @@ const ids = {
   pending: '',
   twoTax: '',
   submitTax: '',
+  expiring: '',
+  closing: '',
   intake: '',
   sent: '',
 };
@@ -117,7 +131,16 @@ const ok = (res: Response, status = 200) => {
   expect(res.status, JSON.stringify(res.body)).toBe(status);
   return res;
 };
+/** Contract B's portal intake. */
+const mine = (res: Response) => MyIntake.parse(ok(res).body);
+/** The firm's view (intakes.ts). */
 const view = (res: Response) => IntakeView.parse(ok(res).body);
+const saved = (res: Response) => SavedIntakeStep.parse(ok(res).body);
+/** The firm (Owner) sends client One's engagement its intake. */
+const send = async (engagementId: string, body: object = {}) =>
+  IntakeView.parse(
+    ok(await firm('post', `/engagements/${engagementId}/intakes`, people.owner, body), 201).body,
+  );
 
 /** Until another backend waits for a lock (at most 5 s): a request blocked on a row lock. */
 async function waitForLockWait(): Promise<void> {
@@ -255,7 +278,7 @@ beforeAll(async () => {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
-      const pool = ['one', 'two', 'clientB'].includes(key) ? 'CLIENT' : 'STAFF';
+      const pool = ['one', 'two', 'spouse', 'clientB'].includes(key) ? 'CLIENT' : 'STAFF';
       await tx.user.create({
         data: { id: p.id, cognitoSub: p.id, pool, email: p.email, name: `Fake ${key}` },
       });
@@ -297,6 +320,17 @@ beforeAll(async () => {
       });
       if (p === people.one) ids.accountOne = account.id;
     }
+    // Client One's spouse: a second login of the same record, which reads but never changes.
+    await tx.clientAccount.create({
+      data: {
+        ...A,
+        userId: people.spouse.id,
+        clientId: ids.clientOne,
+        email: people.spouse.email,
+        portalRole: 'SPOUSE',
+        status: 'ACTIVE',
+      },
+    });
     const tax = await tx.service.create({ data: { ...A, kind: 'ANNUAL_TAX', name: `Tax ${run}` } });
     const other = await tx.service.create({ data: { ...A, kind: 'OTHER', name: `Other ${run}` } });
     const engagement = (clientId: string, serviceId: string, title: string, status = 'ACTIVE') =>
@@ -310,6 +344,8 @@ beforeAll(async () => {
     ids.pending = await engagement(ids.clientOne, tax.id, 'Not yet', 'PENDING');
     ids.twoTax = await engagement(ids.clientTwo, tax.id, 'Two return');
     ids.submitTax = await engagement(ids.clientOne, tax.id, '2025 amended');
+    ids.expiring = await engagement(ids.clientOne, tax.id, '2025 expiring');
+    ids.closing = await engagement(ids.clientOne, tax.id, '2025 closing');
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmB }, async (tx) => {
     const B = { businessId: ids.firmB };
@@ -364,46 +400,66 @@ afterAll(async () => {
   await app.close();
 });
 
-describe('portal: start and autosave', () => {
-  it("lists the client's ACTIVE engagements that have a form", async () => {
-    const choices = IntakeChoiceList.parse(ok(await portal('get', '/choices', people.one)).body);
-    expect(choices.items.map((c) => c.engagement.id).sort()).toEqual(
-      [ids.tax, ids.submitTax].sort(),
-    );
-    expect(choices.items.every((c) => c.intake === null)).toBe(true);
-  });
-
-  it('starts once per engagement, on the published built-in form', async () => {
-    const started = view(await portal('post', '', people.one, { engagementId: ids.tax }));
-    expect(started).toMatchObject({
-      status: 'IN_PROGRESS',
-      version: 1,
-      formVersion: 1,
-      locked: false,
-      savedSteps: [],
-      engagement: { id: ids.tax, taxYear: 2025 },
-    });
-    expect(started.definition.key).toBe('ANNUAL_TAX');
-    ids.intake = started.id;
-    const again = view(await portal('post', '', people.one, { engagementId: ids.tax }));
-    expect(again.id).toBe(ids.intake);
-    expect(codeOf(await portal('post', '', people.one, { engagementId: ids.other }))).toBe(
+describe('portal: list, read and autosave', () => {
+  it("the firm sends an intake; the client lists and opens it in contract B's shapes", async () => {
+    expect(codeOf(await firm('post', `/engagements/${ids.other}/intakes`, people.owner, {}))).toBe(
       'NO_INTAKE_FORM',
     );
-    expect(codeOf(await portal('post', '', people.one, { engagementId: ids.pending }))).toBe(
-      'ENGAGEMENT_NOT_ACTIVE',
-    );
-    expect((await portal('post', '', people.one, { engagementId: ids.twoTax })).status).toBe(404);
+    expect(
+      codeOf(await firm('post', `/engagements/${ids.pending}/intakes`, people.owner, {})),
+    ).toBe('ENGAGEMENT_NOT_ACTIVE');
+    const sent = await send(ids.tax, { dueOn: '2026-12-01' });
+    expect(sent).toMatchObject({ status: 'SENT', version: 1, formVersion: 1, locked: false });
+    ids.intake = sent.id;
+
+    const list = MyIntakeList.parse(ok(await portal('get', '', people.one)).body);
+    expect(list.items).toEqual([
+      {
+        id: ids.intake,
+        form: 'ANNUAL_TAX',
+        title: sent.definition.title,
+        service: { id: ids.tax, title: '2025 return' },
+        status: 'SENT',
+        dueOn: '2026-12-01',
+        version: 1,
+        submittedAt: null,
+        correction: null,
+        updatedAt: expect.any(String) as string,
+      },
+    ]);
+    const intake = mine(await portal('get', `/${ids.intake}`, people.one));
+    expect(intake).toMatchObject({
+      id: ids.intake,
+      status: 'SENT',
+      taxYear: 2025,
+      answers: {},
+      uploads: [],
+      savedSteps: [],
+      signature: null,
+      canEdit: true,
+      canSubmit: true,
+    });
+    expect(intake.definition.key).toBe('ANNUAL_TAX');
+    // The spouse's login reads the same intake but may not change it.
+    const spouse = mine(await portal('get', `/${ids.intake}`, people.spouse));
+    expect(spouse).toMatchObject({ id: ids.intake, canEdit: false, canSubmit: false });
   });
 
   it('saves a step, seals the SSN at rest and returns its last 4 only', async () => {
-    const saved = view(
+    const first = saved(
       await portal('put', `/${ids.intake}/steps/personal`, people.one, {
         answers: { firstName: 'One', lastName: 'Sample', ssn: '123-45-6789' },
       }),
     );
-    expect(saved.answers).toMatchObject({ firstName: 'One', ssn: { last4: '6789' } });
-    expect(saved.savedSteps).toEqual(['personal']);
+    expect(first.step).toBe('personal');
+    const read = mine(await portal('get', `/${ids.intake}`, people.one));
+    // The first save moves it from SENT to IN_PROGRESS.
+    expect(read).toMatchObject({
+      status: 'IN_PROGRESS',
+      answers: { firstName: 'One', ssn: { last4: '6789' } },
+      savedSteps: ['personal'],
+    });
+    expect(read.updatedAt >= first.savedAt).toBe(true);
     const stored = await inFirm((tx) =>
       tx.intakeSubmission.findFirstOrThrow({ where: { intakeId: ids.intake } }),
     );
@@ -411,12 +467,15 @@ describe('portal: start and autosave', () => {
     expect(JSON.stringify(stored.answers)).not.toContain('123456789');
 
     // An unchanged number comes back as its last 4 and keeps the stored one.
-    const kept = view(
+    saved(
       await portal('put', `/${ids.intake}/steps/personal`, people.one, {
         answers: { firstName: 'Uno', lastName: 'Sample', ssn: { last4: '6789' } },
       }),
     );
-    expect(kept.answers).toMatchObject({ firstName: 'Uno', ssn: { last4: '6789' } });
+    expect(mine(await portal('get', `/${ids.intake}`, people.one)).answers).toMatchObject({
+      firstName: 'Uno',
+      ssn: { last4: '6789' },
+    });
     const wrong = await portal('put', `/${ids.intake}/steps/personal`, people.one, {
       answers: { ssn: { last4: '0000' } },
     });
@@ -430,6 +489,37 @@ describe('portal: start and autosave', () => {
     ).toBe('VALIDATION_FAILED');
   });
 
+  it('only the PRIMARY login changes it: the spouse gets 403 FORBIDDEN and nothing is saved', async () => {
+    const before = mine(await portal('get', `/${ids.intake}`, people.one));
+    const save = await portal('put', `/${ids.intake}/steps/personal`, people.spouse, {
+      answers: { firstName: 'Spouse' },
+    });
+    expect(save.status).toBe(403);
+    expect(codeOf(save)).toBe('FORBIDDEN');
+    const upload = await portal('post', `/${ids.intake}/uploads`, people.spouse, {
+      slot: 'incomeDocuments',
+      fileName: 'w2.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 1000,
+      sha256: 'a'.repeat(64),
+    });
+    expect(codeOf(upload)).toBe('FORBIDDEN');
+    const confirm = await portal('post', `/${ids.intake}/uploads/confirm`, people.spouse, {
+      uploadToken: 'fake-token',
+    });
+    expect(codeOf(confirm)).toBe('FORBIDDEN');
+    const submit = await portal('post', `/${ids.intake}/submit`, people.spouse, {
+      signature: {
+        agreements: [{ agreementId: randomUUID(), version: 1, bodySha256: 'a'.repeat(64) }],
+        acknowledgments: [],
+        signer: { printedName: 'Spouse', method: 'TYPED', typedSignature: 'Spouse' },
+      },
+    });
+    expect(codeOf(submit)).toBe('FORBIDDEN');
+    expect(signed).toEqual([]);
+    expect(mine(await portal('get', `/${ids.intake}`, people.one))).toEqual(before);
+  });
+
   it("another client, and the same person at another firm, can't reach it", async () => {
     expect((await portal('get', `/${ids.intake}`, people.two)).status).toBe(404);
     const save = await portal('put', `/${ids.intake}/steps/personal`, people.two, {
@@ -438,8 +528,38 @@ describe('portal: start and autosave', () => {
     expect(save.status).toBe(404);
     const b = await portal('get', `/${ids.intake}`, people.clientB, undefined, ids.slugB);
     expect(b.status).toBe(404);
-    const list = IntakeList.parse(ok(await portal('get', '', people.two)).body);
+    const list = MyIntakeList.parse(ok(await portal('get', '', people.two)).body);
     expect(list.items).toEqual([]);
+  });
+
+  it('an EXPIRED intake reads, and every change is 410 INTAKE_EXPIRED (403 first for the spouse)', async () => {
+    const sent = await send(ids.expiring);
+    await inFirm((tx) => tx.intake.update({ where: { id: sent.id }, data: { status: 'EXPIRED' } }));
+    ids.expiring = sent.id;
+    const read = mine(await portal('get', `/${sent.id}`, people.one));
+    expect(read).toMatchObject({ status: 'EXPIRED', canEdit: false, canSubmit: false });
+    const save = await portal('put', `/${sent.id}/steps/personal`, people.one, { answers: {} });
+    expect(save.status).toBe(410);
+    expect(codeOf(save)).toBe('INTAKE_EXPIRED');
+    const ticket = await portal('post', `/${sent.id}/uploads`, people.one, {
+      slot: 'incomeDocuments',
+      fileName: 'w2.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 1000,
+      sha256: 'a'.repeat(64),
+    });
+    expect(codeOf(ticket)).toBe('INTAKE_EXPIRED');
+    const spouse = await portal('put', `/${sent.id}/steps/personal`, people.spouse, {
+      answers: {},
+    });
+    expect(codeOf(spouse)).toBe('FORBIDDEN');
+  });
+
+  it('lists open ones first by due date, then the rest', async () => {
+    const closing = await send(ids.closing, { dueOn: '2026-11-01' });
+    ids.closing = closing.id;
+    const list = MyIntakeList.parse(ok(await portal('get', '', people.one)).body);
+    expect(list.items.map((i) => i.id)).toEqual([ids.closing, ids.intake, ids.expiring]);
   });
 });
 
@@ -448,7 +568,7 @@ describe('firm: send, review, correct and unlock', () => {
     const owner = IntakeList.parse(
       ok(await firm('get', `/clients/${ids.clientOne}/intakes`, people.owner)).body,
     );
-    expect(owner.items.map((i) => i.id)).toEqual([ids.intake]);
+    expect(owner.items.map((i) => i.id)).toContain(ids.intake);
     ok(await firm('get', `/clients/${ids.clientOne}/intakes`, people.staff));
     expect((await firm('get', `/clients/${ids.clientTwo}/intakes`, people.staff)).status).toBe(404);
     const b = await firm('get', `/intakes/${ids.intake}`, people.ownerB, undefined, ids.firmB);
@@ -474,13 +594,12 @@ describe('firm: send, review, correct and unlock', () => {
     expect(
       (await firm('post', `/engagements/${ids.twoTax}/intakes`, people.staff, {})).status,
     ).toBe(404);
-    // The client's first save moves it from SENT to IN_PROGRESS.
-    const saved = view(
+    saved(
       await portal('put', `/${ids.sent}/steps/personal`, people.two, {
         answers: { firstName: 'Two' },
       }),
     );
-    expect(saved.status).toBe('IN_PROGRESS');
+    expect(mine(await portal('get', `/${ids.sent}`, people.two)).status).toBe('IN_PROGRESS');
   });
 
   it('a submitted version is locked; Owner and Admin ask for corrections as a new version', async () => {
@@ -492,15 +611,22 @@ describe('firm: send, review, correct and unlock', () => {
       ),
     ).toBe('INVALID_STATUS');
     await markSubmitted(ids.intake);
-    // Starting again returns the submitted intake; the firm can't send a second one.
-    const same = view(await portal('post', '', people.one, { engagementId: ids.tax }));
-    expect(same).toMatchObject({ id: ids.intake, status: 'SUBMITTED', locked: true });
+    const submitted = mine(await portal('get', `/${ids.intake}`, people.one));
+    expect(submitted).toMatchObject({
+      status: 'SUBMITTED',
+      canEdit: false,
+      canSubmit: false,
+      correction: null,
+      signature: { printedName: 'One Sample' },
+    });
+    expect(submitted.submittedAt).not.toBeNull();
     expect(codeOf(await firm('post', `/engagements/${ids.tax}/intakes`, people.owner, {}))).toBe(
       'INTAKE_OPEN',
     );
     const locked = await portal('put', `/${ids.intake}/steps/personal`, people.one, {
       answers: { firstName: 'Late' },
     });
+    expect(locked.status).toBe(409);
     expect(codeOf(locked)).toBe('INTAKE_LOCKED');
     const asStaff = await firm('post', `/intakes/${ids.intake}/request-correction`, people.staff, {
       note: 'Fix the address',
@@ -516,20 +642,34 @@ describe('firm: send, review, correct and unlock', () => {
       version: 2,
       locked: false,
       correctionNote: 'Please fix the address.\nThanks',
+    });
+    const reopened = mine(await portal('get', `/${ids.intake}`, people.one));
+    expect(reopened).toMatchObject({
+      status: 'NEEDS_CORRECTION',
+      version: 2,
+      canEdit: true,
+      correction: { note: 'Please fix the address.\nThanks' },
       answers: { firstName: 'Uno', ssn: { last4: '6789' } },
       savedSteps: ['personal'],
+      // The version 1 the firm reviewed was signed.
+      signature: { printedName: 'One Sample' },
     });
-    expect(corrected.submittedAt).not.toBeNull();
-    const mine = view(
+    expect(reopened.submittedAt).not.toBeNull();
+    saved(
       await portal('put', `/${ids.intake}/steps/personal`, people.one, {
         answers: { firstName: 'Fixed', ssn: { last4: '6789' } },
       }),
     );
-    expect(mine).toMatchObject({ status: 'NEEDS_CORRECTION', version: 2 });
+    expect(mine(await portal('get', `/${ids.intake}`, people.one))).toMatchObject({
+      status: 'NEEDS_CORRECTION',
+      version: 2,
+      answers: { firstName: 'Fixed' },
+    });
     const audit = await inFirm((tx) =>
       tx.auditLog.findMany({ where: { businessId: ids.firmA, entityId: ids.intake } }),
     );
     expect(audit.map((a) => a.action)).toContain('intake.correction_requested');
+    expect(audit.map((a) => a.action)).toContain('intake.step_saved');
     expect(JSON.stringify(audit)).not.toContain('fix the address');
   });
 
@@ -572,29 +712,60 @@ describe('portal: uploads', () => {
     // The intake of ids.tax is IN_PROGRESS (version 3) after the firm unlocked it.
     const t = UploadTicket.parse(ok(await ticket(ids.intake, 'incomeDocuments'), 201).body);
     objects.set(t.url.slice('memory:'.length), bytes);
-    const withFile = view(
-      await portal('post', `/${ids.intake}/uploads/confirm`, people.one, {
-        uploadToken: t.uploadToken,
-      }),
+    const file = IntakeUpload.parse(
+      ok(
+        await portal('post', `/${ids.intake}/uploads/confirm`, people.one, {
+          uploadToken: t.uploadToken,
+        }),
+      ).body,
     );
-    const file = withFile.uploads.find((u) => u.slot === 'incomeDocuments')!;
-    expect(file).toMatchObject({ fileName: 'incomeDocuments.pdf', scanStatus: 'CLEAN' });
-    const stored = await inFirm((tx) =>
-      tx.document.findUniqueOrThrow({ where: { id: file.documentId } }),
-    );
+    expect(file).toMatchObject({
+      slot: 'incomeDocuments',
+      fileName: 'incomeDocuments.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: bytes.length,
+      status: 'READY',
+    });
+    const withFile = mine(await portal('get', `/${ids.intake}`, people.one));
+    expect(withFile.uploads).toEqual([file]);
+    const stored = await inFirm((tx) => tx.document.findUniqueOrThrow({ where: { id: file.id } }));
     expect(stored).toMatchObject({ intakeId: ids.intake, intakeSlot: 'incomeDocuments' });
 
-    const removed = view(
-      await portal('delete', `/${ids.intake}/uploads/${file.documentId}`, people.one),
+    const spouse = await portal('delete', `/${ids.intake}/uploads/${file.id}`, people.spouse);
+    expect(codeOf(spouse)).toBe('FORBIDDEN');
+    const removed = OkResponse.parse(
+      ok(await portal('delete', `/${ids.intake}/uploads/${file.id}`, people.one)).body,
     );
-    expect(removed.uploads.some((u) => u.documentId === file.documentId)).toBe(false);
+    expect(removed).toEqual({ ok: true });
+    expect(mine(await portal('get', `/${ids.intake}`, people.one)).uploads).toEqual([]);
+    // It stays one of the client's documents.
+    const kept = await inFirm((tx) => tx.document.findUniqueOrThrow({ where: { id: file.id } }));
+    expect(kept).toMatchObject({ intakeId: null, intakeSlot: null, clientId: ids.clientOne });
+    expect((await portal('delete', `/${ids.intake}/uploads/${file.id}`, people.one)).status).toBe(
+      404,
+    );
+    const audit = await inFirm((tx) =>
+      tx.auditLog.count({ where: { entityId: ids.intake, action: 'intake.upload_removed' } }),
+    );
+    expect(audit).toBe(1);
   });
 
-  it('refuses a slot that is not an upload field, another client, and a locked intake', async () => {
+  it('refuses a slot that is not an upload field, another client, and a closed service', async () => {
     expect(codeOf(await ticket(ids.intake, 'firstName'))).toBe('VALIDATION_FAILED');
     expect((await ticket(ids.intake, 'incomeDocuments', people.two)).status).toBe(404);
     const b = await portal('post', `/${ids.intake}/uploads`, people.clientB, {}, ids.slugB);
     expect([400, 404]).toContain(b.status);
+    // The engagement of an open intake is no longer ACTIVE: 409 NO_OPEN_SERVICE.
+    const intake = mine(await portal('get', `/${ids.closing}`, people.one));
+    await inFirm((tx) =>
+      tx.engagement.update({
+        where: { id: intake.service.id },
+        data: { status: 'COMPLETED', completedAt: new Date() },
+      }),
+    );
+    const closed = await ticket(ids.closing, 'incomeDocuments');
+    expect(closed.status).toBe(409);
+    expect(codeOf(closed)).toBe('NO_OPEN_SERVICE');
   });
 });
 
@@ -622,7 +793,7 @@ describe('portal: submit', () => {
         .then((d) => d.id),
     );
   const save = (intakeId: string, step: string, answers: object) =>
-    portal('put', `/${intakeId}/steps/${step}`, people.one, { answers }).then(view);
+    portal('put', `/${intakeId}/steps/${step}`, people.one, { answers }).then(saved);
 
   const submit = (intakeId: string, body: object = { signature: signature() }) =>
     portal('post', `/${intakeId}/submit`, people.one, body);
@@ -631,7 +802,7 @@ describe('portal: submit', () => {
   const sent = { intakeId: '', spouseId: '' };
 
   it('checks the whole form; without a published firm-wide agreement 409 NO_INTAKE_AGREEMENT, nothing changed', async () => {
-    const intake = view(await portal('post', '', people.one, { engagementId: ids.submitTax }));
+    const intake = await send(ids.submitTax);
     sent.intakeId = intake.id;
     await save(intake.id, 'personal', {
       firstName: 'One',
@@ -684,7 +855,7 @@ describe('portal: submit', () => {
     sent.spouseId = spouseId;
 
     // The firm archives its firm-wide agreement and has none published: nothing to sign.
-    const before = view(await portal('get', `/${intake.id}`, people.one));
+    const before = mine(await portal('get', `/${intake.id}`, people.one));
     await inFirm((tx) =>
       tx.firmAgreement.updateMany({
         where: { businessId: ids.firmA, scope: 'ALL_INTAKES', archivedAt: null },
@@ -707,9 +878,9 @@ describe('portal: submit', () => {
     );
     expect(codeOf(await submit(intake.id))).toBe('NO_INTAKE_AGREEMENT');
     expect(signed).toEqual([]);
-    const after = view(await portal('get', `/${intake.id}`, people.one));
+    const after = mine(await portal('get', `/${intake.id}`, people.one));
     expect(after).toEqual(before);
-    expect(after).toMatchObject({ status: 'IN_PROGRESS', locked: false, version: 1 });
+    expect(after).toMatchObject({ status: 'IN_PROGRESS', canSubmit: true, version: 1 });
     const unchanged = await inFirm(async (tx) => ({
       spouse: await tx.document.findUniqueOrThrow({ where: { id: spouseId } }),
       version: await tx.intakeSubmission.findFirstOrThrow({ where: { intakeId: intake.id } }),
@@ -742,6 +913,11 @@ describe('portal: submit', () => {
     });
     expect(legal.status).toBe(400);
     expect(codeOf(legal)).toBe('VALIDATION_FAILED');
+    // The spouse's login may not sign for the client.
+    const spouse = await portal('post', `/${intakeId}/submit`, people.spouse, {
+      signature: signature(),
+    });
+    expect(codeOf(spouse)).toBe('FORBIDDEN');
     expect(signed).toEqual([]);
     // An explicit null is no acceptance (contract B: absent or null): it reaches the signing,
     // which refuses the box left unticked.
@@ -755,7 +931,7 @@ describe('portal: submit', () => {
 
   it("R14's refusals lock nothing; the database's name check is 400 SIGNATURE_MISMATCH", async () => {
     const { intakeId } = sent;
-    const before = view(await portal('get', `/${intakeId}`, people.one));
+    const before = mine(await portal('get', `/${intakeId}`, people.one));
     const base = signature();
     const unticked = await submit(intakeId, { signature: { ...base, acknowledgments: [] } });
     expect(unticked.status).toBe(400);
@@ -767,13 +943,13 @@ describe('portal: submit', () => {
     expect(codeOf(outdated)).toBe('AGREEMENT_OUTDATED');
     // The same name to the API, not to Postgres' case folding (a dotted capital I).
     const mismatch = await submit(intakeId, {
-      signature: signature('İpek Sample', 'i\u0307pek sample'),
+      signature: signature('İpek Sample', 'i̇pek sample'),
     });
     expect(mismatch.status, JSON.stringify(mismatch.body)).toBe(400);
     expect(codeOf(mismatch)).toBe('SIGNATURE_MISMATCH');
-    const after = view(await portal('get', `/${intakeId}`, people.one));
+    const after = mine(await portal('get', `/${intakeId}`, people.one));
     expect(after).toEqual(before);
-    expect(after).toMatchObject({ status: 'IN_PROGRESS', locked: false });
+    expect(after).toMatchObject({ status: 'IN_PROGRESS', canSubmit: true, signature: null });
     expect(await signaturesOf(intakeId)).toBe(0);
   });
 
@@ -813,8 +989,15 @@ describe('portal: submit', () => {
     await waitForLockWait();
     release();
     const res = await submitting;
-    const submitted = view(res);
-    expect(submitted).toMatchObject({ status: 'SUBMITTED', locked: true, version: 1 });
+    const submitted = mine(res);
+    expect(submitted).toMatchObject({
+      status: 'SUBMITTED',
+      canEdit: false,
+      canSubmit: false,
+      version: 1,
+      signature: { printedName: 'One Sample' },
+    });
+    expect(submitted.submittedAt).not.toBeNull();
     expect(submitted.answers['ssn']).toEqual({ last4: '3456' });
     expect(submitted.answers['paymentPreference']).toBe('PAY_NOW_DISCOUNT');
     expect(submitted.uploads.map((u) => u.slot)).toEqual(['governmentId']);
@@ -833,6 +1016,7 @@ describe('portal: submit', () => {
     });
     expect(stored.version.submittedAt).not.toBeNull();
     expect(JSON.stringify(stored.version.answers)).not.toContain('900123456');
+    expect(mine(await portal('get', `/${intake.id}`, people.one))).toEqual(submitted);
 
     // Locked: a second submit and a save are refused.
     expect(codeOf(await submit(intake.id))).toBe('INTAKE_LOCKED');

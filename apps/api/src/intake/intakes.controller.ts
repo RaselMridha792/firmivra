@@ -14,15 +14,19 @@ import type { z } from 'zod';
 import {
   ConfirmUploadRequest,
   CreateIntakeUploadRequest,
-  type IntakeChoiceList,
   IntakeId,
   IntakeKey,
   type IntakeList,
+  type IntakeUpload,
+  IntakeUploadId,
   type IntakeView,
+  type MyIntake,
+  type MyIntakeListItem,
+  type OkResponse,
   RequestIntakeCorrectionRequest,
+  type SavedIntakeStep,
   SaveIntakeStepRequest,
   SendIntakeRequest,
-  StartIntakeRequest,
   SubmitIntakeRequest,
   type UploadTicket,
 } from '@firmivra/types';
@@ -40,9 +44,10 @@ import { DocumentsModule } from '../storage/documents.controller.js';
 import { AgreementsModule } from '../agreements/agreements.controller.js';
 import { INTAKE_SIGNING, INTAKE_SIGNING_PROVIDER, type IntakeSigner } from './intake-signing.js';
 import { type IntakeUploader, IntakeUploadsService } from './intake-uploads.service.js';
-import { type IntakeReach, IntakesService } from './intakes.service.js';
+import { type IntakeReach, IntakesService, type PortalClient } from './intakes.service.js';
 
 const idPipe = new ZodValidationPipe(IntakeId);
+const uploadIdPipe = new ZodValidationPipe(IntakeUploadId);
 const stepPipe = new ZodValidationPipe(IntakeKey);
 /** Contract B's body; a portal signature carries no Terms and Privacy acceptance. */
 const submitPipe = new ZodValidationPipe(
@@ -52,12 +57,16 @@ const submitPipe = new ZodValidationPipe(
   }),
 );
 
-function staff(auth: AuthContext, tenant: TenantContext): IntakeReach {
+function staff(auth: AuthContext, tenant: TenantContext): IntakeReach & { kind: 'staff' } {
   if (tenant.kind !== 'staff') throw new Error('firm routes are for firm members');
   return { kind: 'staff', actor: { userId: auth.userId, role: tenant.role } };
 }
 
-/** The signed-in client's intake forms at one firm; the client from the session. */
+/**
+ * Contract B (`api.myIntakes(slug)`, packages/types/src/intake/client.ts): the signed-in
+ * client's intake forms at one firm, the client from the session. Every login of the client
+ * reads; only the PRIMARY one changes (403 FORBIDDEN otherwise).
+ */
 @Controller('portal/:firmSlug/me/intakes')
 @Roles('CLIENT')
 export class MyIntakesController {
@@ -67,48 +76,39 @@ export class MyIntakesController {
     @Inject(INTAKE_SIGNING) private readonly signer: IntakeSigner,
   ) {}
 
-  private async uploader(auth: AuthContext, tenant: TenantContext): Promise<IntakeUploader> {
-    const reach = await this.reach(tenant);
-    if (reach.kind !== 'client' || tenant.kind !== 'client') throw new Error('unreachable');
-    return {
-      businessId: tenant.businessId,
-      userId: auth.userId,
-      clientAccountId: tenant.clientAccountId,
-      clientId: reach.clientId,
-    };
-  }
-
-  private reach(tenant: TenantContext) {
+  private client(tenant: TenantContext): Promise<PortalClient> {
     if (tenant.kind !== 'client') throw new Error('portal routes are for client logins');
     return this.intakes.clientOf(tenant.businessId, tenant.clientAccountId);
   }
 
+  private async uploader(auth: AuthContext, tenant: TenantContext): Promise<IntakeUploader> {
+    const who = await this.client(tenant);
+    if (tenant.kind !== 'client') throw new Error('unreachable');
+    return {
+      businessId: tenant.businessId,
+      userId: auth.userId,
+      clientAccountId: tenant.clientAccountId,
+      clientId: who.clientId,
+      primary: who.primary,
+    };
+  }
+
+  /** `list()`. */
   @Get()
-  async list(@CurrentTenant() tenant: TenantContext): Promise<IntakeList> {
-    return { items: await this.intakes.list(tenant.businessId, await this.reach(tenant)) };
+  async list(@CurrentTenant() tenant: TenantContext): Promise<{ items: MyIntakeListItem[] }> {
+    return { items: await this.intakes.listMine(tenant.businessId, await this.client(tenant)) };
   }
 
-  @Get('choices')
-  async choices(@CurrentTenant() tenant: TenantContext): Promise<IntakeChoiceList> {
-    const reach = await this.reach(tenant);
-    if (reach.kind !== 'client') throw new Error('unreachable');
-    return { items: await this.intakes.choices(tenant.businessId, reach) };
-  }
-
-  @Post()
-  @HttpCode(200)
-  async start(
-    @CurrentTenant() tenant: TenantContext,
-    @Body(new ZodValidationPipe(StartIntakeRequest)) body: z.output<typeof StartIntakeRequest>,
-  ): Promise<IntakeView> {
-    return this.intakes.start(tenant.businessId, await this.reach(tenant), body.engagementId);
-  }
-
+  /** `get(id)`. */
   @Get(':id')
-  async get(@CurrentTenant() tenant: TenantContext, @Param('id', idPipe) id: string) {
-    return this.intakes.get(tenant.businessId, await this.reach(tenant), id);
+  async get(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+  ): Promise<MyIntake> {
+    return this.intakes.getMine(tenant.businessId, await this.client(tenant), id);
   }
 
+  /** `saveStep(id, step, body)`. */
   @Put(':id/steps/:stepKey')
   async saveStep(
     @CurrentTenant() tenant: TenantContext,
@@ -116,11 +116,12 @@ export class MyIntakesController {
     @Param('stepKey', stepPipe) stepKey: string,
     @Body(new ZodValidationPipe(SaveIntakeStepRequest))
     body: z.output<typeof SaveIntakeStepRequest>,
-  ): Promise<IntakeView> {
-    const reach = await this.reach(tenant);
-    return this.intakes.saveStep(tenant.businessId, reach, id, stepKey, body.answers);
+  ): Promise<SavedIntakeStep> {
+    const who = await this.client(tenant);
+    return this.intakes.saveStep(tenant.businessId, who, id, stepKey, body.answers);
   }
 
+  /** `submit(id, body)`. */
   @Post(':id/submit')
   @HttpCode(200)
   async submit(
@@ -128,12 +129,12 @@ export class MyIntakesController {
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
     @Body(submitPipe) body: z.output<typeof SubmitIntakeRequest>,
-  ): Promise<IntakeView> {
+  ): Promise<MyIntake> {
     const who = await this.uploader(auth, tenant);
     const store = requestContext.getStore();
     return this.intakes.submit(
       tenant.businessId,
-      { kind: 'client', clientId: who.clientId },
+      { kind: 'client', clientId: who.clientId, primary: who.primary },
       id,
       { userId: auth.userId, clientAccountId: who.clientAccountId },
       body,
@@ -142,6 +143,7 @@ export class MyIntakesController {
     );
   }
 
+  /** `createUpload(id, body)`. */
   @Post(':id/uploads')
   async createUpload(
     @CurrentAuth() auth: AuthContext,
@@ -153,6 +155,7 @@ export class MyIntakesController {
     return this.files.createUpload(await this.uploader(auth, tenant), id, body);
   }
 
+  /** `confirmUpload(id, body)`. */
   @Post(':id/uploads/confirm')
   @HttpCode(200)
   async confirmUpload(
@@ -160,18 +163,19 @@ export class MyIntakesController {
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
     @Body(new ZodValidationPipe(ConfirmUploadRequest)) body: z.output<typeof ConfirmUploadRequest>,
-  ): Promise<IntakeView> {
+  ): Promise<IntakeUpload> {
     return this.files.confirmUpload(await this.uploader(auth, tenant), id, body.uploadToken);
   }
 
-  @Delete(':id/uploads/:documentId')
+  /** `removeUpload(id, uploadId)`. */
+  @Delete(':id/uploads/:uploadId')
   async removeUpload(
     @CurrentAuth() auth: AuthContext,
     @CurrentTenant() tenant: TenantContext,
     @Param('id', idPipe) id: string,
-    @Param('documentId', idPipe) documentId: string,
-  ): Promise<IntakeView> {
-    return this.files.removeUpload(await this.uploader(auth, tenant), id, documentId);
+    @Param('uploadId', uploadIdPipe) uploadId: string,
+  ): Promise<OkResponse> {
+    return this.files.removeUpload(await this.uploader(auth, tenant), id, uploadId);
   }
 }
 
