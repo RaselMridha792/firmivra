@@ -1,4 +1,5 @@
-// Settings > Payments (R7): GET /business/payments/setup, the firm's Stripe Connect account.
+// Settings > Payments (R7): the firm's Stripe Connect account. GET /business/payments/setup, and
+// POST .../onboarding and .../onboarding/refresh (the Owner connects through Stripe's onboarding).
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -8,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import { PaymentsSetup } from '@firmivra/types';
+import { PaymentsSetup, StripeOnboardingLink } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -23,8 +24,9 @@ const people = {
   adminA: person('admin-a'),
   staffA: person('staff-a'),
   ownerB: person('owner-b'),
+  ownerC: person('owner-c'),
 };
-const ids = { firmA: '', firmB: '' };
+const ids = { firmA: '', firmB: '', firmC: '' };
 
 async function seed() {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
@@ -40,7 +42,10 @@ async function seed() {
     ids.firmB = (
       await tx.business.create({ data: { slug: `setup-b-${run}`, name: 'B', status: 'ACTIVE' } })
     ).id;
-    // Firm B has finished Stripe; firm A has not started.
+    ids.firmC = (
+      await tx.business.create({ data: { slug: `setup-c-${run}`, name: 'C', status: 'ACTIVE' } })
+    ).id;
+    // Firm B has finished Stripe; firms A and C have not started.
     await tx.stripeAccount.create({
       data: {
         businessId: ids.firmB,
@@ -62,6 +67,7 @@ async function seed() {
       ],
     ],
     [ids.firmB, [[people.ownerB, 'OWNER']]],
+    [ids.firmC, [[people.ownerC, 'OWNER']]],
   ] as const) {
     await runInScope(owner, { kind: 'business', businessId }, async (tx) => {
       for (const [p, role] of members) {
@@ -95,6 +101,7 @@ async function call(
   app: INestApplication,
   who: { email: string },
   businessId = ids.firmA,
+  route: '' | '/onboarding' | '/onboarding/refresh' = '',
 ): Promise<Response> {
   let token = tokens.get(who.email);
   if (!token) {
@@ -105,18 +112,27 @@ async function call(
     token = (res.body as { token: string }).token;
     tokens.set(who.email, token);
   }
-  return request(app.getHttpServer())
-    .get('/api/v1/business/payments/setup')
+  const url = `/api/v1/business/payments/setup${route}`;
+  const req = (
+    route ? request(app.getHttpServer()).post(url) : request(app.getHttpServer()).get(url)
+  )
     .set('x-business-id', businessId)
     .set('authorization', `Bearer ${token}`);
+  return route ? req.send({}) : req;
 }
+const post = (
+  who: { email: string },
+  route: '/onboarding' | '/onboarding/refresh',
+  businessId = ids.firmA,
+) => call(app, who, businessId, route);
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 
 let app: INestApplication;
 let off: INestApplication;
+const fake = new FakeStripeGateway();
 beforeAll(async () => {
   await seed();
-  app = await startApp(new FakeStripeGateway());
+  app = await startApp(fake);
   off = await startApp(null);
 });
 afterAll(async () => {
@@ -167,3 +183,118 @@ describe('GET /business/payments/setup', () => {
     expect(codeOf(res)).toBe('PAYMENT_PROVIDER_UNAVAILABLE');
   });
 });
+
+const Link = z.strictObject(StripeOnboardingLink.shape);
+const auditCount = async (businessId: string, action: string) => {
+  const db = createPrismaClient(testDatabaseUrls('test_api').owner);
+  try {
+    return await runInScope(db, { kind: 'business', businessId }, (tx) =>
+      tx.auditLog.count({ where: { businessId, action } }),
+    );
+  } finally {
+    await db.$disconnect();
+  }
+};
+
+describe('POST .../onboarding and .../onboarding/refresh', () => {
+  it('lets only the Owner connect (Admin and Staff 403)', async () => {
+    for (const who of [people.adminA, people.staffA]) {
+      for (const route of ['/onboarding', '/onboarding/refresh'] as const) {
+        const res = await post(who, route);
+        expect([res.status, codeOf(res)]).toEqual([403, 'FORBIDDEN']);
+      }
+    }
+  });
+
+  it('answers 503 on both routes without a Stripe key', async () => {
+    for (const route of ['/onboarding', '/onboarding/refresh'] as const) {
+      const res = await call(off, people.ownerA, ids.firmA, route);
+      expect([res.status, codeOf(res)]).toEqual([503, 'PAYMENT_PROVIDER_UNAVAILABLE']);
+    }
+  });
+
+  it('refresh before any start is 409 PAYMENTS_NOT_SET_UP', async () => {
+    const res = await post(people.ownerA, '/onboarding/refresh');
+    expect([res.status, codeOf(res)]).toEqual([409, 'PAYMENTS_NOT_SET_UP']);
+  });
+
+  it('makes one account and one row for two clicks at once, then links to Stripe', async () => {
+    fake.delayMs = 150;
+    const [one, two] = await Promise.all([
+      post(people.ownerA, '/onboarding'),
+      post(people.ownerA, '/onboarding'),
+    ]);
+    fake.delayMs = 0;
+    for (const res of [one, two]) {
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(new URL(Link.parse(res.body).url).host).toBe('connect.stripe.com');
+    }
+    const creates = fake.calls.filter(
+      (c) => c.method === 'createAccount' && JSON.stringify(c.params).includes(ids.firmA),
+    );
+    expect(creates).toHaveLength(1);
+    expect(creates[0]!.params).toMatchObject({
+      businessId: ids.firmA,
+      idempotencyKey: `fv-connect-${ids.firmA}`,
+    });
+    const link = fake.calls.filter((c) => c.method === 'createAccountLink').at(-1)!;
+    const base = process.env.APP_BASE_URL!.replace(/\/$/, '');
+    expect(link.params).toMatchObject({
+      returnUrl: `${base}/settings/payments?stripe=return`,
+      refreshUrl: `${base}/settings/payments?stripe=refresh`,
+    });
+    const setup = Setup.parse((await call(app, people.ownerA)).body);
+    expect(setup).toMatchObject({
+      connected: true,
+      onboardingStatus: 'PENDING',
+      requirementsDue: true,
+    });
+    expect(await auditCount(ids.firmA, 'payments.stripe_account_created')).toBe(1);
+    expect(await auditCount(ids.firmA, 'payments.onboarding_link_created')).toBe(2);
+  });
+
+  it("refresh stores Stripe's state and gives a new link; COMPLETE is 409 PAYMENTS_ALREADY_SET_UP", async () => {
+    const db = createPrismaClient(testDatabaseUrls('test_api').owner);
+    const { accountId } = await runInScope(db, { kind: 'platform' }, (tx) =>
+      tx.stripeAccount.findUniqueOrThrow({ where: { businessId: ids.firmA } }),
+    );
+    await db.$disconnect();
+    expect(
+      Link.parse(expectOk(await post(people.ownerA, '/onboarding/refresh')).body).url,
+    ).toContain(accountId);
+    fake.update(accountId, {
+      charges_enabled: true,
+      payouts_enabled: true,
+      details_submitted: true,
+    });
+    const done = await post(people.ownerA, '/onboarding/refresh');
+    expect([done.status, codeOf(done)]).toEqual([409, 'PAYMENTS_ALREADY_SET_UP']);
+    expect(Setup.parse((await call(app, people.ownerA)).body)).toMatchObject({
+      onboardingStatus: 'COMPLETE',
+      chargesEnabled: true,
+    });
+    const again = await post(people.ownerA, '/onboarding');
+    expect([again.status, codeOf(again)]).toEqual([409, 'PAYMENTS_ALREADY_SET_UP']);
+  });
+
+  it("keeps firms apart: B's Owner gets 404 on firm A, and B's finished account is its own", async () => {
+    expect((await post(people.ownerB, '/onboarding', ids.firmA)).status).toBe(404);
+    const res = await post(people.ownerB, '/onboarding');
+    expect(res.status).toBe(404);
+    const b = await post(people.ownerB, '/onboarding', ids.firmB);
+    expect([b.status, codeOf(b)]).toEqual([409, 'PAYMENTS_ALREADY_SET_UP']);
+  });
+
+  it('writes nothing when Stripe does not answer (503)', async () => {
+    fake.down = true;
+    const res = await post(people.ownerC, '/onboarding', ids.firmC);
+    fake.down = false;
+    expect([res.status, codeOf(res)]).toEqual([503, 'PAYMENT_PROVIDER_UNAVAILABLE']);
+    expect(Setup.parse((await call(app, people.ownerC, ids.firmC)).body).connected).toBe(false);
+  });
+});
+
+const expectOk = (res: Response) => {
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+  return res;
+};
