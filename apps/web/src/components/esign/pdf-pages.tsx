@@ -2,6 +2,7 @@
 
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { loadPdfjs } from './load-pdfjs';
+import { BundledDataFactory } from './pdf-assets';
 
 type PdfDocument = Awaited<
   ReturnType<Awaited<ReturnType<typeof loadPdfjs>>['pdfjs']['getDocument']>['promise']
@@ -46,11 +47,15 @@ export function PdfPages({ source, label, onLoad, overlay }: PdfPagesProps) {
       const { pdfjs, worker } = await loadPdfjs();
       if (!active) return;
       // pdf.js takes ownership of the bytes it is given, so it gets a copy.
-      task = pdfjs.getDocument(
-        typeof source === 'string'
-          ? { url: source, withCredentials: true, worker }
-          : { data: source.slice(), worker },
-      );
+      task = pdfjs.getDocument({
+        ...(typeof source === 'string'
+          ? { url: source, withCredentials: true }
+          : { data: source.slice() }),
+        worker,
+        // Scanned pages and unembedded fonts: their files come from the bundle (pdf-assets.ts).
+        BinaryDataFactory: BundledDataFactory,
+        useWorkerFetch: false,
+      });
       const doc = await task.promise;
       const sizes = await Promise.all(
         Array.from({ length: doc.numPages }, async (_, i) => {
