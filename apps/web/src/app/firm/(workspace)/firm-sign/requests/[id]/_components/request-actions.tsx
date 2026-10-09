@@ -4,7 +4,7 @@ import { ESIGN_ERRORS, type EsignRecipient, type EsignRequestDetail } from '@fir
 import { Button, Input, Modal, Toast } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
@@ -20,8 +20,11 @@ export const awaiting = (x: EsignRecipient) =>
   x.delivery !== 'IN_PERSON' &&
   ['SENT', 'DELIVERED', 'VIEWED'].includes(x.status);
 
-/** The request's own buttons, each shown only when `allowedActions` has it. */
-export function RequestActions({ r }: { r: EsignRequestDetail }) {
+/**
+ * The request's own buttons, each shown only when `allowedActions` has it. `extra` joins the same
+ * row (Save as template), before Void.
+ */
+export function RequestActions({ r, extra }: { r: EsignRequestDetail; extra?: ReactNode }) {
   const can = (a: EsignRequestDetail['allowedActions'][number]) => r.allowedActions.includes(a);
   const router = useRouter();
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -44,7 +47,7 @@ export function RequestActions({ r }: { r: EsignRequestDetail }) {
     replace: can('REPLACE'),
     void: can('VOID'),
   };
-  if (!Object.values(shown).some(Boolean)) return null;
+  if (!Object.values(shown).some(Boolean) && !extra) return null;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-3">
@@ -81,6 +84,7 @@ export function RequestActions({ r }: { r: EsignRequestDetail }) {
             Correct and resend
           </Button>
         )}
+        {extra}
         {shown.void && (
           <Button variant="ghost" onClick={() => setDialog('void')}>
             Void

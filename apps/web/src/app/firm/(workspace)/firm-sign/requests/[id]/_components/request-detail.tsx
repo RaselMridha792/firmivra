@@ -126,13 +126,11 @@ function Header({ r, canSave }: { r: EsignRequestDetail; canSave: boolean }) {
           )}
         </div>
       )}
-      <RequestActions r={r} />
       {/* Any request with pages can become a template; a Viewer can't make one. */}
-      {canSave && r.pagePlan.length > 0 && (
-        <div>
-          <SaveAsTemplate r={r} />
-        </div>
-      )}
+      <RequestActions
+        r={r}
+        extra={canSave && r.pagePlan.length > 0 ? <SaveAsTemplate r={r} /> : null}
+      />
     </Card>
   );
 }
