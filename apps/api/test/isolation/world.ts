@@ -1,7 +1,8 @@
 // The shapes a case file in test/isolation/cases/ exports, and the "world" its records live in.
 // A world is one set of firm P's records built on demand from the record definitions: the
 // refusal tests share one, and each write case's positive control gets a fresh one, so a write
-// that archives, cancels or deletes never changes what another case sees.
+// that archives, cancels or deletes never changes what another case sees. Firm Q gets a world
+// too, and firm P a second one (client Y's), for the requests that name a record in the body.
 import { randomUUID } from 'node:crypto';
 import type { TxClient } from '@firmivra/db';
 
@@ -10,20 +11,19 @@ export interface Person {
   email: string;
 }
 
-/** Records of the firm a request acts in, for bodies that name one (a service, a status). */
+/** The firm's own services, shared by every world of it. */
 export interface OwnIds {
   service: string;
   bookkeeping: string;
-  taxStatus: string;
 }
 
 export interface SeedContext {
   tx: TxClient;
-  /** Firm P. */
+  /** The world's firm: P, or Q for firm Q's own records. */
   businessId: string;
-  /** Firm P's Owner, who also runs every firm route's positive control. */
+  /** The firm's Owner (P's also runs every firm route's positive control). */
   owner: Person;
-  /** Firm P's own services and status, shared by every world. */
+  /** The firm's own services, shared by every world of it. */
   own: OwnIds;
   /** Another record of this world, created first if it isn't yet. */
   get(key: string): Promise<string>;
@@ -36,7 +36,7 @@ export interface SeedContext {
 }
 
 export interface RecordDef {
-  /** Creates the record in firm P and returns its id. */
+  /** Creates the record in the world's firm and returns its id. */
   create(ctx: SeedContext): Promise<string>;
   /**
    * The record belongs to one client (their engagement, their document), so another client's
@@ -47,8 +47,6 @@ export interface RecordDef {
 
 export interface BodyContext {
   own: OwnIds;
-  /** The world's records the case lists in `bodyRecords`, by key. */
-  rec: Record<string, string>;
 }
 
 export interface RecordCase {
@@ -59,11 +57,17 @@ export interface RecordCase {
    * firm's, so on firm Q's requests only firm P's records can be the reason for a 404.
    */
   body?: object | ((c: BodyContext) => object);
-  /** Further records the body names. */
-  bodyRecords?: string[];
+  /**
+   * Each top-level body field that names a record (every `...Id`, `...Ids` or `ids` field of the
+   * route's body schema), and its record; an `Ids` field gets a list of one. Added to `body`.
+   * The suite then sends each field in turn with firm P's (or client X's) record, the rest of the
+   * request being the other firm's (or client's) own, and expects a refusal.
+   */
+  bodyIds?: Record<string, string>;
   /**
    * What firm P's own people get, when it isn't 2xx: a found record in a state that refuses the
-   * action (409), or a download with no file store in tests (503). Never 400, 403 or 404.
+   * action (409), or a download with no file store in tests (503). Never 400, 403 or 404. A body
+   * naming another firm's or client's record must get some other 4xx.
    */
   expect?: number;
 }
@@ -71,7 +75,7 @@ export interface RecordCase {
 /** What each file in test/isolation/cases/ exports; every export is optional. */
 export interface CaseModule {
   records?: Record<string, RecordDef>;
-  /** `METHOD /api/v1/...` of each firm or portal route with a record param. */
+  /** `METHOD /api/v1/...` of each firm or portal route with a record param or body id field. */
   cases?: Record<string, RecordCase>;
   /** `METHOD /api/v1/...` of each route that is neither a firm nor a portal route, and why. */
   excluded?: Record<string, string>;
@@ -83,6 +87,14 @@ export interface CaseModule {
   moduleOff?: Record<string, string>;
 }
 
+/**
+ * Creates a login in its own short platform-scope transaction, committed at once. A world's
+ * transaction never inserts a user itself: each user insert bumps the day's signup counter row
+ * for its pool (users_count_signups), so a long transaction that adds STAFF and CLIENT users
+ * holds both rows and deadlocks with another test file adding them in the other order.
+ */
+export type NewUser = (user: Person & { pool: 'STAFF' | 'CLIENT'; name: string }) => Promise<void>;
+
 export class World {
   readonly rec: Record<string, string> = {};
   client?: Person;
@@ -91,6 +103,7 @@ export class World {
   constructor(
     private readonly defs: Record<string, RecordDef>,
     private readonly base: Omit<SeedContext, 'get' | 'set' | 'person' | 'setClient'>,
+    private readonly newUser: NewUser,
   ) {}
 
   get(key: string): Promise<string> {
@@ -122,9 +135,7 @@ export class World {
       person: async (label, pool) => {
         const id = randomUUID();
         const email = `iso-${label}-${id.slice(0, 8)}@iso.test`;
-        await this.base.tx.user.create({
-          data: { id, cognitoSub: id, pool, email, name: `Fake ${label}` },
-        });
+        await this.newUser({ id, email, pool, name: `Fake ${label}` });
         return { id, email };
       },
       setClient: (person) => {
