@@ -1,9 +1,14 @@
 'use client';
 
-import { type EsignQuickFilter, type EsignRequestStatus } from '@firmivra/types';
+import {
+  type EsignAccessRole,
+  type EsignQuickFilter,
+  type EsignRequestStatus,
+} from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import { useState } from 'react';
 import { EsignGate } from '../../../../../../components/esign/esign-gate';
+import { canApprove } from '../../../../../../components/esign/esign-role';
 import { RequestsTable } from '../../../../../../components/esign/requests-table';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
@@ -18,15 +23,18 @@ const QUICK: { id: EsignQuickFilter; label: string }[] = [
 
 /** /firm-sign/requests: every request the caller may see, with the quick filters. */
 export function AllRequests({ status }: { status?: EsignRequestStatus }) {
-  return <EsignGate>{() => <Requests status={status} />}</EsignGate>;
+  return <EsignGate>{(role) => <Requests status={status} role={role} />}</EsignGate>;
 }
 
-function Requests({ status }: { status?: EsignRequestStatus }) {
-  const summary = useApiQuery(['esign', 'summary'], () => api.esign.summary());
+function Requests({ status, role }: { status?: EsignRequestStatus; role: EsignAccessRole | null }) {
+  // Under ['esign', 'requests'], so a send, void or approval refreshes the counts too.
+  const summary = useApiQuery(['esign', 'requests', 'summary'], () => api.esign.summary());
+  // Only an Owner, Admin or Firm Sign Manager is ever an approver.
+  const quickFilters = QUICK.filter((f) => f.id !== 'NEEDS_MY_APPROVAL' || canApprove(role));
   const [quick, setQuick] = useState<EsignQuickFilter | undefined>();
   return (
     <div className="flex flex-col gap-6">
-      <h1 data-testid="page-title" className="text-3xl font-semibold text-heading">
+      <h1 data-testid="page-title" className="text-2xl font-semibold text-text">
         Signature requests
       </h1>
       <div role="group" aria-label="Quick filters" className="flex flex-wrap gap-2">
@@ -37,7 +45,7 @@ function Requests({ status }: { status?: EsignRequestStatus }) {
         >
           All
         </Button>
-        {QUICK.map((f) => (
+        {quickFilters.map((f) => (
           <Button
             key={f.id}
             variant={quick === f.id ? 'primary' : 'outline'}
@@ -54,6 +62,7 @@ function Requests({ status }: { status?: EsignRequestStatus }) {
         key={status ?? 'all'}
         limit={25}
         caption="Signature requests"
+        detailed
         quickFilter={quick}
         initial={{ range: 'all', ...(status && { status }) }}
       />

@@ -37,6 +37,13 @@ export interface EnvConfig {
   /** Cognito's reset code emails through SES; without customDomain Cognito's default sender. */
   cognitoEmail?: CognitoEmail;
   /**
+   * The Secrets Manager secret with the API's Stripe keys (STRIPE_SECRET_KEY,
+   * STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET), made by hand before the deploy that uses it
+   * (docs/SETUP-LOG.md, "Stripe keys"). Unset: the API has no Stripe settings and payments answer
+   * 503.
+   */
+  stripeSecretName?: string;
+  /**
    * The three distributions' *.cloudfront.net domains, filled in after the first app deploy.
    * Used for the documents bucket CORS while there is no custom domain. Unset: CORS allows
    * https://*.cloudfront.net until the domains are known.
@@ -83,6 +90,7 @@ const dev: EnvConfig = {
     sesVerifiedDomain: 'dev.firmivra.com',
     configurationSet: 'firmivra-dev-email',
   },
+  stripeSecretName: 'firmivra/dev/stripe',
   github: { owner: 'RaselMridha792', ownerId: 149437621, repo: 'firmivra', repoId: 1404534844 },
   // AZ ids use1-az1 and use1-az2 (CloudFront VPC origins are not offered in every zone).
   availabilityZones: ['us-east-1a', 'us-east-1b'],

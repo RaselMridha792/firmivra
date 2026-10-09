@@ -1,7 +1,7 @@
 'use client';
 
 import type { BookableType, MySlot } from '@firmivra/types';
-import { Button, Card } from '@firmivra/ui';
+import { Button, Modal } from '@firmivra/ui';
 import { useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
@@ -25,35 +25,78 @@ const BOOKING_ERRORS = {
   NOT_FOUND: 'This kind of appointment is no longer offered.',
 };
 
-/** Book: pick a kind of appointment, then a free time, then confirm. */
-export function BookAppointment({ slug }: { slug: string }) {
+/**
+ * "Schedule an Appointment": a modal with the booking steps (a kind of appointment, then a free
+ * time, then confirm). `date` starts the day picker on a day picked in the month calendar.
+ */
+export function ScheduleModal({
+  slug,
+  open,
+  date,
+  onClose,
+  onBooked,
+}: {
+  slug: string;
+  open: boolean;
+  date?: string;
+  onClose: () => void;
+  /** Booked: the page says so above the list. */
+  onBooked: (text: string) => void;
+}) {
+  return (
+    <Modal open={open} title="Schedule an Appointment" onClose={onClose}>
+      {open ? <BookableTypes slug={slug} date={date} onBooked={onBooked} /> : null}
+    </Modal>
+  );
+}
+
+function BookableTypes({
+  slug,
+  date,
+  onBooked,
+}: {
+  slug: string;
+  date?: string;
+  onBooked: (text: string) => void;
+}) {
   const types = useApiQuery([...myAppointmentsKey(slug), 'types'], () =>
     api.myAppointments(slug).types(),
   );
   return (
-    <Card title="Book an appointment">
-      <PageState query={types} empty="There are no appointments to book online. Please contact us.">
-        {(list) => <Booking slug={slug} types={list} onTypeGone={() => void types.refetch()} />}
-      </PageState>
-    </Card>
+    <PageState query={types} empty="There are no appointments to book online. Please contact us.">
+      {(list) => (
+        <Booking
+          slug={slug}
+          types={list}
+          initialDate={date}
+          onBooked={onBooked}
+          onTypeGone={() => void types.refetch()}
+        />
+      )}
+    </PageState>
   );
 }
 
 function Booking({
   slug,
   types,
+  initialDate,
+  onBooked,
   onTypeGone,
 }: {
   slug: string;
   types: BookableType[];
+  initialDate?: string;
+  onBooked: (text: string) => void;
   onTypeGone: () => void;
 }) {
   const [first] = useState(today);
   const [type, setType] = useState<BookableType | null>(null);
-  const [date, setDate] = useState(first);
+  const [date, setDate] = useState(() =>
+    initialDate && initialDate > first ? initialDate : first,
+  );
   const [picked, setPicked] = useState<MySlot | null>(null);
   const [round, setRound] = useState(0);
-  const [booked, setBooked] = useState('');
   const book = useApiMutation(
     (slot: MySlot) =>
       api.myAppointments(slug).book({ typeId: type?.id ?? '', startsAt: slot.startsAt }),
@@ -62,17 +105,14 @@ function Booking({
   const choose = (next: BookableType) => {
     setType(next);
     setPicked(null);
-    setBooked('');
     book.reset();
   };
   const confirm = (slot: MySlot) =>
     book.mutate(slot, {
       onSuccess: (appointment) => {
-        setBooked(
+        onBooked(
           `Booked: ${appointment.type?.name ?? 'Appointment'}, ${when(appointment.startsAt)}.`,
         );
-        setType(null);
-        setPicked(null);
       },
       onError: (error) => {
         const code = errorCode(error) ?? '';
@@ -90,11 +130,6 @@ function Booking({
 
   return (
     <div className="flex flex-col gap-4">
-      {booked ? (
-        <p role="status" className="text-sm font-medium text-success">
-          {booked}
-        </p>
-      ) : null}
       <div role="group" aria-label="Kind of appointment" className="grid gap-3 sm:grid-cols-2">
         {types.map((item) => (
           <button

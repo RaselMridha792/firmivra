@@ -50,5 +50,16 @@ describe('seed', () => {
       if (rows[0]!.n === 0) empty.push(t.name);
     }
     expect(empty).toEqual([]);
+
+    // Every LVP answer is a question of its stored form (the form engine refuses other keys).
+    const { rows: strays } = await client.query(
+      `SELECT k.key FROM intake_submissions s
+         JOIN intakes i ON i.id = s.intake_id JOIN intake_forms f ON f.id = i.form_id
+         CROSS JOIN jsonb_object_keys(s.answers) AS k(key)
+       WHERE s.business_id = $1 AND NOT jsonb_path_exists(f.definition,
+         '$.steps[*].sections[*].fields[*] ? (@.key == $k)', jsonb_build_object('k', k.key))`,
+      [lvpId],
+    );
+    expect(strays).toEqual([]);
   }, 180_000);
 });

@@ -1,13 +1,14 @@
 'use client';
 
 import {
+  ESIGN_ERRORS,
   ESIGN_STATUS_LABELS,
   EsignRequestStatus,
   type EsignQuickFilter,
   type EsignRequestRow,
   type ListEsignRequestsQuery,
 } from '@firmivra/types';
-import { Input, Select, Table, type Column } from '@firmivra/ui';
+import { Button, Input, Select, Table, type Column } from '@firmivra/ui';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Ellipsis, FileText } from 'lucide-react';
 import Link from 'next/link';
@@ -32,6 +33,18 @@ const RANGES = [
 const firstOfLast = (days: number) =>
   new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+/** format.ts's date, kept on one line in a table cell. */
+const cellDate = (iso: string | null) => (
+  <span className="whitespace-nowrap">{shortDate(iso)}</span>
+);
+
+/** Who a request waits on, and how many have signed when there is more than one signer. */
+const waitingOn = (r: EsignRequestRow) => {
+  const names = r.nextAction.waitingOn.join(', ');
+  const count = r.signerCount > 1 ? `${r.signedCount} of ${r.signerCount} signed` : '';
+  return [names, count && (names ? `(${count})` : count)].filter(Boolean).join(' ') || '–';
+};
+
 export interface RequestsFilters {
   q: string;
   status: EsignRequestStatus | '';
@@ -49,6 +62,8 @@ interface RequestsTableProps {
   /** A client's own tab: no client filter, always this client. */
   clientId?: string;
   caption: string;
+  /** All requests: also Sender, Waiting on and Expires (the spec's columns). */
+  detailed?: boolean;
 }
 
 /**
@@ -61,6 +76,7 @@ export function RequestsTable({
   clientId,
   caption,
   quickFilter,
+  detailed = false,
 }: RequestsTableProps) {
   const [filters, setFilters] = useState<RequestsFilters>({
     q: '',
@@ -133,14 +149,33 @@ export function RequestsTable({
             ),
           },
         ]),
-    { id: 'status', label: 'Status', cell: (r) => <StatusBadge status={r.status} /> },
-    { id: 'sent', label: 'Sent Date', cell: (r) => shortDate(r.sentAt) },
+    ...(detailed
+      ? [
+          {
+            id: 'sender',
+            label: 'Sender',
+            cell: (r: EsignRequestRow) => r.sender.name,
+          },
+        ]
+      : []),
     {
-      id: 'activity',
-      label: 'Last Activity',
-      // A draft or one waiting for approval has no activity since it was sent.
-      cell: (r) => (r.sentAt ? shortDate(r.lastActivityAt) : '–'),
+      id: 'status',
+      label: 'Status',
+      cell: (r) => (
+        <span className="whitespace-nowrap">
+          <StatusBadge status={r.status} />
+        </span>
+      ),
     },
+    ...(detailed
+      ? [{ id: 'waiting', label: 'Waiting On', cell: (r: EsignRequestRow) => waitingOn(r) }]
+      : []),
+    { id: 'sent', label: 'Sent Date', cell: (r) => cellDate(r.sentAt) },
+    // The list is sorted and filtered on this date, so every row shows it.
+    { id: 'activity', label: 'Last Activity', cell: (r) => cellDate(r.lastActivityAt) },
+    ...(detailed
+      ? [{ id: 'expires', label: 'Expires', cell: (r: EsignRequestRow) => cellDate(r.expiresAt) }]
+      : []),
     {
       id: 'actions',
       label: 'Actions',
@@ -158,6 +193,8 @@ export function RequestsTable({
 
   const page = cursors.length - 1;
   const next = list.data?.nextCursor ?? null;
+  // Rows changed between pages and this later page came back empty.
+  const emptyLater = page > 0 && list.data?.items.length === 0;
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
@@ -191,41 +228,53 @@ export function RequestsTable({
       </div>
       {list.isError && !list.data ? (
         <p role="alert" className="text-sm text-danger">
-          {errorMessage(list.error)}
+          {errorMessage(list.error, ESIGN_ERRORS)}
         </p>
+      ) : emptyLater ? (
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-sm text-muted">Nothing more on this page.</p>
+          <Button variant="outline" onClick={() => setCursors([undefined])}>
+            Back to page 1
+          </Button>
+        </div>
       ) : (
-        <Table
-          caption={caption}
-          rows={list.data?.items ?? []}
-          columns={columns}
-          rowKey={(r) => r.id}
-          loading={list.isPending}
-          pageSize={limit}
-          emptyTitle="No signature requests"
-          emptyText="Nothing matches these filters."
-          // Pages come from the API (cursors); the columns don't sort.
-          server={{
-            page: page + 1,
-            // Not while the next page loads: a second click would skip it.
-            hasNext: !!next && !list.isPlaceholderData,
-            hasPrevious: page > 0,
-            onNext: () => next && setCursors((c) => [...c, next]),
-            onPrevious: () => setCursors((c) => (c.length > 1 ? c.slice(0, -1) : c)),
-            onSort: () => undefined,
-          }}
-        />
+        <div
+          aria-busy={list.isPlaceholderData}
+          className={list.isPlaceholderData ? 'opacity-60' : undefined}
+        >
+          <Table
+            caption={caption}
+            rows={list.data?.items ?? []}
+            columns={columns}
+            rowKey={(r) => r.id}
+            loading={list.isPending}
+            pageSize={limit}
+            emptyTitle="No signature requests"
+            emptyText="Nothing matches these filters."
+            // Pages come from the API (cursors); the columns don't sort.
+            server={{
+              page: page + 1,
+              // Not while the next page loads: a second click would skip it.
+              hasNext: !!next && !list.isPlaceholderData,
+              hasPrevious: page > 0,
+              onNext: () => next && setCursors((c) => [...c, next]),
+              onPrevious: () => setCursors((c) => (c.length > 1 ? c.slice(0, -1) : c)),
+              onSort: () => undefined,
+            }}
+          />
+        </div>
       )}
     </div>
   );
 }
 
 /**
- * "All Clients" or one client: the first 100 clients the caller may see. A firm with more finds
- * the others with the search box, which also matches the client.
+ * "All Clients" or one client: the first 100 clients the caller may see (archived ones too), by
+ * name. A firm with more finds the others with the search box, which also matches the client.
  */
 function ClientFilter({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const clients = useApiQuery(['clients', 'list', 'esign-filter'], () =>
-    api.clients.list({ limit: 100 }),
+    api.clients.list({ limit: 100, status: 'all' }),
   );
   return (
     <Select
@@ -234,7 +283,9 @@ function ClientFilter({ value, onChange }: { value: string; onChange: (id: strin
       onChange={(e) => onChange(e.target.value)}
       options={[
         { value: '', label: 'All Clients' },
-        ...(clients.data?.items ?? []).map((c) => ({ value: c.id, label: c.displayName })),
+        ...(clients.data?.items ?? [])
+          .toSorted((a, b) => a.displayName.localeCompare(b.displayName))
+          .map((c) => ({ value: c.id, label: c.displayName })),
       ]}
     />
   );

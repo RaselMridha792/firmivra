@@ -139,7 +139,7 @@ paths:
     patch:
       tags: [firm]
       operationId: updateMessageThread
-      summary: Close or reopen the client's replies (`{ repliesEnabled }`): Owner, Admin, and Staff on their own clients
+      summary: "Close or reopen the client's replies (`{ repliesEnabled }`): Owner, Admin, and Staff on their own clients"
       requestBody: { $ref: '#/components/requestBodies/Json' }
       responses:
         '200': { description: '`MessageThread`.' }
@@ -296,7 +296,7 @@ paths:
     get:
       tags: [portal]
       operationId: myNote
-      summary: This login's latest private note (`{ note: null }` before the first save)
+      summary: "This login's latest private note (`{ note: null }` before the first save)"
       responses:
         '200': { description: '`MyNoteResponse`.' }
         default: { $ref: '#/components/responses/Error' }

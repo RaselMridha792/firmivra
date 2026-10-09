@@ -11,6 +11,20 @@ const REQUESTS = {
   'Payroll Authorization': '0199b6e0-0000-7000-8000-000000000004',
 };
 
+/** Mock seeds by id: a draft, in person, declined, needing approval, and one that isn't there. */
+const ID = {
+  draft: '0199b6e0-0000-7000-8000-000000000006',
+  inPerson: '0199b6e0-0000-7000-8000-000000000096',
+  declined: '0199b6e0-0000-7000-8000-000000000092',
+  approval: '0199b6e0-0000-7000-8000-000000000005',
+  unknown: '0199b6e0-0000-7000-8000-000000000999',
+};
+
+async function openId(page: Page, id: string) {
+  await page.goto(app(`/firm-sign/requests/${id}`));
+  await expect(page.getByTestId('page-title')).toBeVisible();
+}
+
 async function open(page: Page, title: keyof typeof REQUESTS) {
   await page.goto(app(`/firm-sign/requests/${REQUESTS[title]}`));
   await expect(page.getByTestId('page-title')).toHaveText(title);
@@ -28,6 +42,48 @@ test('a completed request: recipients and timeline', async ({ page }) => {
   await expect(timeline.first()).toContainText('Completed');
   await expect(timeline.last()).toContainText('Created');
   await expect(page.getByTestId('timeline')).toContainText('Verified by an email code');
+  await expect(page.getByRole('link', { name: 'Continue preparing' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Sign in person' })).toHaveCount(0);
+});
+
+test('a draft: continue preparing, and the internal note', async ({ page }) => {
+  await openId(page, ID.draft);
+  await expect(page.getByRole('link', { name: 'Continue preparing' })).toHaveAttribute(
+    'href',
+    `/firm-sign/requests/${ID.draft}/prepare`,
+  );
+  await expect(page.getByText('Synthetic note: staff only.')).toBeVisible();
+  await expect(page.getByText('Prepared by')).toBeVisible();
+});
+
+test('an in-person request links to the kiosk', async ({ page }) => {
+  await openId(page, ID.inPerson);
+  await expect(page.getByRole('link', { name: 'Sign in person' })).toHaveAttribute(
+    'href',
+    `/firm-sign/in-person/${ID.inPerson}`,
+  );
+});
+
+test("a declined request shows the signer's reason twice", async ({ page }) => {
+  await openId(page, ID.declined);
+  const reason = 'Reason: The fee is not what we agreed.';
+  await expect(page.getByTestId('recipient').getByText(reason)).toBeVisible();
+  await expect(page.getByTestId('timeline').getByText(reason)).toBeVisible();
+});
+
+test('a request needing approval puts its approver first', async ({ page }) => {
+  await openId(page, ID.approval);
+  // The Owner (Mock User) is its approver.
+  await expect(page.getByText('Waiting for your approval.')).toBeVisible();
+  const first = page.getByTestId('recipient').first();
+  await expect(first).toContainText('Mock User');
+  await expect(first).toContainText('Awaiting approval');
+});
+
+test('an unknown request is not found', async ({ page }) => {
+  await page.goto(app(`/firm-sign/requests/${ID.unknown}`));
+  await expect(page.getByText("We couldn't find this.")).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Signature request' })).toBeAttached();
 });
 
 test('a request part-way through says who it waits on', async ({ page }) => {
