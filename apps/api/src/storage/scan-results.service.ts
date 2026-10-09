@@ -2,8 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Database, ScanStatus } from '@firmivra/db';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { Notifier } from '../notifications/notifier.js';
 import { lockRequest } from './document-records.js';
-import { refusedUpload } from './uploads.service.js';
+import { refusedUpload, tellShared } from './uploads.service.js';
 
 /**
  * One GuardDuty Malware Protection for S3 result, as its EventBridge event gives it
@@ -80,7 +81,8 @@ export function scanVerdict(
  * is our side and leaves the file PENDING for the alarm and a rescan. A result that comes before
  * the confirm saves its document is UNKNOWN, for redelivery; one for an upload the confirm
  * refused (its `document.upload_refused` audit row) is IGNORED, so it never reaches the alarm.
- * Lock order: the request, then the document. Audited with ids and codes only.
+ * A file the firm shared (FIRM_TO_CLIENT) that becomes CLEAN tells the client after the commit
+ * (`document.shared`). Lock order: the request, then the document. Audited with ids and codes only.
  */
 @Injectable()
 export class ScanResultsService {
@@ -89,31 +91,53 @@ export class ScanResultsService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
 
   async recordScanResult(result: ScanResult): Promise<ScanOutcome> {
     const [, businessId, uploadId] = KEY.exec(result.key) ?? [];
     if (!businessId || !uploadId) return 'IGNORED';
+    const { outcome, shared } = await this.record(businessId, uploadId, result);
+    if (shared) await tellShared(this.notifier, this.logger, { businessId, ...shared });
+    return outcome;
+  }
+
+  /** The result in one transaction; `shared` when a file the firm shared became CLEAN. */
+  private record(
+    businessId: string,
+    uploadId: string,
+    result: ScanResult,
+  ): Promise<{
+    outcome: ScanOutcome;
+    shared?: { documentId: string; uploadedByUserId: string | null };
+  }> {
     return this.database.withScope({ kind: 'business', businessId }, async (tx) => {
       const doc = await tx.document.findFirst({
         where: { businessId, s3Key: result.key },
-        select: { id: true, clientId: true, requestId: true, contentType: true },
+        select: {
+          id: true,
+          clientId: true,
+          requestId: true,
+          contentType: true,
+          direction: true,
+          uploadedByUserId: true,
+        },
       });
       if (!doc) {
         // GuardDuty scanned the PUT of a file the confirm then refused and deleted: nothing to do.
         if (await refusedUpload(tx, businessId, uploadId, { sinceMs: SCAN_REFUSALS_SINCE_MS })) {
           this.logger.log(`Scan result for refused upload ${uploadId}; ignored`);
-          return 'IGNORED';
+          return { outcome: 'IGNORED' };
         }
         // GuardDuty scans on the PUT; the confirm that saves the document can come later.
         this.logger.warn(`Scan result for upload ${uploadId} has no document yet; redeliver`);
-        return 'UNKNOWN';
+        return { outcome: 'UNKNOWN' };
       }
       const request = doc.requestId ? await lockRequest(tx, businessId, doc.requestId) : null;
       const [locked] = await tx.$queryRaw<{ scan_status: ScanStatus }[]>`
         SELECT scan_status::text AS scan_status FROM documents
         WHERE business_id = ${businessId}::uuid AND id = ${doc.id}::uuid FOR UPDATE`;
-      if (locked?.scan_status !== 'PENDING') return 'IGNORED';
+      if (locked?.scan_status !== 'PENDING') return { outcome: 'IGNORED' };
       const next = scanVerdict(result, doc.contentType);
       if (!next) {
         // Our side (UNSUPPORTED_STORAGE_CLASS, ACCESS_DENIED, FAILED): the alarm and a rescan.
@@ -125,7 +149,7 @@ export class ScanResultsService {
           { clientId: doc.clientId, result: result.status, reasons: result.reasons ?? [] },
           { businessId },
         );
-        return 'PENDING';
+        return { outcome: 'PENDING' };
       }
       await tx.document.update({
         where: { id: doc.id },
@@ -164,7 +188,12 @@ export class ScanResultsService {
           );
         }
       }
-      return next.unscanned ? 'UNSCANNED' : next.scan;
+      // The client hears of a shared file only once it can open it (UNSCANNED is CLEAN too).
+      const shared =
+        next.scan === 'CLEAN' && doc.direction === 'FIRM_TO_CLIENT'
+          ? { documentId: doc.id, uploadedByUserId: doc.uploadedByUserId }
+          : undefined;
+      return { outcome: next.unscanned ? 'UNSCANNED' : next.scan, shared };
     });
   }
 }
