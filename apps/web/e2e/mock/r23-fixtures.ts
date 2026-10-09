@@ -100,6 +100,20 @@ export async function routeClientRecord(page: Page, start = record(1)) {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/archive')) current = { ...current, archivedAt: '2026-10-09T21:00:00.000Z' };
     if (path.endsWith('/restore')) current = { ...current, archivedAt: null };
+    const body = route.request().postDataJSON() as Record<string, unknown> | null;
+    if (path.endsWith('/profile')) {
+      const { ssn, address, ...rest } = body ?? {};
+      const was = current['profile'] as { address: object };
+      const profile = {
+        ...was,
+        ...rest,
+        address: { ...was.address, ...(address as object | undefined) },
+        ...(typeof ssn === 'string' ? { ssnLast4: ssn.slice(-4) } : {}),
+      };
+      current = { ...current, profile };
+      return json(route, profile);
+    }
+    if (route.request().method() === 'PATCH') current = { ...current, ...body };
     return json(route, current);
   });
 }
