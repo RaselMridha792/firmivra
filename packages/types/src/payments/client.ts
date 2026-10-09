@@ -73,15 +73,19 @@ export function createInvoicesClient(request: ApiRequest) {
       }),
     /**
      * Records a check or cash payment on an OPEN invoice (at most its balance due); it turns PAID
-     * once covered. 409 NOT_OPEN, AMOUNT_TOO_LARGE or PAYMENT_IN_PROGRESS. A retry with the same
-     * idempotencyKey answers the invoice as it is (nothing recorded twice).
+     * once covered. 409 NOT_OPEN, AMOUNT_TOO_LARGE, DUPLICATE_CHECK_NUMBER (that check number is
+     * live on this invoice already) or PAYMENT_IN_PROGRESS. A retry with the same idempotencyKey
+     * answers the invoice as it is (nothing recorded twice); a key used on another invoice is 404.
      */
     recordPayment: async (id: string, body: RecordOfflinePaymentRequest): Promise<Invoice> =>
       request(Invoice, `${one(id)}/offline-payments`, {
         method: 'POST',
         body: parseInput(RecordOfflinePaymentRequest, body),
       }),
-    /** Voids a recorded check or cash payment; a PAID invoice it no longer covers reopens. 409 ALREADY_VOIDED. */
+    /**
+     * Voids a recorded check or cash payment; a PAID invoice it no longer covers reopens. 409
+     * ALREADY_VOIDED.
+     */
     voidPayment: async (
       id: string,
       offlinePaymentId: string,
