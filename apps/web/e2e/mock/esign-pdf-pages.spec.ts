@@ -31,10 +31,13 @@ test('the next document opens after the first one has drawn', async ({ page }) =
   await page.getByRole('button', { name: 'Next document' }).click();
   await expect(page.getByRole('document', { name: 'Sample tax organizer' })).toBeVisible();
   await expect(page.getByTestId('pdf-page')).toHaveCount(2);
+  // The button sits below the pages; page 1 draws once it is back near the screen.
+  await page.locator('[data-page="1"]').scrollIntoViewIfNeeded();
   await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
   await expect(page.getByTestId('pdf-error')).toHaveCount(0);
   // And back, on the same worker.
   await page.getByRole('button', { name: 'Next document' }).click();
   await expect(page.getByTestId('pdf-page')).toHaveCount(3);
+  await page.locator('[data-page="1"]').scrollIntoViewIfNeeded();
   await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
 });
