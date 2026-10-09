@@ -722,12 +722,13 @@ async function main() {
     });
     // A submitted version is locked (even an empty upsert would update it), so create it once:
     // a draft, the signature evidence for LVP's firm-wide v1, then the submit that copies the
-    // signature's name, database time, IP and browser.
+    // signature's name, database time, IP and browser. Signing and submitting share this
+    // transaction, as the database requires.
     let signedAt = new Date();
     if (
       !(await tx.intakeSubmission.findUnique({ where: { id: SEED_INTAKE_IDS.leadSubmission } }))
     ) {
-      const answers = { fullName: 'Lena Lead (fake)', package: 'Growth' };
+      const answers = { fullName: 'Lena Lead (fake)' };
       await tx.intakeSubmission.create({
         data: {
           ...lvp,
@@ -757,6 +758,7 @@ async function main() {
             ...a,
             checked: true,
           })),
+          // The database replaces this with the hash of the stored answers.
           answersSha256: sha(answers),
           evidenceSha256: sha({ seed: SEED_AGREEMENT_IDS.leadSignature }),
           ip: '203.0.113.10',

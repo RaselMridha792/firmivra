@@ -22,10 +22,20 @@ describe('signature capture', () => {
     expect(mismatch.success).toBe(false);
     expect(mismatch.error?.issues[0]?.path).toEqual(['typedSignature']);
     expect(capture('   ', '   ').success).toBe(false);
-    for (const hidden of ['\u200b', '\u202e', '\u0007', '\u2028', '\u00ad']) {
+    // Zero-width space, bidi override, bell, line separator, lone surrogate, tag character.
+    for (const hidden of ['\u200b', '\u202e', '\u0007', '\u2028', '\ud800', '\u{e0041}']) {
       expect(capture(`Lena${hidden} Lead`, `Lena${hidden} Lead`).success).toBe(false);
     }
+    // A name of blank-looking fillers only.
+    expect(capture('\u3164\u3164', '\u3164\u3164').success).toBe(false);
     expect(capture('x'.repeat(201), 'x'.repeat(201)).success).toBe(false);
+  });
+
+  it('keeps the joiners, soft hyphen and direction marks real names use, and trims first', () => {
+    for (const name of ['Mehr\u200cdad Roe', 'Ana\u00adMaria Roe', 'Sam\u200e Roe']) {
+      expect(capture(name, name).success).toBe(true);
+    }
+    expect(capture(` ${'x'.repeat(200)} `, 'x'.repeat(200)).success).toBe(true);
   });
 
   it('is typed only for now, and refuses unknown fields', () => {
