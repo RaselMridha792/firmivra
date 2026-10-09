@@ -6,10 +6,11 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { AppModule } from '../../src/app.module.js';
+import { MyProfileService } from '../../src/clients/my-profile.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
@@ -17,14 +18,21 @@ const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
 const person = (key: string) => ({
   id: randomUUID(),
-  email: `r6p-${key}-${run}@r6.test`,
+  email: `r6p-${key}-${run}@example.test`,
   name: `Fake R6p ${key}`,
 });
 const people = { primary: person('primary'), spouse: person('spouse'), other: person('other') };
 type Who = (typeof people)[keyof typeof people];
-const ids = { firmA: '', slugA: `r6p-a-${run}` };
+const ids = { firmA: '', slugA: `r6p-a-${run}`, clientA: '' };
 const OLD = '+17705550170';
 const NEW = '+17705550171';
+/** A valid E.164 number texts may not go to (SmsPhone: Canadian area code). */
+const NON_US = '+14165550172';
+type LoginPhoneMove = { userId: string; from: string | null; to: string | null };
+const moves = () =>
+  app.get(MyProfileService) as unknown as {
+    moveLoginPhone: (m: LoginPhoneMove) => Promise<void>;
+  };
 
 let app: INestApplication;
 const owner = () => createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
@@ -74,6 +82,13 @@ const optIn = (businessId: string, who: Who) =>
   );
 const user = (who: Who) =>
   scoped({ kind: 'platform' }, (tx) => tx.user.findUniqueOrThrow({ where: { id: who.id } }));
+const profileAudits = () =>
+  inFirm(ids.firmA, (tx) =>
+    tx.auditLog.findMany({
+      where: { businessId: ids.firmA, entityId: ids.clientA, action: 'portal.profile_updated' },
+      orderBy: { createdAt: 'asc' },
+    }),
+  );
 const account = (who: Who) =>
   inFirm(ids.firmA, (tx) =>
     tx.clientAccount.findFirstOrThrow({ where: { businessId: ids.firmA, userId: who.id } }),
@@ -120,6 +135,7 @@ beforeAll(async () => {
     const c = await tx.client.create({
       data: { businessId: ids.firmA, displayName: 'Jamie Sample (fake)', phone: OLD },
     });
+    ids.clientA = c.id;
     await login(tx, ids.firmA, people.primary, c.id, 'PRIMARY');
     await login(tx, ids.firmA, people.spouse, c.id, 'SPOUSE');
     const c2 = await tx.client.create({
@@ -166,6 +182,10 @@ describe("My Profile phone: the PRIMARY login's own number follows", () => {
     expect(await smsChoices(ids.firmA, people.primary)).toEqual([
       { category: 'DOCUMENTS', sms: false },
     ]);
+    // Audited with the field names only, never the number.
+    const audits = await profileAudits();
+    expect(audits.at(-1)?.metadata).toEqual({ fields: ['phone'] });
+    expect(JSON.stringify(audits)).not.toContain('5550171');
     // Nobody else's: the spouse of the same client and another client keep theirs.
     for (const who of [people.spouse, people.other]) {
       expect(await smsChoices(ids.firmA, who)).toEqual([{ category: 'DOCUMENTS', sms: true }]);
@@ -181,6 +201,51 @@ describe("My Profile phone: the PRIMARY login's own number follows", () => {
     expect(await smsChoices(ids.firmA, people.primary)).toEqual([
       { category: 'DOCUMENTS', sms: false },
     ]);
+  });
+
+  it('a number texts may not go to stays on the client record; the login gets none', async () => {
+    expect((await patchProfile(people.primary, { phone: NEW })).status).toBe(200);
+    expect((await user(people.primary)).phone).toBe(NEW);
+    await optIn(ids.firmA, people.primary);
+    const res = await patchProfile(people.primary, { phone: NON_US });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body).toMatchObject({ phone: NON_US });
+    expect((await user(people.primary)).phone).toBeNull();
+    expect(await smsChoices(ids.firmA, people.primary)).toEqual([
+      { category: 'DOCUMENTS', sms: false },
+    ]);
+  });
+
+  it("a failed login step still answers 200 and keeps the firm's change and its audit row", async () => {
+    expect((await patchProfile(people.primary, { phone: NEW })).status).toBe(200);
+    await optIn(ids.firmA, people.primary);
+    const before = (await profileAudits()).length;
+    const spy = vi
+      .spyOn(moves(), 'moveLoginPhone')
+      .mockRejectedValueOnce(new Error('database unavailable'));
+    try {
+      const res = await patchProfile(people.primary, { phone: OLD });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(spy).toHaveBeenCalledOnce();
+    } finally {
+      spy.mockRestore();
+    }
+    const audits = await profileAudits();
+    expect(audits).toHaveLength(before + 1);
+    expect(audits.at(-1)?.metadata).toEqual({ fields: ['phone'] });
+    // The login keeps its old number, but no SMS choice is left on.
+    expect((await user(people.primary)).phone).toBe(NEW);
+    expect(await smsChoices(ids.firmA, people.primary)).toEqual([
+      { category: 'DOCUMENTS', sms: false },
+    ]);
+  });
+
+  it('a slower earlier save never overwrites a later one (the write needs the number it read)', async () => {
+    const now = (await user(people.primary)).phone;
+    await moves().moveLoginPhone({ userId: people.primary.id, from: '+17705550199', to: OLD });
+    expect((await user(people.primary)).phone).toBe(now);
+    await moves().moveLoginPhone({ userId: people.primary.id, from: now, to: OLD });
+    expect((await user(people.primary)).phone).toBe(OLD);
   });
 
   it('a SPOUSE cannot change the phone, so nothing of theirs moves', async () => {
