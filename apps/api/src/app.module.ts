@@ -31,6 +31,7 @@ import { EngagementsModule } from './engagements/engagements.controller.js';
 import { IntakesModule } from './intake/intakes.controller.js';
 import { MessagesModule } from './messages/messages.module.js';
 import { SettingsModule } from './settings/settings.controller.js';
+import { AgreementsModule } from './agreements/agreements.controller.js';
 import { AppointmentsModule } from './appointments/appointments.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
@@ -93,6 +94,7 @@ export class AppModule {
         IntakesModule,
         MessagesModule,
         SettingsModule,
+        AgreementsModule,
         TeamModule,
         CalculatorsModule,
         ContentModule,
