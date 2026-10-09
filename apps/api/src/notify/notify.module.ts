@@ -9,12 +9,6 @@ import { NOTIFY_SERVICE } from './notify.types.js';
 export const NOTIFY_CONFIG = Symbol('NOTIFY_CONFIG');
 
 /**
- * The checked email and SMS settings (`NotifyConfig`), for the notification preferences: SMS
- * switches show only once texts can go out (`sms.mode === 'sns'`).
- */
-export const NOTIFY_CONFIG = Symbol('NOTIFY_CONFIG');
-
-/**
  * Provides NOTIFY_SERVICE everywhere (global, like AuditService). The email and SMS settings are
  * checked when the app starts, so a bad EMAIL_MODE or SMS_MODE never reaches a request.
  */
