@@ -63,7 +63,7 @@ export const SAMPLE_DATA: { [T in NotifyTemplate]: NotifyTemplates[T] } = {
   'invoice.sent': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
   'payment.received': { name: 'Robin Example', invoiceNumber: 'INV-1042', link },
   'begin-online.resume-link': {
-    link: 'https://portal.example.test/sample/begin-online/resume#token=synthetic-token',
+    link: 'https://portal.example.test/sample/begin/resume#token=synthetic-token',
     expiresAt: new Date('2026-10-30T13:00:00Z'),
   },
   'lead.confirmation': { serviceName: 'Annual Tax' },

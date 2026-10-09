@@ -44,8 +44,8 @@ export interface NotifyTemplates {
 
   // ----- Begin Online, leads and messages (R11) -----
   /**
-   * The visitor's link back to their Begin Online draft (`{PORTAL_BASE_URL}/{slug}/begin-online/
-   * resume#token=...`). Nothing the visitor typed goes in: the address is not verified.
+   * The visitor's link back to their Begin Online draft (`{PORTAL_BASE_URL}/{slug}/begin/resume
+   * #token=...`). Nothing the visitor typed goes in: the address is not verified.
    */
   'begin-online.resume-link': IgnoredFirmName & { link: string; expiresAt: Date };
   /** To the visitor after they send a request. Fixed text and the firm's own service name only. */
