@@ -57,6 +57,7 @@ function setup(opts: { email?: boolean; sms?: boolean; fail?: Error } = {}) {
   const texts: { to: string; text: string }[] = [];
   const maybeFail = () => (opts.fail ? Promise.reject(opts.fail) : Promise.resolve());
   const notify = new SendingNotifyService({
+    preferences: { allows: () => Promise.resolve(true) },
     branding: { load: (id) => Promise.resolve(id ? firmBranding : FIRMIVRA_BRANDING) },
     email:
       opts.email === false
@@ -152,6 +153,7 @@ describe('SendingNotifyService', () => {
     const spoof = { ...firmBranding, name: 'Sample Tax \u202Emoc.elpmaxe\u200B' };
     const mails: OutgoingEmail[] = [];
     const notify = new SendingNotifyService({
+      preferences: { allows: () => Promise.resolve(true) },
       branding: { load: () => Promise.resolve(spoof) },
       email: { from: FROM, transport: { send: (m) => (mails.push(m), Promise.resolve()) } },
       sms: null,
@@ -173,6 +175,7 @@ describe('SendingNotifyService', () => {
       return { business: { findUnique: fail }, businessSettings: { findUnique: fail } };
     });
     const notify = new SendingNotifyService({
+      preferences: { allows: () => Promise.resolve(true) },
       branding: new BrandingSource({ forBusiness } as never),
       email: { from: FROM, transport: { send: () => Promise.resolve() } },
       sms: null,
