@@ -4,6 +4,7 @@ export {
   createApiClient,
   createRequest,
   parseInput,
+  retryWhenUnavailable,
   toQuery,
   type ApiClient,
   type ApiClientOptions,

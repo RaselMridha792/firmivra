@@ -3,13 +3,19 @@ import type { z } from 'zod';
 import {
   ClientId,
   ConfirmUploadRequest,
+  CreateDocumentRequestRequest,
   CreateFirmUploadRequest,
   type DocumentCategoryList,
   DocumentId,
+  DocumentRequestId,
   type DownloadLink,
   type FirmDocument,
   type FirmDocumentList,
+  type FirmDocumentRequest,
+  type FirmDocumentRequestList,
+  ListDocumentRequestsQuery,
   ListFirmDocumentsQuery,
+  RejectDocumentRequestRequest,
   type UploadTicket,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../auth/decorators.js';
@@ -20,6 +26,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from './config.js';
 import type { FirmActor } from './document-records.js';
+import { DocumentRequestsService } from './document-requests.service.js';
 import { createS3Client, DOCUMENT_STORAGE, S3DocumentStorage } from './document-storage.js';
 import { FirmDocumentsService } from './firm-documents.service.js';
 import { UploadTokens } from './upload-token.js';
@@ -27,6 +34,7 @@ import { UploadsService } from './uploads.service.js';
 
 const clientPipe = new ZodValidationPipe(ClientId);
 const docPipe = new ZodValidationPipe(DocumentId);
+const requestPipe = new ZodValidationPipe(DocumentRequestId);
 
 /** The signed-in member as the documents services need them. Firm roles only (see @Roles). */
 function actorOf(auth: AuthContext, tenant: TenantContext): FirmActor {
@@ -35,14 +43,18 @@ function actorOf(auth: AuthContext, tenant: TenantContext): FirmActor {
 }
 
 /**
- * A client's documents for the firm (R5; contract in packages/types/src/documents): Owner, Admin
- * and Staff (Staff: only clients assigned to them). Upload in three calls (ticket, PUT to storage,
- * confirm); downloads only for CLEAN files. The firm comes from TenantGuard.
+ * A client's documents and document requests for the firm (R5; contract in
+ * packages/types/src/documents): Owner, Admin and Staff (Staff: only clients assigned to them).
+ * Upload in three calls (ticket, PUT to storage, confirm); downloads only for CLEAN files. The
+ * firm comes from TenantGuard.
  */
 @Controller('business')
 @Roles(...FIRM_STAFF)
 export class DocumentsController {
-  constructor(private readonly documents: FirmDocumentsService) {}
+  constructor(
+    private readonly documents: FirmDocumentsService,
+    private readonly requests: DocumentRequestsService,
+  ) {}
 
   @Get('clients/:clientId/documents')
   list(
@@ -100,6 +112,62 @@ export class DocumentsController {
   async categories(@CurrentTenant() tenant: TenantContext): Promise<DocumentCategoryList> {
     return { items: await this.documents.categories(tenant.businessId) };
   }
+
+  @Get('clients/:clientId/document-requests')
+  async listRequests(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('clientId', clientPipe) clientId: string,
+    @Query(new ZodValidationPipe(ListDocumentRequestsQuery))
+    query: z.output<typeof ListDocumentRequestsQuery>,
+  ): Promise<z.output<typeof FirmDocumentRequestList>> {
+    const actor = actorOf(auth, tenant);
+    return { items: await this.requests.list(tenant.businessId, actor, clientId, query) };
+  }
+
+  @Post('clients/:clientId/document-requests')
+  @HttpCode(200)
+  createRequest(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('clientId', clientPipe) clientId: string,
+    @Body(new ZodValidationPipe(CreateDocumentRequestRequest))
+    body: z.output<typeof CreateDocumentRequestRequest>,
+  ): Promise<FirmDocumentRequest> {
+    return this.requests.create(tenant.businessId, actorOf(auth, tenant), clientId, body);
+  }
+
+  @Post('document-requests/:id/accept')
+  @HttpCode(200)
+  acceptRequest(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', requestPipe) id: string,
+  ): Promise<FirmDocumentRequest> {
+    return this.requests.accept(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Post('document-requests/:id/reject')
+  @HttpCode(200)
+  rejectRequest(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', requestPipe) id: string,
+    @Body(new ZodValidationPipe(RejectDocumentRequestRequest))
+    body: z.output<typeof RejectDocumentRequestRequest>,
+  ): Promise<FirmDocumentRequest> {
+    return this.requests.reject(tenant.businessId, actorOf(auth, tenant), id, body.reason);
+  }
+
+  @Post('document-requests/:id/cancel')
+  @HttpCode(200)
+  cancelRequest(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', requestPipe) id: string,
+  ): Promise<FirmDocumentRequest> {
+    return this.requests.cancel(tenant.businessId, actorOf(auth, tenant), id);
+  }
 }
 
 @Module({
@@ -120,6 +188,7 @@ export class DocumentsController {
     },
     UploadsService,
     FirmDocumentsService,
+    DocumentRequestsService,
   ],
 })
 export class DocumentsModule {}

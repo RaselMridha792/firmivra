@@ -4,8 +4,13 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { Prisma, TxClient } from '@firmivra/db';
-import { DOCUMENT_ERRORS, type DocumentErrorCode, type FirmDocument } from '@firmivra/types';
+import type { DocumentRequestStatus, Prisma, TxClient } from '@firmivra/db';
+import {
+  DOCUMENT_ERRORS,
+  type DocumentErrorCode,
+  type FirmDocument,
+  type FirmDocumentRequest,
+} from '@firmivra/types';
 
 // Rules and shapes shared by the firm and portal sides of the documents module (R5).
 
@@ -36,7 +41,7 @@ export interface FirmActor {
 export const clientReach = (actor: FirmActor): Prisma.ClientWhereInput =>
   actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {};
 
-/** The client, if this member may reach it; else 404. For reads (uploads lock it instead). */
+/** The client, if this member may reach it; else 404. For reads (changes lock it instead). */
 export async function reachableClient(
   tx: TxClient,
   businessId: string,
@@ -72,6 +77,19 @@ export async function lockReachableClient(
     client && (actor.role !== 'STAFF' || client.assigned_user_id === actor.userId.toLowerCase());
   if (!reached) throw notFound();
   return { archived: client.archived_at !== null };
+}
+
+/** The request row, locked FOR UPDATE until the transaction ends (Prisma has no FOR UPDATE). */
+export async function lockRequest(tx: TxClient, businessId: string, id: string) {
+  const [row] = await tx.$queryRaw<
+    { client_id: string; engagement_id: string; status: DocumentRequestStatus }[]
+  >`
+    SELECT client_id::text AS client_id, engagement_id::text AS engagement_id,
+           status::text AS status
+    FROM document_requests
+    WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
+    FOR UPDATE`;
+  return row ?? null;
 }
 
 export interface Target {
@@ -146,7 +164,11 @@ export async function peopleOf(tx: TxClient, userIds: (string | null)[]): Promis
   return new Map(users.map((u) => [u.id, { name: u.name, byClient: u.pool === 'CLIENT' }]));
 }
 
-const service = (row: DocumentRow) => ({ id: row.engagement.id, title: row.engagement.title });
+const service = (row: { engagement: { id: string; title: string } }) => ({
+  id: row.engagement.id,
+  title: row.engagement.title,
+});
+const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 
 export function toFirmDocument(row: DocumentRow, people: People): FirmDocument {
   const by = row.uploadedByUserId ? people.get(row.uploadedByUserId) : undefined;
@@ -164,6 +186,50 @@ export function toFirmDocument(row: DocumentRow, people: People): FirmDocument {
     scanStatus: row.scanStatus,
     uploadedBy: by ? { name: by.name, byClient: by.byClient } : null,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export const requestSelect = {
+  id: true,
+  clientId: true,
+  title: true,
+  instructions: true,
+  dueOn: true,
+  status: true,
+  statusNote: true,
+  requestedByUserId: true,
+  createdAt: true,
+  resolvedAt: true,
+  engagement: { select: { id: true, title: true } },
+  category: { select: { id: true, name: true } },
+  documents: {
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { id: true, fileName: true, createdAt: true },
+  },
+} satisfies Prisma.DocumentRequestSelect;
+export type RequestRow = Prisma.DocumentRequestGetPayload<{ select: typeof requestSelect }>;
+
+export function toFirmRequest(row: RequestRow, people: People): FirmDocumentRequest {
+  const by = row.requestedByUserId ? people.get(row.requestedByUserId) : undefined;
+  return {
+    id: row.id,
+    clientId: row.clientId,
+    service: service(row),
+    category: row.category,
+    title: row.title,
+    instructions: row.instructions,
+    dueOn: day(row.dueOn),
+    status: row.status,
+    statusNote: row.statusNote,
+    documents: row.documents.map((d) => ({
+      id: d.id,
+      fileName: d.fileName,
+      createdAt: d.createdAt.toISOString(),
+    })),
+    requestedBy:
+      row.requestedByUserId && by ? { userId: row.requestedByUserId, name: by.name } : null,
+    createdAt: row.createdAt.toISOString(),
+    resolvedAt: row.resolvedAt?.toISOString() ?? null,
   };
 }
 
