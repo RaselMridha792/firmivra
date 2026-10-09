@@ -307,7 +307,8 @@ paths:
       description: |
         `remindAt`: a future time sets or moves the reminder, `null` removes it, and leaving it
         out carries the current reminder to the new version only while it is unsent and still in
-        the future; a reminder already sent is never sent again.
+        the future; a reminder already sent is never sent again, and one already due but not sent yet
+        still goes out.
       requestBody: { $ref: '#/components/requestBodies/Json' }
       responses:
         '200': { description: '`MyNoteResponse`.' }

@@ -1484,6 +1484,14 @@ describe('free slots', () => {
     const free = [...all.slice(2), '11:00', '11:15', '11:30'].map((t) => at(38, t));
     expect(starts(await slots(q), people.staffA.id)).toHaveLength(11);
     expect(starts(await slots(`${q}&clientId=${ids.c3}`), people.staffA.id)).toEqual(free);
+    // Another firm's client: nothing of it is in this calendar for Owner; Staff get 404, as for
+    // any client not theirs.
+    expect(starts(await slots(`${q}&clientId=${ids.clientB}`), people.staffA.id)).toHaveLength(11);
+    expectError(
+      await call('get', `/appointments/slots?${q}&clientId=${ids.clientB}`, people.staffA),
+      404,
+      'NOT_FOUND',
+    );
     // Moving c3's 11:00 with staffA: its own time is free, its 09:00 with staffA2 is not.
     const moved = await book({
       clientId: ids.c3,
@@ -1897,6 +1905,32 @@ describe('at the same time', () => {
       await call('get', `/appointments?${range(19, 20)}`, people.ownerA),
     ).items;
     expect(items).toHaveLength(1);
+  });
+
+  it('one client booked with two staff members at one time: one 201, the other 409 SLOT_TAKEN', async () => {
+    for (const time of ['09:00', '10:00', '11:00']) {
+      const results = await Promise.all(
+        [people.staffA.id, people.staffA2.id].map((staffUserId) =>
+          call('post', '/appointments', people.ownerA, {
+            clientId: ids.c3,
+            staffUserId,
+            typeId: consult.id,
+            startsAt: at(39, time),
+          }),
+        ),
+      );
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      expectError(
+        results.find((r) => r.status === 409)!,
+        409,
+        'SLOT_TAKEN',
+      );
+    }
+    const items = exact(
+      AppointmentList,
+      await call('get', `/appointments?${range(39, 40)}&clientId=${ids.c3}`, people.ownerA),
+    ).items;
+    expect(items).toHaveLength(3);
   });
 
   it('a block and a booking of the same time never both pass', async () => {
