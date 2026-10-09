@@ -5,13 +5,12 @@ import type {
   FirmDocumentRequest,
   ListDocumentRequestsQuery,
   MyDocumentRequest,
+  NotificationEvent,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
-import { ENV } from '../config/config.module.js';
-import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
-import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import {
   type FirmActor,
   findTarget,
@@ -21,6 +20,7 @@ import {
   lockClient,
   lockReachableClient,
   lockRequest,
+  myRequestSelect,
   notFound,
   OPEN_REQUEST,
   peopleOf,
@@ -38,6 +38,13 @@ type ListQuery = z.output<typeof ListDocumentRequestsQuery>;
 type CreateBody = z.output<typeof CreateDocumentRequestRequest>;
 type Decision = 'accepted' | 'rejected' | 'cancelled';
 
+/** What the client is told about a decision: a cancel tells nobody (no event for it). */
+const DECISION_EVENTS = {
+  accepted: 'document-request.accepted',
+  rejected: 'document-request.rejected',
+  cancelled: null,
+} as const satisfies Record<Decision, NotificationEvent | null>;
+
 /** The lists show at most this many (contract: FirmDocumentRequestList, MyDocumentRequestList). */
 export const MAX_REQUESTS = 200;
 
@@ -51,7 +58,8 @@ const calendarDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
  * the clients assigned to them (others are 404). Household logins (Rasel, q12): an AUTHORIZED
  * login sees only the open requests and never answers "I don't have this" (403). Changes lock
  * the client, then the request (the module's lock order). Every list and change is audited with
- * ids and codes only, never titles or reasons.
+ * ids and codes only, never titles or reasons. Once a change commits, R6's Notifier tells the
+ * other side (the bell, and the email copy where the event has one).
  */
 @Injectable()
 export class DocumentRequestsService {
@@ -59,9 +67,8 @@ export class DocumentRequestsService {
 
   constructor(
     @Inject(DATABASE) private readonly database: Database,
-    @Inject(NOTIFY_SERVICE) private readonly notify: NotifyService,
-    @Inject(ENV) private readonly env: Env,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -102,8 +109,8 @@ export class DocumentRequestsService {
 
   /**
    * "Request a document": 404 for a client, service or category the member doesn't reach, then
-   * 409 NO_OPEN_SERVICE (also for an archived client) or CATEGORY_ARCHIVED. The client's active
-   * portal logins get an email (the title and due date only).
+   * 409 NO_OPEN_SERVICE (also for an archived client) or CATEGORY_ARCHIVED. The client's PRIMARY
+   * login gets the bell item and its email copy (`document.requested`: the title and due date).
    */
   async create(
     businessId: string,
@@ -145,7 +152,7 @@ export class DocumentRequestsService {
       );
       return (await this.shaped(tx, [row]))[0]!;
     });
-    await this.tellClient(businessId, request);
+    await this.tell(businessId, 'document.requested', request.id, actor.userId);
     return request;
   }
 
@@ -193,7 +200,7 @@ export class DocumentRequestsService {
   /**
    * One decision at a time per request: the client is locked (Staff must reach it, else 404),
    * then the request FOR UPDATE; an accepted or cancelled request is 409 REQUEST_CLOSED, then the
-   * decision's own 409s. Audited in the same transaction.
+   * decision's own 409s. Audited in the same transaction; the client is told once it commits.
    */
   private async decide(
     businessId: string,
@@ -205,7 +212,7 @@ export class DocumentRequestsService {
       status: DocumentRequestStatus,
     ) => Promise<{ data: Prisma.DocumentRequestUpdateInput; documentId?: string }>,
   ): Promise<FirmDocumentRequest> {
-    return this.inFirm(businessId, async (tx) => {
+    const request = await this.inFirm(businessId, async (tx) => {
       const found = await tx.documentRequest.findFirst({
         where: { businessId, id },
         select: { clientId: true },
@@ -228,6 +235,9 @@ export class DocumentRequestsService {
       );
       return (await this.shaped(tx, [row]))[0]!;
     });
+    const event = DECISION_EVENTS[decision];
+    if (event) await this.tell(businessId, event, id, actor.userId);
+    return request;
   }
 
   private async shaped(tx: TxClient, rows: RequestRow[]): Promise<FirmDocumentRequest[]> {
@@ -239,33 +249,22 @@ export class DocumentRequestsService {
   }
 
   /**
-   * Emails the client's active portal logins (R6 applies their preferences): the title and due
-   * date only. A failure is logged with ids only and never undoes the request.
+   * A bell item (and the event's email copy) through R6's Notifier, after the change committed.
+   * The Notifier resolves on a database or delivery failure; anything else is logged with the
+   * request's id and never undoes the change.
    */
-  private async tellClient(businessId: string, request: FirmDocumentRequest): Promise<void> {
+  private async tell(
+    businessId: string,
+    event: NotificationEvent,
+    requestId: string,
+    actorUserId: string,
+  ): Promise<void> {
     try {
-      const firm = this.database.forBusiness(businessId);
-      const business = await firm.business.findUniqueOrThrow({
-        where: { id: businessId },
-        select: { slug: true },
-      });
-      const logins = await firm.clientAccount.findMany({
-        where: { businessId, clientId: request.clientId, status: 'ACTIVE' },
-        select: { id: true, email: true, user: { select: { name: true } } },
-        take: 20,
-      });
-      const link = `${this.env.PORTAL_BASE_URL.replace(/\/+$/, '')}/${business.slug}/documents`;
-      for (const login of logins) {
-        await this.notify.send({
-          template: 'document.requested',
-          to: login.email,
-          businessId,
-          recipient: { clientAccountId: login.id },
-          data: { name: login.user.name, title: request.title, dueOn: request.dueOn, link },
-        });
-      }
-    } catch {
-      this.logger.warn(`Could not tell the client about document request ${request.id}`);
+      await this.notifier.notify({ businessId, event, recordId: requestId, actorUserId });
+    } catch (error) {
+      this.logger.warn(
+        `${event} for document request ${requestId} not written (${errorName(error)})`,
+      );
     }
   }
 
@@ -285,14 +284,14 @@ export class DocumentRequestsService {
         where: { ...where, status: { in: [...OPEN_REQUEST] } },
         orderBy: [...order],
         take: MAX_REQUESTS,
-        select: requestSelect,
+        select: myRequestSelect,
       });
       const closed = login.household
         ? await tx.documentRequest.findMany({
             where: { ...where, status: { notIn: [...OPEN_REQUEST, 'CANCELLED'] } },
             orderBy: [...order],
             take: MAX_REQUESTS - open.length,
-            select: requestSelect,
+            select: myRequestSelect,
           })
         : [];
       return { items: [...open, ...closed].map(toMyRequest), clientId: login.clientId };
@@ -311,10 +310,10 @@ export class DocumentRequestsService {
    * "I don't have this", with the client's reason: 403 for an AUTHORIZED login, 404 for a
    * request that isn't this client's, 409 NO_OPEN_SERVICE for an archived client (as its
    * uploads), then REQUEST_CLOSED unless it is open (REQUESTED or REJECTED). Lock order: the
-   * client, then the request.
+   * client, then the request. The firm is told once it commits.
    */
   async notAvailable(caller: PortalCaller, id: string, reason: string): Promise<MyDocumentRequest> {
-    return this.inFirm(caller.businessId, async (tx) => {
+    const answered = await this.inFirm(caller.businessId, async (tx) => {
       const login = await portalLogin(tx, caller);
       if (!login.household) throw forbidden();
       const client = login.clientId && (await lockClient(tx, caller.businessId, login.clientId));
@@ -327,7 +326,7 @@ export class DocumentRequestsService {
       const row = await tx.documentRequest.update({
         where: { id },
         data: { status: 'NOT_AVAILABLE', statusNote: reason },
-        select: requestSelect,
+        select: myRequestSelect,
       });
       await this.audit.logIn(
         tx,
@@ -338,5 +337,7 @@ export class DocumentRequestsService {
       );
       return toMyRequest(row);
     });
+    await this.tell(caller.businessId, 'document-request.not-available', id, caller.userId);
+    return answered;
   }
 }

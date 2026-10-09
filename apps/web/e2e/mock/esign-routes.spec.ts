@@ -12,7 +12,6 @@ const pages: [url: string, title: string][] = [
   [app('/firm-sign/requests/req-1'), 'Signature request'],
   [app('/firm-sign/requests/req-1/prepare'), 'Prepare request'],
   [app('/firm-sign/templates'), 'Signing templates'],
-  [app('/firm-sign/templates/tpl-1'), 'Signing template'],
   [app('/firm-sign/bulk'), 'Bulk send'],
   [app('/firm-sign/reports'), 'Signing reports'],
   [app('/firm-sign/settings'), 'Signing settings'],
