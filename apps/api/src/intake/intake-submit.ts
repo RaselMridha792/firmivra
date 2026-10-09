@@ -19,14 +19,6 @@ export interface SlotFile {
   status: ScanStatus;
 }
 
-/** Who signed the version, stored on it (R14's signing service records the agreements). */
-export interface SubmitSigner {
-  name: string;
-  userId: string | null;
-  ip: string | null;
-  userAgent: string | null;
-}
-
 /**
  * Checks the whole form for submit, before any transaction (sealing may call KMS). Returns the
  * answers to lock (cleaned, hidden ones left out, numbers kept sealed) and the files in slots the
@@ -58,33 +50,47 @@ export async function prepareSubmit(
   return { answers, hidden };
 }
 
+/** The signature evidence the version carries, as R14's sign() stored it (same transaction). */
+export interface SignedBy {
+  name: string;
+  signedAt: Date;
+  ip: string | null;
+  userAgent: string | null;
+}
+
 /**
  * Locks the draft version in the caller's transaction, which holds the intake row and checked
- * that the draft is still the open one: the answers as prepared, who signed and when. Clears the
- * correction note with the status change (the database keeps both in step).
+ * that the draft is still the open one. The order is the database's (R14's rules): the final
+ * answers first (signing freezes them), then `sign` (its intake_signatures row, in this
+ * transaction), then the version submitted with the same evidence and the intake SUBMITTED, its
+ * correction note cleared with the status change.
  */
 export async function lockVersion(
   tx: TxClient,
   ids: { businessId: string; intakeId: string; submissionId: string },
   answers: Values,
-  signer: SubmitSigner,
-): Promise<Date> {
-  const now = new Date();
+  submittedByUserId: string | null,
+  sign: () => Promise<SignedBy>,
+): Promise<void> {
+  await tx.intakeSubmission.update({
+    where: { id: ids.submissionId },
+    data: { answers: answers as Prisma.InputJsonValue },
+  });
+  const signed = await sign();
   await tx.intakeSubmission.update({
     where: { id: ids.submissionId },
     data: {
-      answers: answers as Prisma.InputJsonValue,
-      submittedAt: now,
-      submittedByUserId: signer.userId,
-      signerName: signer.name,
-      signedAt: now,
-      signerIp: signer.ip,
-      signerUserAgent: signer.userAgent,
+      // The database sets its own time; the column only has to be set.
+      submittedAt: new Date(),
+      submittedByUserId,
+      signerName: signed.name,
+      signedAt: signed.signedAt,
+      signerIp: signed.ip,
+      signerUserAgent: signed.userAgent,
     },
   });
   await tx.intake.update({
     where: { id: ids.intakeId },
     data: { status: 'SUBMITTED', correctionNote: null },
   });
-  return now;
 }

@@ -478,12 +478,7 @@ describe('portal: uploads', () => {
 });
 
 describe('portal: submit', () => {
-  const signer = {
-    name: 'One Sample',
-    userId: people.one.id,
-    ip: '203.0.113.7',
-    userAgent: 'test',
-  };
+  const signer = people.one.id;
   const file = (intakeId: string, slot: string) =>
     inFirm((tx) =>
       tx.document
@@ -516,6 +511,7 @@ describe('portal: submit', () => {
     const signed: number[] = [];
     const sign = async (_tx: unknown, v: { version: number }) => {
       signed.push(v.version);
+      return { name: 'One Sample', signedAt: new Date(), ip: '203.0.113.7', userAgent: 'test' };
     };
     await save(intake.id, 'personal', {
       firstName: 'One',
