@@ -1,10 +1,21 @@
 // R4 step 3: the firm key job (outside the request) and the owner link's status on the review page.
-import { describe, expect, it, vi } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ownerInviteStatus } from '../../src/firm-applications/firm-applications.service.js';
-import { FirmKeyJob } from '../../src/firm-applications/firm-key-job.js';
-import type { FirmKeys } from '../../src/firm-applications/firm-keys.js';
+import {
+  FIRM_KEY_SWEEP_MIN_AGE_MS,
+  FIRM_KEY_SWEEP_MS,
+  FirmKeyJob,
+  KEY_NEEDS_PERSON,
+} from '../../src/firm-applications/firm-key-job.js';
+import { FirmKeyError, type FirmKeys } from '../../src/firm-applications/firm-keys.js';
 
-function jobWith(keys: FirmKeys, locked: boolean, firms: string[]) {
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+function jobWith(keys: FirmKeys, locked: boolean, firms: string[], held: string[] = []) {
   const updates: unknown[] = [];
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([{ ok: locked }]),
@@ -14,6 +25,10 @@ function jobWith(keys: FirmKeys, locked: boolean, firms: string[]) {
         updates.push(args);
         return Promise.resolve({ count: 1 });
       }),
+    },
+    auditLog: {
+      findMany: vi.fn().mockResolvedValue(held.map((entityId) => ({ entityId }))),
+      count: vi.fn().mockResolvedValue(0),
     },
   };
   const database = { withScope: vi.fn((_scope: unknown, fn: (t: typeof tx) => unknown) => fn(tx)) };
@@ -76,13 +91,65 @@ describe('FirmKeyJob', () => {
   });
 });
 
+describe('FirmKeyJob: failures', () => {
+  it('skips firms newer than the minimum age and firms waiting for a person', async () => {
+    const ensureKey = vi.fn((id: string) => Promise.resolve(`arn:key/${id}`));
+    const { job, tx } = jobWith(kms(ensureKey), true, ['f1', 'f2'], ['f2']);
+    const before = Date.now();
+    await job.sweep();
+    const where = (tx.business.findMany.mock.calls[0]![0] as { where: { createdAt: { lt: Date } } })
+      .where;
+    expect(before - where.createdAt.lt.getTime()).toBeGreaterThanOrEqual(FIRM_KEY_SWEEP_MIN_AGE_MS);
+    expect(ensureKey.mock.calls).toEqual([['f1']]);
+  });
+
+  it('records a FirmKeyError once and logs it once, then the sweep leaves the firm alone', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const fail = () =>
+      Promise.reject(new FirmKeyError('Business f1: key k was made but not named'));
+    const { job, tx, audit } = jobWith(kms(fail), true, []);
+    await job.start('f1');
+    expect(audit.logIn).toHaveBeenCalledWith(tx, KEY_NEEDS_PERSON, { type: 'business', id: 'f1' });
+    tx.auditLog.count.mockResolvedValue(1);
+    await job.start('f1');
+    expect(audit.logIn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toMatch(/was made but not named.*Not retried/);
+  });
+
+  it('keeps the API up when a sweep fails: a warning, and the next one runs', async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { job, database } = jobWith(kms(vi.fn()), true, []);
+    database.withScope.mockRejectedValue(Object.assign(new Error('db down'), { name: 'DbError' }));
+    job.onModuleInit();
+    await vi.advanceTimersByTimeAsync(FIRM_KEY_SWEEP_MS * 2);
+    expect(database.withScope).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls.map((c) => c[0])).toEqual([
+      'The firm key sweep failed (DbError); it runs again later',
+      'The firm key sweep failed (DbError); it runs again later',
+    ]);
+    job.onApplicationShutdown();
+  });
+});
+
 describe('ownerInviteStatus', () => {
   const now = new Date('2026-10-09T12:00:00Z');
-  it('is ACCEPTED once used, else EXPIRED after its expiry, else SENT', () => {
+  it('is ACCEPTED once used, else EXPIRED when revoked or past its expiry, else SENT', () => {
     const later = new Date('2026-10-10T00:00:00Z');
     const earlier = new Date('2026-10-08T00:00:00Z');
-    expect(ownerInviteStatus({ expiresAt: earlier, acceptedAt: earlier }, now)).toBe('ACCEPTED');
-    expect(ownerInviteStatus({ expiresAt: earlier, acceptedAt: null }, now)).toBe('EXPIRED');
-    expect(ownerInviteStatus({ expiresAt: later, acceptedAt: null }, now)).toBe('SENT');
+    expect(
+      ownerInviteStatus({ expiresAt: earlier, acceptedAt: earlier, revokedAt: null }, now),
+    ).toBe('ACCEPTED');
+    expect(ownerInviteStatus({ expiresAt: earlier, acceptedAt: null, revokedAt: null }, now)).toBe(
+      'EXPIRED',
+    );
+    expect(ownerInviteStatus({ expiresAt: later, acceptedAt: null, revokedAt: null }, now)).toBe(
+      'SENT',
+    );
+    // Revoked (and no newer link): it no longer works.
+    expect(ownerInviteStatus({ expiresAt: later, acceptedAt: null, revokedAt: earlier }, now)).toBe(
+      'EXPIRED',
+    );
   });
 });
