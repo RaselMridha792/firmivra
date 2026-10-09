@@ -15,6 +15,11 @@ export class FakeStripeUnavailable extends Error {
   override name = 'StripeConnectionError';
 }
 
+/** What Stripe's SDK throws for an id the account does not have (`resource_missing`). */
+export class FakeStripeMissing extends Error {
+  override name = 'StripeInvalidRequestError:resource_missing';
+}
+
 /**
  * An in-memory Stripe for tests and STRIPE_MODE=fake: accounts keyed by idempotency key (the same
  * key answers the same account, as Stripe does), links on connect.stripe.com that open nothing.
@@ -132,7 +137,7 @@ export class FakeStripeGateway implements StripeGateway {
     const s = [...this.sessions.values()].find(
       (x) => x.paymentIntentId === paymentIntentId && x.accountId === accountId,
     );
-    if (!s) throw new Error('No such payment intent (fake)');
+    if (!s) throw new FakeStripeMissing('No such payment intent (fake)');
     return {
       paymentId: s.params.paymentId,
       failureCode: this.failureCodes.get(paymentIntentId) ?? null,

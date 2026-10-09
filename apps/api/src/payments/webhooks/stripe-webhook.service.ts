@@ -9,6 +9,7 @@ import { StripeAccountsWriter, toOnboardingState } from '../stripe/stripe-accoun
 import {
   STRIPE_GATEWAY,
   STRIPE_WEBHOOK_SECRET,
+  stripeErrorName,
   type StripeGateway,
   type StripeRefund,
 } from '../stripe/stripe-gateway.js';
@@ -113,12 +114,18 @@ export class StripeWebhookService {
         const intent = intentId(object);
         const charge = object.id;
         if (intent && charge) {
-          const [info, refunds] = await Promise.all([
-            stripeCall('paymentIntents.retrieve', event.id, () =>
-              stripe.retrievePaymentIntent(accountId, intent),
-            ),
-            stripeCall('refunds.list', event.id, () => stripe.listRefunds(accountId, { charge })),
-          ]);
+          const found = await Promise.all([
+            stripe.retrievePaymentIntent(accountId, intent),
+            stripe.listRefunds(accountId, { charge }),
+          ]).catch((error: unknown) => {
+            const name = stripeErrorName(error);
+            // Not this account's payment intent: recorded and ignored.
+            if (name.endsWith(':resource_missing')) return null;
+            this.logger.warn(`Stripe refund lookup failed for ${event.id}: ${name}`);
+            throw providerUnavailable();
+          });
+          if (!found) break;
+          const [info, refunds] = found;
           refund = { paymentId: info.paymentId, refunds };
         }
         break;

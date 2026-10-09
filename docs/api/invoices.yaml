@@ -187,8 +187,12 @@ info:
         inserted `SUCCEEDED` with this event (Stripe's `re_` or `pyr_` id, amount, the payment's
         account). One event confirms one refund (`payment_refunds_one_per_event`); a refund
         already `SUCCEEDED` or `FAILED` is never touched again; none left to confirm: recorded and
-        ignored. The database sets the payment `REFUNDED` when confirmed refunds cover it.
-      - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED` (its
+        ignored. The database sets the payment `REFUNDED` when confirmed refunds cover it. A
+        payment intent the account does not have at Stripe (`resource_missing`): recorded and
+        ignored. Only `charge.refunded` can confirm a refund (the database's rule), so a bank
+        refund still pending at Stripe is confirmed with it; if Stripe fails it later, it is
+        logged and alarmed (below).
+      - `refund.failed` (or `refund.updated` to failed or canceled): the `PENDING` row becomes `FAILED` (its
         cents are refundable again). One already `SUCCEEDED` is final: logged and alarmed, not
         changed; one with no row never counted and is ignored.
       - `account.updated`: fetch the account from Stripe (`accounts.retrieve`; events can arrive
@@ -201,19 +205,21 @@ info:
       Mark the event `processed_at` and answer `200` quickly; anything else is `200` and ignored.
       A payment of an invoice canceled meanwhile is still recorded (the money was taken); the
       firm refunds it.
-    - **Refund.** Lock the payment row (`404` if it is not this invoice's). When it is
-      `SUCCEEDED` and the amount fits its `refundableCents`, call Stripe's `refunds.create` on the
-      connected account with the payment intent, the amount, `metadata.refund_key` (the
-      `idempotencyKey`) and `Idempotency-Key: {businessId}:{paymentId}:{idempotencyKey}`, then
-      insert the `PENDING` `payment_refunds` row with Stripe's refund id, unless a row with that
-      id exists already (a retry, where Stripe answers the first refund again, or its webhook
-      recorded it first). Otherwise, before answering `409`, look for a retry of a refund already
-      made: when the payment is `SUCCEEDED` or `REFUNDED`, list its refunds at Stripe
-      (`refunds.list` by payment intent) for one with this `metadata.refund_key` whose id has a
-      row here; if there is one, answer the invoice as it is (`200`, nothing new). Else `409
-      NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE`. So a double click or a retry after
-      a timeout or a `503` refunds once and answers `200`, as the mock does (keys per payment).
-      No column keeps the key: Stripe does. Stripe errors: `503`, nothing inserted.
+    - **Refund.** Lock the payment row (`404` if it is not this invoice's; `409 NOT_REFUNDABLE`
+      unless it is `SUCCEEDED` or `REFUNDED`). Get its payment intent from the session
+      (`sessions.retrieve`) and list its refunds at Stripe (`refunds.list` by payment intent). One
+      with this `metadata.refund_key` is a retry of a refund already made: answer the invoice as
+      it is (`200`), inserting its `PENDING` row only if none exists and Stripe has not failed or
+      canceled it. This holds after Stripe's 24-hour idempotency window too, since no column
+      keeps the key. Otherwise `409 NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE` (more
+      than `refundableCents`), else call `refunds.create` on the connected account with the
+      payment intent, the amount, `metadata.refund_key` (the `idempotencyKey`) and
+      `Idempotency-Key: {businessId}:{paymentId}:{idempotencyKey}`, then insert the `PENDING`
+      `payment_refunds` row with Stripe's refund id unless one exists (its webhook recorded it
+      first). So a double click or a retry after a timeout or a `503` refunds once and answers
+      `200`, as the mock does (keys per payment); two refunds at once wait on the row lock, so
+      one over the limit is `409`. Stripe's `charge_already_refunded` is `409 NOT_REFUNDABLE`;
+      other Stripe errors `503`, nothing inserted. At most three Stripe calls run under the lock.
     - **Notifications** (R6's helper): `invoice.sent` to the client when an invoice opens;
       `payment.received` to the client and the firm when a payment succeeds. No amounts or card
       details in SMS; emails name the invoice number.

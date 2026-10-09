@@ -2,6 +2,8 @@
 // refund webhooks (charge.refunded, refund.failed), against the fake Stripe.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createPrismaClient, runInScope } from '@firmivra/db';
+import { testDatabaseUrls } from '@firmivra/db/testing';
 import { chargeOf, FakeStripeGateway } from '../../src/payments/stripe/fake-stripe.js';
 import { codeOf, expectOk, Invoice, nyDay, startInvoiceApp } from './invoice-setup.js';
 import { deliverEvent, stripeEvent } from './stripe-events.js';
@@ -10,6 +12,12 @@ const fake = new FakeStripeGateway();
 let t: Awaited<ReturnType<typeof startInvoiceApp>>;
 beforeAll(async () => {
   t = await startInvoiceApp('r7r', fake);
+  // Firm B has its own Stripe account, so its events reach the webhook.
+  const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
+  await runInScope(owner, { kind: 'platform' }, (tx) =>
+    tx.stripeAccount.create({ data: { businessId: t.ids.firmB, accountId: `acct_${t.run}B` } }),
+  );
+  await owner.$disconnect();
 });
 afterAll(async () => {
   await t.app.close();
@@ -63,15 +71,24 @@ const refund = (
     { amountCents, idempotencyKey },
     businessId,
   );
-const refunded = (intent: string) =>
-  deliverEvent(
-    t.app,
-    stripeEvent('charge.refunded', acct(), {
-      id: chargeOf(intent),
-      object: 'charge',
-      payment_intent: intent,
-    }),
-  );
+const chargeRefunded = (intent: string, account = acct()) =>
+  stripeEvent('charge.refunded', account, {
+    id: chargeOf(intent),
+    object: 'charge',
+    payment_intent: intent,
+  });
+const refunded = (intent: string) => deliverEvent(t.app, chargeRefunded(intent));
+const refundEvent = (type: string, id: string, status: string, account = acct()) =>
+  deliverEvent(t.app, stripeEvent(type, account, { id, object: 'refund', status }));
+/** The Stripe id of the payment's only PENDING refund. */
+const pendingRefundId = async (paymentId: string) =>
+  (
+    await t.inScope(t.ids.firmA, (tx) =>
+      tx.paymentRefund.findFirstOrThrow({
+        where: { businessId: t.ids.firmA, paymentId, status: 'PENDING' },
+      }),
+    )
+  ).processorRefundId;
 const paymentOf = async (invoiceId: string) =>
   Invoice.parse(expectOk(await t.firm('get', `/${invoiceId}`, t.people.ownerA)).body).payments[0]!;
 
@@ -167,5 +184,64 @@ describe('refunds', () => {
       expect([res.status, codeOf(res)]).toEqual([404, 'NOT_FOUND']);
     }
     expect((await paymentOf(a.invoiceId)).refunds).toEqual([]);
+  });
+
+  it('lets an Admin refund, and two refunds at once over the limit give one 200 and one 409', async () => {
+    const { invoiceId, paymentId } = await paid(10_000);
+    const results = await Promise.all([
+      refund(invoiceId, paymentId, 6_000, randomUUID(), t.people.adminA),
+      refund(invoiceId, paymentId, 6_000, randomUUID(), t.people.ownerA),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(results.map(codeOf).filter(Boolean)).toEqual(['REFUND_TOO_LARGE']);
+    expect((await paymentOf(invoiceId)).refunds).toHaveLength(1);
+  });
+
+  it('finds a retry through Stripe before making anything, so one key never refunds twice', async () => {
+    const { invoiceId, paymentId } = await paid(4_000);
+    const key = randomUUID();
+    expectOk(await refund(invoiceId, paymentId, 1_000, key));
+    const creates = fake.calls.filter((c) => c.method === 'createRefund').length;
+    expectOk(await refund(invoiceId, paymentId, 1_000, key));
+    expect(fake.calls.filter((c) => c.method === 'createRefund').length).toBe(creates);
+    expect((await paymentOf(invoiceId)).refunds).toHaveLength(1);
+  });
+
+  it('confirms once on a duplicate charge.refunded; a failed or canceled refund frees its cents', async () => {
+    const { invoiceId, paymentId, intent } = await paid(9_000);
+    expectOk(await refund(invoiceId, paymentId, 1_000));
+    const e = chargeRefunded(intent);
+    expectOk(await deliverEvent(t.app, e));
+    expectOk(await deliverEvent(t.app, e));
+    expect(await paymentOf(invoiceId)).toMatchObject({ refundedCents: 1_000 });
+
+    expectOk(await refund(invoiceId, paymentId, 2_000));
+    expectOk(await refundEvent('refund.updated', await pendingRefundId(paymentId), 'failed'));
+    expectOk(await refund(invoiceId, paymentId, 3_000));
+    expectOk(await refundEvent('refund.updated', await pendingRefundId(paymentId), 'canceled'));
+    const p = await paymentOf(invoiceId);
+    expect(p).toMatchObject({ refundedCents: 1_000, refundableCents: 8_000 });
+    expect(p.refunds.map((r) => r.status).sort()).toEqual(['FAILED', 'FAILED', 'SUCCEEDED']);
+  });
+
+  it('never changes a refund already confirmed when Stripe later fails it', async () => {
+    const { invoiceId, paymentId, intent } = await paid(3_000);
+    expectOk(await refund(invoiceId, paymentId, 1_000));
+    const id = await pendingRefundId(paymentId);
+    expectOk(await refunded(intent));
+    expectOk(await refundEvent('refund.failed', id, 'failed'));
+    expect((await paymentOf(invoiceId)).refunds.map((r) => r.status)).toEqual(['SUCCEEDED']);
+  });
+
+  it("firm B's refund events naming firm A's charge or refund change nothing", async () => {
+    const { invoiceId, paymentId, intent } = await paid(2_000);
+    expectOk(await refund(invoiceId, paymentId, 500));
+    const id = await pendingRefundId(paymentId);
+    const accountB = `acct_${t.run}B`;
+    expectOk(await deliverEvent(t.app, chargeRefunded(intent, accountB)));
+    expectOk(await refundEvent('refund.failed', id, 'failed', accountB));
+    const p = await paymentOf(invoiceId);
+    expect(p).toMatchObject({ refundedCents: 0, refundableCents: 1_500 });
+    expect(p.refunds.map((r) => r.status)).toEqual(['PENDING']);
   });
 });
