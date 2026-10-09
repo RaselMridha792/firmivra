@@ -195,7 +195,7 @@ export function ApplicationList() {
           {(data) => (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-5xl table-fixed text-left text-sm">
+                <table className="w-full min-w-5xl text-left text-sm">
                   <thead className="bg-canvas">
                     <tr>
                       {[
@@ -260,7 +260,7 @@ export function ApplicationList() {
                           <td className="px-3 py-4">
                             <Link
                               aria-label={`Open application for ${application.legalName}`}
-                              className="inline-flex rounded-control bg-brand-700 px-3 py-2 font-medium text-white"
+                              className="inline-flex whitespace-nowrap rounded-control bg-brand-700 px-3 py-2 font-medium text-white"
                               href={`/applications/${application.id}`}
                             >
                               Open Application
