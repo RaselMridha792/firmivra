@@ -8,7 +8,7 @@
 - `packages/types/src/esign/**` (and `esign/capture.ts` once R14's PR merges)
 - `apps/web/src/mocks/esign.ts`, `esign-common.ts`, `esign-signing.ts` and `esign-extras.ts`, and the `esign`, `mySignatures` and `signing` lines in `apps/web/src/lib/api.ts`
 - `docs/api/esign.yaml`
-- `apps/api/test/unit/esign-*` and `apps/api/test/e2e/esign-*`
+- `apps/api/test/unit/esign-*`, `apps/api/test/e2e/esign-*` and `apps/api/test/isolation/cases/esign.ts` (the esign cases of R21's isolation suite)
 - the 9 e-sign templates in `apps/api/src/notify`
 - the e-sign parts of `docs/SYSTEM-DESIGN.md`, `docs/PROJECT-DRAFT-v2.md` and `docs/AUTH-DESIGN.md`
 - registration lines in `apps/api/src/app.module.ts` and `packages/types/src/index.ts`
@@ -77,11 +77,14 @@ Target merge windows in brackets (Dhaka).
 
 - R13-web: builds on `api.esign` and `mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures,signing`).
 - Fahad and Nahid: menu lines read `api.esign.status()` and `api.mySignatures(slug).status()`.
-- R18: `EsignStore` has no presigned PUT (`presignUpload`) and its `head` gives no Content-Encoding, which the upload ticket and confirm (part 1b) need; until then part 1b presigns with R5's `S3DocumentStorage`. `EsignEngineModule` (R18, #166) is on main: `EsignModule` imports it for `CODE_HASHER` and `ESIGN_STORE` from part 1b on.
+- R18: `EsignStore` has no presigned PUT (`presignUpload`) and its `head` gives no Content-Encoding, which the upload ticket and confirm (parts 1d and 1e) need; until then those parts presign with R5's `S3DocumentStorage`. `EsignEngineModule` (R18, #166) is on main: `EsignModule` imports it for `CODE_HASHER` and `ESIGN_STORE` from part 1b on.
 - R0 (r0_esign): the module switch is `business_settings.enabled_modules`, which is already on main (SYSTEM-DESIGN, "Module switch"); `PrismaBusinessModules` reads it, so no new column is needed. r0_esign only adds the lock (`app_set_business_module`). No firm lists 'esign' yet, so Firm Sign stays off.
+- Everyone: nobody sets `enabled_modules` to include 'esign' by hand before r0_esign lands. Today the app role can still UPDATE it, and switched on now, the draft routes (part 1b) answer 500 from the not-migrated repository. Once r0_esign's trigger lands, the e2e setups (`esign-status.e2e.test.ts` and `esign-requests.e2e.test.ts`, where they switch the module on) must call `app_set_business_module` instead.
 
 ## Progress log
 
 - Oct 8: started in the cloud. Contract 1 on `rasel/R13-api-contract-firm` (#135); Scrum pre-review fixes applied the same evening.
 - Oct 9: docs PR (step 4) on rasel/R13-api-docs (#157, merged). Contract 2 is #185 (stacked on R14's #155). The engine moved to R18 (Rasel's card, 09:15 UTC); my engine 1 branch went to them. Contract 3 on rasel/R13-api-contract-extras, stacked on #185.
 - Oct 9: requests API 1 on rasel/R13-api-requests-1 (stacked on contract 3, R18's engine interfaces merged in): `@RequiresModule()` and `ModuleGuard` in common/modules (reading `business_settings.enabled_modules`) and `GET /esign/status`, with an AppModule e2e test. Drafts (part 1b), page plan and recipients (part 1c) and files (parts 1d and 1e) follow, behind the `EsignRepository` and `EsignDirectory` ports.
+- Oct 9: requests API 1b on rasel/R13-api-requests-1b (#224): drafts (`POST/GET/PATCH/DELETE /esign/requests[/:id]`) behind `@RequiresModule('esign')`, `EsignRepository` and `EsignDirectory` with in-memory fakes, approvers read only, the draft routes as module-off isolation cases. Pre-review round 2: a failed discard audit no longer answers 500 or orphans files.
+- Oct 9: requests API 1c on rasel/R13-api-requests-1c (#225): `PUT .../page-plan` and `PUT .../recipients` (optimistic on `lastActivityAt`). Pre-review round 2: page plan and recipients writes return the record as written, a kept recipient id keeps its access code only for the same member or login (compared by type and id), and the repository doc says each write moves `lastActivityAt` strictly forward.

@@ -4,6 +4,7 @@ import {
   type EsignAccessRole,
   type EsignBulkBatch,
   ESIGN_BULK_MAX,
+  ESIGN_KIOSK_PASSWORD_TRIES,
   EsignErrorCode,
   EsignBulkSendBody,
   type EsignClient,
@@ -286,7 +287,7 @@ export function esignExtrasMock(
         if (!k) return { ok: true as const };
         if (password !== MOCK_KIOSK_PASSWORD) {
           extras().wrongPasswords += 1;
-          if (extras().wrongPasswords >= 5) {
+          if (extras().wrongPasswords >= ESIGN_KIOSK_PASSWORD_TRIES) {
             extras().kiosk = null;
             extras().wrongPasswords = 0;
             throw fail(401, 'UNAUTHENTICATED', 'Signed out');
@@ -299,6 +300,18 @@ export function esignExtrasMock(
         ctx.record(r, 'IN_PERSON_ENDED', { recipient: { id: k.recipientId, name: k.signerName } });
         return { ok: true as const };
       },
+    },
+
+    approvers: async () => {
+      await unlocked();
+      return {
+        items: ctx.members
+          .filter((m) => m.userId !== ctx.me.userId && mayApprove(m.userId))
+          .map((m) => ({
+            user: { userId: m.userId, name: m.name },
+            esignRole: m.firmRole === 'STAFF' ? ('MANAGER' as const) : m.firmRole,
+          })),
+      };
     },
 
     roles: {

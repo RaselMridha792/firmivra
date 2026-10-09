@@ -28,7 +28,7 @@ const OLD = '+17705550170';
 const NEW = '+17705550171';
 /** A valid E.164 number texts may not go to (SmsPhone: Canadian area code). */
 const NON_US = '+14165550172';
-type LoginPhoneMove = { userId: string; from: string | null; to: string | null };
+type LoginPhoneMove = { businessId: string; clientId: string; userId: string };
 const moves = () =>
   app.get(MyProfileService) as unknown as {
     moveLoginPhone: (m: LoginPhoneMove) => Promise<void>;
@@ -50,13 +50,23 @@ async function scoped<T>(
 const inFirm = <T>(businessId: string, work: (tx: TxClient) => Promise<T>) =>
   scoped({ kind: 'business', businessId }, work);
 
-async function patchProfile(who: Who, body: object) {
+/** One dev token per person (the dev token route is rate limited). */
+const tokens = new Map<string, string>();
+async function tokenFor(who: Who) {
+  const cached = tokens.get(who.email);
+  if (cached) return cached;
   const { token } = (
     await request(app.getHttpServer())
       .post('/api/v1/dev/token')
       .send({ email: who.email })
       .expect(200)
   ).body as { token: string };
+  tokens.set(who.email, token);
+  return token;
+}
+
+async function patchProfile(who: Who, body: object) {
+  const token = await tokenFor(who);
   return request(app.getHttpServer())
     .patch(`/api/v1/portal/${ids.slugA}/me/profile`)
     .set('authorization', `Bearer ${token}`)
@@ -240,12 +250,45 @@ describe("My Profile phone: the PRIMARY login's own number follows", () => {
     ]);
   });
 
-  it('a slower earlier save never overwrites a later one (the write needs the number it read)', async () => {
-    const now = (await user(people.primary)).phone;
-    await moves().moveLoginPhone({ userId: people.primary.id, from: '+17705550199', to: OLD });
-    expect((await user(people.primary)).phone).toBe(now);
-    await moves().moveLoginPhone({ userId: people.primary.id, from: now, to: OLD });
-    expect((await user(people.primary)).phone).toBe(OLD);
+  it('a late move sets the login to the number the record ends at, not the one it saved', async () => {
+    await inFirm(ids.firmA, (tx) =>
+      tx.client.update({ where: { id: ids.clientA }, data: { phone: NEW } }),
+    );
+    await scoped({ kind: 'user', userId: people.primary.id }, (tx) =>
+      tx.user.update({ where: { id: people.primary.id }, data: { phone: '+17705550199' } }),
+    );
+    const move = { businessId: ids.firmA, clientId: ids.clientA, userId: people.primary.id };
+    await moves().moveLoginPhone(move);
+    expect((await user(people.primary)).phone).toBe(NEW);
+    await inFirm(ids.firmA, (tx) =>
+      tx.client.update({ where: { id: ids.clientA }, data: { phone: NON_US } }),
+    );
+    await moves().moveLoginPhone(move);
+    expect((await user(people.primary)).phone).toBeNull();
+  });
+
+  it('concurrent saves of different numbers leave the login on the final number', async () => {
+    const recordPhone = async () =>
+      (
+        await inFirm(ids.firmA, (tx) =>
+          tx.client.findUniqueOrThrow({ where: { id: ids.clientA }, select: { phone: true } }),
+        )
+      ).phone;
+    for (let round = 0; round < 5; round++) {
+      // Ten different US numbers, one of them not one texts may go to.
+      const numbers = Array.from({ length: 10 }, (_, i) =>
+        i === 9 ? NON_US : `+1770555${String(300 + round * 10 + i).padStart(4, '0')}`,
+      );
+      const results = await Promise.all(
+        numbers.map((phone) => patchProfile(people.primary, { phone })),
+      );
+      expect(results.map((r) => r.status)).toEqual(numbers.map(() => 200));
+      const final = await recordPhone();
+      expect(numbers).toContain(final);
+      expect((await user(people.primary)).phone, `round ${round}`).toBe(
+        final === NON_US ? null : final,
+      );
+    }
   });
 
   it('a SPOUSE cannot change the phone, so nothing of theirs moves', async () => {

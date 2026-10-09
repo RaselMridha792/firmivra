@@ -31,7 +31,13 @@ import {
   type EsignRepository,
   type NewEsignDocument,
 } from './esign.repository.js';
-import { type EsignActor, esignRefusal, EsignRequestsService } from './requests.service.js';
+import {
+  type EsignActor,
+  esignRefusal,
+  EsignRequestsService,
+  savedOrRefused,
+  toDocument,
+} from './requests.service.js';
 
 type Store = Pick<EsignStore, 'keyFor' | 'presignUpload' | 'head' | 'read' | 'remove'>;
 
@@ -155,22 +161,16 @@ export class EsignDocumentsService {
       return pageIndex === undefined ? [] : [{ ...f, pageIndex }];
     });
     const { lastActivityAt } = record;
-    const write = this.repo.removeDocument(
-      businessId,
-      id,
-      documentId,
-      pagePlan,
-      fields,
-      lastActivityAt,
+    const saved = savedOrRefused(
+      await this.repo.removeDocument(businessId, id, documentId, pagePlan, fields, lastActivityAt),
     );
-    await this.requests.drafted(write);
     await this.audit.log('esign.document_removed', entity(id), {
       documentId,
       pagesRemoved: parts.pagePlan.length - pagePlan.length,
       fieldsRemoved: parts.fields.length - fields.length,
     });
     await this.removeObject(businessId, doc.id, doc.s3Key);
-    return this.requests.current(businessId, id);
+    return this.requests.answer(businessId, saved);
   }
 
   /** Reads pages and sizes (409 PDF_ENCRYPTED, PDF_UNREADABLE) and adds the file to the draft. */
@@ -199,8 +199,7 @@ export class EsignDocumentsService {
       sourceDocumentId: added.sourceDocumentId,
       pageCount,
     });
-    const { documents } = await this.requests.current(businessId, id);
-    return documents.find((d) => d.id === added.id)!;
+    return toDocument(added);
   }
 
   /** Runs `work`; a refusal (4xx) deletes the stored object first. */
