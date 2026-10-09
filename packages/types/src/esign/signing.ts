@@ -23,7 +23,9 @@ import { EsignContentType, EsignFieldId } from './schemas.js';
 // - Steps, in order: VERIFY_EMAIL or VERIFY_ACCESS_CODE (when the sender asked for it), CONSENT,
 //   then SIGN. A signer whose turn has not come is WAITING; one who finished is DONE.
 // - A signed-in client who starts from the Signature center (`api.mySignatures(slug).startSigning`)
-//   skips the email code: the portal sign-in already proved who they are.
+//   skips the email code: the portal sign-in already proved who they are. PORTAL_SESSION does
+//   not replace the recipient's chosen method: the portal session is the check there (no email
+//   or access code), and the chosen method, ACCESS_CODE included, still applies to emailed links.
 // - Responses never carry the request's internal note or another signer's field values.
 
 /** The email code: 6 digits, valid 15 minutes, 5 tries. */
@@ -306,7 +308,7 @@ export const MySignatureState = z.enum([
 ]);
 export type MySignatureState = z.infer<typeof MySignatureState>;
 
-/** One row of the Signature center: a request where one of the client's logins is a recipient. */
+/** One row of the Signature center: one of the signed-in login's own recipients on a request. */
 export const MySignatureRow = z.object({
   /** The recipient (this login on that request): pass it to `startSigning` and `download`. */
   recipientId: z.uuid(),

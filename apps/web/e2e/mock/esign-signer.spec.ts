@@ -32,7 +32,9 @@ test('email code, consent, then the document with my fields', async ({ page }) =
   await code.fill(MOCK_SIGNING_CODE);
   await page.getByRole('button', { name: 'Continue' }).click();
   await agreeToConsent(page);
-  await expect(page.getByText('You have 7 fields to fill in')).toBeVisible();
+  await expect(
+    page.getByText(/^You have \d+ places? to sign and \d+ fields? to fill in/),
+  ).toBeVisible();
   await expect(
     page.getByRole('document', { name: 'Bookkeeping Services Agreement' }),
   ).toBeVisible();
@@ -159,4 +161,46 @@ test('decline to sign, with a reason', async ({ page }) => {
   await dialog.getByLabel(/Reason/).fill('I need to talk to my spouse first.');
   await dialog.getByRole('button', { name: 'Decline to sign' }).click();
   await expect(page.getByRole('heading', { name: 'You declined' })).toBeVisible();
+});
+
+test('five wrong access codes lock the step: the sender helps', async ({ page }) => {
+  await page.goto(link(MOCK_SIGNING_TOKENS.accessCode));
+  const code = page.getByLabel('Access code');
+  for (let i = 0; i < 5; i++) {
+    await code.fill(`WRONG${i}`);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(code).toHaveAttribute('aria-invalid', 'true');
+  }
+  await expect(page.getByText(/^Too many tries\. Ask .+ for help\.$/)).toBeVisible();
+});
+
+test('a new code once the wait is over, with the code form kept', async ({ page }) => {
+  await page.clock.install();
+  await page.goto(link(MOCK_SIGNING_TOKENS.emailCode));
+  await page.getByRole('button', { name: 'Email me a code' }).click();
+  const code = page.getByLabel('Code from the email');
+  const resend = page.getByRole('button', { name: 'Send a new code' });
+  await expect(code).toBeVisible();
+  await expect(resend).toBeDisabled();
+  await page.clock.fastForward(61_000);
+  await expect(resend).toBeEnabled();
+  await resend.click();
+  // The form stays while the new code is sent, and after.
+  await expect(code).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Email me a code' })).toHaveCount(0);
+  await expect(resend).toBeDisabled();
+  await code.fill(MOCK_SIGNING_CODE);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByTestId('consent-text')).toBeVisible();
+});
+
+test('a reload after the signer cookie ran out sends the signer back to the email', async ({
+  page,
+}) => {
+  await page.goto(link(MOCK_SIGNING_TOKENS.emailCode));
+  await expect(page).toHaveURL(/\/lvp\/sign$/);
+  // The mock's signer session lives in the page: a reload is a cookie that ran out.
+  await page.reload();
+  await expect(page.getByText('Open the signing link from your email again.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
 });

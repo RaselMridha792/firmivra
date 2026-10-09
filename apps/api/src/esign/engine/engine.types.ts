@@ -35,7 +35,10 @@ export class EsignEngineError extends Error {
   }
 }
 
-/** A page size in PDF points, before any rotation (EsignDocument.pageSizes). */
+/**
+ * A page size in PDF points as a viewer shows it: the visible box turned by the page's own
+ * /Rotate, before any plan rotation (EsignDocument.pageSizes).
+ */
 export type PageSize = EsignDocument['pageSizes'][number];
 
 /** One stored file of a request: a PDF, or a JPG or PNG that becomes one page. */
@@ -67,12 +70,14 @@ export type Stamp = FieldBox &
   );
 
 /** A signer on the automatic signature page (no fields placed: EsignReadiness.autoSignaturePage). */
-export interface SignaturePageSigner {
+/**
+ * One signer's signature page. The signature is a drawn or uploaded PNG, or the text a signer
+ * typed (the engine prints it in the signature line).
+ */
+export type SignaturePageSigner = {
   name: string;
-  /** The drawn, uploaded or typed-and-rendered signature. */
-  signaturePng: Uint8Array;
   signedAt: Date;
-}
+} & ({ signaturePng: Uint8Array; typed?: never } | { typed: string; signaturePng?: never });
 
 export interface FinalizeInput {
   stamps: Stamp[];
@@ -117,13 +122,29 @@ export interface PdfEngine {
 // ---------- Store ----------
 
 /** Firm Sign's objects in the documents bucket, always under tenant/<businessId>/esign/. */
+export interface EsignStoredObject {
+  sizeBytes: number;
+  contentType: string | null;
+  contentEncoding: string | null;
+}
+
 export interface EsignStore {
   /** tenant/<businessId>/esign/<requestId>/<name>. */
   keyFor(businessId: string, requestId: string, name: string): string;
   /** Every method refuses (throws) a key outside tenant/<businessId>/. */
   put(businessId: string, key: string, bytes: Uint8Array, contentType: string): Promise<void>;
   read(businessId: string, key: string): Promise<Uint8Array | null>;
-  head(businessId: string, key: string): Promise<{ sizeBytes: number } | null>;
+  /** HEAD: size, Content-Type and Content-Encoding (the upload confirm checks both), or null. */
+  head(businessId: string, key: string): Promise<EsignStoredObject | null>;
+  /**
+   * A presigned PUT for exactly this file (staff source files, signer attachments): Content-Type,
+   * Content-Length and the SHA-256 are signed, as for R5's document uploads.
+   */
+  presignUpload(
+    businessId: string,
+    key: string,
+    file: { contentType: string; sizeBytes: number; sha256: string },
+  ): Promise<{ url: string; headers: Record<string, string> }>;
   /** Copies a vault document (tenant/<businessId>/documents/...) into the request's folder. */
   copyFromVault(businessId: string, sourceKey: string, key: string): Promise<void>;
   presignDownload(
@@ -158,13 +179,16 @@ export interface LinkTokens {
   hash(token: string): string;
 }
 
+export type EsignCodeKind = 'EMAIL' | 'ACCESS';
+
 /** Email and access codes: an HMAC (HKDF label fv-esign-code-v1), bound to the recipient. */
 export interface CodeHasher {
   /** A random 6-digit code. */
   generate(): string;
-  hash(recipientId: string, code: string): string;
+  /** The kind is in the HMAC input, so an email code never passes as the access code. */
+  hash(recipientId: string, kind: EsignCodeKind, code: string): string;
   /** Constant-time comparison. */
-  verify(recipientId: string, code: string, storedHash: string): boolean;
+  verify(recipientId: string, kind: EsignCodeKind, code: string, storedHash: string): boolean;
 }
 
 /** What the sealed fv_sign_{slug} cookie holds once a signer opened their link. */
@@ -247,15 +271,22 @@ export interface ReadinessInput {
   expiryDays: number;
   reminders: EsignReminders;
   consentPublished: boolean;
+  /** Signing Settings `requireApproval`: the request needs an APPROVER recipient. */
+  approvalRequired: boolean;
 }
 
 export interface EsignRules {
   readiness(input: ReadinessInput): EsignReadiness;
-  /** The recipients whose turn it is now (SIGNER and APPROVER not yet done). */
+  /** The signers whose turn it is now (approvers act before sending; CCs never sign). */
   currentTurn(routing: EsignRouting, recipients: RuleRecipient[]): string[];
   /** The request's status after a recipient's status changed (open requests only). */
   statusAfter(recipients: RuleRecipient[], current: EsignRequestStatus): EsignRequestStatus;
-  /** When the next automatic reminder is due; null when none is left before expiry. */
+  /**
+   * When the next automatic reminder to one recipient is due; null when none is left before
+   * expiry. `sentAt` is when that recipient's turn began (for a later group in SEQUENTIAL
+   * routing, when the group before it finished), and `sentCount` counts only the automatic
+   * reminders already sent to them: Remind Now doesn't use up the schedule.
+   */
   nextReminderAt(input: {
     sentAt: Date;
     reminders: EsignReminders;

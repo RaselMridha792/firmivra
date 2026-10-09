@@ -11,7 +11,7 @@ import { PdfPages } from '../../../../../../components/esign/pdf-pages';
 import { samplePdf, scannedSamplePdf } from '../../../../../../components/esign/sample-pdf';
 import { type AdoptedMark, SignaturePad } from '../../../../../../components/esign/signature-pad';
 
-/** Synthetic recipients and fields for the first sample, until the signing API lands. */
+/** Synthetic recipients and fields for the first sample (no signing session needed). */
 const RECIPIENTS: OverlayRecipient[] = [
   { id: 'r-jordan', name: 'Jordan Sample', colorIndex: 0 },
   { id: 'r-riley', name: 'Riley Sample', colorIndex: 1 },
@@ -46,9 +46,8 @@ const FIELDS: OverlayField[] = [
 ];
 
 /**
- * The signer page's parts on sample data, until the signing API (R13-api contract 2) lands: the
- * documents of a request, one at a time, with their fields, and the adopt-a-signature pad. The code gate and consent
- * come first in signer flow 1.
+ * The signer page's parts on sample data, for checking them without a signing link: the documents
+ * of a request, one at a time, with their fields, and the adopt-a-signature pad.
  */
 export function SignerSamples() {
   const documents = useMemo(

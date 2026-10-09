@@ -20,7 +20,7 @@ info:
     | `/{firm}` (layout and landing) | `GET info` |
     | `/{firm}/sign-up` | `GET info`, `GET legal/{kind}`, `POST auth/sign-up` |
     | `/{firm}/sign-up/verify-email` | `GET auth/sign-up`, `POST .../verify-email`, `.../resend`, `.../change-email` |
-    | `/{firm}/sign-up/verify-phone` | `GET auth/sign-up`, `POST .../verify-phone`, `.../resend`, `.../change-phone` |
+    | `/{firm}/sign-up/verify-phone` (only with the phone code required, below) | `GET auth/sign-up`, `POST .../verify-phone`, `.../resend`, `.../change-phone` |
     | `/{firm}/sign-up/done` | `GET auth/sign-up` (just signed up) or `GET me` (a pending client who signed in) |
     | `/{firm}/sign-in`, `/forgot-password`, `/reset-password` | `POST auth/sign-in`, `auth/mfa`, `auth/forgot-password`, `auth/reset-password` |
 
@@ -29,11 +29,19 @@ info:
       phone, when Resend works again). Each page starts with `GET auth/sign-up` and goes where
       `step` says. `410 SIGN_UP_EXPIRED` (no cookie, or older than 30 minutes): back to
       `/{firm}/sign-up`.
-    - **Order:** verify the email, then the phone (`409 WRONG_STEP` otherwise). Change Email and
-      Change Phone work until that item is verified (`409 ALREADY_VERIFIED`). Resend works from
-      `resendAvailableAt` (`429 RATE_LIMITED` before): the 45 s gap, or later when this IP or
-      network is at its hourly limit, or the sign-up's end when the session has used its 10
-      requests (then sign up again: the sign-up resumes, see below).
+    - **Phone code optional (SMS fallback, Rasel Oct 8).** The API setting
+      `SIGNUP_PHONE_VERIFICATION` is `optional` (the default, also on production, until SNS SMS
+      registration is approved) or `required`. Optional: `verify-email` completes the sign-up and
+      answers step `DONE` (go to `/{firm}/sign-up/done`); no SMS is sent, the phone number is
+      saved unverified, and `verify-phone` answers `409 WRONG_STEP`. Required: the order below.
+      The pages just follow `step`. A sign-up completed either way stays complete when the
+      setting changes.
+    - **Order:** verify the email, then (phone code required) the phone (`409 WRONG_STEP`
+      otherwise). Change Email works until the email is verified, Change Phone until the sign-up
+      is complete (`409 ALREADY_VERIFIED`; at `DONE` it changes nothing and sends no SMS).
+      Resend works from `resendAvailableAt` (`429 RATE_LIMITED` before): the 45 s gap, or later
+      when this IP or network is at its hourly limit, or the sign-up's end when the session has
+      used its 10 requests (then sign up again: the sign-up resumes, see below).
     - **Changed email or phone.** The 45 s gap counts from the sign-up session's last request
       (sign-up, resend, a change, or the SMS sent after verify-email), whatever its address, and is
       kept on the server (an older cookie resets nothing). Every change starts the gap again. A
@@ -53,10 +61,11 @@ info:
       "wrong code" forever. Show "We couldn't finish your sign-up online. Please contact
       {firm}." and a way to start again (a new sign-up works). Its code, resend and change
       routes answer `409 WRONG_STEP`.
-    - **After verify-phone** the account waits for the firm (`PENDING_APPROVAL`). A pending client
+    - **At `DONE`** (after verify-phone, or verify-email with the phone code optional) the
+      account waits for the firm (`PENDING_APPROVAL`). A pending client
       can sign in; `GET me` shows `clientAccounts[0].status: PENDING_APPROVAL`, and the portal
-      layout sends them to `/{firm}/sign-up/done`. A declined or disabled client, or one who has
-      not verified both email and phone, gets `401 INVALID_CREDENTIALS` at sign-in, exactly like
+      layout sends them to `/{firm}/sign-up/done`. A declined or disabled client, or one whose
+      sign-up is not complete, gets `401 INVALID_CREDENTIALS` at sign-in, exactly like
       a wrong password.
     - **MFA is optional** for clients: sign-in usually answers `SIGNED_IN` straight away;
       `MFA_REQUIRED` only for clients who turned it on.
@@ -86,11 +95,11 @@ info:
 
     ## Firm side
 
-    `GET /client-sign-ups` lists verified sign-ups waiting for the firm (or declined ones), oldest
+    `GET /client-sign-ups` lists completed sign-ups waiting for the firm (or declined ones), oldest
     first, for the owner and admins (`x-business-id` selects the firm). Approve creates the firm's
     client record and opens the portal; decline closes the login. The client gets an email either
     way. Both take only a sign-up in the queue (404 for anything else, such as one that never
-    verified both email and phone); one already approved or declined is `409 NOT_PENDING`, so of
+    completed its sign-up); one already approved or declined is `409 NOT_PENDING`, so of
     two staff acting at once only one changes it.
 
     **Linking an existing client record.** Approve with `clientId` links the login to a record the
@@ -226,6 +235,10 @@ paths:
       tags: [sign-up]
       operationId: verifyEmail
       summary: Check the 6-digit email code
+      description: |
+        Answers step `VERIFY_PHONE` (and sends the SMS code) with
+        `SIGNUP_PHONE_VERIFICATION=required`, or `DONE` with `optional` (the default, SMS
+        fallback): the sign-up is complete and waits for the firm, no SMS is sent.
       requestBody: { $ref: '#/components/requestBodies/VerifyCode' }
       responses:
         '200': { $ref: '#/components/responses/SignUpState' }
@@ -316,7 +329,7 @@ paths:
       description: |
         As `/auth/sign-in` in auth.yaml, with the firm's own login. `SIGNED_IN` sets the firm's
         portal cookies, and `me.clientAccounts` holds only this firm's account. A declined or
-        disabled client, or a sign-up that never verified email and phone, gets
+        disabled client, or a sign-up that never completed, gets
         `401 INVALID_CREDENTIALS`, the same as a wrong password or an unknown email.
       requestBody:
         required: true

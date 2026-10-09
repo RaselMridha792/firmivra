@@ -4,6 +4,7 @@ export * from './schemas.js';
 export * from './capture.js';
 export * from './admin.js';
 export * from './signing.js';
+export * from './extras.js';
 export {
   createEsignClient,
   createMySignaturesClient,

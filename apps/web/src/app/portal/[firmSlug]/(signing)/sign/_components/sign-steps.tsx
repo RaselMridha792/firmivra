@@ -5,16 +5,18 @@ import { Button, Card, EmptyState } from '@firmivra/ui';
 import { PageState } from '../../../../../../components/page-state';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useLost } from './lost';
 import { SignView } from './sign-view';
 import type { StepProps } from './signer-page';
 
 const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
 
 /** SIGN: the document with the signer's fields (sign-view.tsx). */
-export function SignStep({ signing, firmSlug, opening, onState }: StepProps) {
+export function SignStep({ signing, firmSlug, opening, onState, onLost }: StepProps) {
   const envelope = useApiQuery(['signing', firmSlug, opening, 'envelope'], () =>
     signing.envelope(),
   );
+  useLost(envelope.error, onLost);
   return (
     <PageState query={envelope} isEmpty={() => false}>
       {(e) => <SignView signing={signing} envelope={e} onState={onState} />}
@@ -23,8 +25,9 @@ export function SignStep({ signing, firmSlug, opening, onState }: StepProps) {
 }
 
 /** COPY: a completed request's signed document and certificate, from the copy link. */
-export function CopyStep({ signing, firmSlug, opening }: StepProps) {
+export function CopyStep({ signing, firmSlug, opening, onLost }: StepProps) {
   const copy = useApiQuery(['signing', firmSlug, opening, 'copy'], () => signing.copy());
+  useLost(copy.error, onLost);
   const download = useApiMutation((file: SignerCopyFile) => signing.downloadCopy(file));
   return (
     <Card title="Your signed copy">
@@ -45,6 +48,7 @@ export function CopyStep({ signing, firmSlug, opening }: StepProps) {
                     onClick={() =>
                       download.mutate(f.file, {
                         onSuccess: (link) => window.location.assign(link.url),
+                        onError: onLost,
                       })
                     }
                   >

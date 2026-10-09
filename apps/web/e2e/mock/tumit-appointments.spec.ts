@@ -6,6 +6,10 @@ import { expect, test, type Page } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 
+// The mock puts its week after today and treats New York as a fixed UTC-4, while the screens
+// use the real zone. Run on a summer Wednesday: EDT is UTC-4, and next week is past the cutoffs.
+test.beforeEach(({ page }) => page.clock.setFixedTime(new Date('2026-07-08T12:00:00-04:00')));
+
 async function openNextWeek(page: Page) {
   await page.goto(app('/calendar'));
   await page.getByRole('button', { name: 'Next week' }).click();
@@ -40,7 +44,9 @@ test('a cancelled appointment shows its reason', async ({ page }) => {
   await expect(detail).toContainText('Client asked');
 });
 
-test('a taken time is explained, and the appointment moves to a free one', async ({ page }) => {
+test("the client's taken time is not offered, and the appointment moves to a free one", async ({
+  page,
+}) => {
   await openNextWeek(page);
   const tuesday = page.getByTestId('calendar-day').nth(1);
   await tuesday.getByRole('button', { name: /Jamie Sample/ }).click();
@@ -55,12 +61,9 @@ test('a taken time is explained, and the appointment moves to a free one', async
   const day = await date.inputValue();
   const monday = new Date(Date.parse(`${day}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
   await date.fill(monday);
-  // The slots don't know the client's other appointments, so 10:00 AM is offered but taken.
-  await detail.getByRole('button', { name: '10:00 AM' }).click();
-  await detail.getByRole('button', { name: 'Move to 10:00 AM' }).click();
-  await expect(detail.getByRole('alert')).toHaveText(
-    'Someone else just took this time. Pick another one.',
-  );
+  // The client already has 10:00 AM on Monday, so the slots leave it out (as the API, #214).
+  await expect(detail.getByRole('button', { name: '11:00 AM' })).toBeVisible();
+  await expect(detail.getByRole('button', { name: '10:00 AM' })).toHaveCount(0);
   await detail.getByRole('button', { name: '11:00 AM' }).click();
   await detail.getByRole('button', { name: 'Move to 11:00 AM' }).click();
   await expect(detail.getByText('Appointment moved.')).toBeVisible();
