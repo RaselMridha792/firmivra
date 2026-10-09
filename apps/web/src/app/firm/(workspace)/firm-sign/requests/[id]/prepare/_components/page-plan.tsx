@@ -1,10 +1,10 @@
 'use client';
 
 import { ESIGN_ERRORS, type EsignPage, type EsignRequestDetail } from '@firmivra/types';
-import { Button, Card } from '@firmivra/ui';
+import { Button, Card, Modal } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, RotateCw, Trash2 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { closeThumbFiles, PageThumb } from '../../../../../../../../components/esign/page-thumb';
 import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
@@ -18,19 +18,28 @@ const turn = (r: Rotation): Rotation => ((r + 90) % 360) as Rotation;
  * The packet's pages in order, from every file: move a page earlier or later, turn it, or leave
  * it out. Each change saves the whole order at once (the API keeps fields with their page).
  */
-export function PagePlan({ r }: { r: EsignRequestDetail }) {
+export function PagePlan({ r, locked }: { r: EsignRequestDetail; locked: boolean }) {
   const queryClient = useQueryClient();
-  const save = useApiMutation((pages: EsignPage[]) => api.esign.putPagePlan(r.id, { pages }));
+  const save = useApiMutation(async (pages: EsignPage[]) => {
+    // A refetch already on its way would put the old order back over the answer.
+    await queryClient.cancelQueries({ queryKey: requestKey(r.id) });
+    return api.esign.putPagePlan(r.id, { pages });
+  });
+  const [removing, setRemoving] = useState<number | null>(null);
   useEffect(() => closeThumbFiles, []);
   const pages = r.pagePlan;
+  // Changes wait while a file is checked or removed: the order saved must be the current one.
   const ready = r.documents.every((d) => d.scanStatus === 'CLEAN');
+  const busy = save.isPending || locked || !ready;
   if (pages.length === 0) return null;
+  const fieldsOn = (i: number) => r.fields.filter((f) => f.pageIndex === i).length;
 
   function change(next: EsignPage[]) {
     save.mutate(next, {
       onSuccess: (detail) => queryClient.setQueryData(requestKey(r.id), detail),
     });
   }
+  const remove = (i: number) => change(pages.filter((_, k) => k !== i));
   const move = (i: number, by: -1 | 1) => {
     const next = [...pages];
     const [page] = next.splice(i, 1);
@@ -77,7 +86,7 @@ export function PagePlan({ r }: { r: EsignRequestDetail }) {
                 <Button
                   variant="ghost"
                   aria-label={`Move ${name} earlier`}
-                  disabled={save.isPending || i === 0}
+                  disabled={busy || i === 0}
                   onClick={() => move(i, -1)}
                 >
                   <ArrowLeft aria-hidden className="size-4" />
@@ -85,7 +94,7 @@ export function PagePlan({ r }: { r: EsignRequestDetail }) {
                 <Button
                   variant="ghost"
                   aria-label={`Move ${name} later`}
-                  disabled={save.isPending || i === pages.length - 1}
+                  disabled={busy || i === pages.length - 1}
                   onClick={() => move(i, 1)}
                 >
                   <ArrowRight aria-hidden className="size-4" />
@@ -93,7 +102,9 @@ export function PagePlan({ r }: { r: EsignRequestDetail }) {
                 <Button
                   variant="ghost"
                   aria-label={`Turn ${name} clockwise`}
-                  disabled={save.isPending}
+                  // The API refuses to turn a page that has fields (PAGE_HAS_FIELDS).
+                  title={fieldsOn(i) ? 'Move or remove its fields first' : undefined}
+                  disabled={busy || fieldsOn(i) > 0}
                   onClick={() =>
                     change(
                       pages.map((x, k) => (k === i ? { ...x, rotation: turn(x.rotation) } : x)),
@@ -105,8 +116,8 @@ export function PagePlan({ r }: { r: EsignRequestDetail }) {
                 <Button
                   variant="ghost"
                   aria-label={`Remove ${name}`}
-                  disabled={save.isPending || pages.length === 1}
-                  onClick={() => change(pages.filter((_, k) => k !== i))}
+                  disabled={busy || pages.length === 1}
+                  onClick={() => (fieldsOn(i) ? setRemoving(i) : remove(i))}
                 >
                   <Trash2 aria-hidden className="size-4" />
                 </Button>
@@ -115,6 +126,29 @@ export function PagePlan({ r }: { r: EsignRequestDetail }) {
           );
         })}
       </ol>
+      {removing !== null && (
+        <Modal open title={`Remove Page ${removing + 1}?`} onClose={() => setRemoving(null)}>
+          <div className="flex max-w-xl flex-col gap-4">
+            <p className="text-sm text-text">
+              Its {fieldsOn(removing)} {fieldsOn(removing) === 1 ? 'field goes' : 'fields go'} with
+              it.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                onClick={() => {
+                  remove(removing);
+                  setRemoving(null);
+                }}
+              >
+                Remove the page
+              </Button>
+              <Button variant="ghost" onClick={() => setRemoving(null)}>
+                Keep it
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {save.error && (
         <p role="alert" className="mt-4 text-sm text-danger">
           {errorMessage(save.error, ESIGN_ERRORS)}

@@ -19,6 +19,7 @@ import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../../lib/query';
 import { uploadFile } from '../../../../../../../../lib/upload';
+import { closeThumbFile } from '../../../../../../../../components/esign/page-thumb';
 import { PagePlan } from './page-plan';
 import { requestKey, stepHref } from './steps';
 
@@ -74,7 +75,10 @@ export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
                     disabled={remove.isPending}
                     onClick={() =>
                       remove.mutate(d.id, {
-                        onSuccess: (next) => queryClient.setQueryData(requestKey(r.id), next),
+                        onSuccess: (next) => {
+                          queryClient.setQueryData(requestKey(r.id), next);
+                          closeThumbFile(api.esign.documentContentUrl(r.id, d.id));
+                        },
                       })
                     }
                   >
@@ -91,7 +95,7 @@ export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
           </p>
         )}
       </Card>
-      <PagePlan r={r} />
+      <PagePlan r={r} locked={remove.isPending} />
       <div className="flex flex-wrap gap-3">
         {ready ? (
           <Link
