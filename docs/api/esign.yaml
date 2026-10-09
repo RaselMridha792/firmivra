@@ -1156,6 +1156,19 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /esign/approvers:
+    get:
+      tags: [esign]
+      operationId: esignApprovers
+      x-roles: [OWNER, ADMIN, MANAGER, STAFF]
+      summary: Who may approve a request, for the approver picker (`EsignApproverList`). Active Owners, Admins and Managers, without the caller; names only
+      responses:
+        '200':
+          description: '`EsignApproverList`'
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /esign/roles:
     get:
       tags: [esign-extras]

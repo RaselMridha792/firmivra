@@ -228,3 +228,14 @@ describe('PUT fields body size', () => {
     expect(EsignPutFieldsBody.safeParse(body).success).toBe(false);
   });
 });
+
+describe('approvers', () => {
+  it('lists who may approve', async () => {
+    const { fn, calls } = fakeFetch(200, {
+      items: [{ user: { userId: id, name: 'Owner' }, esignRole: 'OWNER' }],
+    });
+    const list = await createEsignClient(request(fn)).approvers();
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET /api/v1/esign/approvers']);
+    expect(list.items[0]!.esignRole).toBe('OWNER');
+  });
+});
