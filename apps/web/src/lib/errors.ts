@@ -22,7 +22,6 @@ const MESSAGES: Record<string, string> = {
   BUSINESS_INACTIVE: 'This firm is not active right now. Contact Firmivra support.',
   BUSINESS_SETUP_REQUIRED: 'Your firm needs to finish setup first.',
   BUSINESS_REQUIRED: 'Choose a firm first.',
-  KIOSK_LOCKED: 'An in-person signing is open. Enter your password to return.',
   NOT_FOUND: "We couldn't find that. It may have been removed.",
   // Firm Sign in-person signing: every firm call while this device is handed to a signer.
   KIOSK_LOCKED: 'An in-person signing is open. Enter your password to return.',

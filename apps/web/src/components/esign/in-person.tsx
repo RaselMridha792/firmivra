@@ -2,6 +2,7 @@
 
 import {
   ESIGN_ERRORS,
+  ESIGN_KIOSK_IDLE_MINUTES,
   type EsignInPersonSession,
   type EsignRecipient,
   type EsignRequestDetail,
@@ -173,8 +174,8 @@ function Locked({ session }: { session: EsignInPersonSession }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
 
-  // A kiosk left alone is ended on the server, which signs the staff member out: the next check
-  // then answers 401 and the session layer opens the sign-in page.
+  // A kiosk left alone (ESIGN_KIOSK_IDLE_MINUTES) is ended on the server, which signs the staff
+  // member out: the next check then answers 401 and the session layer opens the sign-in page.
   useEffect(() => {
     const timer = setInterval(
       () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
@@ -202,15 +203,14 @@ function Locked({ session }: { session: EsignInPersonSession }) {
     });
   }
 
-  const until = new Date(session.expiresAt).toLocaleTimeString(undefined, { timeStyle: 'short' });
   return (
     <>
       <Card title={`Hand this device to ${session.signerName}`}>
         <div className="flex flex-col gap-4">
           <p className="text-sm text-text">
             {session.signerName} signs in a new tab. When they are done, they close that tab and
-            hand the device back. The signing link works until {until} if they haven&apos;t started
-            by then.
+            hand the device back. If the signing pages sit unused for {ESIGN_KIOSK_IDLE_MINUTES}{' '}
+            minutes, you are signed out.
           </p>
           <div>
             <Button onClick={() => window.open(session.signingUrl, '_blank', 'noopener')}>
