@@ -7,7 +7,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorCode, errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
-import { APPOINTMENTS, CALENDAR_ERRORS } from './shared';
+import { APPOINTMENTS, CALENDAR, CALENDAR_ERRORS } from './shared';
 import { SlotPicker } from './slot-picker';
 import { timeLabel } from './time';
 
@@ -65,7 +65,7 @@ function BookingForm({
         startsAt: slot.startsAt,
         locationDetails: details,
       }),
-    { invalidate: APPOINTMENTS },
+    { invalidate: CALENDAR },
   );
   const type = types.find((item) => item.id === typeId);
   const unpick = () => setPicked(null);
@@ -76,7 +76,11 @@ function BookingForm({
         label="Find a client"
         type="search"
         value={search}
-        onChange={(event) => setSearch(event.target.value)}
+        onChange={(event) => {
+          setSearch(event.target.value);
+          // A new search must not keep a client the list no longer shows.
+          setClientId('');
+        }}
       />
       <PageState query={clients}>
         {({ items }) =>
@@ -136,6 +140,7 @@ function BookingForm({
       />
       <Input
         label={type ? DETAILS_LABEL[type.locationKind] : 'Where'}
+        maxLength={500}
         value={details}
         onChange={(event) => setDetails(event.target.value)}
       />
