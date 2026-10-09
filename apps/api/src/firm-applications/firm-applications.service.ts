@@ -272,20 +272,28 @@ export class FirmApplicationsService {
     };
   }
 
+  /**
+   * One statement, so the parts always add up to `all` (and a month's count never passes its
+   * status's), even while applications are submitted or decided.
+   */
   async counts(): Promise<FirmApplicationCounts> {
-    const db = this.admin.db;
     const since = startOfMonthIn(PLATFORM_TIME_ZONE);
-    const count = (where: Prisma.FirmApplicationWhereInput) => db.firmApplication.count({ where });
-    const [all, pendingReview, approved, declined, approvedThisMonth, declinedThisMonth] =
-      await Promise.all([
-        count({}),
-        count({ status: { in: [...PENDING] } }),
-        count({ status: 'APPROVED' }),
-        count({ status: 'DECLINED' }),
-        count({ status: 'APPROVED', reviewedAt: { gte: since } }),
-        count({ status: 'DECLINED', reviewedAt: { gte: since } }),
-      ]);
-    return { all, pendingReview, approved, declined, approvedThisMonth, declinedThisMonth };
+    const rows = await this.admin.transaction(
+      (tx) => tx.$queryRaw<{ status: string; total: number; month: number }[]>`
+        SELECT status::text AS status, count(*)::int AS total,
+               count(*) FILTER (WHERE reviewed_at >= ${since})::int AS month
+          FROM firm_applications GROUP BY status`,
+    );
+    const of = (statuses: readonly string[], key: 'total' | 'month' = 'total') =>
+      rows.filter((r) => statuses.includes(r.status)).reduce((sum, r) => sum + r[key], 0);
+    return {
+      all: rows.reduce((sum, r) => sum + r.total, 0),
+      pendingReview: of(PENDING),
+      approved: of(['APPROVED']),
+      declined: of(['DECLINED']),
+      approvedThisMonth: of(['APPROVED'], 'month'),
+      declinedThisMonth: of(['DECLINED'], 'month'),
+    };
   }
 
   /** The review page. Opening it is audited (it shows the applicant's personal details). */
@@ -317,15 +325,17 @@ export class FirmApplicationsService {
     };
   }
 
+  /** One statement, so the total is always the sum of the parts, even while firms are added. */
   async firmCounts(): Promise<FirmCounts> {
-    const db = this.admin.db;
-    const [active, pendingSetup, inactive, total] = await Promise.all([
-      db.business.count({ where: { status: 'ACTIVE' } }),
-      db.business.count({ where: { status: 'PENDING_SETUP' } }),
-      db.business.count({ where: { status: { in: ['SUSPENDED', 'CLOSED'] } } }),
-      db.business.count(),
-    ]);
-    return { active, pendingSetup, inactive, total };
+    const groups = await this.admin.db.business.groupBy({ by: ['status'], _count: { _all: true } });
+    const of = (...statuses: string[]) =>
+      groups.filter((g) => statuses.includes(g.status)).reduce((sum, g) => sum + g._count._all, 0);
+    return {
+      active: of('ACTIVE'),
+      pendingSetup: of('PENDING_SETUP'),
+      inactive: of('SUSPENDED', 'CLOSED'),
+      total: groups.reduce((sum, g) => sum + g._count._all, 0),
+    };
   }
 
   async getFirm(id: string): Promise<FirmRecord> {
@@ -472,6 +482,7 @@ export class FirmApplicationsService {
         name: row.contactName,
         role: 'OWNER',
         invitedBy: null,
+        fromPlatform: true,
       });
     } catch (e) {
       this.logger.warn(`Firm application ${id}: the owner invite was not sent (${failureOf(e)})`);
@@ -548,21 +559,20 @@ export class FirmApplicationsService {
       }
     }
     const owner = await this.owner(firm.id);
-    if (owner?.status === 'ACTIVE') throw inviteNotNeeded();
-    const invite =
-      owner?.status === 'INVITED'
-        ? await this.invites.resendInvite({
-            businessId: firm.id,
-            membershipId: owner.id,
-            invitedBy: null,
-          })
-        : await this.invites.createInvite({
-            businessId: firm.id,
-            email: row.contactEmail,
-            name: row.contactName,
-            role: 'OWNER',
-            invitedBy: null,
-          });
+    // Only before the owner has joined: no membership yet, or an invite still open (or whose link
+    // step failed). An owner the firm deactivated is never brought back from here.
+    if (owner && owner.status !== 'INVITED') throw inviteNotNeeded();
+    // Always to the name and email the applicant typed: an invite whose link step failed has no
+    // invite row to read them from, and the person's user row may hold another firm's name. An
+    // open invite is replaced (its old link stops working).
+    const invite = await this.invites.createInvite({
+      businessId: firm.id,
+      email: row.contactEmail,
+      name: row.contactName,
+      role: 'OWNER',
+      invitedBy: null,
+      fromPlatform: true,
+    });
     await this.audit.log(
       'firm_application.owner_invite_resent',
       { type: 'firm_application', id },
