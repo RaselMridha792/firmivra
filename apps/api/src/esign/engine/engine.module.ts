@@ -6,11 +6,13 @@ import { loadDocumentsConfig } from '../../storage/config.js';
 import { createS3Client } from '../../storage/document-storage.js';
 import {
   CODE_HASHER,
+  ESIGN_RULES,
   ESIGN_STORE,
   LINK_TOKENS,
   SIGNATURE_IMAGE_CHECK,
   SIGNER_COOKIE,
 } from './engine.types.js';
+import { esignRules } from './esign-rules.js';
 import { S3EsignStore } from './esign-store.js';
 import {
   HmacCodeHasher,
@@ -35,6 +37,7 @@ const SECURITY = [SIGNATURE_IMAGE_CHECK, LINK_TOKENS, CODE_HASHER, SIGNER_COOKIE
         return new S3EsignStore(createS3Client(config), config.bucket);
       },
     },
+    { provide: ESIGN_RULES, useValue: esignRules },
     { provide: SIGNATURE_IMAGE_CHECK, useClass: PngSignatureCheck },
     { provide: LINK_TOKENS, useClass: RandomLinkTokens },
     {
@@ -49,6 +52,6 @@ const SECURITY = [SIGNATURE_IMAGE_CHECK, LINK_TOKENS, CODE_HASHER, SIGNER_COOKIE
         new SealedSignerCookie(poolSecrets(env), env.NODE_ENV === 'production'),
     },
   ],
-  exports: [ESIGN_STORE, ...SECURITY],
+  exports: [ESIGN_STORE, ESIGN_RULES, ...SECURITY],
 })
 export class EsignEngineModule {}
