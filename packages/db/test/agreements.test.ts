@@ -3,7 +3,7 @@
 // role shows that even it cannot change evidence.
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createDatabase, createPrismaClient, runInScope } from '../src/client.js';
+import { createDatabase, createPrismaClient, runInScope, type TxClient } from '../src/client.js';
 import { TEST_CLIENT_OPTIONS } from '../src/testing.js';
 
 const urls = inject('dbUrls');
@@ -34,7 +34,13 @@ const ids = {
   serviceB: '',
 };
 
+/** The published intake form of each service of firm A. */
+const forms: Record<string, string> = {};
+
 const A = () => ({ businessId: ids.firmA });
+/** One transaction in firm A, optionally as a signed-in user. */
+const inA = <T>(fn: (tx: TxClient) => Promise<T>, actorUserId?: string) =>
+  db.withScope({ kind: 'business', businessId: ids.firmA, actorUserId }, fn);
 const firmA = () => db.forBusiness(ids.firmA);
 const firmB = () => db.forBusiness(ids.firmB);
 
@@ -105,9 +111,30 @@ const firmWideVersion = () =>
     orderBy: { version: 'desc' },
   });
 
+/** A new service of firm A with a published intake form, so no other test's agreements apply. */
+const newService = () =>
+  runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
+    const service = await tx.service.create({
+      data: { ...A(), kind: 'BOOKKEEPING', name: `Bookkeeping ${randomUUID()}` },
+    });
+    forms[service.id] = (
+      await tx.intakeForm.create({
+        data: {
+          ...A(),
+          serviceId: service.id,
+          version: 1,
+          title: 'Intake',
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+        },
+      })
+    ).id;
+    return service.id;
+  });
+
 /** A Begin Online lead for a service with its intake and draft v1. */
 const newLeadDraft = async (serviceId = ids.bookkeeping) => {
-  const formId = serviceId === ids.tax ? ids.taxForm : ids.bookkeepingForm;
+  const formId = forms[serviceId] ?? '';
   const lead = await firmA().lead.create({
     data: {
       ...A(),
@@ -153,12 +180,13 @@ const signature = (
 });
 
 /** Signs a draft for the given versions, ticking every acknowledgment shown. */
-const sign = async (
+const signIn = (
+  tx: TxClient,
   draft: Parameters<typeof signature>[0],
   versions: Version[],
   data: Record<string, unknown> = {},
 ) =>
-  firmA().intakeSignature.create({
+  tx.intakeSignature.create({
     data: {
       ...signature(draft, { acknowledgments: versions.flatMap((v) => ticks(v)), ...data }),
       agreements: {
@@ -171,11 +199,22 @@ const sign = async (
     },
   });
 
-const submit = (
-  submissionId: string,
-  sig: { printedName: string; signedAt: Date; ip: string | null; userAgent: string | null },
-) =>
-  firmA().intakeSubmission.update({
+/** Signs in a transaction of its own (as `actorUserId`, for a portal login). */
+const sign = (
+  draft: Parameters<typeof signature>[0],
+  versions: Version[],
+  data: Record<string, unknown> = {},
+  actorUserId?: string,
+) => inA((tx) => signIn(tx, draft, versions, data), actorUserId);
+
+type Evidence = {
+  printedName: string;
+  signedAt: Date;
+  ip: string | null;
+  userAgent: string | null;
+};
+const submitIn = (tx: TxClient, submissionId: string, sig: Evidence) =>
+  tx.intakeSubmission.update({
     where: { id: submissionId },
     data: {
       submittedAt: sig.signedAt,
@@ -185,6 +224,24 @@ const submit = (
       signerUserAgent: sig.userAgent,
     },
   });
+const submit = (submissionId: string, sig: Evidence) =>
+  inA((tx) => submitIn(tx, submissionId, sig));
+
+/** Signs and submits in one transaction, as the API does; `change` alters the submitted evidence. */
+const signAndSubmit = (
+  draft: Parameters<typeof signature>[0],
+  versions: Version[],
+  options: {
+    data?: Record<string, unknown>;
+    change?: Partial<Evidence>;
+    actorUserId?: string;
+  } = {},
+) =>
+  inA(async (tx) => {
+    const sig = await signIn(tx, draft, versions, options.data);
+    const submitted = await submitIn(tx, draft.submission.id, { ...sig, ...options.change });
+    return { sig, submitted };
+  }, options.actorUserId);
 
 beforeAll(async () => {
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
@@ -223,6 +280,8 @@ beforeAll(async () => {
       });
     ids.taxForm = (await form(ids.tax)).id;
     ids.bookkeepingForm = (await form(ids.bookkeeping)).id;
+    forms[ids.tax] = ids.taxForm;
+    forms[ids.bookkeeping] = ids.bookkeepingForm;
     const client1 = await tx.client.create({ data: { businessId, displayName: 'One' } });
     const client2 = await tx.client.create({ data: { businessId, displayName: 'Two' } });
     ids.engagement = (
@@ -311,7 +370,12 @@ describe('firm agreements', () => {
     await expect(
       firmA().firmAgreement.update({ where: { id: a.id }, data: { serviceId: ids.tax } }),
     ).rejects.toThrow(/permission denied|only the order/);
-    await firmA().firmAgreement.update({ where: { id: a.id }, data: { archivedAt: new Date() } });
+    const archived = await firmA().firmAgreement.update({
+      where: { id: a.id },
+      data: { archivedAt: new Date('2000-01-01') },
+    });
+    // The database's time, whatever the app sent.
+    expect(archived.archivedAt?.getFullYear()).toBeGreaterThan(2000);
     await expect(
       firmA().firmAgreement.update({ where: { id: a.id }, data: { archivedAt: null } }),
     ).rejects.toThrow(/stays archived/);
@@ -359,7 +423,11 @@ describe('agreement PDF originals', () => {
     await expect(
       firmA().firmAgreementFile.update({ where: { id: f.id }, data: { fileName: 'b.pdf' } }),
     ).rejects.toThrow(/permission denied/);
-    await scan(f.id, 'CLEAN');
+    const scanned = await firmA().firmAgreementFile.update({
+      where: { id: f.id },
+      data: { scanStatus: 'CLEAN', scannedAt: new Date('2000-01-01') },
+    });
+    expect(scanned.scannedAt?.getFullYear()).toBeGreaterThan(2000);
     await expect(scan(f.id, 'INFECTED')).rejects.toThrow(/cannot change/);
     await expect(firmA().firmAgreementFile.delete({ where: { id: f.id } })).rejects.toThrow(
       /permission denied/,
@@ -375,6 +443,7 @@ describe('agreement versions', () => {
     const v1 = await publish(a.id, 1, { body, bodySha256: 'f'.repeat(64) });
     expect(v1.bodySha256).toBe(createHash('sha256').update(body, 'utf8').digest('hex'));
     await expect(publish(a.id, 1)).rejects.toThrow(/next version must be 2|unique/i);
+    await expect(publish(a.id, 3)).rejects.toThrow(/next version must be 2/);
     await expect(publish(a.id, 2)).resolves.toMatchObject({ version: 2 });
   });
 
@@ -446,33 +515,44 @@ describe('agreement versions', () => {
 });
 
 describe('intake signatures and submit', () => {
-  it('a Begin Online submit: sign the firm-wide version on a draft, then submit with the same evidence', async () => {
-    const draft = await newLeadDraft();
+  it('a Begin Online submit: sign the firm-wide version on a draft and submit with the same evidence, in one transaction', async () => {
+    const draft = await newLeadDraft(await newService());
     const v = await firmWideVersion();
-    const before = Date.now();
-    const sig = await sign(draft, [v], {
+    const data = {
       signerEmail: 'lena@begin.test',
       termsDocumentId: ids.termsA,
       privacyDocumentId: ids.privacyA,
       signedAt: new Date('2000-01-01'),
+    };
+    await expect(
+      signAndSubmit(draft, [v], { data, change: { ip: '198.51.100.1' } }),
+    ).rejects.toThrow(/needs the signature/);
+    await expect(
+      signAndSubmit(draft, [v], { data, change: { printedName: 'Someone Else' } }),
+    ).rejects.toThrow(/needs the signature/);
+    const before = Date.now();
+    const { sig, submitted } = await signAndSubmit(draft, [v], {
+      data,
+      change: { submittedAt: new Date('2000-01-01') } as Partial<Evidence>,
     });
     // The database's time, whatever the app sent.
     expect(sig.signedAt.getTime()).toBeGreaterThan(before - 60_000);
-    await expect(submit(draft.submission.id, { ...sig, ip: '198.51.100.1' })).rejects.toThrow(
-      /needs the signature/,
-    );
-    await expect(
-      submit(draft.submission.id, { ...sig, signedAt: new Date(sig.signedAt.getTime() + 1) }),
-    ).rejects.toThrow(/needs the signature/);
-    await expect(submit(draft.submission.id, sig)).resolves.toMatchObject({
-      signerName: 'Lena Lead',
-    });
+    expect(submitted.submittedAt?.getTime()).toBeGreaterThan(before - 60_000);
+    expect(submitted.signerName).toBe('Lena Lead');
+    // The database hashed the stored answers, not what the app sent.
+    expect(sig.answersSha256).toBe(sha('{"fullName": "Lena Lead"}'));
 
     // Locked after submit; the next version is a new draft that needs its own signature.
     await expect(
       firmA().intakeSubmission.update({
         where: { id: draft.submission.id },
         data: { answers: { fullName: 'Changed' } },
+      }),
+    ).rejects.toThrow(/locked/);
+    await expect(
+      firmA().intakeSubmission.update({
+        where: { id: draft.submission.id },
+        data: { submittedAt: null },
       }),
     ).rejects.toThrow(/locked/);
     await expect(sign(draft, [v])).rejects.toThrow(/only a draft/);
@@ -487,6 +567,46 @@ describe('intake signatures and submit', () => {
     await expect(
       submit(v2.id, { printedName: 'Lena Lead', signedAt: new Date(), ip: null, userAgent: null }),
     ).rejects.toThrow(/needs the signature/);
+  });
+
+  it('a signature from an earlier transaction cannot be submitted, and signed answers are frozen', async () => {
+    const draft = await newLeadDraft(await newService());
+    const sig = await sign(draft, [await firmWideVersion()]);
+    await expect(submit(draft.submission.id, sig)).rejects.toThrow(/needs the signature/);
+    await expect(
+      firmA().intakeSubmission.update({
+        where: { id: draft.submission.id },
+        data: { answers: { fullName: 'Changed after signing' } },
+      }),
+    ).rejects.toThrow(/signed answers cannot change/);
+    // Other unsigned drafts stay editable.
+    const other = await newLeadDraft(await newService());
+    await expect(
+      firmA().intakeSubmission.update({
+        where: { id: other.submission.id },
+        data: { answers: { fullName: 'Edited draft' } },
+      }),
+    ).resolves.toMatchObject({ answers: { fullName: 'Edited draft' } });
+  });
+
+  it("a submit needs every current agreement of the form's service, not archived ones", async () => {
+    const serviceId = await newService();
+    const fw = await firmWideVersion();
+    const needed = await newAgreement({ serviceId });
+    const nv = await publish(needed.id, 1);
+    const archived = await newAgreement({ serviceId });
+    await publish(archived.id, 1);
+    await firmA().firmAgreement.update({
+      where: { id: archived.id },
+      data: { archivedAt: new Date() },
+    });
+    // Not yet published: nothing to sign.
+    await newAgreement({ serviceId });
+    const draft = await newLeadDraft(serviceId);
+    await expect(signAndSubmit(draft, [fw])).rejects.toThrow(/service's agreements/);
+    await expect(signAndSubmit(draft, [fw, nv])).resolves.toMatchObject({
+      submitted: { signerName: 'Lena Lead' },
+    });
   });
 
   it('evidence is insert-only, even for the owner role', async () => {
@@ -511,8 +631,7 @@ describe('intake signatures and submit', () => {
     const service = await newAgreement({ serviceId: ids.bookkeeping });
     const sv = await publish(service.id, 1);
     const draft = await newLeadDraft();
-    const sig = await sign(draft, [sv]);
-    await expect(submit(draft.submission.id, sig)).rejects.toThrow(/needs the signature/);
+    await expect(signAndSubmit(draft, [sv])).rejects.toThrow(/needs the signature/);
   });
 
   it('every required acknowledgment is ticked with the exact words', async () => {
@@ -563,18 +682,50 @@ describe('intake signatures and submit', () => {
     ).rejects.toThrow(/engagement's client/);
     await expect(sign(draft, [v], { leadId: undefined })).rejects.toThrow(/check constraint/i);
 
-    const intake = await firmA().intake.create({
-      data: { ...A(), formId: ids.taxForm, engagementId: ids.engagement },
-    });
-    const submission = await firmA().intakeSubmission.create({
-      data: { ...A(), intakeId: intake.id, version: 1 },
-    });
-    const portal = { intake, submission };
-    await expect(sign(portal, [v], { clientAccountId: ids.otherClientAccountA })).rejects.toThrow(
+    const portalDraft = async () => {
+      const intake = await firmA().intake.create({
+        data: { ...A(), formId: ids.taxForm, engagementId: ids.engagement },
+      });
+      const submission = await firmA().intakeSubmission.create({
+        data: { ...A(), intakeId: intake.id, version: 1 },
+      });
+      return { intake, submission };
+    };
+    const portal = await portalDraft();
+    const as = (clientAccountId: string, actorUserId?: string) =>
+      sign(portal, [v], { clientAccountId }, actorUserId);
+    // Another client's login, a login signing for someone else, and no signed-in user.
+    await expect(as(ids.otherClientAccountA, ids.clientUserA2)).rejects.toThrow(
       /engagement's client/,
     );
-    const sig = await sign(portal, [v], { clientAccountId: ids.clientAccountA });
-    await expect(submit(submission.id, sig)).resolves.toMatchObject({ signerIp: '203.0.113.7' });
+    await expect(as(ids.clientAccountA, ids.clientUserA2)).rejects.toThrow(/engagement's client/);
+    await expect(as(ids.clientAccountA)).rejects.toThrow(/engagement's client/);
+    // The engagement's own login, signed in.
+    const tax = await firmA().firmAgreement.findMany({
+      where: { serviceId: ids.tax, archivedAt: null },
+      include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
+    });
+    const taxVersions = tax.flatMap((a) => a.versions);
+    await expect(
+      signAndSubmit(portal, [v, ...taxVersions], {
+        data: { clientAccountId: ids.clientAccountA },
+        actorUserId: ids.clientUserA,
+      }),
+    ).resolves.toMatchObject({ submitted: { signerIp: '203.0.113.7' } });
+
+    // A disabled login cannot sign.
+    await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+      tx.clientAccount.update({ where: { id: ids.clientAccountA }, data: { status: 'DISABLED' } }),
+    );
+    try {
+      await expect(
+        sign(await portalDraft(), [v], { clientAccountId: ids.clientAccountA }, ids.clientUserA),
+      ).rejects.toThrow(/engagement's client/);
+    } finally {
+      await runInScope(owner, { kind: 'business', businessId: ids.firmA }, (tx) =>
+        tx.clientAccount.update({ where: { id: ids.clientAccountA }, data: { status: 'ACTIVE' } }),
+      );
+    }
   });
 
   it('checks names, typed method, email, Terms and Privacy kinds and hashes', async () => {
@@ -588,12 +739,20 @@ describe('intake signatures and submit', () => {
       { termsDocumentId: ids.termsA },
       { userAgent: 'u'.repeat(513) },
       { evidenceSha256: 'not-a-hash' },
+      { printedName: 'Lena\u200bLead', signatureText: 'Lena\u200bLead' },
+      { printedName: 'Lena\u202eLead', signatureText: 'Lena\u202eLead' },
+      { signerTitle: 'Owner\u0007' },
+      { signatureText: 'Someone Else' },
     ]) {
       await expect(sign(draft, [v], data)).rejects.toThrow(/check constraint/i);
     }
     await expect(
       sign(draft, [v], { termsDocumentId: ids.privacyA, privacyDocumentId: ids.termsA }),
     ).rejects.toThrow(/Terms and Privacy/);
+    // The typed name may differ in case and spacing only.
+    await expect(
+      sign(draft, [v], { printedName: 'Lena  Lead ', signatureText: 'lena lead' }),
+    ).resolves.toMatchObject({ signatureText: 'lena lead' });
   });
 });
 
