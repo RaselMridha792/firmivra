@@ -21,9 +21,11 @@ import { DATABASE } from '../../database/database.module.js';
 import {
   CHECKOUT_LIMITS,
   expireCheckout,
+  lockInvoice,
   openCheckouts,
   paymentInProgress,
   providerUnavailable,
+  withStripeHold,
 } from '../checkout/checkout-sessions.js';
 import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 import { InvoiceNotices } from './invoice-notices.js';
@@ -345,7 +347,10 @@ export class InvoicesService {
     return this.database.withScope(
       { kind: 'business', businessId },
       async (tx) => {
-        const current = await this.load(tx, businessId, actor, id, true);
+        // In reach first (404 otherwise), then the row, waiting briefly (409 while a Pay Now runs).
+        await this.load(tx, businessId, actor, id);
+        await lockInvoice(tx, businessId, id);
+        const current = await this.load(tx, businessId, actor, id);
         if (current.status === 'PAID' || current.status === 'CANCELED') {
           throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
         }
@@ -353,9 +358,12 @@ export class InvoicesService {
         const unsettled = current.payments.some((p) => p.status === 'PENDING');
         if (unsettled) {
           if (!this.stripe) throw providerUnavailable();
-          for (const open of await openCheckouts(tx, this.stripe, businessId, id)) {
-            await expireCheckout(tx, this.stripe, businessId, open);
-          }
+          const stripe = this.stripe;
+          await withStripeHold(async () => {
+            for (const open of await openCheckouts(tx, stripe, this.audit, businessId, id)) {
+              await expireCheckout(tx, stripe, this.audit, businessId, id, open);
+            }
+          });
         }
         await tx.invoice.update({
           where: { businessId_id: { businessId, id } },
@@ -371,7 +379,7 @@ export class InvoicesService {
           tx,
           'invoice.canceled',
           { type: 'invoice', id },
-          { fromStatus: current.status, totalCents: row.totalCents },
+          { clientId: row.clientId, fromStatus: current.status, totalCents: row.totalCents },
         );
         return toInvoice(row, (await firmToday(tx, businessId)).today);
       },

@@ -77,20 +77,83 @@ describe('Pay Now', () => {
     );
     expect(firm.payments).toEqual([]);
     const audit = await t.inScope(t.ids.firmA, (tx) =>
-      tx.auditLog.count({ where: { entityId: invoice.id, action: 'invoice.checkout_started' } }),
+      tx.auditLog.findMany({
+        where: { entityId: invoice.id, action: 'invoice.checkout_started' },
+        select: { metadata: true },
+        orderBy: { createdAt: 'asc' },
+      }),
     );
-    expect(audit).toBe(1);
+    // The second answer is audited too, as the same checkout again.
+    expect(audit.map((a) => (a.metadata as { reused?: boolean }).reused ?? false)).toEqual([
+      false,
+      true,
+    ]);
   });
 
   it('gives two clicks at once one checkout: one session, one PENDING row, the same URL', async () => {
     const invoice = await open();
     const before = creates().length;
-    const [a, b] = await Promise.all([pay(invoice.id), pay(invoice.id, t.people.spouse)]);
-    const [first, second] = [Link.parse(expectOk(a).body), Link.parse(expectOk(b).body)];
-    expect(second.url).toBe(first.url);
+    // Each Stripe call takes 200 ms, so the second click really waits on the first one's row.
+    fake.delayMs = 200;
+    try {
+      const [a, b] = await Promise.all([pay(invoice.id), pay(invoice.id, t.people.spouse)]);
+      const [first, second] = [Link.parse(expectOk(a).body), Link.parse(expectOk(b).body)];
+      expect(second.url).toBe(first.url);
+    } finally {
+      fake.delayMs = 0;
+    }
     expect(creates().length).toBe(before + 1);
     const rows = await paymentsOf(invoice.id);
     expect(rows.map((r) => r.status)).toEqual(['PENDING']);
+    const audit = await t.inScope(t.ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { entityId: invoice.id, action: 'invoice.checkout_started' },
+        select: { metadata: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    expect(audit.map((a) => (a.metadata as { reused?: boolean }).reused ?? false).sort()).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  it('answers a click 409 PAYMENT_IN_PROGRESS while another one waits long on Stripe', async () => {
+    const invoice = await open();
+    const before = creates().length;
+    // The first one holds the row for 3 s; each one after it waits at most 1 s.
+    fake.delayMs = 3_000;
+    try {
+      const first = pay(invoice.id);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const second = await pay(invoice.id, t.people.spouse);
+      expect([second.status, codeOf(second)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
+      // So does a cancel by the firm; neither held a connection waiting for the row.
+      const noCancel = await cancel(invoice.id);
+      expect([noCancel.status, codeOf(noCancel)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
+      expectOk(await first);
+    } finally {
+      fake.delayMs = 0;
+    }
+    expect(creates().length).toBe(before + 1);
+  });
+
+  it('answers 503 SERVICE_BUSY with Retry-After when three checkouts already wait on Stripe', async () => {
+    const invoices = [];
+    for (let i = 0; i < 4; i += 1) invoices.push(await open());
+    fake.delayMs = 1_000;
+    try {
+      const first = invoices.slice(0, 3).map((i) => pay(i.id));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const fourth = await pay(invoices[3]!.id);
+      expect([fourth.status, codeOf(fourth)]).toEqual([503, 'SERVICE_BUSY']);
+      expect(fourth.headers['retry-after']).toBe('5');
+      for (const res of await Promise.all(first)) expectOk(res);
+    } finally {
+      fake.delayMs = 0;
+    }
+    expect(await paymentsOf(invoices[3]!.id)).toEqual([]);
+    expectOk(await pay(invoices[3]!.id));
   });
 
   it("builds the way back from the firm's stored slug, whatever case the URL used", async () => {
@@ -195,6 +258,24 @@ describe('POST /business/invoices/{id}/cancel', () => {
     });
     expect(fake.sessions.get(p!.processorRef)!.status).toBe('expired');
     expect((await paymentsOf(invoice.id))[0]!.status).toBe('FAILED');
+    const audit = await t.inScope(t.ids.firmA, (tx) =>
+      tx.auditLog.findMany({
+        where: { OR: [{ entityId: p!.id }, { entityId: invoice.id, action: 'invoice.canceled' }] },
+        select: { action: true, metadata: true },
+      }),
+    );
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        {
+          action: 'payment.failed',
+          metadata: { invoiceId: invoice.id, failureCode: 'checkout_expired' },
+        },
+        expect.objectContaining({
+          action: 'invoice.canceled',
+          metadata: expect.objectContaining({ clientId: t.ids.one }),
+        }),
+      ]),
+    );
     const again = await cancel(invoice.id);
     expect([again.status, codeOf(again)]).toEqual([409, 'INVOICE_CLOSED']);
     const payAfter = await pay(invoice.id);
