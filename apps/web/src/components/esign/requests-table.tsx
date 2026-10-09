@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import { errorMessage } from '../../lib/errors';
 import { shouldRetry, useApiQuery } from '../../lib/query';
+import { shortDate } from './format';
 import { StatusBadge } from './status-badge';
 
 /** The status filter's choices: Delivered is shown as Sent, so it is not a choice of its own. */
@@ -30,9 +31,6 @@ const RANGES = [
 /** The first of the last `days` calendar days (today included), as the list's `from` (UTC). */
 const firstOfLast = (days: number) =>
   new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
-const shortDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '–';
 
 export interface RequestsFilters {
   q: string;

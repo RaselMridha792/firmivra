@@ -1,8 +1,13 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { RequestDetail } from './_components/request-detail';
 
 export const metadata: Metadata = { title: 'Signature request' };
 
-export default function SignatureRequestPage() {
-  return <PagePlaceholder title="Signature request" ticket="R13" owner="R13-web" />;
+export default async function SignatureRequestPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <RequestDetail id={id} />;
 }
