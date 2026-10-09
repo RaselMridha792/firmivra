@@ -309,6 +309,10 @@ export const BeginOnlineErrorCode = z.enum([
   'DRAFT_EXPIRED',
   /** 409: the draft was already submitted. */
   'DRAFT_SUBMITTED',
+  /** 409 on a start: the firm changed the form at that moment; reload the form and start again. */
+  'FORM_CHANGED',
+  /** 409 on a submit: the draft changed at that moment (a save or upload); reload and submit again. */
+  'INTAKE_CHANGED',
   /**
    * 409: the slot holds its field's `maxFiles` or the draft holds INTAKE_LIMITS.maxFiles; every
    * file counts, blocked ones too.
@@ -339,6 +343,9 @@ export const BEGIN_ONLINE_ERRORS = {
   DRAFT_EXPIRED:
     'This link is no longer valid. If your form is still saved, enter your email for a new link.',
   DRAFT_SUBMITTED: 'This form has already been submitted. Thank you!',
+  FORM_CHANGED: 'This form was just updated. Please reload the page and try again.',
+  INTAKE_CHANGED:
+    'Your form changed while it was being sent. Please reload the page and try again.',
   TOO_MANY_FILES: 'There is no room for more files here. Remove a file to add another.',
   ENCRYPTION_UNAVAILABLE: INTAKE_NUMBERS_UNAVAILABLE,
   TOO_MANY_NUMBERS: INTAKE_TOO_MANY_NUMBERS,
