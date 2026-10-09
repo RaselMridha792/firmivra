@@ -29,6 +29,13 @@ const STAFF_START_ERRORS = {
   NOT_YOUR_TURN: "It isn't this signer's turn yet.",
 };
 
+/**
+ * The signing link from the start answer, by request. Only that answer carries the one-time token
+ * (`GET /esign/in-person` doesn't), so it is kept here, in memory only: a reload loses it.
+ */
+const startLinks = new Map<string, string>();
+const hasToken = (url: string) => new URL(url).hash.includes('t=');
+
 /** The caller's open in-person session. Answers while the staff session is locked. */
 const useInPersonState = () => useApiQuery(STATE_KEY, () => api.esign.inPerson.state());
 
@@ -109,6 +116,7 @@ function Start({ requestId }: { requestId: string }) {
       onSuccess: (session) => {
         // Nothing this tab read before the lock stays in memory while the device is handed over.
         queryClient.clear();
+        startLinks.set(session.requestId, session.signingUrl);
         queryClient.setQueryData(STATE_KEY, { session });
       },
       onError: (err) => {
@@ -210,6 +218,7 @@ function Locked({ session }: { session: EsignInPersonSession }) {
       onSuccess: () => {
         // Everything cached before the lock may be stale or was refused: start clean.
         queryClient.clear();
+        startLinks.delete(session.requestId);
         router.replace(`/firm-sign/requests/${session.requestId}`);
       },
       // A wrong password is typed again from scratch. (After ESIGN_KIOSK_PASSWORD_TRIES the API signs the staff member
@@ -218,6 +227,8 @@ function Locked({ session }: { session: EsignInPersonSession }) {
     });
   }
 
+  const link =
+    startLinks.get(session.requestId) ?? (hasToken(session.signingUrl) ? session.signingUrl : null);
   return (
     <>
       <Card title={`Hand this device to ${session.signerName}`}>
@@ -227,13 +238,19 @@ function Locked({ session }: { session: EsignInPersonSession }) {
             hand the device back. If the signing pages sit unused for {ESIGN_KIOSK_IDLE_MINUTES}{' '}
             minutes, you are signed out.
           </p>
-          <div>
-            <Button
-              onClick={() => window.open(session.signingUrl, '_blank', 'noopener,noreferrer')}
-            >
-              Open the signing pages
-            </Button>
-          </div>
+          {link ? (
+            <div>
+              <Button onClick={() => window.open(link, '_blank', 'noopener,noreferrer')}>
+                Open the signing pages
+              </Button>
+            </div>
+          ) : (
+            // The one-time link was in this page's memory only (lost on a reload).
+            <p className="text-sm text-muted">
+              The signing pages can&apos;t be opened again from here. If the signer&apos;s tab was
+              closed, return to the staff view and start the in-person signing again.
+            </p>
+          )}
         </div>
       </Card>
       <Card title="Return to the staff view">
