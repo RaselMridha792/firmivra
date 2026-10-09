@@ -85,7 +85,7 @@ describe('row-level security coverage', () => {
                    ('message_attachments', 'UPDATE'), ('message_attachments', 'DELETE'),
                    ('client_private_notes', 'UPDATE'), ('client_private_notes', 'DELETE'),
                    ('invoices', 'DELETE'), ('payments', 'DELETE'), ('payment_events', 'DELETE'),
-                   ('payment_refunds', 'DELETE'),
+                   ('payment_refunds', 'DELETE'), ('offline_payments', 'DELETE'),
                    ('businesses', 'DELETE'),
                    ('platform_user_signups', 'INSERT'), ('platform_user_signups', 'UPDATE'),
                    ('platform_user_signups', 'DELETE'),

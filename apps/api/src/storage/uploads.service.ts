@@ -4,6 +4,7 @@ import type { Database, TxClient } from '@firmivra/db';
 import type { DownloadLink, UploadTicket } from '@firmivra/types';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { DOCUMENTS_CONFIG, type DocumentsConfig } from './config.js';
 import {
   type DocumentRow,
@@ -40,7 +41,7 @@ let checking = 0;
 /**
  * How far back confirm looks for an earlier refusal of its key: a ticket lives 15 minutes
  * (UPLOAD_TOKEN_SECONDS), so any refusal of it is younger than that plus a confirm's own time.
- * Generous on purpose.
+ * Generous on purpose. A scan result looks further back (SCAN_REFUSALS_SINCE_MS).
  */
 export const REFUSALS_SINCE_MS = 30 * 60_000;
 
@@ -52,6 +53,31 @@ function yearsAfter(from: Date, years: number): Date {
   const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
   d.setUTCFullYear(d.getUTCFullYear() + years);
   return d;
+}
+
+/**
+ * Whether a refusal of this upload was audited (the mark `refuse` leaves before it deletes), in
+ * the last `sinceMs`: the time bound keeps the search on the (business_id, created_at) index.
+ * With `clientId`, only a refusal for that client (confirm knows it; a scan result not).
+ */
+export async function refusedUpload(
+  tx: TxClient,
+  businessId: string,
+  uploadId: string,
+  { clientId, sinceMs = REFUSALS_SINCE_MS }: { clientId?: string; sinceMs?: number } = {},
+): Promise<boolean> {
+  const row = await tx.auditLog.findFirst({
+    where: {
+      businessId,
+      createdAt: { gte: new Date(Date.now() - sinceMs) },
+      action: 'document.upload_refused',
+      entityType: 'client',
+      ...(clientId && { entityId: clientId }),
+      metadata: { path: ['uploadId'], equals: uploadId },
+    },
+    select: { id: true },
+  });
+  return row !== null;
 }
 
 /** One confirm or refusal of a key at a time, until the transaction ends. */
@@ -83,6 +109,7 @@ export class UploadsService {
     @Inject(DOCUMENTS_CONFIG) private readonly config: DocumentsConfig,
     private readonly tokens: UploadTokens,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
 
   /** Step 1, once the caller's checks passed: where and how to PUT, and the sealed token. */
@@ -115,7 +142,8 @@ export class UploadsService {
    * must find it open (409 REQUEST_CLOSED) and makes it SUBMITTED in the same transaction.
    * Every refusal (the byte checks, 403, 404, NO_OPEN_SERVICE, REQUEST_CLOSED,
    * CATEGORY_ARCHIVED) goes through `refuse`: audited, then the object deleted, never while a
-   * document has the key. Returns the new document's id.
+   * document has the key. Once a portal upload commits, the firm is told (`tellFirm`). Returns
+   * the new document's id.
    */
   async confirm(
     uploader: Uploader,
@@ -138,8 +166,9 @@ export class UploadsService {
 
     const { businessId } = claim;
     const { scanMode } = this.config;
+    let id: string;
     try {
-      return await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
+      id = await this.database.withScope({ kind: 'business', businessId }, async (tx) => {
         await lockUpload(tx, claim.key);
         const saved = await tx.document.findFirst({
           where: { s3Key: claim.key },
@@ -148,7 +177,11 @@ export class UploadsService {
         if (saved) throw refusal('UPLOAD_EXPIRED');
         // Another confirm of this key refused it while this one checked the file: its file is
         // deleted (or being deleted), so nothing is saved for it.
-        if (await this.refusedBefore(tx, claim)) throw refusal('UPLOAD_MISMATCH');
+        if (
+          await refusedUpload(tx, businessId, uploadIdOf(claim.key), { clientId: claim.clientId })
+        ) {
+          throw refusal('UPLOAD_MISMATCH');
+        }
         // Lock order: the client (in recheck), the engagement, the category, the request.
         const { archived } = await recheck(tx, claim);
         // The service stays as checked until the document is saved.
@@ -175,6 +208,8 @@ export class UploadsService {
             sha256: claim.sha256,
             s3Key: claim.key,
             taxYear: claim.taxYear,
+            intakeId: claim.intakeId ?? null,
+            intakeSlot: claim.intakeSlot ?? null,
             // The category's retention from today; no category or no retention keeps it for good.
             retentionUntil: years === null ? null : yearsAfter(now, years),
             uploadedByUserId: claim.userId,
@@ -232,6 +267,32 @@ export class UploadsService {
         if (codeOf(error) !== 'UPLOAD_EXPIRED') return this.refuse(claim, error);
       }
       throw error;
+    }
+    await this.tellFirm(claim, id);
+    return id;
+  }
+
+  /**
+   * The firm's bell for a portal upload that committed (R6's Notifier; staff uploads tell nobody):
+   * `document-request.submitted` when it answers a request, else `document.uploaded`. The
+   * Notifier resolves on a database failure; anything else is logged with ids only and never
+   * undoes the upload.
+   */
+  private async tellFirm(claim: UploadClaim, documentId: string): Promise<void> {
+    if (claim.pool !== 'CLIENT') return;
+    const [event, recordId] = claim.requestId
+      ? (['document-request.submitted', claim.requestId] as const)
+      : (['document.uploaded', documentId] as const);
+    try {
+      await this.notifier.notify({
+        businessId: claim.businessId,
+        event,
+        recordId,
+        actorUserId: claim.userId,
+      });
+    } catch (error) {
+      const kind = claim.requestId ? 'document request' : 'document';
+      this.logger.warn(`${event} for ${kind} ${recordId} not written (${errorName(error)})`);
     }
   }
 
@@ -300,22 +361,6 @@ export class UploadsService {
     } finally {
       checking -= 1;
     }
-  }
-
-  /** Whether a refusal of this key was audited (the mark `refuse` leaves before it deletes). */
-  private async refusedBefore(tx: TxClient, claim: UploadClaim): Promise<boolean> {
-    const row = await tx.auditLog.findFirst({
-      where: {
-        businessId: claim.businessId,
-        createdAt: { gte: new Date(Date.now() - REFUSALS_SINCE_MS) },
-        action: 'document.upload_refused',
-        entityType: 'client',
-        entityId: claim.clientId,
-        metadata: { path: ['uploadId'], equals: uploadIdOf(claim.key) },
-      },
-      select: { id: true },
-    });
-    return row !== null;
   }
 
   /**
