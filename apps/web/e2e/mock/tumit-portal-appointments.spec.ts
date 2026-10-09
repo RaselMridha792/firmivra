@@ -62,6 +62,67 @@ test('a client books after a taken time, then reschedules and cancels', async ({
     .toBeLessThanOrEqual(375);
 });
 
+test('shows the counts and opens booking from a calendar day and history from View All', async ({
+  page,
+}) => {
+  await page.goto(portal('/lvp/appointments'));
+  // Two upcoming (Mon, Tue), none pending or completed, one cancelled (Wed).
+  await expect(page.getByTestId('appointment-stat')).toHaveText([
+    /^2Upcoming Appointments/,
+    /^0Appointment Request Pending/,
+    /^0Completed This Year/,
+    /^1Cancelled/,
+  ]);
+  // The cancelled row shows no join link; upcoming rows do.
+  await expect(page.getByTestId('past-appointment').getByRole('link')).toHaveCount(0);
+  await expect(
+    page.getByTestId('my-appointment').getByRole('link', { name: 'Join link' }),
+  ).toHaveCount(2);
+
+  await page.getByRole('button', { name: 'July 13, 2026, appointment scheduled' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Schedule an Appointment' });
+  await dialog.getByRole('button', { name: /Tax consultation/ }).click();
+  await expect(dialog.getByLabel('Day')).toHaveValue(nextWeek(0));
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'View All' }).click();
+  const history = page.getByRole('dialog', { name: 'Appointment History' });
+  await expect(history.getByText('Cancelled')).toBeVisible();
+});
+
+test('Quick Actions cancel opens only the soonest appointment, once', async ({ page }) => {
+  await page.goto(portal('/lvp/appointments'));
+  const mine = page.getByTestId('my-appointment');
+  await expect(mine).toHaveCount(2);
+  await page.getByRole('button', { name: 'Cancel an Appointment' }).click();
+  const monday = mine.filter({ hasText: '10:00 AM' });
+  await monday.getByRole('button', { name: 'Cancel this appointment' }).click();
+  await expect(page.getByText('Your appointment was cancelled.')).toBeVisible();
+  await expect(mine).toHaveCount(1);
+  // Nothing else opens on its own after the cancel.
+  await expect(page.getByLabel('Reason (optional)')).toHaveCount(0);
+});
+
+test('the row menu keeps focus, and Quick Actions reschedule opens the soonest appointment', async ({
+  page,
+}) => {
+  await page.goto(portal('/lvp/appointments'));
+  const mine = page.getByTestId('my-appointment');
+  const tuesday = mine.filter({ hasText: 'Tue' });
+  const trigger = tuesday.getByRole('button', { name: 'Appointment actions' });
+  await trigger.click();
+  await expect(tuesday.getByRole('menuitem', { name: 'Reschedule' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(tuesday.getByRole('menuitem', { name: 'Cancel' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await expect(tuesday.getByRole('menu')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Reschedule an Appointment' }).click();
+  await expect(page.getByRole('button', { name: '10:00 AM (current)' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Pick a new time' })).toHaveCount(1);
+});
+
 test.describe('a client in another time zone', () => {
   test.use({ timezoneId: 'Asia/Dhaka' });
 

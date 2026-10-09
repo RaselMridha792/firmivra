@@ -4,12 +4,13 @@ import type { MyAppointment } from '@firmivra/types';
 import { useState } from 'react';
 import { CalendarDays, CircleCheck, CircleX, Clock, type LucideIcon } from 'lucide-react';
 
+/** The card's tint, and the icon circle's: tinted for the first two, solid for the last two. */
 const tones = {
-  info: 'bg-info-soft text-info',
-  warning: 'bg-warning-soft text-warning',
-  success: 'bg-success-soft text-success',
-  danger: 'bg-danger-soft text-danger',
-};
+  info: ['bg-info-soft text-info', 'bg-surface'],
+  warning: ['bg-warning-soft text-warning', 'bg-surface'],
+  success: ['bg-success-soft', 'bg-success text-on-action'],
+  danger: ['bg-danger-soft', 'bg-danger text-on-action'],
+} as const;
 
 /**
  * The four counts above the calendar. The API has no appointment requests yet (a booking is
@@ -42,16 +43,18 @@ export function AppointmentStats({
         <div
           key={label}
           data-testid="appointment-stat"
-          className={`flex items-center gap-4 rounded-card p-4 shadow-sm ${tones[tone]}`}
+          className={`flex items-center gap-4 rounded-card p-4 shadow-sm xl:min-w-0 xl:flex-1 ${tones[tone][0]}`}
         >
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-pill bg-surface">
+          <span
+            className={`flex size-12 shrink-0 items-center justify-center rounded-pill ${tones[tone][1]}`}
+          >
             <Icon aria-hidden className="size-6" />
           </span>
           <span className="flex flex-col">
             <span className="font-display text-3xl leading-none font-bold text-heading">
               {value}
             </span>
-            <span className="mt-1 text-sm text-text">{label}</span>
+            <span className="mt-1 max-w-28 text-sm text-text">{label}</span>
           </span>
         </div>
       ))}

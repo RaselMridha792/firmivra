@@ -41,7 +41,10 @@ export function AppointmentsScreen() {
   const [request, setRequest] = useState<ActionRequest | null>(null);
 
   const ask = (kind: ActionRequest['kind']) => {
-    if (upcoming.data && !targetOf(upcoming.data, kind)) {
+    // Pin the row once, by id: after a cancel the list changes, and nothing else may open.
+    if (!upcoming.data) return;
+    const target = targetOf(upcoming.data, kind);
+    if (!target) {
       setNotice({
         text: 'You have no appointment that can be changed online. Please contact us.',
         failed: true,
@@ -49,7 +52,7 @@ export function AppointmentsScreen() {
       return;
     }
     setNotice(null);
-    setRequest({ kind, n: (request?.n ?? 0) + 1 });
+    setRequest({ kind, id: target.id, n: (request?.n ?? 0) + 1 });
   };
 
   return (
@@ -65,31 +68,36 @@ export function AppointmentsScreen() {
           Schedule, view, and manage your appointments with {business.name}.
         </p>
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:flex">
         <AppointmentStats upcoming={upcoming.data} past={past.data} />
         <Button
-          className="min-h-14 self-center px-6 text-base sm:col-span-2 xl:col-span-1"
+          className="min-h-14 self-center px-6 text-base sm:col-span-2 xl:shrink-0"
           onClick={() => setSchedule({})}
         >
           <Plus aria-hidden className="size-5" />
           Schedule an Appointment
         </Button>
       </div>
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)_minmax(0,4fr)]">
-        <MonthCalendar
-          appointments={[...(upcoming.data ?? []), ...(past.data ?? [])]}
-          onPickDay={(date) => setSchedule({ date })}
-        />
-        <UpcomingAppointments
-          slug={slug}
-          upcoming={upcoming}
-          past={past}
-          notice={notice}
-          onNotice={setNotice}
-          request={request}
-          onViewAll={() => setHistory(true)}
-        />
-        <div className="lg:col-span-2 xl:col-span-1">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-15">
+        <div className="xl:col-span-5">
+          <MonthCalendar
+            appointments={[...(upcoming.data ?? []), ...(past.data ?? [])]}
+            onPickDay={(date) => setSchedule({ date })}
+          />
+        </div>
+        <div className="xl:col-span-6">
+          <UpcomingAppointments
+            slug={slug}
+            upcoming={upcoming}
+            past={past}
+            notice={notice}
+            onNotice={setNotice}
+            request={request}
+            onRequestDone={() => setRequest(null)}
+            onViewAll={() => setHistory(true)}
+          />
+        </div>
+        <div className="lg:col-span-2 xl:col-span-4">
           <SideCards
             slug={slug}
             onSchedule={() => setSchedule({})}

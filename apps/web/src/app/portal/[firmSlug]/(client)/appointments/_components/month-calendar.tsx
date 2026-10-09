@@ -51,11 +51,14 @@ export function MonthCalendar({
 }) {
   const [now] = useState(today);
   const [month, setMonth] = useState(now.slice(0, 7));
-  const scheduled = new Set(
-    appointments.filter((a) => a.status === 'SCHEDULED').map((a) => dayOf(a.startsAt)),
-  );
+  // Staff close an appointment after it ends; until then a past one is still SCHEDULED.
+  const [at] = useState(() => Date.now());
+  const isUpcoming = (a: MyAppointment) => a.status === 'SCHEDULED' && Date.parse(a.endsAt) > at;
+  const scheduled = new Set(appointments.filter(isUpcoming).map((a) => dayOf(a.startsAt)));
   const past = new Set(
-    appointments.filter((a) => a.status !== 'SCHEDULED').map((a) => dayOf(a.startsAt)),
+    appointments
+      .filter((a) => a.status !== 'CANCELLED' && !isUpcoming(a))
+      .map((a) => dayOf(a.startsAt)),
   );
   const title = atNoon(`${month}-01`).toLocaleString('en-US', {
     month: 'long',
@@ -63,10 +66,10 @@ export function MonthCalendar({
     timeZone: 'UTC',
   });
   const arrow =
-    'flex size-9 items-center justify-center rounded-control text-heading hover:bg-folder-surface';
+    'flex size-9 items-center justify-center rounded-control text-heading hover:bg-canvas';
 
   return (
-    <Card variant="elevated" aria-label="Calendar">
+    <Card variant="elevated" aria-label="Calendar" className="h-full">
       <div className="mb-4 flex items-center gap-2">
         <button
           type="button"
@@ -93,7 +96,7 @@ export function MonthCalendar({
         <button
           type="button"
           onClick={() => setMonth(now.slice(0, 7))}
-          className="ml-auto rounded-control border border-border bg-info-soft px-4 py-1.5 text-sm font-semibold text-link hover:bg-folder-hover"
+          className="ml-auto rounded-control border border-border bg-info-soft px-4 py-1.5 text-sm font-semibold text-heading hover:bg-canvas"
         >
           Today
         </button>
@@ -104,7 +107,7 @@ export function MonthCalendar({
             {day}
           </div>
         ))}
-        {weeksOf(month).map((day) => {
+        {weeksOf(month).map((day, index) => {
           const inMonth = day.startsWith(month);
           const isToday = day === now;
           const label = atNoon(day).toLocaleString('en-US', {
@@ -117,11 +120,10 @@ export function MonthCalendar({
             <button
               key={day}
               type="button"
-
               disabled={day < now}
-              aria-label={`${label}${scheduled.has(day) ? ', appointment scheduled' : ''}`}
+              aria-label={`${label}${scheduled.has(day) ? ', appointment scheduled' : past.has(day) ? ', past appointment' : ''}`}
               onClick={() => onPickDay(day)}
-              className={`flex h-14 flex-col items-center justify-center gap-1 border-t border-border enabled:hover:bg-folder-surface disabled:cursor-default ${inMonth ? 'text-text' : 'text-muted'}`}
+              className={`flex h-14 flex-col items-center justify-center gap-1 border-t border-border enabled:hover:bg-canvas disabled:cursor-default ${index % 7 ? 'border-l' : ''} ${inMonth ? 'text-text' : 'text-muted'}`}
             >
               <span
                 className={`flex size-9 items-center justify-center rounded-pill ${isToday ? 'bg-action font-semibold text-on-action' : ''}`}
