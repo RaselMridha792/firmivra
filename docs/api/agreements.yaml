@@ -1,0 +1,272 @@
+openapi: 3.1.0
+info:
+  title: Firmivra intake agreements API
+  version: 0.1.0
+  description: |
+    The firm's intake agreements (Settings > Terms & Privacy > Agreements) and the block a
+    visitor or client signs before an intake submits (Begin Online and the portal intake tab).
+    R14, from Rasel's decision 3 (Oct 8) and `plans/areas/agreements.md`.
+
+    **Source of truth:** the zod schemas in `packages/types/src/agreements/schemas.ts` and the
+    signature capture in `packages/types/src/esign/capture.ts`, with typed calls in
+    `createAgreementsClient` and `createPublicAgreementsClient` (web: `api.agreements` and
+    `api.publicAgreements(slug)`). Mock mode: `apps/web/src/mocks/agreements.ts`. If this file and
+    the zod schemas differ, the zod schemas win.
+
+    ## Pages and calls
+
+    | Page | Calls |
+    | --- | --- |
+    | Settings > Agreements (list) | `list`, `create`, `archive` |
+    | Agreement editor | `get`, `getVersion`, `publish`; the PDF with `uploadFile()` (`createUpload`, PUT, `confirmUpload`), then `file` until CLEAN, `download` |
+    | Begin Online and portal intake, agreement step | `publicAgreements(slug).block({ serviceId })`, `downloadPdf(agreementId, version)` |
+    | Intake submit (R11) | `signature: IntakeSignatureInput` in the submit body |
+
+    - **Who:** firm routes are for the Owner and Admin (`403 FORBIDDEN` for staff) and work while
+      the firm is Pending Setup. Public routes need no sign-in; the firm comes from the slug, and
+      an unknown or inactive firm, another firm's service or agreement, or an archived agreement
+      answers `404`.
+    - **Series and versions:** each firm has one firm-wide agreement (`ALL_INTAKES`) and any
+      number of service agreements (`SERVICE`, one service each). Versions are numbered from 1
+      and never edited or deleted. `expectedCurrentVersion` guards against two people publishing
+      at once (`409 VERSION_CONFLICT`). The firm-wide agreement needs at least one required
+      acknowledgment and can't be archived (`409 FIRM_WIDE_REQUIRED`).
+    - **PDF original:** with `AGREEMENT_PDF_REQUIRED` on (default) each version needs a PDF whose
+      scan is CLEAN (`409 PDF_REQUIRED`, `FILE_NOT_READY`, `FILE_BLOCKED`). PDF only, 10 MB and 200
+      pages at most, no password (`409 NOT_A_PDF`, `FILE_PASSWORD_PROTECTED`, `TOO_MANY_PAGES`).
+      Downloads are 5-minute attachment links.
+    - **Signing:** the signer reads every agreement in the block, ticks the required boxes, prints
+      a name and types it again as the signature (`SignatureCaptureInput`). The API records the
+      versions, their text and PDF SHA-256 values, the ticked boxes with their text, the
+      database's time, the IP and user agent, and an evidence SHA-256. A newer version answers
+      `409 AGREEMENT_OUTDATED`; no published firm-wide version answers `409 NO_INTAKE_AGREEMENT`.
+    - **Rendering:** agreement text is Markdown, rendered with `<Markdown>` from packages/ui (raw
+      HTML off, `https:` and `mailto:` links only). Never `dangerouslySetInnerHTML`.
+    - **Writes:** JSON bodies from the app site only (`415`, `403 ORIGIN_NOT_ALLOWED`).
+    - **Audit:** publish, archive and upload are logged with ids and version numbers, never the
+      text; a signature is logged with its id and versions, never the name, IP or user agent.
+
+servers:
+  - url: /api/v1
+
+security: [{ firmCookie: [] }]
+
+tags:
+  - name: agreements
+  - name: agreement-files
+  - name: public
+
+paths:
+  /business/agreements:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    get:
+      tags: [agreements]
+      operationId: listAgreements
+      summary: The firm-wide agreement first, then service agreements by sort order
+      responses:
+        '200': { $ref: '#/components/responses/FirmAgreementList' }
+        '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+    post:
+      tags: [agreements]
+      operationId: createAgreement
+      summary: A new series (no version yet)
+      requestBody: { $ref: '#/components/requestBodies/CreateAgreementRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/FirmAgreementSummary' }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/AgreementConflict' }
+
+  /business/agreements/{agreementId}:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/AgreementId' }
+    get:
+      tags: [agreements]
+      operationId: getAgreement
+      summary: The series with every version, newest first
+      responses:
+        '200': { $ref: '#/components/responses/FirmAgreementDetail' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+
+  /business/agreements/{agreementId}/versions:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/AgreementId' }
+    post:
+      tags: [agreements]
+      operationId: publishAgreementVersion
+      summary: Publish the next version
+      requestBody: { $ref: '#/components/requestBodies/PublishAgreementVersionRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/AgreementVersion' }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/AgreementConflict' }
+
+  /business/agreements/{agreementId}/versions/{version}:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/AgreementId' }
+      - { $ref: '#/components/parameters/Version' }
+    get:
+      tags: [agreements]
+      operationId: getAgreementVersion
+      summary: One version in full
+      responses:
+        '200': { $ref: '#/components/responses/AgreementVersion' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+
+  /business/agreements/{agreementId}/archive:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/AgreementId' }
+    post:
+      tags: [agreements]
+      operationId: archiveAgreement
+      summary: Archive a service agreement (no body; repeating changes nothing)
+      responses:
+        '200': { $ref: '#/components/responses/FirmAgreementSummary' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/AgreementConflict' }
+
+  /business/agreements/files/uploads:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [agreement-files]
+      operationId: createAgreementUpload
+      summary: Step 1 of 3, a one-time PUT URL for the PDF (5 minutes)
+      requestBody: { $ref: '#/components/requestBodies/CreateAgreementUploadRequest' }
+      responses:
+        '201':
+          description: UploadTicket (documents.yaml)
+          content: { application/json: { schema: { $ref: './documents.yaml#/components/schemas/UploadTicket' } } }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+
+  /business/agreements/files/confirm:
+    parameters: [{ $ref: './client-auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [agreement-files]
+      operationId: confirmAgreementUpload
+      summary: Step 3 of 3, checks the stored PDF and starts the scan
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: './documents.yaml#/components/schemas/ConfirmUploadRequest' } } }
+      responses:
+        '201': { $ref: '#/components/responses/AgreementFile' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/AgreementConflict' }
+        '410': { $ref: '#/components/responses/AgreementConflict' }
+
+  /business/agreements/files/{fileId}:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/FileId' }
+    get:
+      tags: [agreement-files]
+      operationId: getAgreementFile
+      summary: The file and its scan (poll until CLEAN)
+      responses:
+        '200': { $ref: '#/components/responses/AgreementFile' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+
+  /business/agreements/files/{fileId}/download:
+    parameters:
+      - { $ref: './client-auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/FileId' }
+    get:
+      tags: [agreement-files]
+      operationId: downloadAgreementFile
+      summary: A 5-minute attachment link to a CLEAN file
+      responses:
+        '200': { $ref: '#/components/responses/DownloadLink' }
+        '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/AgreementConflict' }
+
+  /portal/{firmSlug}/intake-agreements:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - name: serviceId
+        in: query
+        required: false
+        schema: { type: string, format: uuid }
+    get:
+      tags: [public]
+      security: []
+      operationId: getIntakeAgreementBlock
+      summary: The agreements to sign for an intake (the firm-wide one first)
+      responses:
+        '200':
+          description: IntakeAgreementBlock
+          content: { application/json: { schema: { $ref: '#/components/schemas/IntakeAgreementBlock' } } }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+
+  /portal/{firmSlug}/intake-agreements/{agreementId}/versions/{version}/pdf:
+    parameters:
+      - { $ref: '#/components/parameters/FirmSlug' }
+      - { $ref: '#/components/parameters/AgreementId' }
+      - { $ref: '#/components/parameters/Version' }
+    get:
+      tags: [public]
+      security: []
+      operationId: downloadIntakeAgreementPdf
+      summary: The current version's PDF original (an older version answers 404)
+      responses:
+        '200': { $ref: '#/components/responses/DownloadLink' }
+        '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    firmCookie: { type: apiKey, in: cookie, name: fv_access }
+  parameters:
+    AgreementId: { name: agreementId, in: path, required: true, schema: { type: string, format: uuid } }
+    FileId: { name: fileId, in: path, required: true, schema: { type: string, format: uuid } }
+    Version: { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    FirmSlug: { name: firmSlug, in: path, required: true, schema: { type: string } }
+  requestBodies:
+    CreateAgreementRequest:
+      required: true
+      content: { application/json: { schema: { type: object, description: 'zod CreateAgreementRequest' } } }
+    PublishAgreementVersionRequest:
+      required: true
+      content: { application/json: { schema: { type: object, description: 'zod PublishAgreementVersionRequest' } } }
+    CreateAgreementUploadRequest:
+      required: true
+      content: { application/json: { schema: { type: object, description: 'zod CreateAgreementUploadRequest' } } }
+  responses:
+    FirmAgreementList:
+      description: FirmAgreementList
+      content: { application/json: { schema: { type: object, description: 'zod FirmAgreementList' } } }
+    FirmAgreementSummary:
+      description: FirmAgreementSummary
+      content: { application/json: { schema: { type: object, description: 'zod FirmAgreementSummary' } } }
+    FirmAgreementDetail:
+      description: FirmAgreementDetail
+      content: { application/json: { schema: { type: object, description: 'zod FirmAgreementDetail' } } }
+    AgreementVersion:
+      description: AgreementVersion
+      content: { application/json: { schema: { type: object, description: 'zod AgreementVersion' } } }
+    AgreementFile:
+      description: AgreementFile
+      content: { application/json: { schema: { type: object, description: 'zod AgreementFile' } } }
+    DownloadLink:
+      description: DownloadLink (url and expiresAt, 5 minutes)
+      content: { application/json: { schema: { $ref: './documents.yaml#/components/schemas/DownloadLink' } } }
+    AgreementConflict:
+      description: 'An `AgreementErrorCode` (see AGREEMENT_ERRORS for the text users see)'
+      content: { application/json: { schema: { $ref: './client-auth.yaml#/components/schemas/ApiError' } } }
+  schemas:
+    IntakeAgreementBlock: { type: object, description: 'zod IntakeAgreementBlock' }
+    IntakeSignatureInput:
+      type: object
+      description: 'zod IntakeSignatureInput: `signature` in the intake submit bodies (R11)'

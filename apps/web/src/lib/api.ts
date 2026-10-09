@@ -1,5 +1,6 @@
 import {
   createAdminSupportAccessClient,
+  createAgreementsClient,
   createApiClient,
   createAppointmentsClient,
   createAppointmentTypesClient,
@@ -21,6 +22,7 @@ import {
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createPublicAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
   createMyNotesClient,
@@ -47,6 +49,7 @@ import {
   createAvailabilityMock,
   myAppointmentsMock,
 } from '../mocks/appointments';
+import { createAgreementsMock, publicAgreementsMock } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
@@ -190,6 +193,16 @@ export const api = {
   /** Workspaces (R12): a client's published reports in My Services, per firm (portal). */
   myReports: (firmSlug: string) =>
     dev && mocked('myReports') ? myReportsMock(firmSlug) : createMyReportsClient(request, firmSlug),
+  /** Intake agreements (R14): the firm's versioned agreements and their PDF originals. */
+  agreements:
+    dev && mocked('agreements')
+      ? createAgreementsMock({ role: MOCK_ROLE })
+      : createAgreementsClient(request),
+  /** Intake agreements (R14): what a visitor or client signs before an intake submits (public). */
+  publicAgreements: (firmSlug: string) =>
+    dev && mocked('publicAgreements')
+      ? publicAgreementsMock(firmSlug)
+      : createPublicAgreementsClient(request, firmSlug),
   /** Audit log viewer (R12): the firm's own log, for the Owner and Admins. */
   auditLog:
     dev && mocked('auditLog')
