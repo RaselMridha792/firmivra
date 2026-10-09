@@ -91,7 +91,10 @@ export class MyProfileService {
     return { account, client };
   }
 
-  /** `afterWrite`: the change is saved, so an unreadable date of birth answers null. */
+  /**
+   * The profile as the login may see it. An unreadable date of birth never fails the page (or a
+   * save that already happened): it answers null with `dateOfBirthUnavailable`.
+   */
   private async view(
     businessId: string,
     { account, client }: Awaited<ReturnType<MyProfileService['mine']>>,
