@@ -61,6 +61,11 @@ export const maskEmail = (email: string) => `${email[0]}***${email.slice(email.i
 /** Where the signer is: from the request, the recipient and what the cookie says they passed. */
 export function signerStep(s: SignerSession, r: SignerRecord, now: Date): SignerStep {
   const { request: q, recipient: me } = r;
+  // A completed-copy session: the email code, then the files while the link lasts.
+  if (s.purpose === 'COPY') {
+    const open = q.status === 'COMPLETED' && r.copyExpiresAt !== null && r.copyExpiresAt > now;
+    return !open ? 'CLOSED' : s.emailCodePassed ? 'COPY' : 'VERIFY_EMAIL';
+  }
   if (me.status === 'DECLINED') return 'DECLINED';
   if (me.status === 'SIGNED') return 'DONE';
   if (!OPEN.includes(q.status) || (q.expiresAt !== null && q.expiresAt <= now)) return 'CLOSED';
@@ -118,17 +123,17 @@ export class EsignSignerService {
   async open(slug: string, token: string, res: Response): Promise<SignerState> {
     const firm = await this.firm(slug);
     const link = await this.repo.findLink(firm.id, this.tokens.hash(token));
-    // The completed-copy link (purpose COPY) comes with slice 3b.
-    if (link?.purpose !== 'SIGN') throw linkInvalid();
-    const signer = await this.repo.signer(firm.id, link.requestId, link.recipientId);
-    if (!signer || signer.tokenVersion !== link.tokenVersion) throw linkInvalid();
+    const signer = link && (await this.read(firm.id, link));
+    if (!link || !signer || signer.tokenVersion !== link.tokenVersion) throw linkInvalid();
     const { requestId, recipientId, tokenVersion, purpose } = link;
     const method = signer.recipient.authMethod;
+    // A copy link always asks for the email code, never the access code or consent.
+    const copy = purpose === 'COPY';
     const session: SignerSession = {
       ...{ slug: firm.slug, businessId: firm.id, requestId, recipientId, tokenVersion, purpose },
-      emailCodePassed: method !== 'EMAIL_CODE',
-      accessCodePassed: method !== 'ACCESS_CODE',
-      consentVersionId: signer.consentVersionId,
+      emailCodePassed: !copy && method !== 'EMAIL_CODE',
+      accessCodePassed: copy || method !== 'ACCESS_CODE',
+      consentVersionId: copy ? null : signer.consentVersionId,
     };
     const call: SignerCall = {
       firm,
@@ -149,11 +154,20 @@ export class EsignSignerService {
     const raw = (req.cookies as Record<string, unknown>)[this.cookie.name(firm.slug)];
     const session = typeof raw === 'string' ? await this.cookie.open(firm.slug, raw) : undefined;
     if (!session || session.businessId !== firm.id) throw linkInvalid();
-    const signer = await this.repo.signer(firm.id, session.requestId, session.recipientId);
+    const signer = await this.read(firm.id, session);
     if (!signer || signer.tokenVersion !== session.tokenVersion) throw linkInvalid();
     const step = signerStep(session, signer, new Date());
     if (steps.length > 0 && !steps.includes(step)) throw esignRefusal('WRONG_STEP');
     return { firm, session, signer, step };
+  }
+
+  /** A SIGN link's or session's SIGNER; a COPY one's SIGNER or CC. */
+  private read(
+    businessId: string,
+    s: Pick<SignerSession, 'requestId' | 'recipientId' | 'purpose'>,
+  ) {
+    const read = s.purpose === 'COPY' ? this.repo.copyHolder : this.repo.signer;
+    return read.call(this.repo, businessId, s.requestId, s.recipientId);
   }
 
   /** POST session/end: forgets the cookie. */
@@ -168,6 +182,8 @@ export class EsignSignerService {
     const { request: q, recipient: me } = c.signer;
     const sender = await this.directory.member(c.firm.id, q.senderUserId);
     const over = ['DONE', 'DECLINED', 'CLOSED'].includes(c.step);
+    const closed = c.step === 'CLOSED';
+    const shown = closed || c.step === 'COPY';
     return {
       step: c.step,
       title: q.title,
@@ -176,8 +192,10 @@ export class EsignSignerService {
       signerName: me.name,
       codeSentTo: c.step === 'VERIFY_EMAIL' && me.email ? maskEmail(me.email) : null,
       // CLOSED while still open: it ran out before the expiry job marked it.
-      requestStatus: c.step !== 'CLOSED' ? null : OPEN.includes(q.status) ? 'EXPIRED' : q.status,
-      expiresAt: over ? null : (q.expiresAt?.toISOString() ?? null),
+      requestStatus: !shown ? null : closed && OPEN.includes(q.status) ? 'EXPIRED' : q.status,
+      expiresAt: over
+        ? null
+        : ((c.step === 'COPY' ? c.signer.copyExpiresAt : q.expiresAt)?.toISOString() ?? null),
     };
   }
 
@@ -463,8 +481,10 @@ export class EsignSignerService {
     return { ...at, actorKind: 'SIGNER' as const, actorName: name, recipient: { id, name } };
   }
 
-  private event(c: SignerCall, ...args: [EsignEventType, EsignAuthMethod]) {
-    return this.repo.addEvent(c.firm.id, c.signer.request.id, this.eventRecord(c, ...args));
+  /** The timeline's event; a copy session's codes are audited only (the request is closed). */
+  private async event(c: SignerCall, ...args: [EsignEventType, EsignAuthMethod]) {
+    if (c.session.purpose === 'COPY') return;
+    await this.repo.addEvent(c.firm.id, c.signer.request.id, this.eventRecord(c, ...args));
   }
 
   /** Ids only: never a code, a token, a name or an address. */

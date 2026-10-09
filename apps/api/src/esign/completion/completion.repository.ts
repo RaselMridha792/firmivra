@@ -62,6 +62,11 @@ export interface EsignCompletionRepository {
     id: string,
     write: CompletionWrite,
   ): Promise<CompletionResult | null>;
+  /** A COMPLETED request's stored final PDF and certificate (the copy link's files); else null. */
+  files(
+    businessId: string,
+    requestId: string,
+  ): Promise<{ final: CompletedFile; certificate: CompletedFile } | null>;
   /** A failed run: completion_due_at moves to `retryAt` (only while still due). */
   retryLater(businessId: string, requestId: string, retryAt: Date): Promise<void>;
 }

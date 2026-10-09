@@ -1,10 +1,12 @@
 // R13 signer routes, slice 3, on the in-memory ports (esign-fakes.ts) with R18's real link
 // tokens, code HMAC and sealed cookie and the real completion service over a recording PDF
 // engine: attachments (upload ticket, confirm with its checks, replace, remove, the required
-// field in finish), the packet as it stands (earlier signers stamped in), cross-recipient and
-// cross-firm checks, and nothing secret in the logs, audit or timeline. Synthetic data only.
+// field in finish), the completed-copy link (a SIGNER or a CC: email code, then COPY, the files
+// and their 5-minute links; wrong slug, other firm, expired and used links all LINK_INVALID), the
+// packet as it stands (earlier signers stamped in), cross-recipient and cross-firm checks, and
+// nothing secret in the logs, audit or timeline. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
-import { HttpException, NotFoundException } from '@nestjs/common';
+import { HttpException, Logger, NotFoundException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EsignField } from '@firmivra/types';
@@ -54,6 +56,18 @@ class FakeNotify implements NotifyService {
   send(message: NotifyMessage): Promise<void> {
     this.sent.push(structuredClone(message));
     return Promise.resolve();
+  }
+  get lastCode(): string {
+    const codes = this.sent.filter(
+      (m): m is NotifyMessage<'esign.code'> => m.template === 'esign.code',
+    );
+    return codes.at(-1)!.data.code;
+  }
+  /** The raw token in the esign.completed email to that address. */
+  copyTokenFor(to: string): string {
+    const mail = this.sent.find((m) => m.template === 'esign.completed' && m.to === to);
+    const data = (mail as NotifyMessage<'esign.completed'>).data as { copyLink: string };
+    return /#t=([\w-]{43})$/.exec(data.copyLink)![1]!;
   }
 }
 
@@ -123,7 +137,7 @@ beforeEach(() => {
     ...([w.store, new PngSignatureCheck(), esignRules, sender, notify, w.audit] as const),
     ...([{ APP_BASE_URL: 'https://app.example.test' }, completion] as const),
   );
-  files = new EsignSignerFilesService(svc, signers, w.repo, w.store);
+  files = new EsignSignerFilesService(svc, signers, w.repo, completed, w.store);
   for (const firm of [w.a, w.b]) {
     signers.consents.set(firm, { id: randomUUID(), version: 1, bodyMarkdown: 'Fake consent' });
   }
@@ -213,6 +227,8 @@ const api = (b: Browser, slug = SLUG_A) => {
     confirm: async (fieldId: string, uploadToken: string) =>
       files.confirmUpload(await at('SIGN'), fieldId, uploadToken),
     remove: async (fieldId: string) => files.remove(await at('SIGN'), fieldId),
+    copy: async () => files.copy(await at('COPY')),
+    download: async (file: 'final' | 'certificate') => files.download(await at('COPY'), file),
   };
 };
 
@@ -409,6 +425,142 @@ describe('attachments', () => {
     expect(await refused(api(moved).upload(attach.id))).toBe('404 LINK_INVALID');
     expect(await refused(api(moved).remove(attach.id))).toBe('404 LINK_INVALID');
     expect(await signers.attachments(w.a, id, me.id)).toEqual([]);
+  });
+});
+
+/** A completed request: a drawn signer (with a value), a typed one and a CC. */
+async function completedRequest(firm = w.a) {
+  const drawn = person({ name: 'Fake Drawn' });
+  const typed = person({ name: 'Fake Typed' });
+  const cc = person({ kind: 'CC', name: 'Fake Copy', status: 'WAITING', sentAt: null });
+  const text = field(drawn.id, 'TEXT');
+  const fields = [field(drawn.id, 'SIGNATURE'), text, field(typed.id, 'SIGNATURE')];
+  const id = await sent(firm, [drawn, typed, cc], fields);
+  const first = await atSign(firm, id, drawn, true);
+  const value = { fieldId: text.id, value: SECRET_VALUE };
+  await svc.finish(await svc.call(slugOf(firm), first.b.req, 'SIGN'), [value]);
+  const second = await atSign(firm, id, typed);
+  await svc.finish(await svc.call(slugOf(firm), second.b.req, 'SIGN'), []);
+  expect((await w.repo.findRequest(firm, id))?.status).toBe('COMPLETED');
+  return { id, drawn, typed, cc, signLink: first.token };
+}
+
+/** Opens a copy link and passes the email code: at COPY. */
+async function atCopy(token: string, slug = SLUG_A) {
+  const b = new Browser();
+  const opened = await api(b, slug).open(token);
+  expect(opened).toMatchObject({ step: 'VERIFY_EMAIL', requestStatus: null });
+  await api(b, slug).sendCode();
+  const state = await api(b, slug).verifyCode(notify.lastCode);
+  return { b, state };
+}
+
+describe('the completed-copy link', () => {
+  it('a CC and a signer: email code, then the two files and their 5-minute links', async () => {
+    const { id, cc, typed } = await completedRequest();
+    const events = (await w.repo.events(w.a, id)).length;
+    for (const who of [cc, typed]) {
+      const { b, state } = await atCopy(notify.copyTokenFor(who.email!));
+      expect(state).toMatchObject({
+        step: 'COPY',
+        requestStatus: 'COMPLETED',
+        signerName: who.name,
+        expiresAt: signers.copyExpiry.of(w.a).get(who.id)!.toISOString(),
+      });
+      expect(await api(b).copy()).toMatchObject({
+        title: 'Fake engagement letter',
+        files: [
+          { file: 'final', fileName: 'Fake engagement letter - signed.pdf' },
+          { file: 'certificate', fileName: 'Fake engagement letter - certificate.pdf' },
+        ],
+      });
+      const stored = (await completed.files(w.a, id))!;
+      for (const file of ['final', 'certificate'] as const) {
+        const link = await api(b).download(file);
+        const name = encodeURIComponent(stored[file].fileName);
+        expect(link.url).toBe(`memory://${stored[file].key}?name=${name}`);
+        const minutes = (Date.parse(link.expiresAt) - Date.now()) / 60_000;
+        expect(minutes).toBeGreaterThan(4.9);
+        expect(minutes).toBeLessThanOrEqual(5);
+      }
+      // A copy session never signs.
+      expect(await refused(api(b).envelope())).toBe('409 WRONG_STEP');
+      expect(await refused(api(b).upload(randomUUID()))).toBe('409 WRONG_STEP');
+    }
+    // The completed request's timeline is left alone; the audit has ids only.
+    expect(await w.repo.events(w.a, id)).toHaveLength(events);
+    expect(w.audit.entries).toContainEqual({
+      action: 'esign.signer_copy_downloaded',
+      entity: { type: 'esign_recipient', id: cc.id },
+      metadata: { requestId: id, file: 'certificate' },
+    });
+  });
+
+  it('a signer at SIGN cannot reach the copy (409 WRONG_STEP)', async () => {
+    const me = person();
+    const id = await sent(w.a, [me], [field(me.id, 'SIGNATURE')]);
+    const { b } = await atSign(w.a, id, me);
+    expect(await refused(api(b).copy())).toBe('409 WRONG_STEP');
+    expect(await refused(api(b).download('final'))).toBe('409 WRONG_STEP');
+  });
+
+  it('wrong slug, another firm, used and replaced links are the one 404 LINK_INVALID', async () => {
+    const { cc, signLink } = await completedRequest();
+    const other = await completedRequest(w.b);
+    const token = notify.copyTokenFor(cc.email!);
+    expect(await refused(api(new Browser(), SLUG_B).open(token))).toBe('404 LINK_INVALID');
+    const tokenB = notify.copyTokenFor(other.cc.email!);
+    expect(await refused(api(new Browser()).open(tokenB))).toBe('404 LINK_INVALID');
+    // Used: the signing link of someone who signed opens nothing now.
+    expect(await refused(api(new Browser()).open(signLink))).toBe('404 LINK_INVALID');
+    // A copy cookie moved to the other firm's slug.
+    const { b } = await atCopy(token);
+    const moved = new Browser();
+    moved.jar.set(`fv_sign_${SLUG_B}`, b.jar.get(`fv_sign_${SLUG_A}`)!);
+    expect(await refused(api(moved, SLUG_B).copy())).toBe('404 LINK_INVALID');
+    // Replaced (a resend issues a fresh link): the old one is gone.
+    signers.links.of(w.a).delete(tokens.hash(token));
+    expect(await refused(api(new Browser()).open(token))).toBe('404 LINK_INVALID');
+  });
+
+  it('after 30 days the link is 404 and an open session shows CLOSED', async () => {
+    const { cc } = await completedRequest();
+    const token = notify.copyTokenFor(cc.email!);
+    const expiry = signers.copyExpiry.of(w.a).get(cc.id)!.getTime();
+    expect(Math.round((expiry - Date.now()) / DAY)).toBe(30);
+    vi.useFakeTimers({ now: expiry + 1, toFake: ['Date'] });
+    expect(await refused(api(new Browser()).open(token))).toBe('404 LINK_INVALID');
+    // A session opened shortly before the expiry: the expiry is read on every call.
+    vi.setSystemTime(expiry - 10 * 60_000);
+    const { b } = await atCopy(token);
+    vi.setSystemTime(expiry + 1);
+    expect(await api(b).state()).toMatchObject({
+      step: 'CLOSED',
+      requestStatus: 'COMPLETED',
+      expiresAt: null,
+    });
+    expect(await refused(api(b).copy())).toBe('409 WRONG_STEP');
+    expect(await refused(api(b).download('final'))).toBe('409 WRONG_STEP');
+  });
+
+  it('no token, code, value, file name or address in the logs, audit or timeline', async () => {
+    const spies = (['log', 'warn', 'error', 'debug', 'verbose'] as const).map((m) =>
+      vi.spyOn(Logger.prototype, m),
+    );
+    const { id, cc } = await completedRequest();
+    const token = notify.copyTokenFor(cc.email!);
+    const { b } = await atCopy(token);
+    await api(b).copy();
+    await api(b).download('final');
+    const said = JSON.stringify([
+      spies.map((s) => s.mock.calls),
+      w.audit.entries,
+      await w.repo.events(w.a, id),
+    ]);
+    for (const secret of [token, notify.lastCode, SECRET_VALUE, cc.email!, 'signed.pdf']) {
+      expect(said).not.toContain(secret);
+    }
+    expect(said).not.toContain(b.jar.get(`fv_sign_${SLUG_A}`)!);
   });
 });
 

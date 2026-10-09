@@ -1,15 +1,15 @@
 // R13 signer routes, slice 3, over HTTP: EsignModule's signer controller with the in-memory ports
 // (no database), R18's real link tokens, code HMAC and sealed cookie, and the cookie parser the
-// app uses: attachments (ticket, confirm, envelope, remove; another signer's is 404, and a
-// cookie under another slug). The guards and the database-backed answers are in
-// test/e2e/esign-signer.e2e.test.ts. Synthetic data only.
+// app uses. Attachments (ticket, confirm, envelope, remove; another signer's is 404), the
+// completed-copy link (code, copy, download; a wrong slug is 404) and the pipes. The guards and
+// the database-backed answers are in test/e2e/esign-signer.e2e.test.ts. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
 import { Global, type INestApplication, Module, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SignerField, SignerState, UploadTicket } from '@firmivra/types';
+import { DownloadLink, SignerCopy, SignerField, SignerState, UploadTicket } from '@firmivra/types';
 import type { EsignField } from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
@@ -218,5 +218,56 @@ describe('attachments over HTTP', () => {
       .delete(`${base(SLUG_B)}/attachments/${field.id}`)
       .set('cookie', cookie.replace(`fv_sign_${SLUG_A}`, `fv_sign_${SLUG_B}`));
     expect(errorOf(moved)).toEqual([404, 'LINK_INVALID']);
+  });
+});
+
+describe('the completed-copy link over HTTP', () => {
+  it('a CC passes the email code, reads the copy and gets a 5-minute link', async () => {
+    const cc = person({ kind: 'CC', status: 'WAITING', sentAt: null });
+    const id = await seeded('COMPLETED', [person({ status: 'SIGNED' }), cc]);
+    const file = (folder: string) => ({
+      key: w.store.keyFor(w.a, id, `${folder}/${sha(PDF)}.pdf`),
+      fileName: `Fake letter - ${folder}.pdf`,
+      sizeBytes: PDF.byteLength,
+      sha256: sha(PDF),
+    });
+    completed.stored.of(w.a).set(id, { final: file('final'), certificate: file('certificate') });
+    signers.copyExpiry.of(w.a).set(cc.id, new Date(Date.now() + 30 * 86_400_000));
+    const token = link(id, cc.id, 'COPY');
+    expect(
+      errorOf(
+        await server()
+          .post(`${base(SLUG_B)}/session`)
+          .send({ token }),
+      ),
+    ).toEqual([404, 'LINK_INVALID']);
+    let cookie = await open(token);
+    expect(errorOf(await server().get(`${base()}/copy`).set('cookie', cookie))).toEqual([
+      409,
+      'WRONG_STEP',
+    ]);
+    expect((await server().post(`${base()}/code/send`).set('cookie', cookie)).status).toBe(200);
+    const mail = mailed.at(-1) as NotifyMessage<'esign.code'>;
+    expect(mail.to).toBe(cc.email);
+    const verified = await server()
+      .post(`${base()}/code/verify`)
+      .set('cookie', cookie)
+      .send({ code: mail.data.code });
+    expect(SignerState.parse(verified.body)).toMatchObject({
+      step: 'COPY',
+      requestStatus: 'COMPLETED',
+    });
+    cookie = String(verified.headers['set-cookie']).split(';')[0]!;
+    const copy = SignerCopy.parse(
+      (await server().get(`${base()}/copy`).set('cookie', cookie)).body,
+    );
+    expect(copy.files.map((f) => f.fileName)).toEqual([
+      'Fake letter - final.pdf',
+      'Fake letter - certificate.pdf',
+    ]);
+    const res = await server().get(`${base()}/copy/download?file=final`).set('cookie', cookie);
+    expect(DownloadLink.parse(res.body).url).toContain(`tenant/${w.a}/esign/${id}/final/`);
+    const bad = await server().get(`${base()}/copy/download?file=original`).set('cookie', cookie);
+    expect(errorOf(bad)).toEqual([400, 'VALIDATION_FAILED']);
   });
 });

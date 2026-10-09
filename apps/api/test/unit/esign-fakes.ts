@@ -44,6 +44,7 @@ import type {
 import type { EsignRequestStatus } from '@firmivra/types';
 import type { EsignCodeKind } from '../../src/esign/engine/engine.types.js';
 import type {
+  CompletedFile,
   CompletionWrite,
   EsignCompletionRepository,
 } from '../../src/esign/completion/completion.repository.js';
@@ -462,10 +463,26 @@ export class InMemorySignerRepository implements EsignSignerRepository {
     return Promise.resolve(structuredClone(this.links.of(businessId).get(tokenHash) ?? null));
   }
 
-  async signer(businessId: string, requestId: string, recipientId: string) {
+  /** Each firm's copy-link expiry, by recipient id (written by the completion fake). */
+  readonly copyExpiry = new PerFirm<Date>();
+
+  signer(businessId: string, requestId: string, recipientId: string) {
+    return this.recipient(businessId, requestId, recipientId, ['SIGNER']);
+  }
+
+  copyHolder(businessId: string, requestId: string, recipientId: string) {
+    return this.recipient(businessId, requestId, recipientId, ['SIGNER', 'CC']);
+  }
+
+  private async recipient(
+    businessId: string,
+    requestId: string,
+    recipientId: string,
+    kinds: string[],
+  ) {
     const request = await this.requests.findRequest(businessId, requestId);
     const { recipients } = await this.requests.parts(businessId, requestId);
-    const recipient = recipients.find((r) => r.id === recipientId && r.kind === 'SIGNER');
+    const recipient = recipients.find((r) => r.id === recipientId && kinds.includes(r.kind));
     if (!request || !recipient) return null;
     const tokenVersion = this.versions.of(businessId).get(recipientId) ?? 0;
     const consentVersionId = this.pinned.of(businessId).get(recipientId) ?? null;
@@ -473,7 +490,8 @@ export class InMemorySignerRepository implements EsignSignerRepository {
     const adopted = adoption
       ? { method: adoption.signature.method, hasInitials: adoption.initials !== null }
       : null;
-    return { request, recipient, tokenVersion, consentVersionId, adopted };
+    const copyExpiresAt = this.copyExpiry.of(businessId).get(recipientId) ?? null;
+    return { request, recipient, tokenVersion, consentVersionId, adopted, copyExpiresAt };
   }
 
   /** Each firm's attachments, by `${recipientId}:${fieldId}`, and started uploads by token hash. */
@@ -735,8 +753,12 @@ export class InMemoryCompletionRepository implements EsignCompletionRepository {
     finalDocumentId: string;
     certificateDocumentId: string;
   }>();
-  /** Each firm's copy-link expiry, by recipient id. */
-  readonly copyExpiry = new PerFirm<Date>();
+  /** Each firm's copy-link expiry, by recipient id (kept on the signer fake). */
+  get copyExpiry() {
+    return this.signers.copyExpiry;
+  }
+  /** Each firm's completed requests' stored files. */
+  readonly stored = new PerFirm<{ final: CompletedFile; certificate: CompletedFile }>();
   /** Each request's next try after a failure. */
   readonly retryAt = new Map<string, Date>();
   /** Set to make `complete` throw once (a database failure mid-way). */
@@ -828,6 +850,9 @@ export class InMemoryCompletionRepository implements EsignCompletionRepository {
     };
     const finalDocumentId = file(write.final);
     const certificateDocumentId = file(write.certificate);
+    this.stored
+      .of(businessId)
+      .set(requestId, { final: write.final, certificate: write.certificate });
     this.completed.of(businessId).set(requestId, {
       finalSha256: write.final.sha256,
       certificateSha256: write.certificate.sha256,
@@ -849,6 +874,11 @@ export class InMemoryCompletionRepository implements EsignCompletionRepository {
     });
     await this.signers.addEvent(businessId, requestId, write.event);
     return { finalDocumentId, certificateDocumentId, emailIds };
+  }
+
+  files(businessId: string, requestId: string) {
+    const files = this.stored.of(businessId).get(requestId);
+    return Promise.resolve(files ? { final: files.final, certificate: files.certificate } : null);
   }
 
   async retryLater(businessId: string, requestId: string, retryAt: Date) {

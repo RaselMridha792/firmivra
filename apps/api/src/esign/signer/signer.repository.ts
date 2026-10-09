@@ -15,7 +15,7 @@ export interface SignerLink {
   requestId: string;
   recipientId: string;
   tokenVersion: number;
-  /** SIGN: the invitation's link. COPY: the completed-copy link (slice 3b). */
+  /** SIGN: the invitation's link. COPY: the completed-copy link (30 days, SIGNER or CC). */
   purpose: 'SIGN' | 'COPY';
 }
 
@@ -27,6 +27,8 @@ export interface SignerRecord {
   consentVersionId: string | null;
   /** What the signer adopted (never the signature itself); null before `adopt`. */
   adopted: { method: SignatureMethod; hasInitials: boolean } | null;
+  /** esign_recipients.copy_expires_at: when the completed-copy link stops; null if none. */
+  copyExpiresAt: Date | null;
 }
 
 /**
@@ -80,6 +82,8 @@ export interface EsignSignerRepository {
   /** The SIGNER recipient a link token's SHA-256 belongs to. */
   findLink(businessId: string, tokenHash: string): Promise<SignerLink | null>;
   signer(businessId: string, requestId: string, recipientId: string): Promise<SignerRecord | null>;
+  /** Like `signer`, for a SIGNER or a CC: who may hold a completed-copy link. */
+  copyHolder(...a: Signer): Promise<SignerRecord | null>;
   /** The recipient's attachments (one per field at most). */
   attachments(...a: Signer): Promise<SignerAttachment[]>;
   saveAttachmentUpload(businessId: string, upload: SignerPendingAttachment): Promise<void>;

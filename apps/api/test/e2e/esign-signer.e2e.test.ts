@@ -41,6 +41,8 @@ const COOKIE_ROUTES = [
   ['post', 'attachments/uploads', UPLOAD],
   ['post', 'attachments/uploads/confirm', { fieldId: FIELD, uploadToken: 'fake-token' }],
   ['delete', `attachments/${FIELD}`, undefined],
+  ['get', 'copy', undefined],
+  ['get', 'copy/download?file=final', undefined],
 ] as const;
 
 beforeAll(async () => {
@@ -158,6 +160,9 @@ describe('Firm Sign signer routes', () => {
     ] as const;
     for (const [path, body] of bad) {
       expect(answer(await send('post', onSlug, path, body))).toBe('400 VALIDATION_FAILED');
+    }
+    for (const path of ['copy/download', 'copy/download?file=original']) {
+      expect(answer(await send('get', onSlug, path))).toBe('400 VALIDATION_FAILED');
     }
     expect(answer(await send('delete', onSlug, 'attachments/nope'))).toBe('400 VALIDATION_FAILED');
   });

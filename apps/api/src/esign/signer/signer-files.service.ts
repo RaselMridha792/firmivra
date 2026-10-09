@@ -9,13 +9,18 @@ import {
 } from '@nestjs/common';
 import type { z } from 'zod';
 import {
+  type DownloadLink,
   ESIGN_ERRORS,
   type SignerAttachmentUploadBody,
+  type SignerCopy,
+  type SignerCopyFile,
   type SignerField,
   type UploadTicket,
 } from '@firmivra/types';
-import { PUT_URL_SECONDS } from '../../storage/document-storage.js';
+import { GET_URL_SECONDS, PUT_URL_SECONDS } from '../../storage/document-storage.js';
 import { UPLOAD_TOKEN_SECONDS } from '../../storage/upload-token.js';
+import { COMPLETION_REPOSITORY } from '../completion/completion.repository.js';
+import type { EsignCompletionRepository } from '../completion/completion.repository.js';
 import { ESIGN_STORE, type EsignStore } from '../engine/engine.types.js';
 import { ESIGN_REPOSITORY, type EsignRepository } from '../requests/esign.repository.js';
 import { esignRefusal, invalid } from '../requests/requests.service.js';
@@ -23,7 +28,10 @@ import { SIGNER_REPOSITORY } from './signer.repository.js';
 import type { EsignSignerRepository, SignerAttachment } from './signer.repository.js';
 import { type SignerCall, EsignSignerService } from './signer.service.js';
 
-type Store = Pick<EsignStore, 'keyFor' | 'presignUpload' | 'head' | 'read' | 'remove'>;
+type Store = Pick<
+  EsignStore,
+  'keyFor' | 'presignUpload' | 'head' | 'read' | 'remove' | 'presignDownload'
+>;
 
 const sha256 = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
@@ -39,9 +47,9 @@ const MAGIC: Record<SignerAttachment['contentType'], number[]> = {
 /**
  * The signer's files (R13 signer slice 3): attachments for their own ATTACHMENT fields while
  * they sign (presigned PUT, confirm with the size, type, SHA-256 and first bytes checked; replace
- * and remove until they finish). Files sit under the request's attachments/ folder (EsignStore
- * checks every key) and stay PENDING until the malware scan. The audit log gets ids only, never
- * a file name or content.
+ * and remove until they finish), and the completed copy's final PDF and certificate for a copy
+ * link. Files sit under the request's attachments/ folder (EsignStore checks every key) and stay
+ * PENDING until the malware scan. The audit log gets ids only, never a file name or content.
  */
 @Injectable()
 export class EsignSignerFilesService {
@@ -52,6 +60,8 @@ export class EsignSignerFilesService {
     private readonly signer: Pick<EsignSignerService, 'myFields' | 'log'>,
     @Inject(SIGNER_REPOSITORY) private readonly repo: EsignSignerRepository,
     @Inject(ESIGN_REPOSITORY) private readonly requests: Pick<EsignRepository, 'parts'>,
+    @Inject(COMPLETION_REPOSITORY)
+    private readonly completed: Pick<EsignCompletionRepository, 'files'>,
     @Inject(ESIGN_STORE) private readonly store: Store,
   ) {}
 
@@ -138,6 +148,36 @@ export class EsignSignerFilesService {
     await this.removeObject(c.firm.id, file.key);
     await this.signer.log(c, 'esign.signer_attachment_removed', { fieldId });
     return { ...field, attachmentName: null };
+  }
+
+  /** GET copy (step COPY): the completed request's two files. */
+  async copy(c: SignerCall): Promise<SignerCopy> {
+    const { request: q } = c.signer;
+    const files = await this.files(c);
+    await this.signer.log(c, 'esign.signer_copy_viewed');
+    return {
+      title: q.title,
+      completedAt: (q.completedAt ?? new Date()).toISOString(),
+      files: [
+        { file: 'final', fileName: files.final.fileName },
+        { file: 'certificate', fileName: files.certificate.fileName },
+      ],
+    };
+  }
+
+  /** GET copy/download: a 5-minute link that saves the file as an attachment. */
+  async download(c: SignerCall, file: SignerCopyFile): Promise<DownloadLink> {
+    const { key, fileName } = (await this.files(c))[file];
+    const contentType = 'application/pdf';
+    const url = await this.store.presignDownload(c.firm.id, { key, fileName, contentType });
+    await this.signer.log(c, 'esign.signer_copy_downloaded', { file });
+    return { url, expiresAt: new Date(Date.now() + GET_URL_SECONDS * 1000).toISOString() };
+  }
+
+  private async files(c: SignerCall) {
+    const files = await this.completed.files(c.firm.id, c.signer.request.id);
+    if (!files) throw esignRefusal('INVALID_STATE');
+    return files;
   }
 
   /** One of the signer's own ATTACHMENT fields, with its file's name; else `refuse()`. */

@@ -8,6 +8,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
   Res,
   StreamableFile,
@@ -16,6 +17,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import {
+  type DownloadLink,
   EsignFieldId,
   SignerAcceptConsentBody,
   SignerAccessCodeBody,
@@ -24,6 +26,8 @@ import {
   SignerAdoptBody,
   SignerAttachmentConfirmBody,
   SignerAttachmentUploadBody,
+  type SignerCopy,
+  SignerCopyFile,
   SignerDeclineBody,
   type SignerEnvelope,
   type SignerField,
@@ -200,5 +204,19 @@ export class EsignSignerController {
     @Req() req: Request,
   ): Promise<SignerField> {
     return this.files.remove(await this.signer.call(slug, req, 'SIGN'), fieldId);
+  }
+
+  @Get('copy')
+  async copy(@Param('firmSlug') slug: string, @Req() req: Request): Promise<SignerCopy> {
+    return this.files.copy(await this.signer.call(slug, req, 'COPY'));
+  }
+
+  @Get('copy/download')
+  async copyDownload(
+    @Param('firmSlug') slug: string,
+    @Query('file', new ZodValidationPipe(SignerCopyFile)) file: SignerCopyFile,
+    @Req() req: Request,
+  ): Promise<DownloadLink> {
+    return this.files.download(await this.signer.call(slug, req, 'COPY'), file);
   }
 }
