@@ -6,7 +6,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { requestContext } from '../common/request-context.js';
 import { DATABASE } from '../database/database.module.js';
-import { networkOf } from './network.js';
+import { networkOf } from '../common/network.js';
 
 export type Channel = 'EMAIL' | 'PHONE';
 
