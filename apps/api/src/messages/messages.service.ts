@@ -34,6 +34,7 @@ import {
   likeEscape,
 } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
+import { MessageNotices } from './message-notices.js';
 
 type FirmListQuery = z.output<typeof ListMessageThreadsQuery>;
 type MyListQuery = z.output<typeof ListMyMessagesQuery>;
@@ -124,6 +125,7 @@ export class MessagesService {
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
+    private readonly notices: MessageNotices,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -369,7 +371,7 @@ export class MessagesService {
     clientId: string,
     body: CreateBody,
   ): Promise<MessageThreadDetail> {
-    return this.inFirm(businessId, async (tx) => {
+    const detail = await this.inFirm(businessId, async (tx) => {
       await tx.$queryRaw`
         SELECT 1 FROM clients WHERE business_id = ${businessId}::uuid AND id = ${clientId}::uuid
         FOR SHARE`;
@@ -420,11 +422,17 @@ export class MessagesService {
       );
       return this.firmDetail(tx, businessId, await this.thread(tx, businessId, actor, thread.id));
     });
+    await this.notify(businessId, detail.id, detail.messages[0]?.id, actor.userId, 'client', true);
+    return detail;
   }
 
   async send(businessId: string, actor: ClientsActor, id: string, body: string): Promise<Message> {
-    return this.inFirm(businessId, async (tx) => {
+    const sent = await this.inFirm(businessId, async (tx) => {
       const t = await this.thread(tx, businessId, actor, id);
+      // The same lock as a client reply: two messages on one thread queue, so only the first of
+      // an unread run is emailed.
+      await this.lockThread(tx, businessId, t.id);
+      const email = await this.firstUnread(tx, businessId, t.id, 'FIRM_TO_CLIENT');
       const row = await tx.message.create({
         data: {
           businessId,
@@ -444,8 +452,21 @@ export class MessagesService {
           clientId: t.clientId,
         },
       );
-      return this.toMessage(await this.people(tx, businessId, [actor.userId]), row);
+      return {
+        threadId: t.id,
+        email,
+        message: this.toMessage(await this.people(tx, businessId, [actor.userId]), row),
+      };
     });
+    await this.notify(
+      businessId,
+      sent.threadId,
+      sent.message.id,
+      actor.userId,
+      'client',
+      sent.email,
+    );
+    return sent.message;
   }
 
   async setReplies(
@@ -513,6 +534,9 @@ export class MessagesService {
     side: 'firm' | 'client',
     read: boolean,
   ): Promise<void> {
+    // The same lock as a new message: a read can't commit between a send's flood check and its
+    // insert, which would leave the new message unread with no email.
+    await this.lockThread(tx, businessId, threadId);
     const direction = inbound(side);
     if (read) {
       await tx.message.updateMany({
@@ -703,7 +727,7 @@ export class MessagesService {
     clientAccountId: string,
     body: MyCreateBody,
   ): Promise<MyMessageThreadDetail> {
-    return this.inFirm(businessId, async (tx) => {
+    const { detail, userId } = await this.inFirm(businessId, async (tx) => {
       const me = await this.writer(tx, businessId, clientAccountId);
       const thread = await tx.messageThread.create({
         data: {
@@ -733,13 +757,18 @@ export class MessagesService {
           messageId: message.id,
         },
       );
-      return this.myDetail(
-        tx,
-        businessId,
-        me.userId,
-        await this.myThread(tx, businessId, me.clientId, thread.id),
-      );
+      return {
+        userId: me.userId,
+        detail: await this.myDetail(
+          tx,
+          businessId,
+          me.userId,
+          await this.myThread(tx, businessId, me.clientId, thread.id),
+        ),
+      };
     });
+    await this.notify(businessId, detail.id, detail.messages[0]?.id, userId, 'staff', true);
+    return detail;
   }
 
   async myReply(
@@ -748,17 +777,14 @@ export class MessagesService {
     id: string,
     body: string,
   ): Promise<MyMessage> {
+    let sent: { message: MyMessage; userId: string; threadId: string; email: boolean };
     try {
-      return await this.inFirm(businessId, async (tx) => {
+      sent = await this.inFirm(businessId, async (tx) => {
         const me = await this.writer(tx, businessId, clientAccountId);
-        // FOR NO KEY UPDATE: the firm can't close replies between this check and the insert,
-        // and two replies queue instead of deadlocking on the thread row the insert's trigger
-        // updates (two FOR SHARE locks would both wait on each other).
-        await tx.$queryRaw`
-          SELECT 1 FROM message_threads WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
-          FOR NO KEY UPDATE`;
+        await this.lockThread(tx, businessId, id);
         const t = await this.myThread(tx, businessId, me.clientId, id);
         if (!t.repliesEnabled) throw repliesClosed();
+        const email = await this.firstUnread(tx, businessId, t.id, 'CLIENT_TO_FIRM');
         const row = await tx.message.create({
           data: {
             businessId,
@@ -778,7 +804,12 @@ export class MessagesService {
             clientId: me.clientId,
           },
         );
-        return this.toMine(new Map(), me.userId, row);
+        return {
+          message: this.toMine(new Map(), me.userId, row),
+          userId: me.userId,
+          threadId: t.id,
+          email,
+        };
       });
     } catch (error) {
       // The database refuses with 23514 both for closed replies and for a login that is no
@@ -792,6 +823,49 @@ export class MessagesService {
       }
       throw error;
     }
+    await this.notify(businessId, sent.threadId, sent.message.id, sent.userId, 'staff', sent.email);
+    return sent.message;
+  }
+
+  /**
+   * Locks the thread row for a new message. FOR NO KEY UPDATE: the firm can't close replies
+   * between a client's check and the insert, and two messages queue instead of deadlocking on the
+   * thread row the insert's trigger updates (two FOR SHARE locks would both wait on each other).
+   */
+  private async lockThread(tx: TxClient, businessId: string, id: string): Promise<void> {
+    await tx.$queryRaw`
+      SELECT 1 FROM message_threads WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid
+      FOR NO KEY UPDATE`;
+  }
+
+  /**
+   * Whether a new message in this direction starts an unread run (the flood rule: one email per
+   * run). Read under the thread lock, before the insert, so two messages at once can't both see
+   * an empty run.
+   */
+  private async firstUnread(
+    tx: TxClient,
+    businessId: string,
+    threadId: string,
+    direction: 'FIRM_TO_CLIENT' | 'CLIENT_TO_FIRM',
+  ): Promise<boolean> {
+    const unread = await tx.message.count({
+      where: { businessId, threadId, direction, readAt: null },
+    });
+    return unread === 0;
+  }
+
+  /** The new message's notices, after it committed; they never fail the request. */
+  private async notify(
+    businessId: string,
+    threadId: string,
+    messageId: string | undefined,
+    senderUserId: string,
+    toSide: 'client' | 'staff',
+    email: boolean,
+  ): Promise<void> {
+    if (!messageId) return;
+    await this.notices.sent({ businessId, threadId, messageId, senderUserId, toSide, email });
   }
 
   async myMark(

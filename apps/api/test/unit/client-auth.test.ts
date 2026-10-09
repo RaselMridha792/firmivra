@@ -9,12 +9,8 @@ import {
 import { LogClientCodeSender } from '../../src/client-auth/client-code-sender.js';
 import { linkable } from '../../src/client-auth/client-records.js';
 import { decodeCursor, encodeCursor } from '../../src/client-auth/client-sign-ups.service.js';
-import {
-  atLeast,
-  canonicalIp,
-  maskPhone,
-  networkOf,
-} from '../../src/client-auth/sign-up.service.js';
+import { atLeast, maskPhone } from '../../src/client-auth/sign-up.service.js';
+import { canonicalIp, networkOf } from '../../src/common/network.js';
 import { VerificationCodesService } from '../../src/client-auth/verification-codes.service.js';
 import { loadEnv } from '../../src/config/env.js';
 
