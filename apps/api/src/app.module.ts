@@ -38,6 +38,7 @@ import { SupportAccessModule } from './support-access/support-access.controller.
 import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
+import { EsignModule } from './esign/esign.module.js';
 import { PaymentsSetupModule } from './payments/setup/payments-setup.controller.js';
 import { StripeClientModule } from './payments/stripe/stripe-client.module.js';
 import { InvoicesModule } from './payments/invoices/invoices.module.js';
@@ -99,6 +100,7 @@ export class AppModule {
         SupportAccessModule,
         WorkspacesModule,
         DocumentsModule,
+        EsignModule,
         StripeClientModule,
         PaymentsSetupModule,
         InvoicesModule,

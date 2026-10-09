@@ -55,6 +55,36 @@ export const EsignErrorCode = z.enum([
   'TEMPLATE_ARCHIVED',
   /** 400: a bulk send takes at most 200 clients. */
   'BULK_LIMIT',
+  /** 409 (signer): finish the earlier step first (the code, then the consent). */
+  'WRONG_STEP',
+  /** 429 (signer): a code was sent less than a minute ago. */
+  'CODE_TOO_SOON',
+  /** 409 (signer consent): the firm published a newer consent text; read it again. */
+  'CONSENT_OUTDATED',
+  /** 409 (signer finish): adopt a signature (and initials, when asked) first. */
+  'SIGNATURE_REQUIRED',
+  /** 409 (use template): say who fills each role that could not be filled from the client. */
+  'TEMPLATE_ROLES_UNFILLED',
+  /** 409 (templates): another active template has that name. */
+  'TEMPLATE_NAME_TAKEN',
+  /** 400 (signer adopt): the image is not a PNG, or over 200 KB or 1600x600. */
+  'IMAGE_INVALID',
+  // Contract 3: approvals, roles and in-person signing.
+  /** 403 (approval): the caller is not an approver on this request. */
+  'NOT_AN_APPROVER',
+  /** 409 (roles): an Owner's or Admin's Firm Sign access follows their firm role. */
+  'ROLE_FIXED',
+  /** 403: an in-person signing is open on this session; unlock it with your password first. */
+  'KIOSK_LOCKED',
+  /** 400 (in-person exit): the password is not right. */
+  'PASSWORD_WRONG',
+  /** 409 (in-person): this recipient does not sign in person. */
+  'NOT_IN_PERSON',
+  /**
+   * 409 (recipients, use template): an approver is never the request's sender, and is an Owner,
+   * Admin or Firm Sign Manager.
+   */
+  'APPROVER_NOT_ALLOWED',
 ]);
 export type EsignErrorCode = z.infer<typeof EsignErrorCode>;
 
@@ -70,7 +100,7 @@ export const ESIGN_ERRORS = {
   FILE_BLOCKED: "This file couldn't be checked, so it can't be used.",
   FILE_TYPE_NOT_ALLOWED: 'Only PDF, JPG and PNG files can be sent for signature.',
   UPLOAD_EXPIRED: 'This upload has expired. Please try again.',
-  UPLOAD_MISMATCH: "This file doesn't match its type. Check the file and upload it again.",
+  UPLOAD_MISMATCH: "The uploaded file doesn't match what was expected. Upload it again.",
   ENGAGEMENT_MISMATCH: 'Choose one of this client’s open services.',
   RECIPIENTS_LINKED: 'Remove this client’s recipients before choosing another client.',
   LOGIN_NOT_ACTIVE: 'This portal login is not active. Choose another recipient.',
@@ -86,4 +116,18 @@ export const ESIGN_ERRORS = {
   REQUIRED_FIELDS_MISSING: 'Fill in every required field before finishing.',
   TEMPLATE_ARCHIVED: 'This template is archived.',
   BULK_LIMIT: 'A bulk send can go to at most 200 clients.',
+  WRONG_STEP: 'Finish the step before this one first.',
+  CODE_TOO_SOON: 'A code was just sent. Wait a minute before asking for another.',
+  CONSENT_OUTDATED: 'The consent text has changed. Read it again and accept it.',
+  SIGNATURE_REQUIRED: 'Adopt your signature before finishing.',
+  TEMPLATE_ROLES_UNFILLED: 'Choose who fills each role in this template.',
+  TEMPLATE_NAME_TAKEN: 'Another template already has this name.',
+  IMAGE_INVALID: 'Use a PNG image of at most 200 KB and 1600 by 600 pixels.',
+  NOT_AN_APPROVER: 'Only this request’s approvers can approve it.',
+  ROLE_FIXED: 'Owners and Admins always have full access to Firm Sign.',
+  KIOSK_LOCKED: 'An in-person signing is open. Enter your password to return.',
+  PASSWORD_WRONG: 'That password is not right.',
+  NOT_IN_PERSON: 'This recipient does not sign in person.',
+  APPROVER_NOT_ALLOWED:
+    'An approver must be an Owner, Admin or Firm Sign Manager, and not the person sending it.',
 } as const satisfies Record<EsignErrorCode, string>;

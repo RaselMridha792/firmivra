@@ -146,6 +146,8 @@ beforeAll(async () => {
     ...process.env,
     NODE_ENV: 'test',
     AUTH_MODE: 'local',
+    // These tests walk the email-then-SMS flow; sign-up-phone-optional.e2e covers the fallback.
+    SIGNUP_PHONE_VERIFICATION: 'required',
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });

@@ -95,6 +95,17 @@ describe('one error shape', () => {
     expect(logged).not.toContain('123-45-6789');
   });
 
+  it('a stack that does not start with the message gives no frames, so nothing of it is logged', () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    const e = new Error('Failed for client 123-45-6789');
+    e.stack = 'Rewritten by a library\n    at secret-value-in-stack (client 123-45-6789)';
+    caught(e);
+    const logged = error.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(logged).toContain('Unhandled Error');
+    expect(logged).not.toContain('secret-value-in-stack');
+    expect(logged).not.toContain('123-45-6789');
+  });
+
   it("a library's details stay inside, and a code-less 5xx is logged by kind", () => {
     const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
     const res = caught(
