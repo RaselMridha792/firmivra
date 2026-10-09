@@ -13,7 +13,6 @@ import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
 import { isFirmManager } from '../../../../../../../../components/esign/esign-role';
 import { useApiMutation, useApiQuery } from '../../../../../../../../lib/query';
-import { TEAM } from '../../../../../../setup/_components/shared';
 import {
   blank,
   type DraftErrors,
@@ -42,24 +41,35 @@ export function RecipientsStep({ r }: { r: EsignRequestDetail }) {
   const logins: Choice[] = (client.data?.portalLogins ?? [])
     .filter((l) => l.status === 'ACTIVE')
     .map((l) => ({ value: `login:${l.clientAccountId}`, label: `${l.email} (portal login)` }));
-  // Only Owners and Admins can list the team; anyone else adds people as "Someone else".
+  // Only Owners and Admins can list the members; anyone else adds people as "Someone else".
   const status = useApiQuery(['esign', 'status'], () => api.esign.status());
   const manager = isFirmManager(status.data?.myEsignRole ?? null);
-  const team = useQuery({ queryKey: TEAM, queryFn: () => api.team.list(), enabled: manager });
-  const active = (team.data ?? []).filter((m) => m.status === 'ACTIVE');
-  const toChoice = (m: (typeof active)[number]) => ({
-    value: `staff:${m.user.id}`,
+  const roles = useQuery({
+    queryKey: ['esign', 'roles'],
+    queryFn: () => api.esign.roles.list(),
+    enabled: manager,
+  });
+  const all = roles.data?.items ?? [];
+  const toChoice = (m: (typeof all)[number]) => ({
+    value: `staff:${m.user.userId}`,
     label: `${m.user.name} (firm)`,
   });
-  const members: Choice[] = active.map(toChoice);
-  // The API takes an Owner or Admin (or a Firm Sign Manager) who is not the sender as approver.
-  const approvers: Choice[] = active.filter((m) => !m.isYou && m.role !== 'STAFF').map(toChoice);
+  const members: Choice[] = all.filter((m) => m.esignRole !== 'VIEWER').map(toChoice);
+  // An Owner, Admin or Firm Sign Manager approves, and never the request's own sender.
+  const approvers: Choice[] = all
+    .filter((m) => ['OWNER', 'ADMIN', 'MANAGER'].includes(m.esignRole))
+    .filter((m) => m.user.userId !== r.sender.userId)
+    .map(toChoice);
 
-  const save = useApiMutation((body: Parameters<typeof api.esign.putRecipients>[1]) =>
-    api.esign.putRecipients(r.id, body),
+  // `invalidate` runs even when the user leaves the step before the answer (unlike mutate's own
+  // onSuccess), so the request never keeps its old recipients.
+  const save = useApiMutation(
+    (body: Parameters<typeof api.esign.putRecipients>[1]) => api.esign.putRecipients(r.id, body),
+    { invalidate: requestKey(r.id) },
   );
-  const routing = useApiMutation((value: EsignRouting) =>
-    api.esign.update(r.id, { routing: value }),
+  const routing = useApiMutation(
+    (value: EsignRouting) => api.esign.update(r.id, { routing: value }),
+    { invalidate: requestKey(r.id) },
   );
 
   function edit(next: RecipientDraft[]) {

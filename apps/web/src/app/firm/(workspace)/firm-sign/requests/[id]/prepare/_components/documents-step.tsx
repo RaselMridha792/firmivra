@@ -38,7 +38,9 @@ const SCAN: Record<EsignDocument['scanStatus'], [string, string]> = {
 /** Step 1: the files to sign, uploaded or copied from the client's documents. */
 export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
   const queryClient = useQueryClient();
-  const remove = useApiMutation((docId: string) => api.esign.removeDocument(r.id, docId));
+  const remove = useApiMutation((docId: string) => api.esign.removeDocument(r.id, docId), {
+    invalidate: requestKey(r.id),
+  });
   const ready = r.documents.length > 0 && r.documents.every((d) => d.scanStatus === 'CLEAN');
   return (
     <div className="flex flex-col gap-6">

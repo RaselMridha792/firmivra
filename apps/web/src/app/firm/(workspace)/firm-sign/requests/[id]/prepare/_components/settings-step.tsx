@@ -73,7 +73,9 @@ export function SettingsStep({ r }: { r: EsignRequestDetail }) {
   // Only the boxes the user changed; the rest follow the request as it is now.
   const [edits, setEdits] = useState<Partial<Form>>({});
   const [errors, setErrors] = useState<Errors>({});
-  const save = useApiMutation((body: UpdateEsignRequestBody) => api.esign.update(r.id, body));
+  const save = useApiMutation((body: UpdateEsignRequestBody) => api.esign.update(r.id, body), {
+    invalidate: requestKey(r.id),
+  });
   const saved = toForm(r);
   const form = { ...saved, ...edits };
   const dirty = (Object.keys(edits) as (keyof Form)[]).some((k) => form[k] !== saved[k]);

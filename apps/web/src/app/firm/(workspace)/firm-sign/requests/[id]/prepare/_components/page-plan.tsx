@@ -20,11 +20,14 @@ const turn = (r: Rotation): Rotation => ((r + 90) % 360) as Rotation;
  */
 export function PagePlan({ r, locked }: { r: EsignRequestDetail; locked: boolean }) {
   const queryClient = useQueryClient();
-  const save = useApiMutation(async (pages: EsignPage[]) => {
-    // A refetch already on its way would put the old order back over the answer.
-    await queryClient.cancelQueries({ queryKey: requestKey(r.id) });
-    return api.esign.putPagePlan(r.id, { pages });
-  });
+  const save = useApiMutation(
+    async (pages: EsignPage[]) => {
+      // A refetch already on its way would put the old order back over the answer.
+      await queryClient.cancelQueries({ queryKey: requestKey(r.id) });
+      return api.esign.putPagePlan(r.id, { pages });
+    },
+    { invalidate: requestKey(r.id) },
+  );
   const [removing, setRemoving] = useState<number | null>(null);
   useEffect(() => closeThumbFiles, []);
   const pages = r.pagePlan;
