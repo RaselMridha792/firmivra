@@ -248,10 +248,10 @@ const seedStep = (key: string, title: string, review: boolean, fields: object[])
 });
 
 /**
- * A seeded v1 form: a small definition in the form engine's current shape (IntakeFormDefinition,
- * R11). Hand-written, since packages/types on main has neither that type nor INTAKE_FORMS yet;
- * switch Annual Tax to INTAKE_FORMS.ANNUAL_TAX once it does. Its keys match the seeded answers
- * (fullName) and the lead upload's slot (priorReturn).
+ * A seeded v1 form for the kinds whose real form isn't seeded yet: a small definition in the form
+ * engine's current shape (IntakeFormDefinition, R11). Annual Tax seeds the real
+ * INTAKE_FORMS.ANNUAL_TAX instead. Its keys match the seeded answers (fullName) and the lead
+ * upload's slot (priorReturn).
  */
 export const seedFormDefinition = (key: string, title: string) => ({
   key,
