@@ -109,7 +109,7 @@ Firm Sign is our built-in e-signature module (R13, decided Oct 8). Most signers 
 
 **Signing from the portal**
 
-A client who is signed in to the firm's portal can sign from the Signature center without the email code (auth method `PORTAL_SESSION`). `POST /api/v1/portal/{slug}/signatures/{recipientId}/session` checks that the recipient belongs to the signed-in `ClientAccount`; the client id comes from the portal session, never the URL, and any other recipient gets 404. It then sets the same `fv_sign_{slug}` cookie, already past the code step. Consent is still required.
+A client who is signed in to the firm's portal can sign from the Signature center without the email code (auth method `PORTAL_SESSION`). `POST /api/v1/portal/{slug}/me/signatures/{recipientId}/session` checks that the recipient belongs to the signed-in `ClientAccount`; the client id comes from the portal session, never the URL, and any other recipient gets 404. It then sets the same `fv_sign_{slug}` cookie, already past the code step. Consent is still required.
 
 **The completed-copy link**
 
