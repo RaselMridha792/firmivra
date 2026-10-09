@@ -203,7 +203,9 @@ info:
       `invoice.opened` (by the job), `invoice.canceled`, `invoice.checkout_started` (the client's
       user, invoice, payment and amount), `payment.succeeded`, `payment.failed`,
       `invoice.paid`, `payment.refund_requested` (who, payment, amount), `payment.refunded`,
-      `payment.refund_failed`. Webhook entries name Stripe as the actor. Reads are not audited.
+      `payment.refund_failed`. Webhook entries name Stripe as the actor. Reads are audited too
+      (CLAUDE.md rule 8): `invoices.listed` (count, the client filter) and `invoice.viewed` (id,
+      client), after the read; the portal's `my_invoices.listed` and `my_invoice.viewed` the same.
     - **Cursors** are opaque (the sort keys of the last item); a cursor the API did not make is
       `400 VALIDATION_FAILED`.
 

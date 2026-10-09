@@ -153,6 +153,29 @@ describe('create and update a draft', () => {
     });
     expect([wrong.status, codeOf(wrong)]).toEqual([404, 'NOT_FOUND']);
   });
+
+  it('refuses a PUT on a draft whose client was archived since (409), changing nothing', async () => {
+    const clientId = await t.inScope(
+      t.ids.firmA,
+      async (tx) =>
+        (
+          await tx.client.create({
+            data: { businessId: t.ids.firmA, displayName: `Later archived ${randomUUID()}` },
+          })
+        ).id,
+    );
+    const draft = await create(clientId);
+    await t.inScope(t.ids.firmA, (tx) =>
+      tx.client.update({ where: { id: clientId }, data: { archivedAt: new Date() } }),
+    );
+    const body = { lines: [{ description: 'Changed', unitAmountCents: 999 }], dueOn: nyDay(5) };
+    const res = await t.firm('put', `/${draft.id}`, t.people.ownerA, body);
+    expect([res.status, codeOf(res)]).toEqual([409, 'CLIENT_ARCHIVED']);
+    const after = Invoice.parse(
+      expectOk(await t.firm('get', `/${draft.id}`, t.people.ownerA)).body,
+    );
+    expect([after.updatedAt, after.subtotalCents]).toEqual([draft.updatedAt, draft.subtotalCents]);
+  });
 });
 
 describe('who may change a draft', () => {
