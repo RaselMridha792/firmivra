@@ -1,17 +1,24 @@
 // End-to-end: R6 step 7, the reminder jobs (appointment.reminder, client-note.reminder) under
 // their advisory lock (q30), against the database. The jobs are off in tests (NOTIFY_JOBS); each
-// test runs them by hand for its own firm only.
+// test runs them by hand for its own firm (one run covers both firms, for isolation).
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
-import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
-import { JOB_LOCK_KEYS, ReminderJobs } from '../../src/notifications/reminder-jobs.js';
+import { Notifier } from '../../src/notifications/notifier.js';
+import {
+  EMAIL_MAX_ATTEMPTS,
+  EMAIL_RETRY_AFTER_MS,
+  JOB_LOCK_KEYS,
+  REMINDER_BACKOFF_MS,
+  ReminderJobs,
+} from '../../src/notifications/reminder-jobs.js';
 import type { NotifyConfig } from '../../src/notify/config.js';
 import { NOTIFY_CONFIG } from '../../src/notify/notify.module.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
@@ -31,6 +38,7 @@ const people = {
   other: person('other', 'STAFF'),
   primary: person('primary', 'CLIENT'),
   ownerB: person('owner-b', 'STAFF'),
+  primaryB: person('primary-b', 'CLIENT'),
 };
 type Who = (typeof people)[keyof typeof people];
 const ids = {
@@ -42,13 +50,18 @@ const ids = {
   justBooked: '',
   cancelled: '',
   dueB: '',
+  clientB: '',
   noteDue: '',
   noteLater: '',
+  invoice: '',
 };
 
 let app: INestApplication;
 let jobs: ReminderJobs;
+let notifier: Notifier;
 const outbox: NotifyMessage[] = [];
+/** Set to make the fake sender refuse every message. */
+const delivery = { failing: false };
 const owner = () => createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
 
 async function inFirm<T>(businessId: string, work: (tx: TxClient) => Promise<T>, actor?: string) {
@@ -139,6 +152,9 @@ beforeAll(async () => {
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
     ids.cancelled = cancelled;
+    ids.invoice = (
+      await tx.invoice.create({ data: { ...A, clientId: ids.client, number: 'R6J-1' } })
+    ).id;
   });
   await runInScope(db, { kind: 'business', businessId: ids.firmB }, async (tx) => {
     const B = { businessId: ids.firmB };
@@ -146,6 +162,17 @@ beforeAll(async () => {
       data: { ...B, userId: people.ownerB.id, role: 'OWNER', status: 'ACTIVE' },
     });
     const c = await tx.client.create({ data: { ...B, displayName: 'B Client (fake)' } });
+    ids.clientB = c.id;
+    await tx.clientAccount.create({
+      data: {
+        ...B,
+        userId: people.primaryB.id,
+        clientId: c.id,
+        email: people.primaryB.email,
+        portalRole: 'PRIMARY',
+        status: 'ACTIVE',
+      },
+    });
     ids.dueB = (
       await tx.appointment.create({
         data: {
@@ -198,6 +225,11 @@ beforeAll(async () => {
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({
       send: (message: NotifyMessage) => {
+        if (delivery.failing) {
+          const error = new Error('provider down');
+          error.name = 'NotifyDeliveryError';
+          return Promise.reject(error);
+        }
         outbox.push(message);
         return Promise.resolve();
       },
@@ -208,6 +240,7 @@ beforeAll(async () => {
   await nest.init();
   app = nest;
   jobs = nest.get(ReminderJobs);
+  notifier = nest.get(Notifier);
 });
 
 afterAll(async () => {
@@ -265,6 +298,91 @@ describe('reminder jobs', () => {
     expect(outbox.map((m) => m.template)).toEqual(['appointment.reminder', 'appointment.reminder']);
   });
 
+  it("a run over both firms: each firm's reminder reaches only its own people", async () => {
+    const firmAPeople = [people.owner, people.staff, people.other, people.primary].map((p) => p.id);
+    const firmABefore = await inFirm(ids.firm, (tx) =>
+      tx.notification.count({ where: { businessId: ids.firm } }),
+    );
+    outbox.length = 0;
+    expect(await jobs.run('appointment-reminders', { businessIds: [ids.firm, ids.firmB] })).toEqual(
+      { skipped: false, sent: 1 },
+    );
+    expect((await appointment(ids.dueB, ids.firmB)).reminderSentAt).not.toBeNull();
+    const inB = await inFirm(ids.firmB, (tx) =>
+      tx.notification.findMany({ where: { businessId: ids.firmB, entityId: ids.dueB } }),
+    );
+    expect(inB.map((n) => n.recipientUserId).sort()).toEqual(
+      [people.ownerB.id, people.primaryB.id].sort(),
+    );
+    // Firm A's people get nothing of firm B's, and firm B's people nothing of firm A's.
+    expect(
+      await inFirm(ids.firmB, (tx) =>
+        tx.notification.findMany({
+          where: { businessId: ids.firmB, recipientUserId: { in: firmAPeople } },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      await inFirm(ids.firm, (tx) =>
+        tx.notification.findMany({
+          where: {
+            businessId: ids.firm,
+            OR: [
+              { entityId: ids.dueB },
+              { recipientUserId: { in: [people.ownerB.id, people.primaryB.id] } },
+            ],
+          },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      await inFirm(ids.firm, (tx) => tx.notification.count({ where: { businessId: ids.firm } })),
+    ).toBe(firmABefore);
+    expect(outbox.map((m) => [m.template, m.to, m.businessId])).toEqual([
+      ['appointment.reminder', people.primaryB.email, ids.firmB],
+    ]);
+  });
+
+  it('a reminder whose notify() fails waits REMINDER_BACKOFF_MS, so it never holds up the rest', async () => {
+    const now = Date.now();
+    const id = await inFirm(ids.firm, async (tx) => {
+      const a = await tx.appointment.create({
+        data: {
+          businessId: ids.firm,
+          clientId: ids.client,
+          staffUserId: people.staff.id,
+          startsAt: new Date(now + 2 * HOUR),
+          endsAt: new Date(now + 2.5 * HOUR),
+          locationKind: 'PHONE',
+          createdAt: new Date(now - 5 * HOUR),
+        },
+      });
+      return a.id;
+    });
+    const spy = vi.spyOn(notifier, 'notify').mockResolvedValueOnce({ written: 0, failed: true });
+    try {
+      const at = (ms: number) => ({ ...only, now: new Date(now + ms) });
+      expect(await jobs.run('appointment-reminders', at(0))).toEqual({ skipped: false, sent: 0 });
+      expect(spy).toHaveBeenCalledTimes(1);
+      // Left out of the next runs while it backs off.
+      expect(await jobs.run('appointment-reminders', at(60_000))).toEqual({
+        skipped: false,
+        sent: 0,
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((await appointment(id)).reminderSentAt).toBeNull();
+      // Then tried again, and sent.
+      expect(await jobs.run('appointment-reminders', at(REMINDER_BACKOFF_MS + 1_000))).toEqual({
+        skipped: false,
+        sent: 1,
+      });
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect((await appointment(id)).reminderSentAt).not.toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("note reminders: a due reminder once, to the note's owner only", async () => {
     outbox.length = 0;
     expect(await jobs.run('note-reminders', only)).toEqual({ skipped: false, sent: 1 });
@@ -312,5 +430,197 @@ describe('reminder jobs', () => {
     } finally {
       await db.$disconnect();
     }
+  });
+
+  it('the outbox: a failed email copy is FAILED, retried by the job, then SENT once', async () => {
+    const deliveries = () =>
+      inFirm(ids.firm, (tx) =>
+        tx.notificationDelivery.findMany({
+          where: { notification: { entityId: ids.invoice } },
+        }),
+      );
+    outbox.length = 0;
+    delivery.failing = true;
+    expect(
+      await notifier.notify({ businessId: ids.firm, event: 'invoice.sent', recordId: ids.invoice }),
+    ).toEqual({ written: 1 });
+    const [first] = await deliveries();
+    expect(first).toMatchObject({
+      channel: 'EMAIL',
+      status: 'FAILED',
+      attempts: 1,
+      lastError: 'NotifyDeliveryError',
+      sentAt: null,
+    });
+    // Not before EMAIL_RETRY_AFTER_MS.
+    expect(await jobs.run('email-retries', only)).toEqual({ skipped: false, sent: 0 });
+    expect((await deliveries())[0]?.attempts).toBe(1);
+    const later = (ms: number) => ({ ...only, now: new Date(Date.now() + ms) });
+    // Still failing: one more attempt.
+    await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS + 1_000));
+    expect((await deliveries())[0]).toMatchObject({ status: 'FAILED', attempts: 2 });
+    // A stale claim (another task took it first) does nothing.
+    expect(await notifier.retryDelivery(ids.firm, first!.id, 1)).toBe('busy');
+    // The provider is back: SENT, with the same email as the first try would have sent.
+    delivery.failing = false;
+    expect(await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS + 1_000))).toEqual({
+      skipped: false,
+      sent: 1,
+    });
+    const [sent] = await deliveries();
+    expect(sent).toMatchObject({ status: 'SENT', attempts: 3, lastError: null });
+    expect(sent?.sentAt).not.toBeNull();
+    expect(outbox.map((m) => [m.template, m.to, m.data])).toEqual([
+      [
+        'invoice.sent',
+        people.primary.email,
+        expect.objectContaining({ name: people.primary.name, invoiceNumber: 'R6J-1' }),
+      ],
+    ]);
+    // Final: never sent again.
+    await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS * 3));
+    expect(outbox).toHaveLength(1);
+  });
+
+  it(`the outbox gives up after ${EMAIL_MAX_ATTEMPTS} attempts`, async () => {
+    delivery.failing = true;
+    try {
+      const invoice = await inFirm(ids.firm, (tx) =>
+        tx.invoice.create({
+          data: { businessId: ids.firm, clientId: ids.client, number: 'R6J-2' },
+        }),
+      );
+      await notifier.notify({ businessId: ids.firm, event: 'invoice.sent', recordId: invoice.id });
+      for (let i = 1; i <= EMAIL_MAX_ATTEMPTS + 1; i += 1) {
+        await jobs.run('email-retries', {
+          ...only,
+          now: new Date(Date.now() + i * (EMAIL_RETRY_AFTER_MS + 1_000)),
+        });
+      }
+      const [row] = await inFirm(ids.firm, (tx) =>
+        tx.notificationDelivery.findMany({ where: { notification: { entityId: invoice.id } } }),
+      );
+      expect(row).toMatchObject({ status: 'FAILED', attempts: EMAIL_MAX_ATTEMPTS });
+    } finally {
+      delivery.failing = false;
+    }
+  });
+
+  const later = (ms: number, businessIds = only.businessIds) => ({
+    businessIds,
+    now: new Date(Date.now() + ms),
+  });
+  const deliveriesOf = (entityId: string, businessId = ids.firm) =>
+    inFirm(businessId, (tx) =>
+      tx.notificationDelivery.findMany({ where: { businessId, notification: { entityId } } }),
+    );
+
+  it("the outbox is per firm: firm A's run and retry never touch firm B's delivery", async () => {
+    const invoiceB = await inFirm(ids.firmB, (tx) =>
+      tx.invoice.create({
+        data: { businessId: ids.firmB, clientId: ids.clientB, number: 'R6J-B1' },
+      }),
+    );
+    delivery.failing = true;
+    try {
+      await notifier.notify({
+        businessId: ids.firmB,
+        event: 'invoice.sent',
+        recordId: invoiceB.id,
+      });
+    } finally {
+      delivery.failing = false;
+    }
+    const [failed] = await deliveriesOf(invoiceB.id, ids.firmB);
+    expect(failed).toMatchObject({ status: 'FAILED', attempts: 1 });
+    outbox.length = 0;
+    // Firm A's run, after the retry wait: firm B's row is untouched.
+    expect(await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS + 1_000))).toEqual({
+      skipped: false,
+      sent: 0,
+    });
+    // A retry in firm A's scope with firm B's delivery id does nothing.
+    expect(await notifier.retryDelivery(ids.firm, failed!.id, 1)).toBe('busy');
+    expect(await deliveriesOf(invoiceB.id, ids.firmB)).toEqual([failed]);
+    expect(outbox).toEqual([]);
+    // Firm B's own run sends it, to firm B's client.
+    expect(
+      await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS + 1_000, [ids.firmB])),
+    ).toEqual({ skipped: false, sent: 1 });
+    expect((await deliveriesOf(invoiceB.id, ids.firmB))[0]).toMatchObject({
+      status: 'SENT',
+      attempts: 2,
+    });
+    expect(outbox.map((m) => [m.template, m.to, m.businessId])).toEqual([
+      ['invoice.sent', people.primaryB.email, ids.firmB],
+    ]);
+  });
+
+  it('a retry is SKIPPED when its record no longer stands (cancelled, moved, canceled invoice)', async () => {
+    const now = Date.now();
+    const book = (hours: number) =>
+      inFirm(ids.firm, (tx) =>
+        tx.appointment.create({
+          data: {
+            businessId: ids.firm,
+            clientId: ids.client,
+            staffUserId: people.staff.id,
+            startsAt: new Date(now + hours * HOUR),
+            endsAt: new Date(now + (hours + 0.5) * HOUR),
+            locationKind: 'PHONE',
+          },
+        }),
+      );
+    const [cancelled, moved, kept] = [await book(48), await book(49), await book(51)];
+    const invoice = await inFirm(ids.firm, (tx) =>
+      tx.invoice.create({ data: { businessId: ids.firm, clientId: ids.client, number: 'R6J-3' } }),
+    );
+    delivery.failing = true;
+    try {
+      for (const a of [cancelled, moved, kept]) {
+        await notifier.notify({
+          businessId: ids.firm,
+          event: 'appointment.booked',
+          recordId: a.id,
+        });
+      }
+      await notifier.notify({ businessId: ids.firm, event: 'invoice.sent', recordId: invoice.id });
+    } finally {
+      delivery.failing = false;
+    }
+    await inFirm(ids.firm, async (tx) => {
+      await tx.appointment.update({
+        where: { id: cancelled.id },
+        data: { status: 'CANCELLED', cancelledAt: new Date() },
+      });
+      await tx.appointment.update({
+        where: { id: moved.id },
+        data: { startsAt: new Date(now + 53 * HOUR), endsAt: new Date(now + 53.5 * HOUR) },
+      });
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { status: 'CANCELED', canceledAt: new Date() },
+      });
+    });
+    outbox.length = 0;
+    expect(await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS + 1_000))).toEqual({
+      skipped: false,
+      sent: 1,
+    });
+    for (const id of [cancelled.id, moved.id, invoice.id]) {
+      expect((await deliveriesOf(id))[0]).toMatchObject({
+        status: 'SKIPPED',
+        attempts: 2,
+        sentAt: null,
+        lastError: null,
+      });
+    }
+    expect((await deliveriesOf(kept.id))[0]).toMatchObject({ status: 'SENT', attempts: 2 });
+    expect(outbox.map((m) => [m.template, m.to])).toEqual([
+      ['appointment.booked', people.primary.email],
+    ]);
+    // SKIPPED is final.
+    await jobs.run('email-retries', later(EMAIL_RETRY_AFTER_MS * 3));
+    expect(outbox).toHaveLength(1);
   });
 });
