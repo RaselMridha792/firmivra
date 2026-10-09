@@ -1,7 +1,7 @@
 'use client';
 
-import type { EsignRequestDetail } from '@firmivra/types';
-import { Card } from '@firmivra/ui';
+import { ESIGN_ERRORS, type EsignDownloadFile, type EsignRequestDetail } from '@firmivra/types';
+import { Button, Card } from '@firmivra/ui';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { EsignGate } from '../../../../../../../components/esign/esign-gate';
@@ -9,7 +9,10 @@ import { shortDate } from '../../../../../../../components/esign/format';
 import { StatusBadge } from '../../../../../../../components/esign/status-badge';
 import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
-import { useApiQuery } from '../../../../../../../lib/query';
+import { errorMessage } from '../../../../../../../lib/errors';
+import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { RecipientActions } from './recipient-actions';
+import { RequestActions } from './request-actions';
 import { Recipients } from './recipients';
 import { Timeline } from './timeline';
 
@@ -35,13 +38,19 @@ function Detail({ id }: { id: string }) {
         {(r) => (
           <>
             <Header r={r} />
+            <Notices r={r} />
             <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
               <div className="flex flex-col gap-6">
-                <Recipients recipients={r.recipients} ordered={r.routing === 'SEQUENTIAL'} />
+                <Recipients
+                  recipients={r.recipients}
+                  ordered={r.routing === 'SEQUENTIAL'}
+                  actions={(x) => <RecipientActions r={r} x={x} />}
+                />
                 <Timeline id={id} />
               </div>
               <div className="flex flex-col gap-6">
                 <Facts r={r} />
+                {r.allowedActions.includes('DOWNLOAD') && <Downloads r={r} />}
                 {r.internalNote && (
                   <Card>
                     <h2 className="mb-2 font-semibold text-heading">Internal note</h2>
@@ -103,6 +112,7 @@ function Header({ r }: { r: EsignRequestDetail }) {
           )}
         </div>
       )}
+      <RequestActions r={r} />
     </Card>
   );
 }
@@ -151,6 +161,100 @@ function Facts({ r }: { r: EsignRequestDetail }) {
           </div>
         ))}
       </dl>
+    </Card>
+  );
+}
+
+/** Why it ended, and the request it replaced or was replaced by. */
+function Notices({ r }: { r: EsignRequestDetail }) {
+  const approvals = r.approvalNotes.filter((a) => a.note);
+  const any =
+    r.voidedAt || r.replacedByRequestId || r.replacesRequestId || r.expiredAt || approvals.length;
+  if (!any) return null;
+  const nameOf = (id: string) => r.recipients.find((x) => x.id === id)?.name ?? 'An approver';
+  return (
+    <Card data-testid="notices" className="flex flex-col gap-2 text-sm text-text">
+      {r.voidedAt && (
+        <p>
+          Voided {shortDate(r.voidedAt)}
+          {r.voidedBy && ` by ${r.voidedBy.name}`}
+          {r.voidReason && `. Reason: ${r.voidReason}`}
+        </p>
+      )}
+      {r.replacedByRequestId && (
+        <p>
+          It was replaced by{' '}
+          <Link
+            href={`/firm-sign/requests/${r.replacedByRequestId}`}
+            className="text-link underline"
+          >
+            a new request
+          </Link>
+          .
+        </p>
+      )}
+      {r.replacesRequestId && (
+        <p>
+          This replaces{' '}
+          <Link href={`/firm-sign/requests/${r.replacesRequestId}`} className="text-link underline">
+            an earlier request
+          </Link>
+          .
+        </p>
+      )}
+      {r.expiredAt && <p>Expired {shortDate(r.expiredAt)} before everyone signed.</p>}
+      {approvals.map((a) => (
+        <p key={`${a.recipientId}-${a.decision}-${a.note}`}>
+          {nameOf(a.recipientId)} {a.decision === 'APPROVE' ? 'approved' : 'asked for changes'}:{' '}
+          {a.note}
+        </p>
+      ))}
+    </Card>
+  );
+}
+
+/** A 5-minute link: saved straight away, without leaving the page. */
+function save(url: string) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '';
+  a.rel = 'noopener';
+  a.click();
+}
+
+/** The signed PDF and certificate once completed; the packet as sent before that. */
+function Downloads({ r }: { r: EsignRequestDetail }) {
+  const files: [EsignDownloadFile, string][] =
+    r.status === 'COMPLETED'
+      ? [
+          ['final', 'Signed document'],
+          ['certificate', 'Completion certificate'],
+          ['original', 'Document as sent'],
+        ]
+      : [['original', 'Document as sent']];
+  const download = useApiMutation((file: EsignDownloadFile) => api.esign.download(r.id, file), {
+    invalidate: ['esign', 'requests', r.id, 'events'],
+  });
+  return (
+    <Card>
+      <h2 className="mb-4 font-semibold text-heading">Download</h2>
+      <div className="flex flex-col gap-2">
+        {files.map(([file, label]) => (
+          <Button
+            key={file}
+            variant="secondary"
+            disabled={download.isPending}
+            onClick={() => download.mutate(file, { onSuccess: ({ url }) => save(url) })}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {download.error && (
+        <p role="alert" className="mt-2 text-sm text-danger">
+          {errorMessage(download.error, ESIGN_ERRORS)}
+        </p>
+      )}
     </Card>
   );
 }
