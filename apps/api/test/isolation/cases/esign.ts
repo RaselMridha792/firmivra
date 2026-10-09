@@ -10,4 +10,7 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'DELETE /api/v1/esign/requests/:id': OFF,
   'PUT /api/v1/esign/requests/:id/page-plan': OFF,
   'PUT /api/v1/esign/requests/:id/recipients': OFF,
+  'POST /api/v1/esign/requests/:id/documents/uploads': OFF,
+  'POST /api/v1/esign/requests/:id/documents/uploads/confirm': OFF,
+  'DELETE /api/v1/esign/requests/:id/documents/:documentId': OFF,
 };

@@ -194,11 +194,17 @@ export class InMemoryEsignRepository implements EsignRepository {
     documentId: string,
     pagePlan: EsignPage[],
     fields: EsignField[],
+    readAt: Date,
   ) {
-    return this.write(businessId, id, (row) => {
-      row.parts.documents = row.parts.documents.filter((d) => d.id !== documentId);
-      Object.assign(row.parts, structuredClone({ pagePlan, fields }));
-    });
+    return this.write(
+      businessId,
+      id,
+      (row) => {
+        row.parts.documents = row.parts.documents.filter((d) => d.id !== documentId);
+        Object.assign(row.parts, structuredClone({ pagePlan, fields }));
+      },
+      readAt,
+    );
   }
 
   /** Test set-up: change a stored request directly (status, documents, fields...). */

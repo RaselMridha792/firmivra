@@ -43,8 +43,9 @@ const entity = (id: string) => ({ type: 'esign_request', id });
 
 /**
  * A DRAFT's files (R13 step 6, part 1d): uploads in three steps as in Documents, and removal
- * (from-vault and the page viewer's bytes come in part 1e). Access is the requests service's
- * (404 for what the caller may not see). Files sit under tenant/<businessId>/esign/<requestId>/
+ * (from-vault and the page viewer's bytes come in part 1e). Every change needs the requests
+ * service's write access (an approver who may only read gets 404, like anyone else who may not
+ * change the request). Files sit under tenant/<businessId>/esign/<requestId>/
  * (EsignStore checks every key). The audit log and the log get ids only.
  */
 @Injectable()
@@ -139,7 +140,7 @@ export class EsignDocumentsService {
     id: string,
     documentId: string,
   ): Promise<EsignRequestDetail> {
-    await this.requests.draft(businessId, actor, id);
+    const record = await this.requests.draft(businessId, actor, id);
     const parts = await this.repo.parts(businessId, id);
     const doc = parts.documents.find((d) => d.id === documentId);
     if (!doc) throw notFound();
@@ -153,7 +154,15 @@ export class EsignDocumentsService {
       const pageIndex = at.get(f.pageIndex);
       return pageIndex === undefined ? [] : [{ ...f, pageIndex }];
     });
-    const write = this.repo.removeDocument(businessId, id, documentId, pagePlan, fields);
+    const { lastActivityAt } = record;
+    const write = this.repo.removeDocument(
+      businessId,
+      id,
+      documentId,
+      pagePlan,
+      fields,
+      lastActivityAt,
+    );
     await this.requests.drafted(write);
     await this.audit.log('esign.document_removed', entity(id), {
       documentId,
@@ -161,7 +170,7 @@ export class EsignDocumentsService {
       fieldsRemoved: parts.fields.length - fields.length,
     });
     await this.removeObject(businessId, doc.id, doc.s3Key);
-    return this.requests.get(businessId, actor, id);
+    return this.requests.current(businessId, id);
   }
 
   /** Reads pages and sizes (409 PDF_ENCRYPTED, PDF_UNREADABLE) and adds the file to the draft. */
@@ -190,7 +199,7 @@ export class EsignDocumentsService {
       sourceDocumentId: added.sourceDocumentId,
       pageCount,
     });
-    const { documents } = await this.requests.get(businessId, actor, id);
+    const { documents } = await this.requests.current(businessId, id);
     return documents.find((d) => d.id === added.id)!;
   }
 

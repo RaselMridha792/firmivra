@@ -185,13 +185,17 @@ export interface EsignRepository {
     id: string,
     document: NewEsignDocument,
   ): Promise<EsignDocumentRecord | 'NOT_DRAFT' | 'TOO_MANY_PAGES'>;
-  /** Deletes the file and replaces the page plan and the fields (those pages' removed). */
+  /**
+   * Deletes the file and replaces the page plan and the fields (those pages' removed). Like the
+   * saves above, false unless lastActivityAt is still `readAt`.
+   */
   removeDocument(
     businessId: string,
     id: string,
     documentId: string,
     pagePlan: EsignPage[],
     fields: EsignField[],
+    readAt: Date,
   ): Promise<boolean>;
 }
 
