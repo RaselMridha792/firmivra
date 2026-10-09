@@ -21,6 +21,7 @@ import {
   DOCUMENT_STORAGE,
   S3DocumentStorage,
 } from '../storage/document-storage.js';
+import { LeadConvertService } from './lead-convert.service.js';
 import { LeadsService } from './leads.service.js';
 
 const idPipe = new ZodValidationPipe(LeadId);
@@ -34,7 +35,10 @@ function actorOf(auth: AuthContext, tenant: TenantContext): ClientsActor {
 @Controller('business/leads')
 @Roles(...FIRM_STAFF)
 export class LeadsController {
-  constructor(private readonly leads: LeadsService) {}
+  constructor(
+    private readonly leads: LeadsService,
+    private readonly converts: LeadConvertService,
+  ) {}
 
   @Get()
   list(
@@ -75,7 +79,7 @@ export class LeadsController {
     @Param('id', idPipe) id: string,
     @Body(new ZodValidationPipe(ConvertLeadRequest)) body: z.output<typeof ConvertLeadRequest>,
   ): Promise<ConvertLeadResponse> {
-    return this.leads.convert(tenant.businessId, actorOf(auth, tenant), id, body);
+    return this.converts.convert(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 
   @Post(':id/decline')
@@ -95,7 +99,7 @@ export class LeadsController {
     @Param('id', idPipe) id: string,
     @Param('uploadId', idPipe) uploadId: string,
   ): Promise<DownloadLink> {
-    return this.leads.downloadUpload(tenant.businessId, id, uploadId);
+    return this.converts.downloadUpload(tenant.businessId, id, uploadId);
   }
 }
 
@@ -103,6 +107,7 @@ export class LeadsController {
   controllers: [LeadsController],
   providers: [
     LeadsService,
+    LeadConvertService,
     // R5's documents bucket, made the way storage/documents.controller.ts makes it.
     {
       provide: DOCUMENT_STORAGE,
