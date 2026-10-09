@@ -148,6 +148,15 @@ describe('uploads', () => {
     expect((await requests.get(w.a, owner, id)).documents).toEqual([]);
   });
 
+  it('keeps a confirmed file when its audit fails after the write (a retry would be 410)', async () => {
+    const id = await draft();
+    const { ticket } = await uploaded(id, bytesOf('pdf:1'));
+    vi.spyOn(w.audit, 'log').mockRejectedValueOnce(new Error('audit down'));
+    const doc = await confirm(id, ticket.uploadToken);
+    expect((await requests.get(w.a, owner, id)).documents.map((d) => d.id)).toEqual([doc.id]);
+    expect(w.store.removed).toEqual([]);
+  });
+
   it('answers 410 UPLOAD_EXPIRED for an old, unknown, other firm’s, request’s or person’s token', async () => {
     const id = await draft();
     const other = await draft();
@@ -374,6 +383,18 @@ describe('from the vault', () => {
     }
     const copies = [...w.store.objects.keys()].filter((k) => k.includes(`/esign/${id}/`));
     expect(copies).toHaveLength(2);
+    // A filed PDF that is not the scanned file is refused before anything is copied, and the
+    // bytes in hand are checked (the copy is not read back).
+    const changed = at(`tenant/${w.a}/esign/${done}/final/${randomUUID()}`);
+    w.directory.documents.of(w.a).get(changed)!.sha256 = sha(bytesOf('other'));
+    const reads = vi.spyOn(w.store, 'read');
+    expect(await refused(docs.addFromVault(w.a, owner, id, changed))).toEqual([
+      409,
+      'FILE_BLOCKED',
+    ]);
+    expect(reads).toHaveBeenCalledTimes(1);
+    const after = [...w.store.objects.keys()].filter((k) => k.includes(`/esign/${id}/`));
+    expect(after).toHaveLength(2);
   });
 
   it('answers 404 for a document id that is only in another firm’s vault', async () => {
@@ -499,6 +520,16 @@ describe('removing a file', () => {
     expect(w.audit.entries).toHaveLength(audited);
     const after = await requests.get(w.a, owner, id);
     expect(after.documents.map((d) => d.id)).toEqual([file.id]);
+  });
+  it('still deletes the stored file when the removal audit fails after the write', async () => {
+    const id = await draft();
+    const file = await confirm(id, (await uploaded(id, bytesOf('pdf:1'))).ticket.uploadToken);
+    vi.spyOn(w.audit, 'log').mockRejectedValueOnce(new Error('audit down'));
+    const detail = await docs.removeDocument(w.a, owner, id, file.id);
+    expect(detail.documents).toEqual([]);
+    expect(w.store.removed).toEqual([
+      { businessId: w.a, key: `tenant/${w.a}/esign/${id}/source/${file.id}` },
+    ]);
   });
 });
 

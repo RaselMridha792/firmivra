@@ -36,4 +36,36 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'POST /api/v1/esign/requests/:id/save-as-version': OFF,
   'GET /api/v1/esign/templates/:templateId/versions': OFF,
   'POST /api/v1/esign/templates/:templateId/versions/:version/restore': OFF,
+  // The portal's Signature center: the recipient must be the signed-in login's own (another
+  // login's, client's or firm's: 404, test/unit/esign-center.test.ts).
+  'POST /api/v1/portal/:firmSlug/me/signatures/:recipientId/session': OFF,
+  'GET /api/v1/portal/:firmSlug/me/signatures/:recipientId/download': OFF,
+};
+
+// The signer routes are public: no staff or client session and no record id in the URL. The firm
+// comes from the slug and the recipient from the sealed fv_sign_{slug} cookie, bound to that slug
+// (other firms' tokens and cookies: test/unit/esign-signer.test.ts).
+const SIGNER =
+  'Public Firm Sign signer route: firm from the slug, recipient from the sealed slug-bound cookie';
+
+export const excluded: CaseModule['excluded'] = {
+  'POST /api/v1/portal/:firmSlug/sign/session': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/state': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/code/send': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/code/verify': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/access-code': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/consent': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/consent': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/session/end': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/envelope': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/packet': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/adopt': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/finish': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/decline': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/attachments/uploads': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/attachments/uploads/confirm': SIGNER,
+  // The field is checked against the cookie's recipient (another's: 404, esign-signer-files.test.ts).
+  'DELETE /api/v1/portal/:firmSlug/sign/attachments/:fieldId': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/copy': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/copy/download': SIGNER,
 };
