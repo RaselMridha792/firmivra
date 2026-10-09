@@ -129,7 +129,12 @@ export const MyTaxReturnList = z.object({ items: z.array(MyTaxReturn) });
 
 /** Stable `error.code` values of this module, besides the generic ones in ApiError. */
 export const TaxReturnErrorCode = z.enum([
-  /** 409: the PDF is not one of this client's documents, or is internal. */
+  /** 409: the client is archived; restore the client before adding or changing a return. */
+  'CLIENT_ARCHIVED',
+  /**
+   * 409: the PDF is not one of this client's documents, is internal, or failed the virus scan
+   * (INFECTED).
+   */
   'INVALID_DOCUMENT',
   /** 409: a FILED, ACCEPTED or COMPLETED return cannot go back to IN_PROGRESS. */
   'INVALID_STATUS',
