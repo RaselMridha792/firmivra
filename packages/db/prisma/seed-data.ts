@@ -184,6 +184,61 @@ export const SEED_INTAKE_IDS = {
   leadUpload: '00000000-0000-400f-8000-000000000014',
 } as const;
 
+/** Fixed ids of each firm's seeded intake agreement (v1, its PDF row) and the lead's signature. */
+export const SEED_AGREEMENT_IDS = {
+  lvp: {
+    agreement: '00000000-0000-4a11-8000-000000000001',
+    file: '00000000-0000-4a11-8000-000000000002',
+    version: '00000000-0000-4a11-8000-000000000003',
+  },
+  testFirmB: {
+    agreement: '00000000-0000-4a11-8000-000000000011',
+    file: '00000000-0000-4a11-8000-000000000012',
+    version: '00000000-0000-4a11-8000-000000000013',
+  },
+  leadSignature: '00000000-0000-4a11-8000-000000000021',
+} as const;
+
+/** The firm-wide intake agreement's synthetic v1. Never a firm's real agreement text. */
+export const SAMPLE_AGREEMENT = {
+  title: 'Client Intake Agreement (sample)',
+  body: [
+    '# Client Intake Agreement (sample)',
+    '',
+    'Sample text for local development. Not legal text.',
+    '',
+    '## 1. Information you provide',
+    '',
+    'You confirm that the information in this form is accurate to the best of your knowledge.',
+    '',
+    '## 2. No engagement yet',
+    '',
+    'Submitting this form does not start an engagement until the firm confirms it.',
+  ].join('\n'),
+  acknowledgments: [
+    {
+      key: 'read_agreement',
+      label: 'I have read this agreement',
+      text: 'I have read the sample intake agreement. (Sample text, not legal text.)',
+      required: true,
+    },
+    {
+      key: 'accurate_information',
+      label: 'My information is accurate',
+      text: 'The information I provide is accurate to the best of my knowledge. (Sample text.)',
+      required: true,
+    },
+    {
+      key: 'electronic_signature',
+      label: 'I agree to sign electronically',
+      text: 'My typed name is my electronic signature. (Sample text, not legal text.)',
+      required: true,
+    },
+  ],
+  /** No PDF exists behind the seeded file row in local S3. */
+  pdf: { fileName: 'Client Intake Agreement (sample).pdf', sizeBytes: 48213 },
+} as const;
+
 /** One step of a seeded form: one section with the given fields. */
 const seedStep = (key: string, title: string, review: boolean, fields: object[]) => ({
   key,

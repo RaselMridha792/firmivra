@@ -18,7 +18,7 @@ import { z } from 'zod';
  */
 
 /** One line: none of those, no control characters, no line or paragraph separators. */
-const ONE_LINE =
+export const ONE_LINE =
   /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}\u061C\u180E\u200B\u202A-\u202E\u2060-\u2064\u2066-\u206F\u115F\u1160\u2800\u3164\uFFA0\uFEFF\uFFF9-\uFFFB\u{E0000}-\u{E007F}]*$/u;
 /**
  * Several lines: none of those, and no control characters but tab, line feed and carriage

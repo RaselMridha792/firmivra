@@ -110,22 +110,23 @@ export class TaxReturnsService {
     actor: ClientsActor,
     clientId: string,
   ): Promise<TaxReturn[]> {
-    const items = await this.inFirm(businessId, async (tx) => {
+    const { client, items } = await this.inFirm(businessId, async (tx) => {
       const client = await tx.client.findFirst({
         where: { businessId, id: clientId, ...reach(actor) },
         select: { id: true },
       });
       if (!client) throw notFound();
       const rows = await tx.taxReturn.findMany({
-        where: { businessId, clientId },
+        where: { businessId, clientId: client.id },
         orderBy: ORDER,
         select: returnSelect,
       });
-      return rows.map(toTaxReturn);
+      return { client, items: rows.map(toTaxReturn) };
     });
+    // Audit rows name the database's ids, never the spelling of the request path.
     await this.audit.log(
       'client.tax_returns_viewed',
-      { type: 'client', id: clientId },
+      { type: 'client', id: client.id },
       { count: items.length },
     );
     return items;
@@ -169,7 +170,7 @@ export class TaxReturnsService {
     await this.audit.log(
       'tax_return.created',
       { type: 'tax_return', id: row.id },
-      { clientId, fields },
+      { clientId: row.clientId, fields },
     );
     return toTaxReturn(row);
   }
@@ -201,7 +202,7 @@ export class TaxReturnsService {
       if (fields.length === 0) return { row: current, fields };
       const { filedOn, ...rest } = changes;
       const updated = await tx.taxReturn.update({
-        where: { id, businessId },
+        where: { id: current.id, businessId },
         data: {
           ...rest,
           ...(filedOn === undefined ? {} : { filedOn: filedOn ? dateColumn(filedOn) : null }),
@@ -210,25 +211,32 @@ export class TaxReturnsService {
       });
       return { row: updated, fields };
     });
-    await this.audit.log(
-      'tax_return.updated',
-      { type: 'tax_return', id },
-      { clientId: row.clientId, fields },
-    );
+    // A change that changes nothing writes nothing, and so is not audited either.
+    if (fields.length > 0) {
+      await this.audit.log(
+        'tax_return.updated',
+        { type: 'tax_return', id: row.id },
+        { clientId: row.clientId, fields },
+      );
+    }
     return toTaxReturn(row);
   }
 
   /** Only a return that was never filed: 409 RETURN_LOCKED otherwise. */
   async remove(businessId: string, actor: ClientsActor, id: string): Promise<OkResponse> {
-    const clientId = await this.write(businessId, async (tx) => {
+    const deleted = await this.write(businessId, async (tx) => {
       const current = await this.lockReturn(tx, businessId, actor, id);
       if (!canDelete(current)) throw returnLocked();
       // The database's delete rule (never filed) is the last line: it removes nothing then.
-      const { count } = await tx.taxReturn.deleteMany({ where: { businessId, id } });
+      const { count } = await tx.taxReturn.deleteMany({ where: { businessId, id: current.id } });
       if (count !== 1) throw returnLocked();
-      return current.clientId;
+      return current;
     });
-    await this.audit.log('tax_return.deleted', { type: 'tax_return', id }, { clientId });
+    await this.audit.log(
+      'tax_return.deleted',
+      { type: 'tax_return', id: deleted.id },
+      { clientId: deleted.clientId },
+    );
     return { ok: true };
   }
 

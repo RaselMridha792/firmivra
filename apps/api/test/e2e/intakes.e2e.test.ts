@@ -12,6 +12,7 @@ import { createPrismaClient, runInScope, type TxClient } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { IntakeChoiceList, IntakeList, IntakeView, UploadTicket } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
+import type { SignedBy } from '../../src/intake/intake-submit.js';
 import { IntakesService } from '../../src/intake/intakes.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
@@ -58,6 +59,7 @@ const ids = {
   slugB: `r11i-b-${run}`,
   clientOne: '',
   clientTwo: '',
+  accountOne: '',
   tax: '',
   other: '',
   pending: '',
@@ -116,14 +118,75 @@ const ok = (res: Response, status = 200) => {
 };
 const view = (res: Response) => IntakeView.parse(ok(res).body);
 
-async function inFirm<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
+/** One owner-role transaction in firm A, optionally as a signed-in user. */
+async function inFirm<T>(fn: (tx: TxClient) => Promise<T>, actorUserId?: string): Promise<T> {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
   try {
-    return await runInScope(owner, { kind: 'business', businessId: ids.firmA }, fn);
+    return await runInScope(owner, { kind: 'business', businessId: ids.firmA, actorUserId }, fn);
   } finally {
     await owner.$disconnect();
   }
 }
+
+const ACKS = [
+  { key: 'read', label: 'I read it', text: 'Synthetic acknowledgment.', required: true },
+];
+/** Firm A's current firm-wide agreement version (synthetic), which a signature covers. */
+let firmWide: { id: string; bodySha256: string; pdfSha256: string | null };
+
+/** Publishes a new firm-wide agreement for firm A (as the owner client, like the seed). */
+const publishFirmWide = () =>
+  inFirm(async (tx) => {
+    const agreement = await tx.firmAgreement.create({
+      data: { businessId: ids.firmA, scope: 'ALL_INTAKES', createdByUserId: people.owner.id },
+    });
+    firmWide = await tx.firmAgreementVersion.create({
+      data: {
+        businessId: ids.firmA,
+        agreementId: agreement.id,
+        version: 1,
+        title: 'Client intake agreement (sample)',
+        bodyMarkdown: '# Sample agreement\n\nNot legal text.',
+        acknowledgments: ACKS,
+        publishedByUserId: people.owner.id,
+      },
+      select: { id: true, bodySha256: true, pdfSha256: true },
+    });
+    return agreement.id;
+  });
+
+/**
+ * Test stand-in for R14's sign(): the intake_signatures row the database needs for a submit,
+ * covering the firm-wide version, by client One's login (the transaction's actor).
+ */
+const signAsOne = async (
+  tx: TxClient,
+  v: { intakeId: string; submissionId: string },
+): Promise<SignedBy> => {
+  const sig = await tx.intakeSignature.create({
+    data: {
+      businessId: ids.firmA,
+      submissionId: v.submissionId,
+      intakeId: v.intakeId,
+      clientAccountId: ids.accountOne,
+      printedName: 'One Sample',
+      signatureText: 'One Sample',
+      acknowledgments: ACKS.map((a) => ({ agreementVersionId: firmWide.id, ...a, checked: true })),
+      answersSha256: '0'.repeat(64), // replaced by the database
+      evidenceSha256: sha256(Buffer.from(randomUUID())),
+      ip: '203.0.113.7',
+      userAgent: 'test',
+      agreements: {
+        create: {
+          agreementVersionId: firmWide.id,
+          bodySha256: firmWide.bodySha256,
+          pdfSha256: firmWide.pdfSha256,
+        },
+      },
+    },
+  });
+  return { name: sig.printedName, signedAt: sig.signedAt, ip: sig.ip, userAgent: sig.userAgent };
+};
 
 /** What a submit does to the database (submit itself waits on R14's signing service). */
 const markSubmitted = (intakeId: string) =>
@@ -132,15 +195,22 @@ const markSubmitted = (intakeId: string) =>
       where: { intakeId },
       orderBy: { version: 'desc' },
     });
+    const signed = await signAsOne(tx, { intakeId, submissionId: draft.id });
     await tx.intakeSubmission.update({
       where: { id: draft.id },
-      data: { submittedAt: new Date(), signerName: 'One Sample', signedAt: new Date() },
+      data: {
+        submittedAt: new Date(),
+        signerName: signed.name,
+        signedAt: signed.signedAt,
+        signerIp: signed.ip,
+        signerUserAgent: signed.userAgent,
+      },
     });
     await tx.intake.update({
       where: { id: intakeId },
       data: { status: 'SUBMITTED', correctionNote: null },
     });
-  });
+  }, people.one.id);
 
 beforeAll(async () => {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
@@ -176,7 +246,7 @@ beforeAll(async () => {
       [people.one, ids.clientOne],
       [people.two, ids.clientTwo],
     ] as const) {
-      await tx.clientAccount.create({
+      const account = await tx.clientAccount.create({
         data: {
           ...A,
           userId: p.id,
@@ -186,6 +256,7 @@ beforeAll(async () => {
           status: 'ACTIVE',
         },
       });
+      if (p === people.one) ids.accountOne = account.id;
     }
     const tax = await tx.service.create({ data: { ...A, kind: 'ANNUAL_TAX', name: `Tax ${run}` } });
     const other = await tx.service.create({ data: { ...A, kind: 'OTHER', name: `Other ${run}` } });
@@ -219,6 +290,7 @@ beforeAll(async () => {
     });
   });
   await owner.$disconnect();
+  await publishFirmWide();
 
   const env = loadEnv({
     ...process.env,
@@ -504,15 +576,18 @@ describe('portal: submit', () => {
   const save = (intakeId: string, step: string, answers: object) =>
     portal('put', `/${intakeId}/steps/${step}`, people.one, { answers }).then(view);
 
-  it('checks the whole form, takes hidden-slot files out, signs and locks the version', async () => {
+  const signed: number[] = [];
+  const sign = (tx: TxClient, v: { intakeId: string; submissionId: string; version: number }) => {
+    signed.push(v.version);
+    return signAsOne(tx, v);
+  };
+  const sent = { intakeId: '', spouseId: '' };
+
+  it('checks the whole form; without a published firm-wide agreement 409 NO_INTAKE_AGREEMENT, nothing changed', async () => {
     const service = app.get(IntakesService);
     const reach = { kind: 'client' as const, clientId: ids.clientOne };
     const intake = view(await portal('post', '', people.one, { engagementId: ids.submitTax }));
-    const signed: number[] = [];
-    const sign = async (_tx: unknown, v: { version: number }) => {
-      signed.push(v.version);
-      return { name: 'One Sample', signedAt: new Date(), ip: '203.0.113.7', userAgent: 'test' };
-    };
+    sent.intakeId = intake.id;
     await save(intake.id, 'personal', {
       firstName: 'One',
       lastName: 'Sample',
@@ -563,11 +638,67 @@ describe('portal: submit', () => {
       certifyDocuments: true,
     });
     await save(intake.id, 'review', { paymentPreference: 'PAY_AFTER' });
+    sent.spouseId = spouseId;
 
-    const sent = await service.submit(ids.firmA, reach, intake.id, signer, sign);
-    expect(sent).toMatchObject({ status: 'SUBMITTED', locked: true, version: 1 });
-    expect(sent.answers['ssn']).toEqual({ last4: '3456' });
-    expect(sent.uploads.map((u) => u.slot)).toEqual(['governmentId']);
+    // The firm archives its firm-wide agreement and has none published: nothing to sign.
+    const before = view(await portal('get', `/${intake.id}`, people.one));
+    await inFirm((tx) =>
+      tx.firmAgreement.updateMany({
+        where: { businessId: ids.firmA, scope: 'ALL_INTAKES', archivedAt: null },
+        data: { archivedAt: new Date() },
+      }),
+    );
+    await expect(service.submit(ids.firmA, reach, intake.id, signer, sign)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        code: 'NO_INTAKE_AGREEMENT',
+        message: "This form can't be signed right now. Please contact the firm.",
+      },
+    });
+    // A firm-wide agreement with no published version is not one either.
+    await inFirm((tx) =>
+      tx.firmAgreement.create({
+        data: { businessId: ids.firmA, scope: 'ALL_INTAKES', createdByUserId: people.owner.id },
+      }),
+    );
+    await expect(service.submit(ids.firmA, reach, intake.id, signer, sign)).rejects.toMatchObject({
+      response: { code: 'NO_INTAKE_AGREEMENT' },
+    });
+    expect(signed).toEqual([]);
+    const after = view(await portal('get', `/${intake.id}`, people.one));
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({ status: 'IN_PROGRESS', locked: false, version: 1 });
+    const unchanged = await inFirm(async (tx) => ({
+      spouse: await tx.document.findUniqueOrThrow({ where: { id: spouseId } }),
+      version: await tx.intakeSubmission.findFirstOrThrow({ where: { intakeId: intake.id } }),
+      signatures: await tx.intakeSignature.count({ where: { intakeId: intake.id } }),
+    }));
+    expect(unchanged.spouse).toMatchObject({
+      intakeId: intake.id,
+      intakeSlot: 'spouseGovernmentId',
+    });
+    expect(unchanged.version).toMatchObject({ submittedAt: null, signerName: null });
+    expect(unchanged.signatures).toBe(0);
+
+    // Archive the empty one and publish a firm-wide agreement again for the tests below.
+    await inFirm((tx) =>
+      tx.firmAgreement.updateMany({
+        where: { businessId: ids.firmA, scope: 'ALL_INTAKES', archivedAt: null },
+        data: { archivedAt: new Date() },
+      }),
+    );
+    await publishFirmWide();
+  });
+
+  it('takes hidden-slot files out, signs the firm-wide agreement and locks the version', async () => {
+    const service = app.get(IntakesService);
+    const reach = { kind: 'client' as const, clientId: ids.clientOne };
+    const { intakeId, spouseId } = sent;
+    const intake = { id: intakeId };
+    const submitted = await service.submit(ids.firmA, reach, intake.id, signer, sign);
+    expect(submitted).toMatchObject({ status: 'SUBMITTED', locked: true, version: 1 });
+    expect(submitted.answers['ssn']).toEqual({ last4: '3456' });
+    expect(submitted.uploads.map((u) => u.slot)).toEqual(['governmentId']);
     expect(signed).toEqual([1]);
     const stored = await inFirm(async (tx) => ({
       spouse: await tx.document.findUniqueOrThrow({ where: { id: spouseId } }),

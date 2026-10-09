@@ -7,6 +7,7 @@ import { type AuthContext, requestContext } from '../common/request-context.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { httpError, runFlow } from './auth-errors.js';
 import { ChallengeSessions } from './challenge-session.js';
 import {
@@ -127,7 +128,7 @@ const EMAIL_KEY_LABEL = 'fv-auth-email-key-v1';
 /** HKDF label for the key that turns a network into the keyed hash the audit rows keep. */
 const NETWORK_KEY_LABEL = 'fv-auth-network-key-v1';
 /** The most email keys the ceiling warning remembers before it prunes ended windows. */
-const CEILING_WARNED_MAX = 10_000;
+export const CEILING_WARNED_MAX = 10_000;
 /** Staff and Super Admins always pass MFA; the pools require it, and so does the API. */
 const MFA_REQUIRED: ReadonlySet<IdentityPool> = new Set(['STAFF', 'ADMIN']);
 
@@ -161,6 +162,7 @@ export class SignInService {
     private readonly challenges: ChallengeSessions,
     private readonly audit: AuditService,
     @Inject(ENV) env: Env,
+    private readonly notifier: Notifier,
   ) {
     for (const [pool, secret] of Object.entries(poolSecrets(env))) {
       if (secret) {
@@ -347,6 +349,37 @@ export class SignInService {
       }
       await this.log(place, RESET_FAILED, { type: 'login' }, { emailKey, pool, reservationId });
       throw httpError('RESET_CODE_INVALID');
+    }
+    // Only a reset that worked gets here, so the bell item reveals nothing about other emails.
+    if (user) await this.passwordChanged(place, user.id);
+  }
+
+  /**
+   * The password changed: a bell item for the person themself (R6, `account.password-changed`,
+   * the user's id only), in the portal's firm for a client (the PRIMARY login, q27), in every
+   * firm they are an ACTIVE member of for staff. Super Admins have no bell. Never fails the reset.
+   */
+  private async passwordChanged(place: SignInPlace, userId: string): Promise<void> {
+    if (place.pool === 'ADMIN') return;
+    try {
+      const firms = place.businessId
+        ? [place.businessId]
+        : (
+            await this.db.forUser(userId).membership.findMany({
+              where: { status: 'ACTIVE' },
+              select: { businessId: true },
+            })
+          ).map((m) => m.businessId);
+      for (const businessId of firms) {
+        await this.notifier.notify({
+          businessId,
+          event: 'account.password-changed',
+          recordId: userId,
+          audience: place.pool === 'CLIENT' ? 'client' : 'staff',
+        });
+      }
+    } catch (e) {
+      this.logger.warn(`account.password-changed for user ${userId} not written (${errorName(e)})`);
     }
   }
 
