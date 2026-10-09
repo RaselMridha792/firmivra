@@ -5,7 +5,7 @@ const app = (path: string) => `http://app.localhost:${port}${path}`;
 // The first mock request (mocks/esign.ts): "Tax Engagement Letter 2026", signed by email only.
 const emailOnly = '0199b6e0-0000-7000-8000-000000000001';
 
-test('a locked session lands on the kiosk; with none open, on Firm Sign', async ({ page }) => {
+test('with no in-person signing open, the kiosk entry opens Firm Sign', async ({ page }) => {
   await page.goto(app('/firm-sign/in-person'));
   await expect(page).toHaveURL(/\/firm-sign$/);
 });

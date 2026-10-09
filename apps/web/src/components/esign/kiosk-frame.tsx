@@ -13,7 +13,8 @@ import { SignedIn, useMe } from '../signed-in';
  * The in-person kiosk frame: the same sign-in and firm checks as the workspace layout (an inactive
  * firm, one in setup or a lost session never reaches the page), without the sidebar or menu.
  * While an in-person signing is open the API locks the staff session and GET /business answers
- * 403 KIOSK_LOCKED: the kiosk pages still open then, without the firm (they never need it).
+ * 403 KIOSK_LOCKED: the kiosk pages still open then, without the firm (they never call
+ * useFirm()), and with an empty data cache, since the firm can't be claimed for it.
  */
 export function KioskFrame({ children }: { children: ReactNode }) {
   return (
@@ -45,8 +46,10 @@ function KioskFirm({ children }: { children: ReactNode }) {
         const code = e instanceof ApiRequestError ? e.code : 'ERROR';
         if (code === 'BUSINESS_SETUP_REQUIRED') router.replace('/setup');
         else if (e instanceof ApiRequestError && e.status === 401) router.replace('/sign-in');
-        else if (code === 'KIOSK_LOCKED') setLocked(true);
-        else setError(code);
+        else if (code === 'KIOSK_LOCKED') {
+          queryClient.clear();
+          setLocked(true);
+        } else setError(code);
       },
     );
     return () => {

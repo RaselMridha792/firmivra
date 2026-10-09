@@ -1,50 +1,57 @@
 'use client';
 
 import {
-  ApiRequestError,
   ESIGN_ERRORS,
   type EsignInPersonSession,
   type EsignRecipient,
   type EsignRequestDetail,
 } from '@firmivra/types';
-import { Button, Card, EmptyState, Input } from '@firmivra/ui';
+import { Button, Card, Input } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useState } from 'react';
 import { api } from '../../lib/api';
-import { errorMessage } from '../../lib/errors';
+import { errorCode, errorMessage } from '../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../lib/query';
 import { PageState } from '../page-state';
 
 const STATE_KEY = ['esign', 'in-person'];
+/** How often an open kiosk asks whether it is still open (the server ends a kiosk left alone). */
+const CHECK_MS = 60_000;
 const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
-const signedOut = (e: unknown) => e instanceof ApiRequestError && e.status === 401;
-/** A signer who can sign now: it is their turn and they have not finished. */
-const canStart = (x: EsignRecipient) =>
-  x.delivery === 'IN_PERSON' && ['SENT', 'DELIVERED', 'VIEWED'].includes(x.status);
+
+/** The caller's open in-person session. Answers while the staff session is locked. */
+const useInPersonState = () => useApiQuery(STATE_KEY, () => api.esign.inPerson.state());
+
+/** Why an in-person signer can't start now, or null when they can. */
+function blocked(x: EsignRecipient): string | null {
+  if (['SENT', 'DELIVERED', 'VIEWED'].includes(x.status)) return null;
+  if (x.status === 'SIGNED') return 'signed';
+  if (x.status === 'DECLINED') return 'declined';
+  return 'not their turn';
+}
 
 /**
- * /firm-sign/in-person: where a locked staff session lands (any firm page answers 403
+ * /firm-sign/in-person: where a locked staff session lands (firm pages answer 403
  * KIOSK_LOCKED). It opens the open session's kiosk, or Firm Sign when there is none.
  */
 export function InPersonResume() {
   const router = useRouter();
-  const state = useApiQuery(STATE_KEY, () => api.esign.inPerson.state());
-  const session = state.data?.session;
-  const open = state.isSuccess;
+  const state = useInPersonState();
+  const requestId = state.data?.session?.requestId;
+  const loaded = state.isSuccess;
   useEffect(() => {
-    if (signedOut(state.error)) router.replace('/sign-in');
-    else if (open)
-      router.replace(session ? `/firm-sign/in-person/${session.requestId}` : '/firm-sign');
-  }, [router, open, session, state.error]);
-  if (state.error && !signedOut(state.error)) {
-    return <EmptyState title="In-person signing" description={message(state.error) ?? ''} />;
-  }
+    if (loaded) router.replace(requestId ? `/firm-sign/in-person/${requestId}` : '/firm-sign');
+  }, [router, loaded, requestId]);
   return (
-    <p className="text-sm text-muted" role="status">
-      Opening in-person signing…
-    </p>
+    <PageState query={state} isEmpty={() => false}>
+      {() => (
+        <p className="text-sm text-muted" role="status">
+          Opening in-person signing…
+        </p>
+      )}
+    </PageState>
   );
 }
 
@@ -55,14 +62,13 @@ export function InPersonResume() {
  */
 export function InPersonKiosk({ requestId }: { requestId: string }) {
   const router = useRouter();
-  const state = useApiQuery(STATE_KEY, () => api.esign.inPerson.state());
+  const state = useInPersonState();
   const session = state.data?.session;
   // A session for another request: that one's kiosk, never two at once.
   const elsewhere = session && session.requestId !== requestId ? session.requestId : null;
   useEffect(() => {
-    if (signedOut(state.error)) router.replace('/sign-in');
-    else if (elsewhere) router.replace(`/firm-sign/in-person/${elsewhere}`);
-  }, [router, elsewhere, state.error]);
+    if (elsewhere) router.replace(`/firm-sign/in-person/${elsewhere}`);
+  }, [router, elsewhere]);
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
@@ -89,10 +95,24 @@ function Start({ requestId }: { requestId: string }) {
   const start = useApiMutation((recipientId: string) =>
     api.esign.inPerson.start(requestId, { recipientId }),
   );
+
+  function startWith(recipientId: string) {
+    start.mutate(recipientId, {
+      onSuccess: (session) => queryClient.setQueryData(STATE_KEY, { session }),
+      onError: (err) => {
+        // Another tab opened a kiosk meanwhile: show that one (its unlock form) instead.
+        if (errorCode(err) === 'KIOSK_LOCKED') {
+          void queryClient.invalidateQueries({ queryKey: STATE_KEY });
+        }
+      },
+    });
+  }
+
   return (
     <PageState query={request} isEmpty={() => false}>
       {(r: EsignRequestDetail) => {
         const signers = r.recipients.filter((x) => x.delivery === 'IN_PERSON');
+        const allowed = r.allowedActions.includes('START_IN_PERSON');
         return (
           <Card title={r.title}>
             <div className="flex flex-col gap-4">
@@ -102,32 +122,26 @@ function Start({ requestId }: { requestId: string }) {
               </p>
               {signers.length === 0 ? (
                 <p className="text-sm text-muted">No one on this request signs in person.</p>
+              ) : !allowed ? (
+                <p className="text-sm text-muted">
+                  This request can&apos;t be signed in person now.
+                </p>
               ) : (
                 <ul className="flex flex-col gap-3">
-                  {signers.map((x) => (
-                    <li key={x.id} className="flex flex-wrap items-center justify-between gap-3">
-                      <span className="text-sm text-text">
-                        {x.name}
-                        {!canStart(x) && (
-                          <span className="text-muted">
-                            {' '}
-                            ({x.status === 'SIGNED' ? 'signed' : 'not their turn'})
-                          </span>
-                        )}
-                      </span>
-                      <Button
-                        disabled={!canStart(x) || start.isPending}
-                        onClick={() =>
-                          start.mutate(x.id, {
-                            onSuccess: (session) =>
-                              queryClient.setQueryData(STATE_KEY, { session }),
-                          })
-                        }
-                      >
-                        Start signing with {x.name}
-                      </Button>
-                    </li>
-                  ))}
+                  {signers.map((x) => {
+                    const why = blocked(x);
+                    return (
+                      <li key={x.id} className="flex flex-wrap items-center justify-between gap-3">
+                        <span className="text-sm text-text">
+                          {x.name}
+                          {why && <span className="text-muted"> ({why})</span>}
+                        </span>
+                        <Button disabled={!!why || start.isPending} onClick={() => startWith(x.id)}>
+                          Start signing with {x.name}
+                        </Button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               {start.error && (
@@ -159,15 +173,15 @@ function Locked({ session }: { session: EsignInPersonSession }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
 
-  // Left alone, the server ends the session and signs the staff member out: check then.
+  // A kiosk left alone is ended on the server, which signs the staff member out: the next check
+  // then answers 401 and the session layer opens the sign-in page.
   useEffect(() => {
-    const wait = Math.max(0, new Date(session.expiresAt).getTime() - Date.now());
-    const timer = setTimeout(
+    const timer = setInterval(
       () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
-      wait,
+      CHECK_MS,
     );
-    return () => clearTimeout(timer);
-  }, [session.expiresAt, queryClient]);
+    return () => clearInterval(timer);
+  }, [queryClient]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -182,10 +196,9 @@ function Locked({ session }: { session: EsignInPersonSession }) {
         queryClient.clear();
         router.replace(`/firm-sign/requests/${session.requestId}`);
       },
-      onError: (err) => {
-        setPassword('');
-        if (signedOut(err)) router.replace('/sign-in');
-      },
+      // A wrong password is typed again from scratch. (After 5 the API signs the staff member
+      // out; the session layer opens the sign-in page on that 401.)
+      onError: () => setPassword(''),
     });
   }
 
@@ -195,8 +208,9 @@ function Locked({ session }: { session: EsignInPersonSession }) {
       <Card title={`Hand this device to ${session.signerName}`}>
         <div className="flex flex-col gap-4">
           <p className="text-sm text-text">
-            {session.signerName} signs in a new tab. When they are done, close that tab and come
-            back here. If nobody returns by {until}, you are signed out.
+            {session.signerName} signs in a new tab. When they are done, they close that tab and
+            hand the device back. The signing link works until {until} if they haven&apos;t started
+            by then.
           </p>
           <div>
             <Button onClick={() => window.open(session.signingUrl, '_blank', 'noopener')}>

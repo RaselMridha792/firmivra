@@ -38,10 +38,18 @@ function ToSetup() {
   return <Loading />;
 }
 
+/** An in-person signing locked this staff session (KIOSK_LOCKED): only the kiosk opens. */
+function ToKiosk() {
+  const router = useRouter();
+  useEffect(() => router.replace('/firm-sign/in-person'), [router]);
+  return <Loading />;
+}
+
 /**
  * The states every screen needs, in one place: loading, empty, error (with Try again), and by
  * error code: FORBIDDEN is "no permission", NOT_FOUND "not found", BUSINESS_INACTIVE its own
- * notice, BUSINESS_SETUP_REQUIRED opens /setup. Wrap each useApiQuery result:
+ * notice, BUSINESS_SETUP_REQUIRED opens /setup, KIOSK_LOCKED the in-person kiosk. Wrap each
+ * useApiQuery result:
  *   <PageState query={statuses} empty="No tax statuses yet">{(rows) => <Table rows={rows} />}</PageState>
  */
 export function PageState<T>({
@@ -56,6 +64,7 @@ export function PageState<T>({
   if (query.isError && query.data === undefined) {
     const errorCode = code(query.error);
     if (errorCode === 'BUSINESS_SETUP_REQUIRED') return <ToSetup />;
+    if (errorCode === 'KIOSK_LOCKED') return <ToKiosk />;
     if (errorCode === 'FORBIDDEN') {
       return (
         <Card data-testid="page-forbidden">
