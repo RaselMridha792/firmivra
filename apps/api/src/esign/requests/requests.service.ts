@@ -240,7 +240,7 @@ export class EsignRequestsService {
       let accessCodeHash: string | null = null;
       if (input.authMethod === 'ACCESS_CODE' && input.delivery !== 'IN_PERSON') {
         accessCodeHash = input.accessCode
-          ? this.codes.hash(recipientId, input.accessCode)
+          ? this.codes.hash(recipientId, 'ACCESS', input.accessCode)
           : (old?.accessCodeHash ?? null);
         if (!accessCodeHash) throw invalid(`recipients.${i}.accessCode`, 'Set an access code');
       }
