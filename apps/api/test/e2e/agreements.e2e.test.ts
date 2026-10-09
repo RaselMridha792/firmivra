@@ -290,6 +290,10 @@ describe('firm agreements', () => {
       const res = await publish(body);
       expect([res.status, codeOf(res)]).toEqual([status, code]);
     }
+    const noBox = await publish(version(null, firms.a.cleanFile, { acknowledgments: [] }));
+    expect((noBox.body as { error: { details: { path: string }[] } }).error.details[0]?.path).toBe(
+      'acknowledgments',
+    );
 
     const v1 = await publish(version(null, firms.a.cleanFile, { effectiveDate: '2026-10-01' }));
     expect(v1.status).toBe(201);
@@ -563,6 +567,19 @@ describe('firm agreements', () => {
     const again = await asP('post', `/${id}/versions`, version(1, null));
     expect([again.status, codeOf(again)]).toEqual([409, 'PDF_REQUIRED']);
     expect((await asP('get', `/${id}/versions/1`)).status).toBe(200);
+    expect(FirmAgreementDetail.parse((await asP('get', `/${id}`)).body).versionCount).toBe(1);
+    // A service agreement on the Pending Setup firm archives too.
+    const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
+    const svc = await runInScope(owner, { kind: 'business', businessId: firms.pending.id }, (tx) =>
+      tx.service.create({
+        data: { businessId: firms.pending.id, kind: 'BOOKKEEPING', name: 'Pending books' },
+      }),
+    );
+    await owner.$disconnect();
+    const created = await asP('post', '', { scope: 'SERVICE', serviceId: svc.id });
+    const archived = await asP('post', `/${FirmAgreementSummary.parse(created.body).id}/archive`);
+    expect(archived.status).toBe(200);
+    expect(FirmAgreementSummary.parse(archived.body).archivedAt).not.toBeNull();
   });
 
   it('a client login is not a firm manager', async () => {

@@ -23,7 +23,7 @@ info:
     | Agreement editor | `get`, `getVersion`, `publish`; the PDF with `uploadFile()` (`createUpload`, PUT, `confirmUpload`), then `file` until CLEAN, `download` |
     | Begin Online, review step | `publicAgreements(slug).block({ form })`, `downloadPdf(agreementId, version)` |
     | Portal intake, review step | `myIntakeAgreements(slug).block(intakeId)`, `publicAgreements(slug).downloadPdf(agreementId, version)` |
-    | Intake submit (R11) | `signature: IntakeSignatureInput` in the submit body |
+    | Intake submit (R11) | `signature: IntakeSignatureInput` in the submit body; Begin Online picks its service and form only through `beginOnlineService(tx, form)`, the block's own lookup |
 
     - **Who:** firm routes are for the Owner and Admin (`401` signed out, `403 FORBIDDEN` for
       staff) and work while the firm is Pending Setup. Public routes need no sign-in; the firm
@@ -36,7 +36,9 @@ info:
       creation). Until R0's `services.begin_online` lands, "the Begin Online service" is the
       first unarchived service of that kind (sort order, creation, id). The portal intake asks
       by intake id and the API uses the intake's form's service (`intakes.form_id ->
-      intake_forms.service_id`, what #155's checks use), not a lookup by kind. `legal` is null unless the firm has published both Terms and Privacy, and always
+      intake_forms.service_id`, what #155's checks use), not a lookup by kind. Begin Online's submit must resolve its service and form only through
+      `beginOnlineService(tx, form)` (agreements.service.ts), so the signed set matches the block;
+      any other choice gives a firm with two services of one kind `409 AGREEMENT_OUTDATED`. `legal` is null unless the firm has published both Terms and Privacy, and always
       null on the portal route.
     - **Series and versions:** each firm has one firm-wide agreement (`ALL_INTAKES`) and up to 9
       unarchived service agreements per service (`SERVICE`; a 10th answers `409

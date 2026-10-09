@@ -10,6 +10,8 @@ describe('agreementsConfig', () => {
   it('reads true and false, and refuses anything else', () => {
     expect(agreementsConfig({ AGREEMENT_PDF_REQUIRED: 'true' })).toEqual({ pdfRequired: true });
     expect(agreementsConfig({ AGREEMENT_PDF_REQUIRED: 'false' })).toEqual({ pdfRequired: false });
-    expect(() => agreementsConfig({ AGREEMENT_PDF_REQUIRED: 'yes' })).toThrow();
+    expect(() => agreementsConfig({ AGREEMENT_PDF_REQUIRED: 'yes' })).toThrow(
+      'AGREEMENT_PDF_REQUIRED must be "true" or "false"',
+    );
   });
 });

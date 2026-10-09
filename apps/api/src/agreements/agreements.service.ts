@@ -41,8 +41,9 @@ export function agreementsConfig(env: NodeJS.ProcessEnv = process.env): Agreemen
   const flag = z
     .enum(['true', 'false'])
     .default('false')
-    .parse(raw === '' ? undefined : raw);
-  return { pdfRequired: flag === 'true' };
+    .safeParse(raw === '' ? undefined : raw);
+  if (!flag.success) throw new Error('AGREEMENT_PDF_REQUIRED must be "true" or "false"');
+  return { pdfRequired: flag.data === 'true' };
 }
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
