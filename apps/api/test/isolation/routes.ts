@@ -14,6 +14,9 @@ export interface ApiRoute {
   path: string;
   roles: string[];
   isPublic: boolean;
+  /** For reading the route's own metadata (a rate limit, for example). */
+  handler: (...args: unknown[]) => unknown;
+  controller: Type;
 }
 
 const parts = (value: unknown): string[] =>
@@ -46,6 +49,8 @@ export function apiRoutes(app: INestApplication): ApiRoute[] {
             path: `/api/v1/${[base, tail].filter(Boolean).join('/')}`,
             roles: rolesOfRoute(reflector, handler, controller) ?? [],
             isPublic: isPublicRoute(reflector, handler, controller),
+            handler: handler as ApiRoute['handler'],
+            controller,
           });
         }
       }
