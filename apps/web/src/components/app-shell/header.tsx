@@ -11,6 +11,7 @@ export function Header({
   greeting,
   roleLabel,
   onOpenMenu,
+  bell,
 }: {
   /** Placeholder text for the search box; search is not connected yet. */
   search?: string;
@@ -18,6 +19,8 @@ export function Header({
   greeting?: ReactNode;
   roleLabel: string;
   onOpenMenu: () => void;
+  /** Replaces the plain bell button, for example the portal's bell with its unread count. */
+  bell?: ReactNode;
 }) {
   const { me, signOut } = useMe();
   const [open, setOpen] = useState(false);
@@ -54,13 +57,15 @@ export function Header({
           search ? 'ml-auto flex items-center gap-2 md:ml-5' : 'ml-auto flex items-center gap-2'
         }
       >
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="rounded-control p-2 text-text hover:bg-canvas"
-        >
-          <Bell aria-hidden className="size-5" />
-        </button>
+        {bell ?? (
+          <button
+            type="button"
+            aria-label="Notifications"
+            className="rounded-control p-2 text-text hover:bg-canvas"
+          >
+            <Bell aria-hidden className="size-5" />
+          </button>
+        )}
 
         <div className="relative">
           <button

@@ -40,7 +40,7 @@ Not mine: `apps/api`, `packages/types`, `apps/web/src/mocks` (API sessions), `ap
 ## Needs from others
 
 - Contracts and APIs: contract B and the leads (R15), R14 agreements and `<Markdown>` (#155 first), Arfan's form blocks (#138) and sign block, R1 documents part 2, tax returns (R21), invoices (R19), notifications (R16, #160 merged), messages and notes API (R20), signatures status (R13-api).
-- The portal header bell's count and link: needs a Header prop or Fahad's bell; asked the Scrum thread who adds it.
+- The portal header bell: built in the portal shell through a new optional `bell` prop on the shared Header (Scrum thread yes, Oct 9).
 - Nahid's next work and the "Your files" > Nahid path guard under `.github/`: the Scrum thread and Rasel.
 
 ## Progress log

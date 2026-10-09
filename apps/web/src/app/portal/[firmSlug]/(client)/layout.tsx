@@ -23,6 +23,7 @@ import { Header } from '../../../../components/app-shell/header';
 import { isActive } from '../../../../components/app-shell/types';
 import { usePortal } from '../layout';
 import { PortalFooter } from '../(public)/_components/portal-footer';
+import { PortalBell } from './_components/portal-bell';
 import type { NavSections } from '../../../../components/app-shell/types';
 import { SignedIn, useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
@@ -185,6 +186,7 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
           <Header
             roleLabel="Client"
             onOpenMenu={() => setDrawer(true)}
+            bell={<PortalBell slug={slug} />}
             greeting={`Welcome back, ${me.user.name.split(' ')[0]}!`}
           />
         </div>

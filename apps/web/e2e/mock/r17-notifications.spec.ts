@@ -8,6 +8,7 @@ test('notifications filter, open their page, and mark all read', async ({ page }
   await page.goto(portal('/lvp/notifications'));
   await expect(page).toHaveTitle('Notifications');
   await expect(page.getByText(/You have \d+ unread\./)).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Notifications, \d+ unread$/ })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('notifications-1440.png'), fullPage: true });
 
   await page.getByRole('button', { name: 'Unread', exact: true }).click();
@@ -22,6 +23,7 @@ test('notifications filter, open their page, and mark all read', async ({ page }
 
   await page.getByRole('button', { name: 'Mark all as read' }).click();
   await expect(page.getByText('You are all caught up.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Notifications', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Unread', exact: true }).click();
   await expect(page.getByText('No unread notifications.')).toBeVisible();
 
