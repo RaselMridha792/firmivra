@@ -115,7 +115,11 @@ function Start({ requestId }: { requestId: string }) {
     start.mutate(recipientId, {
       onSuccess: (session) => {
         // Nothing this tab read before the lock stays in memory while the device is handed over.
-        queryClient.clear();
+        // The kiosk's own state stays: the page watches it, and removing it would send the tab
+        // through a 403 KIOSK_LOCKED before the lock screen shows.
+        queryClient.removeQueries({
+          predicate: (q) => q.queryKey[0] !== STATE_KEY[0] || q.queryKey[1] !== STATE_KEY[1],
+        });
         startLinks.set(session.requestId, session.signingUrl);
         queryClient.setQueryData(STATE_KEY, { session });
       },

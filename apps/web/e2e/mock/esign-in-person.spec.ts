@@ -24,10 +24,17 @@ test('start with the in-person signer, hand over, then unlock with the password'
   page,
 }) => {
   await page.goto(app(`/firm-sign/in-person/${MOCK_IN_PERSON_REQUEST_ID}`));
+  const visited: string[] = [];
+  page.on(
+    'framenavigated',
+    (f) => f === page.mainFrame() && visited.push(new URL(f.url()).pathname),
+  );
   await page.getByRole('button', { name: 'Start signing with Taylor Sample' }).click();
   await expect(
     page.getByRole('heading', { name: 'Hand this device to Taylor Sample' }),
   ).toBeVisible();
+  // The lock screen shows in place: no detour through the locked-session landing page.
+  expect(visited).not.toContain('/firm-sign/in-person');
   // The signer's pages open in a new tab, on the portal (PORTAL_BASE_URL may name another port
   // than this test server's: answer it here).
   await page.context().route(/\/lvp\/sign/, (route) => route.fulfill({ body: 'Signer pages' }));
