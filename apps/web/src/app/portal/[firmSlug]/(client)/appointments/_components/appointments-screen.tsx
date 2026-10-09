@@ -3,7 +3,7 @@
 import { Button, Modal } from '@firmivra/ui';
 import { Plus } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
 import { usePortal } from '../../../layout';
@@ -39,6 +39,8 @@ export function AppointmentsScreen() {
   const [history, setHistory] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [request, setRequest] = useState<ActionRequest | null>(null);
+  // Counts every Quick Actions ask, so a repeat ask on the same row opens it again.
+  const asksRef = useRef(0);
 
   const ask = (kind: ActionRequest['kind']) => {
     // Pin the row once, by id: after a cancel the list changes, and nothing else may open.
@@ -52,7 +54,8 @@ export function AppointmentsScreen() {
       return;
     }
     setNotice(null);
-    setRequest({ kind, id: target.id, n: (request?.n ?? 0) + 1 });
+    asksRef.current += 1;
+    setRequest({ kind, id: target.id, n: asksRef.current });
   };
 
   return (

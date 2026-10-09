@@ -6,8 +6,8 @@ import {
   ENTITY_TYPES,
   FIRM_PLANS,
   FIRM_SERVICES,
-  PRACTICE_TYPES,
   FirmApplicationId,
+  type BusinessStatus,
   type FirmApplicationRecord,
 } from '@firmivra/types';
 import { Button, Card, Modal } from '@firmivra/ui';
@@ -76,11 +76,11 @@ const longDate = (value: string) =>
     year: 'numeric',
   }).format(new Date(value));
 
-const FIRM_STATUS: Record<string, { label: string; tone: string }> = {
+const FIRM_STATUS: Partial<Record<BusinessStatus, { label: string; tone: string }>> = {
   ACTIVE: { label: 'Active', tone: 'bg-success-soft text-success' },
   PENDING_SETUP: { label: 'Pending Setup', tone: 'bg-warning-soft text-warning' },
 };
-const firmStatus = (status: string) =>
+const firmStatus = (status: BusinessStatus) =>
   FIRM_STATUS[status] ?? { label: humanize(status), tone: 'bg-disabled text-muted' };
 
 function ApplicationRecord({
@@ -139,7 +139,6 @@ function ApplicationRecord({
         ['Business Name', application.legalName],
         ...(application.dbaName ? [['DBA', application.dbaName] as const] : []),
         ['Business Type', ENTITY_TYPES[business.entityType]],
-        ['Practice Type', PRACTICE_TYPES[business.practiceType]],
         ['Services Offered', business.services.map((item) => FIRM_SERVICES[item]).join(', ')],
         ['EIN (if applicable)', business.einLast4 ? `••••${business.einLast4}` : 'Not provided'],
         ...(business.email ? [['Business Email', mail(business.email)] as const] : []),
@@ -169,35 +168,43 @@ function ApplicationRecord({
       ];
   const firm = application.firm;
   const account = application.account;
+  // The firm's own rows come from the firm, decision and invite, so they show even when the form
+  // can't be read (LVP's seeded application).
+  const firmFields: Field[] = firm
+    ? [
+        ['Start Date', application.decision ? dateParts(application.decision.at)[0] : null],
+        [
+          'Status',
+          <span
+            key="status"
+            className={`rounded-pill px-2 py-0.5 text-xs font-semibold ${firmStatus(firm.status).tone}`}
+          >
+            {firmStatus(firm.status).label}
+          </span>,
+        ],
+        ['Portal Address', `/${firm.slug}`],
+        // Only while the owner has not accepted: the timeline already records the invite.
+        ...(application.ownerInvite && application.ownerInvite.status !== 'ACCEPTED'
+          ? [
+              [
+                'Owner Invite',
+                application.ownerInvite.status === 'EXPIRED'
+                  ? `Expired ${dateParts(application.ownerInvite.expiresAt)[0]}`
+                  : `${humanize(application.ownerInvite.status)}, expires ${dateParts(application.ownerInvite.expiresAt)[0]}`,
+              ] as const,
+            ]
+          : []),
+      ]
+    : [];
   const accountFields: Field[] = !account
-    ? [['Details', unreadable]]
+    ? [['Details', unreadable], ...firmFields]
     : firm
       ? [
           ['Plan', FIRM_PLANS[account.requestedPlan]],
           ['Team Size (Estimated)', String(account.teamSize)],
           ['Estimated Client Volume', `${CLIENT_VOLUMES[account.clientVolume]} (per year)`],
           ['How They Heard About Us', account.heardFrom],
-          ['Start Date', application.decision ? dateParts(application.decision.at)[0] : null],
-          [
-            'Status',
-            <span
-              key="status"
-              className={`rounded-pill px-2 py-0.5 text-xs font-semibold ${firmStatus(firm.status).tone}`}
-            >
-              {firmStatus(firm.status).label}
-            </span>,
-          ],
-          ['Portal Address', `/${firm.slug}`],
-          ...(application.ownerInvite
-            ? [
-                [
-                  'Owner Invite',
-                  application.ownerInvite.status === 'ACCEPTED'
-                    ? 'Accepted'
-                    : `${humanize(application.ownerInvite.status)}, expires ${dateParts(application.ownerInvite.expiresAt)[0]}`,
-                ] as const,
-              ]
-            : []),
+          ...firmFields,
           ['Additional Information', account.additionalInfo],
         ]
       : [
@@ -278,9 +285,12 @@ function ApplicationRecord({
           </p>
         )}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-muted">Notes are only visible to Firmivra administrators.</p>
+          <p className="min-w-0 grow basis-40 text-xs text-muted">
+            Notes are only visible to Firmivra administrators.
+          </p>
           <Button
             type="submit"
+            className="ml-auto shrink-0"
             disabled={busy || notes.trim() === (application.internalNotes ?? '').trim()}
           >
             {saveNotes.isPending ? 'Saving…' : 'Save Note'}
@@ -304,7 +314,7 @@ function ApplicationRecord({
   const status = firm ? firmStatus(firm.status) : null;
 
   return (
-    <section className="flex w-full flex-col gap-5 rounded-card bg-surface p-4 shadow-md md:p-6">
+    <section className="flex w-full flex-col gap-5 rounded-card bg-surface p-4 shadow-md md:p-5">
       <Link
         href="/applications"
         className="inline-flex w-fit items-center gap-3 text-base font-medium text-link"
@@ -318,11 +328,12 @@ function ApplicationRecord({
         </p>
       ) : null}
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+        {/* Below 2xl the decision buttons drop under the title; the firm link stays beside it. */}
+        <div className={`min-w-0 grow ${canDecide ? 'basis-full 2xl:basis-auto' : 'basis-auto'}`}>
           <div className="flex flex-wrap items-center gap-4">
             <h1
               data-testid="page-title"
-              className="font-display text-4xl font-bold tracking-tight text-heading"
+              className="font-display text-3xl font-bold tracking-tight text-heading md:text-4xl"
             >
               {application.legalName}
             </h1>
@@ -352,7 +363,7 @@ function ApplicationRecord({
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={busy}
-              className="enabled:!bg-success"
+              className="enabled:!bg-success enabled:hover:!bg-success/90"
               onClick={() => openAction('approve')}
             >
               <Check aria-hidden className="size-4" />
@@ -360,7 +371,7 @@ function ApplicationRecord({
             </Button>
             <Button
               variant="outline"
-              className="enabled:!bg-info-soft"
+              className="enabled:!bg-info-soft enabled:hover:!bg-folder-hover"
               disabled={busy}
               onClick={() => openAction('request-info')}
             >
@@ -369,7 +380,7 @@ function ApplicationRecord({
             </Button>
             <Button
               variant="outline"
-              className="enabled:!border-danger enabled:!bg-danger-soft enabled:!text-danger"
+              className="enabled:!border-danger enabled:!bg-danger-soft enabled:!text-danger enabled:hover:!bg-danger/10"
               disabled={busy}
               onClick={() => openAction('decline')}
             >
@@ -381,24 +392,23 @@ function ApplicationRecord({
         {/* Edit Firm Details and Deactivate Firm wait for their API; only working buttons show. */}
         {firm && (
           <a
-            href={`${appBaseUrl}/`}
+            href={appBaseUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex min-h-11 items-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover"
+            className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-control bg-action px-4 py-2 text-sm font-medium text-on-action hover:bg-action-hover"
           >
             <ExternalLink aria-hidden className="size-4" />
             Open Firm Workspace
+            <span className="sr-only"> (opens in a new tab)</span>
           </a>
         )}
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* One grid, so rows fill in order at every width. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         <FieldCard icon={Building2} title="Business Information" fields={businessFields} />
         <FieldCard icon={UserRound} title="Primary Administrator" fields={adminFields} />
         <FieldCard icon={FileText} title="Account Details" fields={accountFields} />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
         {firm ? (
           <>
             <Card className="!p-4">
@@ -415,10 +425,7 @@ function ApplicationRecord({
             {historyCard}
           </>
         )}
-      </div>
-
-      {/* Not in the mockups, but the review needs them (PROJECT-DRAFT-v2: automated checks). */}
-      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Not in the mockups, but the review needs them (PROJECT-DRAFT-v2: automated checks). */}
         {firm ? documentsCard : null}
         <Card className="!p-4">
           <CardHeading icon={IdCard}>Credentials</CardHeading>

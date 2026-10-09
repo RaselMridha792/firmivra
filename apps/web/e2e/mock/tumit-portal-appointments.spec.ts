@@ -27,19 +27,19 @@ test('a client books after a taken time, then reschedules and cancels', async ({
   await page.getByRole('button', { name: 'Schedule an Appointment' }).first().click();
   await page.getByRole('button', { name: /Tax consultation/ }).click();
   await page.getByLabel('Day').fill(nextWeek(0));
-  await page.getByRole('button', { name: '10:00 AM' }).click();
+  await page.getByRole('button', { name: '10:00 AM', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm booking' }).click();
   await expect(
     page.getByText('Someone just booked that time. Please pick another one.'),
   ).toBeVisible();
-  await page.getByRole('button', { name: '11:00 AM' }).click();
+  await page.getByRole('button', { name: '11:00 AM', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm booking' }).click();
   await expect(page.getByText(/^Booked: Tax consultation/)).toBeVisible();
   await expect(mine).toHaveCount(3);
 
   // Reschedule Tuesday's appointment to 3 PM the same day, from its row menu.
   const tuesday = mine.filter({ hasText: 'Tue' });
-  await tuesday.getByRole('button', { name: 'Appointment actions' }).click();
+  await tuesday.getByRole('button', { name: /^Actions for / }).click();
   await tuesday.getByRole('menuitem', { name: 'Reschedule' }).click();
   await expect(tuesday.getByRole('button', { name: '2:00 PM (current)' })).toBeDisabled();
   await tuesday.getByRole('button', { name: '3:00 PM' }).click();
@@ -49,7 +49,7 @@ test('a client books after a taken time, then reschedules and cancels', async ({
 
   // Cancel the new one.
   const booked = mine.filter({ hasText: '11:00 AM' });
-  await booked.getByRole('button', { name: 'Appointment actions' }).click();
+  await booked.getByRole('button', { name: /^Actions for / }).click();
   await booked.getByRole('menuitem', { name: 'Cancel' }).click();
   await booked.getByLabel('Reason (optional)').fill('Plans changed.');
   await booked.getByRole('button', { name: 'Cancel this appointment' }).click();
@@ -109,7 +109,7 @@ test('the row menu keeps focus, and Quick Actions reschedule opens the soonest a
   await page.goto(portal('/lvp/appointments'));
   const mine = page.getByTestId('my-appointment');
   const tuesday = mine.filter({ hasText: 'Tue' });
-  const trigger = tuesday.getByRole('button', { name: 'Appointment actions' });
+  const trigger = tuesday.getByRole('button', { name: /^Actions for / });
   await trigger.click();
   await expect(tuesday.getByRole('menuitem', { name: 'Reschedule' })).toBeFocused();
   await page.keyboard.press('ArrowDown');
@@ -121,6 +121,21 @@ test('the row menu keeps focus, and Quick Actions reschedule opens the soonest a
   await page.getByRole('button', { name: 'Reschedule an Appointment' }).click();
   await expect(page.getByRole('button', { name: '10:00 AM (current)' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Pick a new time' })).toHaveCount(1);
+});
+
+test('an ended appointment staff have not closed shows as Past', async ({ page }) => {
+  await page.goto(portal('/lvp/appointments'));
+  await expect(page.getByTestId('my-appointment')).toHaveCount(2);
+  // Monday's 10:00 AM appointment ends at 10:30; staff have not marked it completed.
+  await page.clock.setFixedTime(new Date('2026-07-13T10:31:00-04:00'));
+  await page.getByRole('link', { name: 'My Profile' }).click();
+  await page.getByRole('link', { name: 'Appointments' }).click();
+  // Whether the row is still in the cached upcoming list or already in the past one, it reads Past.
+  const ended = page.getByTestId(/^(my|past)-appointment$/).filter({ hasText: '10:00 AM' });
+  await expect(ended).toHaveCount(1);
+  await expect(ended).toContainText('Past');
+  await expect(ended.getByRole('link')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'July 13, 2026, past appointment' })).toBeVisible();
 });
 
 test.describe('a client in another time zone', () => {

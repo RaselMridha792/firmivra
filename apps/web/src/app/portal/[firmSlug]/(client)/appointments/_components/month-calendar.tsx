@@ -32,6 +32,10 @@ const weeksOf = (month: string) => {
   return days;
 };
 
+/** Staff close an appointment after it ends; until then an ended one is still SCHEDULED. */
+const isUpcoming = (a: MyAppointment) =>
+  a.status === 'SCHEDULED' && Date.parse(a.endsAt) > Date.now();
+
 const shift = (month: string, by: number) => {
   const date = atNoon(`${month}-01`);
   date.setUTCMonth(date.getUTCMonth() + by);
@@ -51,9 +55,6 @@ export function MonthCalendar({
 }) {
   const [now] = useState(today);
   const [month, setMonth] = useState(now.slice(0, 7));
-  // Staff close an appointment after it ends; until then a past one is still SCHEDULED.
-  const [at] = useState(() => Date.now());
-  const isUpcoming = (a: MyAppointment) => a.status === 'SCHEDULED' && Date.parse(a.endsAt) > at;
   const scheduled = new Set(appointments.filter(isUpcoming).map((a) => dayOf(a.startsAt)));
   const past = new Set(
     appointments
