@@ -165,7 +165,11 @@ export class NotesService {
 
   // ----- The client login's private note -----
 
-  /** Runs `fn` as the login itself: the database shows its notes to no one else. */
+  /**
+   * Runs `fn` as the login itself: the database shows its notes to no one else. One transaction
+   * per login at a time (an advisory lock, as the login may not lock note rows), so two saves at
+   * once can't both leave a waiting reminder.
+   */
   private async asOwner<T>(
     businessId: string,
     clientAccountId: string,
@@ -178,7 +182,11 @@ export class NotesService {
     if (!account) throw notFound();
     return this.database.withScope(
       { kind: 'business', businessId, actorUserId: account.userId },
-      (tx) => fn(tx, account.userId),
+      async (tx) => {
+        const key = `fv-private-note:${businessId}:${account.userId}`;
+        await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+        return fn(tx, account.userId);
+      },
     );
   }
 
@@ -212,11 +220,26 @@ export class NotesService {
     };
   }
 
-  /** Removes the login's reminders that have not gone out, so at most one is ever waiting. */
-  private async clearPending(tx: TxClient, businessId: string, userId: string, keep?: string) {
-    await tx.clientNoteReminder.deleteMany({
-      where: { businessId, userId, remindedAt: null, ...(keep ? { noteId: { not: keep } } : {}) },
+  /**
+   * Removes the login's reminders still waiting for their time, so at most one is ever waiting.
+   * One already due stays: R16's job sends it on its next run. Returns how many it removed.
+   */
+  private async clearPending(
+    tx: TxClient,
+    businessId: string,
+    userId: string,
+    keep?: string,
+  ): Promise<number> {
+    const { count } = await tx.clientNoteReminder.deleteMany({
+      where: {
+        businessId,
+        userId,
+        remindedAt: null,
+        remindAt: { gt: new Date() },
+        ...(keep ? { noteId: { not: keep } } : {}),
+      },
     });
+    return count;
   }
 
   myNote(businessId: string, clientAccountId: string): Promise<MyNoteResponse> {
@@ -231,7 +254,7 @@ export class NotesService {
     clientAccountId: string,
     body: { body: string; remindAt?: string | null },
   ): Promise<MyNoteResponse> {
-    const result = await this.asOwner(businessId, clientAccountId, async (tx, userId) => {
+    return this.asOwner(businessId, clientAccountId, async (tx, userId) => {
       const before = await this.latest(tx, businessId, userId);
       // Only an unsent reminder still in the future moves to the new version: a new reminder row
       // starts unsent, so carrying a sent one over would send it again.
@@ -249,19 +272,20 @@ export class NotesService {
         data: { businessId, userId, body: body.body },
         select: { id: true },
       });
-      await this.clearPending(tx, businessId, userId);
+      const removed = await this.clearPending(tx, businessId, userId);
       if (remindAt) {
         await tx.clientNoteReminder.create({
           data: { businessId, noteId: note.id, userId, remindAt },
         });
       }
+      await this.audit.logIn(tx, 'private_note.saved', { type: 'client_private_note' });
+      if (body.remindAt !== undefined && (body.remindAt !== null || removed > 0)) {
+        await this.audit.logIn(tx, 'private_note.reminder_changed', {
+          type: 'client_private_note',
+        });
+      }
       return this.view(tx, businessId, userId);
     });
-    await this.audit.log('private_note.saved', { type: 'client_private_note' });
-    if (body.remindAt !== undefined) {
-      await this.audit.log('private_note.reminder_changed', { type: 'client_private_note' });
-    }
-    return result;
   }
 
   async setReminder(
@@ -269,7 +293,7 @@ export class NotesService {
     clientAccountId: string,
     remindAt: string,
   ): Promise<MyNoteResponse> {
-    const result = await this.asOwner(businessId, clientAccountId, async (tx, userId) => {
+    return this.asOwner(businessId, clientAccountId, async (tx, userId) => {
       const note = await this.latest(tx, businessId, userId);
       if (!note) throw notFound();
       await this.clearPending(tx, businessId, userId, note.id);
@@ -279,21 +303,27 @@ export class NotesService {
         create: { businessId, noteId: note.id, userId, remindAt: new Date(remindAt) },
         update: { remindAt: new Date(remindAt) },
       });
+      await this.audit.logIn(tx, 'private_note.reminder_changed', { type: 'client_private_note' });
       return this.view(tx, businessId, userId);
     });
-    await this.audit.log('private_note.reminder_changed', { type: 'client_private_note' });
-    return result;
   }
 
   async removeReminder(businessId: string, clientAccountId: string): Promise<MyNoteResponse> {
-    const result = await this.asOwner(businessId, clientAccountId, async (tx, userId) => {
+    return this.asOwner(businessId, clientAccountId, async (tx, userId) => {
       const note = await this.latest(tx, businessId, userId);
-      await this.clearPending(tx, businessId, userId);
-      if (note?.reminder)
-        await tx.clientNoteReminder.deleteMany({ where: { businessId, noteId: note.id } });
+      let removed = await this.clearPending(tx, businessId, userId);
+      if (note?.reminder) {
+        const { count } = await tx.clientNoteReminder.deleteMany({
+          where: { businessId, noteId: note.id },
+        });
+        removed += count;
+      }
+      if (removed > 0) {
+        await this.audit.logIn(tx, 'private_note.reminder_changed', {
+          type: 'client_private_note',
+        });
+      }
       return this.view(tx, businessId, userId);
     });
-    await this.audit.log('private_note.reminder_changed', { type: 'client_private_note' });
-    return result;
   }
 }
