@@ -47,7 +47,9 @@ const paymentSelect = {
   paidAt: true,
   refundReservedCents: true,
   createdAt: true,
-  _count: { select: { events: true } },
+  // Only a completed checkout means Stripe is still settling it (a bank debit); a declined card's
+  // payment_intent.payment_failed never blocks Pay Now.
+  _count: { select: { events: { where: { type: 'checkout.session.completed' } } } },
   refunds: {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
