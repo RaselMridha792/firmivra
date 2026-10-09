@@ -9,24 +9,29 @@ import {
   EsignRecipientRole,
   EsignRouting,
 } from './enums.js';
-import { EsignPutRecipient, EsignReminders } from './schemas.js';
+import {
+  EsignExpiryDays,
+  EsignExpiryWarningDays,
+  EsignPutRecipient,
+  EsignReminders,
+} from './schemas.js';
 
 // Firm Sign (R13), firm side, contract 2: Signing Settings and templates (save as template, use a
 // template). Same access rules as the requests (schemas.ts); settings change only by Owner and
-// Admin (403 FORBIDDEN otherwise). Template versions, duplicate and Firm Sign roles come in
-// contract 3.
+// Admin (403 FORBIDDEN otherwise). Template versions, duplicate and Firm Sign roles are in
+// extras.ts.
 
 const DateTime = z.iso.datetime({ offset: true });
 
 // ---------- Settings ----------
 /** The firm's defaults for new requests. */
 export const EsignDefaults = z.object({
-  expiryDays: z.number().int().min(1).max(365),
+  expiryDays: EsignExpiryDays,
   reminders: z.object(EsignReminders.shape),
   /** Days before expiry that open signers get a warning; 0 for none. */
-  expiryWarningDays: z.number().int().min(0).max(30),
+  expiryWarningDays: EsignExpiryWarningDays,
   authMethod: EsignChosenAuthMethod,
-  /** New requests need an approver's yes before they go out (contract 3 adds approvals). */
+  /** New requests need an approver's yes before they go out (extras.ts). */
   requireApproval: z.boolean(),
   /** The email message new requests start with; null for none. */
   emailMessage: z.string().nullable(),
@@ -61,9 +66,9 @@ export type EsignSettings = z.infer<typeof EsignSettings>;
 /** PUT /esign/settings (Owner, Admin): only the keys sent change. */
 export const UpdateEsignSettingsBody = z
   .strictObject({
-    expiryDays: z.number().int().min(1).max(365).optional(),
+    expiryDays: EsignExpiryDays.optional(),
     reminders: EsignReminders.optional(),
-    expiryWarningDays: z.number().int().min(0).max(30).optional(),
+    expiryWarningDays: EsignExpiryWarningDays.optional(),
     authMethod: EsignChosenAuthMethod.optional(),
     requireApproval: z.boolean().optional(),
     emailMessage: clearable(text(1000, 'many')).optional(),
@@ -91,7 +96,10 @@ export const UpdateEsignProfileBody = z.strictObject({
 export type UpdateEsignProfileBody = z.input<typeof UpdateEsignProfileBody>;
 
 // ---------- Templates ----------
-/** FIRM: everyone in Firm Sign may use it. PRIVATE: only its owner (and Owner and Admin). */
+/**
+ * FIRM: everyone in Firm Sign may use it (and a Firm Sign Manager may change it). PRIVATE: only its
+ * owner (and Owner and Admin).
+ */
 export const EsignTemplateVisibility = z.enum(['FIRM', 'PRIVATE']);
 export type EsignTemplateVisibility = z.infer<typeof EsignTemplateVisibility>;
 
@@ -106,9 +114,11 @@ export const EsignTemplateRow = z.object({
   owner: MemberRef,
   pageCount: z.number().int().min(1),
   roleCount: z.number().int().min(0),
+  /** The newest version: the one `use` copies (contract 3). */
+  version: z.number().int().min(1),
   updatedAt: DateTime,
   archivedAt: DateTime.nullable(),
-  /** The caller may rename, change or archive it (its owner, Owner and Admin). */
+  /** The caller may rename, change or archive it (its owner, Owner, Admin, or a Manager for FIRM). */
   canEdit: z.boolean(),
 });
 export type EsignTemplateRow = z.infer<typeof EsignTemplateRow>;
@@ -171,9 +181,9 @@ export const EsignTemplateDetail = EsignTemplateRow.extend({
   roles: z.array(EsignTemplateRole),
   fields: z.array(EsignTemplateField),
   routing: EsignRouting,
-  expiryDays: z.number().int().min(1).max(365),
+  expiryDays: EsignExpiryDays,
   reminders: z.object(EsignReminders.shape),
-  expiryWarningDays: z.number().int().min(0).max(30),
+  expiryWarningDays: EsignExpiryWarningDays,
   emailSubject: z.string().nullable(),
   emailMessage: z.string().nullable(),
 });
@@ -192,7 +202,7 @@ export const SaveEsignTemplateBody = z.strictObject({
 });
 export type SaveEsignTemplateBody = z.input<typeof SaveEsignTemplateBody>;
 
-/** PATCH /esign/templates/{id} (its owner, Owner, Admin): only the keys sent change. */
+/** PATCH /esign/templates/{id} (its owner, Owner, Admin, a Manager for FIRM): only keys sent change. */
 export const UpdateEsignTemplateBody = z
   .strictObject({
     name: text(200, 'one', 'Name the template').optional(),
