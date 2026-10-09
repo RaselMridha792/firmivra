@@ -17,7 +17,10 @@ const SERVICE_ERRORS = {
   INVALID_STATUS: 'This service can no longer be cancelled.',
   FORBIDDEN: 'Only the main account holder can ask to cancel a service.',
 };
-const STATUS: Record<MyService['status'], [string, 'info' | 'success' | 'neutral' | 'warning']> = {
+export const STATUS: Record<
+  MyService['status'],
+  [string, 'info' | 'success' | 'neutral' | 'warning']
+> = {
   PENDING: ['Pending', 'warning'],
   ACTIVE: ['Active', 'success'],
   COMPLETED: ['Completed', 'info'],
