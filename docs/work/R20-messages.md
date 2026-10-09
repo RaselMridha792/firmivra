@@ -48,8 +48,8 @@ Covered in `apps/api/test/e2e/messages.e2e.test.ts` and `notes.e2e.test.ts`: fir
 - R15: `docs/work/R11-intake-messages.md` (lines 6-8 and step 6) still lists the messages paths. R15 handed them to R20 on Oct 9 and adds "moved to R20 on Oct 9" under R11 step 6 in its next docs change.
 
 ## Progress log
-- Oct 9: contract (step 1) on `rasel/r20-messages-ui8jcx`, PR #168.
-- Oct 9: threads, read state and unread counts (steps 2-3) on `rasel/R20-threads`, PR #177.
-- Oct 9: internal notes and private notes with reminders (steps 4-5) on `rasel/R20-notes`.
-- Oct 9: notices (step 6) on `rasel/R20-notices`, built on #159 and #160 (merged into the branch); PR opens once both are on main.
+- Oct 9: contract (step 1) on `rasel/r20-messages-ui8jcx`, PR #168 (merged).
+- Oct 9: threads, read state and unread counts (steps 2-3) on `rasel/R20-threads`, PR #177; client replies lock the thread FOR NO KEY UPDATE (no deadlock on parallel replies).
+- Oct 9: internal notes and private notes with reminders (steps 4-5) on `rasel/R20-notes`, PR #184.
+- Oct 9: notices (step 6) on `rasel/R20-notices`: `message.received` bell item through R6's Notifier, the email sent by R20 through NotifyService (Scrum, Oct 9: the Notifier never emails it).
 - Oct 9: isolation sweep (step 7): cases in the two e2e files; route list above, sent to R21.

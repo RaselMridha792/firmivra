@@ -111,6 +111,14 @@ const startThread = async (body: object, clientId = ids.one, who = people.ownerA
   ThreadDetail.parse(
     expectOk(await firm('post', `/clients/${clientId}/message-threads`, who, body), 201).body,
   );
+const firmCounts = async (who = people.staffA) => {
+  const body = expectOk(await firm('get', '/message-threads/unread-count', who)).body as {
+    total: number;
+    byClient: { clientId: string; count: number }[];
+  };
+  expect(body.total).toBe(body.byClient.reduce((sum, c) => sum + c.count, 0));
+  return body.byClient.find((c) => c.clientId === ids.one)?.count ?? 0;
+};
 const badge = async (who = people.primary) =>
   (expectOk(await portal('get', '/unread-count', who)).body as { count: number }).count;
 
@@ -255,6 +263,7 @@ describe('both ways, with read state', () => {
 
   it('the client replies; the firm counts, reads and marks unread', async () => {
     const t = await startThread({ subject: 'Docs', body: 'Please send' });
+    const before = await firmCounts();
     const reply = MyMessage.parse(
       expectOk(
         await portal('post', `/${t.id}/messages`, people.spouse, { body: 'Sent today' }),
@@ -270,12 +279,7 @@ describe('both ways, with read state', () => {
       senderName: 'Fake R20 spouse',
     });
 
-    const counts = expectOk(await firm('get', '/message-threads/unread-count', people.staffA))
-      .body as {
-      total: number;
-      byClient: { clientId: string; count: number }[];
-    };
-    expect(counts.byClient.find((c) => c.clientId === ids.one)?.count).toBeGreaterThanOrEqual(1);
+    expect(await firmCounts()).toBe(before + 1);
 
     const unreadOnly = ThreadList.parse(
       expectOk(await firm('get', '/message-threads?unread=true', people.ownerA)).body,
@@ -294,10 +298,26 @@ describe('both ways, with read state', () => {
       expectOk(await firm('post', `/message-threads/${t.id}/read`, people.staffA, {})).body,
     );
     expect(read.unreadCount).toBe(0);
+    expect(await firmCounts(people.ownerA)).toBe(before);
     const again = Thread.parse(
       expectOk(await firm('post', `/message-threads/${t.id}/unread`, people.ownerA, {})).body,
     );
     expect(again.unreadCount).toBe(1);
+    expect(await firmCounts()).toBe(before + 1);
+  });
+
+  it('two replies at once on one thread both land', async () => {
+    const t = await startThread({ subject: 'Both at once', body: 'Reply any time' });
+    const results = await Promise.all(
+      [people.primary, people.spouse, people.primary, people.spouse].map((who, n) =>
+        portal('post', `/${t.id}/messages`, who, { body: `Parallel ${n}` }),
+      ),
+    );
+    expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201]);
+    const detail = ThreadDetail.parse(
+      expectOk(await firm('get', `/message-threads/${t.id}`, people.ownerA)).body,
+    );
+    expect(detail.messages).toHaveLength(5);
   });
 
   it('the client starts a thread; filters and search; nothing to mark unread is 409', async () => {
@@ -389,7 +409,8 @@ describe('reach and isolation', () => {
     const list = MyList.parse(expectOk(await portal('get', '', people.other)).body);
     expect(list.items.map((x) => x.id)).not.toContain(t.id);
     const elsewhere = await portal('get', `/${t.id}`, people.primary, undefined, ids.slugB);
-    expect([401, 404]).toContain(elsewhere.status);
+    // A session that has no place at firm B: 404 (in the browser, no firm B cookie at all: 401).
+    expect(elsewhere.status).toBe(404);
     const bClient = await portal('get', `/${t.id}`, people.clientB, undefined, ids.slugB);
     expect(bClient.status).toBe(404);
   });
