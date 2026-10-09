@@ -246,15 +246,19 @@ info:
       (Admin `403 FORBIDDEN`). Staff get `403 FORBIDDEN` on every setup route and never see the
       page. An `ACTIVE` firm only.
     - **Accounts.** Each firm gets one Stripe Connect **Standard** account, created by the API
-      (`accounts.create`, `type: standard`, the firm's contact email and country, metadata with the
-      firm id) and finished by the Owner on Stripe's hosted onboarding through an **Account Link**
+      (`accounts.create`, `type: standard`, country `US`, no email (the Owner enters it on
+      Stripe), metadata with the firm id) and finished by the Owner on Stripe's hosted onboarding through an **Account Link**
       (`type: account_onboarding`). Firmivra never sees the firm's bank or identity details.
     - **Start** (`POST .../onboarding`): under a Postgres advisory lock per firm (two clicks wait
       for each other), read the firm's `stripe_accounts` row. None: create the account with the
       idempotency key `fv-connect-{businessId}` (a retry, or a second click, gets the same account
       from Stripe; Stripe keeps a key only 24 hours, so a retry more than 24 hours after a create
       whose row was never inserted makes a second account, and the first stays orphaned at
-      Stripe) and insert the row (`PENDING`, from `toOnboardingState(account)`). Every
+      Stripe; Stripe also answers a first request's error again for that key, so the platform's
+      Connect settings are finished before a firm's first click) and insert the row (`PENDING`,
+      from `toOnboardingState(account)`). A row already there: fetch the account
+      (`accounts.retrieve`) and store its state first, as refresh does, since the Owner may have
+      finished onboarding before `account.updated` arrived; `COMPLETE` is `409`. Every
       `stripe_accounts` write (here, refresh and `account.updated`) goes through the one
       platform-scope writer in `apps/api/src/payments/stripe` (`forPlatform()`), with the
       `businessId` from the tenant guard: the RLS lets only platform scope insert or update the
