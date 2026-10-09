@@ -21,7 +21,8 @@ test('save a request as a template, then open it', async ({ page }) => {
 
   await name.fill('Engagement Letter (synthetic)');
   await dialog.getByLabel('Description (optional)').fill('Synthetic description.');
-  await dialog.getByLabel('Who can use it').selectOption('PRIVATE');
+  await expect(dialog.getByLabel('Who can use it')).toHaveValue('PRIVATE');
+  await dialog.getByLabel('Who can use it').selectOption('FIRM');
   await dialog.getByRole('button', { name: 'Save template' }).click();
   await expect(dialog.getByRole('status')).toHaveText(
     'Engagement Letter (synthetic) is saved as a template.',
