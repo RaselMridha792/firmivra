@@ -15,13 +15,11 @@ import {
   createFirmApplicationsClient,
   createInvoicesClient,
   createLeadsClient,
-  createMessagesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
   createMyInvoicesClient,
-  createMyMessagesClient,
   createMyNotificationsClient,
   createMyProfileClient,
   createMyReportsClient,
@@ -56,7 +54,6 @@ import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
-import { createMessagesMock, myMessagesMock } from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
@@ -196,16 +193,6 @@ export const api = {
     dev && mocked('myNotifications')
       ? myNotificationsMock(firmSlug)
       : createMyNotificationsClient(request, firmSlug),
-  /** Messages (R11): threads with clients, read receipts and internal notes (firm side). */
-  messages:
-    dev && mocked('messages')
-      ? createMessagesMock({ role: MOCK_ROLE })
-      : createMessagesClient(request),
-  /** Messages (R11): the signed-in client's threads and private notepad, per firm (portal). */
-  myMessages: (firmSlug: string) =>
-    dev && mocked('myMessages')
-      ? myMessagesMock(firmSlug)
-      : createMyMessagesClient(request, firmSlug),
   /** Firm applications (R4): the public apply form, and the Super Admin's applications, firms and dashboard. */
   firmApplications:
     dev && mocked('firmApplications')
