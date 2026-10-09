@@ -1,5 +1,4 @@
 import {
-  ApiRequestError,
   type EsignClient,
   type EsignConsentVersion,
   type EsignDefaults,
@@ -7,6 +6,8 @@ import {
   type EsignEventType,
   type EsignRequestDetail,
   type EsignTemplateDetail,
+  type EsignTemplateRole,
+  type EsignPutRecipient,
   EsignTemplateId,
   type MemberRef,
   type MySignatureRow,
@@ -39,7 +40,8 @@ import {
   ESIGN_CODE_TRIES,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
-import { SAMPLE_PDF_URL } from './esign';
+import { copy, DAY, ESIGN_OFF, fail, iso, LETTER, MINUTE, SAMPLE_PDF_URL } from './esign-common';
+import { clientFixtures } from './clients';
 import { mockBusiness } from './me';
 
 /**
@@ -57,17 +59,9 @@ import { mockBusiness } from './me';
  * A page reload keeps the step (the mock "cookie" lives as long as the page).
  */
 
-const ESIGN_OFF = process.env.NEXT_PUBLIC_API_MOCK_ESIGN === 'off';
-const MINUTE = 60 * 1000;
-const DAY = 24 * 60 * MINUTE;
-const iso = (ms: number) => new Date(ms).toISOString();
-const copy = <T>(value: T): T => structuredClone(value);
-const fail = (status: number, code: string, message: string) =>
-  new ApiRequestError(status, code, message);
 const linkInvalid = () => fail(404, 'LINK_INVALID', 'This link is not valid any more');
 const wrongStep = () => fail(409, 'WRONG_STEP', 'Finish the step before this one first');
 
-const LETTER = { width: 612, height: 792 };
 const uuid = (n: number) => `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
 
 /** 43-character tokens (the real ones are 32 random bytes, base64url). */
@@ -157,6 +151,9 @@ const signerFields = (): SignerField[] => {
     f(7, 'ATTACHMENT', 1, 0.3, { label: 'Photo ID (optional)', required: false }),
   ];
 };
+
+/** The consent signers accept now: the newest version published in Signing Settings. */
+const currentConsent = (): EsignConsentVersion => admin().consents[0] ?? consentV1();
 
 /** One mock "cookie" per firm slug, kept while the page is open. */
 let sessionMap: Map<string, Session> | undefined;
@@ -263,10 +260,10 @@ export function createSigningMock(firmSlug: string): SigningClient {
     verifyCode: async (body) => {
       const { code } = parseInput(SignerVerifyCodeBody, body);
       const s = await at('VERIFY_EMAIL');
-      if (s.codeSentAt === null || s.tries >= ESIGN_CODE_TRIES) {
-        throw fail(429, 'CODE_LOCKED', 'Too many tries');
-      }
-      if (code !== MOCK_SIGNING_CODE) {
+      if (s.tries >= ESIGN_CODE_TRIES) throw fail(429, 'CODE_LOCKED', 'Too many tries');
+      const expired =
+        s.codeSentAt === null || Date.now() - s.codeSentAt > ESIGN_CODE_MINUTES * MINUTE;
+      if (expired || code !== MOCK_SIGNING_CODE) {
         s.tries += 1;
         throw s.tries >= ESIGN_CODE_TRIES
           ? fail(429, 'CODE_LOCKED', 'Too many tries')
@@ -281,23 +278,23 @@ export function createSigningMock(firmSlug: string): SigningClient {
       if (s.tries >= ESIGN_CODE_TRIES) throw fail(429, 'CODE_LOCKED', 'Too many tries');
       if (code !== MOCK_ACCESS_CODE) {
         s.tries += 1;
-        throw fail(400, 'CODE_INVALID', 'That code is not right');
+        throw s.tries >= ESIGN_CODE_TRIES
+          ? fail(429, 'CODE_LOCKED', 'Too many tries')
+          : fail(400, 'CODE_INVALID', 'That code is not right');
       }
       afterAuth(s);
       return signerState(s);
     },
     consent: async () => {
       await at('CONSENT');
-      return {
-        versionId: consentV1().id,
-        version: consentV1().version,
-        bodyMarkdown: consentV1().bodyMarkdown,
-      };
+      const { id: versionId, version, bodyMarkdown } = currentConsent();
+      return { versionId, version, bodyMarkdown };
     },
     acceptConsent: async (body) => {
       const { versionId } = parseInput(SignerAcceptConsentBody, body);
       const s = await at('CONSENT');
-      if (versionId !== consentV1().id) throw fail(409, 'CONSENT_OUTDATED', 'The consent changed');
+      if (versionId !== currentConsent().id)
+        throw fail(409, 'CONSENT_OUTDATED', 'The consent changed');
       s.step = 'SIGN';
       return signerState(s);
     },
@@ -525,6 +522,7 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
         role: 'CLIENT' as const,
         roleLabel: null,
         routingOrder: 1,
+        authMethod: 'EMAIL_CODE' as const,
         colorIndex: 0,
       },
       {
@@ -533,6 +531,7 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
         role: 'PREPARER' as const,
         roleLabel: null,
         routingOrder: 2,
+        authMethod: 'EMAIL_CODE' as const,
         colorIndex: 1,
       },
     ],
@@ -603,7 +602,6 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
       },
     ],
     routing: 'SEQUENTIAL' as const,
-    authMethod: 'EMAIL_CODE' as const,
     expiryDays: 30,
     reminders: { firstAfterDays: 3, everyDays: 3, max: 3 },
     expiryWarningDays: 2,
@@ -658,7 +656,7 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
         return i < 0 ? null : `role-${i + 1}`;
       };
       const t: EsignTemplateDetail = {
-        id: ctx.newId('7e'),
+        id: ctx.newId('8'),
         name: input.name,
         description: input.description ?? null,
         visibility: input.visibility ?? 'FIRM',
@@ -676,10 +674,11 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
           role: x.role,
           roleLabel: x.roleLabel,
           routingOrder: x.routingOrder,
+          authMethod: x.authMethod,
           colorIndex: x.colorIndex,
         })),
         fields: r.fields.map((f) => ({
-          id: ctx.newId('7f'),
+          id: ctx.newId('9'),
           roleKey: keyOf(f.recipientId),
           type: f.type,
           pageIndex: f.pageIndex,
@@ -695,7 +694,6 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
           value: f.mergeKey ? null : f.value,
         })),
         routing: r.routing,
-        authMethod: r.recipients[0]?.authMethod ?? admin().defaults.authMethod,
         expiryDays: r.expiryDays,
         reminders: { ...r.reminders },
         expiryWarningDays: r.expiryWarningDays,
@@ -730,7 +728,7 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
         await ctx.on();
         if (!ctx.manager) throw forbidden();
         const v: EsignConsentVersion = {
-          id: ctx.newId('c0'),
+          id: ctx.newId('a'),
           version: (admin().consents[0]?.version ?? 0) + 1,
           bodyMarkdown,
           sha256: 'c1'.repeat(32),
@@ -792,13 +790,27 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
         const t = template(templateId);
         if (t.archivedAt) throw fail(409, 'TEMPLATE_ARCHIVED', 'This template is archived');
         const given = new Map(input.roles.map((r) => [r.key, r.who]));
-        const auto = (role: string) => (role === 'CLIENT' && input.clientId) || role === 'PREPARER';
-        const open = t.roles.filter((r) => !given.has(r.key) && !auto(r.role));
+        const logins = clientFixtures().find((c) => c.id === input.clientId)?.portalLogins ?? [];
+        const login = (portalRole: string) =>
+          logins.find((l) => l.portalRole === portalRole && l.status === 'ACTIVE');
+        const auto = (role: EsignTemplateRole): EsignPutRecipient['who'] | undefined => {
+          const l =
+            role.role === 'CLIENT'
+              ? login('PRIMARY')
+              : role.role === 'SPOUSE'
+                ? login('SPOUSE')
+                : undefined;
+          if (l) return { type: 'CLIENT_LOGIN', clientAccountId: l.clientAccountId };
+          if (role.role === 'PREPARER') return { type: 'STAFF', userId: ctx.me.userId };
+          return undefined;
+        };
+        const who = new Map(t.roles.map((role) => [role.key, given.get(role.key) ?? auto(role)]));
+        const open = t.roles.filter((role) => !who.get(role.key));
         if (open.length > 0) {
           throw fail(
             409,
             'TEMPLATE_ROLES_UNFILLED',
-            `Choose who fills: ${open.map((r) => r.key).join(', ')}`,
+            `Choose who fills: ${open.map((role) => role.key).join(', ')}`,
           );
         }
         const created = await ctx.client.create({
@@ -808,7 +820,7 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
         });
         const r = ctx.stored(created.id);
         r.source = 'TEMPLATE';
-        const docId = ctx.newId('d0');
+        const docId = ctx.newId('b');
         r.documents = [
           {
             id: docId,
@@ -817,73 +829,50 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
             contentType: 'application/pdf',
             sizeBytes: 1209,
             pageCount: t.pageCount,
-            pageSizes: t.pageSizes.map((s) => ({ ...s })),
+            pageSizes: t.pageSizes.map((size) => ({ ...size })),
             sourceDocumentId: null,
             scanStatus: 'CLEAN',
             createdAt: created.createdAt,
           },
         ];
         r.pagePlan = t.pageSizes.map((_, page) => ({ documentId: docId, page, rotation: 0 }));
-        const recipientIds = new Map<string, string>();
-        r.recipients = t.roles.map((role) => {
-          const rid = ctx.newId('e0');
-          recipientIds.set(role.key, rid);
-          const who = given.get(role.key);
-          const staff = role.role === 'PREPARER' && !who;
-          const external = who?.type === 'EXTERNAL' ? who : null;
-          return {
-            id: rid,
-            kind: role.kind,
-            role: role.role,
-            roleLabel: role.roleLabel,
-            routingOrder: role.routingOrder,
-            name: staff ? ctx.me.name : (external?.name ?? r.client?.displayName ?? role.key),
-            email: external?.email ?? (staff ? null : 'jamie@example.com'),
-            phone: null,
-            link: staff
-              ? { type: 'STAFF' as const, userId: ctx.me.userId }
-              : who?.type === 'STAFF'
-                ? { type: 'STAFF' as const, userId: who.userId }
-                : external
-                  ? { type: 'EXTERNAL' as const }
-                  : { type: 'CLIENT_LOGIN' as const, clientAccountId: uuid(0xa01) },
-            delivery: 'EMAIL' as const,
-            authMethod: t.authMethod,
-            hasAccessCode: false,
-            colorIndex: role.colorIndex,
-            status: 'WAITING' as const,
-            sentAt: null,
-            viewedAt: null,
-            signedAt: null,
-            declinedAt: null,
-            declineReason: null,
-            lastRemindedAt: null,
-            reminderCount: 0,
-          };
-        });
-        r.fields = t.fields.map((f) => ({
-          id: ctx.newId('f0'),
-          recipientId: f.roleKey ? (recipientIds.get(f.roleKey) ?? null) : null,
-          type: f.type,
-          pageIndex: f.pageIndex,
-          x: f.x,
-          y: f.y,
-          w: f.w,
-          h: f.h,
-          required: f.required,
-          label: f.label,
-          mergeKey: f.mergeKey,
-          options: [...f.options],
-          groupKey: f.groupKey,
-          value: f.value,
-          filled: false,
-        }));
         r.routing = t.routing;
         r.expiryDays = t.expiryDays;
         r.reminders = { ...t.reminders };
         r.expiryWarningDays = t.expiryWarningDays;
         r.emailSubject = t.emailSubject;
         r.emailMessage = t.emailMessage;
+        // The mock's own recipients and fields calls check and fill in the rest, as the API does.
+        const withRecipients = await ctx.client.putRecipients(r.id, {
+          recipients: t.roles.map((role) => ({
+            kind: role.kind,
+            role: role.role,
+            roleLabel: role.roleLabel ?? undefined,
+            routingOrder: role.routingOrder,
+            who: who.get(role.key)!,
+            authMethod: role.authMethod === 'ACCESS_CODE' ? 'EMAIL_CODE' : role.authMethod,
+          })),
+        });
+        const recipientOf = new Map(
+          t.roles.map((role, i) => [role.key, withRecipients.recipients[i]?.id ?? null]),
+        );
+        await ctx.client.putFields(r.id, {
+          fields: t.fields.map((f) => ({
+            recipientId: f.roleKey ? (recipientOf.get(f.roleKey) ?? null) : null,
+            type: f.type,
+            pageIndex: f.pageIndex,
+            x: f.x,
+            y: f.y,
+            w: f.w,
+            h: f.h,
+            required: f.required,
+            label: f.label ?? undefined,
+            mergeKey: f.mergeKey ?? undefined,
+            options: f.options.length > 0 ? f.options : undefined,
+            groupKey: f.groupKey ?? undefined,
+            value: f.value ?? undefined,
+          })),
+        });
         ctx.record(r, 'EDITED');
         return ctx.client.get(r.id);
       },

@@ -116,7 +116,10 @@ export type EsignTemplateRow = z.infer<typeof EsignTemplateRow>;
 /** GET /esign/templates?q=&archived=: newest first. */
 export const ListEsignTemplatesQuery = z.strictObject({
   q: SearchText.optional(),
-  archived: z.boolean().default(false),
+  archived: z
+    .preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v), z.boolean())
+    .optional()
+    .default(false),
 });
 export type ListEsignTemplatesQuery = z.input<typeof ListEsignTemplatesQuery>;
 
@@ -133,6 +136,8 @@ export const EsignTemplateRole = z.object({
   role: EsignRecipientRole,
   roleLabel: z.string().nullable(),
   routingOrder: z.number().int().min(1),
+  /** How the recipient filling this role proves who they are. */
+  authMethod: EsignChosenAuthMethod,
   /** The colour the field editor shows. */
   colorIndex: z.number().int().min(0).max(7),
 });
@@ -166,7 +171,6 @@ export const EsignTemplateDetail = EsignTemplateRow.extend({
   roles: z.array(EsignTemplateRole),
   fields: z.array(EsignTemplateField),
   routing: EsignRouting,
-  authMethod: EsignChosenAuthMethod,
   expiryDays: z.number().int().min(1).max(365),
   reminders: z.object(EsignReminders.shape),
   expiryWarningDays: z.number().int().min(0).max(30),

@@ -73,6 +73,7 @@ describe('api.signing(slug)', () => {
           fileName: 'id.png',
           contentType: 'image/png',
           sizeBytes: 1000,
+          sha256: 'a'.repeat(64),
         }),
       () => api.confirmAttachment({ fieldId: id, uploadToken: 't' }),
       () => api.copy(),
@@ -123,6 +124,7 @@ describe('api.signing(slug)', () => {
         fileName: 'id.docx',
         contentType: 'image/png',
         sizeBytes: 1000,
+        sha256: 'a'.repeat(64),
       }),
       api.downloadCopy('original' as 'final'),
     ]) {

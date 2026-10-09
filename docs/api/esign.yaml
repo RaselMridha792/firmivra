@@ -118,7 +118,7 @@ info:
     insert-only versions; nothing is sent before the first one (readiness `NO_CONSENT`). Any
     member sets their own job title (the Staff Title merge field). A template copies a request's
     packet, recipients (as roles) and fields; using one makes a new DRAFT and never changes the
-    template. CLIENT, SPOUSE and PREPARER roles fill themselves; the others need `roles[].who`
+    template. CLIENT, SPOUSE (when the client has that login) and PREPARER roles fill themselves; the others need `roles[].who`
     (`409 TEMPLATE_ROLES_UNFILLED`).
 
 servers:

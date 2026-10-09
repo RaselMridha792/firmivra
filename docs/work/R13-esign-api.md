@@ -6,7 +6,7 @@
 - `apps/api/src/esign/**` (and `esign/core/` once R14's PR merges)
 - `apps/api/src/common/modules/**`: the shared `@RequiresModule()` guard (R14 uses it too)
 - `packages/types/src/esign/**` (and `esign/capture.ts` once R14's PR merges)
-- `apps/web/src/mocks/esign.ts` and the `esign` and `mySignatures` lines in `apps/web/src/lib/api.ts`
+- `apps/web/src/mocks/esign.ts`, `esign-common.ts` and `esign-signing.ts`, and the `esign`, `mySignatures` and `signing` lines in `apps/web/src/lib/api.ts`
 - `docs/api/esign.yaml`
 - `apps/api/test/unit/esign-*` and `apps/api/test/e2e/esign-*`
 - the 9 e-sign templates in `apps/api/src/notify`
@@ -58,12 +58,12 @@ Target merge windows in brackets (Dhaka).
 - Signers: one `SignerState` with a `step` (VERIFY_EMAIL, VERIFY_ACCESS_CODE, CONSENT, SIGN, WAITING, DONE, DECLINED, CLOSED, COPY); a call out of order answers 409 WRONG_STEP. The packet comes from `GET .../sign/packet` (same-site, read with the cookie).
 - Signatures: TYPED is R14's `SignatureCaptureInput` (the typed signature matches the printed name); DRAWN and UPLOADED add a base64 PNG (at most 200 KB; the API checks 1600x600). Initials are typed (1 to 10 characters) or an image.
 - Signature center rows are keyed by the recipient (the client's login on that request), at `/portal/{slug}/me/signatures`.
-- Templates (contract 2): save as template, use, list, get, rename, archive; FIRM or PRIVATE. Roles CLIENT, SPOUSE and PREPARER fill themselves on use; the others need `roles[].who` (409 TEMPLATE_ROLES_UNFILLED). Versions and duplicate come in contract 3.
+- Templates (contract 2): save as template, use, list, get, rename, archive; FIRM or PRIVATE. Roles CLIENT, SPOUSE (when the client has that login) and PREPARER fill themselves on use; the others need `roles[].who` (409 TEMPLATE_ROLES_UNFILLED). Versions and duplicate come in contract 3.
 - Settings: Owner and Admin change the defaults and publish consent versions; any member sets their own job title (`PUT /esign/me/profile`).
 
 ## Needs from others
 
-- R13-web: builds on `api.esign` and `mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures`).
+- R13-web: builds on `api.esign` and `mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures,signing`).
 - Fahad and Nahid: menu lines read `api.esign.status()` and `api.mySignatures(slug).status()`.
 
 ## Progress log
