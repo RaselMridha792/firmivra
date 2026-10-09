@@ -74,6 +74,8 @@ export interface CheckoutSession {
   status: 'open' | 'complete' | 'expired';
   amountTotal: number;
   expiresAt: Date;
+  /** The session's payment intent (`pi_`), once Stripe made one. */
+  paymentIntentId: string | null;
 }
 
 export interface StripeGateway {
@@ -89,6 +91,8 @@ export interface StripeGateway {
   paymentFailureCode(accountId: string, paymentIntentId: string): Promise<string | null>;
   /** Ends an open session, so it can no longer be paid. */
   expireCheckoutSession(accountId: string, sessionId: string): Promise<CheckoutSession>;
+  /** True for a live key: the webhook acts only on events of the same mode. */
+  readonly livemode: boolean;
 }
 
 /** The SDK's error type and code (`StripeConnectionError`, `idempotency_key_in_use`), never its message. */
@@ -119,6 +123,8 @@ const session = (s: Stripe.Checkout.Session): CheckoutSession => ({
   status: s.status === 'complete' ? 'complete' : s.status === 'expired' ? 'expired' : 'open',
   amountTotal: s.amount_total ?? 0,
   expiresAt: new Date(s.expires_at * 1000),
+  paymentIntentId:
+    typeof s.payment_intent === 'string' ? s.payment_intent : (s.payment_intent?.id ?? null),
 });
 
 /** The real Stripe, with the platform's key, a pinned API version and an 8 s timeout. */
@@ -130,6 +136,7 @@ export function createStripeGateway(secretKey: string): StripeGateway {
     appInfo: { name: 'Firmivra' },
   });
   return {
+    livemode: /^(sk|rk)_live_/.test(secretKey),
     createAccount: async ({ businessId, country, email }, idempotencyKey) =>
       pick(
         await stripe.accounts.create(

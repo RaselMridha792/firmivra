@@ -145,16 +145,28 @@ info:
       raw body for the signature check (`stripe.webhooks.constructEvent` with the Connect
       endpoint's secret; a bad or old signature is `400` and nothing is recorded). Find the firm
       from `event.account` in platform scope (`stripe_accounts`), then open that firm's business
-      scope; an unknown account is acknowledged (`200`) and ignored. Insert `payment_events`
-      first (the unique event id makes a duplicate delivery a no-op answered `200`); only the
-      type is kept, never the payload. Then, in the same transaction:
+      scope; an unknown account is acknowledged (`200`) and ignored. Without
+      `STRIPE_WEBHOOK_SECRET` or `STRIPE_SECRET_KEY` the answer is `503` (Stripe retries). An
+      event whose `livemode` differs from the key's mode is acknowledged and ignored. The per-IP
+      rate limit does not apply (the signature is the gate). A duplicate is found first and asks
+      Stripe nothing. What must be asked at Stripe is asked before the event is recorded, so a
+      Stripe failure is `503` and the retry is acted on. Then insert `payment_events` (the unique
+      event id makes a duplicate delivery a no-op answered `200`); only the type is kept, never
+      the payload. An event acts on the payment named in its metadata only when the object is
+      that payment's own: a Checkout Session's id is the payment's `processor_ref`, a payment
+      intent is the `payment_intent` of that session at Stripe (`sessions.retrieve`), and the
+      currency is the payment's; otherwise it is recorded and changes nothing. Then, in the same
+      transaction:
       - `checkout.session.completed` with `payment_status: paid`, or `payment_intent.succeeded`
         (the payment from its metadata; a bank debit settles with it): link the event, set the
         payment `SUCCEEDED` with `paid_at`, then the invoice `PAID` once `SUCCEEDED` payments cover
         its total. The amount is Stripe's (`amount_total`, or `amount_received`), checked against
-        the payment row; a mismatch is logged and alarmed, never trusted. Both events come for one
-        payment: once it is `SUCCEEDED`, the other is recorded and changes nothing (`paid_at` is
-        set once). The database takes only these two types for `SUCCEEDED`, so
+        the payment row before the event is linked; a mismatch is logged and alarmed, never
+        trusted. Both events come for one payment, possibly at once: only the one that moves it
+        from `PENDING` acts, the other is recorded and changes nothing (`paid_at` is set once).
+        `PAID` counts `SUCCEEDED` payments only (the database's rule). A payment of an invoice
+        canceled meanwhile is recorded (the firm refunds it) and the client gets no
+        `payment.received`. The database takes only these two types for `SUCCEEDED`, so
         `checkout.session.async_payment_succeeded` is ignored.
       - `checkout.session.completed` with `payment_status: unpaid` (a bank debit): record it; the
         payment stays `PENDING` and shows as processing.
@@ -163,7 +175,8 @@ info:
         never become `SUCCEEDED`). A payment becomes `FAILED` only on
         `checkout.session.async_payment_failed` (a bank debit; Stripe's short `failure_code` from
         the payment intent's last error) or `checkout.session.expired` (`checkout_expired`, not
-        listed to anyone); the invoice stays open. e2e (step 6): a declined test card, then a good
+        listed to anyone); the invoice stays open. A payment already `SUCCEEDED` or `FAILED` is
+        never changed by them. e2e (step 6): a declined test card, then a good
         one in the same session, ends `PAID` with one `SUCCEEDED` payment.
       - `charge.refunded` (Stripe sends one per refund; the charge in the event does not list its
         refunds): find the payment from the charge's payment intent and link the event to it. List
@@ -178,8 +191,10 @@ info:
       - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED` (its
         cents are refundable again). One already `SUCCEEDED` is final: logged and alarmed, not
         changed; one with no row never counted and is ignored.
-      - `account.updated`: find the firm's `stripe_accounts` row by the `acct_` id and update it
-        with `toOnboardingState(account)`, the same function onboarding uses, through the one
+      - `account.updated`: fetch the account from Stripe (`accounts.retrieve`; events can arrive
+        out of order, so the event's copy is not used), then, before the event is recorded, find
+        the firm's `stripe_accounts` row by the `acct_` id and update it with
+        `toOnboardingState(account)`, the same function onboarding uses, through the one
         platform-scope writer in `apps/api/src/payments/stripe` (`forPlatform()`; the RLS lets only
         platform scope write `stripe_accounts`, so no firm can claim an `acct_` id or switch
         charges on). The `businessId` is the row's own, never the event's.

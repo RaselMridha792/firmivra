@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { testDatabaseUrls } from '@firmivra/db/testing';
 import { FakeStripeGateway } from '../../src/payments/stripe/fake-stripe.js';
+import { StripeWebhookService } from '../../src/payments/webhooks/stripe-webhook.service.js';
 import { expectOk, Invoice, nyDay, startInvoiceApp, TEST_WEBHOOK_SECRET } from './invoice-setup.js';
 
 const fake = new FakeStripeGateway();
@@ -77,6 +78,7 @@ const session = (
   object: 'checkout.session',
   payment_status: 'paid',
   amount_total: p.amountCents,
+  currency: 'usd',
   payment_intent: `pi_${p.id.replace(/-/g, '')}`,
   metadata: { payment_id: p.id, invoice_id: 'x' },
   ...extra,
@@ -202,18 +204,32 @@ describe('POST /webhooks/stripe', () => {
   it('ignores an unknown account and updates the firm’s own row on account.updated', async () => {
     const unknown = event('checkout.session.completed', 'acct_unknown000', {});
     expectOk(await deliver(unknown));
-    expectOk(
-      await deliver(
-        event('account.updated', accountB(), {
-          id: accountB(),
-          object: 'account',
-          charges_enabled: true,
-          payouts_enabled: true,
-          details_submitted: true,
-          requirements: { currently_due: [], past_due: [], disabled_reason: null },
-        }),
-      ),
-    );
+    // Stripe's current state is what counts, not the event's copy (events can come out of order).
+    fake.accounts.set(accountB(), {
+      id: accountB(),
+      charges_enabled: true,
+      payouts_enabled: true,
+      details_submitted: true,
+      requirements: { currently_due: [], past_due: [], disabled_reason: null },
+    });
+    const stale = event('account.updated', accountB(), {
+      id: accountB(),
+      object: 'account',
+      charges_enabled: false,
+      payouts_enabled: false,
+      details_submitted: false,
+      requirements: { currently_due: ['x'], past_due: [], disabled_reason: null },
+    });
+    // Stripe down: 503 and nothing recorded, so Stripe's retry is acted on.
+    fake.down = true;
+    try {
+      expect((await deliver(stale)).status).toBe(503);
+    } finally {
+      fake.down = false;
+    }
+    expect(await eventsIn(t.ids.firmB, stale.id)).toEqual([]);
+    expectOk(await deliver(stale));
+    expect(await eventsIn(t.ids.firmB, stale.id)).toHaveLength(1);
     const row = await t.inScope(t.ids.firmB, (tx) =>
       tx.stripeAccount.findUniqueOrThrow({ where: { businessId: t.ids.firmB } }),
     );
@@ -222,5 +238,102 @@ describe('POST /webhooks/stripe', () => {
       tx.stripeAccount.findUniqueOrThrow({ where: { businessId: t.ids.firmA } }),
     );
     expect(a.accountId).toBe(accountA());
+  });
+
+  it('refuses an old signature with 400; no webhook secret or no Stripe key is 503', async () => {
+    const e = event('checkout.session.expired', accountA(), {});
+    const payload = JSON.stringify(e);
+    const old = Stripe.webhooks.generateTestHeaderString({
+      payload,
+      secret: TEST_WEBHOOK_SECRET,
+      timestamp: Math.floor(Date.now() / 1000) - 600,
+    });
+    expect((await deliver(e, old)).status).toBe(400);
+    const service = t.app.get(StripeWebhookService) as unknown as Record<string, unknown>;
+    for (const field of ['secret', 'stripe']) {
+      const kept = service[field];
+      service[field] = null;
+      try {
+        const res = await deliver(e);
+        expect([res.status, (res.body as { error?: { code: string } }).error?.code]).toEqual([
+          503,
+          'PAYMENT_PROVIDER_UNAVAILABLE',
+        ]);
+      } finally {
+        service[field] = kept;
+      }
+    }
+    expect(await eventsIn(t.ids.firmA, e.id)).toEqual([]);
+  });
+
+  it('acts only on events of the key’s mode', async () => {
+    const { invoiceId, payment } = await checkoutStarted();
+    const live = { ...event('checkout.session.completed', accountA(), session(payment)) };
+    live.livemode = true;
+    expectOk(await deliver(live));
+    expect(await stateOf(invoiceId)).toEqual({ invoice: 'OPEN', payments: [['PENDING', null]] });
+    expect(await eventsIn(t.ids.firmA, live.id)).toEqual([]);
+  });
+
+  it('acts only on the payment’s own session, in its own currency', async () => {
+    const { invoiceId, payment } = await checkoutStarted();
+    for (const forged of [
+      session(payment, { id: 'cs_test_forged123' }),
+      session(payment, { currency: 'jpy' }),
+    ]) {
+      const e = event('checkout.session.completed', accountA(), forged);
+      expectOk(await deliver(e));
+      expect((await eventsIn(t.ids.firmA, e.id))[0]).toMatchObject({ paymentId: null });
+    }
+    expect(await stateOf(invoiceId)).toEqual({ invoice: 'OPEN', payments: [['PENDING', null]] });
+  });
+
+  it('settles a bank debit on payment_intent.succeeded only for the intent of its own session', async () => {
+    const { invoiceId, payment } = await checkoutStarted();
+    const intent = (id: string) =>
+      event('payment_intent.succeeded', accountA(), {
+        id,
+        object: 'payment_intent',
+        amount_received: payment.amountCents,
+        currency: 'usd',
+        metadata: { payment_id: payment.id },
+      });
+    fake.setSession(payment.processorRef, { status: 'complete', paymentIntentId: 'pi_real1' });
+    expectOk(await deliver(intent('pi_other1')));
+    expect(await stateOf(invoiceId)).toEqual({ invoice: 'OPEN', payments: [['PENDING', null]] });
+    expectOk(await deliver(intent('pi_real1')));
+    expect(await stateOf(invoiceId)).toEqual({ invoice: 'PAID', payments: [['SUCCEEDED', null]] });
+  });
+
+  it('takes both success events at once: one SUCCEEDED payment, both 200', async () => {
+    const { invoiceId, payment } = await checkoutStarted();
+    fake.setSession(payment.processorRef, { status: 'complete', paymentIntentId: 'pi_both1' });
+    const results = await Promise.all([
+      deliver(event('checkout.session.completed', accountA(), session(payment))),
+      deliver(
+        event('payment_intent.succeeded', accountA(), {
+          id: 'pi_both1',
+          object: 'payment_intent',
+          amount_received: payment.amountCents,
+          currency: 'usd',
+          metadata: { payment_id: payment.id },
+        }),
+      ),
+    ]);
+    expect(results.map((r) => r.status)).toEqual([200, 200]);
+    expect(await stateOf(invoiceId)).toEqual({ invoice: 'PAID', payments: [['SUCCEEDED', null]] });
+    const audits = await t.inScope(t.ids.firmA, (tx) =>
+      tx.auditLog.count({ where: { entityId: payment.id, action: 'payment.succeeded' } }),
+    );
+    expect(audits).toBe(1);
+  });
+
+  it('never fails a payment that already succeeded', async () => {
+    const { invoiceId, payment } = await checkoutStarted();
+    expectOk(await deliver(event('checkout.session.completed', accountA(), session(payment))));
+    for (const type of ['checkout.session.expired', 'checkout.session.async_payment_failed']) {
+      expectOk(await deliver(event(type, accountA(), session(payment))));
+    }
+    expect(await stateOf(invoiceId)).toEqual({ invoice: 'PAID', payments: [['SUCCEEDED', null]] });
   });
 });
