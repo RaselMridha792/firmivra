@@ -61,3 +61,4 @@ Target merge windows in brackets (Dhaka).
 ## Progress log
 
 - Oct 8: started in the cloud. Contract 1 on `rasel/R13-api-contract-firm` (#135); Scrum pre-review fixes applied the same evening.
+- Oct 9: docs PR (step 4) on rasel/R13-api-docs.
