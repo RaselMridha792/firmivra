@@ -80,3 +80,29 @@ test('without WebAssembly, the signer is told scanned pages may be blank', async
   await expect(page.locator('[data-page="1"][data-drawn]')).toBeVisible();
   await expect(page.getByTestId('pdf-no-wasm')).toContainText('Open it in another browser');
 });
+
+test("fields sit on the page in their recipient's colour, other people's faded", async ({
+  page,
+}) => {
+  await page.goto(signPage);
+  const first = page.locator('[data-page="1"]');
+  await expect(first.getByTestId('esign-field')).toHaveCount(4);
+  await expect(page.locator('[data-page="2"]').getByTestId('esign-field')).toHaveCount(0);
+  const mine = first.getByLabel('Signature (required), Jordan Sample');
+  await expect(mine).toBeVisible();
+  await expect(mine).not.toHaveClass(/opacity-40/);
+  await expect(first.getByLabel('Signature (required), Riley Sample')).toHaveClass(/opacity-40/);
+  await expect(first.getByLabel('Text, Sender')).toBeVisible();
+  // Placed by fractions of the page: the signature starts 18% in and 78% down.
+  const pageBox = (await first.boundingBox())!;
+  const fieldBox = (await mine.boundingBox())!;
+  expect(Math.abs(fieldBox.x - pageBox.x - pageBox.width * 0.18)).toBeLessThan(2);
+  expect(Math.abs(fieldBox.y - pageBox.y - pageBox.height * 0.78)).toBeLessThan(2);
+  // Two recipients, two colours.
+  const colours = await first
+    .getByTestId('esign-field')
+    .evaluateAll((els) => [
+      ...new Set(els.slice(0, 3).map((e) => getComputedStyle(e).borderTopColor)),
+    ]);
+  expect(colours).toHaveLength(2);
+});
