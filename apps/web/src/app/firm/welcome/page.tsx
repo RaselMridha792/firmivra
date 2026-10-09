@@ -32,7 +32,7 @@ export default function WelcomePage() {
     <main className="flex min-h-screen flex-col justify-center bg-canvas py-8 sm:py-12">
       <PageContainer className="flex flex-col gap-8">
         <header className="rounded-2xl bg-brand-900 px-6 py-7 text-white shadow-card sm:px-10 sm:py-9">
-          <BrandLockup subtitle="Firm workspace" />
+          <BrandLockup subtitle="Firm workspace" tone="dark" />
           <div className="mt-8 max-w-2xl">
             <p className="text-sm font-semibold text-brand-100">Firm onboarding</p>
             <h1 className="mt-2 font-serif text-3xl font-bold tracking-tight sm:text-4xl">
