@@ -3,8 +3,11 @@ import {
   ApiRequestError,
   createEsignClient,
   createRequest,
+  ESIGN_READINESS_TEXT,
   EsignApprovalBody,
+  EsignBulkBatch,
   EsignBulkSendBody,
+  EsignReadinessCode,
   EsignPutRecipient,
   EsignReportQuery,
 } from '../../src/index.js';
@@ -69,7 +72,7 @@ describe('api.esign extras (contract 3)', () => {
       `GET /api/v1/esign/bulk/${other}`,
       `GET /api/v1/esign/reports?from=2026-01-01&to=2026-03-31&senderId=${other}`,
     ]);
-    expect(calls[10]!.body).toEqual({ name: 'Copy', visibility: 'FIRM' });
+    expect(calls[10]!.body).toEqual({ name: 'Copy' });
     expect(calls[11]!.body).toEqual({ clients: [{ clientId: other }], roles: [], confirm: true });
   });
 
@@ -93,6 +96,41 @@ describe('api.esign extras (contract 3)', () => {
       expect((e as ApiRequestError).status).toBe(400);
     }
     expect(calls).toEqual([]);
+  });
+
+  it('answers BULK_LIMIT before sending more than 200 clients', async () => {
+    const { fn, calls } = fakeFetch(202, {});
+    const clients = Array.from({ length: 201 }, (_, i) => ({
+      clientId: `0199b6e0-0000-7000-8000-${String(i).padStart(12, '0')}`,
+    }));
+    const e = await createEsignClient(request(fn))
+      .templates.bulkSend(id, { clients, confirm: true })
+      .then(
+        () => undefined,
+        (x: unknown) => x,
+      );
+    expect([(e as ApiRequestError).status, (e as ApiRequestError).code]).toEqual([
+      400,
+      'BULK_LIMIT',
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it('has words for every readiness code and typed bulk problems', () => {
+    for (const code of EsignReadinessCode.options) expect(ESIGN_READINESS_TEXT[code]).toBeTruthy();
+    const row = { clientId: id, clientName: 'A', state: 'NOT_SENT', requestId: null };
+    const batch = (problem: string) => ({
+      id,
+      templateId: other,
+      templateName: 'T',
+      createdBy: { userId: id, name: 'Owner' },
+      createdAt: '2026-10-09T10:00:00Z',
+      done: true,
+      items: [{ ...row, problem }],
+    });
+    expect(EsignBulkBatch.safeParse(batch('MERGE_MISSING')).success).toBe(true);
+    expect(EsignBulkBatch.safeParse(batch('TEMPLATE_ROLES_UNFILLED')).success).toBe(true);
+    expect(EsignBulkBatch.safeParse(batch('SOMETHING_ELSE')).success).toBe(false);
   });
 
   it('checks approvals, bulk send, reports and in-person recipients', () => {
@@ -119,6 +157,10 @@ describe('api.esign extras (contract 3)', () => {
     );
     expect(EsignReportQuery.safeParse({ from: '2025-01-01', to: '2025-12-31' }).success).toBe(true);
     const who = { type: 'EXTERNAL', name: 'Pat Sample', email: 'pat@example.test' } as const;
+    expect(
+      EsignPutRecipient.safeParse({ kind: 'APPROVER', role: 'MANAGER', routingOrder: 1, who })
+        .success,
+    ).toBe(false);
     expect(
       EsignPutRecipient.safeParse({ role: 'CLIENT', routingOrder: 1, delivery: 'IN_PERSON', who })
         .success,
