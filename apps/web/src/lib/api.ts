@@ -6,6 +6,7 @@ import {
   createAppointmentTypesClient,
   createAuditLogClient,
   createAvailabilityClient,
+  createBeginOnlineClient,
   createCalculatorsClient,
   createClientNotesClient,
   createClientsClient,
@@ -22,6 +23,7 @@ import {
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyIntakesClient,
   createMyIntakeAgreementsClient,
   createMyInvoicesClient,
   createMyMessagesClient,
@@ -57,6 +59,7 @@ import {
   publicAgreementsMock,
 } from '../mocks/agreements';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
@@ -69,6 +72,7 @@ import {
   mySignaturesMock,
 } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
+import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
@@ -272,6 +276,14 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** Begin Online (R11): the public intake on a firm's portal site, without an account. */
+  beginOnline: (firmSlug: string) =>
+    dev && mocked('beginOnline')
+      ? beginOnlineMock(firmSlug)
+      : createBeginOnlineClient(request, firmSlug),
+  /** Intake forms (R11): the signed-in client's Intake Forms tab, per firm (portal). */
+  myIntakes: (firmSlug: string) =>
+    dev && mocked('myIntakes') ? myIntakesMock(firmSlug) : createMyIntakesClient(request, firmSlug),
   /** Firm Sign (R13): the signer pages at /{slug}/sign, no account (a link plus a code). */
   signing: (firmSlug: string) =>
     dev && mocked('signing')
