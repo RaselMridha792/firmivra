@@ -19,6 +19,7 @@ import { api } from '../../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../../lib/query';
 import { uploadFile } from '../../../../../../../../lib/upload';
+import { PagePlan } from './page-plan';
 import { requestKey, stepHref } from './steps';
 
 const ERRORS = { ...DOCUMENT_ERRORS, ...ESIGN_ERRORS };
@@ -90,6 +91,7 @@ export function DocumentsStep({ r }: { r: EsignRequestDetail }) {
           </p>
         )}
       </Card>
+      <PagePlan r={r} />
       <div className="flex flex-wrap gap-3">
         {ready ? (
           <Link
