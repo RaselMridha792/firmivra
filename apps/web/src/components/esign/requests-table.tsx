@@ -27,9 +27,9 @@ const RANGES = [
   { value: 'all', label: 'All Time' },
 ];
 
-/** A calendar day `days` ago, as the list's `from` (UTC, like the API). */
-const daysAgo = (days: number) =>
-  new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+/** The first of the last `days` calendar days (today included), as the list's `from` (UTC). */
+const firstOfLast = (days: number) =>
+  new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 const shortDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '–';
@@ -39,7 +39,6 @@ export interface RequestsFilters {
   status: EsignRequestStatus | '';
   clientId: string;
   range: string;
-  quickFilter?: EsignQuickFilter;
 }
 
 interface RequestsTableProps {
@@ -47,10 +46,11 @@ interface RequestsTableProps {
   limit: number;
   /** The filters to start with (All requests reads them from its address). */
   initial?: Partial<RequestsFilters>;
+  /** All requests' quick filter. It replaces the status filter, which it already narrows. */
+  quickFilter?: EsignQuickFilter;
   /** A client's own tab: no client filter, always this client. */
   clientId?: string;
   caption: string;
-  onFilters?: (filters: RequestsFilters) => void;
 }
 
 /**
@@ -62,7 +62,7 @@ export function RequestsTable({
   initial,
   clientId,
   caption,
-  onFilters,
+  quickFilter,
 }: RequestsTableProps) {
   const [filters, setFilters] = useState<RequestsFilters>({
     q: '',
@@ -71,24 +71,30 @@ export function RequestsTable({
     range: '30',
     ...initial,
   });
+  // The cursors of the pages before this one, for Previous. Any new filter starts at page 1.
+  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
+  const cursor = cursors.at(-1);
+  const [shownQuick, setShownQuick] = useState(quickFilter);
+  if (shownQuick !== quickFilter) {
+    setShownQuick(quickFilter);
+    setCursors([undefined]);
+  }
   // Typing waits a moment before it searches.
   const [q, setQ] = useState(filters.q);
   useEffect(() => {
-    const timer = setTimeout(() => setFilters((f) => (f.q === q ? f : { ...f, q })), 300);
+    const timer = setTimeout(() => {
+      setFilters((f) => (f.q === q ? f : { ...f, q }));
+      setCursors((c) => (c.length > 1 ? [undefined] : c));
+    }, 300);
     return () => clearTimeout(timer);
   }, [q]);
-  useEffect(() => onFilters?.(filters), [filters, onFilters]);
-
-  // The cursors of the pages before this one, for Previous.
-  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
-  const cursor = cursors.at(-1);
   const query: ListEsignRequestsQuery = {
     limit,
     ...(filters.q.trim() && { q: filters.q.trim() }),
-    ...(filters.status && { status: filters.status }),
+    ...(filters.status && !quickFilter && { status: filters.status }),
     ...((clientId ?? filters.clientId) && { clientId: clientId ?? filters.clientId }),
-    ...(filters.range !== 'all' && { from: daysAgo(Number(filters.range)) }),
-    ...(filters.quickFilter && { quickFilter: filters.quickFilter }),
+    ...(filters.range !== 'all' && { from: firstOfLast(Number(filters.range)) }),
+    ...(quickFilter && { quickFilter }),
     ...(cursor && { cursor }),
   };
   const list = useQuery({
@@ -161,12 +167,14 @@ export function RequestsTable({
           label="Search documents"
           type="search"
           value={q}
-          maxLength={200}
+          // The API's search takes 100 characters.
+          maxLength={100}
           onChange={(e) => setQ(e.target.value)}
         />
         <Select
           label="Status"
-          value={filters.status}
+          disabled={!!quickFilter}
+          value={quickFilter ? '' : filters.status}
           onChange={(e) => change({ status: e.target.value as RequestsFilters['status'] })}
           options={[
             { value: '', label: 'All Statuses' },
@@ -200,7 +208,8 @@ export function RequestsTable({
           // Pages come from the API (cursors); the columns don't sort.
           server={{
             page: page + 1,
-            hasNext: !!next,
+            // Not while the next page loads: a second click would skip it.
+            hasNext: !!next && !list.isPlaceholderData,
             hasPrevious: page > 0,
             onNext: () => next && setCursors((c) => [...c, next]),
             onPrevious: () => setCursors((c) => (c.length > 1 ? c.slice(0, -1) : c)),
@@ -212,7 +221,10 @@ export function RequestsTable({
   );
 }
 
-/** "All Clients" or one client: the clients the caller may see. */
+/**
+ * "All Clients" or one client: the first 100 clients the caller may see. A firm with more finds
+ * the others with the search box, which also matches the client.
+ */
 function ClientFilter({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const clients = useApiQuery(['clients', 'list', 'esign-filter'], () =>
     api.clients.list({ limit: 100 }),

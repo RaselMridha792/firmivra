@@ -3,6 +3,7 @@
 import { type EsignQuickFilter, type EsignRequestStatus } from '@firmivra/types';
 import { Button } from '@firmivra/ui';
 import { useState } from 'react';
+import { EsignGate } from '../../../../../../components/esign/esign-gate';
 import { RequestsTable } from '../../../../../../components/esign/requests-table';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
@@ -17,6 +18,10 @@ const QUICK: { id: EsignQuickFilter; label: string }[] = [
 
 /** /firm-sign/requests: every request the caller may see, with the quick filters. */
 export function AllRequests({ status }: { status?: EsignRequestStatus }) {
+  return <EsignGate>{() => <Requests status={status} />}</EsignGate>;
+}
+
+function Requests({ status }: { status?: EsignRequestStatus }) {
   const summary = useApiQuery(['esign', 'summary'], () => api.esign.summary());
   const [quick, setQuick] = useState<EsignQuickFilter | undefined>();
   return (
@@ -45,11 +50,12 @@ export function AllRequests({ status }: { status?: EsignRequestStatus }) {
         ))}
       </div>
       <RequestsTable
-        // A quick filter starts the list over, from its first page.
-        key={quick ?? 'all'}
+        // Another ?status= (a counter clicked again) starts over with it.
+        key={status ?? 'all'}
         limit={25}
         caption="Signature requests"
-        initial={{ range: 'all', quickFilter: quick, ...(status && { status }) }}
+        quickFilter={quick}
+        initial={{ range: 'all', ...(status && { status }) }}
       />
     </div>
   );

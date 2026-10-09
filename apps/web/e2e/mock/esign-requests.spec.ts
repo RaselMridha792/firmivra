@@ -20,6 +20,8 @@ test('quick filters on All requests', async ({ page }) => {
   const expiring = page.getByRole('button', { name: 'Expiring soon (2)' });
   await expiring.click();
   await expect(expiring).toHaveAttribute('aria-pressed', 'true');
+  // A quick filter stands in for the status filter.
+  await expect(page.getByLabel('Status')).toBeDisabled();
   const rows = page.getByRole('table', { name: 'Signature requests' }).getByRole('row');
   await expect(rows).toHaveCount(3);
   // Nothing waits on this Owner's approval: the empty state says so.
