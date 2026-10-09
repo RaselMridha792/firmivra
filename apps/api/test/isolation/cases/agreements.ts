@@ -85,6 +85,12 @@ export const cases: CaseModule['cases'] = {
     body: { scope: 'SERVICE' },
     bodyIds: { serviceId: 'service' },
   },
+  'GET /api/v1/business/agreements/files/:fileId': { params: { fileId: 'agreementFile' } },
+  // No file store in tests: found, then 503.
+  'GET /api/v1/business/agreements/files/:fileId/download': {
+    params: { fileId: 'agreementFile' },
+    expect: 503,
+  },
   'GET /api/v1/business/agreements/:agreementId': { params: { agreementId: 'agreement' } },
   'GET /api/v1/business/agreements/:agreementId/versions/:version': {
     params: { agreementId: 'agreement' },
@@ -110,4 +116,6 @@ export const cases: CaseModule['cases'] = {
 export const excluded: CaseModule['excluded'] = {
   'GET /api/v1/portal/:firmSlug/intake-agreements':
     "Public: the firm's current intake agreements for a Begin Online form, from the slug only",
+  'GET /api/v1/portal/:firmSlug/intake-agreements/:agreementId/versions/:version/pdf':
+    "Public: the PDF of a firm's current agreement version, from the slug only",
 };
