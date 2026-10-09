@@ -171,6 +171,17 @@ describe('drafts', () => {
     expect(await refused(svc.get(w.a, manager, forC1.id))).toEqual([404, 'NOT_FOUND']);
     expect((await svc.get(w.a, manager, staff2Own.id)).id).toBe(staff2Own.id);
     expect(await refused(draft(manager, w.ids.c2))).toEqual([404, 'NOT_FOUND']);
+    // An approver reaches the request they approve, though its client is not assigned to them.
+    w.repo.seed(w.a, forC2.id, (row) =>
+      row.parts.recipients.push({
+        ...loginRecipient(w.ids.c2Login),
+        kind: 'APPROVER',
+        role: 'MANAGER',
+        link: { type: 'STAFF', userId: w.users.staffA2 },
+      }),
+    );
+    expect((await svc.get(w.a, manager, forC2.id)).id).toBe(forC2.id);
+    expect(await refused(svc.get(w.a, staff, forC2.id))).toEqual([404, 'NOT_FOUND']);
     expect(await svc.status(w.a, manager)).toEqual({ enabled: true, myEsignRole: 'MANAGER' });
     expect(await refused(svc.update(w.a, staff2, forC1.id, { title: 'x' }))).toEqual([
       404,
