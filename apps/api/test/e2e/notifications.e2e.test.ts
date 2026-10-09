@@ -58,6 +58,8 @@ const people = {
   /** c3's only PRIMARY login, still waiting for approval (not ACTIVE). */
   pending3: person('pending-3', 'CLIENT'),
   ownerB: person('owner-b', 'STAFF'),
+  /** A Staff member of firm A and of firm B. */
+  dual: person('dual', 'STAFF'),
   clientB: person('client-b', 'CLIENT'),
 };
 type Who = (typeof people)[keyof typeof people];
@@ -198,6 +200,7 @@ beforeAll(async () => {
       [people.staff2, 'STAFF', 'ACTIVE'],
       [people.staff3, 'STAFF', 'DEACTIVATED'],
       [people.adminGone, 'ADMIN', 'DEACTIVATED'],
+      [people.dual, 'STAFF', 'ACTIVE'],
     ] as const) {
       const m = await tx.membership.create({
         data: { ...A, userId: who.id, role, status },
@@ -280,6 +283,9 @@ beforeAll(async () => {
     const B = { businessId: ids.firmB };
     await tx.membership.create({
       data: { ...B, userId: people.ownerB.id, role: 'OWNER', status: 'ACTIVE' },
+    });
+    await tx.membership.create({
+      data: { ...B, userId: people.dual.id, role: 'STAFF', status: 'ACTIVE' },
     });
     const cB = await tx.client.create({ data: { ...B, displayName: 'B Client (fake)' } });
     await tx.clientAccount.create({
@@ -463,7 +469,7 @@ describe('Notifier: who gets an event', () => {
     ]);
   });
 
-  it("a note reminder reaches only the note's owner; staff.joined and the person's own account", async () => {
+  it("a note reminder reaches only the note's owner (even a SPOUSE login: the one exception to PRIMARY only); staff.joined and the person's own account", async () => {
     await notifier.notify({ ...A(), event: 'client-note.reminder', recordId: ids.reminder });
     const [reminder] = await rowsOf(people.spouse1);
     expect(reminder).toMatchObject({ type: 'client_note.reminder', payload: {} });
@@ -488,6 +494,19 @@ describe('Notifier: who gets an event', () => {
       audience: 'staff',
     });
     expect((await rowsOf(people.staff2)).map((r) => r.type)).toEqual(['account.password_changed']);
+    // q27 (5): on the portal only the PRIMARY login gets bell items, also for its own account.
+    const changed = (who: Who) =>
+      notifier.notify({
+        ...A(),
+        event: 'account.password-changed',
+        recordId: who.id,
+        audience: 'client',
+      });
+    expect(await changed(people.spouse1)).toEqual({ written: 0 });
+    expect(
+      (await rowsOf(people.spouse1)).filter((r) => r.type === 'account.password_changed'),
+    ).toEqual([]);
+    expect(await changed(people.primary1)).toEqual({ written: 1 });
     // Someone with no place in the firm gets nothing.
     expect(
       await notifier.notify({
@@ -573,6 +592,14 @@ describe('firm routes: the member’s own', () => {
 
   it('marks one read (a repeat keeps the first readAt), then all; Staff see only their own', async () => {
     const [mine] = (await rowsOf(people.staff1)).filter((r) => r.entityId === ids.thread1);
+    expect(mine!.readAt).toBeNull();
+    // Another member of the same firm, on the unread item: 404, and it stays unread.
+    expectError(
+      await firm('post', `/notifications/${mine!.id}/read`, people.staff2, {}),
+      404,
+      'NOT_FOUND',
+    );
+    expect((await rowsOf(people.staff1)).find((r) => r.id === mine!.id)!.readAt).toBeNull();
     const read = exact(
       NotificationItem,
       await firm('post', `/notifications/${mine!.id}/read`, people.staff1, {}),
@@ -584,12 +611,6 @@ describe('firm routes: the member’s own', () => {
       await firm('post', `/notifications/${mine!.id.toUpperCase()}/read`, people.staff1, {}),
     );
     expect(again.readAt).toBe(read.readAt);
-    // Another member of the same firm: 404, and nothing changes.
-    expectError(
-      await firm('post', `/notifications/${mine!.id}/read`, people.staff2, {}),
-      404,
-      'NOT_FOUND',
-    );
     const unread = exact(
       NotificationList,
       await firm('get', '/notifications?unreadOnly=true', people.ownerA),
@@ -668,15 +689,17 @@ describe('portal routes: the client login’s own', () => {
       body: 'Invoice R6-1',
       target: { id: ids.invoice1, clientId: null },
     });
-    exact(
-      NotificationItem,
-      await portal('post', `/notifications/${invoice.id}/read`, people.primary1, {}),
-    );
-    // Client A's item is not client B's (same firm) and never the other firm's.
+    expect(invoice.readAt).toBeNull();
+    // Client A's item is not client B's (same firm): 404 on the unread item, which stays unread.
     expectError(
       await portal('post', `/notifications/${invoice.id}/read`, people.primary2, {}),
       404,
       'NOT_FOUND',
+    );
+    expect((await rowsOf(people.primary1)).find((r) => r.id === invoice.id)!.readAt).toBeNull();
+    exact(
+      NotificationItem,
+      await portal('post', `/notifications/${invoice.id}/read`, people.primary1, {}),
     );
     const other = exact(NotificationList, await portal('get', '/notifications', people.primary2));
     expect(other.items.some((i) => i.id === invoice.id)).toBe(false);
@@ -775,12 +798,14 @@ describe('SMS switch: shown for anyone with a phone number, whatever SMS_MODE sa
 
 describe('tenant isolation and the error order', () => {
   it("firm B never sees firm A's notifications", async () => {
-    const [aItem] = await rowsOf(people.ownerA);
+    const aItem = (await rowsOf(people.adminA)).find((r) => r.readAt === null);
+    expect(aItem).toBeDefined();
     expectError(
       await firm('post', `/notifications/${aItem!.id}/read`, people.ownerB, {}, ids.firmB),
       404,
       'NOT_FOUND',
     );
+    expect((await rowsOf(people.adminA)).find((r) => r.id === aItem!.id)!.readAt).toBeNull();
     expectError(
       await firm('get', '/notifications', people.ownerB, undefined, ids.firmA),
       404,
@@ -798,6 +823,69 @@ describe('tenant isolation and the error order', () => {
       404,
       'NOT_FOUND',
     );
+  });
+
+  it('one person in two firms: acting in B never reads, marks or changes anything of A', async () => {
+    const item = (businessId: string) =>
+      asOwner(businessId, (tx) =>
+        tx.notification.create({
+          data: {
+            businessId,
+            recipientUserId: people.dual.id,
+            category: 'ACCOUNT',
+            type: 'account.password_changed',
+            entityType: 'user',
+            entityId: people.dual.id,
+          },
+        }),
+      );
+    const inA = await item(ids.firmA);
+    const inB = await item(ids.firmB);
+    await asOwner(ids.firmA, (tx) =>
+      tx.notificationPreference.create({
+        data: { businessId: ids.firmA, userId: people.dual.id, category: 'MESSAGES', email: false },
+      }),
+    );
+    const inFirmB = (method: 'get' | 'post' | 'patch', path: string, body?: object) =>
+      firm(method, path, people.dual, body, ids.firmB);
+    const list = exact(NotificationList, await inFirmB('get', '/notifications'));
+    expect(list.items.map((i) => i.id)).toEqual([inB.id]);
+    expect(list.unreadCount).toBe(1);
+    expect(
+      exact(UnreadNotificationCount, await inFirmB('get', '/notifications/unread-count')),
+    ).toEqual({ count: 1 });
+    expectError(await inFirmB('post', `/notifications/${inA.id}/read`, {}), 404, 'NOT_FOUND');
+    expect(
+      exact(MarkAllNotificationsReadResponse, await inFirmB('post', '/notifications/read-all', {})),
+    ).toEqual({ marked: 1 });
+    // B's preferences: A's rows stay as they were, and B shows the defaults.
+    const prefsB = exact(
+      NotificationPreferences,
+      await inFirmB('get', '/notification-preferences'),
+    );
+    expect(prefsB.items.find((i) => i.category === 'MESSAGES')).toMatchObject({ email: true });
+    exact(
+      NotificationPreferences,
+      await inFirmB('patch', '/notification-preferences', {
+        items: [{ category: 'DOCUMENTS', email: false }],
+      }),
+    );
+    const [rowsA, itemA] = await asOwner(ids.firmA, (tx) =>
+      Promise.all([
+        tx.notificationPreference.findMany({
+          where: { businessId: ids.firmA, userId: people.dual.id },
+        }),
+        tx.notification.findUniqueOrThrow({ where: { id: inA.id } }),
+      ]),
+    );
+    expect(rowsA.map((r) => [r.category, r.email, r.sms])).toEqual([['MESSAGES', false, false]]);
+    expect(itemA.readAt).toBeNull();
+    // Person X's preferences are never person Y's (same firm).
+    const other = exact(
+      NotificationPreferences,
+      await firm('get', '/notification-preferences', people.staff2),
+    );
+    expect(other.items.find((i) => i.category === 'MESSAGES')).toMatchObject({ email: true });
   });
 
   it('answers 415, 403 (origin), 401, 400, 404, 403 (status), 400 (validation), 404 in that order', async () => {

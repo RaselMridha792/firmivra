@@ -77,10 +77,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // eslint-disable-next-line no-control-regex -- control and format characters never reach a bell
 const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g;
 
-/** One line of at most 120 characters (a title or a name). */
-const short = (value: string | null | undefined): string | null => {
+/**
+ * One line of at most 120 characters (a title or a name), cut between code points: a lone
+ * surrogate would make jsonb refuse the payload and the bell item would never be written.
+ */
+export const short = (value: string | null | undefined): string | null => {
   const line = value?.replace(UNSAFE, ' ').replace(/\s+/g, ' ').trim();
-  return line ? line.slice(0, 120) : null;
+  return line ? Array.from(line).slice(0, 120).join('') : null;
 };
 const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 /** An error's class name for the log (never its message, which may quote values). */
@@ -95,6 +98,11 @@ interface RecordInfo {
   values: Payload;
   /** A note reminder's owner, or the `user` record itself: the only person it may reach. */
   personUserId?: string;
+  /**
+   * A private note's reminder: its owner's own login, whatever its portal role (the one exception
+   * to "PRIMARY only", q27 (5)).
+   */
+  noteOwner?: true;
 }
 
 type Loader = (tx: TxClient, businessId: string, id: string) => Promise<RecordInfo | null>;
@@ -163,7 +171,7 @@ const RECORDS: Record<NotificationTargetKind, Loader> = {
       where: { businessId, id },
       select: { userId: true },
     });
-    return r && { clientId: null, values: {}, personUserId: r.userId };
+    return r && { clientId: null, values: {}, personUserId: r.userId, noteOwner: true as const };
   },
   appointment: async (tx, businessId, id) => {
     const r = await tx.appointment.findFirst({
@@ -251,8 +259,15 @@ async function recipientsOf(
     out.push({ userId: m.userId, side: 'staff', name: m.user.name });
 
   if (sides.includes('client')) {
+    // q27 (5): only the PRIMARY login gets portal bell items, also for a personal event (a
+    // password change); a note reminder goes to the note's own owner.
     const where = record.personUserId
-      ? { businessId, userId: record.personUserId, status: 'ACTIVE' as const }
+      ? {
+          businessId,
+          userId: record.personUserId,
+          status: 'ACTIVE' as const,
+          ...(record.noteOwner ? {} : { portalRole: 'PRIMARY' as const }),
+        }
       : record.clientId
         ? {
             businessId,
