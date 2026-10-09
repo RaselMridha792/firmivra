@@ -23,7 +23,7 @@ test('the shell has the firm header, the menu with its extra lines, and the side
   await expect(side.getByRole('heading', { name: 'Upcoming Appointment' })).toBeVisible();
   await expect(side.getByRole('link', { name: 'View Firm Documents' })).toHaveAttribute(
     'href',
-    '/lvp/business',
+    '/lvp/documents?source=firm',
   );
   await expect(page.getByRole('heading', { name: 'Quick Links' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('shell-1440.png'), fullPage: true });
