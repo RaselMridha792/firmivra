@@ -15,6 +15,7 @@ import {
   createEsignClient,
   createFirmApplicationsClient,
   createInvoicesClient,
+  createLeadsClient,
   createMessagesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
@@ -30,6 +31,7 @@ import {
   createMySignaturesClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
+  createPaymentsSetupClient,
   createRequest,
   createSettingsClient,
   createSupportAccessClient,
@@ -54,6 +56,7 @@ import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createEsignMock, mySignaturesMock } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
+import { createLeadsMock } from '../mocks/leads';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
 import {
@@ -63,8 +66,10 @@ import {
   myNotesMock,
 } from '../mocks/messages';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
+import { createPaymentsSetupMock, MOCK_PAYMENTS_STAGE } from '../mocks/payments-setup';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
+import { createMyTaxReturnsMock, createTaxReturnsMock } from '../mocks/tax-returns';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
 import { sharedTeamMock } from '../mocks/team';
 import { createWorkspacesMock, myReportsMock } from '../mocks/workspaces';
@@ -114,14 +119,23 @@ export const api = {
     dev && mocked('engagements')
       ? createEngagementsMock({ role: MOCK_ROLE })
       : createEngagementsClient(request),
-  taxReturns: createTaxReturnsClient(request),
+  /** Tax returns per client and year (R10): firm side. */
+  taxReturns:
+    dev && mocked('taxReturns')
+      ? createTaxReturnsMock({ role: MOCK_ROLE })
+      : createTaxReturnsClient(request),
+  /** Begin Online leads (R11): the firm's inbox, convert and decline. */
+  leads: dev && mocked('leads') ? createLeadsMock({ role: MOCK_ROLE }) : createLeadsClient(request),
   /** Client records (R10): the signed-in client's own, per firm (portal). */
   myProfile: (firmSlug: string) => createMyProfileClient(request, firmSlug),
   myServices: (firmSlug: string) =>
     dev && mocked('myServices')
       ? myServicesMock(firmSlug)
       : createMyServicesClient(request, firmSlug),
-  myTaxReturns: (firmSlug: string) => createMyTaxReturnsClient(request, firmSlug),
+  myTaxReturns: (firmSlug: string) =>
+    dev && mocked('myTaxReturns')
+      ? createMyTaxReturnsMock()
+      : createMyTaxReturnsClient(request, firmSlug),
   /** Appointments (R12): types, working hours and blocked time, and the firm's calendar. */
   appointmentTypes:
     dev && mocked('appointmentTypes')
@@ -214,6 +228,11 @@ export const api = {
     dev && mocked('myInvoices')
       ? myInvoicesMock(firmSlug)
       : createMyInvoicesClient(request, firmSlug),
+  /** Payments (R7): Settings > Payments, the firm's Stripe Connect onboarding (docs/api/invoices.yaml). */
+  paymentsSetup:
+    dev && mocked('paymentsSetup')
+      ? createPaymentsSetupMock({ role: MOCK_ROLE, stage: MOCK_PAYMENTS_STAGE })
+      : createPaymentsSetupClient(request),
   /** Firm Sign (R13): signature requests for the firm; `status()` for the menu (docs/api/esign.yaml). */
   esign:
     dev && mocked('esign')
