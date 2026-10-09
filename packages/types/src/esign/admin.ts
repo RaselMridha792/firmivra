@@ -3,6 +3,7 @@ import { MemberRef } from '../clients/schemas.js';
 import { clearable, SearchText, text } from '../clients/text.js';
 import {
   EsignChosenAuthMethod,
+  EsignDelivery,
   EsignFieldType,
   EsignMergeKey,
   EsignRecipientKind,
@@ -10,10 +11,13 @@ import {
   EsignRouting,
 } from './enums.js';
 import {
+  EsignAccessCode,
   EsignExpiryDays,
   EsignExpiryWarningDays,
-  EsignPutRecipient,
   EsignReminders,
+  EsignWhoClientLogin,
+  EsignWhoExternal,
+  EsignWhoStaff,
 } from './schemas.js';
 
 // Firm Sign (R13), firm side, contract 2: Signing Settings and templates (save as template, use a
@@ -175,7 +179,11 @@ export type EsignTemplateField = z.infer<typeof EsignTemplateField>;
 
 /** GET /esign/templates/{id}: the template as using it would copy it. */
 export const EsignTemplateDetail = EsignTemplateRow.extend({
-  /** Same-site address of the template's packet (the page viewer reads it with the session). */
+  /**
+   * Same-site address of the template's packet, `/api/v1/esign/templates/{id}/packet`
+   * (`api.esign.templates.packetUrl(id)` builds the same): the page viewer reads it with the
+   * session. Only CLEAN bytes, as a template only ever holds CLEAN files.
+   */
   packetUrl: z.string(),
   pageSizes: z.array(z.object({ width: z.number(), height: z.number() })),
   roles: z.array(EsignTemplateRole),
@@ -190,15 +198,32 @@ export const EsignTemplateDetail = EsignTemplateRow.extend({
 export type EsignTemplateDetail = z.infer<typeof EsignTemplateDetail>;
 
 /**
- * POST /esign/requests/{id}/save-as-template: copies the request's packet, recipients (as roles),
- * fields and settings into a new template the caller owns. A DRAFT needs all its files CLEAN
- * (409 SCAN_PENDING). Merge fields stay merge fields; the client's own values are not kept.
- * 409 TEMPLATE_NAME_TAKEN.
+ * POST /esign/requests/{id}/save-as-template: a new template the caller owns, PRIVATE unless
+ * `visibility` says FIRM. Nothing of one client may reach a template, so exactly this is copied:
+ * - Copied: the files the sender uploaded (their pages, order and rotation), the recipients as
+ *   roles (kind, role, label, routing order, auth method, colour; never who they were), every
+ *   field's place, type, label, options and merge key, and routing, expiry, reminders, email
+ *   subject and message.
+ * - Not copied: the client, service, internal note and recipients' names, emails and access
+ *   codes; values filled from merge fields (the merge key stays, so the next request fills it
+ *   from its own client); anything a signer entered; and the sender's own typed values (fields
+ *   with no recipient and no merge key), which may name the client, unless the body sets
+ *   `keepSenderValues: true`.
+ * - Refused: a file copied from the client's documents (`from-vault`, INTERNAL ones included):
+ *   409 TEMPLATE_HAS_CLIENT_FILES; remove it and upload a blank copy instead. Files still being
+ *   checked or blocked: 409 SCAN_PENDING, FILE_BLOCKED.
+ * 409 TEMPLATE_NAME_TAKEN. save-as-version (extras.ts) copies and refuses the same way.
  */
 export const SaveEsignTemplateBody = z.strictObject({
   name: text(200, 'one', 'Name the template'),
   description: text(1000, 'many').optional(),
-  visibility: EsignTemplateVisibility.default('FIRM'),
+  visibility: EsignTemplateVisibility.default('PRIVATE'),
+  /**
+   * Keep the sender's own typed values (text the sender filled in for no recipient, with no
+   * merge key). Left out or false, they are dropped: only the sender can tell they hold nothing
+   * of this client, so the screen asks before sending true.
+   */
+  keepSenderValues: z.boolean().default(false),
 });
 export type SaveEsignTemplateBody = z.input<typeof SaveEsignTemplateBody>;
 
@@ -212,11 +237,89 @@ export const UpdateEsignTemplateBody = z
   .refine((b) => Object.values(b).some((v) => v !== undefined), 'Change at least one thing');
 export type UpdateEsignTemplateBody = z.input<typeof UpdateEsignTemplateBody>;
 
+type RoleFillInput = {
+  who?: { type: string } | undefined;
+  delivery?: EsignDelivery | undefined;
+  authMethod?: EsignChosenAuthMethod | undefined;
+  accessCode?: string | undefined;
+};
+/** EsignPutRecipient's rules for the parts of a role fill the body can check on its own. */
+const checkRoleFill = (r: RoleFillInput, ctx: z.RefinementCtx) => {
+  if (!r.who && !r.delivery && !r.authMethod && !r.accessCode) {
+    ctx.addIssue({ code: 'custom', path: ['who'], message: 'Choose who fills this role' });
+  }
+  if (r.delivery === 'PORTAL' && r.who && r.who.type !== 'CLIENT_LOGIN') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['delivery'],
+      message: 'Only the client’s own login can sign in the portal',
+    });
+  }
+  if (r.authMethod === 'ACCESS_CODE' && r.delivery !== 'IN_PERSON' && !r.accessCode) {
+    ctx.addIssue({ code: 'custom', path: ['accessCode'], message: 'Set an access code' });
+  }
+};
+const roleFillShape = {
+  key: z.string().min(1).max(40),
+  /** EMAIL when left out. PORTAL only for a client's login; IN_PERSON only for a SIGNER role. */
+  delivery: EsignDelivery.optional(),
+  /** The role's own method when left out. */
+  authMethod: EsignChosenAuthMethod.optional(),
+  /** Needed when the method is ACCESS_CODE, unless IN_PERSON. Ignored for any other method. */
+  accessCode: EsignAccessCode.optional(),
+};
+
+/**
+ * How one template role is filled when the template is used, with EsignPutRecipient's rules:
+ * - `who`: the person. Leave it out on a CLIENT, SPOUSE or PREPARER role to keep the automatic
+ *   fill (for example to give only its access code); every other role needs it.
+ * - A role whose method (the fill's `authMethod`, else the template's) is ACCESS_CODE needs an
+ *   `accessCode` unless its `delivery` is IN_PERSON: the body refuses one with `authMethod`
+ *   ACCESS_CODE and no code (400), and the API counts a template ACCESS_CODE role without one as
+ *   unfilled (409 TEMPLATE_ROLES_UNFILLED). The code is never stored on the template.
+ */
+export const EsignTemplateRoleFill = z
+  .strictObject({
+    ...roleFillShape,
+    who: z
+      .discriminatedUnion('type', [EsignWhoClientLogin, EsignWhoStaff, EsignWhoExternal])
+      .optional(),
+  })
+  .superRefine(checkRoleFill);
+export type EsignTemplateRoleFill = z.input<typeof EsignTemplateRoleFill>;
+
+/**
+ * A bulk send's role fill: as EsignTemplateRoleFill, but never a client login and never an access
+ * code: one code would be shared by every client's request (up to 200), so the body refuses
+ * `accessCode` and `authMethod` ACCESS_CODE (400). A template role whose own method is
+ * ACCESS_CODE needs another `authMethod` here unless it signs IN_PERSON, or the API answers 409
+ * TEMPLATE_ROLES_UNFILLED.
+ */
+export const EsignBulkRoleFill = z
+  .strictObject({
+    ...roleFillShape,
+    who: z.discriminatedUnion('type', [EsignWhoStaff, EsignWhoExternal]).optional(),
+  })
+  .superRefine((r, ctx) => {
+    if (r.accessCode !== undefined || r.authMethod === 'ACCESS_CODE') {
+      ctx.addIssue({
+        code: 'custom',
+        path: [r.accessCode !== undefined ? 'accessCode' : 'authMethod'],
+        message:
+          'A bulk send can’t use an access code: every client would share it. Choose another check',
+      });
+      return;
+    }
+    checkRoleFill(r, ctx);
+  });
+export type EsignBulkRoleFill = z.input<typeof EsignBulkRoleFill>;
+
 /**
  * POST /esign/templates/{id}/use: a new DRAFT (source TEMPLATE) with a copy of the template; the
  * template itself never changes. CLIENT, SPOUSE and PREPARER roles fill themselves when they can;
- * give `who` for every other role (409 TEMPLATE_ROLES_UNFILLED names the keys still open).
- * 409 TEMPLATE_ARCHIVED, ENGAGEMENT_MISMATCH.
+ * `roles` fills every other role and sets delivery and access codes (EsignTemplateRoleFill).
+ * 409 TEMPLATE_ROLES_UNFILLED names the keys still open (no one, or no access code), and
+ * TEMPLATE_ARCHIVED, ENGAGEMENT_MISMATCH.
  */
 export const UseEsignTemplateBody = z
   .strictObject({
@@ -224,15 +327,7 @@ export const UseEsignTemplateBody = z
     engagementId: z.uuid().optional(),
     /** The request's name; the template's name when left out. */
     title: text(200).optional(),
-    roles: z
-      .array(
-        z.strictObject({
-          key: z.string().min(1).max(40),
-          who: EsignPutRecipient.shape.who,
-        }),
-      )
-      .max(20)
-      .default([]),
+    roles: z.array(EsignTemplateRoleFill).max(20).default([]),
   })
   .refine((b) => !b.engagementId || b.clientId, {
     path: ['engagementId'],

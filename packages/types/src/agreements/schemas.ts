@@ -3,6 +3,7 @@ import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { text } from '../clients/text.js';
 import { AgreementScope, ScanStatus, SignatureMethod } from '../db-enums.js';
 import { DownloadLink, FileName, UPLOAD_LIMITS } from '../documents/schemas.js';
+import { ServiceRef } from '../engagements/schemas.js';
 import { SignatureCaptureInput } from '../esign/capture.js';
 import { IntakeFormKey } from '../intake/definition.js';
 
@@ -160,7 +161,14 @@ export const FirmAgreementSummary = z.object({
   versionCount: z.number().int(),
 });
 export type FirmAgreementSummary = z.infer<typeof FirmAgreementSummary>;
-export const FirmAgreementList = z.object({ items: z.array(FirmAgreementSummary) });
+/**
+ * GET /business/agreements: the firm's agreements, plus its unarchived services (sort order,
+ * creation, then id) so the editor can pick one for a service agreement.
+ */
+export const FirmAgreementList = z.object({
+  items: z.array(FirmAgreementSummary),
+  services: z.array(ServiceRef),
+});
 export type FirmAgreementList = z.infer<typeof FirmAgreementList>;
 
 /** GET /business/agreements/{id}: the series with every version, newest first. */

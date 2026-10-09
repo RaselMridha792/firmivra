@@ -4,7 +4,7 @@ import { DATABASE } from '../../database/database.module.js';
 import { STRIPE_TIMEOUT_MS } from './stripe-gateway.js';
 import type { ConnectedAccount } from './stripe-gateway.js';
 
-/** accounts.create may take two tries of STRIPE_TIMEOUT_MS while the lock is held. */
+/** accounts.create is one try (no SDK retry) of up to STRIPE_TIMEOUT_MS while the lock is held. */
 const ENSURE_LIMITS = { timeout: 2 * STRIPE_TIMEOUT_MS + 5_000 };
 
 /** What Firmivra stores of a connected account (`stripe_accounts`). */
