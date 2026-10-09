@@ -6,6 +6,9 @@ import {
   type InvoiceListItem,
   type InvoicePayment,
   isInvoiceOverdue,
+  MY_INVOICE_SECTIONS,
+  type MyInvoice,
+  type MyInvoiceDetail,
   myInvoiceStatus,
 } from '@firmivra/types';
 import { firmTimeZone } from '../../appointments/calendar-data.js';
@@ -47,7 +50,9 @@ const paymentSelect = {
   paidAt: true,
   refundReservedCents: true,
   createdAt: true,
-  _count: { select: { events: true } },
+  // Only a completed checkout means Stripe is still settling it (a bank debit); a declined card's
+  // payment_intent.payment_failed never blocks Pay Now.
+  _count: { select: { events: { where: { type: 'checkout.session.completed' } } } },
   refunds: {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
@@ -210,4 +215,41 @@ export function toInvoice(row: InvoiceRow, today: string): Invoice {
       ? { userId: row.createdBy.userId, name: row.createdBy.user.name }
       : null,
   };
+}
+
+/** The client's view of an invoice, or null when the portal never shows it (a draft). */
+export function toMyInvoice(
+  row: InvoiceRow,
+  today: string,
+  timeZone: string,
+  paymentsOn: boolean,
+): MyInvoice | null {
+  const state = stateOf(row);
+  const status = myInvoiceStatus(state, today);
+  if (status === null) return null;
+  const { balanceDueCents } = money(row);
+  const isProcessing = processing(row);
+  const issuedOn = row.issuedAt ? dateIn(timeZone, row.issuedAt) : state.scheduledFor;
+  return {
+    id: row.id,
+    number: row.number,
+    service: row.engagement ? { id: row.engagement.id, title: row.engagement.title } : null,
+    title: titleOf(row),
+    status,
+    section: MY_INVOICE_SECTIONS.PAST.includes(status) ? 'PAST' : 'CURRENT',
+    currency: row.currency,
+    totalCents: row.totalCents,
+    balanceDueCents,
+    issuedOn: issuedOn ?? dateIn(timeZone, row.createdAt),
+    dueOn: state.dueOn,
+    overdue: isInvoiceOverdue(state, today),
+    paidAt: iso(row.paidAt),
+    canceledAt: iso(row.canceledAt),
+    paymentProcessing: isProcessing,
+    canPay: row.status === 'OPEN' && balanceDueCents > 0 && !isProcessing && paymentsOn,
+  };
+}
+
+export function toMyInvoiceDetail(row: InvoiceRow, mine: MyInvoice): MyInvoiceDetail {
+  return { ...mine, ...amountDetail(row), payments: shownPayments(row).map(toPayment) };
 }

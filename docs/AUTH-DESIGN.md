@@ -66,7 +66,7 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 
 - **Firm owner:** created when Super Admin approves an application; gets an activation email with a one-time link (7 days) to set a password and MFA.
 - **Staff:** invited by owner or admin; same activation flow.
-- **Clients:** self sign-up on the firm's portal (email and phone verified with 6-digit codes), then status `PENDING_APPROVAL` until the firm approves. A pending client can sign in only to see "waiting for approval".
+- **Clients:** self sign-up on the firm's portal (email and phone verified with 6-digit codes), then status `PENDING_APPROVAL` until the firm approves. SMS fallback (Rasel, Oct 8): with `SIGNUP_PHONE_VERIFICATION=optional` (the default, also on production, until SNS SMS registration is approved) the email code completes the sign-up and no SMS is sent; the phone number is still saved, unverified. `required` restores the phone code (docs/api/client-auth.yaml). A pending client can sign in only to see "waiting for approval".
 - **Forgot password:** our API wraps Cognito `ForgotPassword` / `ConfirmForgotPassword` so the flow stays inside the firm's portal. Same response whether or not the account exists. Rate-limited.
 - **Emails:** sent by our API through SES (NotifyService) with Firmivra or firm branding. The one exception is the password reset code: Cognito's `ForgotPassword` sends it, through our SES identity (next section).
 
@@ -133,10 +133,10 @@ When a request completes, each external signer gets an email with a copy link. I
 
 **In-person signing (kiosk)**
 
-- A staff member starts an in-person session for one recipient from the request (`POST /api/v1/esign/requests/{id}/in-person/{recipientId}/start`). The office computer or tablet then shows only that recipient's signing screens, with firm branding and no Firmivra or firm data.
+- A staff member starts an in-person session for one recipient from the request (`POST /api/v1/esign/requests/{id}/in-person` with `recipientId` in the body). The answer's one-time link opens the signer pages on the portal in a new tab; the staff tab shows the lock screen. The office computer or tablet then shows only that recipient's signing screens, with firm branding and no Firmivra or firm data.
 - While the kiosk is open, the API marks that staff sign-in session as locked, on the server, not only in the browser. Every firm route except the kiosk's own signing routes and the exit route answers 403, so a client at the kiosk cannot reach firm data by changing the address.
-- Leaving the kiosk back to the staff view needs the same staff member to type their password again. The API checks it against Cognito (`AdminInitiateAuth` on the staff pool), or against local auth when `AUTH_MODE=local`. Wrong tries are throttled; after 5, the session is signed out instead of unlocked.
-- If the kiosk is left alone it times out and the staff session is signed out, never unlocked.
+- Leaving the kiosk back to the staff view needs the same staff member to type their password again. The API checks it against Cognito (`AdminInitiateAuth` on the staff pool), or against local auth when `AUTH_MODE=local`. Wrong tries are throttled; after 5 (`ESIGN_KIOSK_PASSWORD_TRIES`), the session is signed out instead of unlocked, and its refresh token is revoked so the browser's silent refresh cannot re-send the exit.
+- If the kiosk is left alone for `ESIGN_KIOSK_IDLE_MINUTES` (15) it times out and the staff session is signed out (refresh token revoked too), never unlocked.
 - Events record `IN_PERSON_STARTED`, `IN_PERSON_ENDED`, delivery `IN_PERSON` and the host staff member.
 
 ## Local development
