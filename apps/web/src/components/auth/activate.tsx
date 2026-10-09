@@ -240,13 +240,16 @@ export function Activate() {
                   />
                   {name === 'password' ? (
                     <Button
-                      className="absolute top-10 right-2"
+                      className="group absolute top-10 right-2"
                       variant="ghost"
                       aria-label={show ? 'Hide passwords' : 'Show passwords'}
                       aria-pressed={show}
                       onClick={() => setShow(!show)}
                     >
-                      <EyeIcon aria-hidden="true" className="h-6 w-6" />
+                      <EyeIcon
+                        aria-hidden="true"
+                        className="h-6 w-6 text-muted group-hover:text-text"
+                      />
                     </Button>
                   ) : null}
                 </div>
@@ -283,7 +286,10 @@ export function Activate() {
   );
 }
 
-/** A message with the one way on, as a link in the screen's main-button look. */
+/**
+ * A message with the one way on, as a link in the screen's main-button look. The form it replaces
+ * had focus, so the title takes it and screen readers read the message.
+ */
 function Notice(props: {
   id: string;
   role?: 'alert' | 'status';
@@ -292,10 +298,14 @@ function Notice(props: {
   href: string;
   action: string;
 }) {
+  const titleRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => titleRef.current?.focus(), []);
   return (
     <div className="mt-6 grid gap-6 text-center">
       <div role={props.role ?? 'alert'} data-testid={props.id} className="grid gap-2">
-        <p className="text-lg font-semibold">{props.title}</p>
+        <p ref={titleRef} tabIndex={-1} className="text-lg font-semibold outline-none">
+          {props.title}
+        </p>
         <p className="text-muted">{props.text}</p>
       </div>
       <a href={props.href} className={SUBMIT_LINK}>
