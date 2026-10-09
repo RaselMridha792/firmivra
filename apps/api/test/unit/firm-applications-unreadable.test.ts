@@ -69,11 +69,14 @@ const db = {
   },
   membership: { findMany: vi.fn().mockResolvedValue([]) },
   user: { findMany: vi.fn().mockResolvedValue([]) },
+  platformOwnerInvite: { findMany: vi.fn().mockResolvedValue([]) },
 };
 const service = new FirmApplicationsService(
   { db } as unknown as AdminPrisma,
   { log: vi.fn().mockResolvedValue(undefined) } as never,
   { send: vi.fn().mockResolvedValue(undefined) } as never,
+  {} as never,
+  {} as never,
   {} as never,
 );
 

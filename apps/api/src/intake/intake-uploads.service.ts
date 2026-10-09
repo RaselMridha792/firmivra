@@ -68,6 +68,7 @@ export class IntakeUploadsService {
       clientAccountId: who.clientAccountId,
       clientId: who.clientId,
       engagementId: target.engagementId,
+      requestId: null,
       categoryId: null,
       direction: 'CLIENT_TO_FIRM',
       taxYear: target.taxYear,

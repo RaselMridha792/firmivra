@@ -2,6 +2,7 @@ import {
   ApiRequestError,
   DOCUMENT_ERRORS,
   fileNameFitsType,
+  retryWhenUnavailable,
   UPLOAD_LIMITS,
   uploadContentTypeFor,
   type UploadFileFacts,
@@ -45,7 +46,9 @@ const PUT_TIMEOUT_MS = 10 * 60_000;
  * `errorMessage(error, DOCUMENT_ERRORS)`, since errorMessage() alone knows only the generic codes.
  * Its own refusals are FILE_TYPE_NOT_ALLOWED, FILE_EMPTY and FILE_TOO_LARGE (400, nothing sent),
  * and UPLOAD_FAILED when the PUT to storage fails; a cancel via `signal` rejects with an
- * AbortError. It sends no credentials to storage, only the ticket's URL and headers:
+ * AbortError. When confirm answers 503 (storage busy), it confirms again with the same token
+ * after the API's Retry-After, up to 3 times. It sends no credentials to storage, only the
+ * ticket's URL and headers:
  *
  *   const saved = await uploadFile(file, {
  *     start: (facts) => api.myDocuments(slug).createUpload({ serviceId, requestId, ...facts }),
@@ -73,7 +76,8 @@ export async function uploadFile<T>(file: File, steps: UploadSteps<T>): Promise<
   checkAborted(steps.signal);
   await put(file, ticket, steps);
   checkAborted(steps.signal);
-  return steps.finish(ticket.uploadToken);
+  // A 503 deletes nothing, and the token lasts 15 minutes: the same token confirms again.
+  return retryWhenUnavailable(() => steps.finish(ticket.uploadToken), { signal: steps.signal });
 }
 
 /** PUTs the file to the ticket's URL, reporting progress (fetch cannot report upload progress). */
