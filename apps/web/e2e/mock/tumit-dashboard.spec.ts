@@ -64,3 +64,33 @@ test('dashboard uses the firm applications mock and fits a 375 px screen', async
   await page.getByRole('button', { name: 'Open menu' }).click();
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
 });
+
+for (const width of [1280, 1366, 1536]) {
+  test(`at ${width} px the range select and recent rows fit`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${admin}/`);
+    const growth = page.getByTestId('platform-growth');
+    const range = page.getByLabel('Range');
+    await expect(range).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    // The select stays on the title row.
+    const [title, select] = await Promise.all([
+      growth.getByRole('heading', { level: 2 }).boundingBox(),
+      range.boundingBox(),
+    ]);
+    expect(title && select && select.y < title.y + title.height).toBe(true);
+    // Each row's Review button and status pill stay inside the row.
+    for (const row of await page.getByTestId('recent-application').all()) {
+      const [box, button] = await Promise.all([
+        row.boundingBox(),
+        row.getByRole('link', { name: 'Review' }).boundingBox(),
+      ]);
+      expect(box && button && button.x + button.width <= box.x + box.width).toBe(true);
+      expect(
+        await row
+          .getByText(/Pending Review|Approved|Declined/)
+          .evaluate((el) => el.getClientRects().length),
+      ).toBe(1);
+    }
+  });
+}
