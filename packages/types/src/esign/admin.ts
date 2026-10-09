@@ -9,7 +9,12 @@ import {
   EsignRecipientRole,
   EsignRouting,
 } from './enums.js';
-import { EsignPutRecipient, EsignReminders } from './schemas.js';
+import {
+  EsignExpiryDays,
+  EsignExpiryWarningDays,
+  EsignPutRecipient,
+  EsignReminders,
+} from './schemas.js';
 
 // Firm Sign (R13), firm side, contract 2: Signing Settings and templates (save as template, use a
 // template). Same access rules as the requests (schemas.ts); settings change only by Owner and
@@ -21,10 +26,10 @@ const DateTime = z.iso.datetime({ offset: true });
 // ---------- Settings ----------
 /** The firm's defaults for new requests. */
 export const EsignDefaults = z.object({
-  expiryDays: z.number().int().min(1).max(365),
+  expiryDays: EsignExpiryDays,
   reminders: z.object(EsignReminders.shape),
   /** Days before expiry that open signers get a warning; 0 for none. */
-  expiryWarningDays: z.number().int().min(0).max(30),
+  expiryWarningDays: EsignExpiryWarningDays,
   authMethod: EsignChosenAuthMethod,
   /** New requests need an approver's yes before they go out (extras.ts). */
   requireApproval: z.boolean(),
@@ -61,9 +66,9 @@ export type EsignSettings = z.infer<typeof EsignSettings>;
 /** PUT /esign/settings (Owner, Admin): only the keys sent change. */
 export const UpdateEsignSettingsBody = z
   .strictObject({
-    expiryDays: z.number().int().min(1).max(365).optional(),
+    expiryDays: EsignExpiryDays.optional(),
     reminders: EsignReminders.optional(),
-    expiryWarningDays: z.number().int().min(0).max(30).optional(),
+    expiryWarningDays: EsignExpiryWarningDays.optional(),
     authMethod: EsignChosenAuthMethod.optional(),
     requireApproval: z.boolean().optional(),
     emailMessage: clearable(text(1000, 'many')).optional(),
@@ -176,9 +181,9 @@ export const EsignTemplateDetail = EsignTemplateRow.extend({
   roles: z.array(EsignTemplateRole),
   fields: z.array(EsignTemplateField),
   routing: EsignRouting,
-  expiryDays: z.number().int().min(1).max(365),
+  expiryDays: EsignExpiryDays,
   reminders: z.object(EsignReminders.shape),
-  expiryWarningDays: z.number().int().min(0).max(30),
+  expiryWarningDays: EsignExpiryWarningDays,
   emailSubject: z.string().nullable(),
   emailMessage: z.string().nullable(),
 });

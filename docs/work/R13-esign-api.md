@@ -77,8 +77,9 @@ Target merge windows in brackets (Dhaka).
 
 - R13-web: builds on `api.esign` and `mocks/esign.ts` (`NEXT_PUBLIC_API_MOCK=esign,mySignatures,signing`).
 - Fahad and Nahid: menu lines read `api.esign.status()` and `api.mySignatures(slug).status()`.
-- R18: `EsignStore` has no presigned PUT (`presignUpload`) and its `head` gives no Content-Encoding, which the upload ticket and confirm (part 1b) need; until then part 1b presigns with R5's `S3DocumentStorage`. `EsignEngineModule` (R18, #166) is on main: `EsignModule` imports it for `CODE_HASHER` and `ESIGN_STORE` from part 1b on.
+- R18: `EsignStore` has no presigned PUT (`presignUpload`) and its `head` gives no Content-Encoding, which the upload ticket and confirm (parts 1d and 1e) need; until then those parts presign with R5's `S3DocumentStorage`. `EsignEngineModule` (R18, #166) is on main: `EsignModule` imports it for `CODE_HASHER` and `ESIGN_STORE` from part 1b on.
 - R0 (r0_esign): the module switch is `business_settings.enabled_modules`, which is already on main (SYSTEM-DESIGN, "Module switch"); `PrismaBusinessModules` reads it, so no new column is needed. r0_esign only adds the lock (`app_set_business_module`). No firm lists 'esign' yet, so Firm Sign stays off.
+- Everyone: nobody sets `enabled_modules` to include 'esign' by hand before r0_esign lands. Today the app role can still UPDATE it, and switched on now, the draft routes (part 1b) answer 500 from the not-migrated repository. Once r0_esign's trigger lands, the e2e setups (`esign-status.e2e.test.ts` and `esign-requests.e2e.test.ts`, where they switch the module on) must call `app_set_business_module` instead.
 
 ## Progress log
 

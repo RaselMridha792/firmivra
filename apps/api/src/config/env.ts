@@ -17,6 +17,12 @@ export const EnvSchema = z
     APP_BASE_URL: z.url(),
     PORTAL_BASE_URL: z.url(),
     ADMIN_BASE_URL: z.url(),
+    /**
+     * Portal sign-up's phone code (SMS fallback, Rasel Oct 8): `optional` (the default until SNS
+     * SMS registration is approved) completes a sign-up once the email is verified and sends no
+     * SMS; the phone number is still saved, unverified. `required`: email, then the SMS code.
+     */
+    SIGNUP_PHONE_VERIFICATION: z.enum(['optional', 'required']).default('optional'),
     COGNITO_REGION: z.string().default('us-east-1'),
     COGNITO_STAFF_USER_POOL_ID: optional,
     COGNITO_STAFF_CLIENT_ID: optional,
