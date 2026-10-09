@@ -51,5 +51,6 @@ Covered in `apps/api/test/e2e/messages.e2e.test.ts` and `notes.e2e.test.ts`: fir
 - Oct 9: contract (step 1) on `rasel/r20-messages-ui8jcx`, PR #168 (merged).
 - Oct 9: threads, read state and unread counts (steps 2-3) on `rasel/R20-threads`, PR #177 (merged); client replies lock the thread FOR NO KEY UPDATE (no deadlock on parallel replies).
 - Oct 9: internal notes and private notes with reminders (steps 4-5) on `rasel/R20-notes`, PR #184 (merged).
-- Oct 9: notices (step 6) on `rasel/R20-notices`: `message.received` bell item through R6's Notifier, the email sent by R20 through NotifyService (Scrum, Oct 9: the Notifier never emails it).
+- Oct 9: #184 follow-ups (one waiting reminder under parallel saves, a due reminder survives a save), PR #230 (merged).
+- Oct 9: notices (step 6) on `rasel/R20-notices`, PR #210: `message.received` bell item through R6's Notifier, the email sent by R20 through NotifyService (Scrum, Oct 9: the Notifier never emails it).
 - Oct 9: isolation sweep (step 7): cases in the two e2e files; route list above, sent to R21.
