@@ -66,7 +66,7 @@ Password policy: at least 12 characters, upper, lower, number. Account lockout a
 
 - **Firm owner:** created when Super Admin approves an application; gets an activation email with a one-time link (7 days) to set a password and MFA.
 - **Staff:** invited by owner or admin; same activation flow.
-- **Clients:** self sign-up on the firm's portal (email and phone verified with 6-digit codes), then status `PENDING_APPROVAL` until the firm approves. A pending client can sign in only to see "waiting for approval".
+- **Clients:** self sign-up on the firm's portal (email and phone verified with 6-digit codes), then status `PENDING_APPROVAL` until the firm approves. SMS fallback (Rasel, Oct 8): with `SIGNUP_PHONE_VERIFICATION=optional` (the default, also on production, until SNS SMS registration is approved) the email code completes the sign-up and no SMS is sent; the phone number is still saved, unverified. `required` restores the phone code (docs/api/client-auth.yaml). A pending client can sign in only to see "waiting for approval".
 - **Forgot password:** our API wraps Cognito `ForgotPassword` / `ConfirmForgotPassword` so the flow stays inside the firm's portal. Same response whether or not the account exists. Rate-limited.
 - **Emails:** sent by our API through SES (NotifyService) with Firmivra or firm branding. The one exception is the password reset code: Cognito's `ForgotPassword` sends it, through our SES identity (next section).
 
@@ -119,13 +119,13 @@ Firm Sign is our built-in e-signature module (R13, decided Oct 8). Most signers 
 
 - `POST .../sign/code/send` emails a 6-digit code to the recipient's address on the request. Only an HMAC of the code is stored, with a key derived by HKDF under the label `fv-esign-code-v1`.
 - A code lasts 15 minutes and allows 5 tries. After 5 wrong tries it is locked (`CODE_LOCKED`) and the signer must ask for a new one. A new code replaces the old one.
-- If the sender set an access code (shared with the signer outside Firmivra), `POST .../sign/access-code` checks it after the email code. Only its hash is stored; wrong tries count the same way.
+- Each recipient has one auth method (`EsignChosenAuthMethod`): `LINK` (the link alone), `EMAIL_CODE` or `ACCESS_CODE`. They are alternatives, never both. An `ACCESS_CODE` signer gets no email code for signing (the completed-copy link below still uses one): the first step is `VERIFY_ACCESS_CODE`, and `POST .../sign/access-code` checks the code the sender shared with the signer outside Firmivra (`code/send` and `code/verify` answer `409 WRONG_STEP` for them). Only its hash is stored; wrong tries count the same way (after 5, `CODE_LOCKED`, and the signer asks the sender). An `IN_PERSON` signer is asked for neither (the staff member vouches).
 - Throttling is per IP and per recipient: few session calls, few code sends (for example one a minute, five an hour per recipient), few verify tries. The code never appears in logs or SMS.
 - Then the signer accepts the firm's consent text. Its version is pinned on the recipient. Every pass and failure is an `esign_events` row (`AUTH_PASSED`, `AUTH_FAILED`, `CONSENTED`).
 
 **Signing from the portal**
 
-A client who is signed in to the firm's portal can sign from the Signature center without the email code (auth method `PORTAL_SESSION`). `POST /api/v1/portal/{slug}/me/signatures/{recipientId}/session` checks that the recipient belongs to the signed-in `ClientAccount`; the client id comes from the portal session, never the URL, and any other recipient gets 404. It then sets the same `fv_sign_{slug}` cookie, already past the code step. Consent is still required.
+A client who is signed in to the firm's portal can sign from the Signature center without the email code (auth method `PORTAL_SESSION`). `POST /api/v1/portal/{slug}/me/signatures/{recipientId}/session` checks that the recipient belongs to the signed-in `ClientAccount`; the client id comes from the portal session, never the URL, and any other recipient gets 404. It then sets the same `fv_sign_{slug}` cookie, already past the code step. Consent is still required. `PORTAL_SESSION` never replaces the recipient's chosen method: a client login signing from the portal is checked by its portal session (neither the email code nor the access code is asked), while the chosen method, `ACCESS_CODE` included, still applies to the emailed link.
 
 **The completed-copy link**
 
