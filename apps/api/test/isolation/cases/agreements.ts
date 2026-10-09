@@ -86,14 +86,13 @@ export const cases: CaseModule['cases'] = {
   },
   'POST /api/v1/business/agreements/:agreementId/versions': {
     params: { agreementId: 'agreement' },
-    bodyRecords: ['agreementFile'],
-    body: ({ rec }) => ({
+    body: {
       expectedCurrentVersion: 1,
       title: 'Fake agreement v2',
       bodyMarkdown: 'Fake agreement text, version 2',
       acknowledgments: [],
-      pdfFileId: rec.agreementFile,
-    }),
+    },
+    bodyIds: { pdfFileId: 'agreementFile' },
   },
   'POST /api/v1/business/agreements/:agreementId/archive': {
     params: { agreementId: 'agreement' },
