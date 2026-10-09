@@ -1,7 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
 import type { z } from 'zod';
 import {
   CreateEsignRequestBody,
+  EsignPutPagePlanBody,
+  EsignPutRecipientsBody,
   EsignRequestId,
   type EsignRequestDetail,
   type EsignStatus,
@@ -81,5 +83,26 @@ export class EsignRequestsController {
     @Param('id', idPipe) id: string,
   ): Promise<OkResponse> {
     return this.requests.discard(tenant.businessId, actorOf(auth, tenant), id);
+  }
+
+  @Put(':id/page-plan')
+  putPagePlan(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(EsignPutPagePlanBody)) body: z.output<typeof EsignPutPagePlanBody>,
+  ): Promise<EsignRequestDetail> {
+    return this.requests.putPagePlan(tenant.businessId, actorOf(auth, tenant), id, body.pages);
+  }
+
+  @Put(':id/recipients')
+  putRecipients(
+    @CurrentAuth() auth: AuthContext,
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id', idPipe) id: string,
+    @Body(new ZodValidationPipe(EsignPutRecipientsBody))
+    body: z.output<typeof EsignPutRecipientsBody>,
+  ): Promise<EsignRequestDetail> {
+    return this.requests.putRecipients(tenant.businessId, actorOf(auth, tenant), id, body);
   }
 }

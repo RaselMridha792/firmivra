@@ -1,4 +1,5 @@
 import type {
+  EsignAccessRole,
   EsignDefaults,
   EsignDocument,
   EsignField,
@@ -94,8 +95,11 @@ export interface EsignRepository {
   /** Null when the firm has no such request (another firm's id included). */
   findRequest(businessId: string, id: string): Promise<EsignRequestRecord | null>;
   parts(businessId: string, id: string): Promise<EsignRequestParts>;
-  // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt and
-  // returns false (changing nothing) when it is not, or no longer exists.
+  /** A member's Firm Sign access (OWNER and ADMIN follow the firm role); null if not a member. */
+  esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
+  // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt,
+  // resets every APPROVER recipient to WAITING (an edit asks for approval again) and returns
+  // false (changing nothing) when it is not, or no longer exists.
   updateDraft(businessId: string, id: string, patch: EsignDraftPatch): Promise<boolean>;
   /** Deletes the draft and its documents, pages, recipients and fields. */
   deleteDraft(businessId: string, id: string): Promise<boolean>;

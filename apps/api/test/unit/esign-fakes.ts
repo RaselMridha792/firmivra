@@ -1,7 +1,7 @@
 // In-memory stand-ins for Firm Sign's ports (R13), keyed by firm so isolation is real: a firm
 // only ever sees its own rows. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
-import type { EsignDefaults, EsignField, EsignPage } from '@firmivra/types';
+import type { EsignAccessRole, EsignDefaults, EsignField, EsignPage } from '@firmivra/types';
 import type { BusinessModules, FirmModule } from '../../src/common/modules/requires-module.js';
 import type {
   DirectoryClient,
@@ -45,6 +45,8 @@ class PerFirm<T> {
 
 export class InMemoryEsignRepository implements EsignRepository {
   private readonly rows = new PerFirm<Row>();
+  /** Each firm's members' Firm Sign access. */
+  readonly roles = new PerFirm<EsignAccessRole>();
   /** Set to make the next draft write find the request no longer a DRAFT (a send that won). */
   loseNextWrite = false;
 
@@ -67,6 +69,10 @@ export class InMemoryEsignRepository implements EsignRepository {
     const parts = { documents: [], pagePlan: [], recipients: [], fields: [] };
     this.rows.of(businessId).set(record.id, { record, parts });
     return Promise.resolve(structuredClone(record));
+  }
+
+  esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null> {
+    return Promise.resolve(this.roles.of(businessId).get(userId) ?? null);
   }
 
   findRequest(businessId: string, id: string): Promise<EsignRequestRecord | null> {
@@ -120,6 +126,8 @@ export class InMemoryEsignRepository implements EsignRepository {
     }
     row.record.lastActivityAt = new Date();
     change(row);
+    // An edit asks for approval again.
+    for (const r of row.parts.recipients) if (r.kind === 'APPROVER') r.status = 'WAITING';
     return Promise.resolve(true);
   }
 }
@@ -183,8 +191,8 @@ export const fakeHasher = {
 };
 
 /**
- * Two firms. Firm A: owner, staff (c1 is assigned to them), staff2 (nothing assigned) and a
- * deactivated member; client c1 with PRIMARY, SPOUSE, AUTHORIZED and DISABLED logins and an
+ * Two firms. Firm A: owner, admin, a Firm Sign manager, staff (c1 is assigned to them), staff2
+ * (nothing assigned) and a deactivated member; client c1 with PRIMARY, SPOUSE, AUTHORIZED and DISABLED logins and an
  * ACTIVE, a PENDING and a COMPLETED service; client c2 (unassigned, own login and service); an
  * archived client. Firm B: its owner, client and login. Firm Sign is on for both.
  */
@@ -192,7 +200,15 @@ export function esignWorld() {
   const id = () => randomUUID();
   const a = id();
   const b = id();
-  const users = { ownerA: id(), staffA: id(), staffA2: id(), goneA: id(), ownerB: id() };
+  const users = {
+    ownerA: id(),
+    adminA: id(),
+    managerA: id(),
+    staffA: id(),
+    staffA2: id(),
+    goneA: id(),
+    ownerB: id(),
+  };
   const ids = {
     c1: id(),
     c2: id(),
@@ -214,6 +230,8 @@ export function esignWorld() {
   const member = (firm: string, userId: string, name: string, active = true) =>
     directory.members.of(firm).set(userId, { userId, name, email: `${name}@firm.test`, active });
   member(a, users.ownerA, 'owner-a');
+  member(a, users.adminA, 'admin-a');
+  member(a, users.managerA, 'manager-a');
   member(a, users.staffA, 'staff-a');
   member(a, users.staffA2, 'staff-a2');
   member(a, users.goneA, 'gone-a', false);
@@ -267,6 +285,17 @@ export function esignWorld() {
   login(a, ids.disabled, ids.c1, 'PRIMARY', 'DISABLED');
   login(a, ids.c2Login, ids.c2, 'PRIMARY');
   login(b, ids.loginB, ids.cB, 'PRIMARY');
+  const repo = new InMemoryEsignRepository();
+  const roles: [string, string, EsignAccessRole][] = [
+    [a, users.ownerA, 'OWNER'],
+    [a, users.adminA, 'ADMIN'],
+    [a, users.managerA, 'MANAGER'],
+    [a, users.staffA, 'STAFF'],
+    [a, users.staffA2, 'STAFF'],
+    [a, users.goneA, 'STAFF'],
+    [b, users.ownerB, 'OWNER'],
+  ];
+  for (const [firm, userId, role] of roles) repo.roles.of(firm).set(userId, role);
   const modules = new InMemoryModules();
   modules.set(a, 'esign', true);
   modules.set(b, 'esign', true);
@@ -277,7 +306,7 @@ export function esignWorld() {
     ids,
     directory,
     modules,
-    repo: new InMemoryEsignRepository(),
+    repo,
     audit: new FakeAudit(),
     store: new FakeStore(),
   };
