@@ -59,6 +59,7 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 
 - R13-api: `packages/types/src/esign` contract and mocks (`api.esign`, `api.signing(slug)`, `api.mySignatures(slug)`).
 - R13-api: the largest adopted signature image the signing API takes. The pad refuses data URLs over 90,000 characters (`MAX_SIGNATURE_CHARS` in `signature-pad.tsx`, under Nest's 100 KB JSON limit); the constant moves to `packages/types/src/esign` with the signing contract.
+- R13-api: a mock request with a long unbroken title (40+ characters) and a recipient with a long email, so the request detail spec can check that long words wrap on a phone (checked by hand for now, Oct 9).
 - Fahad: "Firm Sign" in the firm menu; the Send for Signature button and the "Signatures" entry in the client record's tabs (`clients/[id]/layout.tsx`, F06).
 - Nahid: "Signatures" in the portal menu.
 - R1: PAGE-MAP rows for the Firm Sign pages.
