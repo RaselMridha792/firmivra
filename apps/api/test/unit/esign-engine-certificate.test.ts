@@ -3,8 +3,8 @@
 // that it says nothing else, that the same input gives the same bytes, and paging; plus the
 // PDF engine and its module token.
 import { Test } from '@nestjs/testing';
-import { PDFDocument } from 'pdf-lib';
-import { describe, expect, it } from 'vitest';
+import { PDFDocument, PDFPage } from 'pdf-lib';
+import { describe, expect, it, vi } from 'vitest';
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
 import { certificate, certificateBlocks } from '../../src/esign/engine/certificate.js';
@@ -59,7 +59,8 @@ describe('certificate', () => {
       'Signed PDF SHA-256': 'b'.repeat(64),
       Name: 'Fake Client',
       Email: 'client@example.test',
-      'Verified by': 'EMAIL_CODE',
+      Role: 'Client',
+      'Verified by': 'Email code',
       'E-sign consent': 'Version 1',
       Signed: 'Oct 2, 2026, 12:30:00 PM EDT',
       'IP address': '203.0.113.7',
@@ -69,16 +70,57 @@ describe('certificate', () => {
     expect(events).toEqual([
       ['Time', 'Event', 'By', 'Verified by'],
       ['Oct 1, 2026, 10:00:00 AM EDT', 'Sent', 'Fake Staff', ''],
-      ['Oct 1, 2026, 10:01:00 AM EDT', 'Auth passed', 'Fake Client', 'EMAIL_CODE'],
-      ['Oct 1, 2026, 10:02:00 AM EDT', 'Auth passed', 'Fake Client', 'EMAIL_CODE'],
+      ['Oct 1, 2026, 10:01:00 AM EDT', 'Identity check passed', 'Fake Client', 'Email code'],
+      ['Oct 1, 2026, 10:02:00 AM EDT', 'Identity check passed', 'Fake Client', 'Email code'],
     ]);
   });
 
-  it('prints only what its input holds (no field values or content can reach it)', () => {
-    const allowed = new Set(Object.keys(input()));
-    expect(allowed).toEqual(
-      new Set(['request', 'signers', 'events', 'originalSha256', 'finalSha256', 'timeZone']),
+  it('prints only what its input holds: extra properties never reach it', () => {
+    const leaky = {
+      ...input(),
+      fields: [{ value: 'SECRET-VALUE' }],
+      content: 'SECRET-CONTENT',
+      signers: input().signers.map((s) => ({ ...s, answers: 'SECRET-ANSWER' })),
+    } as unknown as CertificateInput;
+    const printed = JSON.stringify(certificateBlocks(leaky));
+    for (const secret of ['SECRET-VALUE', 'SECRET-CONTENT', 'SECRET-ANSWER']) {
+      expect(printed).not.toContain(secret);
+    }
+  });
+
+  it('prints every wrapped line of a long audit-trail cell', async () => {
+    const actor = 'Christopher Alexander Montgomery-Smith Jr. (fake)';
+    const long = input();
+    long.events[1]!.actor = actor;
+    const drawn: string[] = [];
+    const spy = vi.spyOn(PDFPage.prototype, 'drawText').mockImplementation(function (
+      this: PDFPage,
+      text: string,
+    ) {
+      drawn.push(text);
+    });
+    try {
+      await certificate(long);
+    } finally {
+      spy.mockRestore();
+    }
+    const words = actor.split(' ');
+    for (const word of words) expect(drawn.some((line) => line.includes(word))).toBe(true);
+    expect(drawn.filter((line) => actor.includes(line) && line.length > 3).length).toBeGreaterThan(
+      1,
     );
+  });
+
+  it('lists events oldest first and falls back to UTC for an unknown time zone', () => {
+    const shuffled = { ...input(), timeZone: 'Not/AZone' };
+    shuffled.events = [...shuffled.events].reverse();
+    const blocks = certificateBlocks(shuffled);
+    const times = blocks.flatMap((b) => (b.kind === 'columns' ? [b.cells[0]] : [])).slice(1);
+    expect(times).toEqual([
+      'Oct 1, 2026, 2:00:00 PM UTC',
+      'Oct 1, 2026, 2:01:00 PM UTC',
+      'Oct 1, 2026, 2:02:00 PM UTC',
+    ]);
   });
 
   it('gives the same bytes for the same input', async () => {
