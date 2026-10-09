@@ -19,7 +19,8 @@ export interface OnboardingState {
  * Stripe's account as Firmivra stores it, the same for onboarding and `account.updated`.
  * COMPLETE: charges and payouts both work. RESTRICTED: the form was sent and Stripe asks for more
  * (something past due, or the account is disabled for a reason other than its own review).
- * PENDING otherwise: not finished, or Stripe is reviewing it.
+ * PENDING otherwise: not finished, or Stripe is reviewing it (`requirements.pending_verification`
+ * or `under_review`), which the page shows as In review.
  */
 export function toOnboardingState(account: ConnectedAccount): OnboardingState {
   const chargesEnabled = account.charges_enabled;
@@ -27,7 +28,9 @@ export function toOnboardingState(account: ConnectedAccount): OnboardingState {
   const detailsSubmitted = account.details_submitted;
   const req = account.requirements ?? {};
   const reason = req.disabled_reason ?? null;
-  const inReview = reason !== null && reason.startsWith('requirements.pending');
+  // Stripe checking what was sent: `requirements.pending_verification`, or `under_review`.
+  const inReview =
+    reason !== null && (reason.startsWith('requirements.pending') || reason === 'under_review');
   const needsMore =
     (req.past_due?.length ?? 0) > 0 ||
     (req.currently_due?.length ?? 0) > 0 ||
