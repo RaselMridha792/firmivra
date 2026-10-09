@@ -17,7 +17,7 @@
 - [x] 1. Take over the engine from R13-api; ask which step 7 rules it keeps.
 - [x] 2. Interfaces: `engine.types.ts` (PDF engine, store, PNG check, link tokens, code HMAC, signer cookie, events, rules, injection tokens).
 - [x] 3. PDF 1: pdf-lib and fontkit; inspect (refuse encrypted, unreadable, XFA, over 100 pages); compose by page plan with rotation; JPG and PNG to pages.
-- [ ] 4. Store and module: esign-store on `createS3Client`, keys only under `tenant/<businessId>/esign/`, an in-memory fake, `EsignEngineModule`.
+- [x] 4. Store and module: esign-store on `createS3Client`, keys only under `tenant/<businessId>/esign/`, an in-memory fake, `EsignEngineModule`.
 - [ ] 5. Signer security: PNG checks, link tokens, code HMAC (fv-esign-code-v1), sealed `fv_sign_{slug}` cookie.
 - [ ] 6. PDF 2: stamp at field fractions in every rotation, flatten AcroForm, automatic signature pages, Noto Sans.
 - [ ] 7. Rules: readiness, routing, timing.
@@ -33,3 +33,4 @@
 
 - Oct 9: started in the cloud from main (rasel/R13-api-engine was not on origin). Step 1 messages sent to R13-api and the Scrum thread. Step 2 on `rasel/R18-engine-interfaces`.
 - Oct 9: #161 interfaces. Step 3 (pdf-lib 1.17.1, fontkit; `pdf-compose.ts` inspect and compose) on `rasel/R18-pdf-inspect-compose`, stacked on #161. Page sizes are as shown with the page's own /Rotate (what the viewer shows at plan rotation 0); an image page fits US Letter.
+- Oct 9: #163 PDF 1. Step 4 (`esign-store.ts`: S3 store reusing `S3DocumentStorage`, `MemoryEsignStore`, key checks; `engine.module.ts`) on `rasel/R18-store-module`, stacked on #163. The module grows a provider per step.
