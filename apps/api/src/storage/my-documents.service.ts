@@ -304,13 +304,15 @@ export class MyDocumentsService {
    * Step 3. 410 UPLOAD_EXPIRED (also for a token made for another login); 409 UPLOAD_MISMATCH,
    * FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS; the login must still belong to the client (404)
    * and still be allowed the upload (403), and the service and request still open (409). The new
-   * file is CHECKING until scanned.
+   * file is CHECKING until scanned. An intake's ticket is 404 here (its file is deleted).
    */
   async confirmUpload(caller: PortalCaller, uploadToken: string): Promise<MyDocument> {
     const id = await this.uploads.confirm(
       { pool: 'CLIENT', ...caller },
       uploadToken,
       async (tx, claim) => {
+        // An intake file is confirmed only through its intake (its lock, slot and file limits).
+        if (claim.intakeId) throw notFound();
         const login = await portalLogin(tx, caller);
         if (login.clientId !== claim.clientId) throw notFound();
         if (!login.household && !claim.requestId) throw forbidden();

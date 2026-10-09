@@ -831,8 +831,8 @@ export function createMyIntakesMock(
       const { uploadToken } = parseInput(ConfirmUploadRequest, body);
       firm();
       const row = changeable(find(iid));
+      // As the API: a file changes neither the intake's status nor its updatedAt (a save does).
       const file = uploads.confirm(row.item.id, uploadToken, definition(row), row);
-      touched(row);
       return fileView(file);
     },
     removeUpload: async (id, fileId) => {
@@ -843,7 +843,6 @@ export function createMyIntakesMock(
       const row = changeable(find(iid));
       if (!row.files.some((f) => f.upload.id === fid)) throw notFound();
       row.files = row.files.filter((f) => f.upload.id !== fid);
-      touched(row);
       return { ok: true };
     },
   };
