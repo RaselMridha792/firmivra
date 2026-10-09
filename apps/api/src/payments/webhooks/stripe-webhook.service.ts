@@ -238,6 +238,11 @@ export class StripeWebhookService {
       this.logger.error(`Amount mismatch on payment ${payment.id}: Stripe ${amount}`);
       return null;
     }
+    // The invoice row first, the order every money write on it takes (R0), so a void or an
+    // offline payment in between waits instead of changing the balance under the PAID step.
+    await tx.$queryRaw`
+      SELECT 1 FROM invoices
+       WHERE business_id = ${businessId}::uuid AND id = ${payment.invoiceId}::uuid FOR UPDATE`;
     await this.attach(ctx, payment.id);
     // Both success events of one payment can arrive at once: only one moves it from PENDING.
     const { count } = await tx.payment.updateMany({

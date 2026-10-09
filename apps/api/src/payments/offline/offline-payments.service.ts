@@ -41,6 +41,8 @@ const isUniqueViolation = (e: unknown) =>
   (e as { code?: unknown } | null)?.code === 'P2002' || databaseErrorCode(e) === '23505';
 /** R0's unique index on (business_id, idempotency_key); also raised by name by the trigger. */
 export const KEY_INDEX = 'offline_payments_business_id_idempotency_key_key';
+/** R0's partial unique index: one live CHECK number (any case) per invoice. */
+export const CHECK_INDEX = 'offline_payments_one_live_check';
 
 /**
  * The unique index a Prisma error names: the pg adapter puts PostgreSQL's constraint in
@@ -63,7 +65,7 @@ const forbidden = () =>
   new ForbiddenException({ code: 'FORBIDDEN', message: 'This action is not permitted' });
 
 /** The database's refusals as the contract's answers; anything else as it is. */
-function mapped(error: unknown): unknown {
+export function mapped(error: unknown): unknown {
   const code = databaseErrorCode(error);
   if (code === DB_ERRORS.OVER_BALANCE) return tooLarge();
   if (code === DB_ERRORS.PAYMENT_IN_PROGRESS) return paymentInProgress();
@@ -106,7 +108,7 @@ export class OfflinePaymentsService {
         where: { businessId_idempotencyKey: { businessId, idempotencyKey: key } },
         select: { invoiceId: true },
       });
-      if (known?.invoiceId !== id) throw notFound();
+      if (known?.invoiceId !== id.toLowerCase()) throw notFound();
       const row = await this.invoices.load(tx, businessId, actor, id);
       return toInvoice(row, (await firmToday(tx, businessId)).today);
     });
@@ -138,7 +140,7 @@ export class OfflinePaymentsService {
           select: { invoiceId: true },
         });
         if (known) {
-          if (known.invoiceId !== id) throw notFound();
+          if (known.invoiceId !== id.toLowerCase()) throw notFound();
           return toInvoice(current, today);
         }
         if (current.status !== 'OPEN') throw conflict('NOT_OPEN', INVOICE_ERRORS.NOT_OPEN);
@@ -205,16 +207,28 @@ export class OfflinePaymentsService {
         if (violatedIndex(error) === KEY_INDEX) {
           return this.replay(businessId, actor, id, body.idempotencyKey);
         }
-        // Any other unique index is the one live check number per invoice.
-        throw duplicateCheck();
+        if (violatedIndex(error) === CHECK_INDEX) throw duplicateCheck();
       }
       throw mapped(error);
     });
-    if (recorded) await this.notices.send('payment.received', businessId, id);
+    if (recorded) await this.notices.send('payment.received', businessId, id, actor.userId);
     return invoice;
   }
 
   async void(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    offlinePaymentId: string,
+    body: VoidBody,
+  ): Promise<Invoice> {
+    // One at a time with Pay Now, cancel and recordings of this invoice (oneAtATime).
+    return oneAtATime(businessId, id, () =>
+      this.voidNow(businessId, actor, id, offlinePaymentId, body),
+    );
+  }
+
+  private async voidNow(
     businessId: string,
     actor: ClientsActor,
     id: string,

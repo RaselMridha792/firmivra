@@ -132,12 +132,15 @@ describe('record a check or cash payment', () => {
   it('takes recordings at once in turn: none goes over the balance (one 200, the rest 409)', async () => {
     const invoice = await open();
     const answers = await Promise.all([1, 2, 3].map(() => record(invoice.id, cash(30_000))));
+    // One runs at a time; a slow runner may answer a waiting one PAYMENT_IN_PROGRESS instead.
     const outcomes = answers.map((res) => [res.status, codeOf(res) ?? null]).sort();
-    expect(outcomes).toEqual([
-      [200, null],
-      [409, 'AMOUNT_TOO_LARGE'],
-      [409, 'AMOUNT_TOO_LARGE'],
-    ]);
+    expect(outcomes[0]).toEqual([200, null]);
+    for (const outcome of outcomes.slice(1)) {
+      expect([
+        [409, 'AMOUNT_TOO_LARGE'],
+        [409, 'PAYMENT_IN_PROGRESS'],
+      ]).toContainEqual(outcome);
+    }
     const after = Invoice.parse(
       expectOk(await t.firm('get', `/${invoice.id}`, t.people.ownerA)).body,
     );
@@ -282,15 +285,45 @@ describe('void a check or cash payment', () => {
     const part = Invoice.parse(expectOk(await record(invoice.id, cash(1_000))).body);
     const id = part.offlinePayments[0]!.id;
     const answers = await Promise.all([voidIt(invoice.id, id), voidIt(invoice.id, id)]);
-    expect(answers.map((res) => [res.status, codeOf(res) ?? null]).sort()).toEqual([
-      [200, null],
+    const outcomes = answers.map((res) => [res.status, codeOf(res) ?? null]).sort();
+    expect(outcomes[0]).toEqual([200, null]);
+    // The second waits for the first; a slow runner may answer it PAYMENT_IN_PROGRESS instead.
+    expect([
       [409, 'ALREADY_VOIDED'],
-    ]);
+      [409, 'PAYMENT_IN_PROGRESS'],
+    ]).toContainEqual(outcomes[1]);
     const voids = (await actions(invoice.id)).filter(
       (a) => a.action === 'invoice.offline_payment_voided',
     );
     expect(voids).toHaveLength(1);
     expect(JSON.stringify(voids)).not.toContain('Bounced');
+  });
+
+  it('answers 409 PAYMENT_IN_PROGRESS while another API task holds the invoice, voiding nothing', async () => {
+    const invoice = await open();
+    const part = Invoice.parse(expectOk(await record(invoice.id, cash(1_000))).body);
+    const id = part.offlinePayments[0]!.id;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => (held = resolve));
+    const other = t.inScope(t.ids.firmA, async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM invoices WHERE id = ${invoice.id}::uuid FOR UPDATE`;
+      held();
+      await gate;
+    });
+    try {
+      await holding;
+      const busy = await voidIt(invoice.id, id);
+      expect([busy.status, codeOf(busy)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
+      const busyRecord = await record(invoice.id, cash(1_000));
+      expect([busyRecord.status, codeOf(busyRecord)]).toEqual([409, 'PAYMENT_IN_PROGRESS']);
+    } finally {
+      release();
+      await other;
+    }
+    const after = Invoice.parse(expectOk(await voidIt(invoice.id, id)).body);
+    expect(after.offlinePayments.filter((o) => o.voidedAt === null)).toEqual([]);
   });
 
   it('refuses cancel while a SUCCEEDED Stripe payment is held (409 HAS_PAYMENTS)', async () => {
