@@ -178,10 +178,11 @@ info:
       - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED` (its
         cents are refundable again). One already `SUCCEEDED` is final: logged and alarmed, not
         changed; one with no row never counted and is ignored.
-      - `account.updated`: find the firm from the `acct_` id in platform scope (`stripe_accounts`,
-        SELECT only: the RLS lets platform scope read and never write it), then update that firm's
-        row in its business scope (`forBusiness`) with `toOnboardingState(account)`, the same
-        function onboarding uses (`apps/api/src/payments/stripe`).
+      - `account.updated`: find the firm's `stripe_accounts` row by the `acct_` id and update it
+        with `toOnboardingState(account)`, the same function onboarding uses, through the one
+        platform-scope writer in `apps/api/src/payments/stripe` (`forPlatform()`; the RLS lets only
+        platform scope write `stripe_accounts`, so no firm can claim an `acct_` id or switch
+        charges on). The `businessId` is the row's own, never the event's.
       Mark the event `processed_at` and answer `200` quickly; anything else is `200` and ignored.
       A payment of an invoice canceled meanwhile is still recorded (the money was taken); the
       firm refunds it.
@@ -224,10 +225,13 @@ info:
       firm id) and finished by the Owner on Stripe's hosted onboarding through an **Account Link**
       (`type: account_onboarding`). Firmivra never sees the firm's bank or identity details.
     - **Start** (`POST .../onboarding`): under a Postgres advisory lock per firm (two clicks wait
-      for each other), read the firm's `stripe_accounts` row in its business scope. None: create
-      the account with the idempotency key `fv-connect-{businessId}` (a retry, or a second click,
-      gets the same account from Stripe) and insert the row (`PENDING`, from
-      `toOnboardingState(account)`). Then make an Account Link with `return_url`
+      for each other), read the firm's `stripe_accounts` row. None: create the account with the
+      idempotency key `fv-connect-{businessId}` (a retry, or a second click, gets the same account
+      from Stripe) and insert the row (`PENDING`, from `toOnboardingState(account)`). Every
+      `stripe_accounts` write (here, refresh and `account.updated`) goes through the one
+      platform-scope writer in `apps/api/src/payments/stripe` (`forPlatform()`), with the
+      `businessId` from the tenant guard: the RLS lets only platform scope insert or update the
+      table, and a firm's business scope only reads its own row. Then make an Account Link with `return_url`
       `{APP_BASE_URL}/settings/payments?stripe=return` and `refresh_url`
       `{APP_BASE_URL}/settings/payments?stripe=refresh`, and answer `{ url, expiresAt }`. A
       `COMPLETE` account: `409 PAYMENTS_ALREADY_SET_UP` (the firm manages it in its Stripe
