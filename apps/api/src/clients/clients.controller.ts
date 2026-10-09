@@ -33,6 +33,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { type ClientsActor, ClientsService } from './clients.service.js';
 import { MyProfileController } from './my-profile.controller.js';
+import { NotificationsModule } from '../notifications/notifications.controller.js';
 import { MyProfileService } from './my-profile.service.js';
 import { ClientTaxYearsController, MyTaxYearsController } from './tax-years.controller.js';
 import { TaxYearsService } from './tax-years.service.js';
@@ -132,7 +133,7 @@ export class ClientsController {
 }
 
 @Module({
-  imports: [FieldEncryptionModule],
+  imports: [FieldEncryptionModule, NotificationsModule],
   controllers: [
     ClientsController,
     ClientTaxYearsController,
