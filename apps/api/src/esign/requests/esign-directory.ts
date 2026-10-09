@@ -33,11 +33,24 @@ export interface DirectoryMember {
   active: boolean;
 }
 
+/** One of a client's documents (R5's vault), for from-vault. */
+export interface DirectoryDocument {
+  id: string;
+  clientId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  sha256: string;
+  s3Key: string;
+  scanStatus: 'PENDING' | 'CLEAN' | 'INFECTED' | 'FAILED';
+}
+
 export interface EsignDirectory {
   client(businessId: string, clientId: string): Promise<DirectoryClient | null>;
   engagement(businessId: string, engagementId: string): Promise<DirectoryEngagement | null>;
   clientLogin(businessId: string, clientAccountId: string): Promise<DirectoryLogin | null>;
   member(businessId: string, userId: string): Promise<DirectoryMember | null>;
+  document(businessId: string, documentId: string): Promise<DirectoryDocument | null>;
 }
 export const ESIGN_DIRECTORY = Symbol('ESIGN_DIRECTORY');
 
@@ -83,5 +96,21 @@ export class PrismaEsignDirectory implements EsignDirectory {
       select: { status: true, user: { select: { name: true, email: true } } },
     });
     return row && { userId, ...row.user, active: row.status === 'ACTIVE' };
+  }
+
+  document(businessId: string, id: string): Promise<DirectoryDocument | null> {
+    return this.database.forBusiness(businessId).document.findFirst({
+      where: { businessId, id },
+      select: {
+        id: true,
+        clientId: true,
+        fileName: true,
+        contentType: true,
+        sizeBytes: true,
+        sha256: true,
+        s3Key: true,
+        scanStatus: true,
+      },
+    });
   }
 }

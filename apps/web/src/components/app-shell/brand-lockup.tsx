@@ -10,9 +10,15 @@ export function BrandLockup({
   tone?: 'light' | 'dark';
 }) {
   return (
-    <div aria-label={`Firmivra ${subtitle}`}>
+    <div>
       <div className="flex items-center">
-        <Image src={firmivraLockup} alt="" priority className="h-16 w-12 object-contain" />
+        <Image
+          src={firmivraLockup}
+          alt=""
+          preload
+          sizes="48px"
+          className="h-16 w-12 object-contain"
+        />
         <span
           className={`ml-1 text-3xl font-semibold leading-none tracking-tight ${tone === 'dark' ? 'text-white' : 'text-heading'}`}
         >
