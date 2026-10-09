@@ -2,6 +2,7 @@
 
 import type { MySlot } from '@firmivra/types';
 import { Button, Input } from '@firmivra/ui';
+import { useState } from 'react';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
@@ -43,14 +44,23 @@ export function FreeTimes({
       }),
   );
 
+  // What the day input shows while someone types. Only a whole date, from today to 2100, is
+  // asked about: a date input reports half-typed years such as 0202-10-12.
+  const [typed, setTyped] = useState(date);
+  const usable = (value: string) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= min && value <= '2100-12-31';
+
   return (
     <div className="flex flex-col gap-3">
       <Input
         label="Day"
         type="date"
         min={min}
-        value={date}
-        onChange={(event) => event.target.value && onDate(event.target.value)}
+        value={typed}
+        onChange={(event) => {
+          setTyped(event.target.value);
+          if (usable(event.target.value)) onDate(event.target.value);
+        }}
       />
       <PageState query={slots}>
         {({ slots: free }) =>
