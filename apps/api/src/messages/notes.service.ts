@@ -233,8 +233,12 @@ export class NotesService {
   ): Promise<MyNoteResponse> {
     const result = await this.asOwner(businessId, clientAccountId, async (tx, userId) => {
       const before = await this.latest(tx, businessId, userId);
+      // Only an unsent reminder still in the future moves to the new version: a new reminder row
+      // starts unsent, so carrying a sent one over would send it again.
       const pending =
-        before?.reminder && !before.reminder.remindedAt ? before.reminder.remindAt : null;
+        before?.reminder && !before.reminder.remindedAt && before.reminder.remindAt > new Date()
+          ? before.reminder.remindAt
+          : null;
       const remindAt =
         body.remindAt === undefined
           ? pending

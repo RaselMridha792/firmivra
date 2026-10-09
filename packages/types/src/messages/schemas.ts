@@ -3,7 +3,7 @@ import { MessageDirection } from '../db-enums.js';
 import { MemberRef } from '../clients/schemas.js';
 import { SearchText, text } from '../clients/text.js';
 
-// Messages and notes (R20). Contract for the firm's Messages pages (Fahad, F10) and the portal's
+// Messages and notes (R20). Contract for the firm's Messages pages (Nahid, F10) and the portal's
 // Messages and Notes tab (R17, N09). docs/api/messages.yaml explains every route.
 //
 // Firm routes: /api/v1/business/message-threads..., /business/clients/{id}/message-threads,
@@ -232,7 +232,8 @@ export const MyMessageThread = z.object({
   repliesEnabled: z.boolean(),
   /** The firm's messages in it the client has not read: the blue dot when above 0. */
   unreadCount: z.number().int().min(0),
-  lastMessageAt: DateTime,
+  /** Null only for a thread with no message yet (every thread is created with one). */
+  lastMessageAt: DateTime.nullable(),
   createdAt: DateTime,
 });
 export type MyMessageThread = z.infer<typeof MyMessageThread>;
@@ -294,7 +295,8 @@ const RemindAt = DateTime.refine((s) => Date.parse(s) > Date.now(), 'Pick a time
 
 /**
  * PUT /portal/{slug}/me/notes: "Save Note", a new version. `remindAt`: a time sets or moves the
- * reminder, `null` removes it, and leaving it out keeps the current one.
+ * reminder, `null` removes it, and leaving it out carries the current reminder to the new version
+ * only while it has not been sent and is still in the future (a sent one is not sent again).
  */
 export const SaveMyNoteRequest = z.strictObject({
   body: PrivateNoteBody,
@@ -305,3 +307,21 @@ export type SaveMyNoteRequest = z.input<typeof SaveMyNoteRequest>;
 /** PUT /portal/{slug}/me/notes/reminder: set or move the reminder on the latest note. */
 export const SetNoteReminderRequest = z.strictObject({ remindAt: RemindAt });
 export type SetNoteReminderRequest = z.input<typeof SetNoteReminderRequest>;
+
+/** Stable `error.code` values of this module, besides the generic ones in ApiError. */
+export const MessageErrorCode = z.enum([
+  /** 409: the firm closed replies on this thread; the client can still read it. */
+  'REPLIES_CLOSED',
+  /** 409: mark unread, but the other side has written no message in the thread yet. */
+  'NOTHING_TO_MARK',
+  /** 409: an archived client takes no new thread. */
+  'CLIENT_ARCHIVED',
+]);
+export type MessageErrorCode = z.infer<typeof MessageErrorCode>;
+
+/** What users see for this module's codes: `errorMessage(error, MESSAGE_ERRORS)`. */
+export const MESSAGE_ERRORS = {
+  REPLIES_CLOSED: 'Replies are closed on this conversation. Send a new message instead.',
+  NOTHING_TO_MARK: 'There is no message to mark as unread.',
+  CLIENT_ARCHIVED: 'This client is archived. Restore the client to send a new message.',
+} as const satisfies Record<MessageErrorCode, string>;

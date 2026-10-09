@@ -791,8 +791,15 @@ export class MessagesService {
         return { message: this.toMine(new Map(), me.userId, row), userId: me.userId };
       });
     } catch (error) {
-      // The database's own rule, should replies close in a race the lock above did not cover.
-      if (databaseErrorCode(error) === CHECK_VIOLATION) throw repliesClosed();
+      // The database refuses with 23514 both for closed replies and for a login that is no
+      // longer ACTIVE: only the first is REPLIES_CLOSED, so read the thread again to tell.
+      if (databaseErrorCode(error) === CHECK_VIOLATION) {
+        const thread = await this.database.forBusiness(businessId).messageThread.findFirst({
+          where: { businessId, id },
+          select: { repliesEnabled: true },
+        });
+        if (thread && !thread.repliesEnabled) throw repliesClosed();
+      }
       throw error;
     }
     await this.notify(businessId, id, sent.message.id, sent.userId, 'staff');
