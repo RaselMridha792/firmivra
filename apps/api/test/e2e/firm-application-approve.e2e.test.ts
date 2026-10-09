@@ -210,7 +210,9 @@ describe('Approve', () => {
       status: 'PENDING_SETUP',
     });
     expect(record.decision).toMatchObject({ by: { userId: fx.users.admin.id }, reason: null });
-    expect(record.history[0]).toMatchObject({
+    // Newest first: the owner's link (step 3), then the decision.
+    expect(record.history[0]).toMatchObject({ type: 'OWNER_INVITED', by: null });
+    expect(record.history[1]).toMatchObject({
       type: 'APPROVED',
       by: { userId: fx.users.admin.id },
     });

@@ -38,6 +38,7 @@ async function loadCases() {
     records: {} as NonNullable<CaseModule['records']>,
     cases: {} as Record<string, RecordCase & { file: string }>,
     excluded: {} as Record<string, string>,
+    moduleOff: {} as Record<string, string>,
     duplicates: [] as string[],
   };
   for (const file of readdirSync(dir)
@@ -56,10 +57,20 @@ async function loadCases() {
       if (key in merged.excluded) merged.duplicates.push(`excluded ${key} (${file})`);
       merged.excluded[key] = why;
     }
+    for (const [key, why] of Object.entries(mod.moduleOff ?? {})) {
+      if (key in merged.moduleOff) merged.duplicates.push(`moduleOff ${key} (${file})`);
+      merged.moduleOff[key] = why;
+    }
   }
   return merged;
 }
-const { records: RECORDS, cases: CASES, excluded: EXCLUDED, duplicates } = await loadCases();
+const {
+  records: RECORDS,
+  cases: CASES,
+  excluded: EXCLUDED,
+  moduleOff: MODULE_OFF,
+  duplicates,
+} = await loadCases();
 
 /**
  * Path params that are not records, each tied to the routes that use it, with a value valid for
@@ -270,7 +281,8 @@ const HOW_TO_ADD =
   'Add it in test/isolation/cases/<module>.ts: `cases` maps "METHOD /api/v1/path" to ' +
   '{ params: { <param>: "<record>" }, body?, expect? }; a record no file creates yet goes in ' +
   '`records` as { create(ctx) { ...return id } } (see world.ts); a route that is neither a firm ' +
-  'nor a portal route goes in `excluded` with the reason.';
+  'nor a portal route goes in `excluded` with the reason; a firm or portal route behind a module ' +
+  'that is off in every firm goes in `moduleOff` with the reason until the module is on.';
 
 describe('tenant isolation (R8 step 2)', () => {
   it('every route is covered: a case per record route, an excluded reason for the rest', () => {
@@ -292,6 +304,10 @@ describe('tenant isolation (R8 step 2)', () => {
       if (key in EXCLUDED) problems.push(`${key}: a firm or portal route can't be excluded`);
       const params = recordParams(route);
       const c = CASES[key];
+      if (key in MODULE_OFF) {
+        if (c) problems.push(`${key} (${c.file}): has a case, so it can't be in moduleOff too`);
+        continue;
+      }
       if (params.length === 0) {
         if (c) problems.push(`${key} (${c.file}): has no record param, so no case`);
         continue;
@@ -314,6 +330,13 @@ describe('tenant isolation (R8 step 2)', () => {
     for (const [key, why] of Object.entries(EXCLUDED)) {
       if (!keys.has(key)) problems.push(`${key}: excluded, but no such route`);
       if (why.trim().length < 10) problems.push(`${key}: excluded without a reason`);
+    }
+    for (const [key, why] of Object.entries(MODULE_OFF)) {
+      const route = routes.find((r) => keyOf(r) === key);
+      if (!route) problems.push(`${key}: in moduleOff, but no such route`);
+      else if (!isFirmRoute(route) && !isPortalRoute(route))
+        problems.push(`${key}: in moduleOff, but not a firm or portal route`);
+      if (why.trim().length < 10) problems.push(`${key}: in moduleOff without a reason`);
     }
     expect(problems, HOW_TO_ADD).toEqual([]);
   });
@@ -501,6 +524,24 @@ describe('tenant isolation (R8 step 2)', () => {
       }
       expect(failures).toEqual([]);
     });
+  });
+
+  it("a route in moduleOff is still off: 403 MODULE_OFF for firm P's Owner and client X", async () => {
+    const failures: string[] = [];
+    for (const route of routes.filter((r) => keyOf(r) in MODULE_OFF)) {
+      const portal = isPortalRoute(route);
+      const res = await call(
+        route,
+        fillPath(route.path, { firmSlug: firms.p.slug, ...fixedOf(route.path) }, () =>
+          randomUUID(),
+        ),
+        portal ? as.client(base.client!) : as.firm(people.ownerP, firms.p.id),
+      );
+      const code = (res.body as { error?: { code?: string } }).error?.code;
+      if (res.status !== 403 || code !== 'MODULE_OFF')
+        failures.push(`${keyOf(route)}: ${show(res)}; if the module is on now, write its cases`);
+    }
+    expect(failures).toEqual([]);
   });
 
   it("the positive control: firm P's Owner and client X reach every case", async () => {
