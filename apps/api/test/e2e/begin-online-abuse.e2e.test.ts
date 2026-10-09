@@ -1,8 +1,9 @@
-// End-to-end: abuse of the public Begin Online routes (R11). Per-IP rate limits per route, body and
-// answer size limits, file caps per slot and per draft, the per-firm resume link limit, the per-firm
-// and per-IP daily draft start limits, forged and
-// foreign draft cookies, unknown and suspended firms, and that no response or audit row holds
-// answers, SSN digits or draft keys. Setup as in begin-online.e2e.test.ts. Synthetic data only.
+// End-to-end: abuse of the public Begin Online routes (R11, contract B). Per-IP rate limits per
+// route, body and answer size limits, file caps per slot and per draft, the silent per-firm resume
+// link limit, the per-firm and per-IP daily draft start limits, forged, lapsed and foreign draft
+// cookies, unknown and suspended firms, and that no response or audit row holds answers, SSN
+// digits, draft cookies or resume tokens. Setup as in begin-online.e2e.test.ts. Synthetic data
+// only.
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -11,12 +12,13 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { INTAKE_LIMITS } from '@firmivra/types';
+import { BeginDraft, INTAKE_LIMITS } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { BEGIN_ONLINE_THROTTLE } from '../../src/begin-online/begin-online.controller.js';
 import { DRAFT_START_LIMITS } from '../../src/begin-online/begin-online.service.js';
 import { RESUME_LINK_LIMITS } from '../../src/begin-online/resume-links.service.js';
-import { BeginDraft, beginOnlineCookie } from '../../src/begin-online/wire.js';
+import { beginOnlineCookie, DraftCookies } from '../../src/begin-online/drafts.js';
+import { ResumeLinksService } from '../../src/begin-online/resume-links.service.js';
 import { configureApp, JSON_BODY_LIMIT_BYTES } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
@@ -69,6 +71,9 @@ let lastViewer = 0;
 const newViewer = () => `198.20.${Math.floor(++lastViewer / 250)}.${lastViewer % 250}`;
 const codeOf = (res: Response) => (res.body as { error?: { code: string } }).error?.code;
 const forgedKey = () => randomBytes(32).toString('base64url');
+const linksIdle = () => app.get(ResumeLinksService).idle();
+const D = '/annual-tax/draft';
+const cookieName = (slug: string) => beginOnlineCookie(slug, 'ANNUAL_TAX').name;
 
 async function asOwner<T>(businessId: string | null, work: Parameters<typeof runInScope<T>>[2]) {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
@@ -93,12 +98,12 @@ function expectClean(res: Response) {
 /** A browser on one firm's Begin Online pages: its own IP, cookie jar and the portal's origin. */
 function visitor(slug: string, viewer = newViewer()) {
   let cookie = '';
-  const name = beginOnlineCookie(slug).name;
+  const name = cookieName(slug);
   const keep = (res: Response) => {
     const raw = res.headers['set-cookie'] as unknown;
     const set = (Array.isArray(raw) ? (raw as string[]) : []).find((c) => c.startsWith(`${name}=`));
     if (set) cookie = set.split(';')[0] ?? '';
-    const value = cookie.split('=')[1];
+    const value = cookie.slice(name.length + 1);
     if (value) keysSeen.add(value);
     return res;
   };
@@ -108,7 +113,7 @@ function visitor(slug: string, viewer = newViewer()) {
     body?: object | string,
   ) => {
     let req = request(app.getHttpServer())
-      [method](`/api/v1/portal/${slug}/begin-online${path}`)
+      [method](`/api/v1/portal/${slug}/begin${path}`)
       .set('x-forwarded-for', `${viewer}, 10.0.0.5`)
       .set('cookie', cookie);
     if (method !== 'get') req = req.set('origin', portalOrigin);
@@ -130,18 +135,15 @@ function visitor(slug: string, viewer = newViewer()) {
 }
 
 const email = (tag: string) => `abuse.${tag}.${run}@example.com`;
-const start = (firm: FirmKey, answers: Record<string, unknown> = {}) => ({
-  serviceId: services[firm],
-  step: 'personal',
-  answers: {
-    firstName: 'Avery',
-    lastName: 'Sample',
-    email: email('start'),
-    phone: '(770) 555-0142',
-    ssn: SSN,
-    ...answers,
-  },
+/** A start card (contract B's StartBeginDraftRequest) with `fields` over it. */
+const start = (_firm: FirmKey, fields: Record<string, unknown> = {}) => ({
+  firstName: 'Avery',
+  lastName: 'Sample',
+  email: email(`start${++starts}`),
+  phone: '(770) 555-0142',
+  ...fields,
 });
+let starts = 0;
 /** A well-formed submit body (contract B); these submits never reach the signing. */
 const signature = {
   signature: signatureFor(
@@ -160,20 +162,36 @@ const file = (bytes: Buffer, slot = 'governmentId', fields: Record<string, unkno
 
 /** Every route that reads the draft cookie, with a body that passes validation. */
 const DRAFT_ROUTES: [string, (v: ReturnType<typeof visitor>) => Promise<Response>][] = [
-  ['current', (v) => v.get('/drafts/current')],
-  ['save', (v) => v.put('/drafts/current/steps/personal', { answers: {} })],
-  ['resume-link', (v) => v.post('/drafts/current/resume-link', {})],
-  ['upload', (v) => v.post('/drafts/current/uploads', file(pdf()))],
-  ['confirm', (v) => v.post('/drafts/current/uploads/confirm', { uploadToken: 'x'.repeat(40) })],
-  ['delete', (v) => v.del(`/drafts/current/uploads/${randomUUID()}`)],
-  ['submit', (v) => v.post('/drafts/current/submit', signature)],
+  ['get', (v) => v.get(D)],
+  ['uploads', (v) => v.get(`${D}/uploads`)],
+  ['save', (v) => v.put(`${D}/steps/personal`, { answers: {} })],
+  ['upload', (v) => v.post(`${D}/uploads`, file(pdf()))],
+  ['confirm', (v) => v.post(`${D}/uploads/confirm`, { uploadToken: 'x'.repeat(40) })],
+  ['delete', (v) => v.del(`${D}/uploads/${randomUUID()}`)],
+  ['submit', (v) => v.post(`${D}/submit`, signature)],
 ];
 
-async function startDraft(firm: FirmKey, answers: Record<string, unknown> = {}) {
+async function startDraft(firm: FirmKey, fields: Record<string, unknown> = {}) {
   const v = visitor(firms[firm].slug);
-  const res = await v.post('/drafts', start(firm, answers));
+  const body = start(firm, fields);
+  const res = await v.post(D, body);
   expect(res.status).toBe(201);
-  return { v, draft: BeginDraft.parse(res.body) };
+  const draft = BeginDraft.parse(res.body);
+  const lead = await asOwner(firms[firm].id, (tx) =>
+    tx.lead.findFirstOrThrow({ where: { email: body.email.toLowerCase() }, select: { id: true } }),
+  );
+  return { v, draft: { ...draft, leadId: lead.id }, email: body.email.toLowerCase() };
+}
+
+/** The token of the latest resume link emailed to `to`. */
+function lastToken(to: string): string {
+  const mail = outbox
+    .filter((m) => m.template === 'begin-online.resume-link' && m.to === to)
+    .at(-1);
+  const token = (mail?.data as { link: string } | undefined)?.link.split('#token=')[1];
+  if (!token) throw new Error('No resume link was sent');
+  keysSeen.add(token);
+  return token;
 }
 
 /** `count` CLEAN files in `slot`, inserted as confirm would. */
@@ -252,17 +270,19 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await linksIdle();
   await app.close();
 });
 
 describe('Begin Online rate limits (per IP, per route)', () => {
   const limit = (key: keyof typeof BEGIN_ONLINE_THROTTLE) =>
     BEGIN_ONLINE_THROTTLE[key].default.limit;
-  const draftLimit = { save: 'save', 'resume-link': 'resumeLink', submit: 'submit' } as const;
+  const draftLimit = { save: 'save', submit: 'submit' } as const;
   const routes: [string, number, (v: ReturnType<typeof visitor>) => Promise<Response>][] = [
-    ['start', limit('start'), (v) => v.post('/drafts', {})],
-    ['resume', limit('resume'), (v) => v.post('/drafts/resume', { token: forgedKey() })],
-    ...DRAFT_ROUTES.filter(([route]) => route !== 'current').map(
+    ['start', limit('start'), (v) => v.post(D, {})],
+    ['resume', limit('resume'), (v) => v.post('/resume', { token: forgedKey() })],
+    ['resume-link', limit('resumeLink'), (v) => v.post('/resume-link', { email: email('nobody') })],
+    ...DRAFT_ROUTES.filter(([route]) => route !== 'get' && route !== 'uploads').map(
       ([route, call]): (typeof routes)[number] => [
         route,
         limit(draftLimit[route as keyof typeof draftLimit] ?? 'upload'),
@@ -288,21 +308,17 @@ describe('Begin Online rate limits (per IP, per route)', () => {
     const viewer = newViewer();
     const a = visitor(firms.a.slug, viewer);
     for (let i = 0; i < limit('start'); i++) {
-      expect((await a.post('/drafts', start('a', { email: null }))).status).toBe(400);
+      expect((await a.post(D, start('a', { email: null }))).status).toBe(400);
     }
     // The counter is the route's, not the firm's: firm B's start from this IP is refused too.
     const b = visitor(firms.b.slug, viewer);
-    const refused = await b.post('/drafts', start('b', { email: email('ratelimit') }));
+    const refused = await b.post(D, start('b', { email: email('ratelimit') }));
     expect(codeOf(refused)).toBe('RATE_LIMITED');
     expect(await leadsByEmail('b', email('ratelimit'))).toBe(0);
     expect(b.cookie).toBe('');
-    expect(codeOf(await a.get('/drafts/current'))).toBe('DRAFT_NOT_FOUND');
-    expect(codeOf(await a.put('/drafts/current/steps/personal', { answers: {} }))).toBe(
-      'DRAFT_NOT_FOUND',
-    );
-    expect(codeOf(await a.post('/drafts/resume', { token: forgedKey() }))).toBe(
-      'RESUME_LINK_EXPIRED',
-    );
+    expect(codeOf(await a.get(D))).toBe('NOT_FOUND');
+    expect(codeOf(await a.put(`${D}/steps/personal`, { answers: {} }))).toBe('NOT_FOUND');
+    expect(codeOf(await a.post('/resume', { token: forgedKey() }))).toBe('DRAFT_EXPIRED');
   });
 
   it('a made-up left-hand X-Forwarded-For address does not reset the count', async () => {
@@ -310,7 +326,7 @@ describe('Begin Online rate limits (per IP, per route)', () => {
     const codes: number[] = [];
     for (let i = 0; i <= limit('submit'); i++) {
       const res = await request(app.getHttpServer())
-        .post(`/api/v1/portal/${firms.a.slug}/begin-online/drafts/current/submit`)
+        .post(`/api/v1/portal/${firms.a.slug}/begin${D}/submit`)
         .set('x-forwarded-for', `203.0.113.${i}, ${viewer}, 10.0.0.5`)
         .set('origin', portalOrigin)
         .send(signature);
@@ -349,7 +365,7 @@ describe('Begin Online size limits', () => {
   it.each(refused)('start: %s is refused and stores nothing', async (_n, answers, status) => {
     const v = visitor(firms.a.slug);
     const address = email(`size${status}${Object.keys(answers).length}`);
-    const res = await v.post('/drafts', start('a', { email: address, ...answers }));
+    const res = await v.post(D, start('a', { email: address, ...answers }));
     expect(res.status).toBe(status);
     expect(codeOf(res)).toBe(status === 413 ? 'PAYLOAD_TOO_LARGE' : 'VALIDATION_FAILED');
     expectClean(res);
@@ -361,17 +377,15 @@ describe('Begin Online size limits', () => {
     const address = email('strict');
     const bodies: [object | string, string][] = [
       [{ ...start('a', { email: address }), businessId: firms.b.id }, 'VALIDATION_FAILED'],
+      [{ ...start('a', { email: address }), answers: { ssn: SSN } }, 'VALIDATION_FAILED'],
       [
-        JSON.stringify(start('a', { email: address })).replace(
-          '"answers":{',
-          '"answers":{"__proto__":{"x":1},',
-        ),
+        JSON.stringify(start('a', { email: address })).replace('{', '{"__proto__":{"x":1},'),
         'VALIDATION_FAILED',
       ],
-      ['{"serviceId":', 'BAD_REQUEST'],
+      ['{"firstName":', 'BAD_REQUEST'],
     ];
     for (const [body, code] of bodies) {
-      const res = await visitor(firms.a.slug).post('/drafts', body);
+      const res = await visitor(firms.a.slug).post(D, body);
       expect([res.status, codeOf(res)]).toEqual([400, code]);
       expectClean(res);
     }
@@ -385,9 +399,7 @@ describe('Begin Online size limits', () => {
       tx.intakeSubmission.findFirstOrThrow({ where: { intake: { leadId: draft.leadId } } }),
     );
     for (const [, answers, status] of refused) {
-      const res = await v.put('/drafts/current/steps/personal', {
-        answers: { ...start('a').answers, ssn: { last4: '6789' }, ...answers },
-      });
+      const res = await v.put(`${D}/steps/personal`, { answers: { ssn: SSN, ...answers } });
       expect(res.status).toBe(status);
       expectClean(res);
     }
@@ -400,7 +412,7 @@ describe('Begin Online size limits', () => {
     expect(after.answers).toEqual(before.answers);
     expect(after.savedSteps).toEqual(before.savedSteps);
     expect(saves).toBe(0);
-    expect((await v.get('/drafts/current')).status).toBe(200);
+    expect((await v.get(D)).status).toBe(200);
   });
 });
 
@@ -409,16 +421,16 @@ describe('Begin Online caps', () => {
     const { v, draft } = await startDraft('a');
     await addFiles('a', draft.leadId, 'governmentId', INTAKE_LIMITS.maxFilesPerSlot - 1);
     const bytes = pdf('the last one');
-    const ticket = await v.post('/drafts/current/uploads', file(bytes));
+    const ticket = await v.post(`${D}/uploads`, file(bytes));
     expect(ticket.status).toBe(200);
     // Meanwhile the slot fills up (another tab).
     await addFiles('a', draft.leadId, 'governmentId', 1);
-    const full = await v.post('/drafts/current/uploads', file(bytes));
+    const full = await v.post(`${D}/uploads`, file(bytes));
     expect([full.status, codeOf(full)]).toEqual([409, 'TOO_MANY_FILES']);
 
     storage.put(ticket.body as { url: string }, bytes);
     const key = (ticket.body as { url: string }).url.slice('memory:'.length);
-    const confirm = await v.post('/drafts/current/uploads/confirm', {
+    const confirm = await v.post(`${D}/uploads/confirm`, {
       uploadToken: ticket.body.uploadToken,
     });
     expect([confirm.status, codeOf(confirm)]).toEqual([409, 'TOO_MANY_FILES']);
@@ -436,9 +448,7 @@ describe('Begin Online caps', () => {
       'TOO_MANY_FILES',
     ]);
     // The cap is per slot: another slot still takes a file.
-    expect(
-      (await v.post('/drafts/current/uploads', file(bytes, 'socialSecurityCard'))).status,
-    ).toBe(200);
+    expect((await v.post(`${D}/uploads`, file(bytes, 'socialSecurityCard'))).status).toBe(200);
   });
 
   it('a draft takes at most maxFiles (50) across its slots', async () => {
@@ -446,22 +456,19 @@ describe('Begin Online caps', () => {
     await addFiles('a', draft.leadId, 'governmentId', 20);
     await addFiles('a', draft.leadId, 'socialSecurityCard', 20);
     await addFiles('a', draft.leadId, 'incomeDocuments', INTAKE_LIMITS.maxFiles - 40);
-    const res = await v.post('/drafts/current/uploads', file(pdf(), 'deductionDocuments'));
+    const res = await v.post(`${D}/uploads`, file(pdf(), 'deductionDocuments'));
     expect([res.status, codeOf(res)]).toEqual([409, 'TOO_MANY_FILES']);
   });
 
   it('a ticket refuses an empty, negative, fractional or over 10 MB size (400)', async () => {
     const { v } = await startDraft('a');
     for (const sizeBytes of [0, -1, 1.5, 10 * 1024 * 1024 + 1]) {
-      const res = await v.post(
-        '/drafts/current/uploads',
-        file(pdf(), 'governmentId', { sizeBytes }),
-      );
+      const res = await v.post(`${D}/uploads`, file(pdf(), 'governmentId', { sizeBytes }));
       expect([res.status, codeOf(res)]).toEqual([400, 'VALIDATION_FAILED']);
     }
   });
 
-  it(`resume links: at most ${RESUME_LINK_LIMITS.perFirm} a day per firm; a refused send keeps the key`, async () => {
+  it(`resume links: at most ${RESUME_LINK_LIMITS.perFirm} a day per firm, then silently none`, async () => {
     const businessId = firms.c.id;
     const sent = (createdAt: Date) => ({
       businessId,
@@ -475,21 +482,28 @@ describe('Begin Online caps', () => {
       tx.auditLog.createMany({
         data: [
           ...Array.from({ length: RESUME_LINK_LIMITS.perFirm - 1 }, () => sent(new Date())),
-          sent(new Date(Date.now() - RESUME_LINK_LIMITS.windowMs - 60_000)),
+          sent(new Date(Date.now() - RESUME_LINK_LIMITS.firmWindowMs - 60_000)),
         ],
       }),
     );
     const first = await startDraft('c');
-    expect((await first.v.post('/drafts/current/resume-link', {})).status).toBe(200);
+    const mails = outbox.length;
+    const ok = await first.v.post('/resume-link', { email: first.email });
+    expect([ok.status, ok.body]).toEqual([200, { received: true }]);
+    await linksIdle();
+    expect(outbox.length).toBe(mails + 1);
 
     const second = await startDraft('c');
-    const cookie = second.v.cookie;
-    const mails = outbox.length;
-    const res = await second.v.post('/drafts/current/resume-link', {});
-    expect([res.status, codeOf(res)]).toEqual([429, 'RATE_LIMITED']);
-    expect(second.v.cookie).toBe(cookie);
-    expect(outbox.length).toBe(mails);
-    expect((await second.v.get('/drafts/current')).status).toBe(200);
+    const res = await second.v.post('/resume-link', { email: second.email });
+    // The same answer, and nothing is sent or changed.
+    expect([res.status, res.body]).toEqual([200, { received: true }]);
+    await linksIdle();
+    expect(outbox.length).toBe(mails + 1);
+    const lead = await asOwner(businessId, (tx) =>
+      tx.lead.findUniqueOrThrow({ where: { id: second.draft.leadId } }),
+    );
+    expect(lead.resumeTokenHash).toBeNull();
+    expect((await second.v.get(D)).status).toBe(200);
   });
 });
 
@@ -521,7 +535,7 @@ describe('Begin Online daily start limits (audit log, rolling 24 h)', () => {
   };
   const expectRefused = async (firm: FirmKey, viewer: string, tag: string) => {
     const v = visitor(firms[firm].slug, viewer);
-    const res = await v.post('/drafts', start(firm, { email: email(tag) }));
+    const res = await v.post(D, start(firm, { email: email(tag) }));
     expect([res.status, codeOf(res)]).toEqual([429, 'RATE_LIMITED']);
     const retryAfter = Number(res.headers['retry-after']);
     expect(retryAfter).toBeGreaterThan(3_500);
@@ -534,37 +548,37 @@ describe('Begin Online daily start limits (audit log, rolling 24 h)', () => {
     await seedStarts('e', perFirm - 1, null);
     // One more fits (the old row is not counted); the next, from another IP, does not.
     const v = visitor(firms.e.slug);
-    expect((await v.post('/drafts', start('e'))).status).toBe(201);
+    expect((await v.post(D, start('e'))).status).toBe(201);
     await expectRefused('e', newViewer(), 'firmcap');
     // Another firm is not limited.
-    expect((await visitor(firms.f.slug).post('/drafts', start('f'))).status).toBe(201);
+    expect((await visitor(firms.f.slug).post(D, start('f'))).status).toBe(201);
   });
 
   it(`at most ${perIp} a day per IP on a firm's site; another IP still starts`, async () => {
     const viewer = newViewer();
     await seedStarts('f', perIp - 1, viewer);
     const v = visitor(firms.f.slug, viewer);
-    expect((await v.post('/drafts', start('f'))).status).toBe(201);
+    expect((await v.post(D, start('f'))).status).toBe(201);
     const stored = await asOwner(firms.f.id, (tx) =>
       tx.auditLog.count({ where: { action: 'begin_online.draft_started', ip: viewer } }),
     );
     expect(stored).toBe(perIp + 1); // the start row records the viewer's IP
     await expectRefused('f', viewer, 'ipcap');
-    expect((await visitor(firms.f.slug).post('/drafts', start('f'))).status).toBe(201);
+    expect((await visitor(firms.f.slug).post(D, start('f'))).status).toBe(201);
   });
 });
 
 describe('Begin Online draft cookies', () => {
-  const name = () => beginOnlineCookie(firms.a.slug).name;
+  const name = () => cookieName(firms.a.slug);
 
-  it('forged, tampered and malformed cookies are 404 DRAFT_NOT_FOUND on every route, never 500', async () => {
+  it('forged, tampered and malformed cookies are 404 NOT_FOUND on every route, never 500', async () => {
     const { v, draft } = await startDraft('a');
-    const real = v.cookie.split('=')[1]!;
+    const real = v.cookie.slice(name().length + 1);
     const flipped = real.slice(0, 20) + (real[20] === 'A' ? 'B' : 'A') + real.slice(21);
     const values = [
       forgedKey(),
       flipped,
-      real.slice(0, 42),
+      real.slice(0, -1),
       real + 'A',
       'A'.repeat(4000),
       '!'.repeat(43),
@@ -577,7 +591,7 @@ describe('Begin Online draft cookies', () => {
       forged.cookie = `${name()}=${value}`;
       for (const [route, call] of DRAFT_ROUTES) {
         const res = await call(forged);
-        expect([route, res.status, codeOf(res)]).toEqual([route, 404, 'DRAFT_NOT_FOUND']);
+        expect([route, res.status, codeOf(res)]).toEqual([route, 404, 'NOT_FOUND']);
         expectClean(res);
       }
     }
@@ -585,28 +599,35 @@ describe('Begin Online draft cookies', () => {
       tx.lead.findUniqueOrThrow({ where: { id: draft.leadId } }),
     );
     expect(lead.status).toBe('DRAFT');
-    expect((await v.get('/drafts/current')).status).toBe(200);
+    expect((await v.get(D)).status).toBe(200);
   });
 
-  it("firm A's cookie on firm B's site is 404 on every route; A's draft is untouched", async () => {
+  it("firm A's cookie on firm B's site, or on another service, is 404 on every route", async () => {
     const { v, draft } = await startDraft('a');
     await startDraft('b');
-    const ticket = await v.post('/drafts/current/uploads', file(pdf()));
+    const ticket = await v.post(`${D}/uploads`, file(pdf()));
     expect(ticket.status).toBe(200);
+    const value = v.cookie.slice(name().length + 1);
     const renamed = visitor(firms.b.slug);
-    renamed.cookie = v.cookie.replace(name(), beginOnlineCookie(firms.b.slug).name);
+    renamed.cookie = `${cookieName(firms.b.slug)}=${value}`;
     const asIs = visitor(firms.b.slug);
     asIs.cookie = v.cookie; // A's cookie name on B's path: B's name is not there
     for (const b of [renamed, asIs]) {
       for (const [route, call] of DRAFT_ROUTES) {
         const res = await call(b);
-        expect([route, res.status, codeOf(res)]).toEqual([route, 404, 'DRAFT_NOT_FOUND']);
+        expect([route, res.status, codeOf(res)]).toEqual([route, 404, 'NOT_FOUND']);
       }
     }
+    const payroll = visitor(firms.a.slug);
+    payroll.cookie = `${beginOnlineCookie(firms.a.slug, 'PAYROLL').name}=${value}`;
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/portal/${firms.a.slug}/begin/payroll/draft`)
+      .set('cookie', payroll.cookie);
+    expect([res.status, codeOf(res)]).toEqual([404, 'NOT_FOUND']);
     // A's upload ticket confirmed with a draft of firm B.
     const own = await startDraft('b');
     storage.put(ticket.body as { url: string }, pdf());
-    const cross = await own.v.post('/drafts/current/uploads/confirm', {
+    const cross = await own.v.post(`${D}/uploads/confirm`, {
       uploadToken: ticket.body.uploadToken,
     });
     expect([cross.status, codeOf(cross)]).toEqual([410, 'UPLOAD_EXPIRED']);
@@ -623,7 +644,7 @@ describe('Begin Online draft cookies', () => {
     ]);
   });
 
-  it('an expired draft is 410 DRAFT_EXPIRED on every route; a lapsed key is 404', async () => {
+  it('an expired draft is 410 DRAFT_EXPIRED on every route; a lapsed cookie is 404', async () => {
     const expired = await startDraft('a');
     await asOwner(
       firms.a.id,
@@ -635,17 +656,21 @@ describe('Begin Online draft cookies', () => {
       const res = await call(expired.v);
       expect([route, res.status, codeOf(res)]).toEqual([route, 410, 'DRAFT_EXPIRED']);
     }
-    const lapsed = await startDraft('a');
-    await asOwner(
-      firms.a.id,
-      (tx) =>
-        tx.$executeRaw`UPDATE leads SET resume_expires_at = now() - interval '1 minute'
-                      WHERE id = ${lapsed.draft.leadId}::uuid`,
-    );
+    // A cookie past its own expiry (a few hours) for a live draft opens nothing.
+    const live = await startDraft('a');
+    const lapsed = visitor(firms.a.slug);
+    const value = await app
+      .get(DraftCookies)
+      .sealUntil(
+        { pool: 'CLIENT', businessId: firms.a.id, leadId: live.draft.leadId, form: 'ANNUAL_TAX' },
+        Math.floor(Date.now() / 1000) - 60,
+      );
+    lapsed.cookie = `${name()}=${value}`;
     for (const [route, call] of DRAFT_ROUTES) {
-      const res = await call(lapsed.v);
-      expect([route, res.status, codeOf(res)]).toEqual([route, 404, 'DRAFT_NOT_FOUND']);
+      const res = await call(lapsed);
+      expect([route, res.status, codeOf(res)]).toEqual([route, 404, 'NOT_FOUND']);
     }
+    expect((await live.v.get(D)).status).toBe(200);
   });
 });
 
@@ -660,12 +685,13 @@ describe('Begin Online on unknown and suspended firms', () => {
     ];
     for (const slug of slugs) {
       const v = visitor(slug);
-      v.cookie = `${beginOnlineCookie(firms.a.slug).name}=${forgedKey()}`;
+      v.cookie = `${cookieName(firms.a.slug)}=${forgedKey()}`;
       const calls: [string, () => Promise<Response>][] = [
-        ['services', () => v.get('/services')],
-        ['form', () => v.get(`/services/${services.a}/form`)],
-        ['start', () => v.post('/drafts', start('a', { email: address }))],
-        ['resume', () => v.post('/drafts/resume', { token: forgedKey() })],
+        ['forms', () => v.get('/forms')],
+        ['form', () => v.get('/forms/annual-tax')],
+        ['start', () => v.post(D, start('a', { email: address }))],
+        ['resume', () => v.post('/resume', { token: forgedKey() })],
+        ['resume-link', () => v.post('/resume-link', { email: address })],
         ...DRAFT_ROUTES.map(
           ([route, call]) => [route, () => call(v)] as [string, () => Promise<Response>],
         ),
@@ -681,8 +707,10 @@ describe('Begin Online on unknown and suspended firms', () => {
   });
 
   it('a firm suspended mid-draft: its draft cookie and resume link open nothing', async () => {
-    const { v, draft } = await startDraft('d');
-    const token = v.cookie.split('=')[1]!;
+    const { v, draft, email: address } = await startDraft('d');
+    expect((await v.post('/resume-link', { email: address })).status).toBe(200);
+    await linksIdle();
+    const token = lastToken(address);
     await asOwner(null, (tx) =>
       tx.business.update({ where: { id: firms.d.id }, data: { status: 'SUSPENDED' } }),
     );
@@ -690,12 +718,19 @@ describe('Begin Online on unknown and suspended firms', () => {
       const res = await call(v);
       expect([route, res.status, codeOf(res)]).toEqual([route, 404, 'NOT_FOUND']);
     }
-    const resume = await visitor(firms.d.slug).post('/drafts/resume', { token });
+    const resume = await visitor(firms.d.slug).post('/resume', { token });
     expect([resume.status, codeOf(resume)]).toEqual([404, 'NOT_FOUND']);
     const actions = await asOwner(firms.d.id, (tx) =>
-      tx.auditLog.findMany({ where: { entityId: draft.leadId }, select: { action: true } }),
+      tx.auditLog.findMany({
+        where: { entityId: draft.leadId },
+        select: { action: true },
+        orderBy: { createdAt: 'asc' },
+      }),
     );
-    expect(actions.map((a) => a.action)).toEqual(['begin_online.draft_started']);
+    expect(actions.map((a) => a.action)).toEqual([
+      'begin_online.draft_started',
+      'begin_online.resume_link_sent',
+    ]);
   });
 });
 
@@ -703,13 +738,16 @@ describe('Begin Online keeps secrets out', () => {
   it('no audit row of these firms holds answers, SSN digits, emails or draft keys', async () => {
     // The visitor's own answers come back to its own draft (SSNs masked); never into the audit.
     const answer = `street${run}`;
-    const { v } = await startDraft('a', { street: answer });
-    const saved = await v.put('/drafts/current/steps/personal', {
-      answers: { ...start('a').answers, ssn: SSN, street: answer },
-    });
-    expect(BeginDraft.parse(saved.body).answers).toMatchObject({ ssn: { last4: '6789' } });
+    const { v, email: address } = await startDraft('a');
+    const saved = await v.put(`${D}/steps/personal`, { answers: { ssn: SSN, street: answer } });
+    expect(saved.status).toBe(200);
     expectClean(saved);
-    expectClean(await v.post('/drafts/current/resume-link', {}));
+    const read = await v.get(D);
+    expect(BeginDraft.parse(read.body).answers).toMatchObject({ ssn: { last4: '6789' } });
+    expect(JSON.stringify(read.body)).not.toMatch(SSN_DIGITS);
+    expectClean(await v.post('/resume-link', { email: address }));
+    await linksIdle();
+    lastToken(address);
     const ids = Object.values(firms).map((f) => f.id);
     const rows = await Promise.all(
       ids.map((id) => asOwner(id, (tx) => tx.auditLog.findMany({ where: { businessId: id } }))),
