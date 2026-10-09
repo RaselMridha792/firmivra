@@ -267,6 +267,27 @@ describe('PUT /esign/requests/{id}/fields', () => {
     ]);
   });
 
+  it('refuses (409 INVALID_STATE) when the request changed after it was read', async () => {
+    const { id, signer } = await readyDraft();
+    const [old] = (await w.repo.parts(w.a, id)).fields;
+    // Another write lands between the service's read and its save.
+    const parts = w.repo.parts.bind(w.repo);
+    w.repo.parts = async (businessId, requestId) => {
+      const read = await parts(businessId, requestId);
+      w.repo.parts = parts;
+      w.repo.seed(w.a, id, (row) => {
+        row.record.lastActivityAt = new Date(row.record.lastActivityAt.getTime() + 1);
+      });
+      return read;
+    };
+    expect(await refused(svc.putFields(w.a, owner, id, put([signatureFor(signer.id)])))).toEqual([
+      409,
+      'INVALID_STATE',
+      undefined,
+    ]);
+    expect((await w.repo.parts(w.a, id)).fields.map((f) => f.id)).toEqual([old!.id]);
+  });
+
   it('is 404 for another firm and for Staff on an unassigned client', async () => {
     const { id, signer } = await readyDraft();
     const body = put([signatureFor(signer.id)]);
@@ -275,6 +296,19 @@ describe('PUT /esign/requests/{id}/fields', () => {
     expect((await refused(svc.putFields(w.a, staff2, id, body)))[0]).toBe(404);
     // The assigned Staff member may.
     expect((await svc.putFields(w.a, staff, id, body)).fields).toHaveLength(1);
+  });
+
+  it('is a write: an approver of the request gets 404 and changes nothing', async () => {
+    // c2 is assigned to nobody: the Manager reaches it only as its approver.
+    const { id, signer } = await readyDraft(owner, w.ids.c2, w.ids.e2);
+    const approver = recipient({
+      kind: 'APPROVER',
+      link: { type: 'STAFF', userId: w.users.managerA },
+    });
+    w.repo.seed(w.a, id, (r) => r.parts.recipients.push(approver));
+    const body = put([signatureFor(signer.id), senderText()]);
+    expect((await refused(svc.putFields(w.a, manager, id, body)))[0]).toBe(404);
+    expect((await w.repo.parts(w.a, id)).fields).toHaveLength(1);
   });
 });
 
@@ -365,6 +399,19 @@ describe('GET /esign/requests/{id}/merge-values', () => {
     const ownerB: EsignActor = { userId: w.users.ownerB, role: 'OWNER' };
     expect((await refused(svc.mergeValues(w.b, ownerB, ready.id)))[0]).toBe(404);
     expect((await refused(svc.mergeValues(w.a, staff2, ready.id)))[0]).toBe(404);
+  });
+
+  it('is a read: an approver of the request gets them, without the client’s values', async () => {
+    // c2 is assigned to nobody: the Manager reaches it only as its approver.
+    const { id } = await readyDraft(owner, w.ids.c2, w.ids.e2);
+    expect((await refused(svc.mergeValues(w.a, manager, id)))[0]).toBe(404);
+    const approver = recipient({
+      kind: 'APPROVER',
+      link: { type: 'STAFF', userId: w.users.managerA },
+    });
+    w.repo.seed(w.a, id, (r) => r.parts.recipients.push(approver));
+    const { values } = EsignMergeValues.parse(await svc.mergeValues(w.a, manager, id));
+    expect([values.FIRM_NAME, values.CLIENT_FULL_NAME]).toEqual(['Fake Firm A', null]);
   });
 });
 

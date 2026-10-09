@@ -483,7 +483,7 @@ describe('Firm Sign fields, merge values and readiness over HTTP', () => {
     }
   });
 
-  it('lets an approver read readiness on a client not assigned to them', async () => {
+  it('lets an approver read readiness and merge values, but not put fields (404)', async () => {
     const id = await newDraft(w.ids.c2);
     const manager: Caller = { user: w.users.managerA, firm: w.a, role: 'STAFF' };
     const path = `/esign/requests/${id}/readiness`;
@@ -504,6 +504,13 @@ describe('Firm Sign fields, merge values and readiness over HTTP', () => {
     expect(EsignReadiness.parse(res.body).problems.map((p) => p.code)).toContain(
       'APPROVAL_PENDING',
     );
+    const merge = await call(`/esign/requests/${id}/merge-values`, manager);
+    expect([merge.status, EsignMergeValues.parse(merge.body).values.FIRM_NAME]).toEqual([
+      200,
+      'Fake Firm A',
+    ]);
+    const fields = await send('put', `/esign/requests/${id}/fields`, manager, { fields: [text] });
+    expect(errorOf(fields)).toEqual([404, 'NOT_FOUND']);
   });
 
   it('answers MODULE_OFF (403) on the fields, merge values and readiness routes when off', async () => {

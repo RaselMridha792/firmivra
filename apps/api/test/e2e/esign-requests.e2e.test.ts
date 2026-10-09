@@ -1,7 +1,7 @@
-// End-to-end: the Firm Sign draft routes (R13 step 6, part 1b) through the real guard stack.
-// The esign tables come with r0_esign, so this covers what answers before the repository: 401
-// signed out, 403 for clients, 403 MODULE_OFF while the firm's module is off, and 400 for a bad
-// id or body where it is on. Synthetic data only.
+// End-to-end: the Firm Sign draft routes (R13 step 6, parts 1b and 2a) through the real guard
+// stack. The esign tables come with r0_esign, so this covers what answers before the repository:
+// 401 signed out, 403 for clients, 403 MODULE_OFF while the firm's module is off, and 400 for a
+// bad id or body where it is on. Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -24,6 +24,9 @@ const ROUTES = [
   ['get', `/api/v1/esign/requests/${anyId}`, undefined],
   ['patch', `/api/v1/esign/requests/${anyId}`, { title: 'Fake letter' }],
   ['delete', `/api/v1/esign/requests/${anyId}`, undefined],
+  ['put', `/api/v1/esign/requests/${anyId}/fields`, { fields: [] }],
+  ['get', `/api/v1/esign/requests/${anyId}/merge-values`, undefined],
+  ['get', `/api/v1/esign/requests/${anyId}/readiness`, undefined],
 ] as const;
 
 beforeAll(async () => {
@@ -63,7 +66,7 @@ afterAll(async () => {
 });
 
 async function send(
-  method: 'get' | 'post' | 'patch' | 'delete',
+  method: 'get' | 'post' | 'patch' | 'put' | 'delete',
   path: string,
   email: string | null,
   body?: object,
@@ -101,6 +104,13 @@ describe('Firm Sign draft routes', () => {
       const body = method === 'patch' ? { title: 'Fake' } : undefined;
       expect(answer(await send(method, bad, onOwner.email, body))).toBe('400 VALIDATION_FAILED');
     }
+    for (const route of ['merge-values', 'readiness']) {
+      const res = await send('get', `${bad}/${route}`, onOwner.email);
+      expect(answer(res)).toBe('400 VALIDATION_FAILED');
+    }
+    const fields = `/api/v1/esign/requests/${anyId}/fields`;
+    const noFields = await send('put', fields, onOwner.email, { fields: [], extra: true });
+    expect(answer(noFields)).toBe('400 VALIDATION_FAILED');
     const noTitle = await send('post', '/api/v1/esign/requests', onOwner.email, { title: '' });
     expect(answer(noTitle)).toBe('400 VALIDATION_FAILED');
   });

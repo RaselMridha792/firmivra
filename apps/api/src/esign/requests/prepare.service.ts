@@ -47,7 +47,8 @@ function today(timeZone: string): string {
 
 /**
  * A DRAFT's fields, its merge values and its readiness (R13 step 6, part 2a). Access is the
- * requests service's (404 for what the caller may not see; field writes on DRAFTs only). The
+ * requests service's: 404 for what the caller may not see; fields are a write (DRAFTs only, never
+ * an approver's), merge values and readiness are reads (an approver's too). The
  * audit log gets ids and counts only, never a field's value or label.
  */
 @Injectable()
@@ -67,7 +68,7 @@ export class EsignPrepareService {
     id: string,
     body: z.output<typeof EsignPutFieldsBody>,
   ): Promise<EsignRequestDetail> {
-    await this.requests.draft(businessId, actor, id);
+    const record = await this.requests.draft(businessId, actor, id);
     const parts = await this.repo.parts(businessId, id);
     const known = new Set(parts.fields.map((f) => f.id));
     const signers = new Set(parts.recipients.filter((r) => r.kind === 'SIGNER').map((r) => r.id));
@@ -103,24 +104,25 @@ export class EsignPrepareService {
         filled: false,
       };
     });
-    await this.requests.drafted(this.repo.saveFields(businessId, id, fields));
+    const write = this.repo.saveFields(businessId, id, fields, record.lastActivityAt);
+    await this.requests.drafted(write);
     const kept = new Set(fields.map((f) => f.id));
     await this.audit.log('esign.fields_updated', entity(id), {
       fieldCount: fields.length,
       fieldsRemoved: parts.fields.filter((f) => !kept.has(f.id)).length,
     });
-    return this.requests.get(businessId, actor, id);
+    return this.requests.current(businessId, id);
   }
 
   async mergeValues(businessId: string, actor: EsignActor, id: string): Promise<EsignMergeValues> {
-    const record = await this.requests.reach(businessId, actor, id);
+    const { record } = await this.requests.reach(businessId, actor, id, 'read');
     const { fields } = await this.repo.parts(businessId, id);
     return this.merge(businessId, actor, record, fields);
   }
 
   /** The rules' readiness check, plus APPROVER_MISSING (below). */
   async readiness(businessId: string, actor: EsignActor, id: string): Promise<EsignReadiness> {
-    const record = await this.requests.reach(businessId, actor, id);
+    const { record } = await this.requests.reach(businessId, actor, id, 'read');
     const parts = await this.repo.parts(businessId, id);
     const [merge, defaults, consentPublished] = await Promise.all([
       this.merge(businessId, actor, record, parts.fields),

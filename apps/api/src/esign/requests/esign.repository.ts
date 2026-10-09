@@ -147,9 +147,9 @@ export interface EsignRepository {
     businessId: string,
     id: string,
   ): Promise<Pick<EsignDocumentRecord, 'id' | 's3Key'>[] | null>;
-  // The two below replace what the service computed from parts() read before the write, so each
+  // The three below replace what the service computed from parts() read before the write, so each
   // also refuses (false) unless the request's lastActivityAt is still `readAt`: checked under the
-  // FOR UPDATE lock, a write in between (a PUT fields, say) is never silently reverted.
+  // FOR UPDATE lock, a write in between (from another tab, say) is never silently reverted.
   /** Replaces the page plan and the fields (moved with their pages) together. */
   savePagePlan(
     businessId: string,
@@ -167,7 +167,7 @@ export interface EsignRepository {
     readAt: Date,
   ): Promise<boolean>;
   /** Replaces the fields. */
-  saveFields(businessId: string, id: string, fields: EsignField[]): Promise<boolean>;
+  saveFields(businessId: string, id: string, fields: EsignField[], readAt: Date): Promise<boolean>;
   // Uploads between createUpload and confirmUpload (draft writes from addDocument on).
   saveUpload(businessId: string, upload: EsignPendingUpload): Promise<void>;
   /**

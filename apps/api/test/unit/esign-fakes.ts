@@ -82,9 +82,12 @@ export class InMemoryEsignRepository implements EsignRepository {
     return Promise.resolve(this.consent.has(businessId));
   }
 
-  saveFields(businessId: string, id: string, fields: EsignField[]) {
-    return this.write(businessId, id, (row) =>
-      Object.assign(row.parts, structuredClone({ fields })),
+  saveFields(businessId: string, id: string, fields: EsignField[], readAt: Date) {
+    return this.write(
+      businessId,
+      id,
+      (row) => Object.assign(row.parts, structuredClone({ fields })),
+      readAt,
     );
   }
 
