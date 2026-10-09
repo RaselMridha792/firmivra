@@ -71,6 +71,8 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
   { param: 'version', value: '1', routes: /\/legal\/:kind\/versions\/:version$/ },
   { param: 'key', value: 'tax-bracket', routes: /\/calculators\/:key$/ },
   { param: 'step', value: 'branding', routes: /\/setup\/steps\/:step$/ },
+  // A step of the form (cases/intake-forms.ts's Annual Tax form), not a record.
+  { param: 'stepKey', value: 'personal', routes: /\/intakes\/:id\/steps\/:stepKey$/ },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(
