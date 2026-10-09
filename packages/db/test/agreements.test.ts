@@ -527,9 +527,15 @@ describe('intake signatures and submit', () => {
     await expect(
       signAndSubmit(draft, [v], { data, change: { ip: '198.51.100.1' } }),
     ).rejects.toThrow(/needs the signature/);
-    await expect(
-      signAndSubmit(draft, [v], { data, change: { printedName: 'Someone Else' } }),
-    ).rejects.toThrow(/needs the signature/);
+    for (const change of [
+      { printedName: 'Someone Else' },
+      { userAgent: 'Other browser' },
+      { userAgent: null },
+    ]) {
+      await expect(signAndSubmit(draft, [v], { data, change })).rejects.toThrow(
+        /needs the signature/,
+      );
+    }
     const before = Date.now();
     const { sig, submitted } = await signAndSubmit(draft, [v], {
       data,
@@ -556,11 +562,23 @@ describe('intake signatures and submit', () => {
       }),
     ).rejects.toThrow(/locked/);
     await expect(sign(draft, [v])).rejects.toThrow(/only a draft/);
+    // A version not yet on the signature (so only the submitted rule can refuse it).
+    const late = await newAgreement({
+      serviceId: (
+        await firmA().intakeForm.findUniqueOrThrow({
+          where: { id: draft.intake.formId },
+        })
+      ).serviceId,
+    });
+    const lv = await publish(late.id, 1);
     await expect(
       firmA().intakeSignatureAgreement.create({
-        data: { ...A(), signatureId: sig.id, agreementVersionId: v.id, bodySha256: v.bodySha256 },
+        data: { ...A(), signatureId: sig.id, agreementVersionId: lv.id, bodySha256: lv.bodySha256 },
       }),
-    ).rejects.toThrow(/already submitted|unique|duplicate/i);
+    ).rejects.toThrow(/already submitted/);
+    await expect(
+      firmA().intakeSubmission.create({ data: { ...A(), intakeId: draft.intake.id, version: 3 } }),
+    ).rejects.toThrow(/next version must be 2/);
     const v2 = await firmA().intakeSubmission.create({
       data: { ...A(), intakeId: draft.intake.id, version: 2 },
     });
@@ -670,6 +688,20 @@ describe('intake signatures and submit', () => {
     const old = await publish(series.id, 1);
     await publish(series.id, 2);
     await expect(sign(draft, [v, old])).rejects.toThrow(/only the current version/);
+
+    const archived = await newAgreement({ serviceId: ids.bookkeeping });
+    const av = await publish(archived.id, 1);
+    await firmA().firmAgreement.update({
+      where: { id: archived.id },
+      data: { archivedAt: new Date() },
+    });
+    await expect(sign(draft, [v, av])).rejects.toThrow(/only the current version of an unarchived/);
+
+    // The submission must be a draft of the signature's own intake.
+    const other = await newLeadDraft();
+    await expect(sign({ ...draft, submission: other.submission }, [v])).rejects.toThrow(
+      /only a draft version of this intake/,
+    );
   });
 
   it('a lead signs only its own intake; a portal login only for its engagement client', async () => {
@@ -757,6 +789,49 @@ describe('intake signatures and submit', () => {
 });
 
 describe('isolation', () => {
+  it('every reference is a composite foreign key within the same firm', async () => {
+    const rows = await runInScope(
+      owner,
+      { kind: 'platform' },
+      (tx) =>
+        tx.$queryRaw<{ def: string }[]>`
+        SELECT conrelid::regclass::text || ': ' || pg_get_constraintdef(oid) AS def
+        FROM pg_constraint
+        WHERE contype = 'f' AND conrelid::regclass::text IN ('firm_agreements',
+          'firm_agreement_files', 'firm_agreement_versions', 'intake_signatures',
+          'intake_signature_agreements')
+        ORDER BY 1`,
+    );
+    const fk = (table: string, columns: string, target: string) =>
+      `${table}: FOREIGN KEY (business_id, ${columns}) REFERENCES ${target} ON UPDATE CASCADE ON DELETE RESTRICT`;
+    expect(rows.map((r) => r.def)).toEqual(
+      [
+        fk('firm_agreement_files', 'uploaded_by_user_id', 'memberships(business_id, user_id)'),
+        fk('firm_agreement_versions', 'agreement_id', 'firm_agreements(business_id, id)'),
+        fk(
+          'firm_agreement_versions',
+          'pdf_file_id, pdf_sha256',
+          'firm_agreement_files(business_id, id, sha256)',
+        ),
+        fk('firm_agreement_versions', 'published_by_user_id', 'memberships(business_id, user_id)'),
+        fk('firm_agreements', 'created_by_user_id', 'memberships(business_id, user_id)'),
+        fk('firm_agreements', 'service_id', 'services(business_id, id)'),
+        fk(
+          'intake_signature_agreements',
+          'agreement_version_id',
+          'firm_agreement_versions(business_id, id)',
+        ),
+        fk('intake_signature_agreements', 'signature_id', 'intake_signatures(business_id, id)'),
+        fk('intake_signatures', 'client_account_id', 'client_accounts(business_id, id)'),
+        fk('intake_signatures', 'intake_id', 'intakes(business_id, id)'),
+        fk('intake_signatures', 'lead_id', 'leads(business_id, id)'),
+        fk('intake_signatures', 'privacy_document_id', 'firm_legal_documents(business_id, id)'),
+        fk('intake_signatures', 'submission_id', 'intake_submissions(business_id, id)'),
+        fk('intake_signatures', 'terms_document_id', 'firm_legal_documents(business_id, id)'),
+      ].sort(),
+    );
+  });
+
   it("firm B sees none of firm A's agreements, files, versions or evidence", async () => {
     const draft = await newLeadDraft();
     await sign(draft, [await firmWideVersion()]);
@@ -809,6 +884,59 @@ describe('isolation', () => {
           signatureId: randomUUID(),
           agreementVersionId: v.id,
           bodySha256: v.bodySha256,
+        },
+      }),
+    ).rejects.toThrow(/foreign key/i);
+    // Firm B writing rows that say they are firm A's.
+    await expect(
+      firmB().firmAgreementFile.create({
+        data: {
+          businessId: ids.firmA,
+          fileName: 'a.pdf',
+          sizeBytes: 1,
+          sha256: sha('b-into-a'),
+          s3Key: `tenant/${ids.firmA}/agreements/${randomUUID()}`,
+          uploadedByUserId: ids.ownerA,
+        },
+      }),
+    ).rejects.toThrow(/row-level security/i);
+    await expect(
+      firmB().firmAgreementVersion.create({
+        data: {
+          businessId: ids.firmA,
+          agreementId: ids.firmWideA,
+          version: v.version + 1,
+          title: 'B into A',
+          bodyMarkdown: 'B text',
+          acknowledgments: ACKS,
+          publishedByUserId: ids.ownerA,
+        },
+      }),
+    ).rejects.toThrow(/row-level security/i);
+    const aDraft = await newLeadDraft();
+    await expect(firmB().intakeSignature.create({ data: signature(aDraft) })).rejects.toThrow(
+      /row-level security/i,
+    );
+    // Firm B's own rows naming firm A's owner: only the membership foreign key refuses them.
+    await expect(
+      firmB().firmAgreement.create({
+        data: {
+          businessId: ids.firmB,
+          scope: 'SERVICE',
+          serviceId: ids.serviceB,
+          createdByUserId: ids.ownerA,
+        },
+      }),
+    ).rejects.toThrow(/foreign key/i);
+    await expect(
+      firmB().firmAgreementFile.create({
+        data: {
+          businessId: ids.firmB,
+          fileName: 'b.pdf',
+          sizeBytes: 1,
+          sha256: sha('b-by-a'),
+          s3Key: `tenant/${ids.firmB}/agreements/${randomUUID()}`,
+          uploadedByUserId: ids.ownerA,
         },
       }),
     ).rejects.toThrow(/foreign key/i);
