@@ -1,8 +1,8 @@
-// R13 step 6, requests API parts 1b to 1e, over HTTP: EsignModule's status, draft, page plan,
-// recipients and document routes, pipes and the module switch with the in-memory ports (no
-// database). A stand-in for TenantGuard puts the caller's firm and role on the request, as the
-// global guards do in the app; the guards themselves are tested in guards.test.ts and the e2e
-// suite. Synthetic data only.
+// R13 step 6, requests API parts 1b to 2b, over HTTP: EsignModule's status, draft, page plan,
+// recipients, document, fields, merge values, readiness, list, counters and events routes, pipes
+// and the module switch with the in-memory ports (no database). A stand-in for TenantGuard puts
+// the caller's firm and role on the request, as the global guards do in the app; the guards
+// themselves are tested in guards.test.ts and the e2e suite. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
 import {
   Controller,
@@ -18,9 +18,20 @@ import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EsignDocument, EsignRequestDetail, EsignStatus, UploadTicket } from '@firmivra/types';
+import {
+  EsignDocument,
+  EsignEventList,
+  EsignMergeValues,
+  EsignReadiness,
+  EsignRequestDetail,
+  EsignRequestList,
+  EsignStatus,
+  EsignSummary,
+  UploadTicket,
+} from '@firmivra/types';
 import { AuditService } from '../../src/audit/audit.service.js';
 import { ApiExceptionFilter } from '../../src/common/api-exception.filter.js';
+import { PortalInfoService } from '../../src/client-auth/portal-info.controller.js';
 import {
   BUSINESS_MODULES,
   ModuleGuard,
@@ -31,14 +42,31 @@ import { CODE_HASHER, ESIGN_STORE, PDF_ENGINE } from '../../src/esign/engine/eng
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { ESIGN_REPOSITORY, notMigrated } from '../../src/esign/requests/esign.repository.js';
+import {
+  NOTIFY_SERVICE,
+  type NotifyMessage,
+  type NotifyService,
+} from '../../src/notify/notify.types.js';
 import { esignWorld, fakeHasher, fakePdf } from './esign-fakes.js';
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
 
 const w = esignWorld();
 
+/** Invitations the send route emailed (NotifyModule is global in the app). */
+const mailed: NotifyMessage[] = [];
+const notify: NotifyService = {
+  send: (m) => Promise.resolve(void mailed.push(m as NotifyMessage)),
+};
+
 @Global()
-@Module({ providers: [{ provide: AuditService, useValue: w.audit }], exports: [AuditService] })
+@Module({
+  providers: [
+    { provide: AuditService, useValue: w.audit },
+    { provide: NOTIFY_SERVICE, useValue: notify },
+  ],
+  exports: [AuditService, NOTIFY_SERVICE],
+})
 class FakeAuditModule {}
 
 /** A route behind the module switch, as the requests routes are (part 1b). */
@@ -71,6 +99,9 @@ beforeAll(async () => {
     .useValue(w.store)
     .overrideProvider(PDF_ENGINE)
     .useValue(fakePdf)
+    // The signer routes' firm lookup (not used by these routes).
+    .overrideProvider(PortalInfoService)
+    .useValue({ activeFirm: () => Promise.reject(new Error('not used here')) })
     .compile();
   app = moduleRef.createNestApplication();
   // What AuthGuard and TenantGuard set, from test headers.
@@ -397,6 +428,332 @@ describe('Firm Sign documents over HTTP', () => {
       ]) {
         expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
       }
+    } finally {
+      w.modules.set(w.a, 'esign', true);
+    }
+  });
+});
+
+describe('Firm Sign fields, merge values and readiness over HTTP', () => {
+  const newDraft = async (clientId = w.ids.c1) => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake letter',
+      source: 'CLIENT_RECORD',
+      clientId,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const documentId = randomUUID();
+    w.repo.seed(w.a, id, (row) => {
+      row.parts.pagePlan = [{ documentId, page: 0, rotation: 0 }];
+    });
+    return id;
+  };
+  const text = {
+    recipientId: null,
+    type: 'TEXT',
+    pageIndex: 0,
+    x: 0.1,
+    y: 0.1,
+    w: 0.3,
+    h: 0.05,
+    mergeKey: 'CLIENT_FULL_NAME',
+  };
+
+  it('puts fields, refusing unknown ids and bad bodies with 400 VALIDATION_FAILED', async () => {
+    const id = await newDraft();
+    const path = `/esign/requests/${id}/fields`;
+    const put = await send('put', path, ownerA(), { fields: [text] });
+    const detail = EsignRequestDetail.parse(put.body);
+    expect([put.status, detail.fields.map((f) => f.mergeKey)]).toEqual([200, ['CLIENT_FULL_NAME']]);
+    const kept = await send('put', path, ownerA(), {
+      fields: [{ ...text, id: detail.fields[0]!.id }],
+    });
+    expect(EsignRequestDetail.parse(kept.body).fields[0]!.id).toBe(detail.fields[0]!.id);
+    for (const body of [
+      { fields: [{ ...text, id: randomUUID() }] },
+      { fields: [{ ...text, pageIndex: 1 }] },
+      { fields: [{ ...text, type: 'CHECKBOX' }] },
+      { fields: [{ ...text, type: 'SIGNATURE' }] },
+      { fields: [text], extra: true },
+    ]) {
+      expect(errorOf(await send('put', path, ownerA(), body))).toEqual([400, 'VALIDATION_FAILED']);
+    }
+    expect(errorOf(await send('put', path, ownerB(), { fields: [] }))).toEqual([404, 'NOT_FOUND']);
+    expect(errorOf(await send('put', path, staffA2(), { fields: [] }))).toEqual([404, 'NOT_FOUND']);
+  });
+
+  it('reads merge values and readiness; 404 across firms and for unassigned Staff', async () => {
+    const id = await newDraft();
+    await send('put', `/esign/requests/${id}/fields`, ownerA(), { fields: [text] });
+    const merge = await call(`/esign/requests/${id}/merge-values`, ownerA());
+    expect(merge.status).toBe(200);
+    expect(EsignMergeValues.parse(merge.body).values.CLIENT_FULL_NAME).toBe('Fake Client One');
+    const ready = await call(`/esign/requests/${id}/readiness`, ownerA());
+    const readiness = EsignReadiness.parse(ready.body);
+    expect([ready.status, readiness.ready, readiness.autoSignaturePage]).toEqual([
+      200,
+      false,
+      false,
+    ]);
+    expect(readiness.problems.map((p) => p.code)).toEqual([
+      'NO_DOCUMENTS',
+      'NO_ENGAGEMENT',
+      'NO_SIGNERS',
+    ]);
+    for (const route of ['merge-values', 'readiness']) {
+      const path = `/esign/requests/${id}/${route}`;
+      expect(errorOf(await call(path, ownerB()))).toEqual([404, 'NOT_FOUND']);
+      expect(errorOf(await call(path, staffA2()))).toEqual([404, 'NOT_FOUND']);
+    }
+  });
+
+  it('lets an approver read readiness and merge values, but not put fields (404)', async () => {
+    const id = await newDraft(w.ids.c2);
+    const manager: Caller = { user: w.users.managerA, firm: w.a, role: 'STAFF' };
+    const path = `/esign/requests/${id}/readiness`;
+    expect(errorOf(await call(path, manager))).toEqual([404, 'NOT_FOUND']);
+    const approvers = await send('put', `/esign/requests/${id}/recipients`, ownerA(), {
+      recipients: [
+        {
+          kind: 'APPROVER',
+          role: 'MANAGER',
+          routingOrder: 1,
+          who: { type: 'STAFF', userId: w.users.managerA },
+        },
+      ],
+    });
+    expect(approvers.status).toBe(200);
+    const res = await call(path, manager);
+    expect(res.status).toBe(200);
+    expect(EsignReadiness.parse(res.body).problems.map((p) => p.code)).toContain(
+      'APPROVAL_PENDING',
+    );
+    const merge = await call(`/esign/requests/${id}/merge-values`, manager);
+    expect([merge.status, EsignMergeValues.parse(merge.body).values.FIRM_NAME]).toEqual([
+      200,
+      'Fake Firm A',
+    ]);
+    const fields = await send('put', `/esign/requests/${id}/fields`, manager, { fields: [text] });
+    expect(errorOf(fields)).toEqual([404, 'NOT_FOUND']);
+  });
+
+  it('answers MODULE_OFF (403) on the fields, merge values and readiness routes when off', async () => {
+    const id = await newDraft();
+    w.modules.set(w.a, 'esign', false);
+    try {
+      for (const res of [
+        await send('put', `/esign/requests/${id}/fields`, ownerA(), { fields: [] }),
+        await call(`/esign/requests/${id}/merge-values`, ownerA()),
+        await call(`/esign/requests/${id}/readiness`, ownerA()),
+      ]) {
+        expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
+      }
+    } finally {
+      w.modules.set(w.a, 'esign', true);
+    }
+  });
+});
+
+describe('Firm Sign list, counters and events over HTTP', () => {
+  const title = `Fake list ${randomUUID().slice(0, 8)}`;
+  let id: string;
+  beforeAll(async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title,
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    id = EsignRequestDetail.parse(created.body).id;
+    w.repo.timelines.of(w.a).set(id, [
+      {
+        id: randomUUID(),
+        type: 'CREATED',
+        createdAt: new Date(),
+        actorKind: 'STAFF',
+        actorName: 'owner-a',
+        recipient: null,
+        reason: null,
+        authMethod: null,
+      },
+    ]);
+  });
+
+  it('lists with the query pipe, and refuses a bad query (400)', async () => {
+    const res = await call(`/esign/requests?q=${encodeURIComponent(title)}&limit=5`, ownerA());
+    const page = EsignRequestList.parse(res.body);
+    expect(page.items.map((r) => [r.id, r.allowedActions])).toEqual([
+      [id, ['EDIT', 'DISCARD', 'SEND']],
+    ]);
+    for (const query of ['limit=0', 'status=NOPE', 'from=2026-10-05&to=2026-10-01', 'extra=1']) {
+      expect(errorOf(await call(`/esign/requests?${query}`, ownerA()))).toEqual([
+        400,
+        'VALIDATION_FAILED',
+      ]);
+    }
+    const bad = await call('/esign/requests?cursor=nope', ownerA());
+    expect(errorOf(bad)).toEqual([400, 'VALIDATION_FAILED']);
+    // Another firm and unassigned Staff do not see it.
+    const q = `?q=${encodeURIComponent(title)}`;
+    expect(
+      EsignRequestList.parse((await call(`/esign/requests${q}`, ownerB())).body).items,
+    ).toEqual([]);
+    expect(
+      EsignRequestList.parse((await call(`/esign/requests${q}`, staffA2())).body).items,
+    ).toEqual([]);
+  });
+
+  it('routes /summary to the counters, not to a request id', async () => {
+    const res = await call('/esign/requests/summary', ownerA());
+    const summary = EsignSummary.parse(res.body);
+    expect(summary.counts.DRAFT).toBeGreaterThan(0);
+    const b = EsignSummary.parse((await call('/esign/requests/summary', ownerB())).body);
+    expect(b.counts.DRAFT).toBe(0);
+  });
+
+  it('answers the events; 404 across firms and for a client the caller is not assigned', async () => {
+    const res = await call(`/esign/requests/${id}/events`, ownerA());
+    expect(EsignEventList.parse(res.body).items.map((e) => e.type)).toEqual(['CREATED']);
+    expect(errorOf(await call(`/esign/requests/${id}/events`, ownerB()))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    expect(errorOf(await call(`/esign/requests/${id}/events`, staffA2()))).toEqual([
+      404,
+      'NOT_FOUND',
+    ]);
+    expect(errorOf(await call('/esign/requests/not-a-uuid/events', ownerA()))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+  });
+
+  it('answers MODULE_OFF (403) on the list, counters and events when off', async () => {
+    w.modules.set(w.a, 'esign', false);
+    try {
+      for (const path of ['', '/summary', `/${id}/events`]) {
+        expect(errorOf(await call(`/esign/requests${path}`, ownerA()))).toEqual([
+          403,
+          'MODULE_OFF',
+        ]);
+      }
+    } finally {
+      w.modules.set(w.a, 'esign', true);
+    }
+  });
+});
+
+describe('Firm Sign send over HTTP', () => {
+  /** A ready DRAFT for `clientId` with one signer (its primary login) and a stored file. */
+  const readyDraft = async (clientId: string, login: string, service: string) => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake send',
+      source: 'CLIENT_RECORD',
+      clientId,
+      engagementId: service,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    const recipients = await send('put', `/esign/requests/${id}/recipients`, ownerA(), {
+      recipients: [
+        {
+          kind: 'SIGNER',
+          role: 'CLIENT',
+          routingOrder: 1,
+          who: { type: 'CLIENT_LOGIN', clientAccountId: login },
+        },
+      ],
+    });
+    const signerId = EsignRequestDetail.parse(recipients.body).recipients[0]!.id;
+    const documentId = randomUUID();
+    const s3Key = w.store.keyFor(w.a, id, `source/${documentId}`);
+    await w.store.put(w.a, s3Key, new TextEncoder().encode('pdf:1'), 'application/pdf');
+    w.repo.seed(w.a, id, (row) => {
+      row.parts.documents = [
+        {
+          id: documentId,
+          position: 0,
+          fileName: 'letter.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 5,
+          pageCount: 1,
+          pageSizes: [{ width: 612, height: 792 }],
+          sourceDocumentId: null,
+          scanStatus: 'CLEAN',
+          createdAt: new Date(),
+          s3Key,
+          sha256: '0'.repeat(64),
+        },
+      ];
+      row.parts.pagePlan = [{ documentId, page: 0, rotation: 0 }];
+    });
+    const fields = await send('put', `/esign/requests/${id}/fields`, ownerA(), {
+      fields: [
+        { recipientId: signerId, type: 'SIGNATURE', pageIndex: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.05 },
+      ],
+    });
+    expect(fields.status).toBe(200);
+    return id;
+  };
+  const path = (id: string) => `/esign/requests/${id}/send`;
+
+  it('sends a ready DRAFT once; a second send is 409 INVALID_STATE', async () => {
+    const id = await readyDraft(w.ids.c1, w.ids.primary, w.ids.e1);
+    const before = mailed.length;
+    const res = await send('post', path(id), ownerA(), { confirm: true });
+    const detail = EsignRequestDetail.parse(res.body);
+    expect([res.status, detail.status, detail.recipients[0]!.status]).toEqual([
+      200,
+      'SENT',
+      'SENT',
+    ]);
+    expect(detail.originalSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(mailed.slice(before).map((m) => m.template)).toEqual(['esign.request']);
+    const again = await send('post', path(id), ownerA(), { confirm: true });
+    expect(errorOf(again)).toEqual([409, 'INVALID_STATE']);
+    expect(mailed.length).toBe(before + 1);
+  });
+
+  it('refuses a bad body (400), a request not ready (409 NOT_READY with the problems)', async () => {
+    const created = await send('post', '/esign/requests', ownerA(), {
+      title: 'Fake not ready',
+      source: 'CLIENT_RECORD',
+      clientId: w.ids.c1,
+    });
+    const { id } = EsignRequestDetail.parse(created.body);
+    for (const body of [{}, { confirm: false }, { confirm: true, extra: 1 }]) {
+      expect(errorOf(await send('post', path(id), ownerA(), body))).toEqual([
+        400,
+        'VALIDATION_FAILED',
+      ]);
+    }
+    expect(errorOf(await send('post', path('not-a-uuid'), ownerA(), { confirm: true }))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+    const res = await send('post', path(id), ownerA(), { confirm: true });
+    expect(errorOf(res)).toEqual([409, 'NOT_READY']);
+    const details = (res.body as { error: { details: { code: string }[] } }).error.details;
+    expect(details.map((p) => p.code)).toContain('NO_DOCUMENTS');
+  });
+
+  it('answers 404 across firms, across clients (Staff of another client) and to a client', async () => {
+    const id = await readyDraft(w.ids.c2, w.ids.c2Login, w.ids.e2);
+    const staffA: Caller = { user: w.users.staffA, firm: w.a, role: 'STAFF' };
+    for (const who of [ownerB(), staffA, staffA2(), clientA()]) {
+      expect(errorOf(await send('post', path(id), who, { confirm: true }))).toEqual([
+        404,
+        'NOT_FOUND',
+      ]);
+    }
+    expect(
+      EsignRequestDetail.parse((await call(`/esign/requests/${id}`, ownerA())).body).status,
+    ).toBe('DRAFT');
+  });
+
+  it('answers MODULE_OFF (403) when off', async () => {
+    w.modules.set(w.a, 'esign', false);
+    try {
+      const res = await send('post', path(randomUUID()), ownerA(), { confirm: true });
+      expect(errorOf(res)).toEqual([403, 'MODULE_OFF']);
     } finally {
       w.modules.set(w.a, 'esign', true);
     }
