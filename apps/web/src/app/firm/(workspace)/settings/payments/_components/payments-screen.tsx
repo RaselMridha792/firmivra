@@ -40,14 +40,15 @@ const ACTIONS: Partial<Record<PaymentsSetupStage, string>> = {
 export function PaymentsScreen({ stripe }: StripeOnboardingReturn) {
   const setup = useApiQuery(PAYMENTS_SETUP, () => api.paymentsSetup.get());
 
-  // Back from Stripe: read the state once more, since Stripe may have changed it meanwhile.
+  // Back from Stripe: Stripe may have changed the state meanwhile. A fresh page load is already
+  // fetching it; only cached data (reached without a reload) needs one more read.
   const refreshedRef = useRef(false);
-  const { refetch } = setup;
+  const { refetch, isFetching } = setup;
   useEffect(() => {
     if (stripe !== 'return' || refreshedRef.current) return;
     refreshedRef.current = true;
-    void refetch();
-  }, [stripe, refetch]);
+    if (!isFetching) void refetch();
+  }, [stripe, refetch, isFetching]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -125,6 +126,15 @@ function SetupCard({ setup, expired }: { setup: PaymentsSetup; expired: boolean 
 function ConnectButton({ label, refresh }: { label: string; refresh: boolean }) {
   const [leaving, setLeaving] = useState(false);
   const [mockLink, setMockLink] = useState(false);
+  // Back from Stripe via the browser's Back button: the page may come from the back-forward
+  // cache with `leaving` still set, so make the button usable again.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setLeaving(false);
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
   const connect = useApiMutation(
     () => (refresh ? api.paymentsSetup.refresh() : api.paymentsSetup.start()),
     { invalidate: PAYMENTS_SETUP },
