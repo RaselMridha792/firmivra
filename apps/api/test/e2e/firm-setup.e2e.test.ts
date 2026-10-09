@@ -376,7 +376,10 @@ describe('After approve', () => {
 
     const firm = (await open(ids.resend)).firm!;
     await asFirm(firm.id, (tx) =>
-      tx.membership.updateMany({ where: { role: 'OWNER' }, data: { status: 'ACTIVE' } }),
+      tx.membership.updateMany({
+        where: { businessId: firm.id, role: 'OWNER' },
+        data: { status: 'ACTIVE' },
+      }),
     );
     sent.length = 0;
     const joined = await resend(ids.resend).expect(409);
