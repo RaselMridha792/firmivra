@@ -11,16 +11,18 @@ import request, { type Response } from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
-import { BeginDraft, beginOnlineCookie, INTAKE_LIMITS } from '@firmivra/types';
+import { INTAKE_LIMITS } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { BEGIN_ONLINE_THROTTLE } from '../../src/begin-online/begin-online.controller.js';
 import { DRAFT_START_LIMITS } from '../../src/begin-online/begin-online.service.js';
 import { RESUME_LINK_LIMITS } from '../../src/begin-online/resume-links.service.js';
+import { BeginDraft, beginOnlineCookie } from '../../src/begin-online/wire.js';
 import { configureApp, JSON_BODY_LIMIT_BYTES } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
 import { DOCUMENTS_CONFIG } from '../../src/storage/config.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from '../../src/storage/document-storage.js';
+import { signatureFor } from '../intake-signing.js';
 import { pdf, sha256 } from '../office-files.js';
 
 /** Storage in memory: `put(ticket, bytes)` is the browser's PUT. */
@@ -140,7 +142,13 @@ const start = (firm: FirmKey, answers: Record<string, unknown> = {}) => ({
     ...answers,
   },
 });
-const signature = { printedName: 'Avery Sample', typedSignature: 'Avery Sample' };
+/** A well-formed submit body (contract B); these submits never reach the signing. */
+const signature = {
+  signature: signatureFor(
+    { agreementId: randomUUID(), version: 1, bodySha256: 'a'.repeat(64) },
+    'Avery Sample',
+  ),
+};
 const file = (bytes: Buffer, slot = 'governmentId', fields: Record<string, unknown> = {}) => ({
   slot,
   fileName: 'id-card.pdf',
