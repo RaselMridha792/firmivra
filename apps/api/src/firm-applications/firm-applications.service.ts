@@ -744,7 +744,7 @@ export class FirmApplicationsService {
       row.businessId
         ? db.business.findUnique({
             where: { id: row.businessId },
-            select: { id: true, slug: true, name: true, status: true },
+            select: { id: true, slug: true, name: true, status: true, activatedAt: true },
           })
         : Promise.resolve(null),
       // The owner's activation links Firmivra sent, newest first: R0's token-free copy.
@@ -793,11 +793,29 @@ export class FirmApplicationsService {
         row.status !== 'DECLINED' && !row.businessId
           ? await this.freeSlug(db, row.legalName)
           : null,
-      firm: firm as BusinessSummary | null,
+      firm: firm
+        ? ({
+            id: firm.id,
+            slug: firm.slug,
+            name: firm.name,
+            status: firm.status,
+          } satisfies BusinessSummary)
+        : null,
       ownerInvite: links[0]
         ? { status: ownerInviteStatus(links[0]), expiresAt: links[0].expiresAt.toISOString() }
         : null,
       history: [
+        // The owner finished setup (step 4): the database's time of the firm's first ACTIVE.
+        ...(firm?.activatedAt
+          ? [
+              {
+                type: 'FIRM_ACTIVATED',
+                at: firm.activatedAt.toISOString(),
+                by: null,
+                message: null,
+              } satisfies FirmApplicationEvent,
+            ]
+          : []),
         ...links.map((l): FirmApplicationEvent => ({
           type: 'OWNER_INVITED',
           at: l.sentAt.toISOString(),

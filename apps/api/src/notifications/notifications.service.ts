@@ -14,8 +14,6 @@ import {
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import { DATABASE } from '../database/database.module.js';
-import type { NotifyConfig } from '../notify/config.js';
-import { NOTIFY_CONFIG } from '../notify/notify.module.js';
 import { DEFAULT_CHOICE, isLockedCategory, PreferenceSource } from '../notify/preferences.js';
 import { decodeTimeCursor, encodeTimeCursor } from '../workspaces/paging.js';
 import { notificationText, type Side } from './notification-text.js';
@@ -133,7 +131,6 @@ export class NotificationsService {
 
   constructor(
     @Inject(DATABASE) private readonly database: Database,
-    @Inject(NOTIFY_CONFIG) private readonly config: NotifyConfig,
     private readonly audit: AuditService,
   ) {
     this.preferences = new PreferenceSource(database);
