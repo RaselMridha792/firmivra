@@ -28,17 +28,22 @@ import { SignedIn, useMe } from '../../../../components/signed-in';
 import { api } from '../../../../lib/api';
 import { useApiQuery } from '../../../../lib/query';
 
-// Client menu (docs/junior/PAGE-MAP.md). R6 adds the unread count to Messages. "Signatures" shows
+// Client menu (docs/junior/PAGE-MAP.md). Messages shows the unread firm messages. "Signatures" shows
 // when the firm uses Firm Sign, "Tax Calculators" when the firm shares at least one calculator.
 const sections = (
   slug: string,
-  extra: { signatures: boolean; calculators: boolean },
+  extra: { signatures: boolean; calculators: boolean; unread: number },
 ): NavSections => [
   [
     { label: 'Home', icon: House, href: `/${slug}/home` },
     { label: 'My Documents', icon: CloudUpload, href: `/${slug}/documents` },
     { label: 'Intake Forms', icon: FileText, href: `/${slug}/intake` },
-    { label: 'Messages', icon: MessageSquare, href: `/${slug}/messages` },
+    {
+      label: 'Messages',
+      icon: MessageSquare,
+      href: `/${slug}/messages`,
+      badge: extra.unread || undefined,
+    },
     { label: 'Appointments', icon: CalendarDays, href: `/${slug}/appointments` },
     { label: 'Invoices & Payments', icon: Receipt, href: `/${slug}/invoices` },
     { label: 'My Services', icon: ChartColumn, href: `/${slug}/services` },
@@ -124,14 +129,18 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
     api.mySignatures(slug).status(),
   );
   const calculators = useApiQuery(['my-calculators', slug], () => api.myCalculators(slug).list());
+  const unread = useApiQuery(['my-messages', slug, 'unread'], () =>
+    api.myMessages(slug).unreadCount(),
+  );
   const nav = sections(slug, {
     signatures: signatures.data?.enabled === true,
     calculators: (calculators.data?.length ?? 0) > 0,
+    unread: unread.data?.count ?? 0,
   });
   const menu = (inDrawer: boolean) => (
     <nav aria-label="Main" className="flex h-full flex-col bg-firm-primary p-4 text-on-action">
       {inDrawer ? <p className="text-xl font-bold">{business.name}</p> : null}
-      {nav.flat().map(({ label, icon: Icon, href }) => (
+      {nav.flat().map(({ label, icon: Icon, href, badge }) => (
         <Link
           key={label}
           href={href ?? `/${business.slug}/home`}
@@ -140,7 +149,13 @@ function PortalShell({ children, slug }: { children: ReactNode; slug: string }) 
           className={`flex items-center gap-3 rounded-control p-3 text-sm ${href && isActive(pathname, href) ? 'bg-firm-accent' : 'hover:bg-navigation-hover'}`}
         >
           <Icon aria-hidden className="size-6 shrink-0" />
-          {label}
+          <span className="flex-1">{label}</span>
+          {badge ? (
+            <span className="rounded-full bg-on-action px-2 text-xs font-bold text-firm-primary">
+              {badge}
+              <span className="sr-only"> unread</span>
+            </span>
+          ) : null}
         </Link>
       ))}
       <Button
