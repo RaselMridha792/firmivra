@@ -1,5 +1,4 @@
 import {
-  ApiRequestError,
   ConfirmEsignUploadBody,
   EsignCorrectRecipientBody,
   CreateEsignRequestBody,
@@ -32,7 +31,6 @@ import {
   ESIGN_RECENT_DAYS,
   ListEsignRequestsQuery,
   type MemberRef,
-  type MySignaturesClient,
   parseInput,
   EsignPutFieldsBody,
   EsignPutPagePlanBody,
@@ -49,6 +47,18 @@ import { mockMe } from './appointments';
 import { clientFixtures, firstClientId, type MockFirmRole, mockStaff } from './clients';
 import { documentFixtures } from './documents';
 import { engagementFixtures } from './engagements';
+import {
+  copy,
+  DAY,
+  ESIGN_OFF,
+  fail,
+  HOUR,
+  iso,
+  LETTER,
+  SAMPLE_PDF_URL,
+  SAMPLE_PNG_BASE64,
+} from './esign-common';
+import { esignAdminMock } from './esign-signing';
 import { mockBusiness } from './me';
 
 /**
@@ -67,49 +77,13 @@ import { mockBusiness } from './me';
  * - Merge values: Jamie Sample has no business name, so BUSINESS_NAME and SPOUSE_NAME are missing.
  * - NEXT_PUBLIC_API_MOCK_ESIGN=off: Firm Sign turned off (`status()` says so, other calls 403).
  */
-/** NEXT_PUBLIC_API_MOCK_ESIGN=off shows Firm Sign turned off (menus hide it; calls answer 403). */
-const ESIGN_OFF = process.env.NEXT_PUBLIC_API_MOCK_ESIGN === 'off';
-const DAY = 24 * 60 * 60 * 1000;
-const HOUR = 60 * 60 * 1000;
 const SCAN_MS = 4000;
 const id = (prefix: string, n: number) =>
   `0199b6e${prefix}-0000-7000-8000-${String(n).padStart(12, '0')}`;
-const iso = (ms: number) => new Date(ms).toISOString();
-const copy = <T>(value: T): T => structuredClone(value);
-const fail = (status: number, code: string, message: string) =>
-  new ApiRequestError(status, code, message);
 const notFound = () => fail(404, 'NOT_FOUND', 'Not found');
 const invalidState = () => fail(409, 'INVALID_STATE', 'The request is not in a state for this');
 const closed = () => fail(409, 'REQUEST_CLOSED', 'The request is closed');
 const SHA = (n: number) => (n % 256).toString(16).padStart(2, '0').repeat(32);
-
-/** A generated 2-page sample PDF (Helvetica text, synthetic), base64. */
-const SAMPLE_PDF_BASE64 =
-  'JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoK' +
-  'PDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUiA0IDAgUl0gL0NvdW50IDIgPj4KZW5kb2JqCjMgMCBvYmoKPDwg' +
-  'L1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9G' +
-  'b250IDw8IC9GMSA1IDAgUiA+PiA+PiAvQ29udGVudHMgNiAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL1R5cGUg' +
-  'L1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8' +
-  'IC9GMSA1IDAgUiA+PiA+PiAvQ29udGVudHMgNyAwIFIgPj4KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQg' +
-  'L1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iago2IDAgb2JqCjw8IC9MZW5ndGgg' +
-  'Mjc1ID4+CnN0cmVhbQpCVCAvRjEgMTIgVGYgNzIgNzIwIFRkIDE2IFRMCihTYW1wbGUgRW5nYWdlbWVudCBMZXR0' +
-  'ZXIgKHN5bnRoZXRpYyB0ZXN0IGRvY3VtZW50KSkgVGogVCoKKCkgVGogVCoKKFRoaXMgcGFnZSBzdGFuZHMgaW4g' +
-  'Zm9yIGEgcmVhbCBkb2N1bWVudCBpbiBtb2NrIG1vZGUuKSBUaiBUKgooRmlybTogTFZQIEFjY291bnRpbmcgJiBU' +
-  'YXhlcyAobW9jaykpIFRqIFQqCihDbGllbnQ6IEphbWllIFNhbXBsZSAoc3ludGhldGljKSkgVGogVCoKKCkgVGog' +
-  'VCoKKFBhZ2UgMSBvZiAyKSBUaiBUKgpFVAplbmRzdHJlYW0KZW5kb2JqCjcgMCBvYmoKPDwgL0xlbmd0aCAxNjYg' +
-  'Pj4Kc3RyZWFtCkJUIC9GMSAxMiBUZiA3MiA3MjAgVGQgMTYgVEwKKFNpZ25hdHVyZXMpIFRqIFQqCigpIFRqIFQq' +
-  'CihDbGllbnQgc2lnbmF0dXJlOiBfX19fX19fX19fX19fX19fX19fX19fKSBUaiBUKgooRGF0ZTogX19fX19fX19f' +
-  'X19fX18pIFRqIFQqCigpIFRqIFQqCihQYWdlIDIgb2YgMikgVGogVCoKRVQKZW5kc3RyZWFtCmVuZG9iagp4cmVm' +
-  'CjAgOAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAow' +
-  'MDAwMDAwMTIxIDAwMDAwIG4gCjAwMDAwMDAyNDcgMDAwMDAgbiAKMDAwMDAwMDM3MyAwMDAwMCBuIAowMDAwMDAw' +
-  'NDQzIDAwMDAwIG4gCjAwMDAwMDA3NjkgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA4IC9Sb290IDEgMCBSID4+' +
-  'CnN0YXJ0eHJlZgo5ODYKJSVFT0YK';
-/** A tiny grey PNG, for image files. */
-const SAMPLE_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-/** The sample PDF as a data: URL, for the page viewer and the downloads. */
-export const SAMPLE_PDF_URL = `data:application/pdf;base64,${SAMPLE_PDF_BASE64}`;
-const LETTER = { width: 612, height: 792 };
 
 type Client = { id: string; displayName: string };
 /** Clients of the mockup's rows (not in mocks/clients.ts) and two of mocks/clients.ts. */
@@ -723,7 +697,7 @@ export function createEsignMock(
     return { ready: problems.length === 0, problems, autoSignaturePage: r.fields.length === 0 };
   };
 
-  return {
+  const client: Omit<EsignClient, 'saveAsTemplate' | 'settings' | 'templates'> = {
     status: async () => {
       await mockDelay();
       return { enabled, myEsignRole: enabled ? role : null };
@@ -1255,6 +1229,19 @@ export function createEsignMock(
       return { items: copy(esignStore().events.get(r.id) ?? []) };
     },
   };
+  return {
+    ...client,
+    ...esignAdminMock({
+      client,
+      on,
+      find: (requestId) => view(find(requestId)),
+      stored: find,
+      record,
+      me,
+      manager: role !== 'STAFF',
+      newId,
+    }),
+  };
 }
 
 /**
@@ -1272,15 +1259,6 @@ function remapFields(r: EsignRequestDetail, pages: EsignRequestDetail['pagePlan'
   r.pagePlan = pages.map((p) => ({ ...p }));
 }
 
-/**
- * An in-memory `api.mySignatures(slug)`: Firm Sign is on for `lvp` only, and off everywhere with
- * NEXT_PUBLIC_API_MOCK_ESIGN=off. Off is `{ enabled: false }`, not an error.
- */
-export function mySignaturesMock(firmSlug: string): MySignaturesClient {
-  return {
-    status: async () => {
-      await mockDelay();
-      return { enabled: !ESIGN_OFF && firmSlug.toLowerCase() === mockBusiness.slug };
-    },
-  };
-}
+/** `api.mySignatures(slug)` and `api.signing(slug)`: see mocks/esign-signing.ts. */
+export { createMySignaturesMock as mySignaturesMock, createSigningMock } from './esign-signing';
+export { SAMPLE_PDF_URL } from './esign-common';

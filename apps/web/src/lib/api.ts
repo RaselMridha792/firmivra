@@ -29,6 +29,7 @@ import {
   createMyReportsClient,
   createMyServicesClient,
   createMySignaturesClient,
+  createSigningClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
   createPaymentsSetupClient,
@@ -53,7 +54,7 @@ import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
 import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
-import { createEsignMock, mySignaturesMock } from '../mocks/esign';
+import { createEsignMock, createSigningMock, mySignaturesMock } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createLeadsMock } from '../mocks/leads';
@@ -243,6 +244,11 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** Firm Sign (R13): the signer pages at /{slug}/sign, no account (a link plus a code). */
+  signing: (firmSlug: string) =>
+    dev && mocked('signing')
+      ? createSigningMock(firmSlug)
+      : createSigningClient(request, firmSlug, options.baseUrl),
   /** Messages (R20): the firm's threads with its clients; read state and unread counts (docs/api/messages.yaml). */
   messages:
     dev && mocked('messages')

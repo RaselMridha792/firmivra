@@ -55,6 +55,20 @@ export const EsignErrorCode = z.enum([
   'TEMPLATE_ARCHIVED',
   /** 400: a bulk send takes at most 200 clients. */
   'BULK_LIMIT',
+  /** 409 (signer): finish the earlier step first (the code, then the consent). */
+  'WRONG_STEP',
+  /** 429 (signer): a code was sent less than a minute ago. */
+  'CODE_TOO_SOON',
+  /** 409 (signer consent): the firm published a newer consent text; read it again. */
+  'CONSENT_OUTDATED',
+  /** 409 (signer finish): adopt a signature (and initials, when asked) first. */
+  'SIGNATURE_REQUIRED',
+  /** 409 (use template): say who fills each role that could not be filled from the client. */
+  'TEMPLATE_ROLES_UNFILLED',
+  /** 409 (templates): another active template has that name. */
+  'TEMPLATE_NAME_TAKEN',
+  /** 400 (signer adopt): the image is not a PNG, or over 200 KB or 1600x600. */
+  'IMAGE_INVALID',
 ]);
 export type EsignErrorCode = z.infer<typeof EsignErrorCode>;
 
@@ -86,4 +100,11 @@ export const ESIGN_ERRORS = {
   REQUIRED_FIELDS_MISSING: 'Fill in every required field before finishing.',
   TEMPLATE_ARCHIVED: 'This template is archived.',
   BULK_LIMIT: 'A bulk send can go to at most 200 clients.',
+  WRONG_STEP: 'Finish the step before this one first.',
+  CODE_TOO_SOON: 'A code was just sent. Wait a minute before asking for another.',
+  CONSENT_OUTDATED: 'The consent text has changed. Read it again and accept it.',
+  SIGNATURE_REQUIRED: 'Adopt your signature before finishing.',
+  TEMPLATE_ROLES_UNFILLED: 'Choose who fills each role in this template.',
+  TEMPLATE_NAME_TAKEN: 'Another template already has this name.',
+  IMAGE_INVALID: 'Use a PNG image of at most 200 KB and 1600 by 600 pixels.',
 } as const satisfies Record<EsignErrorCode, string>;
