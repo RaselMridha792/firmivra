@@ -54,33 +54,30 @@ interface AdoptDialogProps {
 }
 
 /**
- * Adopt a signature (and initials): the printed name, then the signature typed, drawn or
- * uploaded. A typed signature must match the printed name, as the API checks.
+ * Adopt a signature (and initials), typed, drawn or uploaded. A typed signature is also the
+ * printed name (the API checks they match); a drawn or uploaded one asks for the printed name.
+ * Each opening starts fresh.
  */
-export function AdoptDialog({
-  open,
-  name,
-  needsInitials,
-  pending,
-  error,
-  onClose,
-  onAdopt,
-}: AdoptDialogProps) {
+export function AdoptDialog(props: AdoptDialogProps) {
+  return (
+    <Modal open={props.open} title="Adopt your signature" onClose={props.onClose}>
+      {props.open && <AdoptForm {...props} />}
+    </Modal>
+  );
+}
+
+function AdoptForm({ name, needsInitials, pending, error, onClose, onAdopt }: AdoptDialogProps) {
   const [printedName, setPrintedName] = useState(name);
   const [signature, setSignature] = useState<AdoptedMark | null>(null);
   const [initials, setInitials] = useState<AdoptedMark | null>(null);
   const [problem, setProblem] = useState<string>();
 
+  const typed = signature?.method === 'TYPED';
+
   function adopt() {
-    const printed = printedName.trim();
-    if (!signatureNameKey(printed)) return setProblem('Enter your full name.');
     if (!signature) return setProblem('Add your signature.');
-    if (
-      signature.method === 'TYPED' &&
-      signatureNameKey(signature.text) !== signatureNameKey(printed)
-    ) {
-      return setProblem('Type your signature exactly as your printed name.');
-    }
+    const printed = signature.method === 'TYPED' ? signature.text : printedName.trim();
+    if (!signatureNameKey(printed)) return setProblem('Enter your full name.');
     if (needsInitials && !initials) return setProblem('Add your initials.');
     setProblem(undefined);
     onAdopt(
@@ -94,8 +91,12 @@ export function AdoptDialog({
 
   const shown = problem ?? (error ? errorMessage(error, ESIGN_ERRORS) : undefined);
   return (
-    <Modal open={open} title="Adopt your signature" onClose={onClose}>
-      <div className="flex w-full max-w-2xl flex-col gap-5">
+    <div className="flex w-full max-w-2xl flex-col gap-5">
+      <section aria-label="Signature" className="flex flex-col gap-2">
+        <h3 className="text-base font-semibold text-heading">Signature</h3>
+        <SignaturePad kind="signature" defaultText={name} onChange={setSignature} />
+      </section>
+      {!typed && (
         <Input
           label="Printed name"
           value={printedName}
@@ -103,33 +104,29 @@ export function AdoptDialog({
           autoComplete="name"
           onChange={(e) => setPrintedName(e.target.value)}
         />
-        <section aria-label="Signature" className="flex flex-col gap-2">
-          <h3 className="text-base font-semibold text-heading">Signature</h3>
-          <SignaturePad kind="signature" defaultText={name} onChange={setSignature} />
+      )}
+      {needsInitials && (
+        <section aria-label="Initials" className="flex flex-col gap-2">
+          <h3 className="text-base font-semibold text-heading">Initials</h3>
+          <SignaturePad kind="initials" defaultText={initialsOf(name)} onChange={setInitials} />
         </section>
-        {needsInitials && (
-          <section aria-label="Initials" className="flex flex-col gap-2">
-            <h3 className="text-base font-semibold text-heading">Initials</h3>
-            <SignaturePad kind="initials" defaultText={initialsOf(name)} onChange={setInitials} />
-          </section>
-        )}
-        <p className="text-sm text-muted">
-          By adopting, you agree this is your electronic signature, as binding as one on paper.
+      )}
+      <p className="text-sm text-muted">
+        By adopting, you agree this is your electronic signature, as binding as one on paper.
+      </p>
+      {shown && (
+        <p role="alert" className="text-sm text-danger">
+          {shown}
         </p>
-        {shown && (
-          <p role="alert" className="text-sm text-danger">
-            {shown}
-          </p>
-        )}
-        <div className="flex flex-wrap gap-3">
-          <Button onClick={adopt} disabled={pending}>
-            Adopt and sign
-          </Button>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-        </div>
+      )}
+      <div className="flex flex-wrap gap-3">
+        <Button onClick={adopt} disabled={pending}>
+          Adopt and sign
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
       </div>
-    </Modal>
+    </div>
   );
 }

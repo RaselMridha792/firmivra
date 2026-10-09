@@ -56,7 +56,7 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 ## Needs from others
 
 - R13-api: `packages/types/src/esign` contract and mocks (`api.esign`, `api.signing(slug)`, `api.mySignatures(slug)`).
-- R13-api: the signing API's JSON body limit must take a 200 KB PNG as base64 (`ESIGN_SIGNATURE_PNG_MAX_BYTES`, about 273,000 characters); Nest's default is 100 KB. The pad now caps at the contract's size.
+- R13-api / R18: the signing API's JSON body limit (Express default 100 KB) must take the signature and the initials at the contract's 200 KB each (`ESIGN_SIGNATURE_PNG_MAX_BYTES`). Until then the pad caps each image at 45,000 data-URL characters (`MAX_SIGNATURE_CHARS`), so one adopt stays under 100 KB.
 - Fahad: "Firm Sign" in the firm menu; the Send for Signature button and the "Signatures" entry in the client record's tabs (`clients/[id]/layout.tsx`, F06).
 - Nahid: "Signatures" in the portal menu.
 - R1: PAGE-MAP rows for the Firm Sign pages.

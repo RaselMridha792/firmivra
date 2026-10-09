@@ -112,12 +112,12 @@ test('adopt a signature, fill each required field with Next, then finish', async
   await page.getByRole('button', { name: 'Finish' }).click();
   const dialog = page.getByRole('dialog', { name: 'Adopt your signature' });
   await expect(dialog).toBeVisible();
+  // A typed signature is the printed name; a drawn one asks for it.
+  await expect(dialog.getByLabel('Your full name')).toHaveValue('Jamie Sample');
+  await expect(dialog.getByLabel('Printed name')).toHaveCount(0);
+  await dialog.getByRole('tab', { name: 'Draw' }).first().click();
   await expect(dialog.getByLabel('Printed name')).toHaveValue('Jamie Sample');
-  // A typed signature must match the printed name.
-  await dialog.getByLabel('Your full name').fill('Someone Else');
-  await dialog.getByRole('button', { name: 'Adopt and sign' }).click();
-  await expect(dialog.getByText('Type your signature exactly as your printed name.')).toBeVisible();
-  await dialog.getByLabel('Your full name').fill('Jamie Sample');
+  await dialog.getByRole('tab', { name: 'Type' }).first().click();
   await expect(dialog.getByRole('textbox', { name: 'Your initials', exact: true })).toHaveValue(
     'JS',
   );

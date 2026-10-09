@@ -25,36 +25,78 @@ export function startValues(fields: readonly SignerField[]): Filled['values'] {
   );
 }
 
-export function isFilled(f: SignerField, all: readonly SignerField[], s: Filled): boolean {
-  switch (f.type) {
-    case 'SIGNATURE':
-      return !!s.adopted;
-    case 'INITIALS':
-      return !!s.adopted?.hasInitials;
-    case 'DATE_SIGNED':
-      return true;
-    case 'ATTACHMENT':
-      return !!s.attachments[f.id];
-    case 'CHECKBOX':
-      return s.values[f.id] === 'true';
-    case 'RADIO':
-      // One choice per group answers every option in it.
-      return all.some((o) => o.type === 'RADIO' && sameGroup(o, f) && s.values[o.id] === 'true');
-    default:
-      return !!s.values[f.id]?.trim();
-  }
-}
+/** A RADIO option's group: options sharing a groupKey are one choice. */
+export const groupOf = (f: SignerField) => f.groupKey ?? f.id;
 
-export const sameGroup = (a: SignerField, b: SignerField) =>
-  a.id === b.id || (!!a.groupKey && a.groupKey === b.groupKey);
+/** Which fields count as filled, worked out once per render (a radio group in one pass). */
+export function filledIds(fields: readonly SignerField[], s: Filled): Set<string> {
+  const answered = new Set(
+    fields.filter((f) => f.type === 'RADIO' && s.values[f.id] === 'true').map(groupOf),
+  );
+  const out = new Set<string>();
+  for (const f of fields) {
+    let filled: boolean;
+    switch (f.type) {
+      case 'SIGNATURE':
+        filled = !!s.adopted;
+        break;
+      case 'INITIALS':
+        filled = !!s.adopted?.hasInitials;
+        break;
+      case 'DATE_SIGNED':
+        filled = true;
+        break;
+      case 'ATTACHMENT':
+        filled = !!s.attachments[f.id];
+        break;
+      case 'CHECKBOX':
+        filled = s.values[f.id] === 'true';
+        break;
+      case 'RADIO':
+        // One choice answers every option in the group.
+        filled = answered.has(groupOf(f));
+        break;
+      default:
+        filled = !!s.values[f.id]?.trim();
+    }
+    if (filled) out.add(f.id);
+  }
+  return out;
+}
 
 /** Document order: page, then top to bottom, then left to right. */
 export const byPosition = (a: SignerField, b: SignerField) =>
   a.pageIndex - b.pageIndex || a.y - b.y || a.x - b.x;
 
-/** Required fields still to fill, in document order. */
-export function missing(fields: readonly SignerField[], s: Filled): SignerField[] {
-  return fields.filter((f) => f.required && !isFilled(f, fields, s)).sort(byPosition);
+/**
+ * What the signer still has to fill, in document order, each radio group once (its first
+ * option): the required ones, or with `optional` the others.
+ */
+export function toFill(
+  ordered: readonly SignerField[],
+  filled: Set<string>,
+  optional = false,
+): SignerField[] {
+  const groups = new Set<string>();
+  return ordered.filter((f) => {
+    if (f.required === optional || filled.has(f.id)) return false;
+    if (f.type !== 'RADIO') return true;
+    if (groups.has(groupOf(f))) return false;
+    groups.add(groupOf(f));
+    return true;
+  });
+}
+
+/** The required items the progress counts: each radio group once, never the stamped date. */
+export function requiredCount(fields: readonly SignerField[]): number {
+  const groups = new Set<string>();
+  return fields.filter((f) => {
+    if (!f.required || f.type === 'DATE_SIGNED') return false;
+    if (f.type !== 'RADIO') return true;
+    if (groups.has(groupOf(f))) return false;
+    groups.add(groupOf(f));
+    return true;
+  }).length;
 }
 
 /** `finish`'s values: every field the signer fills themselves, trimmed. */

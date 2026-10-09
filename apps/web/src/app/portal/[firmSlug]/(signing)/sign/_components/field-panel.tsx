@@ -13,7 +13,7 @@ import { useState } from 'react';
 import { FIELD_TYPE_LABELS } from '../../../../../../components/esign/field-labels';
 import { errorMessage } from '../../../../../../lib/errors';
 import { uploadFile } from '../../../../../../lib/upload';
-import { type Filled, sameGroup } from './signer-fields';
+import { type Filled, groupOf } from './signer-fields';
 
 const INPUT_TYPE: Partial<Record<SignerField['type'], string>> = { EMAIL: 'email', PHONE: 'tel' };
 const AUTOCOMPLETE: Partial<Record<SignerField['type'], string>> = {
@@ -67,7 +67,7 @@ export function FieldPanel(props: FieldPanelProps) {
         />
       );
     case 'RADIO': {
-      const group = props.fields.filter((o) => o.type === 'RADIO' && sameGroup(o, f));
+      const group = props.fields.filter((o) => o.type === 'RADIO' && groupOf(o) === groupOf(f));
       return (
         <fieldset className="flex flex-col gap-1">
           <legend className="text-sm font-medium text-text">Choose one</legend>
@@ -96,7 +96,8 @@ export function FieldPanel(props: FieldPanelProps) {
         />
       );
     case 'ATTACHMENT':
-      return <AttachmentInput {...props} label={label} />;
+      // Its own upload state per field.
+      return <AttachmentInput key={f.id} {...props} label={label} />;
     default:
       return (
         <Input

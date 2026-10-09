@@ -8,8 +8,8 @@ import {
   type SignerState,
   type SigningClient,
 } from '@firmivra/types';
-import { Button, Card, Modal } from '@firmivra/ui';
-import { type ReactNode, useState } from 'react';
+import { Button, Card, Input, Modal } from '@firmivra/ui';
+import { type ReactNode, useMemo, useState } from 'react';
 import { FieldOverlay, type OverlayField } from '../../../../../../components/esign/field-overlay';
 import { FIELD_TYPE_LABELS } from '../../../../../../components/esign/field-labels';
 import { PdfPages } from '../../../../../../components/esign/pdf-pages';
@@ -21,11 +21,12 @@ import { FieldPanel } from './field-panel';
 import {
   byPosition,
   type Filled,
+  filledIds,
   finishValues,
-  isFilled,
-  missing,
-  sameGroup,
+  groupOf,
+  requiredCount,
   startValues,
+  toFill,
 } from './signer-fields';
 
 const message = (e: unknown) => (e ? errorMessage(e, ESIGN_ERRORS) : undefined);
@@ -43,7 +44,7 @@ interface SignViewProps {
  */
 export function SignView({ signing, envelope, onState }: SignViewProps) {
   const { fields } = envelope;
-  const ordered = [...fields].sort(byPosition);
+  const ordered = useMemo(() => [...fields].sort(byPosition), [fields]);
   const [values, setValues] = useState(() => startValues(fields));
   const [attachments, setAttachments] = useState<Record<string, string>>(() =>
     Object.fromEntries(fields.flatMap((f) => (f.attachmentName ? [[f.id, f.attachmentName]] : []))),
@@ -61,10 +62,13 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
   const [today] = useState(() => new Date().toLocaleDateString(undefined, { dateStyle: 'medium' }));
 
   const filled: Filled = { values, attachments, adopted: adoptedOnServer };
-  const toFill = missing(fields, filled);
-  const required = fields.filter((f) => f.required && f.type !== 'DATE_SIGNED');
+  const done = filledIds(fields, filled);
+  const left = toFill(ordered, done);
+  const required = requiredCount(fields);
   const needsInitials = fields.some((f) => f.type === 'INITIALS');
-  const signs = envelope.autoSignaturePage || fields.some((f) => f.type === 'SIGNATURE');
+  // As the API checks: finishing always needs an adopted signature, with initials when they
+  // have an INITIALS field.
+  const needsAdopting = !adoptedOnServer || (needsInitials && !adoptedOnServer.hasInitials);
   const active = fields.find((f) => f.id === activeId) ?? null;
 
   const adopt = useApiMutation((body: SignerAdoptBody) => signing.adopt(body));
@@ -83,11 +87,11 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
   function next() {
     setNotice(undefined);
     const after = ordered.findIndex((f) => f.id === activeId);
-    // The next required field still empty after the current one, or the first from the top.
-    const target =
-      toFill.find((f) => ordered.indexOf(f) > after) ??
-      toFill[0] ??
-      ordered.find((f) => ordered.indexOf(f) > after && !isFilled(f, fields, filled));
+    const following = (list: SignerField[]) =>
+      list.find((f) => ordered.indexOf(f) > after) ?? list[0];
+    // The next empty required field after the current one (from the top again at the end);
+    // once those are done, the empty optional ones the same way.
+    const target = following(left) ?? following(toFill(ordered, done, true));
     if (target) goTo(target);
     else setNotice('Every field is filled in. Select Finish to sign.');
   }
@@ -98,7 +102,7 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
     setActiveId(id);
     if (f.type === 'CHECKBOX') setValue(id, values[id] === 'true' ? 'false' : 'true');
     if (f.type === 'RADIO') choose(id);
-    if ((f.type === 'SIGNATURE' || f.type === 'INITIALS') && !isFilled(f, fields, filled)) {
+    if ((f.type === 'SIGNATURE' || f.type === 'INITIALS') && !done.has(f.id)) {
       setAdopting(true);
     }
   }
@@ -112,7 +116,8 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
     if (!f) return;
     setValues((v) => {
       const out = { ...v };
-      for (const o of fields) if (o.type === 'RADIO' && sameGroup(o, f)) out[o.id] = 'false';
+      for (const o of fields)
+        if (o.type === 'RADIO' && groupOf(o) === groupOf(f)) out[o.id] = 'false';
       out[id] = 'true';
       return out;
     });
@@ -124,20 +129,22 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
         setAdoptedOnServer(e.adopted ? { hasInitials: e.adopted.hasInitials } : null);
         setMarks(adopted);
         setAdopting(false);
+        // A refused Finish ("adopt first") no longer applies.
+        finish.reset();
       },
     });
   }
 
   function submit() {
     setNotice(undefined);
-    if (signs && !adoptedOnServer) {
+    if (needsAdopting) {
       setAdopting(true);
       return;
     }
-    const first = toFill[0];
+    const first = left[0];
     if (first) {
       setNotice(
-        `Fill in every required field first: ${toFill.length} ${toFill.length === 1 ? 'is' : 'are'} left.`,
+        `Fill in every required field first: ${left.length} ${left.length === 1 ? 'is' : 'are'} left.`,
       );
       goTo(first);
       return;
@@ -162,10 +169,10 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
     required: f.required,
     label: f.label,
     value: textValue(f, values, attachments),
-    filled: isFilled(f, fields, filled),
+    // A radio group is answered by one option: only the chosen one shows as done.
+    filled: f.type === 'RADIO' ? values[f.id] === 'true' : done.has(f.id),
   }));
   const recipients = [{ id: envelope.me.recipientId, name: envelope.me.name, colorIndex: 0 }];
-  const done = required.length - toFill.length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -220,9 +227,9 @@ export function SignView({ signing, envelope, onState }: SignViewProps) {
           </p>
         )}
         <div className="flex flex-wrap items-center gap-3">
-          {required.length > 0 && (
+          {required > 0 && (
             <p data-testid="sign-progress" className="mr-auto text-sm text-muted">
-              {done} of {required.length} required done
+              {required - left.length} of {required} required done
             </p>
           )}
           {fields.length > 0 && (
@@ -301,9 +308,10 @@ function Mark({ mark }: { mark: AdoptedMark }) {
   if (mark.method === 'TYPED') {
     return <span className="font-display text-base text-heading italic">{mark.text}</span>;
   }
-  // A data URL drawn in this browser: next/image adds nothing here.
+  // A data URL drawn in this browser: next/image adds nothing here. It fills the field's box
+  // (the box is positioned), whatever its shape.
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={mark.png} alt="" className="h-full w-full object-contain" />;
+  return <img src={mark.png} alt="" className="absolute inset-0 h-full w-full object-contain" />;
 }
 
 /** Decline: the reason goes to the sender. The request is then declined for everyone. */
@@ -329,19 +337,12 @@ function DeclineDialog({
           If you decline, nobody can sign these documents and {senderName} is told. This can&apos;t
           be undone.
         </p>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="decline-reason" className="text-sm font-medium text-text">
-            Reason (optional, shown to {senderName})
-          </label>
-          <textarea
-            id="decline-reason"
-            rows={3}
-            maxLength={500}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="w-full rounded-control border border-border bg-surface px-3 py-2 text-base text-text focus-visible:outline-2 focus-visible:outline-focus"
-          />
-        </div>
+        <Input
+          label={`Reason (optional, shown to ${senderName})`}
+          maxLength={500}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
         {decline.error && (
           <p role="alert" className="text-sm text-danger">
             {message(decline.error)}

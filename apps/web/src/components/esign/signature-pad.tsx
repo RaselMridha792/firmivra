@@ -19,9 +19,16 @@ const HEIGHT = 200;
 const RATIO = 2;
 /** Uploaded images above this size are refused before they are read. */
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
-/** The longest adopted image as a data URL: the signing API takes a PNG of at most 200 KB. */
-export const MAX_SIGNATURE_CHARS =
-  'data:image/png;base64,'.length + Math.floor(ESIGN_SIGNATURE_PNG_MAX_BYTES / 3) * 4;
+/**
+ * The longest adopted image as a data URL. The contract allows a 200 KB PNG
+ * (ESIGN_SIGNATURE_PNG_MAX_BYTES), but one adopt carries the signature and the initials and the
+ * API's JSON body limit is still 100 KB: keep both well inside it. An ink-only photo or a drawing
+ * is a few KB.
+ */
+export const MAX_SIGNATURE_CHARS = Math.min(
+  45_000,
+  'data:image/png;base64,'.length + Math.floor(ESIGN_SIGNATURE_PNG_MAX_BYTES / 3) * 4,
+);
 /** In an uploaded picture, pixels lighter than this are paper; darker ones are ink. */
 const PAPER = 0.75;
 /** Pixels between this and PAPER fade from ink to paper, so the strokes keep smooth edges. */
@@ -200,6 +207,7 @@ function DrawPanel({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const [empty, setEmpty] = useState(true);
+  const [tooBig, setTooBig] = useState(false);
 
   useEffect(() => {
     const el = canvasRef.current;
@@ -249,13 +257,18 @@ function DrawPanel({
     if (!drawingRef.current) return;
     drawingRef.current = false;
     setEmpty(false);
-    onChange(e.currentTarget.toDataURL('image/png'));
+    const png = e.currentTarget.toDataURL('image/png');
+    // Scribbling over the whole box can outgrow what the API takes.
+    const tooBig = png.length > MAX_SIGNATURE_CHARS;
+    setTooBig(tooBig);
+    onChange(tooBig ? null : png);
   }
 
   function clear() {
     const el = canvasRef.current;
     el?.getContext('2d')?.clearRect(0, 0, WIDTH, HEIGHT);
     setEmpty(true);
+    setTooBig(false);
     onChange(null);
   }
 
@@ -275,6 +288,11 @@ function DrawPanel({
         onPointerCancel={end}
         className="aspect-3/1 w-full touch-none rounded-card border border-control-border bg-surface"
       />
+      {tooBig && (
+        <p role="alert" className="text-xs text-danger">
+          This drawing is too detailed. Clear it and sign more simply.
+        </p>
+      )}
       <div>
         <Button variant="secondary" onClick={clear} disabled={empty}>
           Clear
