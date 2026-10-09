@@ -34,7 +34,7 @@ export const isLockTimeout = (e: unknown) => databaseErrorCode(e) === '55P03';
  * grant, holds it so a revoke waits, writes the platform's and the firm's `support.viewed` rows,
  * moves the transaction into the firm's scope and makes it read-only. `fn` then reads with every
  * firm policy unchanged. No grant is 403 SUPPORT_GRANT_REQUIRED; a busy grant is a retryable 409.
- * Admin routes never open a plain business scope (test/unit/support-scope.test.ts).
+ * Admin routes never open a plain business scope (test/isolation/admin-scope.test.ts).
  */
 @Injectable()
 export class SupportScope {
@@ -49,13 +49,18 @@ export class SupportScope {
     const store = requestContext.getStore();
     try {
       return await this.db.withScope({ kind: 'admin', adminUserId }, async (tx) => {
-        await tx.$queryRaw`
-          SELECT app_enter_support_scope(${businessId}::uuid, ${view}, ${store?.ip ?? null},
-            ${store?.userAgent ?? null}, ${store?.requestId ?? null}) AS until`;
+        try {
+          await tx.$queryRaw`
+            SELECT app_enter_support_scope(${businessId}::uuid, ${view}, ${store?.ip ?? null},
+              ${store?.userAgent ?? null}, ${store?.requestId ?? null}) AS until`;
+        } catch (e) {
+          // Only the entry's own 42501 means "no grant"; one from `fn` stays an error.
+          if (databaseErrorCode(e) === '42501') throw supportScopeErrors.grantRequired();
+          throw e;
+        }
         return fn(tx);
       });
     } catch (e) {
-      if (databaseErrorCode(e) === '42501') throw supportScopeErrors.grantRequired();
       if (isLockTimeout(e)) throw supportScopeErrors.busy();
       throw e;
     }

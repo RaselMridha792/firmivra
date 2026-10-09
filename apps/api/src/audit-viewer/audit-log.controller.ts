@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { CurrentAuth, CurrentTenant, FIRM_MANAGERS, Roles } from '../auth/decorators.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { SupportAccessModule } from '../support-access/support-access.controller.js';
 import { SupportScope } from '../support-access/support-scope.js';
 import { AuditLogViewerService } from './audit-log.service.js';
 
@@ -55,6 +56,7 @@ export class AdminAuditLogController {
 
 @Module({
   controllers: [AuditLogController, AdminAuditLogController],
-  providers: [AuditLogViewerService, SupportScope],
+  imports: [SupportAccessModule],
+  providers: [AuditLogViewerService],
 })
 export class AuditViewerModule {}

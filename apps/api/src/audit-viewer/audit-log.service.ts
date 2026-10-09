@@ -143,7 +143,8 @@ export class AuditLogViewerService {
     const page = rows.slice(0, q.limit);
     const last = page.at(-1);
     // After the read, so the page never lists its own row. Later pages are the same read. A
-    // support read is already in both logs (support.viewed, every page).
+    // support read is already in both logs: its support.viewed rows are written as the read
+    // begins, in its transaction, so a support read's page 1 lists its own support.viewed.
     if (after === undefined && !support) {
       await this.audit.log('audit_log.viewed', { type: 'audit_log' }, viewedMetadata(q, range));
     }
