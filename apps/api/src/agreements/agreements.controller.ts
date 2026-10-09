@@ -1,15 +1,20 @@
 import { Body, Controller, Get, HttpCode, Module, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import {
+  type AgreementFile,
   AgreementPathId,
   AgreementVersionNumber,
   type AgreementVersion,
+  ConfirmUploadRequest,
   CreateAgreementRequest,
+  CreateAgreementUploadRequest,
+  type DownloadLink,
   type FirmAgreementDetail,
   type FirmAgreementList,
   type FirmAgreementSummary,
   type IntakeAgreementBlock,
   IntakeAgreementsQuery,
+  type UploadTicket,
   PublishAgreementVersionRequest,
 } from '@firmivra/types';
 import {
@@ -20,9 +25,19 @@ import {
   Public,
   Roles,
 } from '../auth/decorators.js';
+import { poolSecrets } from '../auth/sealed.js';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
 import type { AuthContext, TenantContext } from '../common/request-context.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
+import { DOCUMENTS_CONFIG, type DocumentsConfig, loadDocumentsConfig } from '../storage/config.js';
+import {
+  createS3Client,
+  DOCUMENT_STORAGE,
+  S3DocumentStorage,
+} from '../storage/document-storage.js';
+import { AgreementFilesService, AgreementUploadTokens } from './agreement-files.service.js';
 import { AGREEMENTS_CONFIG, agreementsConfig, AgreementsService } from './agreements.service.js';
 import { IntakeSignaturesService } from './intake-signatures.service.js';
 
@@ -44,7 +59,47 @@ const versionPipe = new ZodValidationPipe(
 @Roles(...FIRM_MANAGERS)
 @AllowBusinessStatuses('PENDING_SETUP', 'ACTIVE')
 export class AgreementsController {
-  constructor(private readonly agreements: AgreementsService) {}
+  constructor(
+    private readonly agreements: AgreementsService,
+    private readonly files: AgreementFilesService,
+  ) {}
+
+  /** PDF originals, step 1 of 3 (docs/api/agreements.yaml). */
+  @Post('files/uploads')
+  createUpload(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(CreateAgreementUploadRequest))
+    body: z.output<typeof CreateAgreementUploadRequest>,
+  ): Promise<UploadTicket> {
+    return this.files.ticket(tenant.businessId, auth.userId, body);
+  }
+
+  /** Step 3 of 3: checks the stored PDF and starts the scan. */
+  @Post('files/confirm')
+  confirmUpload(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(ConfirmUploadRequest)) body: z.output<typeof ConfirmUploadRequest>,
+  ): Promise<AgreementFile> {
+    return this.files.confirm(tenant.businessId, auth.userId, body.uploadToken);
+  }
+
+  @Get('files/:fileId')
+  file(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('fileId', idPipe) fileId: string,
+  ): Promise<AgreementFile> {
+    return this.files.file(tenant.businessId, fileId);
+  }
+
+  @Get('files/:fileId/download')
+  download(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('fileId', idPipe) fileId: string,
+  ): Promise<DownloadLink> {
+    return this.files.download(tenant.businessId, fileId);
+  }
 
   @Get()
   list(@CurrentTenant() tenant: TenantContext): Promise<FirmAgreementList> {
@@ -102,7 +157,10 @@ export class AgreementsController {
 /** GET /api/v1/portal/{firmSlug}/intake-agreements?form=: public, for Begin Online. */
 @Controller('portal/:firmSlug/intake-agreements')
 export class PublicAgreementsController {
-  constructor(private readonly agreements: AgreementsService) {}
+  constructor(
+    private readonly agreements: AgreementsService,
+    private readonly files: AgreementFilesService,
+  ) {}
 
   @Get()
   @Public()
@@ -112,6 +170,17 @@ export class PublicAgreementsController {
     query: z.output<typeof IntakeAgreementsQuery>,
   ): Promise<IntakeAgreementBlock> {
     return this.agreements.intakeBlock(firmSlug, query.form);
+  }
+
+  /** The current version's PDF original, as a 5-minute attachment link. */
+  @Get(':agreementId/versions/:version/pdf')
+  @Public()
+  pdf(
+    @Param('firmSlug') firmSlug: string,
+    @Param('agreementId', idPipe) agreementId: string,
+    @Param('version', versionPipe) version: number,
+  ): Promise<DownloadLink> {
+    return this.files.publicDownload(firmSlug, agreementId, version);
   }
 }
 
@@ -139,9 +208,23 @@ export class MyIntakeAgreementsController {
   controllers: [AgreementsController, PublicAgreementsController, MyIntakeAgreementsController],
   providers: [
     AgreementsService,
+    AgreementFilesService,
     IntakeSignaturesService,
+    // The documents bucket and settings, as DocumentsModule builds them (that module exports none).
+    { provide: DOCUMENTS_CONFIG, useFactory: () => loadDocumentsConfig() },
+    {
+      provide: DOCUMENT_STORAGE,
+      inject: [DOCUMENTS_CONFIG],
+      useFactory: (config: DocumentsConfig) =>
+        new S3DocumentStorage(createS3Client(config), config.bucket),
+    },
+    {
+      provide: AgreementUploadTokens,
+      inject: [ENV],
+      useFactory: (env: Env) => new AgreementUploadTokens(poolSecrets(env)),
+    },
     { provide: AGREEMENTS_CONFIG, useFactory: () => agreementsConfig() },
   ],
-  exports: [AgreementsService, IntakeSignaturesService],
+  exports: [AgreementsService, AgreementFilesService, IntakeSignaturesService],
 })
 export class AgreementsModule {}
