@@ -176,9 +176,16 @@ export class EsignRequestsService {
     await this.draft(businessId, actor, id);
     const documents = await this.repo.deleteDraft(businessId, id);
     if (!documents) throw esignRefusal('INVALID_STATE');
-    await this.audit.log('esign.request_discarded', entity(id), {
-      documentIds: documents.map((d) => d.id),
-    });
+    // The draft is gone once deleteDraft commits: a failed audit write must not answer 500 and
+    // leave its files behind, so it is logged (ids only) and the files are still removed.
+    try {
+      await this.audit.log('esign.request_discarded', entity(id), {
+        documentIds: documents.map((d) => d.id),
+      });
+    } catch (error) {
+      const name = error instanceof Error ? error.name : typeof error;
+      this.logger.error(`Could not audit the discard of esign request ${id}: ${name}`);
+    }
     for (const doc of documents) {
       try {
         await this.store.remove(businessId, doc.s3Key);
