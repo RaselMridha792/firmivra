@@ -87,7 +87,7 @@ export const short = (value: string | null | undefined): string | null => {
 };
 const day = (d: Date | null) => d?.toISOString().slice(0, 10) ?? null;
 /** An error's class name for the log (never its message, which may quote values). */
-const errorName = (error: unknown) => {
+export const errorName = (error: unknown) => {
   const name = error instanceof Error ? error.name : '';
   return /^[A-Za-z][\w.]{0,63}$/.test(name) ? name : 'Error';
 };

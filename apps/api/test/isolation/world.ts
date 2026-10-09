@@ -75,6 +75,12 @@ export interface CaseModule {
   cases?: Record<string, RecordCase>;
   /** `METHOD /api/v1/...` of each route that is neither a firm nor a portal route, and why. */
   excluded?: Record<string, string>;
+  /**
+   * `METHOD /api/v1/...` of each firm or portal route behind a module that is off in every firm
+   * until its migration lands, and why. It needs no case while the module is off; the suite checks
+   * it answers 403 MODULE_OFF, so the day the module is on, it fails until real cases replace it.
+   */
+  moduleOff?: Record<string, string>;
 }
 
 export class World {
