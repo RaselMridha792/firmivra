@@ -7,6 +7,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { requireFirmWideAgreement } from '../intake/intake-agreement.js';
 import { lockVersion, prepareSubmit, type SlotFile } from '../intake/intake-submit.js';
 import type { IntakeSigning } from '../intake/intakes.service.js';
 import { NOTIFY_SERVICE, type NotifyService } from '../notify/notify.types.js';
@@ -30,7 +31,8 @@ const sameFiles = (a: SlotFile[], b: SlotFile[]) =>
  * Sends a Begin Online draft (R11 step 3): the whole form is checked before the transaction
  * (`prepareSubmit`); then, holding the lead and its intake, nothing may have changed, the files of
  * hidden slots are deleted while the lead is still a draft (R0: lead files go only then), the
- * agreements are signed (`sign`) and the version is locked. The lead becomes SUBMITTED and its
+ * agreements are signed (`sign`) and the version is locked (409 NO_INTAKE_AGREEMENT, nothing
+ * changed, while the firm has no published firm-wide agreement). The lead becomes SUBMITTED and its
  * key is cleared (its draft expiry stays: R0 freezes it). After commit: the removed files' objects
  * are deleted, the cookie is cleared, and the visitor and the firm's owners and admins get an
  * email (service name and a link only).
@@ -89,6 +91,8 @@ export class DraftSubmitService {
       ) {
         throw changed();
       }
+      // Nothing to sign: 409 NO_INTAKE_AGREEMENT before any file or version changes.
+      await requireFirmWideAgreement(tx, businessId);
       const removed = hidden.length
         ? await tx.leadUpload.findMany({
             where: { id: { in: hidden.map((f) => f.id) } },
