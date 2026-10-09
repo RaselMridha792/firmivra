@@ -95,15 +95,17 @@ describe('FirmKeyJob: failures', () => {
   it('skips firms newer than the minimum age and firms waiting for a person', async () => {
     const ensureKey = vi.fn((id: string) => Promise.resolve(`arn:key/${id}`));
     const { job, tx } = jobWith(kms(ensureKey), true, ['f1', 'f2'], ['f2']);
-    const before = Date.now();
-    await job.sweep();
-    const after = Date.now();
+    // A fixed clock: two separate Date.now() reads around the sweep can be a millisecond apart.
+    const now = new Date('2026-10-09T12:00:00.000Z');
+    vi.useFakeTimers({ toFake: ['Date'], now });
+    try {
+      await job.sweep();
+    } finally {
+      vi.useRealTimers();
+    }
     const where = (tx.business.findMany.mock.calls[0]![0] as { where: { createdAt: { lt: Date } } })
       .where;
-    // The cutoff is "now" during the sweep minus the minimum age (the clock may tick meanwhile).
-    const cutoff = where.createdAt.lt.getTime();
-    expect(cutoff).toBeGreaterThanOrEqual(before - FIRM_KEY_SWEEP_MIN_AGE_MS);
-    expect(cutoff).toBeLessThanOrEqual(after - FIRM_KEY_SWEEP_MIN_AGE_MS);
+    expect(where.createdAt.lt.getTime()).toBe(now.getTime() - FIRM_KEY_SWEEP_MIN_AGE_MS);
     expect(ensureKey.mock.calls).toEqual([['f1']]);
   });
 
