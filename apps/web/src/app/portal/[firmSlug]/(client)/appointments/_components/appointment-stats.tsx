@@ -2,7 +2,7 @@
 
 import type { MyAppointment } from '@firmivra/types';
 import { useState } from 'react';
-import { CalendarDays, CircleCheck, CircleX, Clock, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Check, Clock, type LucideIcon, X } from 'lucide-react';
 
 /** The card's tint, and the icon circle's: tinted for the first two, solid for the last two. */
 const tones = {
@@ -32,10 +32,10 @@ export function AppointmentStats({
     [
       count(past, (a) => a.status === 'COMPLETED' && new Date(a.startsAt).getFullYear() === year),
       'Completed This Year',
-      CircleCheck,
+      Check,
       'success',
     ],
-    [count(past, (a) => a.status === 'CANCELLED'), 'Cancelled', CircleX, 'danger'],
+    [count(past, (a) => a.status === 'CANCELLED'), 'Cancelled', X, 'danger'],
   ];
   return (
     <>
