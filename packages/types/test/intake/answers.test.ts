@@ -5,6 +5,7 @@ import {
   hiddenSlotUploads,
   IntakeAnswers,
   IntakeAnswersInput,
+  IntakeFormDefinition,
   intakeNumbersMasked,
   intakeUploadCounts,
   maskIntakeAnswers,
@@ -297,6 +298,90 @@ describe('checkIntakeAnswers: submit', () => {
   });
 });
 
+describe('group rows on submit', () => {
+  /** A form with one group whose rows hold a required tick box and a required choice of two. */
+  const rows = IntakeFormDefinition.parse({
+    key: 'PAYROLL',
+    version: 1,
+    title: 'Rows',
+    steps: [
+      {
+        key: 'people',
+        title: 'People',
+        review: false,
+        sections: [
+          {
+            key: 'people',
+            title: 'People',
+            fields: [
+              {
+                key: 'people',
+                type: 'group',
+                label: 'People',
+                required: false,
+                minItems: 0,
+                maxItems: 5,
+                itemLabel: 'Person',
+                addLabel: 'Add Another Person',
+                fields: [
+                  { key: 'consent', type: 'checkbox', label: 'Consent', required: true },
+                  {
+                    key: 'roles',
+                    type: 'checkboxes',
+                    label: 'Roles',
+                    required: true,
+                    minItems: 2,
+                    options: [
+                      { value: 'A', label: 'A' },
+                      { value: 'B', label: 'B' },
+                      { value: 'C', label: 'C' },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        key: 'review',
+        title: 'Review',
+        review: true,
+        sections: [
+          {
+            key: 'note',
+            title: 'Note',
+            fields: [{ key: 'note', type: 'info', label: 'Note', text: 'Thanks', required: false }],
+          },
+        ],
+      },
+    ],
+  });
+  const check = (people: unknown[]) =>
+    messages(checkIntakeAnswers(rows, { people }, { mode: 'submit', today }));
+
+  it('needs a required tick box ticked and at least minItems choices in each row', () => {
+    expect(check([{ id: 'p1', consent: false, roles: ['A'] }])).toEqual([
+      ['people.0.consent', 'Tick this box to continue'],
+      ['people.0.roles', 'Choose at least 2'],
+    ]);
+    expect(check([{ id: 'p1' }])).toEqual([
+      ['people.0.consent', 'Tick this box to continue'],
+      ['people.0.roles', 'Choose at least one'],
+    ]);
+    expect(check([{ id: 'p1', consent: true, roles: ['A', 'B'] }])).toEqual([]);
+  });
+
+  it('asks nothing of a row on save', () => {
+    const saved = checkIntakeAnswers(
+      rows,
+      { people: [{ id: 'p1', consent: false, roles: ['A'] }] },
+      { mode: 'save', step: 'people', today },
+    );
+    expect(saved.issues).toEqual([]);
+  });
+});
+
 describe('married filers', () => {
   it("must give the spouse's first and last name, SSN and date of birth", () => {
     const married = submit(
@@ -356,6 +441,11 @@ describe('uploads on submit', () => {
       'businessDocuments',
       'gone',
     ]);
+  });
+
+  it('takes out a file whose slot is a shown field that is not an upload field', () => {
+    const files = [upload('governmentId', 'CLEAN'), upload('firstName', 'CLEAN')];
+    expect(hiddenSlotUploads(annual, complete, files).map((f) => f.slot)).toEqual(['firstName']);
   });
 });
 

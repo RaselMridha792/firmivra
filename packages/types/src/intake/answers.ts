@@ -247,8 +247,9 @@ export function intakeUploadCounts(
 }
 
 /**
- * The files a submit takes out of the form: those in upload slots the answers hide (a spouse's ID
- * after the filing status changed to Single), or in a slot the form no longer has.
+ * The files a submit takes out of the form: every file whose slot is not a shown upload field.
+ * That is a slot the answers hide (a spouse's ID after the filing status changed to Single), a
+ * slot the form no longer has, or a key that is not an upload field.
  */
 export function hiddenSlotUploads<T extends { slot: string }>(
   definition: IntakeFormDefinition,
@@ -256,7 +257,12 @@ export function hiddenSlotUploads<T extends { slot: string }>(
   uploads: readonly T[],
 ): T[] {
   const { fields } = shownIntakeKeys(definition, answers);
-  return uploads.filter((u) => !fields.has(u.slot));
+  const slots = new Set(
+    intakeFields(definition)
+      .filter((f) => f.type === 'upload' && fields.has(f.key))
+      .map((f) => f.key),
+  );
+  return uploads.filter((u) => !slots.has(u.slot));
 }
 
 // ---------- SSNs and EINs ----------
@@ -572,8 +578,10 @@ function checkGroup(
       const found = checkScalar(sub, rowRaw[sub.key], subPath, today);
       problems.push(...found.problems);
       if (found.value !== undefined) row[sub.key] = found.value;
-      else if (options.mode === 'submit' && sub.required && found.problems.length === 0) {
-        problems.push(requiredProblem(sub, subPath));
+      // On submit a shown sub-field is checked as a top-level field is: answered when required, a
+      // required checkbox ticked, at least `minItems` choices ticked.
+      if (options.mode === 'submit' && found.problems.length === 0) {
+        problems.push(...completeness(sub, found.value, subPath, {}));
       }
     }
     rows.push(row);

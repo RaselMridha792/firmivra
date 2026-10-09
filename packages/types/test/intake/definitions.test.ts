@@ -3,6 +3,7 @@ import {
   ANNUAL_TAX_FORM,
   fillIntakeText,
   INTAKE_FORMS,
+  INTAKE_LIMITS,
   intakeFields,
   type IntakeField,
   type IntakeFormDefinition,
@@ -113,6 +114,83 @@ describe('the definition rules', () => {
       const field = { key, type: 'yesNo', label: 'x', required: false };
       expect([key, passes(withField(field as IntakeField))]).toEqual([key, false]);
     }
+  });
+
+  it('caps a form at 200 fields, counting the fields of its groups', () => {
+    const yesNo = (key: string) => ({ key, type: 'yesNo', label: key, required: false });
+    const section = (key: string, from: number, count: number) => ({
+      key,
+      title: key,
+      fields: Array.from({ length: count }, (_, i) => yesNo(`f${String(from + i)}`)),
+    });
+    const group = (count: number) => ({
+      key: 'rows',
+      type: 'group',
+      label: 'Rows',
+      required: false,
+      minItems: 0,
+      maxItems: 2,
+      itemLabel: 'Row',
+      addLabel: 'Add',
+      fields: Array.from({ length: count }, (_, i) => yesNo(`g${String(i)}`)),
+    });
+    const form = (second: number, groupFields = 0) => ({
+      ...base,
+      steps: [
+        {
+          key: 'one',
+          title: 'One',
+          review: false,
+          sections: [section('a', 0, 100), section('b', 100, second)],
+        },
+        {
+          key: 'review',
+          title: 'Review',
+          review: true,
+          sections: [
+            {
+              key: 'c',
+              title: 'C',
+              fields: [groupFields ? group(groupFields) : yesNo('last')],
+            },
+          ],
+        },
+      ],
+    });
+    expect(INTAKE_LIMITS.maxFields).toBe(200);
+    expect(passes(form(99))).toBe(true);
+    expect(passes(form(100))).toBe(false);
+    // A group and its own fields: 100 + 90 + 1 + 9 = 200, then 201.
+    expect(passes(form(90, 9))).toBe(true);
+    expect(passes(form(90, 10))).toBe(false);
+    expect(Definition.safeParse(form(100)).error?.issues[0]?.message).toBe(
+      'A form has at most 200 fields',
+    );
+  });
+
+  it('bounds labels at 300 characters, help and texts at 500, option labels at 200', () => {
+    const long = (n: number) => 'x'.repeat(n);
+    const text = { key: 'extra', type: 'text', label: 'x', required: false, maxLength: 10 };
+    expect(passes(withField({ ...text, label: long(300) } as IntakeField))).toBe(true);
+    expect(passes(withField({ ...text, label: long(301) } as IntakeField))).toBe(false);
+    expect(passes(withField({ ...text, help: long(500) } as IntakeField))).toBe(true);
+    expect(passes(withField({ ...text, help: long(501) } as IntakeField))).toBe(false);
+    const info = { key: 'extra', type: 'info', label: 'x', required: false };
+    expect(passes(withField({ ...info, text: long(500) } as IntakeField))).toBe(true);
+    expect(passes(withField({ ...info, text: long(501) } as IntakeField))).toBe(false);
+    const radio = (label: string) => ({
+      key: 'extra',
+      type: 'radio',
+      label: 'x',
+      required: false,
+      options: [
+        { value: 'A', label },
+        { value: 'B', label: 'B' },
+      ],
+    });
+    expect(passes(withField(radio(long(200)) as IntakeField))).toBe(true);
+    expect(passes(withField(radio(long(201)) as IntakeField))).toBe(false);
+    expect(passes({ ...base, title: long(301) })).toBe(false);
   });
 
   it('fills {taxYear} and {firmName}, and leaves a missing one as it is', () => {

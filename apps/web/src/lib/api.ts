@@ -5,6 +5,7 @@ import {
   createAppointmentTypesClient,
   createAuditLogClient,
   createAvailabilityClient,
+  createBeginOnlineClient,
   createCalculatorsClient,
   createClientsClient,
   createClientSignUpsClient,
@@ -18,6 +19,7 @@ import {
   createMyCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
+  createMyIntakesClient,
   createMyInvoicesClient,
   createMyNotificationsClient,
   createMyProfileClient,
@@ -42,6 +44,7 @@ import {
   myAppointmentsMock,
 } from '../mocks/appointments';
 import { createAuditLogMock } from '../mocks/audit-log';
+import { beginOnlineMock } from '../mocks/begin-online';
 import { createAdminSupportAccessMock, createSupportAccessMock } from '../mocks/support-access';
 import { createCalculatorsMock, myCalculatorsMock } from '../mocks/calculators';
 import { createClientSignUpsMock } from '../mocks/client-auth';
@@ -49,6 +52,7 @@ import { createContentMock, myContentMock } from '../mocks/content';
 import { createDocumentsMock, myDocumentsMock } from '../mocks/documents';
 import { createEsignMock, mySignaturesMock } from '../mocks/esign';
 import { createFirmApplicationsMock } from '../mocks/firm-applications';
+import { myIntakesMock } from '../mocks/intake';
 import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
@@ -214,4 +218,12 @@ export const api = {
     dev && mocked('mySignatures')
       ? mySignaturesMock(firmSlug)
       : createMySignaturesClient(request, firmSlug),
+  /** Begin Online (R11): the public intake on a firm's portal site, without an account. */
+  beginOnline: (firmSlug: string) =>
+    dev && mocked('beginOnline')
+      ? beginOnlineMock(firmSlug)
+      : createBeginOnlineClient(request, firmSlug),
+  /** Intake forms (R11): the signed-in client's Intake Forms tab, per firm (portal). */
+  myIntakes: (firmSlug: string) =>
+    dev && mocked('myIntakes') ? myIntakesMock(firmSlug) : createMyIntakesClient(request, firmSlug),
 };
