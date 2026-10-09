@@ -58,7 +58,7 @@ import {
   SAMPLE_PDF_URL,
   SAMPLE_PNG_BASE64,
 } from './esign-common';
-import { esignExtrasMock, esignKioskOpen, esignMockRoleOf } from './esign-extras';
+import { esignExtrasMock, esignKioskOpen, esignMockMayApprove } from './esign-extras';
 import { esignAdminMock, type EsignBaseClient, esignDefaults } from './esign-signing';
 import { mockBusiness } from './me';
 
@@ -620,10 +620,13 @@ export function createEsignMock(
     if (r.status !== 'DRAFT') throw invalidState();
     return r;
   };
-  /** The Owner, or Sam once he is a Firm Sign Manager. */
+  /** The firm's members: the Owner (`mockMe`) and Sam Staff. */
+  const members = [
+    { ...STAFF[0]!, firmRole: 'OWNER' as const },
+    { ...STAFF[1]!, firmRole: 'STAFF' as const },
+  ];
   const mayApprove = (userId: string) =>
-    userId === mockMe.userId ||
-    (userId === mockStaff.userId && (role === 'MANAGER' || esignMockRoleOf(userId) === 'MANAGER'));
+    esignMockMayApprove(members, userId, { userId: me.userId, role });
   const open = (requestId: string, alsoApproval = false) => {
     const r = find(requestId);
     if (CLOSED.includes(r.status)) throw closed();
@@ -1364,10 +1367,7 @@ export function createEsignMock(
     client: { ...client, templates: admin.templates },
     role,
     visible: () => esignStore().details.filter(visible),
-    members: [
-      { ...STAFF[0]!, firmRole: 'OWNER' },
-      { ...STAFF[1]!, firmRole: 'STAFF' },
-    ],
+    members,
   });
   const { versions, restoreVersion, duplicate, bulkSend, ...rest } = extras;
   const all: EsignClient = {
@@ -1395,6 +1395,7 @@ const VIEWER_CALLS = [
   'settings.updateMyProfile',
   'templates.list',
   'templates.get',
+  'templates.packetUrl',
   'templates.versions',
   'inPerson.state',
   'bulk',
