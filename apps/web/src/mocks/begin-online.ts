@@ -93,7 +93,8 @@ const inDays = (days: number, from = Date.now()) => new Date(from + days * DAY).
 /** The tax year the mock firm prepares: the current one, as the mockups show it. */
 const taxYear = () => new Date().getFullYear();
 
-interface Draft {
+/** A draft as the mock stores it (the API's leads row and its answers). */
+export interface MockBeginDraft {
   form: IntakeFormKey;
   contact: BeginContact;
   answers: IntakeAnswers;
@@ -107,7 +108,7 @@ interface Draft {
 }
 
 /** The visitor's own activity renews a draft: 30 days from now, never past 90 days from start. */
-const renew = (d: Draft) => {
+const renew = (d: MockBeginDraft) => {
   const cap = Date.parse(d.startedAt) + BEGIN_ONLINE_LIMITS.maxDraftDays * DAY;
   d.expiresAt = new Date(
     Math.min(Date.now() + BEGIN_ONLINE_LIMITS.draftDays * DAY, cap),
@@ -116,14 +117,14 @@ const renew = (d: Draft) => {
 };
 
 /** The drafts behind the mock's resume links. Built on first use: importing this runs nothing. */
-function resumeFixtures(): Map<string, Draft> {
+function resumeFixtures(): Map<string, MockBeginDraft> {
   const avery: BeginContact = {
     firstName: 'Avery',
     lastName: 'Example',
     email: 'avery.example@lvp.test',
     phone: '+14045550147',
   };
-  const draft = (form: IntakeFormKey, data: Partial<Draft>): Draft => ({
+  const draft = (form: IntakeFormKey, data: Partial<MockBeginDraft>): MockBeginDraft => ({
     form,
     contact: avery,
     answers: { firstName: avery.firstName, lastName: avery.lastName, email: avery.email },
@@ -214,11 +215,17 @@ export function beginOnlineMock(firmSlug: string): BeginOnlineClient {
   return mock;
 }
 
-/** An in-memory `api.beginOnline(slug)`: only `lvp` (the mock firm) offers Begin Online. */
-export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
-  /** This browser's draft per service (the API's draft cookie). */
-  const current = new Map<IntakeFormKey, Draft>();
-  let tokens: Map<string, Draft> | undefined;
+/**
+ * An in-memory `api.beginOnline(slug)`: only `lvp` (the mock firm) offers Begin Online. `drafts`
+ * holds this browser's draft per service (the API's draft cookie); a test passes its own map to
+ * read what a submit stored, which no route shows once the draft is submitted.
+ */
+export function createBeginOnlineMock(
+  firmSlug: string,
+  drafts = new Map<IntakeFormKey, MockBeginDraft>(),
+): BeginOnlineClient {
+  const current = drafts;
+  let tokens: Map<string, MockBeginDraft> | undefined;
   const byToken = () => (tokens ??= resumeFixtures());
   const uploads = createMockSlotUploads();
   let linkRequests: number[] = [];
@@ -227,7 +234,7 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
   const firm = () => {
     if (parseInput(FirmSlug, firmSlug) !== mockBusiness.slug) throw notFound();
   };
-  const usable = (d: Draft) => {
+  const usable = (d: MockBeginDraft) => {
     if (d.submitted) throw fail(409, 'DRAFT_SUBMITTED', BEGIN_ONLINE_ERRORS.DRAFT_SUBMITTED);
     if (Date.parse(d.expiresAt) <= Date.now()) {
       // As the API: the answers and files go, and the lead only becomes EXPIRED.
@@ -243,7 +250,7 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
     if (!d) throw notFound();
     return usable(d);
   };
-  const view = (d: Draft): BeginDraft => {
+  const view = (d: MockBeginDraft): BeginDraft => {
     const definition = mockForm(d.form);
     return structuredClone({
       form: d.form,
@@ -259,7 +266,7 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
       updatedAt: d.updatedAt,
     });
   };
-  const saveStep = (d: Draft, step: string, answers: Record<string, unknown>) => {
+  const saveStep = (d: MockBeginDraft, step: string, answers: Record<string, unknown>) => {
     const definition = mockForm(d.form);
     const clean = answersOrFail(definition, answers, { mode: 'save', step });
     d.answers = storeStep(definition, step, clean, d.answers);
@@ -296,7 +303,7 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
       firm();
       const definition = mockForm(key);
       if (contact.email.includes('ratelimit')) throw rateLimited();
-      const d: Draft = {
+      const d: MockBeginDraft = {
         form: key,
         contact: { ...contact, phone: contact.phone ?? null },
         // The form's own contact fields start filled in, as the API does.

@@ -92,7 +92,9 @@ export function createBeginOnlineClient(request: ApiRequest, firmSlug: string) {
       }),
     /**
      * Step 3. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS;
-     * 409 TOO_MANY_FILES when files confirmed since step 1 filled the slot or the draft.
+     * 409 TOO_MANY_FILES when files confirmed since step 1 filled the slot or the draft: the API
+     * checks the slot's `maxFiles` and INTAKE_LIMITS.maxFiles again inside the confirm
+     * transaction that adds the file, so uploads confirmed at once never pass either limit.
      */
     confirmUpload: async (form: IntakeFormKey, body: ConfirmUploadRequest): Promise<IntakeUpload> =>
       request(IntakeUpload, `${draft(form)}/uploads/confirm`, {

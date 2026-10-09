@@ -251,6 +251,61 @@ describe('the definition rules', () => {
       passes(withField(pick(options(2)), shownIf({ field: 'pick', oneOf: Array(n).fill('O0') })));
     expect(oneOf(100)).toBe(true);
     expect(oneOf(101)).toBe(false);
+    const ticks = { key: 'ticks', type: 'checkboxes', label: 'x', required: false };
+    const includesAny = (n: number) =>
+      passes(
+        withField(
+          { ...ticks, options: options(2) } as IntakeField,
+          shownIf({ field: 'ticks', includesAny: Array(n).fill('O0') }),
+        ),
+      );
+    expect(includesAny(100)).toBe(true);
+    expect(includesAny(101)).toBe(false);
+    // `equals` is an option code or a boolean, never any other string or a number.
+    const yes = { key: 'yes', type: 'yesNo', label: 'x', required: false } as IntakeField;
+    expect(passes(withField(yes, shownIf({ field: 'yes', equals: true })))).toBe(true);
+    expect(passes(withField(yes, shownIf({ field: 'yes', equals: 1 })))).toBe(false);
+    expect(passes(withField(pick(options(2)), shownIf({ field: 'pick', equals: 'O1' })))).toBe(
+      true,
+    );
+    expect(passes(withField(pick(options(2)), shownIf({ field: 'pick', equals: 'o 1' })))).toBe(
+      false,
+    );
+  });
+
+  it('bounds the max-length texts of checkboxes and grids: at the limit ok, one more refused', () => {
+    const checkboxes = (selectAll: string) =>
+      ({
+        key: 'pick',
+        type: 'checkboxes',
+        label: 'x',
+        required: false,
+        options: options(100),
+        selectAll,
+      }) as IntakeField;
+    expect(passes(withField(checkboxes(long(300))))).toBe(true);
+    expect(passes(withField(checkboxes(long(301))))).toBe(false);
+    const grid = (row: object = {}, column: object = {}, extra: object = {}) =>
+      ({
+        key: 'table',
+        type: 'grid',
+        label: 'x',
+        required: false,
+        rows: [{ key: 'r1', label: 'Row', ...row }],
+        columns: [{ key: 'c1', label: 'Column', type: 'currency', ...column }],
+        ...extra,
+      }) as IntakeField;
+    expect(passes(withField(grid()))).toBe(true);
+    for (const [at, over] of [
+      [grid({ label: long(300) }), grid({ label: long(301) })],
+      [grid({ placeholder: long(300) }), grid({ placeholder: long(301) })],
+      [grid({ help: long(500) }), grid({ help: long(501) })],
+      [grid({}, { label: long(300) }), grid({}, { label: long(301) })],
+      [grid({}, {}, { totalLabel: long(300) }), grid({}, {}, { totalLabel: long(301) })],
+    ] as const) {
+      expect(passes(withField(at))).toBe(true);
+      expect(passes(withField(over))).toBe(false);
+    }
   });
 
   it('fills {taxYear} and {firmName}, and leaves a missing one as it is', () => {
