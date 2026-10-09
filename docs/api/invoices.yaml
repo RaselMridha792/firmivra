@@ -26,14 +26,15 @@ info:
       job opens it on that day. `DRAFT`, `SCHEDULED` and `OPEN` can be canceled (with a reason the
       client never sees). `PAID` and `CANCELED` are final. Nothing is ever deleted. Only a `DRAFT`
       is edited (`PUT`, the whole draft again, lines included); its client never changes.
-    - **Paid only by Stripe.** An invoice is `PAID` only once a verified Stripe webhook confirmed
-      payments covering its total. Pay Now sends no amount and marks nothing paid: the API starts
-      a Stripe Checkout for what the database says is due and answers its link. The browser never
-      sends an amount, a status or a Stripe key, and no card or bank detail ever reaches our API.
-      **No offline payments in this contract:** there is no way to record a check, cash or a bank
-      transfer, and no call marks an invoice paid by hand. Do not build one on the firm's pages;
-      whether beta needs it is open (R7-stripe.md, Open). Until then an invoice paid offline stays
-      open or is canceled.
+    - **Paid by Stripe or a recorded check or cash payment.** An invoice is `PAID` once the money
+      received covers its total: Stripe payments a verified webhook confirmed (refunded ones in
+      full: a refund never makes money owed again), plus live offline payments an Owner or Admin
+      recorded (`POST .../offline-payments`, Rasel's q28 (h), Oct 8). Pay Now sends no amount and
+      marks nothing paid: the API starts a Stripe Checkout for what the database says is due and
+      answers its link. The browser never sends a status or a Stripe key, and no card or bank
+      detail ever reaches our API (a check's number is its only reference; never a bank number).
+      Voiding an offline payment (with a reason) that leaves a `PAID` invoice uncovered reopens it
+      (`OPEN`). An invoice that holds money can't be canceled (`409 HAS_PAYMENTS`).
     - **What the client sees** (`myInvoiceStatus()`, the same in the API and the mock):
       `SCHEDULED` is Upcoming; `OPEN` is Due Soon within 7 days of its due date or once past it,
       otherwise Pending; Paid; Canceled. Drafts never reach the portal, nor does a draft canceled
@@ -83,8 +84,12 @@ info:
     | `ZERO_TOTAL` | send of a draft with nothing to pay (cancel it instead) |
     | `DUE_DATE_PASSED` | send that would open it today with a due date before today |
     | `INVOICE_CLOSED` | cancel of a paid or canceled invoice |
+    | `HAS_PAYMENTS` | cancel of an invoice holding money (a live offline payment, or a Stripe payment not refunded in full) |
+    | `NOT_OPEN` | offline payment on an invoice that is not `OPEN` |
+    | `AMOUNT_TOO_LARGE` | offline payment of more than the balance due |
+    | `ALREADY_VOIDED` | void of an offline payment voided already |
     | `CLIENT_ARCHIVED` | create, update or send for an archived client |
-    | `PAYMENT_IN_PROGRESS` | cancel, or Pay Now, while a submitted payment waits for Stripe |
+    | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe |
     | `NOT_PAYABLE` | Pay Now on an invoice that is upcoming, paid, canceled or has nothing left to pay |
     | `PAYMENTS_NOT_SET_UP` | Pay Now while the firm's Stripe account cannot take charges |
     | `NOT_REFUNDABLE` | refund of a payment that is not `SUCCEEDED` (pending, failed, refunded in full) |
@@ -96,7 +101,7 @@ info:
       membership) and filter Staff by `clients.assigned_user_id`. Portal routes take the client
       from the session's `ClientAccount`, never from the URL, and filter every query by it.
       `businessId` never comes from a body or query. Tenant-isolation e2e: firm B's Owner gets
-      `404` for firm A's invoice (get, update, send, cancel, refund); a client of firm A gets
+      `404` for firm A's invoice (get, update, send, cancel, refund, offline payment and void); a client of firm A gets
       `404` for another client's invoice and at firm B's portal; Staff get `404` for a client not
       assigned to them.
     - **Create and update.** Insert the invoice as an empty `DRAFT`, then its lines with
@@ -186,6 +191,19 @@ info:
       Mark the event `processed_at` and answer `200` quickly; anything else is `200` and ignored.
       A payment of an invoice canceled meanwhile is still recorded (the money was taken); the
       firm refunds it.
+    - **Offline payments.** Record in one transaction with `withScope({ kind: 'business',
+      businessId, actorUserId })` (the acting member; `recorded_by_user_id` is them, checked by the
+      database), after locking the invoice (`404` if not the firm's). A retry with a used
+      `idempotencyKey` fails as a duplicate key before any other check: answer the invoice as it
+      is (`200`, read the row by key). `receivedOn` after the firm's today is `400`. Then `409
+      NOT_OPEN` (not `OPEN`); end the invoice's open Checkout Sessions at Stripe as cancel does
+      (`409 PAYMENT_IN_PROGRESS` when the client already paid on one; `503` when Stripe does not
+      answer); `409 AMOUNT_TOO_LARGE` over the balance due (`total − app_invoice_paid_cents`). The
+      invoice turns `PAID` when covered (the API sets it, as the webhook does); notices
+      `payment.received` after commit. Void only with `app_void_offline_payment(id, reason)` as the
+      acting member (`404` for no such payment on this invoice, `409 ALREADY_VOIDED`); the
+      database reopens a `PAID` invoice it no longer covers. Both audited (ids, method and amount;
+      never the note). The portal's View lists live offline payments' method, amount and day only.
     - **Refund.** Lock the payment row (`404` if it is not this invoice's). When it is
       `SUCCEEDED` and the amount fits its `refundableCents`, call Stripe's `refunds.create` on the
       connected account with the payment intent, the amount, `metadata.refund_key` (the
@@ -354,7 +372,7 @@ paths:
     post:
       tags: [firm]
       operationId: cancelInvoice
-      summary: Draft, scheduled or open, with the firm's reason (Owner and Admin). 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS
+      summary: Draft, scheduled or open, with the firm's reason (Owner and Admin). 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS, HAS_PAYMENTS
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/CancelInvoiceRequest' } } }
@@ -387,6 +405,46 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: '`NOT_REFUNDABLE` or `REFUND_TOO_LARGE`' }
         '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /business/invoices/{id}/offline-payments:
+    parameters:
+      - { $ref: './auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/Id' }
+    post:
+      tags: [firm]
+      operationId: recordOfflinePayment
+      summary: Records a check or cash payment on an OPEN invoice, at most its balance due; PAID once covered (Owner and Admin). The same idempotencyKey again answers the invoice as it is
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RecordOfflinePaymentRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`NOT_OPEN`, `PAYMENT_IN_PROGRESS` or `AMOUNT_TOO_LARGE`' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /business/invoices/{id}/offline-payments/{offlinePaymentId}/void:
+    parameters:
+      - { $ref: './auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/Id' }
+      - { name: offlinePaymentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [firm]
+      operationId: voidOfflinePayment
+      summary: Voids a recorded check or cash payment with a reason; a PAID invoice it no longer covers reopens (Owner and Admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/VoidOfflinePaymentRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`ALREADY_VOIDED`' }
 
   /portal/{firmSlug}/me/invoices:
     get:
@@ -610,6 +668,23 @@ components:
       properties:
         amountCents: { type: integer, minimum: 1, maximum: 99999999, description: "At most the payment's refundableCents" }
         idempotencyKey: { type: string, format: uuid, description: 'New per refund dialog, the same on a retry' }
+    RecordOfflinePaymentRequest:
+      type: object
+      additionalProperties: false
+      required: [method, amountCents, receivedOn, idempotencyKey]
+      properties:
+        method: { type: string, enum: [CHECK, CASH] }
+        amountCents: { type: integer, minimum: 1, maximum: 99999999, description: At most the balance due }
+        reference: { type: string, pattern: '^[A-Za-z0-9-]{1,20}$', description: The check number (required for CHECK) or a cash receipt number; never a bank number }
+        receivedOn: { type: string, format: date, description: "The day the money arrived; not after the firm's today" }
+        note: { type: string, minLength: 1, maxLength: 500, description: The firm's only; never shown to the client }
+        idempotencyKey: { type: string, format: uuid, description: 'New per dialog, the same on a retry' }
+    VoidOfflinePaymentRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
     CheckoutLink:
       type: object
       required: [url, expiresAt]

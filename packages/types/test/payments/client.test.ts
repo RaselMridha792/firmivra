@@ -70,6 +70,16 @@ describe('api.invoices (firm)', () => {
       () => api.send(id),
       () => api.cancel(id, { reason: ' Billed twice ' }),
       () => api.refund(id, paymentId, { amountCents: 2_500, idempotencyKey: key }),
+      () =>
+        api.recordPayment(id, {
+          method: 'CHECK',
+          amountCents: 10_000,
+          reference: ' 1042 ',
+          receivedOn: '2026-10-08',
+          note: ' Dropped off ',
+          idempotencyKey: key,
+        }),
+      () => api.voidPayment(id, paymentId, { reason: ' Wrong invoice ' }),
     ]) {
       await call().catch(() => undefined);
     }
@@ -107,7 +117,49 @@ describe('api.invoices (firm)', () => {
       [`POST ${one}/cancel`, { reason: 'Billed twice' }],
       // The firm chooses how much to refund; Stripe returns it, and its webhook confirms it.
       [`POST ${one}/payments/${paymentId}/refunds`, { amountCents: 2_500, idempotencyKey: key }],
+      [
+        `POST ${one}/offline-payments`,
+        {
+          method: 'CHECK',
+          amountCents: 10_000,
+          reference: '1042',
+          receivedOn: '2026-10-08',
+          note: 'Dropped off',
+          idempotencyKey: key,
+        },
+      ],
+      [`POST ${one}/offline-payments/${paymentId}/void`, { reason: 'Wrong invoice' }],
     ]);
+  });
+
+  const cash = {
+    method: 'CASH',
+    amountCents: 5_000,
+    receivedOn: '2026-10-08',
+    idempotencyKey: key,
+  };
+  it.each([
+    ['a check without its number', { ...cash, method: 'CHECK' }],
+    ['a card method', { ...cash, method: 'CARD' }],
+    ['no amount', { ...cash, amountCents: 0 }],
+    ['part of a cent', { ...cash, amountCents: 10.5 }],
+    ['a reference with spaces', { ...cash, reference: '10 42' }],
+    ['a reference over 20 characters', { ...cash, reference: '1'.repeat(21) }],
+    ['a note over 500 characters', { ...cash, note: 'x'.repeat(501) }],
+    ['no idempotency key', { ...cash, idempotencyKey: undefined }],
+    ['a recorder from the browser', { ...cash, recordedByUserId: id }],
+    ['no day received', { ...cash, receivedOn: undefined }],
+  ])('refuses an offline payment with %s before sending', async (_, body) => {
+    const { fn, calls } = fakeFetch(200, {});
+    const api = createInvoicesClient(request(fn));
+    const call = api.recordPayment(id, body as Parameters<typeof api.recordPayment>[1]);
+    expect((await rejection(call)).code).toBe('VALIDATION_FAILED');
+    const voided = api.voidPayment(id, paymentId, { reason: ' ' });
+    expect((await rejection(voided)).code).toBe('VALIDATION_FAILED');
+    expect((await rejection(api.voidPayment(id, '../x', { reason: 'x' }))).code).toBe(
+      'VALIDATION_FAILED',
+    );
+    expect(calls).toEqual([]);
   });
 
   it.each([
@@ -284,6 +336,22 @@ describe('api.invoices (firm)', () => {
       amountPaidCents: 15_000,
       refundedCents: 2_500,
       payments: [payment],
+      offlinePayments: [
+        {
+          id,
+          method: 'CHECK',
+          amountCents: 1_000,
+          currency: 'usd',
+          reference: '1042',
+          receivedOn: '2026-01-20',
+          note: null,
+          recordedBy: { userId: id, name: 'Fake Owner' },
+          recordedAt: at,
+          voidedAt: at,
+          voidedBy: { userId: id, name: 'Fake Owner' },
+          voidReason: 'Wrong invoice',
+        },
+      ],
       cancelReason: null,
       createdBy: null,
     };

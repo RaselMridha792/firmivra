@@ -208,6 +208,8 @@ export function toInvoice(row: InvoiceRow, today: string): Invoice {
     ...toListItem(row, today),
     ...amountDetail(row),
     payments: shownPayments(row).map(toFirmPayment),
+    // Check and cash payments come with R0's offline_payments table (R7 step 11).
+    offlinePayments: [],
     cancelReason: row.cancelReason,
     createdBy: row.createdBy
       ? { userId: row.createdBy.userId, name: row.createdBy.user.name }
@@ -249,5 +251,10 @@ export function toMyInvoice(
 }
 
 export function toMyInvoiceDetail(row: InvoiceRow, mine: MyInvoice): MyInvoiceDetail {
-  return { ...mine, ...amountDetail(row), payments: shownPayments(row).map(toPayment) };
+  return {
+    ...mine,
+    ...amountDetail(row),
+    payments: shownPayments(row).map(toPayment),
+    offlinePayments: [],
+  };
 }

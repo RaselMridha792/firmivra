@@ -20,10 +20,14 @@ import {
   type MyInvoiceDetail,
   type MyInvoicesClient,
   myInvoiceStatus,
+  type OfflinePayment,
+  OfflinePaymentId,
   parseInput,
   PaymentId,
+  RecordOfflinePaymentRequest,
   RefundPaymentRequest,
   UpdateInvoiceRequest,
+  VoidOfflinePaymentRequest,
 } from '@firmivra/types';
 import { mockDelay } from '../lib/mock';
 import { mockMe } from './appointments';
@@ -36,7 +40,8 @@ import { mockOffset } from './tasks';
  * only, on R10's mock clients and services. Same input checks, rules, error codes and error order
  * (403, 400, 404, 409) as the API. Amounts are computed here as the database computes them.
  * `pay` answers a `mock:` checkout link that opens nothing and marks nothing paid; `refund` adds a
- * PENDING refund that stays pending (no Stripe webhook here). Dates follow today, so every client
+ * PENDING refund that stays pending (no Stripe webhook here). `recordPayment` and `voidPayment`
+ * keep check and cash payments as the database does (PAID once covered, reopened by a void). Dates follow today, so every client
  * status shows. Nothing is built until the first call.
  */
 const DAY = 86_400_000;
@@ -56,6 +61,7 @@ const invoiceId = (n: number) => `0199b6e1-0000-7000-8000-${String(n).padStart(1
 const lineId = (n: number) => `0199b6e2-0000-7000-8000-${String(n).padStart(12, '0')}`;
 const paymentId = (n: number) => `0199b6e3-0000-7000-8000-${String(n).padStart(12, '0')}`;
 const refundId = (n: number) => `0199b6e4-0000-7000-8000-${String(n).padStart(12, '0')}`;
+const offlineId = (n: number) => `0199b6e5-0000-7000-8000-${String(n).padStart(12, '0')}`;
 
 /** A payment as the database keeps it; what is refunded and refundable is computed from it. */
 type Payment = Omit<FirmInvoicePayment, 'refundedCents' | 'refundableCents'>;
@@ -79,15 +85,18 @@ interface Row {
   updatedAt: string;
   /** Submitted payments, newest first (checkouts the client left are never kept). */
   payments: Payment[];
+  /** Check and cash payments, voided ones included, newest first. */
+  offline: OfflinePayment[];
 }
 
 let fixtures: { rows: readonly Row[]; invoices: readonly Invoice[] } | undefined;
 
 /**
  * The firm's invoices. Client 1 (the signed-in portal client) has one of each: Pending, Due Soon
- * (one past due), one with a payment processing, Upcoming, three Paid (one partly refunded, one
- * after a failed bank payment), Canceled, one canceled while Upcoming (still shown as Canceled),
- * plus a draft and a draft canceled before it was sent (neither reaches the portal). Client 2 (Sam Staff's) and client 3 (not Sam's) have one open
+ * (one past due), one with a payment processing, Upcoming, four Paid (one partly refunded, one
+ * after a failed bank payment, one by check with a voided cash payment), Canceled, one canceled
+ * while Upcoming (still shown as Canceled), plus a draft and a draft canceled before it was sent
+ * (neither reaches the portal). Client 2 (Sam Staff's) and client 3 (not Sam's) have one open
  * invoice each.
  */
 function built() {
@@ -131,6 +140,7 @@ function built() {
       createdAt,
       updatedAt: createdAt,
       payments: [],
+      offline: [],
       ...data,
     };
   };
@@ -280,6 +290,46 @@ function built() {
       createdAt: noonOn(day(-6)),
       updatedAt: noonOn(day(-2)),
     }),
+    // Paid by check; a cash payment recorded by mistake was voided.
+    row(15, {
+      number: 'INV-2026-0095',
+      engagementId: service(1),
+      status: 'PAID',
+      lines: lines(['Prior-year return review', 1, 12_000]),
+      issuedAt: noonOn(day(-30)),
+      dueOn: day(-16),
+      paidAt: noonOn(day(-20)),
+      offline: [
+        {
+          id: offlineId(2),
+          method: 'CHECK',
+          amountCents: 12_000,
+          currency: 'usd',
+          reference: '1042',
+          receivedOn: day(-20),
+          note: null,
+          recordedBy: mockMe,
+          recordedAt: noonOn(day(-20)),
+          voidedAt: null,
+          voidedBy: null,
+          voidReason: null,
+        },
+        {
+          id: offlineId(1),
+          method: 'CASH',
+          amountCents: 12_000,
+          currency: 'usd',
+          reference: null,
+          receivedOn: day(-21),
+          note: null,
+          recordedBy: mockMe,
+          recordedAt: noonOn(day(-21)),
+          voidedAt: noonOn(day(-21)),
+          voidedBy: mockMe,
+          voidReason: 'Recorded on the wrong invoice.',
+        },
+      ],
+    }),
     row(12, {
       number: 'INV-2026-0104',
       clientId: client(2),
@@ -332,7 +382,12 @@ const firmPayment = (p: Payment): FirmInvoicePayment => ({
   refundableCents: refundable(p),
 });
 
-/** The amounts the database keeps, and what is still to pay. */
+const live = (r: Row) => r.offline.filter((o) => o.voidedAt === null);
+/**
+ * The amounts the database keeps, and what is still to pay: the money received counts Stripe
+ * payments that succeeded (refunded ones in full) and live offline payments, as the database's
+ * app_invoice_paid_cents does, so a refund never makes money owed again.
+ */
 function figures(r: Row) {
   const lines = r.lines.map((l) => ({
     ...l,
@@ -341,10 +396,10 @@ function figures(r: Row) {
   const subtotalCents = sum(lines.map((l) => l.amountCents));
   const totalCents = subtotalCents - r.discountCents;
   const received = r.payments.filter((p) => p.status === 'SUCCEEDED' || p.status === 'REFUNDED');
-  const amountPaidCents = sum(received.map((p) => p.amountCents));
+  const amountPaidCents =
+    sum(received.map((p) => p.amountCents)) + sum(live(r).map((o) => o.amountCents));
   const refundedCents = sum(received.map(refunded));
   const unpaid = r.status === 'DRAFT' || r.status === 'SCHEDULED' || r.status === 'OPEN';
-  const kept = amountPaidCents - refundedCents;
   return {
     lines,
     subtotalCents,
@@ -352,7 +407,7 @@ function figures(r: Row) {
     totalCents,
     amountPaidCents,
     refundedCents,
-    balanceDueCents: unpaid ? Math.max(0, totalCents - kept) : 0,
+    balanceDueCents: unpaid ? Math.max(0, totalCents - amountPaidCents) : 0,
   };
 }
 
@@ -393,6 +448,7 @@ function toInvoice(r: Row, day: string): Invoice {
     ...toListItem(r, day),
     ...f,
     payments: r.payments.map(firmPayment),
+    offlinePayments: r.offline,
     cancelReason: r.cancelReason,
     createdBy: r.createdBy,
   });
@@ -435,6 +491,14 @@ function toMyDetail(r: Row, day: string, paymentsEnabled: boolean): MyInvoiceDet
       const { failureCode: _f, refunds: _r, ...rest } = p;
       return { ...rest, refundedCents: refunded(p) };
     }),
+    // Live ones only: method, amount and day (no reference, note or who recorded it).
+    offlinePayments: live(r).map(({ id, method, amountCents, currency, receivedOn }) => ({
+      id,
+      method,
+      amountCents,
+      currency,
+      receivedOn,
+    })),
   });
 }
 
@@ -444,9 +508,13 @@ function store() {
   let next = 108;
   let nextLine = 1000;
   let nextRefund = 100;
+  let nextOffline = 100;
   return {
     rows,
     refundId: () => refundId(nextRefund++),
+    offlineId: () => offlineId(nextOffline++),
+    /** `{invoiceId}` of each offline payment by its idempotency key (keys are per firm). */
+    offlineKeys: new Map<string, string>(),
     /** `{paymentId}:{idempotencyKey}` of the refunds made through this mock (keys are per payment). */
     refunds: new Set<string>(),
     /** The API numbers invoices; the mock goes on from the fixtures' numbers. */
@@ -553,6 +621,7 @@ export function createInvoicesMock(
         createdAt: at,
         updatedAt: at,
         payments: [],
+        offline: [],
       });
       return toInvoice(r, today());
     },
@@ -603,6 +672,9 @@ export function createInvoicesMock(
       if (processing(r)) {
         throw fail(409, 'PAYMENT_IN_PROGRESS', 'A payment for this invoice is being processed');
       }
+      if (live(r).length > 0 || r.payments.some((p) => p.status === 'SUCCEEDED')) {
+        throw fail(409, 'HAS_PAYMENTS', "Void or refund this invoice's payments first");
+      }
       const at = now();
       const change: Partial<Row> = {
         status: 'CANCELED',
@@ -647,6 +719,65 @@ export function createInvoicesMock(
         createdAt: now(),
       });
       r.updatedAt = now();
+      return toInvoice(r, today());
+    },
+    recordPayment: async (id, body) => {
+      await mockDelay();
+      manager();
+      const key = parseInput(InvoiceId, id);
+      const b = parseInput(RecordOfflinePaymentRequest, body);
+      if (b.receivedOn > today()) {
+        throw fail(400, 'VALIDATION_FAILED', 'The day received cannot be in the future');
+      }
+      const r = find(key);
+      // A retry of a payment already recorded: the invoice as it is now, nothing recorded twice.
+      const recorded = s.offlineKeys.get(b.idempotencyKey);
+      if (recorded) return toInvoice(find(recorded), today());
+      if (r.status !== 'OPEN') throw fail(409, 'NOT_OPEN', 'Only an open invoice takes a payment');
+      if (processing(r)) {
+        throw fail(409, 'PAYMENT_IN_PROGRESS', 'A payment for this invoice is being processed');
+      }
+      if (b.amountCents > figures(r).balanceDueCents) {
+        throw fail(409, 'AMOUNT_TOO_LARGE', 'The payment is more than the balance due');
+      }
+      const at = now();
+      s.offlineKeys.set(b.idempotencyKey, r.id);
+      r.offline.unshift({
+        id: s.offlineId(),
+        method: b.method,
+        amountCents: b.amountCents,
+        currency: 'usd',
+        reference: b.reference ?? null,
+        receivedOn: b.receivedOn,
+        note: b.note ?? null,
+        recordedBy: mockMe,
+        recordedAt: at,
+        voidedAt: null,
+        voidedBy: null,
+        voidReason: null,
+      });
+      if (figures(r).balanceDueCents === 0) Object.assign(r, { status: 'PAID', paidAt: at });
+      r.updatedAt = at;
+      return toInvoice(r, today());
+    },
+    voidPayment: async (id, offlinePaymentId, body) => {
+      await mockDelay();
+      manager();
+      const key = parseInput(InvoiceId, id);
+      const oid = parseInput(OfflinePaymentId, offlinePaymentId);
+      const { reason } = parseInput(VoidOfflinePaymentRequest, body);
+      const r = find(key);
+      const o = r.offline.find((x) => x.id === oid);
+      if (!o) throw notFound();
+      if (o.voidedAt) throw fail(409, 'ALREADY_VOIDED', 'This payment is voided already');
+      const at = now();
+      Object.assign(o, { voidedAt: at, voidedBy: mockMe, voidReason: reason });
+      // A PAID invoice the payment no longer covers reopens, as the database does.
+      if (r.status === 'PAID') {
+        const { totalCents, amountPaidCents } = figures(r);
+        if (amountPaidCents < totalCents) Object.assign(r, { status: 'OPEN', paidAt: null });
+      }
+      r.updatedAt = at;
       return toInvoice(r, today());
     },
   };
