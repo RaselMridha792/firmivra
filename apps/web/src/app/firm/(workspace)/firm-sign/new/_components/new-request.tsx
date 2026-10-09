@@ -2,14 +2,16 @@
 
 import { ClientId, CreateEsignRequestBody, ESIGN_ERRORS } from '@firmivra/types';
 import { Button, Card, Input, Select } from '@firmivra/ui';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { EsignGate } from '../../../../../../components/esign/esign-gate';
 import { canCreate } from '../../../../../../components/esign/esign-role';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
-import { shouldRetry, useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { useApiMutation } from '../../../../../../lib/query';
+import { requestKey } from '../../requests/[id]/prepare/_components/steps';
+import { ClientPicker } from './client-picker';
 
 /** Step 0 of a request (/firm-sign/new): its name, client and service; then the wizard. */
 export function NewRequest({ clientId }: { clientId?: string }) {
@@ -34,25 +36,14 @@ function StartForm({ fromClient }: { fromClient?: string }) {
   const [clientId, setClientId] = useState(fromClient ?? '');
   const [engagementId, setEngagementId] = useState('');
   const [titleError, setTitleError] = useState<string>();
-  const clients = useApiQuery(['clients', 'list', 'esign-filter'], () =>
-    api.clients.list({ limit: 100 }),
-  );
-  const listed = clients.data?.items ?? [];
-  // A firm with more than 100 clients: the one from the client record may not be listed.
-  const missing = fromClient && !clients.isPending && !listed.some((c) => c.id === fromClient);
-  const from = useQuery({
-    queryKey: ['clients', fromClient],
-    queryFn: () => api.clients.get(fromClient ?? ''),
-    enabled: !!missing,
-    retry: shouldRetry,
+  const services = useQuery({
+    queryKey: ['engagements', clientId],
+    queryFn: () => api.engagements.listForClient(clientId),
+    enabled: !!clientId,
   });
-  const services = useApiQuery(['engagements', clientId], () =>
-    clientId ? api.engagements.listForClient(clientId) : Promise.resolve([]),
-  );
   const open = (services.data ?? []).filter((e) => ['PENDING', 'ACTIVE'].includes(e.status));
-  const create = useApiMutation((body: CreateEsignRequestBody) => api.esign.create(body), {
-    invalidate: ['esign'],
-  });
+  const queryClient = useQueryClient();
+  const create = useApiMutation((body: CreateEsignRequestBody) => api.esign.create(body));
 
   function submit() {
     const parsed = CreateEsignRequestBody.safeParse({
@@ -67,7 +58,13 @@ function StartForm({ fromClient }: { fromClient?: string }) {
     }
     setTitleError(undefined);
     create.mutate(parsed.data, {
-      onSuccess: (r) => router.push(`/firm-sign/requests/${r.id}/prepare`),
+      onSuccess: (r) => {
+        // The wizard opens on the draft just made; the lists and counters catch up behind it.
+        queryClient.setQueryData(requestKey(r.id), r);
+        void queryClient.invalidateQueries({ queryKey: ['esign', 'requests', 'list'] });
+        void queryClient.invalidateQueries({ queryKey: ['esign', 'summary'] });
+        router.push(`/firm-sign/requests/${r.id}/prepare`);
+      },
     });
   }
 
@@ -92,25 +89,13 @@ function StartForm({ fromClient }: { fromClient?: string }) {
             error={titleError}
             onChange={(e) => setTitle(e.target.value)}
           />
-          <Select
-            label="Client"
+          <ClientPicker
             value={clientId}
-            onChange={(e) => {
-              setClientId(e.target.value);
+            fromClient={fromClient}
+            onChange={(id) => {
+              setClientId(id);
               setEngagementId('');
             }}
-            options={[
-              { value: '', label: 'No client (someone outside your client list)' },
-              ...(missing && fromClient
-                ? [
-                    {
-                      value: fromClient,
-                      label: from.data?.displayName ?? 'The client you came from',
-                    },
-                  ]
-                : []),
-              ...listed.map((c) => ({ value: c.id, label: c.displayName })),
-            ]}
           />
           {clientId && (
             <Select

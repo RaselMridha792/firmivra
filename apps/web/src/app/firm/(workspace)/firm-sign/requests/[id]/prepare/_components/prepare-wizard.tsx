@@ -1,15 +1,14 @@
 'use client';
 
 import type { EsignRequestDetail } from '@firmivra/types';
-import { Card, Stepper } from '@firmivra/ui';
+import { Card } from '@firmivra/ui';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { EsignGate } from '../../../../../../../../components/esign/esign-gate';
 import { canCreate } from '../../../../../../../../components/esign/esign-role';
 import { PageState } from '../../../../../../../../components/page-state';
 import { api } from '../../../../../../../../lib/api';
-import { shouldRetry } from '../../../../../../../../lib/query';
-import { stepHref, type StepId } from './steps';
+import { requestKey, stepHref, type StepId } from './steps';
 
 const STEPS: { id: StepId; label: string }[] = [
   { id: 'documents', label: 'Documents' },
@@ -38,9 +37,8 @@ export function PrepareWizard({ id, step }: { id: string; step: StepId }) {
 
 function Wizard({ id, step }: { id: string; step: StepId }) {
   const request = useQuery<EsignRequestDetail, Error>({
-    queryKey: ['esign', 'requests', id],
+    queryKey: requestKey(id),
     queryFn: () => api.esign.get(id),
-    retry: shouldRetry,
     // A new upload is checked for viruses: look again until every file is ready.
     refetchInterval: (q) =>
       q.state.data?.documents.some((d) => d.scanStatus === 'PENDING') ? 2000 : false,
@@ -60,12 +58,12 @@ function Wizard({ id, step }: { id: string; step: StepId }) {
           </div>
           {r.status === 'DRAFT' ? (
             <>
-              <Stepper label="Steps" steps={STEPS} current={step} />
+              <StepNav id={r.id} current={step} />
               <Step r={r} step={step} />
             </>
           ) : (
             <Card>
-              <p className="text-text">This request has been sent, so it can no longer change.</p>
+              <p className="text-text">{LOCKED[r.status] ?? LOCKED.SENT}</p>
               <Link
                 href={`/firm-sign/requests/${r.id}`}
                 className="mt-2 inline-flex min-h-11 items-center text-link underline"
@@ -77,6 +75,45 @@ function Wizard({ id, step }: { id: string; step: StepId }) {
         </div>
       )}
     </PageState>
+  );
+}
+
+const LOCKED: Partial<Record<EsignRequestDetail['status'], string>> = {
+  NEEDS_APPROVAL:
+    'This request is waiting for approval, so it can’t change. If an approver asks for changes, it comes back here as a draft.',
+  SENT: 'This request has been sent, so it can no longer change.',
+  COMPLETED: 'This request is completed.',
+  DECLINED: 'This request was declined, so it is closed.',
+  EXPIRED: 'This request expired, so it is closed.',
+  VOIDED: 'This request was voided, so it is closed.',
+};
+
+/**
+ * The steps as links, the current one marked. Not the setup Stepper: that marks every earlier
+ * step as done, and here a step can be skipped and come back to.
+ */
+function StepNav({ id, current }: { id: string; current: StepId }) {
+  return (
+    <nav aria-label="Steps">
+      <ol className="flex flex-wrap gap-2">
+        {STEPS.map((s, i) => (
+          <li key={s.id}>
+            <Link
+              href={stepHref(id, s.id)}
+              aria-current={s.id === current ? 'step' : undefined}
+              className={`inline-flex min-h-11 items-center gap-2 rounded-pill px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-focus ${
+                s.id === current
+                  ? 'bg-action text-on-action'
+                  : 'bg-brand-50 text-heading hover:bg-brand-100'
+              }`}
+            >
+              <span aria-hidden="true">{i + 1}.</span>
+              {s.label}
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </nav>
   );
 }
 

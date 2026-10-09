@@ -13,12 +13,14 @@ test('start a request: it needs a name, then opens the wizard', async ({ page })
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(/\/firm-sign\/requests\/[0-9a-f-]+\/prepare$/);
   await expect(page.getByTestId('page-title')).toHaveText('Synthetic Engagement Letter');
-  await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible();
+  await expect(
+    page.getByRole('navigation', { name: 'Steps' }).getByRole('link', { name: 'Documents' }),
+  ).toHaveAttribute('aria-current', 'step');
 });
 
 test('from a client record the client is chosen', async ({ page }) => {
   await page.goto(app(`/firm-sign/new?clientId=${JAMIE}`));
-  await expect(page.getByLabel('Client')).toHaveValue(JAMIE);
+  await expect(page.getByLabel('Client', { exact: true })).toHaveValue(JAMIE);
   await page.getByLabel('Document name').fill('Synthetic W-2 sign-off');
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByText('For Jamie Sample')).toBeVisible();
