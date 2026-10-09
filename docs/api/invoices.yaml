@@ -109,7 +109,8 @@ info:
       `sort_order` in the order sent; the database computes the amounts and refuses the rest.
       Update replaces the lines in one transaction (delete and insert; lines can be deleted only
       while the invoice is a draft). Numbers: `INV-{year}-{4 digits}`, the next in the firm,
-      unique per firm (retry once on the unique violation). `engagementId` must be one of this
+      unique per firm, taken one at a time per firm under a transaction-scoped advisory lock
+      (one retry on a unique violation stays as the backstop). `engagementId` must be one of this
       client's engagements (`404` otherwise; the three-column foreign key also refuses another
       client's). The discount is checked against the subtotal before writing (`400`; the
       database's `invoices_amounts` check is the backstop).
