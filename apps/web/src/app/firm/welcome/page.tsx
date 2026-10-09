@@ -31,21 +31,19 @@ export default function WelcomePage() {
   return (
     <main className="flex min-h-screen flex-col justify-center bg-canvas py-8 sm:py-12">
       <PageContainer className="flex flex-col gap-8">
-        <header className="rounded-2xl bg-brand-900 px-6 py-7 text-white shadow-card sm:px-10 sm:py-9">
-          <BrandLockup subtitle="Firm workspace" tone="dark" />
-          <div className="mt-8 max-w-2xl">
-            <p className="text-sm font-semibold text-brand-100">Firm onboarding</p>
-            <h1 className="mt-2 font-serif text-3xl font-bold tracking-tight sm:text-4xl">
-              Your firm, ready for what&apos;s next
-            </h1>
-            <p className="mt-3 text-brand-100">Choose how you want to continue with Firmivra.</p>
-          </div>
+        <header>
+          <BrandLockup subtitle="Firm workspace" />
+          <h1 className="mt-10 font-display text-4xl font-bold tracking-tight text-heading md:text-5xl">
+            Your firm, ready for what&apos;s next
+          </h1>
+          <p className="mt-1 text-lg text-muted">Choose how you want to continue with Firmivra.</p>
         </header>
         <section aria-label="Choose an account action" className="grid gap-5 md:grid-cols-3">
           {options.map((option) => (
             <Card
               key={option.title}
-              className="flex min-h-64 flex-col items-start gap-5 border-t-4 border-t-action p-6 shadow-sm transition-shadow hover:shadow-card sm:p-7"
+              variant="elevated"
+              className="flex min-h-64 flex-col items-start gap-5 transition-shadow hover:shadow-lg sm:p-7"
             >
               <span className="flex size-12 items-center justify-center rounded-xl bg-info-soft text-action">
                 {option.href === '/sign-in' ? (
@@ -57,7 +55,7 @@ export default function WelcomePage() {
                 )}
               </span>
               <div>
-                <h2 className="font-serif text-xl font-bold text-heading">{option.title}</h2>
+                <h2 className="text-xl font-semibold text-brand-900">{option.title}</h2>
                 <p className="mt-2 text-sm leading-6 text-muted">{option.body}</p>
               </div>
               <Link
