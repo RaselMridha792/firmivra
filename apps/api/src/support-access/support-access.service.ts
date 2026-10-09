@@ -62,9 +62,11 @@ export class SupportAccessService {
     const created = await this.db.withScope({ kind: 'admin', adminUserId }, async (tx) => {
       const firm = await tx.business.findUnique({
         where: { id: businessId },
-        select: { id: true, name: true, slug: true },
+        select: { id: true, name: true, slug: true, status: true },
       });
       if (!firm) throw supportErrors.notFound();
+      // Only an active firm's Owners can see and answer the ask.
+      if (firm.status !== 'ACTIVE') throw supportErrors.firmNotActive();
       // Parallel asks by one Super Admin for one firm meet on this key: the second is the same
       // 409, never a second open request.
       const key = `fv-support-access:${businessId}:${adminUserId}`;
@@ -87,6 +89,7 @@ export class SupportAccessService {
         'support.requested',
         { type: 'support_access_grant', id: row.id },
         { businessId },
+        { businessId: null },
       );
       return { row, firm, names: await namesIn(tx, [adminUserId]) };
     });
@@ -233,7 +236,7 @@ export class SupportAccessService {
   /**
    * The firm's row for a Super Admin's ask, as "Firmivra Support": the actor is the Super Admin,
    * whom the firm's log viewer shows only as Firmivra Support (no person, no IP), and the
-   * metadata never names them. Written after the ask, in the firm's scope; a failure is logged
+   * metadata never names them, and no IP or user agent is kept. Written after the ask, in the firm's scope; a failure is logged
    * by id and the ask stands.
    */
   private async firmRow(
@@ -247,7 +250,7 @@ export class SupportAccessService {
         action,
         { type: 'support_access_grant', id: grantId },
         {},
-        { businessId, actorUserId: adminUserId },
+        { businessId, actorUserId: adminUserId, withoutOrigin: true },
       );
     } catch {
       this.logger.warn(`Could not copy ${action} to the firm's log (grant ${grantId})`);

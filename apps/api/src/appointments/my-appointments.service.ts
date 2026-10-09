@@ -274,7 +274,7 @@ export class MyAppointmentsService {
       const slot = { start, end: start + type.durationMinutes * MINUTE };
       endsInCalendar(slot.end);
       const staff = await this.choose(tx, businessId, me, slot, retry);
-      await lockForBooking(tx, businessId, staff.userId);
+      await lockForBooking(tx, businessId, staff.userId, me.clientId);
       const created = await tx.appointment.create({
         data: {
           businessId,
@@ -311,7 +311,7 @@ export class MyAppointmentsService {
       const slot = { start, end: start + lengthOf(current) };
       endsInCalendar(slot.end);
       const staff = await this.choose(tx, businessId, me, slot, retry, current);
-      await lockForBooking(tx, businessId, staff.userId);
+      await lockForBooking(tx, businessId, staff.userId, current.clientId);
       const updated = await tx.appointment.update({
         where: { id: current.id },
         data: {
