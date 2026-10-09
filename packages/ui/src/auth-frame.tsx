@@ -1,11 +1,19 @@
 import type { ReactNode } from 'react';
 import { AuthIcon } from './auth-icon';
-const features = [
-  ['firm', 'Manage Firms', 'Review and approve new firm applications.'],
-  ['users', 'Oversee Users', 'Maintain platform access and permissions.'],
-  ['chart', 'Track Growth', 'Monitor subscriptions, usage and performance.'],
-  ['settings', 'Control Settings', 'Manage platform features and configurations.'],
-] as const;
+const features = {
+  admin: [
+    ['firm', 'Manage Firms', 'Review and approve new firm applications.'],
+    ['users', 'Oversee Users', 'Maintain platform access and permissions.'],
+    ['chart', 'Track Growth', 'Monitor subscriptions, usage and performance.'],
+    ['settings', 'Control Settings', 'Manage platform features and configurations.'],
+  ],
+  firm: [
+    ['users', 'Serve Clients', 'Keep client details, documents and messages together.'],
+    ['firm', 'Run Your Firm', 'Manage your services, appointments and invoices.'],
+    ['chart', 'Track Work', 'Follow tasks, requests and intake forms.'],
+    ['settings', 'Control Access', 'Give each team member the right access.'],
+  ],
+} as const;
 export function AuthFrame({
   site,
   title,
@@ -32,7 +40,7 @@ export function AuthFrame({
               : 'Access your Firmivra workspace to manage your team, clients, documents and services.'}
           </p>
           <div className="auth-features">
-            {features.map(([icon, heading, description], index) => (
+            {features[site].map(([icon, heading, description], index) => (
               <div className="auth-feature" key={heading}>
                 <span aria-hidden="true" className={index % 2 ? 'auth-icon teal' : 'auth-icon'}>
                   <AuthIcon name={icon} />
