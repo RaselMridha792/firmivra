@@ -2,7 +2,14 @@
 // firm A's call with a firm B key refused (S3 and the in-memory fake alike), vault copies only
 // from the firm's own documents, and the engine module providing the store.
 import { randomUUID } from 'node:crypto';
-import { CopyObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  type S3Client,
+} from '@aws-sdk/client-s3';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import { EsignEngineModule } from '../../src/esign/engine/engine.module.js';
@@ -42,6 +49,11 @@ describe('keys', () => {
       `tenant/${firmA}/esign/${requestA}//x.pdf`,
       `tenant/${firmA}/esign/`,
       `tenant/${firmA}/esign/${requestA}/a b.pdf`,
+      `tenant/${firmA}/esign/x.pdf`,
+      `tenant/${firmA}/esign/${requestA}`,
+      `tenant/${firmA}/esign/${requestA}/..%2F..%2Fx.pdf`,
+      `tenant/${firmA}/esign/${requestA}/..\\x.pdf`,
+      `tenant/${firmA}/esign/${requestA}\\x.pdf`,
     ];
     for (const key of bad) expect(() => checkKey(firmA, key), key).toThrow(EsignKeyError);
     expect(() => checkKey('not-a-uuid', `tenant/not-a-uuid/esign/x`)).toThrow(EsignKeyError);
@@ -123,6 +135,37 @@ describe('S3 store', () => {
     });
     expect(copy).toBeInstanceOf(CopyObjectCommand);
     expect(copy.input).toMatchObject({ Key: key, CopySource: `fake-bucket/${vault}` });
+  });
+});
+
+describe('S3 store reads', () => {
+  it('reads, heads and removes keys in the firm; refuses a firm B key before sending', async () => {
+    const sent: unknown[] = [];
+    const s3 = {
+      send: (command: unknown) => {
+        sent.push(command);
+        return Promise.resolve({
+          ContentLength: bytes.length,
+          Body: { transformToByteArray: () => Promise.resolve(bytes) },
+        });
+      },
+    } as unknown as S3Client;
+    const store = new S3EsignStore(s3, 'fake-bucket');
+    const key = store.keyFor(firmA, requestA, 'packet.pdf');
+    expect(await store.read(firmA, key)).toEqual(bytes);
+    expect(await store.head(firmA, key)).toEqual({ sizeBytes: bytes.length });
+    await store.remove(firmA, key);
+    expect(sent.map((c) => c?.constructor)).toEqual([
+      GetObjectCommand,
+      HeadObjectCommand,
+      DeleteObjectCommand,
+    ]);
+    expect((sent as GetObjectCommand[]).every((c) => c.input.Key === key)).toBe(true);
+    const other = `tenant/${firmB}/esign/${requestA}/packet.pdf`;
+    expect(() => store.read(firmA, other)).toThrow(EsignKeyError);
+    await expect(store.head(firmA, other)).rejects.toThrow(EsignKeyError);
+    expect(() => store.remove(firmA, other)).toThrow(EsignKeyError);
+    expect(sent).toHaveLength(3);
   });
 });
 
