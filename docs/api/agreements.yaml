@@ -23,7 +23,7 @@ info:
     | Agreement editor | `get`, `getVersion`, `publish`; the PDF with `uploadFile()` (`createUpload`, PUT, `confirmUpload`), then `file` until CLEAN, `download` |
     | Begin Online, review step | `publicAgreements(slug).block({ form })`, `downloadPdf(agreementId, version)` |
     | Portal intake, review step | `myIntakeAgreements(slug).block(intakeId)`, `publicAgreements(slug).downloadPdf(agreementId, version)` |
-    | Intake submit (R11) | `signature: IntakeSignatureInput` in the submit body |
+    | Intake submit (R11) | `signature: IntakeSignatureInput` in the submit body; Begin Online picks its service and form only through `beginOnlineService(tx, form)`, the block's own lookup |
 
     - **Who:** firm routes are for the Owner and Admin (`401` signed out, `403 FORBIDDEN` for
       staff) and work while the firm is Pending Setup. Public routes need no sign-in; the firm
@@ -33,10 +33,12 @@ info:
     - **The block:** Begin Online asks with `?form=<IntakeFormKey>`; the API resolves the firm's
       unarchived Begin Online service of that kind (none: `404`) and answers the firm-wide
       agreement, then that service's published, unarchived agreements (sort order, then
-      creation). Until R0's `services.begin_online` lands, "the Begin Online service" is the
-      first unarchived service of that kind (sort order, creation, id). The portal intake asks
+      creation). "The Begin Online service" is the firm's unarchived service of that kind marked
+      `begin_online` (at most one per kind); a service not marked answers `404`. The portal intake asks
       by intake id and the API uses the intake's form's service (`intakes.form_id ->
-      intake_forms.service_id`, what #155's checks use), not a lookup by kind. `legal` is null unless the firm has published both Terms and Privacy, and always
+      intake_forms.service_id`, what #155's checks use), not a lookup by kind. Begin Online's submit must resolve its service and form only through
+      `beginOnlineService(tx, form)` (agreements.service.ts), so the signed set matches the block;
+      any other choice gives a firm with two services of one kind `409 AGREEMENT_OUTDATED`. `legal` is null unless the firm has published both Terms and Privacy, and always
       null on the portal route.
     - **Series and versions:** each firm has one firm-wide agreement (`ALL_INTAKES`) and up to 9
       unarchived service agreements per service (`SERVICE`; a 10th answers `409
@@ -45,7 +47,7 @@ info:
       new version is current from the moment it is published). `expectedCurrentVersion` guards against two people publishing
       at once (`409 VERSION_CONFLICT`). The firm-wide agreement needs at least one required
       acknowledgment and can't be archived (`409 FIRM_WIDE_REQUIRED`).
-    - **PDF original:** with `AGREEMENT_PDF_REQUIRED` on (default) each version needs a PDF whose
+    - **PDF original:** with `AGREEMENT_PDF_REQUIRED` on (off by default until uploads and scans work end to end on dev) each version needs a PDF whose
       scan is CLEAN (`409 PDF_REQUIRED`, `FILE_NOT_READY`, `FILE_BLOCKED`). `PDF_REQUIRED` is a
       publish code only: a submit never answers it (the signature sends nothing for the PDF; the
       API pins the version's `pdf_sha256`). `createUpload` takes `uploadFile()`'s facts with
@@ -183,7 +185,7 @@ paths:
     post:
       tags: [agreement-files]
       operationId: createAgreementUpload
-      summary: Step 1 of 3, a one-time PUT URL for the PDF (5 minutes)
+      summary: Step 1 of 3, a one-time PUT URL for the PDF (240 seconds)
       requestBody: { $ref: '#/components/requestBodies/CreateAgreementUploadRequest' }
       responses:
         '201': { $ref: './documents.yaml#/components/responses/UploadTicket' }
@@ -202,10 +204,12 @@ paths:
         content: { application/json: { schema: { $ref: './documents.yaml#/components/schemas/ConfirmUploadRequest' } } }
       responses:
         '201': { $ref: '#/components/responses/AgreementFile' }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
         '401': { $ref: './settings.yaml#/components/responses/Unauthenticated' }
         '403': { $ref: './settings.yaml#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/AgreementConflict' }
         '410': { $ref: '#/components/responses/AgreementConflict' }
+        '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed, or 4 checks are already running; nothing is deleted' }
 
   /business/agreements/files/{fileId}:
     parameters:
@@ -285,9 +289,15 @@ paths:
       security: []
       operationId: downloadIntakeAgreementPdf
       summary: The current version's PDF original (an older version answers 404)
+      description: |
+        Any current, unarchived agreement of the firm, a service one included, whether or not its
+        service is marked Begin Online: the portal intake signs those too. Intended.
       responses:
         '200': { $ref: '#/components/responses/DownloadLink' }
+        '400': { $ref: './settings.yaml#/components/responses/ValidationFailed' }
         '404': { $ref: './settings.yaml#/components/responses/NotFound' }
+        '409': { description: 'FILE_BLOCKED: the stored file is no longer the confirmed one' }
+        '503': { description: 'SERVICE_UNAVAILABLE, with Retry-After: storage failed' }
 
 components:
   securitySchemes:

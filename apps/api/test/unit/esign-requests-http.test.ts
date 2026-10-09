@@ -802,4 +802,15 @@ describe('the module switch (ModuleGuard)', () => {
     expect(stand.then).toBeUndefined();
     expect(() => stand.findRequest()).toThrow(/Repo.findRequest is not available yet/);
   });
+
+  it('answers a signed-in client 403 MODULE_OFF, and 404 only with no firm (public signer routes)', async () => {
+    for (const module of ['esign', 'calculators'] as const) {
+      const h = () => 0;
+      Reflect.defineMetadata('firmivra:module', module, h);
+      expect(await answer(guardFor(false).canActivate(ctx(clientTenant, h)))).toBe(
+        '403 MODULE_OFF',
+      );
+      expect(await answer(guardFor(false).canActivate(ctx(undefined, h)))).toBe('404 NOT_FOUND');
+    }
+  });
 });

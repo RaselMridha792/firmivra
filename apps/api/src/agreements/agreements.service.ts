@@ -28,34 +28,44 @@ import { DATABASE } from '../database/database.module.js';
 import { day, isUniqueViolation, memberNames, memberRef } from '../workspaces/common.js';
 
 /**
- * AGREEMENT_PDF_REQUIRED (default true): every version needs a CLEAN PDF original (Rasel's
- * decision 3, Oct 8). Only Rasel turns it off.
+ * AGREEMENT_PDF_REQUIRED: every version needs a CLEAN PDF original (Rasel's decision 3, Oct 8).
+ * Off by default until a firm can upload and scan a PDF on dev end to end (the agreement editor's
+ * upload and the scan); then the default goes back to true. Empty counts as unset.
  */
 export interface AgreementsConfig {
   pdfRequired: boolean;
 }
 export const AGREEMENTS_CONFIG = Symbol('AGREEMENTS_CONFIG');
 export function agreementsConfig(env: NodeJS.ProcessEnv = process.env): AgreementsConfig {
-  const flag = z.enum(['true', 'false']).default('true').parse(env['AGREEMENT_PDF_REQUIRED']);
-  return { pdfRequired: flag === 'true' };
+  const raw = env['AGREEMENT_PDF_REQUIRED'];
+  const flag = z
+    .enum(['true', 'false'])
+    .default('false')
+    .safeParse(raw === '' ? undefined : raw);
+  if (!flag.success) throw new Error('AGREEMENT_PDF_REQUIRED must be "true" or "false"');
+  return { pdfRequired: flag.data === 'true' };
 }
 
 const notFound = () => new NotFoundException({ code: 'NOT_FOUND', message: 'Not found' });
 const conflict = (code: string, message: string) => new ConflictException({ code, message });
 
 const fileSelect = { id: true, fileName: true, sizeBytes: true, sha256: true } as const;
-const versionSelect = {
-  id: true,
-  agreementId: true,
+/** What lists and histories show: no text, acknowledgments or hash. */
+const versionSummarySelect = {
   version: true,
   title: true,
-  bodyMarkdown: true,
-  bodySha256: true,
-  acknowledgments: true,
   effectiveDate: true,
   publishedAt: true,
   publishedByUserId: true,
   pdfFile: { select: fileSelect },
+} as const;
+const versionSelect = {
+  ...versionSummarySelect,
+  id: true,
+  agreementId: true,
+  bodyMarkdown: true,
+  bodySha256: true,
+  acknowledgments: true,
 } as const;
 const agreementSelect = {
   id: true,
@@ -65,20 +75,22 @@ const agreementSelect = {
   archivedAt: true,
   service: { select: { id: true, name: true } },
   _count: { select: { versions: true } },
-  versions: { orderBy: { version: 'desc' }, take: 1, select: versionSelect },
+  versions: { orderBy: { version: 'desc' }, take: 1, select: versionSummarySelect },
 } as const;
 
-type VersionRow = {
-  agreementId: string;
+type VersionSummaryRow = {
   version: number;
   title: string;
-  bodyMarkdown: string;
-  bodySha256: string;
-  acknowledgments: unknown;
   effectiveDate: Date | null;
   publishedAt: Date;
   publishedByUserId: string;
   pdfFile: { id: string; fileName: string; sizeBytes: number; sha256: string } | null;
+};
+type VersionRow = VersionSummaryRow & {
+  agreementId: string;
+  bodyMarkdown: string;
+  bodySha256: string;
+  acknowledgments: unknown;
 };
 type AgreementRow = {
   id: string;
@@ -88,10 +100,10 @@ type AgreementRow = {
   archivedAt: Date | null;
   service: { id: string; name: string } | null;
   _count: { versions: number };
-  versions: VersionRow[];
+  versions: VersionSummaryRow[];
 };
 
-const pdfOf = (row: VersionRow): AgreementPdf | null =>
+const pdfOf = (row: VersionSummaryRow): AgreementPdf | null =>
   row.pdfFile && {
     fileId: row.pdfFile.id,
     fileName: row.pdfFile.fileName,
@@ -107,7 +119,7 @@ const acknowledgmentsOf = (value: unknown): AcknowledgmentView[] =>
     required,
   }));
 
-function summaryOf(row: VersionRow, names: Map<string, string>): AgreementVersionSummary {
+function summaryOf(row: VersionSummaryRow, names: Map<string, string>): AgreementVersionSummary {
   return {
     version: row.version,
     title: row.title,
@@ -189,7 +201,7 @@ export class AgreementsService {
         where: { id: agreementId },
         select: {
           ...agreementSelect,
-          versions: { orderBy: { version: 'desc' }, select: versionSelect },
+          versions: { orderBy: { version: 'desc' }, select: versionSummarySelect },
         },
       });
       if (!row) throw notFound();
@@ -225,8 +237,8 @@ export class AgreementsService {
     const firmWideExists = () =>
       conflict('FIRM_WIDE_EXISTS', 'The firm already has a firm-wide agreement');
     const row = await this.inFirm(businessId, async (tx) => {
-      // One create at a time per firm (so per service too): sort orders don't collide, and two
-      // creates can't both pass the per-service count below.
+      // One create at a time per firm (so per service too): two creates can't both pass the
+      // firm-wide check or the per-service count below.
       const key = `firm_agreements:${businessId}`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
       if (body.scope === 'ALL_INTAKES') {
@@ -235,8 +247,9 @@ export class AgreementsService {
         });
         if (open > 0) throw firmWideExists();
       } else {
+        if (!body.serviceId) throw notFound();
         const service = await tx.service.findFirst({
-          where: { id: body.serviceId ?? undefined, archivedAt: null },
+          where: { id: body.serviceId, archivedAt: null },
           select: { id: true },
         });
         if (!service) throw notFound();
@@ -250,14 +263,14 @@ export class AgreementsService {
           );
         }
       }
-      const count = await tx.firmAgreement.count();
+      let created;
       try {
-        return await tx.firmAgreement.create({
+        // sortOrder stays 0: there is no reorder call yet, so creation order decides.
+        created = await tx.firmAgreement.create({
           data: {
             businessId,
             scope: body.scope,
             serviceId: body.scope === 'SERVICE' ? body.serviceId : null,
-            sortOrder: count,
             createdByUserId: userId,
           },
           select: agreementSelect,
@@ -266,12 +279,14 @@ export class AgreementsService {
         if (isUniqueViolation(error)) throw firmWideExists();
         throw error;
       }
+      await this.audit.logIn(
+        tx,
+        'agreement.created',
+        { type: 'firm_agreement', id: created.id },
+        { scope: created.scope, serviceId: created.service?.id ?? null },
+      );
+      return created;
     });
-    await this.audit.log(
-      'agreement.created',
-      { type: 'firm_agreement', id: row.id },
-      { scope: row.scope, serviceId: row.service?.id ?? null },
-    );
     return agreementOf(row, new Map());
   }
 
@@ -285,7 +300,7 @@ export class AgreementsService {
       // The series row is locked, so two publishers get VERSION_CONFLICT, never two versions.
       const [series] = await tx.$queryRaw<{ scope: string; archived_at: Date | null }[]>`
         SELECT scope::text, archived_at FROM firm_agreements WHERE id = ${agreementId}::uuid
-        FOR UPDATE`;
+        FOR NO KEY UPDATE`;
       if (!series) throw notFound();
       if (series.archived_at) {
         throw conflict('AGREEMENT_ARCHIVED', 'This agreement is archived');
@@ -302,10 +317,16 @@ export class AgreementsService {
         throw new BadRequestException({
           code: 'VALIDATION_FAILED',
           message: 'The firm-wide agreement needs at least one required acknowledgment',
+          details: [
+            {
+              path: 'acknowledgments',
+              message: 'The firm-wide agreement needs at least one required acknowledgment',
+            },
+          ],
         });
       }
       const pdf = await this.cleanPdf(tx, body.pdfFileId ?? null);
-      return tx.firmAgreementVersion.create({
+      const created = await tx.firmAgreementVersion.create({
         data: {
           businessId,
           agreementId,
@@ -320,12 +341,14 @@ export class AgreementsService {
         },
         select: versionSelect,
       });
+      await this.audit.logIn(
+        tx,
+        'agreement.version_published',
+        { type: 'firm_agreement', id: agreementId },
+        { version: created.version, pdfFileId: created.pdfFile?.id ?? null },
+      );
+      return created;
     });
-    await this.audit.log(
-      'agreement.version_published',
-      { type: 'firm_agreement', id: agreementId },
-      { version: row.version, pdfFileId: row.pdfFile?.id ?? null },
-    );
     return versionOf(
       row,
       await this.inFirm(businessId, (tx) => memberNames(tx, businessId, [userId])),
@@ -333,7 +356,7 @@ export class AgreementsService {
   }
 
   async archive(businessId: string, agreementId: string): Promise<FirmAgreementSummary> {
-    const { row, changed } = await this.inFirm(businessId, async (tx) => {
+    return this.inFirm(businessId, async (tx) => {
       const found = await tx.firmAgreement.findUnique({
         where: { id: agreementId },
         select: { scope: true },
@@ -346,6 +369,12 @@ export class AgreementsService {
         where: { id: agreementId, archivedAt: null },
         data: { archivedAt: new Date() },
       });
+      if (count > 0) {
+        await this.audit.logIn(tx, 'agreement.archived', {
+          type: 'firm_agreement',
+          id: agreementId,
+        });
+      }
       const updated = await tx.firmAgreement.findUniqueOrThrow({
         where: { id: agreementId },
         select: agreementSelect,
@@ -355,12 +384,8 @@ export class AgreementsService {
         businessId,
         updated.versions.map((v) => v.publishedByUserId),
       );
-      return { row: agreementOf(updated, names), changed: count > 0 };
+      return agreementOf(updated, names);
     });
-    if (changed) {
-      await this.audit.log('agreement.archived', { type: 'firm_agreement', id: agreementId });
-    }
-    return row;
   }
 
   /**
@@ -433,14 +458,14 @@ export class AgreementsService {
 }
 
 /**
- * The firm's Begin Online service for a form: its unarchived service of that kind (the first by
- * sort order, creation, then id); none answers 404. Runs in the firm's scope. When R0's
- * `services.begin_online` lands (one live Begin Online service per kind), filter on it here.
+ * The firm's Begin Online service for a form: its unarchived service of that kind marked
+ * `begin_online` (at most one, by R0's unique index); none answers 404. Runs in the firm's scope.
+ * Begin Online's submit resolves its service only through this, so the block and the signature
+ * always agree.
  */
 export async function beginOnlineService(tx: TxClient, form: IntakeFormKey) {
   const service = await tx.service.findFirst({
-    where: { kind: form, archivedAt: null },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    where: { kind: form, archivedAt: null, beginOnline: true },
     select: { id: true },
   });
   if (!service) throw notFound();
@@ -484,6 +509,8 @@ export async function currentAgreements(
       bodySha256: v.bodySha256,
       acknowledgments: acknowledgmentsOf(v.acknowledgments),
       pdf: {
+        // A version links only a CLEAN file (the versions trigger) and a scan result never
+        // changes once set, so a linked file stays downloadable unless its bytes change.
         available: v.pdfFile !== null,
         sha256: v.pdfFile?.sha256 ?? null,
         fileName: v.pdfFile?.fileName ?? null,

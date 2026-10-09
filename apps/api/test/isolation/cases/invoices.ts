@@ -1,5 +1,5 @@
-// Invoices to a client: the firm's invoice routes and refunds, and the portal's own invoices and
-// Pay Now.
+// Invoices to a client: the firm's invoice routes, refunds and check or cash payments, and the
+// portal's own invoices and Pay Now.
 import { randomUUID } from 'node:crypto';
 import type { CaseModule, SeedContext } from '../world.js';
 
@@ -44,7 +44,7 @@ export const records: CaseModule['records'] = {
   openInvoice: { clientPrivate: true, create: openInvoice },
   /** Another one, for the checkout below (cash cannot be recorded while a checkout is open). */
   checkoutInvoice: { clientPrivate: true, create: openInvoice },
-  /** A Pay Now checkout the client opened on the open invoice and left (PENDING). */
+  /** A Pay Now checkout the client opened on its own open invoice and left (PENDING). */
   payment: {
     clientPrivate: true,
     async create({ tx, businessId, get }) {
@@ -78,6 +78,30 @@ export const records: CaseModule['records'] = {
       return row.id;
     },
   },
+  /** 10.00 in cash on the open invoice, recorded by firm P's Owner. */
+  offlinePayment: {
+    clientPrivate: true,
+    async create({ tx, businessId, get, owner }) {
+      // Only the acting Owner or Admin records one: act as the Owner for this insert only.
+      const actAs = (id: string) =>
+        tx.$queryRaw`SELECT set_config('app.current_actor_id', ${id}, true)`;
+      await actAs(owner.id);
+      const row = await tx.offlinePayment.create({
+        data: {
+          businessId,
+          invoiceId: await get('openInvoice'),
+          method: 'CASH',
+          amountCents: 1_000,
+          currency: 'usd',
+          receivedOn: new Date(`${day(-3)}T00:00:00.000Z`),
+          idempotencyKey: randomUUID(),
+          recordedByUserId: owner.id,
+        },
+      });
+      await actAs('');
+      return row.id;
+    },
+  },
 };
 
 export const cases: CaseModule['cases'] = {
@@ -103,6 +127,19 @@ export const cases: CaseModule['cases'] = {
     params: { id: 'checkoutInvoice', paymentId: 'payment' },
     body: () => ({ amountCents: 100, idempotencyKey: randomUUID() }),
     expect: 409,
+  },
+  'POST /api/v1/business/invoices/:id/offline-payments': {
+    params: { id: 'openInvoice' },
+    body: () => ({
+      method: 'CASH',
+      amountCents: 1_000,
+      receivedOn: day(-3),
+      idempotencyKey: randomUUID(),
+    }),
+  },
+  'POST /api/v1/business/invoices/:id/offline-payments/:offlinePaymentId/void': {
+    params: { id: 'openInvoice', offlinePaymentId: 'offlinePayment' },
+    body: { reason: 'Recorded by mistake' },
   },
   'GET /api/v1/portal/:firmSlug/me/invoices/:id': { params: { id: 'openInvoice' } },
   // Found, but firm P has no Stripe account that takes charges.

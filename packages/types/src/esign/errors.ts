@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 /** Stable `error.code` values of Firm Sign, besides the generic ones in ApiError. */
 export const EsignErrorCode = z.enum([
-  /** 403 (firm routes): Firm Sign is off for this firm. Public and signer routes answer 404. */
+  /**
+   * 403 (firm routes and signed-in portal routes, the Signature center): Firm Sign is off for
+   * this firm. Public signer routes answer 404.
+   */
   'MODULE_OFF',
   /** 409: the request's status does not allow this (for example editing a sent request). */
   'INVALID_STATE',
