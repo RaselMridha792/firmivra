@@ -130,6 +130,16 @@ function localSubmissionLabel(value: string) {
   return `${dateLabel}\n${timeLabel}`;
 }
 
+/** The recent applications' columns from xl: spans of a 20-column grid, near the mockup's widths. */
+const COLUMNS = [
+  'xl:col-span-4',
+  'xl:col-span-3',
+  'xl:col-span-4',
+  'xl:col-span-3',
+  'xl:col-span-3',
+  'xl:col-span-3',
+] as const;
+
 function statusPresentation(status: FirmApplicationListItem['status']) {
   const label = status
     .toLowerCase()
@@ -157,31 +167,31 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
   return (
     <li
       data-testid="recent-application"
-      className="grid gap-2 rounded-control border border-border p-3 text-sm xl:grid-cols-[1.3fr_1fr_1.35fr_0.9fr_1fr_0.65fr] xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-3 xl:py-4"
+      className="grid gap-2 rounded-control border border-border p-3 text-sm xl:grid-cols-20 xl:items-center xl:gap-2 xl:rounded-none xl:border-0 xl:border-b xl:px-3 xl:py-4"
     >
-      <span className="font-semibold text-text">
+      <span className={`font-semibold text-text ${COLUMNS[0]}`}>
         <span className="text-xs text-muted xl:hidden">Business: </span>
         {application.legalName}
       </span>
-      <span>
+      <span className={COLUMNS[1]}>
         <span className="text-xs text-muted xl:hidden">Contact: </span>
         {application.contactName}
       </span>
-      <span className="break-words xl:truncate">
+      <span className={`break-words xl:truncate ${COLUMNS[2]}`}>
         <span className="text-xs text-muted xl:hidden">Email: </span>
         {application.contactEmail}
       </span>
-      <time dateTime={application.submittedAt}>
+      <time dateTime={application.submittedAt} className={COLUMNS[3]}>
         <span className="text-xs text-muted xl:hidden">Submitted: </span>
         {submittedDate}
         <span className="block text-muted">{submittedTime}</span>
       </time>
-      <span>
+      <span className={COLUMNS[4]}>
         <span className={'rounded-full px-2 py-1 text-xs font-medium ' + status.tone}>
           {status.label}
         </span>
       </span>
-      <span>
+      <span className={COLUMNS[5]}>
         <Link
           href={`/applications/${application.id}`}
           className="inline-flex items-center justify-center rounded-control bg-brand-900 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
@@ -248,10 +258,12 @@ export function DashboardOverview() {
             >
               Recent Firm Applications
             </SectionTitle>
-            <div className="hidden gap-2 bg-canvas px-3 py-3 text-xs text-muted xl:grid xl:grid-cols-[1.3fr_1fr_1.35fr_0.9fr_1fr_0.65fr]">
+            <div className="hidden gap-2 bg-canvas px-3 py-3 text-xs text-muted xl:grid xl:grid-cols-20">
               {['Business Name', 'Owner / Contact', 'Email', 'Submitted', 'Status', 'Actions'].map(
-                (label) => (
-                  <span key={label}>{label}</span>
+                (label, index) => (
+                  <span key={label} className={COLUMNS[index]}>
+                    {label}
+                  </span>
                 ),
               )}
             </div>
@@ -270,7 +282,7 @@ export function DashboardOverview() {
             </PageState>
           </Card>
 
-          <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+          <div className="grid gap-4 lg:grid-cols-2">
             <Card data-testid="platform-growth" className="!p-4 min-h-70">
               <SectionTitle icon={ChartColumn}>
                 Platform Growth <span className="text-sm font-normal text-muted">(Beta)</span>
