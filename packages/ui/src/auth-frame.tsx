@@ -17,10 +17,13 @@ const features = {
 export function AuthFrame({
   site,
   title,
+  subtitle,
   children,
 }: {
   site: 'firm' | 'admin';
   title: string;
+  /** The line under the title; sign-in and other steps have their own. */
+  subtitle?: string;
   children: ReactNode;
 }) {
   const portal = site === 'admin' ? 'SUPER ADMIN PORTAL' : 'FIRM WORKSPACE';
@@ -62,9 +65,10 @@ export function AuthFrame({
           {title}
         </h2>
         <p className="auth-subtitle">
-          {title === 'Welcome Back'
-            ? `Sign in to access ${site === 'admin' ? 'the Firmivra administrative dashboard' : 'your Firmivra workspace'}.`
-            : 'Complete this step to continue securely.'}
+          {subtitle ??
+            (title === 'Welcome Back'
+              ? `Sign in to access ${site === 'admin' ? 'the Firmivra administrative dashboard' : 'your Firmivra workspace'}.`
+              : 'Complete this step to continue securely.')}
         </p>
         {children}
         <p className="auth-authorized">AUTHORIZED ACCESS ONLY</p>
