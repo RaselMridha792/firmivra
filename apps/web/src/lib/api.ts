@@ -26,6 +26,7 @@ import {
   createMySignaturesClient,
   createMyTaxReturnsClient,
   createNotificationsClient,
+  createPaymentsSetupClient,
   createRequest,
   createSettingsClient,
   createSupportAccessClient,
@@ -53,6 +54,7 @@ import { createInvoicesMock, myInvoicesMock } from '../mocks/invoices';
 import { createEngagementsMock, myServicesMock } from '../mocks/engagements';
 import { createMeMock } from '../mocks/me';
 import { createNotificationsMock, myNotificationsMock } from '../mocks/notifications';
+import { createPaymentsSetupMock } from '../mocks/payments-setup';
 import { createSettingsMock } from '../mocks/settings';
 import { createTasksMock } from '../mocks/tasks';
 import { createTaxStatusesMock } from '../mocks/tax-statuses';
@@ -204,6 +206,11 @@ export const api = {
     dev && mocked('myInvoices')
       ? myInvoicesMock(firmSlug)
       : createMyInvoicesClient(request, firmSlug),
+  /** Payments (R7): Settings > Payments, the firm's Stripe Connect onboarding (docs/api/invoices.yaml). */
+  paymentsSetup:
+    dev && mocked('paymentsSetup')
+      ? createPaymentsSetupMock({ role: MOCK_ROLE })
+      : createPaymentsSetupClient(request),
   /** Firm Sign (R13): signature requests for the firm; `status()` for the menu (docs/api/esign.yaml). */
   esign:
     dev && mocked('esign')

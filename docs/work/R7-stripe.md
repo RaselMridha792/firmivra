@@ -2,11 +2,14 @@
 
 **Goal:** Clients pay invoices by card and the invoice turns paid by itself.
 
+**Owner:** cloud thread R19 owns R7 from Oct 9 09:25 UTC (brief R19; it took over from R16, which started it the same morning).
+
 **Owned paths (change only these):**
 - `apps/api/src/payments/**`
 - `packages/types/src/payments/**`, `packages/types/test/payments/**`
 - `apps/web/src/mocks/invoices.ts`, and the invoices lines in `apps/web/src/lib/api.ts`
-- `docs/api/invoices.yaml`
+- `apps/web/src/mocks/payments-setup.ts`, the `paymentsSetup` lines in `apps/web/src/lib/api.ts`, `apps/web/src/app/firm/(workspace)/settings/payments/**` and the Payments line in `settings/layout.tsx` (R19 brief)
+- `docs/api/invoices.yaml`, and the payments section of `docs/SYSTEM-DESIGN.md`
 
 **Read first (nothing else):** CLAUDE.md, docs/work/README.md, this file, and:
 - Invoice and payment tables from R0
@@ -49,6 +52,14 @@ Nahid's Invoices tab pays an invoice in test mode on dev and the firm sees it pa
 - Error codes: NOT_DRAFT, ZERO_TOTAL, DUE_DATE_PASSED, INVOICE_CLOSED, CLIENT_ARCHIVED, NOT_PAYABLE, PAYMENT_IN_PROGRESS, PAYMENTS_NOT_SET_UP, NOT_REFUNDABLE, REFUND_TOO_LARGE (409) and PAYMENT_PROVIDER_UNAVAILABLE (503), with the words users see in `INVOICE_ERRORS`.
 - Audit: every change, checkout started, refund and webhook-driven status change (ids and amounts only); reads are not audited.
 
+## Decisions (Oct 9, Stripe Connect setup, R16)
+
+- Settings > Payments contract in `packages/types/src/payments/setup.ts` (`api.paymentsSetup`: `get`, `start`, `refresh`): routes `/business/payments/setup`, `POST .../onboarding` (creates the account the first time) and `POST .../onboarding/refresh` (a new link only, after Stripe's `?stripe=refresh`; `409 PAYMENTS_NOT_SET_UP` when nothing was started). Owner and Admin read, the Owner alone connects, Staff 403 on every route (the page is hidden from them); an ACTIVE firm only.
+- One new 409 code, `PAYMENTS_ALREADY_SET_UP`, when the account is COMPLETE (the firm manages it in its own Stripe dashboard); the other errors reuse `PAYMENTS_NOT_SET_UP` and `PAYMENT_PROVIDER_UNAVAILABLE`.
+- `requirementsDue` and the page's stage come from the stored columns (no requirements column): not finished, or RESTRICTED, means the Owner has something to do; PENDING with details submitted is "In review at Stripe".
+- The onboarding link is Stripe's hosted onboarding only (https, host exactly `connect.stripe.com`), or `mock:stripe-onboarding/...` in mock mode.
+- `stripe_accounts` is written only in platform scope (r0_billing_review: only platform scope may insert or update it; a firm's business scope reads its own row). Every write (onboarding start and refresh, `account.updated`) goes through one platform-scope writer under `apps/api/src/payments/stripe` (`forPlatform()`), with `businessId` from the tenant guard (onboarding) or from the row found by its `acct_` id (webhook). Payments, refunds and invoices are always written in the firm's business scope. (R19, checked by the Scrum thread.)
+
 ## Open (Rasel)
 
 - Download on Past Invoices (Octavia's spec: "Download the permitted invoice/receipt PDF", logged): not in the contract. A server-made PDF (a route and a PDF library), Stripe's receipt (needs a `receipt_url` column from R0), or the browser's print of the View page for beta?
@@ -75,3 +86,6 @@ Nahid's Invoices tab pays an invoice in test mode on dev and the firm sees it pa
 - 2026-10-09, R19: invoices API part 1a (from R16's `rasel/R16-invoices-api-1`, split for size): `GET /business/invoices` (clientId, status, search, cursor pages, `paymentsEnabled` from `charges_enabled`) and `GET /business/invoices/{id}`, amounts from the database, Staff see only their assigned clients' invoices (others 404). Only payments with a recorded event (succeeded, refunded, or failed other than an expired checkout) are listed. Tests: e2e (filters, pages, Staff, firm B 404, a database isolation check) and unit (`invoice-view`). Branch `rasel/R16-invoices-api-1`.
 - 2026-10-09, R19: invoices API part 1b: `POST /business/invoices` (a draft) and `PUT /business/invoices/{id}` (the whole draft), Owner and Admin (Staff 403 before the body is read). Amounts come from the database; numbers are `INV-{firm's calendar year}-{4 digits}`, with one retry when two creates race; a title falls back to the number. Errors in the contract's order; create and update are audited. Tests: e2e `invoice-drafts.e2e.test.ts` (numbers, whole-draft PUT, 400s, cross-firm and cross-client 404, archived client and sent invoice 409, Staff 403). Branch `rasel/R19-invoice-drafts`.
 - 2026-10-09, R19: invoices API part 2a: `POST /business/invoices/{id}/send` (Owner and Admin; OPEN now with `issued_at`, or SCHEDULED when its day is after the firm's today; 409 NOT_DRAFT, CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED in that order; audit `invoice.sent` or `invoice.scheduled`; `invoice.sent` to the client's primary login through `InvoiceNotices` once it opens) and the portal's `GET /portal/{firmSlug}/me/invoices` and `.../{id}` (the session's own client only, drafts never, `myInvoiceStatus()`, views, status, section, search, pages, `canPay`). Cancel moves to the checkout PR, since it must expire open Checkout Sessions. Tests: `invoice-send-portal.e2e.test.ts`. Branch `rasel/R19-invoices-send-portal`.
+- 2026-10-09, Stripe Connect setup contract (R16 brief step 3): `packages/types/src/payments/setup.ts` with `PaymentsSetup`, `StripeOnboardingLink` (https `connect.stripe.com` only), `StripeOnboardingReturn`, `paymentsSetupStage()`, `PaymentsSetupErrorCode` and `PAYMENTS_SETUP_ERRORS`; `api.paymentsSetup` in `apps/web/src/lib/api.ts`; mock `apps/web/src/mocks/payments-setup.ts` (roles, `start` connects, `mock:` links); the setup routes and rules in `docs/api/invoices.yaml` (and `account.updated` looks up in platform scope, writes in firm scope); tests `packages/types/test/payments/setup.test.ts`. Branch `rasel/R16-stripe-setup-contract`.
+- 2026-10-09, R19 took R7 over from R16. Setup contract fixes: every `stripe_accounts` write is in platform scope through one writer (yaml Start and `account.updated` rules), owner line R19. Branch `rasel/R16-stripe-setup-contract`.
+- 2026-10-09, R19: Stripe client and GET setup. `apps/api/src/payments/stripe` (stripe 23.0.0, apiVersion `2026-09-30.endive`, 10 s timeout, `STRIPE_GATEWAY` with a fake for tests and `STRIPE_MODE=fake` in development and test; no `STRIPE_SECRET_KEY` means 503 `PAYMENT_PROVIDER_UNAVAILABLE`), `StripeAccountsWriter` (the only `stripe_accounts` writer, platform scope) and `toOnboardingState()`; `GET /business/payments/setup` (Owner and Admin, Staff 403). Tests: e2e (no key 503, Owner and Admin read, Staff 403, firm B's row never shown to firm A) and unit (settings check, onboarding state). Branch `rasel/R16-stripe-client`.
