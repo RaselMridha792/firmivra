@@ -7,23 +7,22 @@ import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { EsignPutFieldsBody, PublishLegalDocumentRequest } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
-import { configureApp } from '../../src/configure-app.js';
+import { configureApp, JSON_BODY_LIMIT_BYTES } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 import { apiRoutes } from '../isolation/routes.js';
 
 const fx = inject('fixtures');
 let app: INestApplication;
 
-/**
- * Public routes that change something but need no IP limit of their own, with why. A webhook is
- * limited by its signature, not by IP: R19 adds it here when it lands.
- */
+/** Public routes that change something but need no IP limit of their own, with why. */
 const NO_OWN_LIMIT: Record<string, string> = {
   'POST /api/v1/auth/sign-out': 'ends only the caller’s own session',
   'POST /api/v1/admin/auth/sign-out': 'ends only the caller’s own session',
   'POST /api/v1/portal/:firmSlug/auth/sign-out': 'ends only the caller’s own session',
   'POST /api/v1/dev/sign-out': 'AUTH_MODE=local only',
+  'POST /api/v1/webhooks/stripe': 'limited by its Stripe signature, not by IP',
 };
 /** The most a public route that changes something may take from one IP in a minute. */
 const PUBLIC_WRITE_LIMIT = 30;
@@ -74,14 +73,71 @@ describe('security headers', () => {
   });
 });
 
+/** A JSON body of exactly `bytes` bytes. */
+const bodyOf = (bytes: number) => {
+  const shell = JSON.stringify({ email: '' });
+  return JSON.stringify({ email: 'a'.repeat(bytes - shell.length) });
+};
+const utf8 = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+
 describe('body limit', () => {
-  it('one JSON limit of 100 KB: 413 PAYLOAD_TOO_LARGE above it, nothing echoed', async () => {
-    const res = await request(app.getHttpServer())
+  it('one JSON limit of 2 MB: 413 PAYLOAD_TOO_LARGE above it, nothing echoed', async () => {
+    const over = await request(app.getHttpServer())
       .post('/api/v1/auth/forgot-password')
       .set('content-type', 'application/json')
-      .send(JSON.stringify({ email: `${'a'.repeat(110_000)}@example.test` }));
-    expect(res.status).toBe(413);
-    expect(res.body).toEqual(requestIdOnly('PAYLOAD_TOO_LARGE', 'The request is too large'));
+      .send(bodyOf(JSON_BODY_LIMIT_BYTES + 1));
+    expect(over.status).toBe(413);
+    expect(over.body).toEqual(requestIdOnly('PAYLOAD_TOO_LARGE', 'The request is too large'));
+    // At the limit the body is read, and the route's own validation answers (Express's default
+    // limit of 100 KB would have refused it).
+    const at = await request(app.getHttpServer())
+      .post('/api/v1/auth/forgot-password')
+      .set('content-type', 'application/json')
+      .send(bodyOf(JSON_BODY_LIMIT_BYTES));
+    expect(at.status).toBe(400);
+  });
+
+  it('the largest valid bodies of the contracts fit under it', async () => {
+    // Three-byte characters wherever text is free: the most bytes per allowed character.
+    const wide = (n: number) => '€'.repeat(n);
+    const terms = { body: wide(100_000) };
+    expect(PublishLegalDocumentRequest.safeParse(terms).success).toBe(true);
+    expect(utf8(terms)).toBeLessThan(JSON_BODY_LIMIT_BYTES);
+
+    const field = (i: number) => ({
+      id: `0199b6e0-0000-7000-8000-${String(i).padStart(12, '0')}`,
+      recipientId: null,
+      type: 'TEXT',
+      pageIndex: 0,
+      x: 0.123456789,
+      y: 0.123456789,
+      w: 0.123456789,
+      h: 0.123456789,
+      required: true,
+      label: wide(200),
+      groupKey: 'g'.repeat(40),
+      value: wide(500),
+    });
+    const fields = { fields: Array.from({ length: 500 }, (_, i) => field(i)) };
+    const parsed = EsignPutFieldsBody.safeParse(fields);
+    expect(parsed.error?.issues[0]).toBeUndefined();
+    expect(utf8(fields)).toBeLessThan(JSON_BODY_LIMIT_BYTES);
+
+    // A signer's adopt: two base64 PNGs of up to 273,068 characters (contract in R13's PRs).
+    const adopt = { signature: 'A'.repeat(273_068), initials: 'A'.repeat(273_068) };
+    expect(utf8(adopt)).toBeLessThan(JSON_BODY_LIMIT_BYTES);
+
+    // And the Terms body goes through the real route.
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/dev/token')
+      .send({ email: fx.users.ownerA.email })
+      .expect(200);
+    const published = await request(app.getHttpServer())
+      .post('/api/v1/business/legal/terms/versions')
+      .set('authorization', `Bearer ${(res.body as { token: string }).token}`)
+      .set('x-business-id', fx.firmA.id)
+      .send(terms);
+    expect(published.status, JSON.stringify(published.body).slice(0, 200)).toBe(201);
   });
 });
 
@@ -120,11 +176,22 @@ describe('rate limits', () => {
       if (!route.isPublic || route.method === 'GET') continue;
       const key = `${route.method} ${route.path}`;
       if (key in NO_OWN_LIMIT) continue;
-      const limit = reflector.getAllAndOverride<number | undefined>('THROTTLER:LIMITdefault', [
-        route.handler,
-        route.controller,
-      ]);
-      if (limit === undefined || limit > PUBLIC_WRITE_LIMIT) problems.push(`${key}: ${limit}`);
+      const read = <T>(name: string) =>
+        reflector.getAllAndOverride<T | undefined>(`THROTTLER:${name}default`, [
+          route.handler,
+          route.controller,
+        ]);
+      if (read<boolean>('SKIP')) {
+        problems.push(`${key}: skips the throttler`);
+        continue;
+      }
+      const limit = read<number>('LIMIT');
+      const ttl = read<number>('TTL');
+      // Per minute, whatever window the route names.
+      const perMinute = limit !== undefined && ttl ? (limit * 60_000) / ttl : undefined;
+      if (perMinute === undefined || perMinute > PUBLIC_WRITE_LIMIT) {
+        problems.push(`${key}: ${limit} per ${ttl} ms`);
+      }
     }
     expect(problems).toEqual([]);
   });

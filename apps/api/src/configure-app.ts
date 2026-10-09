@@ -14,10 +14,14 @@ export const TRUSTED_PROXY_HOPS = 2;
 
 /**
  * The one JSON body limit (R8 step 3). Files never pass through the API (they go to S3 by
- * presigned URL), so no JSON body needs more. A raw-body route (the Stripe webhook) reads its
- * body with its own parser.
+ * presigned URL). The largest valid bodies (test/e2e/hardening.e2e.test.ts builds them): a Firm
+ * Sign field list (500 fields with full labels and values, about 1.1 MB in UTF-8), a signer's
+ * adopted signature and initials (two base64 PNGs, about 550 KB) and a firm's Terms or Privacy
+ * version (100,000 characters, about 300 KB). A raw-body route (the Stripe webhook) reads its body
+ * with its own parser.
  */
-export const JSON_BODY_LIMIT = '100kb';
+export const JSON_BODY_LIMIT = '2mb';
+export const JSON_BODY_LIMIT_BYTES = 2 * 1024 * 1024;
 
 /** Swagger UI (not in production) is the only HTML the API serves; it needs scripts and styles. */
 const DOCS_PATH = /^\/api\/docs(\/|$)/;

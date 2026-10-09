@@ -85,4 +85,26 @@ describe('one error shape', () => {
       },
     });
   });
+
+  it('a multi-line message never reaches the log, even lines that look like frames', () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    caught(new Error('Failed for client 123-45-6789\n    at secret-value-in-message'));
+    const logged = error.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(logged).toContain('request req-1');
+    expect(logged).not.toContain('secret-value-in-message');
+    expect(logged).not.toContain('123-45-6789');
+  });
+
+  it("a library's details stay inside, and a code-less 5xx is logged by kind", () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    const res = caught(
+      new HttpException({ details: ['internal'], message: 'pool exhausted' }, 502),
+    );
+    expect(res.body).toEqual({
+      error: { code: 'HTTP_502', message: 'Something went wrong', requestId: 'req-1' },
+    });
+    const logged = error.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(logged).toContain('HTTP 502 without a code');
+    expect(logged).not.toContain('pool exhausted');
+  });
 });

@@ -67,7 +67,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
             : (MESSAGES[status] ?? (status >= 500 ? 'Something went wrong' : 'Request failed')),
         requestId,
       };
-      if (fields['details'] !== undefined) error.details = fields['details'];
+      // Only our own errors carry details; a library's response object stays inside.
+      if (ours && fields['details'] !== undefined) error.details = fields['details'];
+      if (!ours && status >= 500) {
+        this.logger.error(
+          `HTTP ${status} without a code: ${describe(exception)} (request ${requestId ?? 'none'})`,
+        );
+      }
       // A route that knows how long to wait says so: `retryAfter` seconds, sent as Retry-After.
       const retryAfter = fields['retryAfter'];
       if (typeof retryAfter === 'number' && Number.isInteger(retryAfter) && retryAfter > 0) {
@@ -128,7 +134,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
 function describe(exception: unknown): string {
   if (!(exception instanceof Error)) return typeof exception;
   const code = (exception as { code?: unknown }).code;
-  const frames = (exception.stack ?? '')
+  // The stack starts with "Name: message", and a message can span lines (even ones that look
+  // like frames): drop it before reading frames.
+  const stack = exception.stack ?? '';
+  const head = exception.toString();
+  const frames = (stack.startsWith(head) ? stack.slice(head.length) : stack)
     .split('\n')
     .filter((line) => /^\s+at /.test(line))
     .join('\n');
