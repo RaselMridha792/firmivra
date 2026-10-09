@@ -14,7 +14,12 @@ export interface SentMessage {
   /** Who wrote it: never notified about their own message. */
   senderUserId: string;
   toSide: 'client' | 'staff';
+  /** Whether it starts an unread run on that side, decided under the thread lock. */
+  email: boolean;
 }
+
+/** A link on a configured site: the base may carry a path, so no `new URL(path, base)`. */
+const linkOn = (base: string, path: string) => `${base.replace(/\/+$/, '')}${path}`;
 
 /** An error's class name for the log (never its message, which may quote values). */
 const errorName = (error: unknown) => {
@@ -28,8 +33,9 @@ const errorName = (error: unknown) => {
  * recipient's name and a link built from config, never the message text. Recipients as q27: the
  * client's ACTIVE PRIMARY login; on the firm side the client's assigned member and every Owner
  * and Admin (ACTIVE). No second email for a thread while that side still has an earlier unread
- * message in it. A failure is logged with ids only and never fails the request: the message
- * stands.
+ * message in it (the caller decides that inside the message's transaction). A failure is logged
+ * with ids only and never fails the request: the message stands; the bell item and the email
+ * fail apart.
  */
 @Injectable()
 export class MessageNotices {
@@ -52,40 +58,25 @@ export class MessageNotices {
         actorUserId: m.senderUserId,
         eventKey: `message:${m.messageId}`,
       });
+    } catch (error) {
+      this.logger.warn(`bell item for message ${m.messageId} not sent (${errorName(error)})`);
+    }
+    if (!m.email) return;
+    try {
       await this.email(m);
     } catch (error) {
-      this.logger.warn(`notices for message ${m.messageId} not sent (${errorName(error)})`);
+      this.logger.warn(`email for message ${m.messageId} not sent (${errorName(error)})`);
     }
   }
 
   private async email(m: SentMessage): Promise<void> {
     const db = this.database.forBusiness(m.businessId);
-    const message = await db.message.findFirst({
-      where: { businessId: m.businessId, id: m.messageId },
-      select: {
-        createdAt: true,
-        direction: true,
-        thread: {
-          select: {
-            clientId: true,
-            client: { select: { assignedUserId: true } },
-          },
-        },
-      },
+    const thread = await db.messageThread.findFirst({
+      where: { businessId: m.businessId, id: m.threadId },
+      select: { clientId: true, client: { select: { assignedUserId: true } } },
     });
-    if (!message) return;
-    const earlierUnread = await db.message.count({
-      where: {
-        businessId: m.businessId,
-        threadId: m.threadId,
-        direction: message.direction,
-        readAt: null,
-        createdAt: { lt: message.createdAt },
-      },
-    });
-    if (earlierUnread > 0) return;
-
-    const { clientId } = message.thread;
+    if (!thread) return;
+    const { clientId } = thread;
     const recipients: {
       to: string;
       name: string;
@@ -99,7 +90,7 @@ export class MessageNotices {
       });
       if (!business) return;
       const slug = encodeURIComponent(business.slug);
-      link = new URL(`/${slug}/messages`, this.env.PORTAL_BASE_URL).toString();
+      link = linkOn(this.env.PORTAL_BASE_URL, `/${slug}/messages`);
       const logins = await db.clientAccount.findMany({
         where: { businessId: m.businessId, clientId, portalRole: 'PRIMARY', status: 'ACTIVE' },
         select: { id: true, email: true, user: { select: { name: true } } },
@@ -108,8 +99,8 @@ export class MessageNotices {
         recipients.push({ to: l.email, name: l.user.name, recipient: { clientAccountId: l.id } });
       }
     } else {
-      link = new URL(`/clients/${clientId}/messages`, this.env.APP_BASE_URL).toString();
-      const assigned = message.thread.client.assignedUserId;
+      link = linkOn(this.env.APP_BASE_URL, `/clients/${clientId}/messages`);
+      const assigned = thread.client.assignedUserId;
       const members = await db.membership.findMany({
         where: {
           businessId: m.businessId,

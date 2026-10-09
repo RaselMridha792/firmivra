@@ -42,9 +42,13 @@ const people = {
   ownerA: person('owner-a'),
   staffA: person('staff-a'),
   staffA2: person('staff-a2'),
+  adminA: person('admin-a'),
+  goneOwnerA: person('gone-owner-a'),
   primary: person('primary'),
   spouse: person('spouse'),
   other: person('other'),
+  disabledPrimary: person('disabled-primary'),
+  spouseThree: person('spouse-three'),
   ownerB: person('owner-b'),
   clientB: person('client-b'),
 };
@@ -55,12 +59,15 @@ const ids = {
   slugB: `r20m-b-${run}`,
   one: '',
   two: '',
+  three: '',
   old: '',
   engagementTwo: '',
 };
 
 let app: INestApplication;
 const outbox: NotifyMessage[] = [];
+/** Addresses the mail sender refuses, to show a refused email never fails the request. */
+const refused: string[] = [];
 const tokens = new Map<string, string>();
 
 async function tokenFor(email: string): Promise<string> {
@@ -126,7 +133,16 @@ beforeAll(async () => {
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner);
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
     for (const [key, p] of Object.entries(people)) {
-      const pool = ['primary', 'spouse', 'other', 'clientB'].includes(key) ? 'CLIENT' : 'STAFF';
+      const pool = [
+        'primary',
+        'spouse',
+        'other',
+        'disabledPrimary',
+        'spouseThree',
+        'clientB',
+      ].includes(key)
+        ? 'CLIENT'
+        : 'STAFF';
       await tx.user.create({
         data: { id: p.id, cognitoSub: p.id, pool, email: p.email, name: `Fake R20 ${key}` },
       });
@@ -140,12 +156,14 @@ beforeAll(async () => {
   });
   await runInScope(owner, { kind: 'business', businessId: ids.firmA }, async (tx) => {
     const A = { businessId: ids.firmA };
-    for (const [userId, role] of [
-      [people.ownerA.id, 'OWNER'],
-      [people.staffA.id, 'STAFF'],
-      [people.staffA2.id, 'STAFF'],
+    for (const [userId, role, status] of [
+      [people.ownerA.id, 'OWNER', 'ACTIVE'],
+      [people.staffA.id, 'STAFF', 'ACTIVE'],
+      [people.staffA2.id, 'STAFF', 'ACTIVE'],
+      [people.adminA.id, 'ADMIN', 'ACTIVE'],
+      [people.goneOwnerA.id, 'OWNER', 'DEACTIVATED'],
     ] as const) {
-      await tx.membership.create({ data: { ...A, userId, role, status: 'ACTIVE' } });
+      await tx.membership.create({ data: { ...A, userId, role, status } });
     }
     ids.one = (
       await tx.client.create({
@@ -153,16 +171,19 @@ beforeAll(async () => {
       })
     ).id;
     ids.two = (await tx.client.create({ data: { ...A, displayName: 'Two' } })).id;
+    ids.three = (await tx.client.create({ data: { ...A, displayName: 'Three' } })).id;
     ids.old = (
       await tx.client.create({ data: { ...A, displayName: 'Old', archivedAt: new Date() } })
     ).id;
-    for (const [p, clientId, portalRole] of [
-      [people.primary, ids.one, 'PRIMARY'],
-      [people.spouse, ids.one, 'SPOUSE'],
-      [people.other, ids.two, 'PRIMARY'],
+    for (const [p, clientId, portalRole, status] of [
+      [people.primary, ids.one, 'PRIMARY', 'ACTIVE'],
+      [people.spouse, ids.one, 'SPOUSE', 'ACTIVE'],
+      [people.other, ids.two, 'PRIMARY', 'ACTIVE'],
+      [people.disabledPrimary, ids.three, 'PRIMARY', 'DISABLED'],
+      [people.spouseThree, ids.three, 'SPOUSE', 'ACTIVE'],
     ] as const) {
       await tx.clientAccount.create({
-        data: { ...A, userId: p.id, clientId, email: p.email, portalRole, status: 'ACTIVE' },
+        data: { ...A, userId: p.id, clientId, email: p.email, portalRole, status },
       });
     }
     const service = await tx.service.create({
@@ -203,6 +224,7 @@ beforeAll(async () => {
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({
       send: (message: NotifyMessage) => {
+        if (refused.includes(message.to)) return Promise.reject(new Error('refused'));
         outbox.push(message);
         return Promise.resolve();
       },
@@ -506,7 +528,7 @@ describe('notices', () => {
     }
   });
 
-  it("emails the client's assigned member and every Owner, never unassigned Staff", async () => {
+  it("emails the client's assigned member and every active Owner and Admin, nobody else", async () => {
     const t = await startThread({ subject: 'Ask', body: 'Question?' });
     mail();
     expectOk(
@@ -514,10 +536,77 @@ describe('notices', () => {
       201,
     );
     const sent = mail();
-    expect(sent.map((m) => m.to).sort()).toEqual([people.ownerA.email, people.staffA.email].sort());
+    expect(sent.map((m) => m.to).sort()).toEqual(
+      [people.ownerA.email, people.adminA.email, people.staffA.email].sort(),
+    );
     expect(sent[0]?.data).toMatchObject({
       link: expect.stringMatching(new RegExp(`/clients/${ids.one}/messages$`)),
     });
     expect(JSON.stringify(sent)).not.toContain(secret);
+  });
+  it('emails no one at a client whose primary login is disabled, not even the spouse', async () => {
+    mail();
+    const t = await startThread({ subject: 'Three', body: 'Hello' }, ids.three);
+    expect(mail()).toEqual([]);
+    // The spouse may still reply; the firm side is emailed as usual.
+    expectOk(await portal('post', `/${t.id}/messages`, people.spouseThree, { body: 'Hi' }), 201);
+    expect(mail().map((m) => m.to)).not.toContain(people.spouseThree.email);
+  });
+
+  it('the firm side is emailed once per unread run, and again after the firm reads', async () => {
+    const t = await startThread({ subject: 'Run', body: 'Start' });
+    expectOk(await portal('post', `/${t.id}/read`, people.primary, {}));
+    mail();
+    const reply = async (body: string) =>
+      expectOk(await portal('post', `/${t.id}/messages`, people.primary, { body }), 201);
+    await reply('One');
+    expect(mail()).toHaveLength(3);
+    await reply('Two');
+    expect(mail()).toEqual([]);
+    expectOk(await firm('post', `/message-threads/${t.id}/read`, people.staffA, {}));
+    await reply('Three');
+    expect(mail()).toHaveLength(3);
+  });
+
+  it('two staff writing at once start one run: one email', async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const t = await startThread({ subject: `Race ${round}`, body: 'Start' });
+      expectOk(await portal('post', `/${t.id}/read`, people.primary, {}));
+      mail();
+      const results = await Promise.all(
+        [people.ownerA, people.staffA, people.adminA].map((who) =>
+          firm('post', `/message-threads/${t.id}/messages`, who, { body: 'Same time' }),
+        ),
+      );
+      for (const res of results) expectOk(res, 201);
+      expect(mail()).toHaveLength(1);
+    }
+  });
+
+  it('a refused email still saves the message on both sides', async () => {
+    refused.push(people.primary.email, people.ownerA.email);
+    try {
+      mail();
+      const t = await startThread({ subject: 'Refused', body: 'Hello' });
+      expect(mail()).toEqual([]);
+      expectOk(await portal('post', `/${t.id}/messages`, people.primary, { body: 'Hi' }), 201);
+      // The others are still emailed.
+      expect(
+        mail()
+          .map((m) => m.to)
+          .sort(),
+      ).toEqual([people.adminA.email, people.staffA.email].sort());
+    } finally {
+      refused.length = 0;
+    }
+  });
+
+  it('a reply refused for closed replies sends nothing', async () => {
+    const t = await startThread({ subject: 'Closed', body: 'No replies', repliesEnabled: false });
+    mail();
+    const res = await portal('post', `/${t.id}/messages`, people.primary, { body: 'Hi' });
+    expect(res.status).toBe(409);
+    expect(codeOf(res)).toBe('REPLIES_CLOSED');
+    expect(mail()).toEqual([]);
   });
 });
