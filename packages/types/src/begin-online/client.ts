@@ -90,7 +90,10 @@ export function createBeginOnlineClient(request: ApiRequest, firmSlug: string) {
         method: 'POST',
         body: parseInput(CreateIntakeUploadRequest, body),
       }),
-    /** Step 3. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS. */
+    /**
+     * Step 3. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS;
+     * 409 TOO_MANY_FILES when files confirmed since step 1 filled the slot or the draft.
+     */
     confirmUpload: async (form: IntakeFormKey, body: ConfirmUploadRequest): Promise<IntakeUpload> =>
       request(IntakeUpload, `${draft(form)}/uploads/confirm`, {
         method: 'POST',

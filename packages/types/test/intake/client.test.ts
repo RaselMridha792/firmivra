@@ -149,10 +149,19 @@ describe('api.myIntakes(firmSlug)', () => {
     const issue = MyIntake.safeParse({ ...intake, answers: { ssn: '900123456' } }).error?.issues;
     expect(issue?.[0]).toMatchObject({
       path: ['answers'],
-      message: 'A full SSN or EIN was returned',
+      message: 'A full SSN or EIN, or an answer outside the form, was returned',
     });
     const { fn } = fakeFetch(200, { ...intake, answers: { ssn: '900123456' } });
     await expect(intakes(fn).get(id)).rejects.toThrow();
+  });
+
+  it('nor in a place the definition does not type: a key or row key outside the form', () => {
+    const parses = (answers: Record<string, unknown>) =>
+      MyIntake.safeParse({ ...intake, answers: { ...intake.answers, ...answers } }).success;
+    expect(parses({ dependents: { r1: { ssn: '123456789' } } })).toBe(false);
+    expect(parses({ dependents: '123-45-6789' })).toBe(false);
+    expect(parses({ oldSsn: '123-45-6789' })).toBe(false);
+    expect(parses({ dependents: [{ id: 'r1', taxId: '123456789' }] })).toBe(false);
   });
 
   it('checks the numbers by the form: an EIN of Bookkeeping, as its definition says', () => {

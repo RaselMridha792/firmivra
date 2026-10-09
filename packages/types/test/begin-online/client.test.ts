@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   ANNUAL_TAX_FORM,
   BEGIN_ONLINE_ERRORS,
+  BEGIN_ONLINE_FORM_ORDER,
   BEGIN_ONLINE_LIMITS,
   BEGIN_ONLINE_SERVICES,
   BeginDraft,
   BeginOnlineErrorCode,
   BeginOnlineForm,
   beginOnlineFormOfPath,
+  beginOnlinePrefill,
   createBeginOnlineClient,
   createRequest,
+  INTAKE_FORMS,
   IntakeFormKey,
   resumeTokenFromHash,
   StartBeginDraftRequest,
@@ -144,6 +147,32 @@ describe('api.beginOnline(firmSlug)', () => {
     expect(BeginDraft.safeParse({ ...masked, answers: business }).success).toBe(false);
   });
 
+  it('refuses a draft whose answers have a key or a group row the form does not have', () => {
+    const parses = (answers: Record<string, unknown>) =>
+      BeginDraft.safeParse({ ...draft, answers: { ...draft.answers, ...answers } }).success;
+    expect(parses({})).toBe(true);
+    expect(parses({ dependents: { r1: { ssn: '123456789' } } })).toBe(false);
+    expect(parses({ dependents: '123-45-6789' })).toBe(false);
+    expect(parses({ oldSsn: '123-45-6789' })).toBe(false);
+    expect(parses({ dependents: [{ id: 'r1', taxId: '123456789' }] })).toBe(false);
+  });
+
+  it("prefills the form's contact fields, each only when it fits its field", () => {
+    const contact = { firstName: 'Avery', lastName: 'Example', email: 'avery@lvp.test' };
+    expect(beginOnlinePrefill(ANNUAL_TAX_FORM, { ...contact, phone: '+14045550147' })).toEqual({
+      ...contact,
+      phone: '+14045550147',
+    });
+    const quarterly = INTAKE_FORMS.QUARTERLY_TAX!;
+    expect(beginOnlinePrefill(quarterly, { ...contact, phone: null })).toEqual({
+      fullName: 'Avery Example',
+      email: 'avery@lvp.test',
+    });
+    // Two names of 100 characters join to 201, over the field's 200: left out, not refused later.
+    const long = { ...contact, firstName: 'A'.repeat(100), lastName: 'B'.repeat(100) };
+    expect(beginOnlinePrefill(quarterly, long)).toEqual({ email: 'avery@lvp.test' });
+  });
+
   it('parses a draft without the form carrying an agreement; phone is optional', () => {
     const parsed = BeginDraft.parse({ ...draft, agreementText: '## A form agreement' });
     expect(parsed.contact.email).toBe('avery@lvp.test');
@@ -166,6 +195,18 @@ describe('api.beginOnline(firmSlug)', () => {
     expect(resumeTokenFromHash(`token=${token}`)).toBe(token);
     expect(resumeTokenFromHash('#token=abc')).toBeNull();
     expect(resumeTokenFromHash('')).toBeNull();
+  });
+
+  it("lists the services in the page's order, not IntakeFormKey's", () => {
+    expect(BEGIN_ONLINE_FORM_ORDER).toEqual([
+      'ANNUAL_TAX',
+      'BOOKKEEPING',
+      'PAYROLL',
+      'BUSINESS_DEVELOPMENT',
+      'QUARTERLY_TAX',
+      'TAX_PLANNING',
+    ]);
+    expect([...BEGIN_ONLINE_FORM_ORDER].sort()).toEqual([...IntakeFormKey.options].sort());
   });
 
   it('maps every service to a unique page path and back; a message for every code', () => {

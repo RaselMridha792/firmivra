@@ -17,7 +17,8 @@ import { INTAKE_LIMITS, IntakeFormDefinition, IntakeFormKey, IntakeKey } from '.
 // No form carries an agreement of its own: the review step shows the firm's agreements from
 // R14's `api.publicAgreements(slug)`, and the submit carries the signature (SubmitIntakeRequest).
 // SSNs and EINs are stored encrypted with the firm's KMS key and come back as `{ last4 }` only; a
-// response with a full one fails to parse (answers.ts, "SSNs and EINs").
+// response with a full one fails to parse, and so does one with an answer outside the form or a
+// group answer that is not a list of the group's rows (answers.ts, "SSNs and EINs").
 // The database (R0's r0_intake_engine) holds the API to these rules:
 // - An intake's file is a client document with documents.intake_id and documents.intake_slot,
 //   set together or both null (detaching clears both); it goes only into an ACTIVE engagement
@@ -36,15 +37,21 @@ const DateTime = z.iso.datetime({ offset: true });
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 
 /**
- * Refuses a response whose answers hold a full SSN or EIN anywhere, group rows included: used by
- * every response that carries answers (MyIntake here, BeginDraft in Begin Online).
+ * Refuses a response whose answers could hold a full SSN or EIN (`intakeNumbersMasked`): a full
+ * number anywhere, group rows included, an answer outside the form, or a group answer that is not
+ * a list of the group's rows. Used by every response that carries answers (MyIntake here,
+ * BeginDraft in Begin Online).
  */
 export const refuseFullNumbers = (
   value: { definition: IntakeFormDefinition; answers: IntakeAnswers },
   ctx: z.RefinementCtx,
 ) => {
   if (!intakeNumbersMasked(value.definition, value.answers)) {
-    ctx.addIssue({ code: 'custom', path: ['answers'], message: 'A full SSN or EIN was returned' });
+    ctx.addIssue({
+      code: 'custom',
+      path: ['answers'],
+      message: 'A full SSN or EIN, or an answer outside the form, was returned',
+    });
   }
 };
 
@@ -64,12 +71,18 @@ export type SavedIntakeStep = z.infer<typeof SavedIntakeStep>;
  * POST .../submit, for a portal intake and a Begin Online draft. `answers`: the review step's
  * answers, saved first as a save of that step would (so the last change can't race the submit).
  * The review step shows the firm's agreements (R14's `api.publicAgreements(slug)`); the person
- * ticks the acknowledgments and signs, and the signature comes with this body.
+ * ticks the acknowledgments and signs, and the signature comes with this body. In Begin Online
+ * the review step also accepts the firm's Terms of Service and Privacy Policy: the versions
+ * accepted travel with R14's signature (intake_signatures.terms_document_id and
+ * privacy_document_id, Begin Online only; 409 TERMS_OUTDATED). If R14's input does not carry
+ * them, Begin Online's submit gets its own body that adds `accepted` as R3's sign-up does.
  * The API checks the whole form (`checkIntakeAnswers` in submit mode: 400 VALIDATION_FAILED with
  * `details: { issues }`, IntakeValidationDetails), then the signature against the firm's current
- * agreements (IntakeAgreementErrorCode). The files whose slot is not a shown upload field leave
- * the form (`hiddenSlotUploads`): a portal intake detaches them (they stay in My Documents), a
- * Begin Online draft deletes them; both before the status changes, in the same transaction.
+ * agreements (IntakeAgreementErrorCode). The locked version holds the cleaned answers of the
+ * shown fields only (the answers of hidden fields are dropped; `restoreMaskedNumbers` keeps the
+ * stored SSNs and EINs). The files whose slot is not a shown upload field leave the form
+ * (`hiddenSlotUploads`): a portal intake detaches them (they stay in My Documents), a Begin
+ * Online draft deletes them; both before the status changes, in the same transaction.
  */
 export const SubmitIntakeRequest = z.strictObject({
   answers: IntakeAnswersInput.optional(),
@@ -117,7 +130,9 @@ const { fileName, contentType, sizeBytes, sha256 } = CreateMyUploadRequest.shape
  * R5's `uploadFile()` does): R5's file rules (PDF, JPG, PNG, .xlsx or .docx, at most 10 MB, the
  * name's ending fitting its type). 400 for a slot that isn't an upload field of the form; 409
  * TOO_MANY_FILES when the slot has its field's `maxFiles` or the form has
- * INTAKE_LIMITS.maxFiles, counting every file (blocked ones too).
+ * INTAKE_LIMITS.maxFiles, counting every file (blocked ones too). Step 3 (`confirmUpload`) checks
+ * both limits again, inside the transaction that adds the file, and answers 409 TOO_MANY_FILES
+ * too: several uploads started at once each got a ticket, and only those that still fit are kept.
  */
 export const CreateIntakeUploadRequest = z
   .strictObject({ slot: IntakeKey, fileName, contentType, sizeBytes, sha256 })

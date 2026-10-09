@@ -61,8 +61,10 @@ import { mockBusiness } from './me';
  * BLOCKED (INFECTED), one with "unreadable" BLOCKED (FAILED); an .xlsx or .docx named "password"
  * or "macro" is refused as the API would. Only CLEAN and PENDING files answer a required slot
  * (`intakeUploadCounts` on the scan status); every file counts toward a slot's `maxFiles` and the
- * form's limit, a blocked one too. A submit takes the files whose slot is not a shown upload field
- * out of the intake (`hiddenSlotUploads`), before the status changes.
+ * form's limit, a blocked one too, checked at step 1 and again at step 3 (several files dropped at
+ * once: those past the limit answer 409 TOO_MANY_FILES). A submit takes the files whose slot is
+ * not a shown upload field out of the intake (`hiddenSlotUploads`), before the status changes,
+ * and keeps only the answers of shown fields.
  * Submit errors (MOCK_SUBMIT_TRIGGERS), until R14's signature is in the submit body: a complete
  * form with one of these words in a text answer (a comments box, say) answers that code instead:
  *   "noagreement" 409 NO_INTAKE_AGREEMENT, "agreementoutdated" 409 AGREEMENT_OUTDATED (the API's
@@ -220,9 +222,28 @@ export const keptFiles = (
 };
 
 /**
+ * 409 TOO_MANY_FILES unless the slot has room under its `maxFiles` and the form under
+ * INTAKE_LIMITS.maxFiles, every stored file counted (blocked ones too). 400 for a slot that is not
+ * an upload field of the form.
+ */
+function checkRoom(definition: IntakeFormDefinition, files: readonly MockSlotFile[], key: string) {
+  const slot = definition.steps
+    .flatMap(intakeStepFields)
+    .find((f) => f.key === key && f.type === 'upload');
+  if (slot?.type !== 'upload') {
+    throw fail(400, 'VALIDATION_FAILED', 'This is not an upload slot of the form');
+  }
+  const inSlot = files.filter((f) => f.upload.slot === key).length;
+  if (inSlot >= slot.maxFiles || files.length >= INTAKE_LIMITS.maxFiles) {
+    throw fail(409, 'TOO_MANY_FILES', INTAKE_ERRORS.TOO_MANY_FILES);
+  }
+}
+
+/**
  * Upload tickets for slot files: step 1 checks the slot and the limits (the slot's `maxFiles`
- * and INTAKE_LIMITS.maxFiles, every file counted, blocked ones too); step 3 refuses what the API
- * would refuse (by the file's name only) and stores the file.
+ * and INTAKE_LIMITS.maxFiles, every file counted, blocked ones too); step 3 checks the limits
+ * again (files confirmed since step 1 count, as the API checks inside the confirm transaction),
+ * refuses what the API would refuse (by the file's name only) and stores the file.
  */
 export function createMockSlotUploads() {
   const pending = new Map<string, CreateIntakeUploadRequest & { owner: string }>();
@@ -234,16 +255,7 @@ export function createMockSlotUploads() {
       files: readonly MockSlotFile[],
       body: ReturnType<typeof CreateIntakeUploadRequest.parse>,
     ): UploadTicket {
-      const slot = definition.steps
-        .flatMap(intakeStepFields)
-        .find((f) => f.key === body.slot && f.type === 'upload');
-      if (slot?.type !== 'upload') {
-        throw fail(400, 'VALIDATION_FAILED', 'This is not an upload slot of the form');
-      }
-      const inSlot = files.filter((f) => f.upload.slot === body.slot).length;
-      if (inSlot >= slot.maxFiles || files.length >= INTAKE_LIMITS.maxFiles) {
-        throw fail(409, 'TOO_MANY_FILES', INTAKE_ERRORS.TOO_MANY_FILES);
-      }
+      checkRoom(definition, files, body.slot);
       const token = `mock-slot-upload-${String(next++)}`;
       pending.set(token, { ...body, owner });
       return {
@@ -254,12 +266,18 @@ export function createMockSlotUploads() {
         expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
       };
     },
-    confirm(owner: string, uploadToken: string): MockSlotFile {
+    confirm(
+      owner: string,
+      uploadToken: string,
+      definition: IntakeFormDefinition,
+      files: readonly MockSlotFile[],
+    ): MockSlotFile {
       const p = pending.get(uploadToken);
       if (!p || p.owner !== owner) {
         throw fail(410, 'UPLOAD_EXPIRED', DOCUMENT_ERRORS.UPLOAD_EXPIRED);
       }
       pending.delete(uploadToken);
+      checkRoom(definition, files, p.slot);
       const name = p.fileName.toLowerCase();
       if (p.contentType === XLSX || p.contentType === DOCX) {
         if (name.includes('password')) {
@@ -667,12 +685,14 @@ export function createMyIntakesMock(
       const form = definition(row);
       if (answers) saveStep(row, form.steps.at(-1)!.key, answers);
       const kept = keptFiles(form, row.answers, row.files);
-      answersOrFail(form, row.answers, { mode: 'submit', uploads: slotCounts(kept) });
-      const triggered = submitTrigger(row.answers, INTAKE_AGREEMENT_ERRORS);
+      const clean = answersOrFail(form, row.answers, { mode: 'submit', uploads: slotCounts(kept) });
+      const triggered = submitTrigger(clean, INTAKE_AGREEMENT_ERRORS);
       if (triggered) throw triggered;
       // As the API, in one transaction: the files of hidden slots leave the intake (they stay in
-      // My Documents) while it is still open, then the status changes and the note is cleared.
+      // My Documents) while it is still open, then the version is locked with the answers of the
+      // shown fields only, the status changes and the note is cleared.
       row.files = kept;
+      row.answers = clean;
       row.item = {
         ...row.item,
         status: 'SUBMITTED',
@@ -702,7 +722,7 @@ export function createMyIntakesMock(
       const { uploadToken } = parseInput(ConfirmUploadRequest, body);
       firm();
       const row = changeable(find(iid));
-      const file = uploads.confirm(row.item.id, uploadToken);
+      const file = uploads.confirm(row.item.id, uploadToken, definition(row), row.files);
       row.files.push(file);
       touched(row);
       return fileView(file);

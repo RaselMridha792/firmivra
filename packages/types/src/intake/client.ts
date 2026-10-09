@@ -67,7 +67,8 @@ export function createMyIntakesClient(request: ApiRequest, firmSlug: string) {
       }),
     /**
      * Step 3: the file is saved to the client's documents for the intake's service and put in
-     * its slot. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS.
+     * its slot. 410 UPLOAD_EXPIRED; 409 UPLOAD_MISMATCH, FILE_PASSWORD_PROTECTED or FILE_HAS_MACROS;
+     * 409 TOO_MANY_FILES when files confirmed since step 1 filled the slot or the form.
      */
     confirmUpload: async (id: string, body: ConfirmUploadRequest): Promise<IntakeUpload> =>
       request(IntakeUpload, `${one(id)}/uploads/confirm`, {

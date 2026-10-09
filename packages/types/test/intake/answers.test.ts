@@ -467,6 +467,22 @@ describe('SSNs and EINs', () => {
     expect(intakeNumbersMasked(annual, { ...masked, dependents: stored.dependents })).toBe(false);
   });
 
+  it('refuses answers where a number could hide: an unknown key, a group not of its rows', () => {
+    const ok = { firstName: 'Avery', dependents: [{ id: 'd1', ssn: { last4: '4321' } }] };
+    expect(intakeNumbersMasked(annual, ok)).toBe(true);
+    expect(intakeNumbersMasked(annual, { ...ok, dependents: null })).toBe(true);
+    expect(intakeNumbersMasked(annual, { ...ok, dependents: [] })).toBe(true);
+    for (const leak of [
+      { oldSsn: '123-45-6789' },
+      { dependents: '123-45-6789' },
+      { dependents: ['123456789'] },
+      { dependents: { r1: { ssn: '123456789' } } },
+      { dependents: [{ id: 'r1', taxId: '123456789' }] },
+    ]) {
+      expect([leak, intakeNumbersMasked(annual, { ...ok, ...leak })]).toEqual([leak, false]);
+    }
+  });
+
   it('puts back the stored number for a matching { last4 }, by key and by row id', () => {
     const result = restoreMaskedNumbers(
       annual,

@@ -1,10 +1,12 @@
 import {
   ApiRequestError,
   BEGIN_ONLINE_ERRORS,
+  BEGIN_ONLINE_FORM_ORDER,
   BEGIN_ONLINE_LIMITS,
   type BeginContact,
   type BeginDraft,
   type BeginOnlineClient,
+  beginOnlinePrefill,
   ConfirmUploadRequest,
   CreateIntakeUploadRequest,
   EmailResumeLinkRequest,
@@ -12,7 +14,6 @@ import {
   INTAKE_FORMS,
   type IntakeAnswers,
   IntakeFormKey,
-  intakeFields,
   IntakeKey,
   IntakeUploadId,
   maskIntakeAnswers,
@@ -60,7 +61,10 @@ import { mockBusiness } from './me';
  *     "virus" ends BLOCKED (INFECTED), one with "unreadable" BLOCKED (FAILED); an .xlsx or .docx
  *     named "password" or "macro" is refused as the API would. Only CLEAN and PENDING files
  *     answer a required slot; every file counts toward the slot's `maxFiles` and the draft's
- *     limit. The ticket URL starts with `mock:`, so `uploadFile()` skips the PUT.
+ *     limit, at step 1 and again at step 3 (409 TOO_MANY_FILES). The ticket URL starts with
+ *     `mock:`, so `uploadFile()` skips the PUT.
+ *   - `forms` lists the services in the page's order (BEGIN_ONLINE_FORM_ORDER); `start` fills
+ *     the form's contact fields with `beginOnlinePrefill`, as the API does.
  *   - Submit checks the whole form: 400 VALIDATION_FAILED names the first problem. Then, until
  *     R14's signature is in the body, a word in a text answer answers a submit code instead
  *     (MOCK_SUBMIT_TRIGGERS in ./intake; the start's email fills the form's email, so starting
@@ -68,8 +72,8 @@ import { mockBusiness } from './me';
  *     "noagreement" 409 NO_INTAKE_AGREEMENT, "agreementoutdated" 409 AGREEMENT_OUTDATED,
  *     "acknowledgmentrequired" 400 ACKNOWLEDGMENT_REQUIRED, "signaturemismatch" 400
  *     SIGNATURE_MISMATCH, "pdfrequired" 400 PDF_REQUIRED. A submit deletes the files whose slot
- *     is not a shown upload field, then locks the draft: it answers 409 DRAFT_SUBMITTED, and
- *     `start` begins a new one.
+ *     is not a shown upload field, keeps only the answers of shown fields, then locks the draft:
+ *     it answers 409 DRAFT_SUBMITTED, and `start` begins a new one.
  */
 export const MOCK_RESUME_TOKENS = {
   saved: 'mockSavedAnnualTaxDraft00000000000000000001',
@@ -265,7 +269,7 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
     forms: async () => {
       await mockDelay();
       firm();
-      return IntakeFormKey.options.flatMap((form) => {
+      return BEGIN_ONLINE_FORM_ORDER.flatMap((form) => {
         const definition = INTAKE_FORMS[form];
         return definition ? [{ form, title: definition.title, version: definition.version }] : [];
       });
@@ -290,21 +294,11 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
       firm();
       const definition = mockForm(key);
       if (contact.email.includes('ratelimit')) throw rateLimited();
-      const keys = new Set(intakeFields(definition).map((f) => f.key));
-      // The form's own contact fields start filled in, as the API does.
-      const prefill: IntakeAnswers = Object.fromEntries(
-        Object.entries({
-          firstName: contact.firstName,
-          lastName: contact.lastName,
-          fullName: `${contact.firstName} ${contact.lastName}`,
-          email: contact.email,
-          phone: contact.phone ?? null,
-        }).filter(([k, v]) => keys.has(k) && v !== null),
-      );
       const d: Draft = {
         form: key,
         contact: { ...contact, phone: contact.phone ?? null },
-        answers: prefill,
+        // The form's own contact fields start filled in, as the API does.
+        answers: beginOnlinePrefill(definition, contact),
         files: [],
         savedSteps: [],
         taxYear: taxYear(),
@@ -374,7 +368,7 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
       const { uploadToken } = parseInput(ConfirmUploadRequest, body);
       firm();
       const d = mine(key);
-      const file = uploads.confirm(key, uploadToken);
+      const file = uploads.confirm(key, uploadToken, mockForm(key), d.files);
       d.files.push(file);
       renew(d);
       return fileView(file);
@@ -399,12 +393,16 @@ export function createBeginOnlineMock(firmSlug: string): BeginOnlineClient {
       const definition = mockForm(key);
       if (answers) saveStep(d, definition.steps.at(-1)!.key, answers);
       const kept = keptFiles(definition, d.answers, d.files);
-      answersOrFail(definition, d.answers, { mode: 'submit', uploads: slotCounts(kept) });
-      const triggered = submitTrigger(d.answers, BEGIN_ONLINE_ERRORS);
+      const clean = answersOrFail(definition, d.answers, {
+        mode: 'submit',
+        uploads: slotCounts(kept),
+      });
+      const triggered = submitTrigger(clean, BEGIN_ONLINE_ERRORS);
       if (triggered) throw triggered;
-      // As the API, in one transaction: the files of hidden slots are deleted, then the lead
-      // leaves DRAFT.
+      // As the API, in one transaction: the files of hidden slots are deleted and the answers of
+      // hidden fields dropped, then the lead leaves DRAFT.
       d.files = kept;
+      d.answers = clean;
       d.submitted = true;
       d.updatedAt = now();
       return { received: true, form: key, submittedAt: d.updatedAt };

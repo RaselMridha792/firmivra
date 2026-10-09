@@ -45,7 +45,8 @@ import { UsState } from './options.js';
 // back as that `{ last4 }`: it must match the number stored at the same key (in a group, in the
 // row with the same `id`), and the API keeps the stored number (`restoreMaskedNumbers`); any other
 // `{ last4 }` is 400 VALIDATION_FAILED. The responses that carry answers (contract B) refuse a
-// full SSN or EIN with `intakeNumbersMasked`.
+// full SSN or EIN with `intakeNumbersMasked`, and with it any key outside the form and any group
+// answer that is not a list of the group's rows (where a number could hide).
 //
 // Size: at most 500 answers, a group row at most 31 keys (its id and 30 fields), a grid at most
 // 50 rows by 10 columns, counted before any value is read. `constructor` and `prototype` are
@@ -305,23 +306,31 @@ export function maskIntakeAnswers(
 }
 
 /**
- * True when no SSN or EIN in the answers is a full number: what a response must hold. Used by
- * MyIntake and BeginDraft, so a full number never reaches a screen.
+ * True when the answers cannot hold a full SSN or EIN: what a response must hold. Every SSN and
+ * EIN is `{ last4 }` or empty, at the top level and in group rows; and nothing sits where this
+ * check can't see: every key is a field of the form, and every group answer is a list of rows
+ * holding only `id` and the group's own fields. Cleaned answers (`checkIntakeAnswers`) always
+ * pass; an API bug, or answers kept from another version of the form, do not. Used by MyIntake
+ * and BeginDraft, so a full number never reaches a screen.
  */
 export function intakeNumbersMasked(
   definition: IntakeFormDefinition,
   answers: Readonly<Values>,
 ): boolean {
-  let ok = true;
-  const check = (v: unknown) => {
-    if (v !== undefined && v !== null && !isMasked(v)) ok = false;
-    return v;
-  };
-  for (const f of intakeFields(definition)) {
-    if (isSensitive(f)) check(answers[f.key]);
-    else if (f.type === 'group') mapRows(f, answers[f.key], (_k, v) => check(v));
-  }
-  return ok;
+  const fields = new Map(intakeFields(definition).map((f) => [f.key, f]));
+  const empty = (v: unknown) => v === undefined || v === null;
+  const safe = (f: IntakeField | undefined, v: unknown) =>
+    f !== undefined && (!isSensitive(f) || empty(v) || isMasked(v));
+  return Object.entries(answers).every(([key, value]) => {
+    const f = fields.get(key);
+    if (f?.type !== 'group' || empty(value)) return safe(f, value);
+    if (!Array.isArray(value)) return false;
+    const subs = new Map<string, IntakeField>(f.fields.map((s) => [s.key, s]));
+    return value.every(
+      (row: unknown) =>
+        isObject(row) && Object.entries(row).every(([k, v]) => k === 'id' || safe(subs.get(k), v)),
+    );
+  });
 }
 
 /**

@@ -97,15 +97,19 @@ export const IntakeOption = z.object({
 });
 export type IntakeOption = z.infer<typeof IntakeOption>;
 
+/** The codes a condition lists: at least one, at most as many as a field has options. */
+const ConditionCodes = z.array(IntakeOptionValue).min(1).max(INTAKE_LIMITS.maxOptions);
+
 /**
  * Shown only while an earlier field (in the form, or in the same group row) has this answer:
- * `equals` a yes/no, checkbox or single choice; `oneOf` single-choice codes; `includesAny` of the
- * codes ticked in a multiple choice. A field that is itself hidden has no answer.
+ * `equals` a yes/no, checkbox or single choice (an option's code or a state code); `oneOf`
+ * single-choice codes; `includesAny` of the codes ticked in a multiple choice. A field that is
+ * itself hidden has no answer.
  */
 export const IntakeCondition = z.union([
-  z.object({ field: IntakeKey, equals: z.union([z.string(), z.boolean()]) }),
-  z.object({ field: IntakeKey, oneOf: z.array(IntakeOptionValue).min(1) }),
-  z.object({ field: IntakeKey, includesAny: z.array(IntakeOptionValue).min(1) }),
+  z.object({ field: IntakeKey, equals: z.union([IntakeOptionValue, z.boolean()]) }),
+  z.object({ field: IntakeKey, oneOf: ConditionCodes }),
+  z.object({ field: IntakeKey, includesAny: ConditionCodes }),
 ]);
 export type IntakeCondition = z.infer<typeof IntakeCondition>;
 

@@ -2,8 +2,13 @@ import { z } from 'zod';
 import { Email } from '../auth/schemas.js';
 import { Phone } from '../client-auth/schemas.js';
 import { clearable, text } from '../clients/text.js';
-import { IntakeAnswers } from '../intake/answers.js';
-import { INTAKE_LIMITS, IntakeFormDefinition, IntakeFormKey } from '../intake/definition.js';
+import { checkIntakeAnswers, IntakeAnswers } from '../intake/answers.js';
+import {
+  INTAKE_LIMITS,
+  IntakeFormDefinition,
+  IntakeFormKey,
+  intakeStepFields,
+} from '../intake/definition.js';
 import { INTAKE_AGREEMENT_ERRORS, IntakeUpload, refuseFullNumbers } from '../intake/schemas.js';
 
 // Begin Online (R11): the public intake on a firm's portal site (portal.firmivra.com/{firmSlug}/
@@ -109,6 +114,14 @@ export const BEGIN_ONLINE_SERVICES = {
   { path: string; title: string; tagline: string; button: string; success: 'TAX' | 'GENERAL' }
 >;
 
+/**
+ * The six services in the "Choose Your Service" page's order (BEGIN_ONLINE_SERVICES' own order,
+ * not IntakeFormKey's): the order `forms` answers in.
+ */
+export const BEGIN_ONLINE_FORM_ORDER = Object.keys(
+  BEGIN_ONLINE_SERVICES,
+) as readonly IntakeFormKey[];
+
 /** The service whose page path this is (`annual-tax` is ANNUAL_TAX), or null. */
 export function beginOnlineFormOfPath(path: string): IntakeFormKey | null {
   const found = Object.entries(BEGIN_ONLINE_SERVICES).find(([, s]) => s.path === path);
@@ -125,7 +138,7 @@ export const BEGIN_ONLINE_LIMITS = {
 // ---------- The firm's forms ----------
 /**
  * GET /portal/{firmSlug}/begin/forms: the services the firm offers online (one per kind), in the
- * page's order.
+ * page's order (BEGIN_ONLINE_FORM_ORDER).
  */
 export const BeginOnlineFormList = z.object({
   items: z
@@ -163,9 +176,10 @@ export type BeginContact = z.infer<typeof BeginContact>;
 
 /**
  * POST .../{path}/draft: the card the service page opens with ("Let's get started"). The API copies
- * these into the form's fields with the same keys (firstName, lastName, fullName, email, phone).
- * Starting again replaces this browser's draft for the service (the old one stays resumable by
- * its link). 404 when the firm doesn't offer the service online.
+ * these into the form's fields with the same keys (`beginOnlinePrefill`: firstName, lastName,
+ * fullName, email, phone; each only when it fits its field). Starting again replaces this
+ * browser's draft for the service (the old one stays resumable by its link). 404 when the firm
+ * doesn't offer the service online.
  */
 export const StartBeginDraftRequest = z.strictObject({
   firstName: text(100, 'one', 'Enter your first name'),
@@ -174,6 +188,41 @@ export const StartBeginDraftRequest = z.strictObject({
   phone: clearable(Phone),
 });
 export type StartBeginDraftRequest = z.input<typeof StartBeginDraftRequest>;
+
+/**
+ * The answers a new draft starts with, as the API and the mock fill them: the start card's
+ * contact copied into the form's fields with the same keys (firstName, lastName, fullName as
+ * "first last", email, phone). Each is kept only when the form has that field and the value passes
+ * it as a save of its step would, so the first save of that step never refuses it: a joined
+ * fullName longer than the field's maxLength (each name may have 100 characters) is left out.
+ */
+export function beginOnlinePrefill(
+  definition: IntakeFormDefinition,
+  contact: { firstName: string; lastName: string; email: string; phone?: string | null },
+): IntakeAnswers {
+  const values: Record<string, string | null | undefined> = {
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    fullName: `${contact.firstName} ${contact.lastName}`,
+    email: contact.email,
+    phone: contact.phone,
+  };
+  const out: IntakeAnswers = {};
+  for (const step of definition.steps) {
+    for (const f of intakeStepFields(step)) {
+      const value = values[f.key];
+      if (typeof value !== 'string') continue;
+      const { answers, issues } = checkIntakeAnswers(
+        definition,
+        { [f.key]: value },
+        { mode: 'save', step: step.key },
+      );
+      const clean = answers[f.key];
+      if (issues.length === 0 && clean !== undefined) out[f.key] = clean;
+    }
+  }
+  return out;
+}
 
 /**
  * A draft: the form it is on (its own version), the answers so far and its files. A full SSN or
@@ -259,7 +308,9 @@ export const BeginOnlineErrorCode = z.enum([
   'TOO_MANY_FILES',
   /**
    * 409 on submit: the Terms of Service or Privacy Policy accepted on the review step is not the
-   * firm's current version (as R3's sign-up). Reload them and accept again.
+   * firm's current version (as R3's sign-up). Reload them and accept again. The versions accepted
+   * travel with R14's signature (intake_signatures.terms_document_id and privacy_document_id,
+   * Begin Online only; see SubmitIntakeRequest).
    */
   'TERMS_OUTDATED',
   // The submit's agreement codes (IntakeAgreementErrorCode in intake/schemas.ts).
