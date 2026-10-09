@@ -60,6 +60,7 @@ Verdict: GO with the worker. `pdfjs-dist` 6.3.289 (exact pin), legacy build, in 
 - Fahad: "Firm Sign" in the firm menu; the Send for Signature button and the "Signatures" entry in the client record's tabs (`clients/[id]/layout.tsx`, F06).
 - Nahid: "Signatures" in the portal menu.
 - R1: PAGE-MAP rows for the Firm Sign pages.
+- Fahad: an `accent` tone on `Badge` (Partially Signed uses the accent tokens in `status-badge.tsx` until then), and a `Table` option to hide its pager (the dashboard's Recent Documents shows Page 1 / Previous / Next, which the mockup doesn't have).
 - Fahad (optional): a handwriting font token for typed signatures; until then they use `--font-display` italic.
 
 ## Progress log
