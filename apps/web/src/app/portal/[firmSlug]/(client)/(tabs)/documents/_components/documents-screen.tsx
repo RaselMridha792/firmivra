@@ -2,7 +2,7 @@
 
 import { DOCUMENT_ERRORS, type MyDocument, PORTAL_BLOCKED_TEXT } from '@firmivra/types';
 import { Badge, Button, Card, type Column, Input, Select, Table } from '@firmivra/ui';
-import { Download, FileText, Info } from 'lucide-react';
+import { CloudUpload, Download, FileText, Info } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 import { PageState } from '../../../../../../../components/page-state';
@@ -10,6 +10,8 @@ import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
 import { usePortal } from '../../../../layout';
+import { DocumentRequests } from './document-requests';
+import { type Preset, UploadDialog } from './upload-dialog';
 
 const day = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -20,6 +22,8 @@ export function DocumentsScreen() {
   const [categoryId, setCategoryId] = useState('');
   const [year, setYear] = useState('');
   const [search, setSearch] = useState('');
+  const [uploading, setUploading] = useState<{ preset?: Preset } | null>(null);
+  const [uploaded, setUploaded] = useState<string | null>(null);
   const term = useDeferredValue(search.trim());
   const query = { categoryId: categoryId || undefined, taxYear: year ? Number(year) : undefined };
   const categories = useApiQuery(['my-document-categories', slug], () =>
@@ -42,7 +46,20 @@ export function DocumentsScreen() {
             organized and accessible anytime.
           </p>
         </div>
+        <Button onClick={() => setUploading({})}>
+          <CloudUpload aria-hidden className="size-5" /> Upload Documents
+        </Button>
       </header>
+      {uploaded ? (
+        <p role="status" className="rounded-card bg-success-soft p-3 text-sm text-success">
+          {uploaded} was uploaded. We&apos;re checking it now; you can download it once that is
+          done.
+        </p>
+      ) : null}
+      <DocumentRequests
+        slug={slug}
+        onUpload={(r) => setUploading({ preset: { serviceId: r.service.id, requestId: r.id } })}
+      />
       <p className="flex gap-2 rounded-card bg-folder-surface p-3 text-sm text-text">
         <Info aria-hidden className="size-5 shrink-0 text-firm-primary" />
         Only upload additional documents if your taxes or business project is still being created or
@@ -78,6 +95,13 @@ export function DocumentsScreen() {
       <PageState query={list}>
         {(data) => <DocumentTable slug={slug} rows={data.items} />}
       </PageState>
+      <UploadDialog
+        slug={slug}
+        open={uploading !== null}
+        preset={uploading?.preset}
+        onClose={() => setUploading(null)}
+        onUploaded={setUploaded}
+      />
     </Card>
   );
 }
