@@ -19,7 +19,7 @@ const pages: [url: string, title: string][] = [
   [app('/firm-sign/in-person/req-1'), 'In-person signing'],
   [app('/clients/client-1/signatures'), 'Client signatures'],
   [portal('/lvp/signatures'), 'Signatures'],
-  [portal('/lvp/sign'), 'Sign documents'],
+  [portal('/lvp/sign/samples'), 'Signing samples'],
 ];
 
 for (const [url, title] of pages) {

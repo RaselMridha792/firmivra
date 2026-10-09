@@ -1,7 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
-const signPage = `http://portal.localhost:${port}/lvp/sign`;
+const signPage = `http://portal.localhost:${port}/lvp/sign/samples`;
 
 async function drawLine(page: Page) {
   const box = await page.getByTestId('signature-canvas').boundingBox();

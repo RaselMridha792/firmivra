@@ -50,7 +50,7 @@ const FIELDS: OverlayField[] = [
  * documents of a request, one at a time, with their fields, and the adopt-a-signature pad. The code gate and consent
  * come first in signer flow 1.
  */
-export function SignerPreview() {
+export function SignerSamples() {
   const documents = useMemo(
     () => [
       { label: 'Sample engagement letter', pdf: samplePdf(3) },
@@ -65,7 +65,7 @@ export function SignerPreview() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <h1 data-testid="page-title" className="text-2xl font-semibold text-heading">
-        Sign documents
+        Signing samples
       </h1>
       <p className="text-sm text-muted">
         Document {shown + 1} of {documents.length}: {doc.label}
