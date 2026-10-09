@@ -74,10 +74,17 @@ export type EsignDelivery = z.infer<typeof EsignDelivery>;
 /**
  * How a signer proves who they are, on top of their own link. EMAIL_CODE (the default): a
  * 6-digit code by email. ACCESS_CODE: a code the firm gives the signer another way.
- * PORTAL_SESSION is never chosen: it is what the events record when a signed-in client signs
- * from the Signature center.
+ * PORTAL_SESSION and IN_PERSON are never chosen: they are what the events record when a signed-in
+ * client signs from the Signature center, or a signer signs in person.
  */
-export const EsignAuthMethod = z.enum(['LINK', 'EMAIL_CODE', 'ACCESS_CODE', 'PORTAL_SESSION']);
+export const EsignAuthMethod = z.enum([
+  'LINK',
+  'EMAIL_CODE',
+  'ACCESS_CODE',
+  'PORTAL_SESSION',
+  /** Recorded when a signer signs in person on a staff member's device (contract 3). */
+  'IN_PERSON',
+]);
 export type EsignAuthMethod = z.infer<typeof EsignAuthMethod>;
 /** What staff may pick for a recipient. */
 export const EsignChosenAuthMethod = z.enum(['LINK', 'EMAIL_CODE', 'ACCESS_CODE']);

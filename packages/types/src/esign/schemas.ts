@@ -121,6 +121,10 @@ export const EsignAction = z.enum([
   'REPLACE',
   'RESEND_COPY',
   'DOWNLOAD',
+  // Contract 3.
+  'SUBMIT_FOR_APPROVAL',
+  'APPROVE',
+  'START_IN_PERSON',
 ]);
 export type EsignAction = z.infer<typeof EsignAction>;
 
@@ -335,6 +339,12 @@ export const EsignRequestDetail = EsignRequestRow.extend({
   /** The request this one replaces, and the one that replaced it. */
   replacesRequestId: z.uuid().nullable(),
   replacedByRequestId: z.uuid().nullable(),
+  /** The template and version it was made from (source TEMPLATE or BULK); null otherwise. */
+  template: z.object({ id: z.uuid(), version: z.number().int().min(1) }).nullable(),
+  /** Each approver's decision note, for staff (contract 3). Never shown to a signer. */
+  approvalNotes: z.array(
+    z.object({ recipientId: z.uuid(), decision: z.enum(['APPROVE', 'REJECT']), note: z.string() }),
+  ),
   declinedAt: DateTime.nullable(),
   expiredAt: DateTime.nullable(),
   voidedAt: DateTime.nullable(),
@@ -490,8 +500,11 @@ export const EsignPutRecipient = z
         phone: Phone.optional(),
       }),
     ]),
-    /** PORTAL only for a CLIENT_LOGIN; IN_PERSON comes with the in-person contract. */
-    delivery: z.enum(['EMAIL', 'PORTAL']).default('EMAIL'),
+    /**
+     * PORTAL only for a CLIENT_LOGIN. IN_PERSON: a signer who signs on the firm's device
+     * (`startInPerson`); their auth method is not asked (the staff member vouches).
+     */
+    delivery: EsignDelivery.default('EMAIL'),
     authMethod: EsignChosenAuthMethod.default('EMAIL_CODE'),
     /** Required for a new ACCESS_CODE; leave it out to keep the code already set. */
     accessCode: z
@@ -510,7 +523,14 @@ export const EsignPutRecipient = z
         message: 'Only the client’s own login can sign in the portal',
       });
     }
-    if (r.authMethod === 'ACCESS_CODE' && !r.id && !r.accessCode) {
+    if (r.delivery === 'IN_PERSON' && r.kind !== 'SIGNER') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['delivery'],
+        message: 'Only a signer signs in person',
+      });
+    }
+    if (r.authMethod === 'ACCESS_CODE' && r.delivery !== 'IN_PERSON' && !r.id && !r.accessCode) {
       ctx.addIssue({ code: 'custom', path: ['accessCode'], message: 'Set an access code' });
     }
     if (r.kind === 'APPROVER' && r.who.type !== 'STAFF') {
@@ -652,6 +672,8 @@ export const EsignReadinessCode = z.enum([
   'REMINDER_AFTER_EXPIRY',
   /** An approver has not approved yet. */
   'APPROVAL_PENDING',
+  /** Signing Settings ask for an approval, and the request has no approver. */
+  'APPROVER_MISSING',
   /** The firm has not published its e-signature consent text (Signing Settings). */
   'NO_CONSENT',
 ]);

@@ -69,6 +69,17 @@ export const EsignErrorCode = z.enum([
   'TEMPLATE_NAME_TAKEN',
   /** 400 (signer adopt): the image is not a PNG, or over 200 KB or 1600x600. */
   'IMAGE_INVALID',
+  // Contract 3: approvals, roles and in-person signing.
+  /** 403 (approval): the caller is not an approver on this request. */
+  'NOT_AN_APPROVER',
+  /** 409 (roles): an Owner's or Admin's Firm Sign access follows their firm role. */
+  'ROLE_FIXED',
+  /** 403: an in-person signing is open on this session; unlock it with your password first. */
+  'KIOSK_LOCKED',
+  /** 400 (in-person exit): the password is not right. */
+  'PASSWORD_WRONG',
+  /** 409 (in-person): this recipient does not sign in person. */
+  'NOT_IN_PERSON',
 ]);
 export type EsignErrorCode = z.infer<typeof EsignErrorCode>;
 
@@ -107,4 +118,9 @@ export const ESIGN_ERRORS = {
   TEMPLATE_ROLES_UNFILLED: 'Choose who fills each role in this template.',
   TEMPLATE_NAME_TAKEN: 'Another template already has this name.',
   IMAGE_INVALID: 'Use a PNG image of at most 200 KB and 1600 by 600 pixels.',
+  NOT_AN_APPROVER: 'Only this request’s approvers can approve it.',
+  ROLE_FIXED: 'Owners and Admins always have full access to Firm Sign.',
+  KIOSK_LOCKED: 'An in-person signing is open. Enter your password to return.',
+  PASSWORD_WRONG: 'That password is not right.',
+  NOT_IN_PERSON: 'This recipient does not sign in person.',
 } as const satisfies Record<EsignErrorCode, string>;

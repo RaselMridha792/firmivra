@@ -8,13 +8,16 @@ info:
     detail, and the client record's Signatures tab), signed by recipients on the portal host
     (`/{slug}/sign`), and listed in the portal's Signature center. Contract 1 is the firm side;
     contract 2 adds the signer routes, the Signature center, Signing Settings and consent
-    versions, and templates (save as template, use a template). Contract 3 adds the extras.
+    versions, and templates (save as template, use a template). Contract 3 (`extras.ts`, tag
+    esign-extras) adds approvals, Firm Sign roles (Manager, Viewer), template versions and
+    duplicate, in-person signing (with the staff session locked until the password is entered
+    again), bulk send (one request per client) and reports.
 
     **Source of truth:** the zod schemas in `packages/types/src/esign/` (`enums.ts`,
     `schemas.ts`, `errors.ts`), with typed calls in `createEsignClient` (web: `api.esign`) and
     `createMySignaturesClient` (web: `api.mySignatures(slug)`) and `createSigningClient` (web:
     `api.signing(slug)`); contract 2's schemas are in `admin.ts` and `signing.ts`. Mock mode:
-    `apps/web/src/mocks/esign.ts` and `esign-signing.ts`
+    `apps/web/src/mocks/esign.ts`, `esign-signing.ts` and `esign-extras.ts`
     (`NEXT_PUBLIC_API_MOCK=esign,mySignatures,signing`), with the mockup's counters and rows and
     a token for every signer step (`MOCK_SIGNING_TOKENS`). Schemas below name their zod schema; if this file and the zod schemas
     differ, the zod schemas win.
@@ -130,6 +133,7 @@ tags:
   - name: esign
   - name: esign-portal
   - name: esign-signer
+  - name: esign-extras
   - name: esign-admin
 
 paths:
@@ -972,6 +976,224 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  # ---------- Contract 3: extras (packages/types/src/esign/extras.ts) ----------
+  /esign/requests/{id}/submit-for-approval:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-extras]
+      operationId: submitEsignApproval
+      summary: "DRAFT to NEEDS_APPROVAL; approvers are emailed (`SubmitEsignApprovalBody` → `EsignRequestDetail`). 409 NOT_READY, INVALID_STATE"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/approval:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-extras]
+      operationId: decideEsignApproval
+      summary: "An approver approves or rejects (`EsignApprovalBody` → `EsignRequestDetail`); the last approval sends it. 403 NOT_AN_APPROVER; 409 INVALID_STATE, RECIPIENT_DONE"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/save-as-version:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-extras]
+      operationId: saveEsignTemplateVersion
+      summary: "The request becomes the template’s next version (`SaveEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_ARCHIVED, SCAN_PENDING"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/requests/{id}/in-person:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [esign-extras]
+      operationId: startEsignInPerson
+      summary: "Hand this device to an IN_PERSON signer and lock the staff session (`StartEsignInPersonBody` → `EsignInPersonSession`). 409 NOT_IN_PERSON, NOT_YOUR_TURN, RECIPIENT_DONE, REQUEST_CLOSED"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/in-person:
+    get:
+      tags: [esign-extras]
+      operationId: getEsignInPerson
+      summary: "The caller’s open in-person session (→ `EsignInPersonState`); allowed while locked"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/in-person/exit:
+    post:
+      tags: [esign-extras]
+      operationId: exitEsignInPerson
+      summary: "Unlock with the staff password (`ExitEsignInPersonBody` → `OkResponse`); allowed while locked. 400 PASSWORD_WRONG; 401 after 5 wrong"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/roles:
+    get:
+      tags: [esign-extras]
+      operationId: listEsignRoles
+      summary: "Every active member’s Firm Sign access, Owner and Admin only (→ `EsignMemberRoleList`)"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /esign/roles/{userId}:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [esign-extras]
+      operationId: setEsignRole
+      summary: "A Staff member’s Firm Sign access (`SetEsignMemberRoleBody` → `EsignMemberRole`). 409 ROLE_FIXED, NOT_A_MEMBER"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/templates/{templateId}/versions:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-extras]
+      operationId: listEsignTemplateVersions
+      summary: "Every saved version, newest first (→ `EsignTemplateVersionList`)"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /esign/templates/{templateId}/versions/{version}/restore:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: version, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    post:
+      tags: [esign-extras]
+      operationId: restoreEsignTemplateVersion
+      summary: "Copies an older version into a new newest one (`RestoreEsignTemplateVersionBody` → `EsignTemplateDetail`). 409 TEMPLATE_ARCHIVED"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/templates/{templateId}/duplicate:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [esign-extras]
+      operationId: duplicateEsignTemplate
+      summary: "A copy the caller owns, at version 1 (`DuplicateEsignTemplateBody` → `EsignTemplateDetail`). 409 TEMPLATE_NAME_TAKEN"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/templates/{templateId}/bulk-send:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [esign-extras]
+      operationId: bulkSendEsignTemplate
+      summary: "One separate request per client (`EsignBulkSendBody` → 202 `EsignBulkBatch`). 400 BULK_LIMIT; 409 TEMPLATE_ARCHIVED, TEMPLATE_ROLES_UNFILLED"
+      requestBody: { $ref: '#/components/requestBodies/Zod' }
+      responses:
+        '202':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /esign/bulk/{batchId}:
+    parameters:
+      - { name: batchId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-extras]
+      operationId: getEsignBulkBatch
+      summary: "A bulk send’s rows (→ `EsignBulkBatch`)"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /esign/reports:
+    parameters:
+      - { name: from, in: query, required: true, schema: { type: string, format: date } }
+      - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      - { name: status, in: query, schema: { $ref: '#/components/schemas/EsignRequestStatus' } }
+      - { name: senderId, in: query, schema: { type: string, format: uuid } }
+    get:
+      tags: [esign-extras]
+      operationId: getEsignReport
+      summary: "Totals and activity by sender for requests sent in a range of at most a year (`EsignReportQuery` → `EsignReport`)"
+      responses:
+        '200':
+          description: The zod schema in the summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/Zod' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
   parameters:

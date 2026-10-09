@@ -459,10 +459,25 @@ export function createMySignaturesMock(firmSlug: string): MySignaturesClient {
 
 // ---------- Settings and templates on api.esign ----------
 type AdminKeys = 'saveAsTemplate' | 'settings' | 'templates';
+/** Contract 3's calls, mocked in mocks/esign-extras.ts. */
+export type ExtrasKeys =
+  | 'saveAsVersion'
+  | 'submitForApproval'
+  | 'decideApproval'
+  | 'inPerson'
+  | 'roles'
+  | 'bulk'
+  | 'report';
+export type TemplateExtrasKeys = 'versions' | 'restoreVersion' | 'duplicate' | 'bulkSend';
+/** The request calls of mocks/esign.ts, without settings, templates and the extras. */
+export type EsignBaseClient = Omit<EsignClient, AdminKeys | ExtrasKeys>;
+type AdminClient = Pick<EsignClient, 'saveAsTemplate' | 'settings'> & {
+  templates: Omit<EsignClient['templates'], TemplateExtrasKeys>;
+};
 
 /** What the firm-side mock (mocks/esign.ts) shares with settings and templates. */
 export interface EsignAdminContext {
-  client: Omit<EsignClient, AdminKeys>;
+  client: EsignBaseClient;
   on: () => Promise<void>;
   /** The request, if the caller may see it (404 otherwise). */
   find: (requestId: string) => EsignRequestDetail;
@@ -495,6 +510,10 @@ const admin = (): AdminState =>
   });
 let templates: EsignTemplateDetail[] | undefined;
 
+/** The firm's Signing Settings defaults (for the readiness check in mocks/esign.ts). */
+export const esignDefaults = () => admin().defaults;
+/** The mock's templates (shared with mocks/esign-extras.ts). */
+export const esignTemplateStore = (me: MemberRef): EsignTemplateDetail[] => templateFixtures(me);
 const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
   (templates ??= (
     [
@@ -510,6 +529,7 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
     owner: me,
     pageCount: 2,
     roleCount: 2,
+    version: 1,
     updatedAt: iso(Date.now() - (i + 1) * 7 * DAY),
     archivedAt: null,
     canEdit: true,
@@ -610,7 +630,7 @@ const templateFixtures = (me: MemberRef): EsignTemplateDetail[] =>
   })));
 
 /** Signing Settings, templates and save-as-template for the firm-side mock. */
-export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminKeys> {
+export function esignAdminMock(ctx: EsignAdminContext): AdminClient {
   const forbidden = () => fail(403, 'FORBIDDEN', 'Only an Owner or Admin can change this');
   const settingsView = () => ({
     defaults: copy(admin().defaults),
@@ -663,6 +683,7 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
         owner: ctx.me,
         pageCount: r.pagePlan.length,
         roleCount: r.recipients.length,
+        version: 1,
         updatedAt: iso(Date.now()),
         archivedAt: null,
         canEdit: true,
@@ -820,6 +841,7 @@ export function esignAdminMock(ctx: EsignAdminContext): Pick<EsignClient, AdminK
         });
         const r = ctx.stored(created.id);
         r.source = 'TEMPLATE';
+        r.template = { id: t.id, version: t.version };
         const docId = ctx.newId('b');
         r.documents = [
           {

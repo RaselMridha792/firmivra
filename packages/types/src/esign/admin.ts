@@ -13,8 +13,8 @@ import { EsignPutRecipient, EsignReminders } from './schemas.js';
 
 // Firm Sign (R13), firm side, contract 2: Signing Settings and templates (save as template, use a
 // template). Same access rules as the requests (schemas.ts); settings change only by Owner and
-// Admin (403 FORBIDDEN otherwise). Template versions, duplicate and Firm Sign roles come in
-// contract 3.
+// Admin (403 FORBIDDEN otherwise). Template versions, duplicate and Firm Sign roles are in
+// extras.ts.
 
 const DateTime = z.iso.datetime({ offset: true });
 
@@ -26,7 +26,7 @@ export const EsignDefaults = z.object({
   /** Days before expiry that open signers get a warning; 0 for none. */
   expiryWarningDays: z.number().int().min(0).max(30),
   authMethod: EsignChosenAuthMethod,
-  /** New requests need an approver's yes before they go out (contract 3 adds approvals). */
+  /** New requests need an approver's yes before they go out (extras.ts). */
   requireApproval: z.boolean(),
   /** The email message new requests start with; null for none. */
   emailMessage: z.string().nullable(),
@@ -106,6 +106,8 @@ export const EsignTemplateRow = z.object({
   owner: MemberRef,
   pageCount: z.number().int().min(1),
   roleCount: z.number().int().min(0),
+  /** The newest version: the one `use` copies (contract 3). */
+  version: z.number().int().min(1),
   updatedAt: DateTime,
   archivedAt: DateTime.nullable(),
   /** The caller may rename, change or archive it (its owner, Owner and Admin). */

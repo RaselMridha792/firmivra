@@ -58,7 +58,8 @@ import {
   SAMPLE_PDF_URL,
   SAMPLE_PNG_BASE64,
 } from './esign-common';
-import { esignAdminMock } from './esign-signing';
+import { esignExtrasMock, esignKioskOpen } from './esign-extras';
+import { esignAdminMock, type EsignBaseClient, esignDefaults } from './esign-signing';
 import { mockBusiness } from './me';
 
 /**
@@ -242,6 +243,8 @@ function seeded(n: number, s: Seed): { detail: EsignRequestDetail; events: Esign
     fields,
     replacesRequestId: null,
     replacedByRequestId: null,
+    template: null,
+    approvalNotes: [],
     declinedAt: s.status === 'DECLINED' ? iso(s.lastActivityAt) : null,
     expiredAt: s.status === 'EXPIRED' ? iso(s.lastActivityAt) : null,
     voidedAt: null,
@@ -515,9 +518,14 @@ export function createEsignMock(
     clientFixtures().some((c) => c.id === clientId && c.assignedTo?.userId === mockStaff.userId);
   const visible = (r: EsignRequestDetail) =>
     role !== 'STAFF' || r.sender.userId === me.userId || assigned(r.client?.id);
-  const on = async () => {
+  const moduleOn = async () => {
     await mockDelay();
     if (!enabled) throw fail(403, 'MODULE_OFF', 'Firm Sign is off for this firm');
+  };
+  /** Every firm call but the in-person state and exit is locked while a kiosk is open. */
+  const on = async () => {
+    await moduleOn();
+    if (esignKioskOpen()) throw fail(403, 'KIOSK_LOCKED', 'An in-person signing is open');
   };
   /** A file's scan finishes 4 seconds after its upload. */
   const scanned = (r: EsignRequestDetail) => {
@@ -567,8 +575,20 @@ export function createEsignMock(
     derive(r);
   };
   const actions = (r: EsignRequestDetail): EsignAction[] => {
-    if (r.status === 'DRAFT') return ['EDIT', 'DISCARD', 'SEND'];
-    if (r.status === 'NEEDS_APPROVAL') return ['VOID'];
+    const approver = r.recipients.some(
+      (x) =>
+        x.kind === 'APPROVER' &&
+        x.link.type === 'STAFF' &&
+        x.link.userId === me.userId &&
+        x.status !== 'APPROVED',
+    );
+    if (r.status === 'DRAFT')
+      return r.recipients.some((x) => x.kind === 'APPROVER')
+        ? ['EDIT', 'DISCARD', 'SUBMIT_FOR_APPROVAL']
+        : ['EDIT', 'DISCARD', 'SEND'];
+    if (r.status === 'NEEDS_APPROVAL') return approver ? ['APPROVE', 'VOID'] : ['VOID'];
+    if (OPEN.includes(r.status) && r.recipients.some((x) => x.delivery === 'IN_PERSON'))
+      return ['REMIND', 'VOID', 'CORRECT', 'REPLACE', 'DOWNLOAD', 'START_IN_PERSON'];
     if (OPEN.includes(r.status)) return ['REMIND', 'VOID', 'CORRECT', 'REPLACE', 'DOWNLOAD'];
     if (r.status === 'COMPLETED') return ['RESEND_COPY', 'DOWNLOAD'];
     return r.sentAt ? ['DOWNLOAD'] : [];
@@ -694,10 +714,12 @@ export function createEsignMock(
     }
     if (r.reminders.max > 0 && r.reminders.firstAfterDays >= r.expiryDays)
       add('REMINDER_AFTER_EXPIRY');
+    if (esignDefaults().requireApproval && !r.recipients.some((x) => x.kind === 'APPROVER'))
+      add('APPROVER_MISSING');
     return { ready: problems.length === 0, problems, autoSignaturePage: r.fields.length === 0 };
   };
 
-  const client: Omit<EsignClient, 'saveAsTemplate' | 'settings' | 'templates'> = {
+  const client: EsignBaseClient = {
     status: async () => {
       await mockDelay();
       return { enabled, myEsignRole: enabled ? role : null };
@@ -1188,6 +1210,8 @@ export function createEsignMock(
         })),
         replacesRequestId: old.id,
         replacedByRequestId: null,
+        template: null,
+        approvalNotes: [],
         originalSha256: null,
         allowedActions: [],
       };
@@ -1229,18 +1253,34 @@ export function createEsignMock(
       return { items: copy(esignStore().events.get(r.id) ?? []) };
     },
   };
+  const shared = {
+    client,
+    on,
+    find: (requestId: string) => view(find(requestId)),
+    stored: find,
+    record,
+    me,
+    manager: role !== 'STAFF',
+    newId,
+  };
+  const admin = esignAdminMock(shared);
+  const extras = esignExtrasMock({
+    ...shared,
+    on: moduleOn,
+    client: { ...client, templates: admin.templates },
+    role,
+    visible: () => esignStore().details.filter(visible),
+    members: [
+      { ...STAFF[0]!, firmRole: 'OWNER' },
+      { ...STAFF[1]!, firmRole: 'STAFF' },
+    ],
+  });
+  const { versions, restoreVersion, duplicate, bulkSend, ...rest } = extras;
   return {
     ...client,
-    ...esignAdminMock({
-      client,
-      on,
-      find: (requestId) => view(find(requestId)),
-      stored: find,
-      record,
-      me,
-      manager: role !== 'STAFF',
-      newId,
-    }),
+    ...admin,
+    ...rest,
+    templates: { ...admin.templates, versions, restoreVersion, duplicate, bulkSend },
   };
 }
 
