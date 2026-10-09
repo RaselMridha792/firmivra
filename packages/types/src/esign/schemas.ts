@@ -568,7 +568,13 @@ export const EsignPutRecipientsBody = z.strictObject({
         r.who.type === 'CLIENT_LOGIN' ? [r.who.clientAccountId] : [],
       );
       return new Set(logins).size === logins.length;
-    }, 'A portal login can be a recipient only once'),
+    }, 'A portal login can be a recipient only once')
+    .refine((list) => {
+      const approvers = list.flatMap((r) =>
+        r.kind === 'APPROVER' && r.who.type === 'STAFF' ? [r.who.userId] : [],
+      );
+      return new Set(approvers).size === approvers.length;
+    }, 'A member can approve a request only once'),
 });
 export type EsignPutRecipientsBody = z.input<typeof EsignPutRecipientsBody>;
 

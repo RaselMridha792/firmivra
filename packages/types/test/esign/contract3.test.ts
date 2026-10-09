@@ -9,6 +9,7 @@ import {
   EsignBulkSendBody,
   EsignReadinessCode,
   EsignPutRecipient,
+  EsignPutRecipientsBody,
   EsignReportQuery,
 } from '../../src/index.js';
 
@@ -174,5 +175,20 @@ describe('api.esign extras (contract 3)', () => {
         who,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('approvers in PUT recipients', () => {
+  it('takes a member as approver only once', () => {
+    const approver = {
+      kind: 'APPROVER',
+      role: 'MANAGER',
+      routingOrder: 1,
+      who: { type: 'STAFF', userId: '0199b6e0-0000-7000-8000-000000000009' },
+    } as const;
+    expect(EsignPutRecipientsBody.safeParse({ recipients: [approver] }).success).toBe(true);
+    expect(EsignPutRecipientsBody.safeParse({ recipients: [approver, approver] }).success).toBe(
+      false,
+    );
   });
 });

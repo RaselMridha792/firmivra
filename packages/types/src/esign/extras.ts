@@ -146,6 +146,8 @@ export type DuplicateEsignTemplateBody = z.input<typeof DuplicateEsignTemplateBo
  * NOT_YOUR_TURN, RECIPIENT_DONE, REQUEST_CLOSED.
  */
 export const ESIGN_KIOSK_IDLE_MINUTES = 15;
+/** Wrong staff passwords on `exit` before the staff member is signed out. */
+export const ESIGN_KIOSK_PASSWORD_TRIES = 5;
 
 export const StartEsignInPersonBody = z.strictObject({ recipientId: z.uuid() });
 export type StartEsignInPersonBody = z.input<typeof StartEsignInPersonBody>;
@@ -172,8 +174,10 @@ export type EsignInPersonState = z.infer<typeof EsignInPersonState>;
 
 /**
  * POST /esign/in-person/exit: unlocks the staff session with the staff member's own password and
- * ends the signer's session on the portal. 400 PASSWORD_WRONG; after 5 wrong passwords the staff
- * member is signed out (401). Allowed while locked.
+ * ends the signer's session on the portal. 400 PASSWORD_WRONG; after ESIGN_KIOSK_PASSWORD_TRIES wrong
+ * passwords the staff member is signed out (401). That sign-out, like the idle one, also revokes
+ * the refresh token, so the browser's silent refresh cannot re-send the exit. Allowed while
+ * locked.
  */
 export const ExitEsignInPersonBody = z.strictObject({
   password: z.string().min(1).max(256),
