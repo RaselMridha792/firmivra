@@ -1,7 +1,8 @@
 // End-to-end: the Super Admin approves a firm application (R4 step 2). The decision commits in
 // admin scope, then the firm is created and linked in platform scope; an application approved
 // without a firm (its address taken in between) is finished by approving it again. The
-// NotifyService is replaced by a recorder: approve itself sends nothing until the owner invite.
+// NotifyService is replaced by a recorder. Step 3 (settings, key, owner invite) is in
+// firm-setup.e2e.test.ts.
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -227,9 +228,17 @@ describe('Approve', () => {
       ['firm_application.viewed', null, fx.users.admin.id, null],
       ['firm_application.approved', null, fx.users.admin.id, null],
       ['business.created', null, fx.users.admin.id, { applicationId: ids.plain }],
+      [
+        'settings.copied_from_application',
+        firm?.id,
+        fx.users.admin.id,
+        { applicationId: ids.plain, fields: ['entityType', 'services', 'teamSize'] },
+      ],
     ]);
-    // The owner's activation link comes with step 3.
-    expect(sent).toEqual([]);
+    // The owner's activation link (step 3).
+    expect(sent.map((m) => [m.template, m.to])).toEqual([
+      ['firm-application.approved', `casey1@${tag}.example.test`],
+    ]);
   });
 
   it('uses the address the Super Admin picked', async () => {
@@ -312,7 +321,11 @@ describe('Approve', () => {
     const record = FirmApplicationRecord.parse((await approve(ids.resume).expect(200)).body);
     expect(record.firm?.slug).toBe(`${open.suggestedSlug}-2`);
     const { audit } = await stateOf(ids.resume);
-    expect(audit.map((a) => a.action)).toEqual(['firm_application.viewed', 'business.created']);
+    expect(audit.map((a) => a.action)).toEqual([
+      'firm_application.viewed',
+      'business.created',
+      'settings.copied_from_application',
+    ]);
   });
 
   it('creates one firm for two approvals at once (a double click)', async () => {

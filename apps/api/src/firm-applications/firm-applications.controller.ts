@@ -20,11 +20,20 @@ import {
   SubmitFirmApplicationRequest,
   type SubmitFirmApplicationResponse,
 } from '@firmivra/types';
+import { AuditService } from '../audit/audit.service.js';
 import { Public, Roles } from '../auth/decorators.js';
+import { IDENTITY_PROVIDER } from '../auth/identity/identity-provider.js';
+import { SignInModule } from '../auth/sign-in.controller.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { ENV } from '../config/config.module.js';
+import { DATABASE } from '../database/database.module.js';
+import { NOTIFY_SERVICE } from '../notify/notify.types.js';
 import { AdminPrisma } from './admin-prisma.js';
 import { EIN_HASH_KEY, loadEinHashKey } from './ein-hash.js';
 import { FirmApplicationsService } from './firm-applications.service.js';
+import { FirmKeyJob } from './firm-key-job.js';
+import { createFirmKeys, FIRM_KEYS, loadFirmKeysConfig } from './firm-keys.js';
+import { createOwnerInvites, OWNER_INVITES } from './owner-invites.js';
 import { FirmApplicationSubmitService } from './submit.service.js';
 
 /**
@@ -121,6 +130,19 @@ export class AdminFirmApplicationsController {
     return this.applications.decline(id, body.reason);
   }
 
+  /**
+   * "Resend owner invite": a new activation link for the firm's owner. 409 INVITE_NOT_NEEDED
+   * (no firm yet, or the owner has joined); 429 RATE_LIMITED.
+   */
+  @Post(':id/owner-invite')
+  @HttpCode(200)
+  @Roles('SUPER_ADMIN')
+  resendOwnerInvite(
+    @Param('id', new ZodValidationPipe(FirmApplicationId)) id: string,
+  ): Promise<FirmApplicationRecord> {
+    return this.applications.resendOwnerInvite(id);
+  }
+
   /** "Save Note" (also after a decision). */
   @Put(':id/notes')
   @Roles('SUPER_ADMIN')
@@ -171,6 +193,7 @@ export class AdminDashboardController {
 }
 
 @Module({
+  imports: [SignInModule],
   controllers: [
     FirmApplicationsController,
     AdminFirmApplicationsController,
@@ -182,6 +205,13 @@ export class AdminDashboardController {
     FirmApplicationsService,
     FirmApplicationSubmitService,
     { provide: EIN_HASH_KEY, useFactory: () => loadEinHashKey() },
+    { provide: FIRM_KEYS, useFactory: () => createFirmKeys(loadFirmKeysConfig()) },
+    FirmKeyJob,
+    {
+      provide: OWNER_INVITES,
+      inject: [DATABASE, IDENTITY_PROVIDER, NOTIFY_SERVICE, AuditService, ENV],
+      useFactory: createOwnerInvites,
+    },
   ],
 })
 export class FirmApplicationsModule {}
