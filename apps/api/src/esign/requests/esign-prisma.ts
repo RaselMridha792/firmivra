@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import type { EsignField, EsignPage } from '@firmivra/types';
+import { ESIGN_DEFAULT_CONSENT_MARKDOWN, type EsignField, type EsignPage } from '@firmivra/types';
 import type {
   Database,
   EsignDocument as DocumentRow,
@@ -224,6 +224,26 @@ export async function addLinks(
   });
 }
 
+/**
+ * Publishes ESIGN_DEFAULT_CONSENT_MARKDOWN as version 1 when the firm has no consent version, in
+ * the caller's transaction; its id when this call made it, else null. Two sends at once both try:
+ * the unique (business_id, version) keeps one, and the other does nothing.
+ */
+export async function ensureDefaultConsent(
+  tx: TxClient,
+  businessId: string,
+): Promise<string | null> {
+  const body = ESIGN_DEFAULT_CONSENT_MARKDOWN;
+  const sha = createHash('sha256').update(body, 'utf8').digest('hex');
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    INSERT INTO esign_consent_versions (id, business_id, version, body_markdown, sha256)
+    SELECT ${randomUUID()}::uuid, ${businessId}::uuid, 1, ${body}, ${sha}
+    WHERE NOT EXISTS (SELECT 1 FROM esign_consent_versions WHERE business_id = ${businessId}::uuid)
+    ON CONFLICT (business_id, version) DO NOTHING
+    RETURNING id`;
+  return rows[0]?.id ?? null;
+}
+
 /** Sealed field values by field id (only the fields with a value). */
 export type SealedValues = Map<string, Uint8Array<ArrayBuffer>>;
 
@@ -237,6 +257,9 @@ export function fieldColumns(f: EsignField, position: number, sealed: SealedValu
  * esign_fields.value_enc: each value encrypted with the firm's key (the field-encryption
  * helper), bound to the firm, the table, the field's id and the column. Never logged.
  */
+/** At most this many KMS data-key calls at once while sealing one request's values. */
+const SEAL_AT_ONCE = 10;
+
 @Injectable()
 export class EsignFieldValues {
   constructor(@Inject(FieldEncryption) private readonly fe: FieldEncryption) {}
@@ -245,16 +268,25 @@ export class EsignFieldValues {
     return { businessId, table: 'esign_fields', recordId: fieldId, field: 'value' };
   }
 
-  /** Seals every given value (null and undefined ones are left out). Call before a transaction. */
+  /**
+   * Seals every given value (null and undefined ones are left out). Call before a transaction.
+   * Each value gets its own data key (FieldEncryption caches none), so a request's values are
+   * sealed SEAL_AT_ONCE at a time rather than one KMS call after another.
+   */
   async seal(
     businessId: string,
     values: readonly { id: string; value: string | null | undefined }[],
   ): Promise<SealedValues> {
     const sealed: SealedValues = new Map();
-    for (const { id, value } of values) {
-      if (value !== null && value !== undefined) {
-        sealed.set(id, await this.fe.encrypt(this.context(businessId, id), value));
-      }
+    const todo = values.filter(
+      (v): v is { id: string; value: string } => v.value !== null && v.value !== undefined,
+    );
+    for (let i = 0; i < todo.length; i += SEAL_AT_ONCE) {
+      const chunk = todo.slice(i, i + SEAL_AT_ONCE);
+      const blobs = await Promise.all(
+        chunk.map(({ id, value }) => this.fe.encrypt(this.context(businessId, id), value)),
+      );
+      chunk.forEach(({ id }, k) => sealed.set(id, blobs[k]!));
     }
     return sealed;
   }

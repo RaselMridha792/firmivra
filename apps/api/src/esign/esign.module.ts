@@ -9,8 +9,10 @@ import { BULK_REPOSITORY } from './bulk/bulk.repository.js';
 import { EsignBulkService } from './bulk/bulk.service.js';
 import { EsignCenterController } from './center/center.controller.js';
 import { CENTER_REPOSITORY } from './center/center.repository.js';
+import { PrismaCenterRepository } from './center/prisma-center.repository.js';
 import { EsignCenterService } from './center/center.service.js';
 import { COMPLETION_REPOSITORY } from './completion/completion.repository.js';
+import { PrismaCompletionRepository } from './completion/prisma-completion.repository.js';
 import { EsignCompletionJob } from './completion/completion.job.js';
 import { EsignCompletionService } from './completion/completion.service.js';
 import { EsignEngineModule } from './engine/engine.module.js';
@@ -29,16 +31,14 @@ import { EsignRolesService } from './extras/roles.service.js';
 import { EsignLifecycleController } from './lifecycle/lifecycle.controller.js';
 import { EsignLifecycleJob } from './lifecycle/lifecycle.job.js';
 import { LIFECYCLE_REPOSITORY } from './lifecycle/lifecycle.repository.js';
+import { PrismaLifecycleRepository } from './lifecycle/prisma-lifecycle.repository.js';
 import { EsignLifecycleService } from './lifecycle/lifecycle.service.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
 import { EsignDocumentsService } from './requests/documents.service.js';
 import { ESIGN_DIRECTORY, PrismaEsignDirectory } from './requests/esign-directory.js';
-import {
-  ESIGN_REPOSITORY,
-  type EsignRepository,
-  notMigrated,
-} from './requests/esign.repository.js';
+import { ESIGN_REPOSITORY, notMigrated } from './requests/esign.repository.js';
 import { EsignFieldValues } from './requests/esign-prisma.js';
+import { PrismaEsignRepository } from './requests/prisma-esign.repository.js';
 import { EsignRequestsController, EsignStatusController } from './requests/requests.controller.js';
 import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
@@ -56,13 +56,16 @@ import {
   EsignTemplatesController,
 } from './templates/templates.controller.js';
 import { TEMPLATE_REPOSITORY } from './templates/templates.repository.js';
+import { PrismaTemplateRepository } from './templates/prisma-templates.repository.js';
 import { EsignTemplatesService } from './templates/templates.service.js';
 import { EsignSettingsController } from './settings/settings.controller.js';
 import { SETTINGS_REPOSITORY } from './settings/settings.repository.js';
+import { PrismaSettingsRepository } from './settings/prisma-settings.repository.js';
 import { EsignSettingsService } from './settings/settings.service.js';
 import { EsignSignerController } from './signer/signer.controller.js';
 import { EsignSignerFilesService } from './signer/signer-files.service.js';
 import { SIGNER_REPOSITORY } from './signer/signer.repository.js';
+import { PrismaSignerRepository } from './signer/prisma-signer.repository.js';
 import { EsignSignerService } from './signer/signer.service.js';
 
 /**
@@ -129,15 +132,15 @@ function extrasStandIn(): EsignExtrasRepository {
     { provide: APP_INTERCEPTOR, useClass: EsignKioskInterceptor },
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     EsignFieldValues,
-    { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
-    { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
-    { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
-    { provide: SETTINGS_REPOSITORY, useValue: notMigrated('EsignSettingsRepository') },
-    { provide: CENTER_REPOSITORY, useValue: notMigrated('EsignCenterRepository') },
+    { provide: ESIGN_REPOSITORY, useClass: PrismaEsignRepository },
+    { provide: SIGNER_REPOSITORY, useClass: PrismaSignerRepository },
+    { provide: COMPLETION_REPOSITORY, useClass: PrismaCompletionRepository },
+    { provide: SETTINGS_REPOSITORY, useClass: PrismaSettingsRepository },
+    { provide: CENTER_REPOSITORY, useClass: PrismaCenterRepository },
     EsignLifecycleService,
     EsignLifecycleJob,
-    { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
-    { provide: TEMPLATE_REPOSITORY, useValue: notMigrated('EsignTemplateRepository') },
+    { provide: LIFECYCLE_REPOSITORY, useClass: PrismaLifecycleRepository },
+    { provide: TEMPLATE_REPOSITORY, useClass: PrismaTemplateRepository },
     { provide: BULK_REPOSITORY, useValue: notMigrated('EsignBulkRepository') },
     { provide: EXTRAS_REPOSITORY, useValue: extrasStandIn() },
   ],
