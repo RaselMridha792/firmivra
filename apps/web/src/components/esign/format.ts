@@ -12,3 +12,6 @@ export const dateTime = (iso: string) =>
     minute: '2-digit',
     timeZoneName: 'short',
   });
+
+/** "1 day", "3 days". */
+export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

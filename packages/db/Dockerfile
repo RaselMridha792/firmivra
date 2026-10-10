@@ -3,7 +3,7 @@
 # Runs `prisma migrate deploy` as the owner role, then sets the app role's password (scripts/migrate-deploy.mjs).
 # Also holds the one-off dev command scripts/link-dev-users.mjs, which needs the built package (dist).
 
-FROM node:22-alpine AS base
+FROM public.ecr.aws/docker/library/node:22-alpine AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH HUSKY=0
 RUN corepack enable
 WORKDIR /repo
@@ -16,7 +16,7 @@ RUN pnpm exec turbo run build --filter=@firmivra/db
 # All dependencies of packages/db, including the Prisma CLI (a devDependency).
 RUN pnpm --filter @firmivra/db deploy --legacy /out
 
-FROM node:22-alpine AS runtime
+FROM public.ecr.aws/docker/library/node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out/package.json ./package.json

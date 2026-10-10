@@ -22,14 +22,16 @@ Not mine: the Documents, Messages, Invoices and Signatures tabs' pages, `compone
 
 - [x] 1. `/clients`: list with search, Active/Archived/All and cursor paging; mock spec (api.clients has no mock, the spec answers the API)
 - [x] 2. `/clients/[id]`: header and tabs in the layout; Overview with profile (SSN and EIN last 4 only), contact and portal logins; archive and restore (Owner and Admin)
-- [ ] 3. `/sign-ups`: pending and declined sign-ups, approve (or link to an existing record) and decline with a reason; Staff see the no-permission state
-- [ ] 4. Profile and contact edit on the Overview
+- [x] 3. `/sign-ups`: pending and declined sign-ups, approve (or link to an existing record) and decline with a reason; Staff see the no-permission state
+- [x] 4. Profile and contact edit on the Overview
 
 ## Progress log
 
 - Oct 9: step 1 (#372).
-- Oct 9: step 2.
+- Oct 9: step 2 (#375, merged Oct 10).
+- Oct 10: step 3 (#385; Rasel allowed rasel/R23-* branches). Staff 403 is PageState's no-permission card; no Staff spec (the mock role is fixed per server).
+- Oct 10: step 4 (#386).
 
 ## Needs from others
 
-- None yet.
+- Follow-up for Fahad: a kit `TextArea` in `packages/ui`. The edit dialog and the decline dialog borrow `TextArea` from `setup/_components/fields` (Tumit's file) until then.
