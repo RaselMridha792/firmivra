@@ -8,11 +8,13 @@ import {
 } from '@firmivra/types';
 import { Button, Card, Checkbox, Input } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useState } from 'react';
 import { type FieldErrors, type Resolver, useFieldArray, useForm } from 'react-hook-form';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../lib/query';
 import { TextArea } from '../../../../setup/_components/fields';
+import { type PdfChoice, PdfPicker } from './agreement-pdf';
 import { AGREEMENTS } from './agreements-shared';
 
 const MAX_BOXES = 8;
@@ -44,8 +46,13 @@ function withKeys(boxes: Box[]) {
   });
 }
 
-const toBody = (values: Values, expected: number | null): PublishAgreementVersionRequest => ({
+const toBody = (
+  values: Values,
+  expected: number | null,
+  pdfFileId: string | null = null,
+): PublishAgreementVersionRequest => ({
   expectedCurrentVersion: expected,
+  pdfFileId,
   title: values.title,
   bodyMarkdown: values.bodyMarkdown,
   effectiveDate: values.effectiveDate || null,
@@ -89,6 +96,10 @@ export function AgreementVersionForm({
     },
   });
   const boxes = useFieldArray({ control: form.control, name: 'acknowledgments' });
+  // The current version's PDF stays unless it is replaced or removed (a published PDF is CLEAN).
+  const [pdf, setPdf] = useState<PdfChoice | null>(
+    current?.pdf ? { ...current.pdf, scanStatus: 'CLEAN' } : null,
+  );
   const publish = useApiMutation(
     (body: PublishAgreementVersionRequest) => api.agreements.publish(agreementId, body),
     { invalidate: AGREEMENTS },
@@ -99,7 +110,9 @@ export function AgreementVersionForm({
   return (
     <Card title={`Write version ${next}`}>
       <form
-        onSubmit={form.handleSubmit((values) => publish.mutate(toBody(values, expected)))}
+        onSubmit={form.handleSubmit((values) =>
+          publish.mutate(toBody(values, expected, pdf?.fileId ?? null)),
+        )}
         noValidate
         className="flex flex-col gap-4"
       >
@@ -169,6 +182,7 @@ export function AgreementVersionForm({
             Add a box
           </Button>
         </fieldset>
+        <PdfPicker value={pdf} onChange={setPdf} />
         <div className="flex flex-wrap items-center gap-3">
           <Button type="submit" disabled={publish.isPending}>
             {publish.isPending ? 'Publishing…' : `Publish version ${next}`}
