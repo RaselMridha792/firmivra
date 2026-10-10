@@ -9,6 +9,7 @@ import { useFirm } from '../../../../../../components/firm-context';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
+import { LeadActions } from './lead-actions';
 import { LeadAnswers } from './lead-answers';
 import { leadKey, STATUS } from './lead-shared';
 
@@ -88,6 +89,7 @@ export function LeadScreen() {
               </h1>
               <Badge tone={STATUS[data.status].tone}>{STATUS[data.status].label}</Badge>
             </div>
+            <LeadActions lead={data} />
             <LeadSummary lead={data} />
             {data.intake ? (
               <LeadAnswers

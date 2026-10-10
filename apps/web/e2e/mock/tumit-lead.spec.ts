@@ -39,3 +39,39 @@ test('a declined lead shows the reason, and an unknown lead is not found', async
   await page.getByRole('link', { name: '← All leads' }).click();
   await expect(page).toHaveURL(/\/leads$/);
 });
+
+test('an owner marks a lead in review, then converts it to a client', async ({ page }) => {
+  await page.goto(lead(1));
+  await page.getByRole('button', { name: 'Mark as in review' }).click();
+  await expect(page.getByText('In review', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Convert to client' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('an engagement for Annual Tax');
+  await expect(dialog.getByLabel(/an invitation to the client portal/)).toBeChecked();
+  await dialog.getByRole('button', { name: 'Convert to client' }).click();
+  await expect(
+    page.getByText(/Converted to a client: .* The portal invitation was sent\./),
+  ).toBeVisible();
+  await expect(page.getByText('Converted', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Decline' })).toHaveCount(0);
+});
+
+test('a duplicate email is explained, and a lead is declined with a reason', async ({ page }) => {
+  await page.goto(lead(2));
+  await page.getByRole('button', { name: 'Convert to client' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Convert to client' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Another client already has this email.');
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Decline' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Decline lead' }).click();
+  await expect(page.getByText('Enter a reason')).toBeVisible();
+  await page.getByLabel(/^Reason/).fill('We are not taking new bookkeeping clients this month.');
+  await page.getByRole('dialog').getByRole('button', { name: 'Decline lead' }).click();
+  await expect(page.getByText('Declined', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('We are not taking new bookkeeping clients this month.').first(),
+  ).toBeVisible();
+});
