@@ -12,9 +12,66 @@ export const moduleOff: CaseModule['moduleOff'] = {
   'DELETE /api/v1/esign/requests/:id': OFF,
   'PUT /api/v1/esign/requests/:id/page-plan': OFF,
   'PUT /api/v1/esign/requests/:id/recipients': OFF,
+  'PUT /api/v1/esign/requests/:id/fields': OFF,
+  'GET /api/v1/esign/requests/:id/merge-values': OFF,
+  'GET /api/v1/esign/requests/:id/readiness': OFF,
+  'GET /api/v1/esign/requests/:id/events': OFF,
+  'POST /api/v1/esign/requests/:id/send': OFF,
+  'POST /api/v1/esign/requests/:id/remind': OFF,
+  'POST /api/v1/esign/requests/:id/void': OFF,
+  'POST /api/v1/esign/requests/:id/recipients/:recipientId/correct': OFF,
+  'POST /api/v1/esign/requests/:id/replace': OFF,
+  'POST /api/v1/esign/requests/:id/submit-for-approval': OFF,
+  'POST /api/v1/esign/requests/:id/approval': OFF,
+  'PUT /api/v1/esign/roles/:userId': OFF,
+  'POST /api/v1/esign/requests/:id/in-person': OFF,
   'POST /api/v1/esign/requests/:id/documents/uploads': OFF,
   'POST /api/v1/esign/requests/:id/documents/uploads/confirm': OFF,
   'DELETE /api/v1/esign/requests/:id/documents/:documentId': OFF,
   'POST /api/v1/esign/requests/:id/documents/from-vault': OFF,
   'GET /api/v1/esign/requests/:id/documents/:documentId/content': OFF,
+  'GET /api/v1/esign/templates/:templateId': OFF,
+  'PATCH /api/v1/esign/templates/:templateId': OFF,
+  'POST /api/v1/esign/templates/:templateId/archive': OFF,
+  'GET /api/v1/esign/templates/:templateId/packet': OFF,
+  'POST /api/v1/esign/templates/:templateId/use': OFF,
+  'POST /api/v1/esign/templates/:templateId/duplicate': OFF,
+  'POST /api/v1/esign/requests/:id/save-as-template': OFF,
+  'POST /api/v1/esign/requests/:id/save-as-version': OFF,
+  'GET /api/v1/esign/templates/:templateId/versions': OFF,
+  'POST /api/v1/esign/templates/:templateId/versions/:version/restore': OFF,
+  'POST /api/v1/esign/templates/:templateId/bulk-send': OFF,
+  'GET /api/v1/esign/bulk/:batchId': OFF,
+  // The portal's Signature center: the recipient must be the signed-in login's own (another
+  // login's, client's or firm's: 404, test/unit/esign-center.test.ts).
+  'POST /api/v1/portal/:firmSlug/me/signatures/:recipientId/session': OFF,
+  'GET /api/v1/portal/:firmSlug/me/signatures/:recipientId/download': OFF,
+};
+
+// The signer routes are public: no staff or client session and no record id in the URL. The firm
+// comes from the slug and the recipient from the sealed fv_sign_{slug} cookie, bound to that slug
+// (other firms' tokens and cookies: test/unit/esign-signer.test.ts).
+const SIGNER =
+  'Public Firm Sign signer route: firm from the slug, recipient from the sealed slug-bound cookie';
+
+export const excluded: CaseModule['excluded'] = {
+  'POST /api/v1/portal/:firmSlug/sign/session': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/state': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/code/send': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/code/verify': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/access-code': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/consent': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/consent': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/session/end': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/envelope': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/packet': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/adopt': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/finish': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/decline': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/attachments/uploads': SIGNER,
+  'POST /api/v1/portal/:firmSlug/sign/attachments/uploads/confirm': SIGNER,
+  // The field is checked against the cookie's recipient (another's: 404, esign-signer-files.test.ts).
+  'DELETE /api/v1/portal/:firmSlug/sign/attachments/:fieldId': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/copy': SIGNER,
+  'GET /api/v1/portal/:firmSlug/sign/copy/download': SIGNER,
 };

@@ -580,6 +580,43 @@ describe('app: the EIN-hash key of R4 (R1 step 14)', () => {
   });
 });
 
+describe('app: the Stripe keys on dev (R1, Oct 10)', () => {
+  const KEYS = ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY', 'STRIPE_WEBHOOK_SECRET'] as const;
+
+  it('imports firmivra/dev/stripe by name and never makes or changes it', () => {
+    // Made by hand with all three keys before the deploy (SETUP-LOG, "Stripe keys"): a secret in
+    // a template would get its values written over by any later change to it.
+    for (const name of ['network', 'data', 'auth', 'email', 'app', 'ci'] as const) {
+      expect(JSON.stringify(t(name).findResources('AWS::SecretsManager::Secret'))).not.toContain(
+        'firmivra/dev/stripe',
+      );
+    }
+  });
+
+  it('gives the three keys to the API container only, read by its execution role only', () => {
+    const api = container(t('app'), 'firmivra-dev-api');
+    for (const key of KEYS) {
+      const from = JSON.stringify(api.Secrets?.find((s) => s.Name === key)?.ValueFrom);
+      expect(from).toContain(`:secret:firmivra/dev/stripe:${key}::`);
+    }
+    for (const family of ['firmivra-dev-web', 'firmivra-dev-migrate']) {
+      expect(JSON.stringify(container(t('app'), family))).not.toContain('firmivra/dev/stripe');
+    }
+    const reading = (Object.values(t('app').findResources('AWS::IAM::Policy')) as Policy[]).filter(
+      (p) => JSON.stringify(p.Properties.PolicyDocument).includes('secret:firmivra/dev/stripe'),
+    );
+    expect(reading.map((p) => JSON.stringify(p.Properties.Roles))).toEqual([
+      expect.stringContaining('ApiTaskExecutionRole'),
+    ]);
+  });
+
+  it('passes no Stripe setting when stripeSecretName is unset', () => {
+    const app = tpl(build({ stripeSecretName: undefined }).stacks.app);
+    const names = (container(app, 'firmivra-dev-api').Secrets ?? []).map((s) => s.Name);
+    expect(names.filter((n) => n.startsWith('STRIPE_'))).toEqual([]);
+  });
+});
+
 describe('auth: reset codes through SES (R1 step 14)', () => {
   const byName = (template: Template, name: string) =>
     (

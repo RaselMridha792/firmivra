@@ -1,5 +1,5 @@
 'use client';
-import { type ReactNode } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import { type FieldErrors, type Resolver, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ForgotPasswordRequest, ResetPasswordRequest } from '@firmivra/types';
@@ -7,7 +7,7 @@ import { AuthFrame, Button, Input } from '@firmivra/ui';
 import { ArrowLeft, ArrowRight, KeyRound, Mail } from 'lucide-react';
 import { adminAuth, staffAuth } from '../../lib/auth';
 import { useApiMutation } from '../../lib/query';
-import { errorMessage } from '../../lib/errors';
+import { errorCode, errorMessage } from '../../lib/errors';
 import { PasswordFields } from './password-fields';
 import { useAuthReady } from './use-auth-ready';
 
@@ -29,15 +29,12 @@ export function PasswordRecovery({ site, reset = false }: { site: Site; reset?: 
       subtitle={
         reset
           ? 'Enter the code from your email and choose a new password.'
-          : "Enter your email address and we'll send you a code to reset your password."
+          : "Enter your email and we'll send you a reset code."
       }
     >
       <h1 className="sr-only">{site === 'admin' ? 'Super Admin console' : 'Firm workspace'}</h1>
       {reset ? <ResetPassword site={site} /> : <ForgotPassword site={site} />}
-      <a
-        className="mt-6 flex items-center justify-center gap-2 text-base text-link"
-        href="/sign-in"
-      >
+      <a className="mx-auto mt-6 flex w-fit items-center gap-2 text-base text-link" href="/sign-in">
         <ArrowLeft aria-hidden="true" className="size-5" /> Back to sign in
       </a>
     </AuthFrame>
@@ -122,6 +119,8 @@ function ResetPassword({ site }: { site: Site }) {
   const mutation = useApiMutation(({ confirm: _confirm, ...body }: ResetValues) =>
     client.resetPassword(body),
   );
+  // RESET_CODE_INVALID also covers a new password Cognito refuses (a leaked one, say), so the
+  // text names both; only that answer clears the code, and a 429 or a network error keeps it.
   if (mutation.isSuccess)
     return (
       <Done
@@ -134,13 +133,18 @@ function ResetPassword({ site }: { site: Site }) {
     );
   return (
     <>
-      <ErrorText error={mutation.isError ? mutation.error : undefined} />
+      <ErrorText error={mutation.isError ? mutation.error : undefined} overrides={RESET_ERRORS} />
       <form
         className="auth-form"
         data-testid="reset-form"
         noValidate
         onSubmit={form.handleSubmit((values) =>
-          mutation.mutate(values, { onSettled: () => form.resetField('code') }),
+          mutation.mutate(values, {
+            onSuccess: () => form.reset(),
+            onError: (error) => {
+              if (errorCode(error) === 'RESET_CODE_INVALID') form.resetField('code');
+            },
+          }),
         )}
       >
         <fieldset className="contents" disabled={!ready || mutation.isPending}>
@@ -156,11 +160,11 @@ function ResetPassword({ site }: { site: Site }) {
           </IconField>
           <IconField icon={<KeyRound aria-hidden="true" className={ICON} />}>
             <Input
-              label="Reset code"
+              label="Reset Code"
               inputMode="numeric"
               autoComplete="one-time-code"
               placeholder="6-digit code"
-              maxLength={7}
+              maxLength={12}
               error={form.formState.errors.code?.message}
               {...form.register('code')}
             />
@@ -206,20 +210,29 @@ function IconField({ icon, children }: { icon: ReactNode; children: ReactNode })
   );
 }
 
-function ErrorText({ error }: { error: unknown }) {
+const RESET_ERRORS = {
+  RESET_CODE_INVALID: 'That code is not right or has expired, or choose another password.',
+};
+
+function ErrorText({ error, overrides }: { error: unknown; overrides?: Record<string, string> }) {
   return error ? (
     <p role="alert" className="mt-4 text-sm text-danger">
-      {errorMessage(error)}
+      {errorMessage(error, overrides)}
     </p>
   ) : null;
 }
 
 /** The step's result with the one way on, as a link in the screen's main-button look. */
+// The form it replaces had focus, so the title takes it and screen readers read the result.
 function Done(props: { id: string; title: string; text: string; href: string; action: string }) {
+  const titleRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => titleRef.current?.focus(), []);
   return (
     <div className="mt-6 grid gap-6 text-center">
       <div role="status" data-testid={props.id} className="grid gap-2">
-        <p className="text-lg font-semibold text-heading">{props.title}</p>
+        <p ref={titleRef} tabIndex={-1} className="text-lg font-semibold text-heading outline-none">
+          {props.title}
+        </p>
         <p className="text-muted">{props.text}</p>
       </div>
       <a href={props.href} className={SUBMIT_LINK}>

@@ -16,7 +16,8 @@ import { InvoiceStatus, PaymentRefundStatus, PaymentStatus } from '../db-enums.j
 // subtotal minus the discount. Requests never carry those, and paying carries no amount at all:
 // the checkout charges what the database says is due.
 // Lifecycle (the database's): DRAFT -> SCHEDULED (opens on its scheduled date) or OPEN -> PAID;
-// DRAFT, SCHEDULED and OPEN can be CANCELED; PAID and CANCELED are final; nothing is deleted. An
+// DRAFT, SCHEDULED and OPEN can be CANCELED; CANCELED is final, and PAID is final except that a
+// void can reopen it; nothing is deleted. An
 // invoice is PAID only once the money received covers its total: Stripe payments a verified
 // webhook confirmed, plus check or cash payments an Owner or Admin recorded (offline payments), so
 // nothing the client's browser does (Pay Now included) marks it paid. Refunds go through Stripe
@@ -511,7 +512,8 @@ export type RecordOfflinePaymentRequest = z.input<typeof RecordOfflinePaymentReq
 
 /**
  * POST /business/invoices/{id}/offline-payments/{offlinePaymentId}/void (Owner and Admin): the
- * payment no longer counts; a PAID invoice it no longer covers reopens (OPEN). 409 ALREADY_VOIDED.
+ * payment no longer counts; a PAID invoice it no longer covers reopens (OPEN). 409 ALREADY_VOIDED, or PAYMENT_IN_PROGRESS (retry)
+ * while another payment or cancel holds the invoice.
  */
 export const VoidOfflinePaymentRequest = z.strictObject({
   reason: text(500, 'many', 'Say why the payment is voided'),

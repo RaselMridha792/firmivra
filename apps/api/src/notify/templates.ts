@@ -243,6 +243,9 @@ const ESIGN_EVENT_TEXT: Record<EsignStaffEvent, (signer: string, title: string) 
   SIGNED: (signer, title) => `${signer} signed "${title}".`,
   COMPLETED: (_signer, title) => `Everyone has signed "${title}". The signed copy is filed.`,
   EXPIRED: (_signer, title) => `"${title}" expired before everyone signed.`,
+  APPROVAL_REJECTED: (signer, title) => `${signer} asked for changes to "${title}".`,
+  APPROVED: (_signer, title) =>
+    `Everyone approved "${title}", but it could not be sent. Open it to fix and send it.`,
 };
 
 function esignEvent(data: NotifyTemplates['esign.staff-update']): EsignStaffEvent {
