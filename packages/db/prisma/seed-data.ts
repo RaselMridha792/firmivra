@@ -363,3 +363,48 @@ export const SEED_PLATFORM_IDS = {
   platformEvent: '00000000-0000-4005-8000-000000000011',
   firmEvent: '00000000-0000-4005-8000-000000000012',
 } as const;
+
+/**
+ * LVP's application form as the public form stores it (the API's `StoredApplication`: the review
+ * page's groups, every optional field null, never the EIN), so the Super Admin's review page shows
+ * it in full instead of "—". The mockup's values ("Firm approved"), with fake contact details.
+ */
+export const SEED_LVP_APPLICATION_FORM = {
+  business: {
+    practiceType: 'TAX_ACCOUNTING',
+    legalName: 'LVP Accounting & Taxes LLC (fake)',
+    dbaName: SEED_BUSINESSES.lvp.name,
+    entityType: 'LLC',
+    email: SEED_USERS.lvpOwner.email,
+    phone: '+14045550100',
+    website: null,
+    address: {
+      line1: '100 Example Street (fake)',
+      line2: null,
+      city: 'Atlanta',
+      state: 'GA',
+      postalCode: '30303',
+    },
+    services: ['TAX_PREPARATION', 'BOOKKEEPING', 'PAYROLL', 'BUSINESS_CONSULTING'],
+  },
+  primaryAdmin: {
+    fullName: SEED_USERS.lvpOwner.name,
+    email: SEED_USERS.lvpOwner.email,
+    phone: '+14045550100',
+    title: 'Owner',
+    preferredContact: 'EMAIL',
+    alternatePhone: null,
+  },
+  account: {
+    requestedPlan: 'PROFESSIONAL',
+    teamSize: 3,
+    clientVolume: 'FROM_500',
+    heardFrom: 'Direct request',
+    requestedStartDate: null,
+    additionalInfo: 'Beta testing for internal use.',
+  },
+  credentials: [],
+} as const;
+
+/** What earlier seeds stored as LVP's form, which the review page can't read: a re-seed replaces it. */
+export const SEED_LVP_APPLICATION_OLD_DATA = { businessType: 'Tax and accounting firm' } as const;
