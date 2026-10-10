@@ -3,6 +3,7 @@ import type { IConstruct } from 'constructs';
 import { type EnvConfig, resourceName } from './config';
 import { firmKeyArns } from './firm-key-policy';
 import type { createStacks } from './stacks';
+import { GUARDDUTY_MANAGED_RULE } from './stacks/malware-scan';
 
 /**
  * cdk-nag (AWS Solutions) findings accepted on purpose, each with its reason.
@@ -89,10 +90,21 @@ export function addNagSuppressions(
     `IAM5[Resource::${firmKeys.aliases}]`,
     'One alias per firm, named by its id; CreateAlias only, no update or delete.',
   );
+  const documents = `arn:aws:s3:::${resourceName(config, 'documents')}-${config.account}`;
   ack(
     apiTask,
-    `IAM5[Resource::arn:aws:s3:::${resourceName(config, 'documents')}-${config.account}/tenant/*]`,
+    `IAM5[Resource::${documents}/tenant/*]`,
     'Object keys are per business under tenant/<businessId>/; access is limited to that prefix.',
+  );
+  ack(
+    app.malwareScan.planRole,
+    `IAM5[Resource::arn:aws:events:${arn}:${GUARDDUTY_MANAGED_RULE}]`,
+    "GuardDuty names its managed rule with a generated suffix. Writes are limited to rules managed by malware-protection-plan.guardduty.amazonaws.com (AWS's template).",
+  );
+  ack(
+    app.malwareScan.planRole,
+    `IAM5[Resource::${documents}/tenant/*]`,
+    "GuardDuty reads and tags every new object under tenant/, the plan's only prefix.",
   );
   ack(
     app.node.findChild('OriginVerifySecret'),
