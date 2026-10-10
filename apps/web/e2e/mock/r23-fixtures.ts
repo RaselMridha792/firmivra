@@ -53,3 +53,67 @@ export async function routeClientList(page: Page, rows = CLIENTS) {
     return json(route, { items, nextCursor: search ? null : '2' });
   });
 }
+
+/** The full record of client(n): an individual with a profile and one portal login. */
+export const record = (n: number, fields: Record<string, unknown> = {}) => ({
+  ...client(n),
+  profile: {
+    firstName: 'Maria',
+    middleName: 'Elena',
+    lastName: 'Lopez',
+    preferredName: 'Mari',
+    businessName: null,
+    entityType: null,
+    dateOfBirth: '1986-04-12',
+    dateOfBirthUnavailable: false,
+    ssnLast4: '4821',
+    einLast4: null,
+    address: {
+      line1: '245 Peachtree Ave',
+      line2: 'Apt 3B',
+      city: 'Auburn',
+      state: 'GA',
+      postalCode: '30011',
+      country: 'US',
+    },
+    preferredContactMethod: 'EMAIL',
+    referralSource: 'Friend or family',
+    additionalInfo: null,
+    updatedAt: '2026-10-05T09:00:00.000Z',
+  },
+  portalLogins: [
+    {
+      clientAccountId: id(50 + n),
+      email: 'maria.lopez@example.test',
+      portalRole: 'PRIMARY',
+      status: 'ACTIVE',
+    },
+  ],
+  updatedAt: '2026-10-05T09:00:00.000Z',
+  ...fields,
+});
+
+/** Answers GET, archive and restore for one client, keeping its archived state. */
+export async function routeClientRecord(page: Page, start = record(1)) {
+  let current: Record<string, unknown> = start;
+  await page.route(`**/api/v1/business/clients/${start.id}**`, (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/archive')) current = { ...current, archivedAt: '2026-10-09T21:00:00.000Z' };
+    if (path.endsWith('/restore')) current = { ...current, archivedAt: null };
+    const body = route.request().postDataJSON() as Record<string, unknown> | null;
+    if (path.endsWith('/profile')) {
+      const { ssn, address, ...rest } = body ?? {};
+      const was = current['profile'] as { address: object };
+      const profile = {
+        ...was,
+        ...rest,
+        address: { ...was.address, ...(address as object | undefined) },
+        ...(typeof ssn === 'string' ? { ssnLast4: ssn.slice(-4) } : {}),
+      };
+      current = { ...current, profile };
+      return json(route, profile);
+    }
+    if (route.request().method() === 'PATCH') current = { ...current, ...body };
+    return json(route, current);
+  });
+}

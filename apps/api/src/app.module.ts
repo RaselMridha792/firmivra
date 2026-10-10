@@ -37,6 +37,7 @@ import { AppointmentsModule } from './appointments/appointments.module.js';
 import { AuditViewerModule } from './audit-viewer/audit-log.controller.js';
 import { CalculatorsModule } from './calculators/calculators.controller.js';
 import { ContentModule } from './content/content.controller.js';
+import { SupportAccessModule } from './support-access/support-access.controller.js';
 import { TeamModule } from './team/team.controller.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 import { DocumentsModule } from './storage/documents.controller.js';
@@ -107,6 +108,7 @@ export class AppModule {
         ContentModule,
         AppointmentsModule,
         AuditViewerModule,
+        SupportAccessModule,
         WorkspacesModule,
         DocumentsModule,
         InvoicesModule,
