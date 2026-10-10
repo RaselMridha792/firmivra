@@ -10,7 +10,7 @@ import { api } from '../../../../lib/api';
 import { errorMessage } from '../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../lib/query';
 import { FIRM_SETTINGS, SETUP_ERRORS } from './shared';
-import { changedOnly, settingsResolver, type StepForm } from './step-form';
+import { changedFieldsResolver, changedOnly, type StepForm } from './step-form';
 
 /** A Settings page (Profile, Branding, Client portal): the setup wizard's fields, saved at once. */
 export function SettingsScreen({
@@ -44,7 +44,7 @@ export function SettingsForm({
   children: (form: StepForm) => ReactNode;
 }) {
   const form = useForm({
-    resolver: settingsResolver,
+    resolver: changedFieldsResolver(defaults),
     defaultValues: defaults,
   });
   // Read during render: react-hook-form only tracks dirtyFields once something reads it.

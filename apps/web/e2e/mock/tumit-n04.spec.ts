@@ -101,3 +101,16 @@ test('the firm stat cards filter the list, and the table fits at 1280 px', async
     .poll(() => table.evaluate((el) => el.scrollWidth - el.clientWidth))
     .toBeLessThanOrEqual(0);
 });
+
+test('a firm opens from the firms list, with the way back', async ({ page }) => {
+  await mockAdminSession(page);
+  await page.setViewportSize({ width: 1536, height: 1024 });
+  await page.goto(admin('/firms'));
+  const open = page.getByRole('link', { name: /^Open firm / }).first();
+  await expect(page.getByRole('columnheader', { name: 'Phone' })).toBeVisible();
+  const name = (await open.getAttribute('aria-label'))!.replace('Open firm ', '');
+  await open.click();
+  await expect(page.getByTestId('page-title')).toHaveText(name);
+  await page.getByRole('link', { name: 'Back to Firms' }).click();
+  await expect(page.getByTestId('page-title')).toHaveText('Firms');
+});

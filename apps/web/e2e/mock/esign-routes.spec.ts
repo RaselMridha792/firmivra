@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { record, routeClientRecord } from './r23-fixtures';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
@@ -19,7 +20,7 @@ const pages: [url: string, title: string, heading?: string][] = [
   [app('/firm-sign/settings'), 'Signing settings'],
   [app('/firm-sign/in-person/req-1'), 'In-person signing'],
   [portal('/lvp/signatures'), 'Signatures'],
-  [portal('/lvp/sign'), 'Sign documents'],
+  [portal('/lvp/sign/samples'), 'Signing samples'],
 ];
 
 for (const [url, title, heading = title] of pages) {
@@ -29,6 +30,15 @@ for (const [url, title, heading = title] of pages) {
     await expect(page.getByTestId('page-title')).toHaveText(heading);
   });
 }
+
+test('Client signatures at /clients/{id}/signatures', async ({ page }) => {
+  // The client record's layout owns the page's h1; the tab has its own h2.
+  const jamie = record(1, { id: '0199b6a1-0000-7000-8000-000000000001' });
+  await routeClientRecord(page, jamie);
+  await page.goto(app(`/clients/${jamie.id}/signatures`));
+  await expect(page).toHaveTitle('Client signatures');
+  await expect(page.getByRole('heading', { level: 2, name: 'Signatures' })).toBeVisible();
+});
 
 test('signer and kiosk pages are not indexed, and the kiosk has no menu', async ({ page }) => {
   await page.goto(portal('/lvp/sign'));

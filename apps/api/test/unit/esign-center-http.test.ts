@@ -19,6 +19,7 @@ import { loadEnv } from '../../src/config/env.js';
 import { CENTER_REPOSITORY } from '../../src/esign/center/center.repository.js';
 import { COMPLETION_REPOSITORY } from '../../src/esign/completion/completion.repository.js';
 import { ESIGN_STORE } from '../../src/esign/engine/engine.types.js';
+import { EXTRAS_REPOSITORY } from '../../src/esign/extras/extras.repository.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import {
@@ -32,6 +33,8 @@ import {
   InMemoryCenterRepository,
   InMemoryCompletionRepository,
   InMemorySignerRepository,
+  NO_KIOSK,
+  NoDatabaseModule,
 } from './esign-fakes.js';
 
 const w = esignWorld();
@@ -52,8 +55,10 @@ let app: INestApplication;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
-    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, FakeAuditModule],
+    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, NoDatabaseModule, FakeAuditModule],
   })
+    .overrideProvider(EXTRAS_REPOSITORY)
+    .useValue(NO_KIOSK)
     .overrideProvider(CENTER_REPOSITORY)
     .useValue(new InMemoryCenterRepository(w.repo))
     .overrideProvider(SIGNER_REPOSITORY)

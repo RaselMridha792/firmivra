@@ -15,6 +15,7 @@ import { PortalInfoService } from '../../src/client-auth/portal-info.controller.
 import { BUSINESS_MODULES } from '../../src/common/modules/requires-module.js';
 import { ConfigModule } from '../../src/config/config.module.js';
 import { loadEnv } from '../../src/config/env.js';
+import { EXTRAS_REPOSITORY } from '../../src/esign/extras/extras.repository.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import { SETTINGS_REPOSITORY } from '../../src/esign/settings/settings.repository.js';
@@ -24,6 +25,8 @@ import {
   esignWorld,
   InMemorySettingsRepository,
   InMemorySignerRepository,
+  NO_KIOSK,
+  NoDatabaseModule,
 } from './esign-fakes.js';
 
 const w = esignWorld();
@@ -43,8 +46,10 @@ let app: INestApplication;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
-    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, FakeAuditModule],
+    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, NoDatabaseModule, FakeAuditModule],
   })
+    .overrideProvider(EXTRAS_REPOSITORY)
+    .useValue(NO_KIOSK)
     .overrideProvider(SETTINGS_REPOSITORY)
     .useValue(settings)
     .overrideProvider(ESIGN_DIRECTORY)
