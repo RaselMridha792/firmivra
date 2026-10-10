@@ -83,12 +83,9 @@ export function ClientMessagesScreen() {
             className="hidden size-16 shrink-0 rounded-full bg-folder-surface p-4 text-heading sm:block"
           />
           <div className="min-w-0 flex-1 basis-64">
-            <h1
-              data-testid="page-title"
-              className="font-display text-2xl font-bold text-heading md:text-3xl"
-            >
+            <h2 className="font-display text-2xl font-bold text-heading md:text-3xl">
               Messages and Notes
-            </h1>
+            </h2>
             <p className="text-muted">
               Message this client and keep your team&apos;s notes about them in one place.
             </p>

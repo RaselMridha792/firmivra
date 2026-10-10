@@ -1,12 +1,14 @@
 import { expect, test } from '@playwright/test';
+import { record, routeClientRecord } from './r23-fixtures';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 const JAMIE = '0199b6a1-0000-7000-8000-000000000001';
 
 test('an owner reads, replies, starts a thread and keeps a note', async ({ page }) => {
+  await routeClientRecord(page, record(1, { id: JAMIE, displayName: 'Jamie Sample' }));
   await page.goto(app(`/clients/${JAMIE}/messages`));
-  await expect(page.getByTestId('page-title')).toHaveText('Messages and Notes');
+  await expect(page.getByRole('heading', { name: 'Messages and Notes' })).toBeVisible();
   const rows = page.getByRole('table', { name: 'Messages' }).locator('tbody tr');
   await expect(rows).toHaveCount(5);
 
