@@ -8,7 +8,7 @@ const features = {
     ['settings', 'Control Settings', 'Manage platform features and configurations.'],
   ],
   firm: [
-    ['users', 'Serve Clients', 'Keep client details, documents and messages together.'],
+    ['users', 'Serve Clients', 'Keep client documents and messages together.'],
     ['firm', 'Run Your Firm', 'Manage your services, appointments and invoices.'],
     ['chart', 'Track Work', 'Follow tasks, requests and intake forms.'],
     ['settings', 'Control Access', 'Give each team member the right access.'],
@@ -34,8 +34,10 @@ export function AuthFrame({
           <div className="auth-logo-light" role="img" aria-label="Firmivra" />
           <p className="auth-portal">{portal}</p>
           <hr />
+          {/* The platform team approves firms; a firm's staff serve their clients. */}
           <h1>
-            Manage. Approve. <span>Grow.</span>
+            {site === 'admin' ? 'Manage. Approve. ' : 'Serve. Organize. '}
+            <span>Grow.</span>
           </h1>
           <p className="auth-description">
             {site === 'admin'

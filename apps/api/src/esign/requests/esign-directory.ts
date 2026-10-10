@@ -30,8 +30,69 @@ export interface DirectoryMember {
   userId: string;
   name: string;
   email: string;
+  phone: string | null;
+  /** Their own job title (Staff Title merge field). */
+  jobTitle: string | null;
   active: boolean;
 }
+
+/** An active member and their firm role (Firm Sign roles and approvers). */
+export type DirectoryStaff = DirectoryMember & { firmRole: 'OWNER' | 'ADMIN' | 'STAFF' };
+
+/** What the client merge fields read. `address` is one line; null when none is on file. */
+export interface DirectoryClientContact {
+  displayName: string;
+  accountType: 'INDIVIDUAL' | 'BUSINESS';
+  firstName: string | null;
+  lastName: string | null;
+  businessName: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  /** The name on the client's ACTIVE SPOUSE login. */
+  spouseName: string | null;
+}
+
+/** What the firm merge fields read, and the firm's time zone for the date. */
+export interface DirectoryFirm {
+  name: string;
+  /** The portal path's firm part (`{PORTAL_BASE_URL}/{slug}`). */
+  slug: string;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  timeZone: string;
+}
+
+type AddressParts = {
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+};
+/** "Line 1, Line 2, City, ST 12345"; null when nothing is on file. */
+export function oneLineAddress(a: AddressParts | null | undefined): string | null {
+  if (!a) return null;
+  const region = [a.state, a.postalCode].filter(Boolean).join(' ');
+  return [a.addressLine1, a.addressLine2, a.city, region].filter(Boolean).join(', ') || null;
+}
+const ADDRESS = {
+  addressLine1: true,
+  addressLine2: true,
+  city: true,
+  state: true,
+  postalCode: true,
+} as const;
+
+const LOGIN = {
+  id: true,
+  clientId: true,
+  portalRole: true,
+  status: true,
+  email: true,
+  user: { select: { name: true } },
+} as const;
 
 /** One of a client's documents (R5's vault), for from-vault. */
 export interface DirectoryDocument {
@@ -48,8 +109,16 @@ export interface DirectoryDocument {
 export interface EsignDirectory {
   client(businessId: string, clientId: string): Promise<DirectoryClient | null>;
   engagement(businessId: string, engagementId: string): Promise<DirectoryEngagement | null>;
+  /** The client's PENDING and ACTIVE services (bulk send files under the only one). */
+  openEngagements(businessId: string, clientId: string): Promise<DirectoryEngagement[]>;
   clientLogin(businessId: string, clientAccountId: string): Promise<DirectoryLogin | null>;
+  /** The client's portal logins, oldest first (a template's CLIENT and SPOUSE roles). */
+  clientLogins(businessId: string, clientId: string): Promise<DirectoryLogin[]>;
   member(businessId: string, userId: string): Promise<DirectoryMember | null>;
+  /** Every active member, by name. */
+  members(businessId: string): Promise<DirectoryStaff[]>;
+  clientContact(businessId: string, clientId: string): Promise<DirectoryClientContact | null>;
+  firm(businessId: string): Promise<DirectoryFirm>;
   document(businessId: string, documentId: string): Promise<DirectoryDocument | null>;
 }
 export const ESIGN_DIRECTORY = Symbol('ESIGN_DIRECTORY');
@@ -75,27 +144,104 @@ export class PrismaEsignDirectory implements EsignDirectory {
     });
   }
 
+  openEngagements(businessId: string, clientId: string): Promise<DirectoryEngagement[]> {
+    return this.database.forBusiness(businessId).engagement.findMany({
+      where: { businessId, clientId, status: { in: ['PENDING', 'ACTIVE'] } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, clientId: true, title: true, status: true },
+    });
+  }
+
   async clientLogin(businessId: string, id: string): Promise<DirectoryLogin | null> {
     const row = await this.database.forBusiness(businessId).clientAccount.findFirst({
       where: { businessId, id },
-      select: {
-        id: true,
-        clientId: true,
-        portalRole: true,
-        status: true,
-        email: true,
-        user: { select: { name: true } },
-      },
+      select: LOGIN,
     });
     return row && { ...row, name: row.user.name };
+  }
+
+  async clientLogins(businessId: string, clientId: string): Promise<DirectoryLogin[]> {
+    const rows = await this.database.forBusiness(businessId).clientAccount.findMany({
+      where: { businessId, clientId },
+      orderBy: { createdAt: 'asc' },
+      select: LOGIN,
+    });
+    return rows.map(({ user, ...row }) => ({ ...row, name: user.name }));
   }
 
   async member(businessId: string, userId: string): Promise<DirectoryMember | null> {
     const row = await this.database.forBusiness(businessId).membership.findFirst({
       where: { businessId, userId },
-      select: { status: true, user: { select: { name: true, email: true } } },
+      select: { status: true, user: { select: { name: true, email: true, phone: true } } },
     });
-    return row && { userId, ...row.user, active: row.status === 'ACTIVE' };
+    // TODO(r0_esign): the member's job title column arrives with r0_esign; null until then.
+    return row && { userId, ...row.user, jobTitle: null, active: row.status === 'ACTIVE' };
+  }
+
+  async members(businessId: string): Promise<DirectoryStaff[]> {
+    const rows = await this.database.forBusiness(businessId).membership.findMany({
+      where: { businessId, status: 'ACTIVE' },
+      orderBy: [{ user: { name: 'asc' } }, { userId: 'asc' }],
+      select: {
+        userId: true,
+        role: true,
+        user: { select: { name: true, email: true, phone: true } },
+      },
+    });
+    return rows.map(({ userId, role, user }) => {
+      return { userId, ...user, jobTitle: null, active: true, firmRole: role };
+    });
+  }
+
+  async clientContact(businessId: string, id: string): Promise<DirectoryClientContact | null> {
+    const row = await this.database.forBusiness(businessId).client.findFirst({
+      where: { businessId, id },
+      select: {
+        displayName: true,
+        accountType: true,
+        email: true,
+        phone: true,
+        profile: { select: { firstName: true, lastName: true, businessName: true, ...ADDRESS } },
+        accounts: {
+          where: { portalRole: 'SPOUSE', status: 'ACTIVE' },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          select: { user: { select: { name: true } } },
+        },
+      },
+    });
+    if (!row) return null;
+    const { profile, accounts, ...client } = row;
+    return {
+      ...client,
+      firstName: profile?.firstName ?? null,
+      lastName: profile?.lastName ?? null,
+      businessName: profile?.businessName ?? null,
+      address: oneLineAddress(profile),
+      spouseName: accounts[0]?.user.name ?? null,
+    };
+  }
+
+  async firm(businessId: string): Promise<DirectoryFirm> {
+    const row = await this.database.forBusiness(businessId).business.findUniqueOrThrow({
+      where: { id: businessId },
+      select: {
+        name: true,
+        slug: true,
+        settings: {
+          select: { contactEmail: true, contactPhone: true, timezone: true, ...ADDRESS },
+        },
+      },
+    });
+    const settings = row.settings;
+    return {
+      name: row.name,
+      slug: row.slug,
+      address: oneLineAddress(settings),
+      phone: settings?.contactPhone ?? null,
+      email: settings?.contactEmail ?? null,
+      timeZone: settings?.timezone ?? 'America/New_York',
+    };
   }
 
   document(businessId: string, id: string): Promise<DirectoryDocument | null> {

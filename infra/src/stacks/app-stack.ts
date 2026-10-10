@@ -309,6 +309,13 @@ export class AppStack extends Stack {
       },
       removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
+    // Stripe (R7, R16): imported by name, never made here. Rasel makes the secret by hand with all
+    // three keys before the deploy that uses it: ECS cannot start a task whose secret lacks a key,
+    // and a secret in this template would get its values written over by any later change to it.
+    // The values never go in code, chat or logs (docs/SETUP-LOG.md, "Stripe keys").
+    const stripe = config.stripeSecretName
+      ? secretsmanager.Secret.fromSecretNameV2(this, 'StripeKeys', config.stripeSecretName)
+      : undefined;
     const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', {
       family: name('api'),
       cpu: config.task.cpu,
@@ -359,6 +366,11 @@ export class AppStack extends Stack {
         COGNITO_CLIENTS_CLIENT_SECRET: ecs.Secret.fromSecretsManager(auth.clientSecrets, 'CLIENTS'),
         COGNITO_ADMINS_CLIENT_SECRET: ecs.Secret.fromSecretsManager(auth.clientSecrets, 'ADMINS'),
         EIN_HASH_KEY: ecs.Secret.fromSecretsManager(einHashKey),
+        ...(stripe && {
+          STRIPE_SECRET_KEY: ecs.Secret.fromSecretsManager(stripe, 'STRIPE_SECRET_KEY'),
+          STRIPE_PUBLISHABLE_KEY: ecs.Secret.fromSecretsManager(stripe, 'STRIPE_PUBLISHABLE_KEY'),
+          STRIPE_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(stripe, 'STRIPE_WEBHOOK_SECRET'),
+        }),
       },
     });
     const apiRole = apiTask.taskRole;

@@ -61,14 +61,17 @@ jobs:
                   'page.tsx',
                   '_components/',
                   'clients/',
-                  'sign-ups/',
-                  'messages/',
                   'invoices/',
+                  'sign-ups/',
                   'workspaces/',
                 ].map((p) => `${WEB}firm/(workspace)/${p}`),
               ],
-              // Firm Sign under a client is R13-web's (the Oct 18 plan).
-              except: [`${WEB}firm/(workspace)/clients/[id]/signatures/`],
+              // Firm Sign under a client is R13-web's (the Oct 18 plan); a client's Messages
+              // tab is Nahid's F10 (Rasel, Oct 9). The invoices pages are Fahad's (Rasel, Oct 10).
+              except: [
+                `${WEB}firm/(workspace)/clients/[id]/signatures/`,
+                `${WEB}firm/(workspace)/clients/[id]/messages/`,
+              ],
             },
             tumit: {
               logins: ['tumit-h-r-75'],
@@ -80,6 +83,7 @@ jobs:
                   'team/',
                   'audit-log/',
                   'calendar/',
+                  'leads/[id]/',
                   'settings/profile/',
                   'settings/branding/',
                   'settings/portal/',
@@ -89,21 +93,12 @@ jobs:
                 `${WEB}portal/[firmSlug]/(client)/appointments/`,
               ],
             },
+            // F10's messages from Oct 9 (Rasel); its invoices pages went to Fahad on Oct 10. The
+            // portal pages moved to R17, Rasel's own session.
             nahid: {
-              logins: [],
+              logins: ['asratulhasannahid'],
               files: [
-                `${WEB}portal/[firmSlug]/layout.tsx`,
-                `${WEB}portal/[firmSlug]/(public)/`,
-                `${WEB}portal/[firmSlug]/(client)/`,
-              ],
-              except: [
-                `${WEB}portal/[firmSlug]/(public)/begin/`,
-                `${WEB}portal/[firmSlug]/(client)/appointments/`,
-                `${WEB}portal/[firmSlug]/(client)/home/`,
-                // R14's calculators and R13-web's Firm Sign (the Oct 18 plan).
-                `${WEB}portal/[firmSlug]/(client)/calculator/`,
-                `${WEB}portal/[firmSlug]/(public)/calculators/`,
-                `${WEB}portal/[firmSlug]/(client)/signatures/`,
+                ...['messages/', 'clients/[id]/messages/'].map((p) => `${WEB}firm/(workspace)/${p}`),
               ],
             },
             arfan: {
@@ -113,6 +108,8 @@ jobs:
                 `${WEB}firm/(workspace)/leads/`,
                 'apps/web/e2e/',
               ],
+              // The lead page is Tumit's (Rasel, Oct 10); Arfan keeps the leads list.
+              except: [`${WEB}firm/(workspace)/leads/[id]/`],
             },
           };
           // Everyone: their own tests (also the mock-mode ones) and their task file.

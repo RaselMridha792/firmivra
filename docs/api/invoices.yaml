@@ -24,7 +24,8 @@ info:
     - **Lifecycle** (the database's): a new invoice is a `DRAFT`. `send` makes it `OPEN` (issued
       now), or `SCHEDULED` when its `scheduledFor` is after today in the firm's time zone; a daily
       job opens it on that day. `DRAFT`, `SCHEDULED` and `OPEN` can be canceled (with a reason the
-      client never sees). `PAID` and `CANCELED` are final. Nothing is ever deleted. Only a `DRAFT`
+      client never sees). `CANCELED` is final; `PAID` is final except that voiding an offline
+      payment it no longer covers reopens it (`OPEN`). Nothing is ever deleted. Only a `DRAFT`
       is edited (`PUT`, the whole draft again, lines included); its client never changes.
     - **Paid by Stripe or a recorded check or cash payment.** An invoice is `PAID` once the money
       received covers its total: Stripe payments a verified webhook confirmed (refunded ones in
@@ -121,7 +122,7 @@ info:
       helper: the invoice number and due date, never an amount in an SMS).
     - **Cancel.** Expire the invoice's open Checkout Sessions at Stripe first (`sessions.expire`);
       refuse with `409 PAYMENT_IN_PROGRESS` while a payment is processing (its checkout completed
-      and Stripe's result is pending). Canceling a `DRAFT` clears `scheduled_for` (the portal never
+      and Stripe's result is pending), and with `409 HAS_PAYMENTS` while the invoice holds money. Canceling a `DRAFT` clears `scheduled_for` (the portal never
       shows it); canceling a `SCHEDULED` invoice keeps it (the client saw it as Upcoming, so it
       stays as Canceled; see `myInvoiceStatus()`).
     - **Pay Now (checkout).** A $0 total never reaches it: send refuses a draft with nothing to
@@ -144,10 +145,10 @@ info:
       Answer `{ url, expiresAt }`, `expiresAt` from the session's `expires_at` as Stripe returns
       it. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
       inserted.
-    - **Holding the row.** Pay Now and cancel of one invoice run one at a time: in one API process
-      a second one waits at most 1 s for the first without a database connection, and across
-      processes for the invoice's row, then answers `409 PAYMENT_IN_PROGRESS`. At most three of
-      them per API process wait on Stripe while holding a row; one more answers
+    - **Holding the row.** Pay Now, cancel, an offline payment and its void of one invoice run one at a
+      time: in one API process a second one waits at most 1 s for the first without a database
+      connection, and across processes for the invoice's row, then answers
+      `409 PAYMENT_IN_PROGRESS`. At most three of them per API process wait on Stripe while holding a row; one more answers
       `503 SERVICE_BUSY` with `Retry-After: 5`. A pending checkout older than its session (60
       minutes plus 15) that Stripe says is gone (missing, account disconnected or replaced) is
       marked `FAILED` (`checkout_expired`), so it never blocks the invoice; a timeout or a 5xx is
@@ -321,7 +322,7 @@ info:
     | Page | Calls |
     | --- | --- |
     | Firm: Invoices (`/invoices`) | `GET business/invoices` (status, search, paged), then the actions below |
-    | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds` |
+    | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds`, `POST .../{id}/offline-payments`, `POST .../{id}/offline-payments/{offlinePaymentId}/void` |
     | Portal: Receipts & Invoices (`/{firm}/invoices`) | `GET me/invoices` (`section=CURRENT` and `PAST`, view, status, search), `GET me/invoices/{id}` (View), `POST me/invoices/{id}/checkout` (Pay Now) |
     | Firm: Settings > Payments (`/settings/payments`) | `GET business/payments/setup`, `POST .../onboarding` (Connect, Continue), `POST .../onboarding/refresh` (back from `?stripe=refresh`) |
     | Portal: Make a Payment, Home's Payments card | `GET me/invoices?view=DUE`, then Pay Now on the chosen invoice (`canPay`) |
@@ -503,7 +504,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: '`ALREADY_VOIDED`' }
+        '409': { description: '`ALREADY_VOIDED`, or `PAYMENT_IN_PROGRESS` (retry) while another payment or cancel of the invoice holds it' }
 
   /portal/{firmSlug}/me/invoices:
     get:

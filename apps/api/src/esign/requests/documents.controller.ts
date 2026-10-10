@@ -23,9 +23,9 @@ import {
   type UploadTicket,
 } from '@firmivra/types';
 import { CurrentAuth, CurrentTenant, FIRM_STAFF, Roles } from '../../auth/decorators.js';
-import { RequiresModule } from '../../common/modules/requires-module.js';
 import type { AuthContext, TenantContext } from '../../common/request-context.js';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
+import { EsignRoute } from '../extras/esign-role.guard.js';
 import { EsignDocumentsService } from './documents.service.js';
 import { actorOf } from './requests.controller.js';
 
@@ -52,7 +52,7 @@ class UploadBodyPipe extends ZodValidationPipe<typeof CreateEsignUploadBody> {
 /** A DRAFT's files and the page viewer's bytes (contract: packages/types/src/esign). */
 @Controller('esign/requests/:id/documents')
 @Roles(...FIRM_STAFF)
-@RequiresModule('esign')
+@EsignRoute()
 export class EsignDocumentsController {
   constructor(private readonly documents: EsignDocumentsService) {}
 
