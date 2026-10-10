@@ -3,6 +3,7 @@
 import { FIRM_PLANS, type FirmStatusFilter } from '@firmivra/types';
 import { Button, Card } from '@firmivra/ui';
 import { Building2, Clock3, Search, UsersRound, X } from 'lucide-react';
+import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
@@ -232,6 +233,13 @@ export function FirmsList() {
                               </dd>
                             </div>
                           </dl>
+                          <Link
+                            aria-label={`Open firm ${firm.name}`}
+                            href={`/firms/${firm.id}`}
+                            className="flex justify-center rounded-control bg-platform-navy px-4 py-2.5 text-sm font-semibold text-white hover:bg-platform-navy-raised"
+                          >
+                            Open Firm
+                          </Link>
                         </li>
                       ))}
                     </ul>
@@ -242,9 +250,11 @@ export function FirmsList() {
                           { label: 'Business Name' },
                           { label: 'Owner / Primary Contact' },
                           { label: 'Email' },
+                          { label: 'Phone', className: 'hidden 2xl:table-cell' },
                           { label: 'Plan' },
                           { label: 'Status' },
                           { label: 'Date Approved' },
+                          { label: 'Actions', center: true, className: 'hidden 2xl:table-cell' },
                         ]}
                       >
                         {data.items.map((firm, index) => (
@@ -254,12 +264,15 @@ export function FirmsList() {
                               scope="row"
                               className={`${cellClass} min-w-40 break-words font-semibold text-heading`}
                             >
-                              {firm.name}
+                              {/* Below 2xl there is no Actions column: the name opens the firm. */}
+                              <Link href={`/firms/${firm.id}`} className="hover:text-link">
+                                {firm.name}
+                              </Link>
                             </th>
                             <td className={`${cellClass} break-words`}>
                               {firm.owner?.name ?? 'Not assigned'}
                               {firm.owner?.phone ? (
-                                <span className="block whitespace-nowrap text-muted">
+                                <span className="block whitespace-nowrap text-muted 2xl:hidden">
                                   {formatPhone(firm.owner.phone)}
                                 </span>
                               ) : null}
@@ -267,12 +280,24 @@ export function FirmsList() {
                             <td className={`${cellClass} ${emailCellClass}`}>
                               {firm.owner?.email ? <EmailText value={firm.owner.email} /> : '—'}
                             </td>
+                            <td className={`${cellClass} hidden whitespace-nowrap 2xl:table-cell`}>
+                              {firm.owner?.phone ? formatPhone(firm.owner.phone) : '—'}
+                            </td>
                             <td className={cellClass}>{firm.plan ? FIRM_PLANS[firm.plan] : '—'}</td>
                             <td className={cellClass}>
                               <StatusBadge status={firm.status} />
                             </td>
                             <td className={`${cellClass} whitespace-nowrap`}>
                               <ApprovedDate value={firm.approvedAt} />
+                            </td>
+                            <td className={`${cellClass} hidden text-center 2xl:table-cell`}>
+                              <Link
+                                aria-label={`Open firm ${firm.name}`}
+                                href={`/firms/${firm.id}`}
+                                className="inline-flex whitespace-nowrap rounded-control bg-platform-navy px-4 py-2.5 font-semibold text-white hover:bg-platform-navy-raised"
+                              >
+                                Open Firm
+                              </Link>
                             </td>
                           </tr>
                         ))}
