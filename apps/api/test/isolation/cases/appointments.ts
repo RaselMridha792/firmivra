@@ -52,6 +52,10 @@ export const records: CaseModule['records'] = {
 
 export const cases: CaseModule['cases'] = {
   'GET /api/v1/business/appointments/:id': { params: { id: 'appointment' } },
+  'PATCH /api/v1/business/appointments/:id': {
+    params: { id: 'appointment' },
+    body: { locationKind: 'PHONE', locationDetails: 'Fake phone details' },
+  },
   'POST /api/v1/business/appointments/:id/cancel': { params: { id: 'appointment' } },
   // Found, but next week's meeting hasn't started.
   'POST /api/v1/business/appointments/:id/complete': { params: { id: 'appointment' }, expect: 409 },
@@ -83,6 +87,10 @@ export const cases: CaseModule['cases'] = {
   'POST /api/v1/business/appointment-types/:id/archive': { params: { id: 'appointmentType' } },
   'POST /api/v1/business/appointment-types/:id/restore': { params: { id: 'appointmentType' } },
   'DELETE /api/v1/business/blocked-times/:id': { params: { id: 'blockedTime' } },
+  'PUT /api/v1/business/availability/:userId/meeting-link': {
+    params: { userId: 'staffUser' },
+    body: { meetingUrl: 'https://meet.example.com/fake-room' },
+  },
   // Found, but no one has working hours, so no slot is free.
   'POST /api/v1/portal/:firmSlug/me/appointments': {
     params: {},

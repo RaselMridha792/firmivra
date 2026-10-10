@@ -9,6 +9,7 @@ import type {
   RescheduleAppointmentRequest,
   SlotList,
   SlotsQuery,
+  UpdateAppointmentRequest,
 } from '@firmivra/types';
 import type { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
@@ -36,11 +37,18 @@ import {
 } from './calendar-data.js';
 import { lockAppointment, lockForBooking, retryWhenBusy } from './calendar-locks.js';
 import { errors, isSlotConflict } from './errors.js';
+import {
+  detailsAfterStaffChange,
+  linkOf,
+  MEETING_LINKS,
+  type MeetingLinkStore,
+} from './meeting-links.js';
 
 type ListQuery = z.output<typeof AppointmentsQuery>;
 type SlotsQ = z.output<typeof SlotsQuery>;
 type BookBody = z.output<typeof BookAppointmentRequest>;
 type RescheduleBody = z.output<typeof RescheduleAppointmentRequest>;
+type UpdateBody = z.output<typeof UpdateAppointmentRequest>;
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -72,6 +80,7 @@ export class AppointmentsService {
     private readonly audit: AuditService,
     private readonly history: AppointmentHistory,
     private readonly notices: AppointmentNotices,
+    @Inject(MEETING_LINKS) private readonly links: MeetingLinkStore,
   ) {}
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -258,6 +267,13 @@ export class AppointmentsService {
       const minutes = body.durationMinutes ?? type?.durationMinutes ?? 0;
       const startsAt = new Date(body.startsAt);
       endsInCalendar(startsAt.getTime() + minutes * MINUTE);
+      const locationKind = body.locationKind ?? type?.locationKind ?? 'VIDEO';
+      // A VIDEO appointment booked without details gets the staff member's link (R14).
+      const locationDetails =
+        body.locationDetails ??
+        (locationKind === 'VIDEO'
+          ? await linkOf(this.links, tx, businessId, body.staffUserId)
+          : null);
       await lockForBooking(tx, businessId, body.staffUserId, client.id);
       const created = await tx.appointment.create({
         data: {
@@ -268,8 +284,8 @@ export class AppointmentsService {
           engagementId: body.engagementId ?? null,
           startsAt,
           endsAt: new Date(startsAt.getTime() + minutes * MINUTE),
-          locationKind: body.locationKind ?? type?.locationKind ?? 'VIDEO',
-          locationDetails: body.locationDetails ?? null,
+          locationKind,
+          locationDetails,
           bookedByUserId: actor.userId,
           bookedByClient: false,
         },
@@ -300,10 +316,22 @@ export class AppointmentsService {
       }
       const length = current.endsAt.getTime() - current.startsAt.getTime();
       endsInCalendar(startsAt.getTime() + length);
+      const locationDetails = await detailsAfterStaffChange(
+        this.links,
+        tx,
+        businessId,
+        current,
+        staffUserId,
+      );
       await lockForBooking(tx, businessId, staffUserId, current.clientId);
       const updated = await tx.appointment.update({
         where: { id: current.id },
-        data: { startsAt, endsAt: new Date(startsAt.getTime() + length), staffUserId },
+        data: {
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + length),
+          staffUserId,
+          locationDetails,
+        },
         select: appointmentSelect,
       });
       await this.history.record(tx, 'RESCHEDULED', updated, {
@@ -311,6 +339,53 @@ export class AppointmentsService {
         from: current,
         to: updated,
       });
+      return { before: current, after: updated };
+    });
+    if (!after) return toAppointment(before);
+    await this.notices.send('appointment.changed', businessId, after.id);
+    return toAppointment(after);
+  }
+
+  /**
+   * Edit location (R14): the kind and details only; the times stay. Nothing changed writes
+   * nothing. Audited with the names of the fields that changed, never the details (a link can
+   * carry a passcode); the client gets the 'changed' notice, which never holds them either.
+   */
+  async update(
+    businessId: string,
+    actor: FirmActor,
+    id: string,
+    body: UpdateBody,
+  ): Promise<Appointment> {
+    const { before, after } = await this.write(businessId, async (tx) => {
+      const current = await this.openForChange(tx, businessId, actor, id);
+      const locationKind = body.locationKind ?? current.locationKind;
+      // Details left out: VIDEO gets the staff member's link; another kind keeps its details
+      // unless the kind changes. Sent: null (or '') clears.
+      let locationDetails = body.locationDetails ?? null;
+      if (body.locationDetails === undefined) {
+        if (locationKind === 'VIDEO') {
+          locationDetails = await linkOf(this.links, tx, businessId, current.staffUserId);
+        } else if (locationKind === current.locationKind) {
+          locationDetails = current.locationDetails;
+        }
+      }
+      const data = { locationKind, locationDetails };
+      const fields = (['locationKind', 'locationDetails'] as const).filter(
+        (field) => data[field] !== current[field],
+      );
+      if (fields.length === 0) return { before: current, after: null };
+      const updated = await tx.appointment.update({
+        where: { id: current.id },
+        data,
+        select: appointmentSelect,
+      });
+      await this.audit.logIn(
+        tx,
+        'appointment.location_changed',
+        { type: 'appointment', id: current.id },
+        { clientId: current.clientId, fields, detailsSet: data.locationDetails !== null },
+      );
       return { before: current, after: updated };
     });
     if (!after) return toAppointment(before);
