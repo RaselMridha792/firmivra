@@ -1,8 +1,16 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { ClientId } from '@firmivra/types';
+import { notFound } from 'next/navigation';
+import { ClientSignatures } from './_components/client-signatures';
 
 export const metadata: Metadata = { title: 'Client signatures' };
 
-export default function ClientSignaturesPage() {
-  return <PagePlaceholder title="Client signatures" ticket="R13" owner="R13-web" />;
+export default async function ClientSignaturesPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  if (!ClientId.safeParse(id).success) notFound();
+  return <ClientSignatures clientId={id} />;
 }

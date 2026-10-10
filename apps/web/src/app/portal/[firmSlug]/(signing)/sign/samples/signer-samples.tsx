@@ -9,9 +9,9 @@ import {
 } from '../../../../../../components/esign/field-overlay';
 import { PdfPages } from '../../../../../../components/esign/pdf-pages';
 import { samplePdf, scannedSamplePdf } from '../../../../../../components/esign/sample-pdf';
-import { SignaturePad } from '../../../../../../components/esign/signature-pad';
+import { type AdoptedMark, SignaturePad } from '../../../../../../components/esign/signature-pad';
 
-/** Synthetic recipients and fields for the first sample, until the signing API lands. */
+/** Synthetic recipients and fields for the first sample (no signing session needed). */
 const RECIPIENTS: OverlayRecipient[] = [
   { id: 'r-jordan', name: 'Jordan Sample', colorIndex: 0 },
   { id: 'r-riley', name: 'Riley Sample', colorIndex: 1 },
@@ -46,11 +46,10 @@ const FIELDS: OverlayField[] = [
 ];
 
 /**
- * The signer page's parts on sample data, until the signing API (R13-api contract 2) lands: the
- * documents of a request, one at a time, with their fields, and the adopt-a-signature pad. The code gate and consent
- * come first in signer flow 1.
+ * The signer page's parts on sample data, for checking them without a signing link: the documents
+ * of a request, one at a time, with their fields, and the adopt-a-signature pad.
  */
-export function SignerPreview() {
+export function SignerSamples() {
   const documents = useMemo(
     () => [
       { label: 'Sample engagement letter', pdf: samplePdf(3) },
@@ -61,11 +60,11 @@ export function SignerPreview() {
   );
   const [shown, setShown] = useState(0);
   const doc = documents[shown] ?? documents[0]!;
-  const [signature, setSignature] = useState<string | null>(null);
+  const [signature, setSignature] = useState<AdoptedMark | null>(null);
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <h1 data-testid="page-title" className="text-2xl font-semibold text-heading">
-        Sign documents
+        Signing samples
       </h1>
       <p className="text-sm text-muted">
         Document {shown + 1} of {documents.length}: {doc.label}

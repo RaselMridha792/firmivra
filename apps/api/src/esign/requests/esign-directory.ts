@@ -172,10 +172,13 @@ export class PrismaEsignDirectory implements EsignDirectory {
   async member(businessId: string, userId: string): Promise<DirectoryMember | null> {
     const row = await this.database.forBusiness(businessId).membership.findFirst({
       where: { businessId, userId },
-      select: { status: true, user: { select: { name: true, email: true, phone: true } } },
+      select: {
+        status: true,
+        jobTitle: true,
+        user: { select: { name: true, email: true, phone: true } },
+      },
     });
-    // TODO(r0_esign): the member's job title column arrives with r0_esign; null until then.
-    return row && { userId, ...row.user, jobTitle: null, active: row.status === 'ACTIVE' };
+    return row && { userId, ...row.user, jobTitle: row.jobTitle, active: row.status === 'ACTIVE' };
   }
 
   async members(businessId: string): Promise<DirectoryStaff[]> {
@@ -185,11 +188,12 @@ export class PrismaEsignDirectory implements EsignDirectory {
       select: {
         userId: true,
         role: true,
+        jobTitle: true,
         user: { select: { name: true, email: true, phone: true } },
       },
     });
-    return rows.map(({ userId, role, user }) => {
-      return { userId, ...user, jobTitle: null, active: true, firmRole: role };
+    return rows.map(({ userId, role, jobTitle, user }) => {
+      return { userId, ...user, jobTitle, active: true, firmRole: role };
     });
   }
 

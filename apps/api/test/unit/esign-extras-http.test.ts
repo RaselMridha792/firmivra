@@ -40,6 +40,7 @@ import {
   InMemoryExtrasRepository,
   InMemoryLifecycleRepository,
   sentRecipient,
+  NoDatabaseModule,
 } from './esign-fakes.js';
 
 const w = esignWorld();
@@ -70,7 +71,13 @@ let app: INestApplication;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
-    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, FakeAuditModule, ModulesModule],
+    imports: [
+      ConfigModule.forRoot(loadEnv()),
+      EsignModule,
+      NoDatabaseModule,
+      FakeAuditModule,
+      ModulesModule,
+    ],
   })
     .overrideProvider(ESIGN_REPOSITORY)
     .useValue(w.repo)

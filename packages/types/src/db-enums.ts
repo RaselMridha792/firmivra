@@ -208,3 +208,144 @@ export const TaxReturnStatus = z.enum([
   'COMPLETED',
 ]);
 export type TaxReturnStatus = z.infer<typeof TaxReturnStatus>;
+
+/** A signature request's status. DELIVERED is shown as "Sent". */
+export const EsignRequestStatus = z.enum([
+  'DRAFT',
+  'NEEDS_APPROVAL',
+  'SENT',
+  'DELIVERED',
+  'VIEWED',
+  'PARTIALLY_SIGNED',
+  'COMPLETED',
+  'DECLINED',
+  'EXPIRED',
+  'VOIDED',
+]);
+export type EsignRequestStatus = z.infer<typeof EsignRequestStatus>;
+
+/** Where a request was started. */
+export const EsignSource = z.enum(['TAB', 'CLIENT_RECORD', 'TEMPLATE', 'BULK']);
+export type EsignSource = z.infer<typeof EsignSource>;
+
+export const EsignRouting = z.enum(['SEQUENTIAL', 'PARALLEL']);
+export type EsignRouting = z.infer<typeof EsignRouting>;
+
+export const EsignRecipientKind = z.enum(['SIGNER', 'APPROVER', 'CC']);
+export type EsignRecipientKind = z.infer<typeof EsignRecipientKind>;
+
+/** The spec's signing roles; CUSTOM takes a role label. */
+export const EsignRecipientRole = z.enum([
+  'CLIENT',
+  'SPOUSE',
+  'BUSINESS_OWNER',
+  'EMPLOYEE',
+  'PREPARER',
+  'MANAGER',
+  'WITNESS',
+  'CUSTOM',
+]);
+export type EsignRecipientRole = z.infer<typeof EsignRecipientRole>;
+
+export const EsignRecipientStatus = z.enum([
+  'WAITING',
+  'SENT',
+  'DELIVERED',
+  'VIEWED',
+  'SIGNED',
+  'APPROVED',
+  'REJECTED',
+  'DECLINED',
+]);
+export type EsignRecipientStatus = z.infer<typeof EsignRecipientStatus>;
+
+export const EsignDelivery = z.enum(['EMAIL', 'PORTAL', 'IN_PERSON']);
+export type EsignDelivery = z.infer<typeof EsignDelivery>;
+
+/** LINK, EMAIL_CODE and ACCESS_CODE are chosen for a recipient; PORTAL_SESSION and IN_PERSON are only recorded on events. */
+export const EsignAuthMethod = z.enum([
+  'LINK',
+  'EMAIL_CODE',
+  'ACCESS_CODE',
+  'PORTAL_SESSION',
+  'IN_PERSON',
+]);
+export type EsignAuthMethod = z.infer<typeof EsignAuthMethod>;
+
+export const EsignFieldType = z.enum([
+  'SIGNATURE',
+  'INITIALS',
+  'DATE_SIGNED',
+  'PRINTED_NAME',
+  'EMAIL',
+  'PHONE',
+  'ADDRESS',
+  'TEXT',
+  'CHECKBOX',
+  'RADIO',
+  'DROPDOWN',
+  'ATTACHMENT',
+]);
+export type EsignFieldType = z.infer<typeof EsignFieldType>;
+
+export const EsignEventType = z.enum([
+  'CREATED',
+  'EDITED',
+  'APPROVAL_REQUESTED',
+  'APPROVED',
+  'APPROVAL_REJECTED',
+  'SENT',
+  'DELIVERED',
+  'VIEWED',
+  'AUTH_PASSED',
+  'AUTH_FAILED',
+  'CONSENTED',
+  'SIGNED',
+  'REMINDER_SENT',
+  'EXPIRY_WARNING_SENT',
+  'DECLINED',
+  'EXPIRED',
+  'VOIDED',
+  'CORRECTED',
+  'REPLACED',
+  'COMPLETED',
+  'COPY_SENT',
+  'DOWNLOADED',
+  'IN_PERSON_STARTED',
+  'IN_PERSON_ENDED',
+]);
+export type EsignEventType = z.infer<typeof EsignEventType>;
+
+export const EsignActorKind = z.enum(['STAFF', 'SIGNER', 'CLIENT', 'SYSTEM']);
+export type EsignActorKind = z.infer<typeof EsignActorKind>;
+
+export const EsignTemplateVisibility = z.enum(['FIRM', 'PRIVATE']);
+export type EsignTemplateVisibility = z.infer<typeof EsignTemplateVisibility>;
+
+export const EsignBulkItemState = z.enum(['QUEUED', 'SENT', 'NOT_SENT']);
+export type EsignBulkItemState = z.infer<typeof EsignBulkItemState>;
+
+/** Who a recipient is: one of the client's portal logins, a staff member, or someone else. */
+export const EsignRecipientLinkType = z.enum(['CLIENT_LOGIN', 'STAFF', 'EXTERNAL']);
+export type EsignRecipientLinkType = z.infer<typeof EsignRecipientLinkType>;
+
+/** SIGN: the invitation's link. COPY: the completed-copy link (30 days). IN_PERSON: a kiosk link. */
+export const EsignLinkPurpose = z.enum(['SIGN', 'COPY', 'IN_PERSON']);
+export type EsignLinkPurpose = z.infer<typeof EsignLinkPurpose>;
+
+export const EsignCodeKind = z.enum(['EMAIL', 'ACCESS']);
+export type EsignCodeKind = z.infer<typeof EsignCodeKind>;
+
+/** A Staff member's Firm Sign access beyond STAFF (no row: STAFF). */
+export const EsignStaffRole = z.enum(['MANAGER', 'VIEWER']);
+export type EsignStaffRole = z.infer<typeof EsignStaffRole>;
+
+export const EsignApprovalDecision = z.enum(['APPROVE', 'REJECT']);
+export type EsignApprovalDecision = z.infer<typeof EsignApprovalDecision>;
+
+export const EsignEmailStatus = z.enum(['QUEUED', 'SENT', 'FAILED']);
+export type EsignEmailStatus = z.infer<typeof EsignEmailStatus>;
+
+/** An upload started and not confirmed: a request's file, or a signer's attachment. */
+export const EsignUploadKind = z.enum(['DOCUMENT', 'ATTACHMENT']);
+export type EsignUploadKind = z.infer<typeof EsignUploadKind>;
