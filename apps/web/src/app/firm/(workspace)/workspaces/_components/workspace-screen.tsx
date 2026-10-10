@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import { type Workspace } from '@firmivra/types';
 import { Badge, Button, Card, Select } from '@firmivra/ui';
 import { useState } from 'react';
@@ -6,6 +6,7 @@ import { PageState } from '../../../../../components/page-state';
 import { api } from '../../../../../lib/api';
 import { errorMessage } from '../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../lib/query';
+import { NoteForm, ReportForm, TaskForm } from './workspace-forms';
 export function WorkspaceScreen({ engagementId }: { engagementId: string }) {
   const query = useApiQuery(['workspace', engagementId], () => api.workspaces.get(engagementId));
   return (
@@ -75,6 +76,7 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
       ) : null}
       <Card className="space-y-4" data-testid="workspace-tasks">
         <h2 className="text-xl font-semibold text-heading">Tasks</h2>
+        {open ? <TaskForm workspace={workspace} /> : null}
         <PageState query={tasks} empty="No tasks yet." isEmpty={(data) => !data.items.length}>
           {(data) => (
             <>
@@ -156,6 +158,7 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
       </Card>
       <Card className="space-y-4" data-testid="workspace-notes">
         <h2 className="text-xl font-semibold text-heading">Internal notes</h2>
+        <NoteForm workspace={workspace} />
         <PageState query={notes} empty="No internal notes yet.">
           {(rows) => (
             <ul className="space-y-3">
@@ -171,6 +174,7 @@ function WorkspaceDetail({ workspace }: { workspace: Workspace }) {
       </Card>
       <Card className="space-y-4" data-testid="workspace-reports">
         <h2 className="text-xl font-semibold text-heading">Reports</h2>
+        {open ? <ReportForm workspace={workspace} /> : null}
         <PageState query={reports} empty="No reports yet." isEmpty={(data) => !data.items.length}>
           {(data) => (
             <>
