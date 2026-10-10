@@ -9,8 +9,10 @@ import { BULK_REPOSITORY } from './bulk/bulk.repository.js';
 import { EsignBulkService } from './bulk/bulk.service.js';
 import { EsignCenterController } from './center/center.controller.js';
 import { CENTER_REPOSITORY } from './center/center.repository.js';
+import { PrismaCenterRepository } from './center/prisma-center.repository.js';
 import { EsignCenterService } from './center/center.service.js';
 import { COMPLETION_REPOSITORY } from './completion/completion.repository.js';
+import { PrismaCompletionRepository } from './completion/prisma-completion.repository.js';
 import { EsignCompletionJob } from './completion/completion.job.js';
 import { EsignCompletionService } from './completion/completion.service.js';
 import { EsignEngineModule } from './engine/engine.module.js';
@@ -62,6 +64,7 @@ import { EsignSettingsService } from './settings/settings.service.js';
 import { EsignSignerController } from './signer/signer.controller.js';
 import { EsignSignerFilesService } from './signer/signer-files.service.js';
 import { SIGNER_REPOSITORY } from './signer/signer.repository.js';
+import { PrismaSignerRepository } from './signer/prisma-signer.repository.js';
 import { EsignSignerService } from './signer/signer.service.js';
 
 /**
@@ -129,10 +132,10 @@ function extrasStandIn(): EsignExtrasRepository {
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     EsignFieldValues,
     { provide: ESIGN_REPOSITORY, useClass: PrismaEsignRepository },
-    { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
-    { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
+    { provide: SIGNER_REPOSITORY, useClass: PrismaSignerRepository },
+    { provide: COMPLETION_REPOSITORY, useClass: PrismaCompletionRepository },
     { provide: SETTINGS_REPOSITORY, useClass: PrismaSettingsRepository },
-    { provide: CENTER_REPOSITORY, useValue: notMigrated('EsignCenterRepository') },
+    { provide: CENTER_REPOSITORY, useClass: PrismaCenterRepository },
     EsignLifecycleService,
     EsignLifecycleJob,
     { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
