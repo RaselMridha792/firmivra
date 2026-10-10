@@ -64,4 +64,3 @@ for (const [status, code, state] of [
     await expect(page.getByTestId(state)).toBeVisible();
   });
 }
-
