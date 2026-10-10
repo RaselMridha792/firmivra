@@ -6,11 +6,16 @@ const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 const lead = (n: number) => app(`/leads/0199b6a5-0000-7000-8000-${String(n).padStart(12, '0')}`);
 
-test('a lead shows who sent it and the files', async ({ page }) => {
+test('a lead shows who sent it, the answers with the SSN masked, and the files', async ({
+  page,
+}) => {
   await page.goto(lead(1));
   await expect(page.getByTestId('page-title')).toHaveText('Avery Sample');
   await expect(page.getByText('New', { exact: true })).toBeVisible();
   await expect(page.getByText('Annual Tax · 2025')).toBeVisible();
+  await expect(page.getByText('•••-••-6789')).toBeVisible();
+  await expect(page.getByText('123-45-6789')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Other files' })).toBeVisible();
 
   const files = page.getByTestId('lead-file');
   await expect(files).toHaveCount(1);

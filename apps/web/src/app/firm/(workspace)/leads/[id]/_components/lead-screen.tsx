@@ -5,10 +5,11 @@ import { Badge, Card } from '@firmivra/ui';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { useFirm } from '../../../../../../components/firm-context';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
-import { LeadFile } from './lead-file';
+import { LeadAnswers } from './lead-answers';
 import { leadKey, STATUS } from './lead-shared';
 
 const when = (iso: string) =>
@@ -66,11 +67,12 @@ function LeadSummary({ lead }: { lead: LeadDetail }) {
 }
 
 /**
- * One Begin Online lead: who sent it and the uploaded files. Every member of the firm reads
- * leads; another firm's is 404.
+ * One Begin Online lead: who sent it, the intake answers as sent (SSN and EIN as last 4 only) and
+ * the uploaded files. Every member of the firm reads leads; another firm's is 404.
  */
 export function LeadScreen() {
   const { id } = useParams<{ id: string }>();
+  const { firm } = useFirm();
   const lead = useApiQuery(leadKey(id), () => api.leads.get(id));
   return (
     <div className="flex flex-col gap-4">
@@ -87,15 +89,17 @@ export function LeadScreen() {
               <Badge tone={STATUS[data.status].tone}>{STATUS[data.status].label}</Badge>
             </div>
             <LeadSummary lead={data} />
-            {data.intake?.uploads.length ? (
-              <Card title="Files">
-                <ul className="flex flex-col gap-2">
-                  {data.intake.uploads.map((file) => (
-                    <LeadFile key={file.id} leadId={data.id} file={file} />
-                  ))}
-                </ul>
+            {data.intake ? (
+              <LeadAnswers
+                leadId={data.id}
+                intake={data.intake}
+                texts={{ taxYear: data.taxYear, firmName: firm.name }}
+              />
+            ) : (
+              <Card>
+                <p className="text-sm text-muted">This request has no intake answers.</p>
               </Card>
-            ) : null}
+            )}
           </>
         )}
       </PageState>
