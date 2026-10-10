@@ -3,7 +3,7 @@
 # Runs `prisma migrate deploy` as the owner role, then sets the app role's password (scripts/migrate-deploy.mjs).
 # Also holds the one-off dev command scripts/link-dev-users.mjs, which needs the built package (dist).
 
-FROM node:22-alpine AS base
+FROM public.ecr.aws/docker/library/node:22-alpine AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH HUSKY=0
 RUN corepack enable
 WORKDIR /repo
@@ -16,7 +16,7 @@ RUN pnpm exec turbo run build --filter=@firmivra/db
 # All dependencies of packages/db, including the Prisma CLI (a devDependency).
 RUN pnpm --filter @firmivra/db deploy --legacy /out
 
-FROM node:22-alpine AS runtime
+FROM public.ecr.aws/docker/library/node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out/package.json ./package.json
@@ -25,6 +25,7 @@ COPY --from=build --chown=node:node /out/dist ./dist
 COPY --from=build --chown=node:node /repo/packages/db/prisma ./prisma
 COPY --from=build --chown=node:node /repo/packages/db/prisma.config.ts ./prisma.config.ts
 COPY --from=build --chown=node:node /repo/packages/db/scripts/migrate-deploy.mjs ./scripts/migrate-deploy.mjs
+COPY --from=build --chown=node:node /repo/packages/db/scripts/set-module.mjs ./scripts/set-module.mjs
 COPY --from=build --chown=node:node /repo/packages/db/scripts/link-dev-users.mjs ./scripts/link-dev-users.mjs
 ADD --chown=node:node https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-ca.pem
 ENV NODE_EXTRA_CA_CERTS=/app/rds-ca.pem

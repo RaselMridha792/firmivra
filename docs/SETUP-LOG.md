@@ -373,6 +373,67 @@ Done Oct 5: steps 1 to 3 (`customDomain: DEV_FIRMIVRA_COM`; the diff matched ste
 4. Nothing to rebuild: the web app reads its host map at runtime, and the API reads its URLs from the task environment. The `*.cloudfront.net` URLs then stop serving a site (their host is no longer in the host map).
 5. Afterwards: request SES production access, update the README dev URLs, and close the GoDaddy item in this log.
 
+## Stripe keys on dev (R1, Oct 10)
+
+The API reads Stripe's keys from the Secrets Manager secret `firmivra/dev/stripe` (`stripeSecretName` in `infra/src/config.ts`), as `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` and `STRIPE_WEBHOOK_SECRET` in the API task. The API does not read the publishable key yet; it is kept for a later checkout page. Without the keys, the payment routes answer 503 `PAYMENT_PROVIDER_UNAVAILABLE`, and the webhook answers 503 so Stripe retries.
+
+**The secret is made by hand, never by CDK, and before the merge.** ECS cannot start a task whose secret lacks one of its keys: the deploy would fail and roll back. A secret in a template would also get its values written over by any later change to it. The values never go in code, chat, logs or a committed file.
+
+Every command is for the dev account and takes `--profile firmivra-dev`. In Git Bash, run `export MSYS_NO_PATHCONV=1` first.
+
+**1. The webhook endpoint** (Stripe dashboard, test mode, Developers > Webhooks > Add endpoint):
+- URL `https://app.dev.firmivra.com/api/v1/webhooks/stripe`, listening to events on **connected accounts**.
+- The 8 events the API handles: `account.updated`, `checkout.session.completed`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `payment_intent.succeeded`, `charge.refunded`, `refund.failed`, `refund.updated`.
+- Copy its signing secret (`whsec_...`) for step 2.
+
+**2. The secret** (AWS console, us-east-1: Secrets Manager > Store a new secret > Other type of secret):
+- Three key/value rows: `STRIPE_SECRET_KEY` = the test secret key (`sk_test_...`), `STRIPE_PUBLISHABLE_KEY` = the test publishable key (`pk_test_...`), `STRIPE_WEBHOOK_SECRET` = step 1's `whsec_...`.
+- Encryption key `aws/secretsmanager`, name `firmivra/dev/stripe`, no rotation.
+- Check it (read-only). The second command prints the key names only, never the values; never run `get-secret-value` without the pipe:
+
+```bash
+aws secretsmanager describe-secret --secret-id firmivra/dev/stripe --query Name --output text --profile firmivra-dev
+aws secretsmanager get-secret-value --secret-id firmivra/dev/stripe --query SecretString --output text --profile firmivra-dev \
+  | python -c "import json,sys; print(sorted(json.load(sys.stdin)))"
+```
+
+Expected: `['STRIPE_PUBLISHABLE_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET']`.
+
+**3. The diff** (read-only), on the PR's branch:
+
+```bash
+cd infra
+pnpm exec cdk diff firmivra-dev-app -c env=dev --exclusively --profile firmivra-dev
+```
+
+Expected: the API task definition's three new secrets, and the API execution role's read right on `secret:firmivra/dev/stripe-??????`. Nothing else, apart from the usual image-tag lines.
+
+**4. Merge the PR.** Deploy dev deploys `firmivra-dev-app`, and R1 watches the run. The new API task reads the keys when it starts. A key in the wrong form (not `sk_`/`rk_`, or not `whsec_`) stops the API at start with "Invalid Stripe settings" (the key's name only, never its value). The circuit breaker then rolls the deployment back: fix the value in the console and re-run Deploy dev.
+
+**5. Check:**
+- As LVP's owner on app.dev.firmivra.com, Settings > Payments > "Connect Stripe" opens Stripe's onboarding instead of answering 503.
+- After the first onboarding, the endpoint in Stripe shows `account.updated` deliveries with 2xx.
+- The API log has no Stripe errors:
+
+```bash
+aws logs filter-log-events --log-group-name /firmivra/dev/api --filter-pattern '?"Invalid Stripe settings" ?"PAYMENT_PROVIDER_UNAVAILABLE"' \
+  --start-time $(( ($(date +%s) - 3600) * 1000 )) --query 'events[].message' --output text --profile firmivra-dev
+```
+
+**Changing a value later:** edit the secret in the console, then start new API tasks, since secrets are read at task start:
+
+```bash
+aws ecs update-service --cluster firmivra-dev-cluster --service firmivra-dev-api --force-new-deployment --profile firmivra-dev
+```
+
+**If the PR merged before step 2:** the new API task cannot start, the circuit breaker rolls the deployment back, and Deploy dev fails. The old task keeps serving. Do steps 1 and 2, then re-run Deploy dev.
+
+**Rollback:** revert the PR, and payments answer 503 again. The secret stays. Delete it by hand only after the revert has deployed, never before, because a running task definition still names it:
+
+```bash
+aws secretsmanager delete-secret --secret-id firmivra/dev/stripe --recovery-window-in-days 7 --profile firmivra-dev
+```
+
 ## Notes for Step 7 (from Step 6)
 
 - CloudFront: done as three distributions with `/api/*` to the API through the internal load balancer. Health checks: API `/api/v1/health`, web `/healthz`.

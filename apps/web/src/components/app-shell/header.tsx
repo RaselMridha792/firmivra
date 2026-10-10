@@ -11,6 +11,8 @@ export function Header({
   greeting,
   roleLabel,
   onOpenMenu,
+  bell,
+  hideRole = false,
 }: {
   /** Placeholder text for the search box; search is not connected yet. */
   search?: string;
@@ -18,6 +20,10 @@ export function Header({
   greeting?: ReactNode;
   roleLabel: string;
   onOpenMenu: () => void;
+  /** Replaces the plain bell button, for example the portal's bell with its unread count. */
+  bell?: ReactNode;
+  /** Shows only the name next to the avatar, as the portal mockups do; screen readers still hear the role. */
+  hideRole?: boolean;
 }) {
   const { me, signOut } = useMe();
   const [open, setOpen] = useState(false);
@@ -25,7 +31,8 @@ export function Header({
   return (
     <header
       onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}
-      className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2 md:px-6"
+      // Super Admin (search): the header sits on the canvas as in its mockup; elsewhere a white bar.
+      className={`flex items-center gap-3 px-4 py-2 md:px-6 ${search ? 'bg-canvas' : 'border-b border-border bg-surface'}`}
     >
       <button
         type="button"
@@ -37,30 +44,35 @@ export function Header({
       </button>
 
       {search ? (
-        <label className="hidden w-full max-w-xs flex-1 items-center gap-2 rounded-control border border-border bg-surface px-3 py-2 text-sm text-muted md:ml-auto md:flex">
+        <label className="hidden h-10 w-full max-w-xs flex-1 items-center gap-2 rounded-control border border-border bg-surface px-3 text-sm text-muted md:ml-auto md:flex">
           <Search aria-hidden className="size-4" />
           <input
             type="search"
             placeholder={search}
             aria-label="Search firms, applications, users"
-            className="w-full bg-transparent outline-none"
+            className="min-h-0 w-full bg-transparent outline-none"
           />
         </label>
       ) : null}
-      {greeting ? <p className="text-lg font-semibold text-text">{greeting}</p> : null}
+      {greeting ? <div className="text-lg font-semibold text-text">{greeting}</div> : null}
 
       <div
         className={
-          search ? 'ml-auto flex items-center gap-2 md:ml-5' : 'ml-auto flex items-center gap-2'
+          search
+            ? 'ml-auto flex items-center gap-2 rounded-card bg-surface px-2 py-1 md:ml-5'
+            : 'ml-auto flex items-center gap-2'
         }
       >
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="rounded-control p-2 text-text hover:bg-canvas"
-        >
-          <Bell aria-hidden className="size-5" />
-        </button>
+        {bell ?? (
+          <button
+            type="button"
+            aria-label="Notifications"
+            className="rounded-control p-2 text-text hover:bg-canvas"
+          >
+            <Bell aria-hidden className="size-5" />
+          </button>
+        )}
+        {search ? <span aria-hidden className="h-8 w-px bg-border" /> : null}
 
         <div className="relative">
           <button
@@ -75,7 +87,7 @@ export function Header({
             </span>
             <span className="hidden text-left text-sm sm:block">
               <span className="block font-semibold text-text">{me.user.name}</span>
-              <span className="block text-muted">{roleLabel}</span>
+              <span className={hideRole ? 'sr-only' : 'block text-muted'}>{roleLabel}</span>
             </span>
             <ChevronDown aria-hidden className="size-4 text-muted" />
           </button>

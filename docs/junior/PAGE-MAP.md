@@ -55,14 +55,14 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/clients/[id]` | `(workspace)/clients/[id]/layout.tsx` (client header and tabs) and `page.tsx` (overview, contact, profile) | Fahad | F06 | none |
 | `/clients/[id]/documents` | `(workspace)/clients/[id]/documents/page.tsx` | Fahad | F07 | none |
 | `/clients/[id]/messages` | `(workspace)/clients/[id]/messages/page.tsx` (messages and internal notes) | Nahid | F10 | `client-portal/Messages and notes.png` for style |
-| `/clients/[id]/invoices` | `(workspace)/clients/[id]/invoices/page.tsx` | Nahid | F10 | `client-portal/invoices tab.png` for style |
+| `/clients/[id]/invoices` | `(workspace)/clients/[id]/invoices/page.tsx` | Fahad | F10 | `client-portal/invoices tab.png` for style |
 | `/sign-ups` | `(workspace)/sign-ups/page.tsx` | Fahad | F06 | none |
 | `/messages` | `(workspace)/messages/page.tsx` | Nahid | F10 | none |
-| `/invoices` | `(workspace)/invoices/page.tsx` | Nahid | F10 | none |
+| `/invoices` | `(workspace)/invoices/page.tsx` | Fahad | F10 | none |
 | `/workspaces` | `(workspace)/workspaces/page.tsx` | Fahad | F11 | none |
 | `/workspaces/[engagementId]` | `(workspace)/workspaces/[engagementId]/page.tsx` | Fahad | F11 | none |
 | `/leads` | `(workspace)/leads/page.tsx` | Arfan | F08 | none |
-| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Arfan | F08 | none |
+| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Tumit | F08 | none |
 | `/calendar` | `(workspace)/calendar/page.tsx` | Tumit | F09 | none |
 | `/team` | `(workspace)/team/page.tsx` | Tumit | F05 | none |
 | `/audit-log` (Owner and Admin) | `(workspace)/audit-log/page.tsx` | Tumit | F12 | none |
@@ -108,16 +108,16 @@ Public pages (firm header and footer, no sidebar), in `portal/[firmSlug]/(public
 | `/{firm}/sign-up/verify-email` | `(public)/sign-up/verify-email/page.tsx` | R17 (Rasel) | N02 | `Verify email .png` |
 | `/{firm}/sign-up/verify-phone` | `(public)/sign-up/verify-phone/page.tsx` | R17 (Rasel) | N02 | `Verify phone.png` |
 | `/{firm}/sign-up/done` (also where a pending client lands after sign-in) | `(public)/sign-up/done/page.tsx` | R17 (Rasel) | N02 | `LVP Client Portal Account Confirmation.png` |
-| `/{firm}/begin` | `(public)/begin/page.tsx` | Arfan | N07a | `Begin online.png` |
-| `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | Arfan | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
-| `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | Arfan | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
-| `/{firm}/begin/bookkeeping` | `(public)/begin/bookkeeping/page.tsx` | Arfan | N07b | the 4 `Bookkeeping ...` files |
-| `/{firm}/begin/payroll` | `(public)/begin/payroll/page.tsx` | Arfan | N07b | the 3 `Payroll ...` files |
-| `/{firm}/begin/tax-planning` | `(public)/begin/tax-planning/page.tsx` | Arfan | N07b | the 4 `Tax planning ...` files |
-| `/{firm}/begin/business-development` | `(public)/begin/business-development/page.tsx` | Arfan | N07b | the 4 `Development intake ...` files |
-| `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | Arfan | N07c | none |
-| `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | Arfan | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
-| form blocks for all six services | `(public)/begin/_blocks/` | Arfan | N07a | |
+| `/{firm}/begin` | `(public)/begin/page.tsx` | R22 (Rasel; from Arfan) | N07a | `Begin online.png` |
+| `/{firm}/begin/annual-tax` | `(public)/begin/annual-tax/page.tsx` | R22 (Rasel; from Arfan) | N07a | `Annual Intake Form 1.png` to `Annual Tax Intake Form 4.png` |
+| `/{firm}/begin/quarterly-tax` | `(public)/begin/quarterly-tax/page.tsx` | R22 (Rasel; from Arfan) | N07b | `business Information.png`, `Taxes & Income.png`, `Business Expenses.png`, `Review & Submit.png` |
+| `/{firm}/begin/bookkeeping` | `(public)/begin/bookkeeping/page.tsx` | R22 (Rasel; from Arfan) | N07b | the 4 `Bookkeeping ...` files |
+| `/{firm}/begin/payroll` | `(public)/begin/payroll/page.tsx` | R22 (Rasel; from Arfan) | N07b | the 3 `Payroll ...` files |
+| `/{firm}/begin/tax-planning` | `(public)/begin/tax-planning/page.tsx` | R22 (Rasel; from Arfan) | N07b | the 4 `Tax planning ...` files |
+| `/{firm}/begin/business-development` | `(public)/begin/business-development/page.tsx` | R22 (Rasel; from Arfan) | N07b | the 4 `Development intake ...` files |
+| `/{firm}/begin/resume` | `(public)/begin/resume/page.tsx` | R22 (Rasel; from Arfan) | N07c | none |
+| `/{firm}/begin/done` | `(public)/begin/done/page.tsx` | R22 (Rasel; from Arfan) | N07c | `Success Tax Prep.png`, `Success Page for all services except taxes.png` |
+| form blocks for all six services | `(public)/begin/_blocks/` | R22 (Rasel; from Arfan) | N07a | |
 | `/{firm}/calculators` (hub) | `(public)/calculators/page.tsx` | R14 | calculators | none yet |
 | `/{firm}/calculators/tax-return` | `(public)/calculators/tax-return/page.tsx` | R14 | calculators | none yet |
 | `/{firm}/calculators/quarterly-estimate` | `(public)/calculators/quarterly-estimate/page.tsx` | R14 | calculators | none yet |
@@ -183,23 +183,23 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/components/auth/`, `apps/web/src/components/sign-in-panel.tsx`, `apps/web/src/components/notification-bell.tsx`
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
-- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/` and `clients/[id]/invoices/`, Nahid's), `sign-ups/`, `workspaces/`
+- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/`, Nahid's), `invoices/`, `sign-ups/`, `workspaces/`
 - `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
 **Tumit**
 - `apps/web/src/components/app-shell/`
 - `apps/web/src/app/admin/(console)/`
 - `apps/web/src/app/firm/welcome/`, `firm/apply/`, `firm/setup/`
-- `apps/web/src/app/firm/(workspace)/team/`, `audit-log/`, `calendar/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
+- `apps/web/src/app/firm/(workspace)/team/`, `audit-log/`, `calendar/`, `leads/[id]/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
 - `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
-**Nahid** (F10, from Oct 9; the portal pages moved to R17)
-- `apps/web/src/app/firm/(workspace)/messages/`, `(workspace)/invoices/`
-- `apps/web/src/app/firm/(workspace)/clients/[id]/messages/`, `clients/[id]/invoices/`
+**Nahid** (F10's messages, from Oct 9; its invoices pages went to Fahad on Oct 10; the portal pages moved to R17)
+- `apps/web/src/app/firm/(workspace)/messages/`
+- `apps/web/src/app/firm/(workspace)/clients/[id]/messages/`
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
 **Arfan**
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
-- `apps/web/src/app/firm/(workspace)/leads/`
+- `apps/web/src/app/firm/(workspace)/leads/` (the list; `leads/[id]/` is Tumit's)
 - `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/ARFAN.md`

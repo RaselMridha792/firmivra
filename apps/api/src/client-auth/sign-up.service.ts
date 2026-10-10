@@ -18,6 +18,7 @@ import { deriveKey, poolSecrets } from '../auth/sealed.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { DATABASE } from '../database/database.module.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { CLIENT_CODE_SENDER, type ClientCodeSender } from './client-code-sender.js';
 import { canonicalIp, networkOf } from '../common/network.js';
 import { PortalInfoService } from './portal-info.controller.js';
@@ -98,6 +99,7 @@ type AccountRow = {
   phoneVerifiedAt: Date | null;
   clientId: string | null;
   userId: string;
+  legalAcceptances: { id: string }[];
 };
 const ACCOUNT = {
   id: true,
@@ -107,17 +109,28 @@ const ACCOUNT = {
   phoneVerifiedAt: true,
   clientId: true,
   userId: true,
+  legalAcceptances: { select: { id: true }, take: 1 },
 } as const;
+
+/**
+ * A sign-up is complete once its phone is verified or, with SIGNUP_PHONE_VERIFICATION=optional,
+ * once it completed at the email step: its legal acceptances are written exactly when it
+ * completes, so this holds whatever the setting is now (portal-clients.ts and the firm's queue
+ * use the same rule).
+ */
+const completed = (a: Pick<AccountRow, 'phoneVerifiedAt' | 'legalAcceptances'>) =>
+  a.phoneVerifiedAt !== null || a.legalAcceptances.length > 0;
 
 /**
  * A sign-up nobody finished: no phone proof yet (with or without the email's), pending, no client
  * record. Another attempt may take it over, once it proves the email with its own code, so a
  * sign-up stopped after the email step (a closed tab, a refused SMS) can always be resumed.
  */
-const unfinished = (a: Pick<AccountRow, 'status' | 'phoneVerifiedAt' | 'clientId'>) =>
-  a.status === 'PENDING_APPROVAL' && !a.phoneVerifiedAt && !a.clientId;
+const unfinished = (
+  a: Pick<AccountRow, 'status' | 'phoneVerifiedAt' | 'legalAcceptances' | 'clientId'>,
+) => a.status === 'PENDING_APPROVAL' && !completed(a) && !a.clientId;
 const stepOf = (a: AccountRow): Step =>
-  !a.emailVerifiedAt ? 'VERIFY_EMAIL' : !a.phoneVerifiedAt ? 'VERIFY_PHONE' : 'DONE';
+  !a.emailVerifiedAt ? 'VERIFY_EMAIL' : !completed(a) ? 'VERIFY_PHONE' : 'DONE';
 /**
  * The step for this attempt: one that doesn't own the account yet must prove the email first, and
  * the email step ends at CONTACT_FIRM after SIGN_UP_WRONG_EMAIL_CODES wrong codes (Rasel, q13),
@@ -170,10 +183,18 @@ export async function atLeast<T>(ms: number, work: () => Promise<T>): Promise<T>
  *   Any other existing account: the attempt goes nowhere, and the owner gets one email saying so.
  * The pages store nothing: the sealed cookie says which attempt and account.
  */
+/** What `attemptState` reads, from a transaction or the platform client. */
+type AttemptReader = {
+  user: Pick<TxClient['user'], 'findUnique'>;
+  auditLog: Pick<TxClient['auditLog'], 'count' | 'findFirst'>;
+};
+
 @Injectable()
 export class SignUpService {
   private readonly secure: boolean;
   private readonly minResponseMs: number;
+  /** SIGNUP_PHONE_VERIFICATION=optional: the email code completes the sign-up (SMS fallback). */
+  private readonly phoneOptional: boolean;
   private readonly emailKeySecret: Uint8Array;
   private readonly logger = new Logger(SignUpService.name);
 
@@ -185,10 +206,12 @@ export class SignUpService {
     private readonly codes: VerificationCodesService,
     private readonly sessions: SignUpSessions,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
     @Inject(ENV) private readonly env: Env,
   ) {
     this.secure = env.NODE_ENV === 'production';
     this.minResponseMs = env.AUTH_MODE === 'cognito' ? COGNITO_MIN_RESPONSE_MS : 0;
+    this.phoneOptional = env.SIGNUP_PHONE_VERIFICATION === 'optional';
     const secret = poolSecrets(env).CLIENT;
     if (!secret) throw new Error('No key for client email hashes');
     this.emailKeySecret = deriveKey(secret, 'CLIENT', EMAIL_KEY_LABEL);
@@ -273,11 +296,19 @@ export class SignUpService {
               userId: account.userId,
               emailVerifiedAt: account.emailVerifiedAt,
               phoneVerifiedAt: null,
+              legalAcceptances: { none: {} },
               clientId: null,
             },
             data: { emailVerifiedAt: new Date(), userId: s.userId, accountType: s.accountType },
           });
           if (proved.count !== 1) throw signUpErrors.codeInvalid();
+          // SMS fallback: the sign-up completes here, as verify-phone would complete it.
+          if (this.phoneOptional) {
+            await tx.legalAcceptance.createMany({
+              data: s.documents.map((d) => acceptance(s.businessId, account.id, d, req)),
+              skipDuplicates: true,
+            });
+          }
           await this.audit.logIn(
             tx,
             'client_account.email_verified',
@@ -291,6 +322,19 @@ export class SignUpService {
         throw e;
       }
       if (tookOver) await this.retireLogin(account.userId);
+      if (this.phoneOptional) {
+        await this.log(s.businessId, s.userId, 'client_account.verified', account.id, {
+          phoneVerified: false,
+        });
+        await this.submitted(s.businessId, account.id, s.userId);
+        // The sign-up is complete: a busy database while reading the state never makes it an error.
+        return this.stateOf(s, expiresAt).catch(() => ({
+          step: 'DONE' as const,
+          email: s.email,
+          phoneMasked: maskPhone(s.phone),
+          resendAvailableAt: null,
+        }));
+      }
       // The email is proved: a busy database or a refused SMS never turns this into an error.
       try {
         const admitted = await this.admitRequest(s.userId, { soft: true, uncounted: true });
@@ -342,6 +386,7 @@ export class SignUpService {
         });
       });
       await this.log(s.businessId, s.userId, 'client_account.verified', account.id);
+      await this.submitted(s.businessId, account.id, s.userId);
       return this.stateOf(s, expiresAt);
     });
   }
@@ -465,7 +510,7 @@ export class SignUpService {
         where: { userId: s.userId },
         select: ACCOUNT,
       });
-      if (owned?.phoneVerifiedAt) throw signUpErrors.alreadyVerified();
+      if (owned && completed(owned)) throw signUpErrors.alreadyVerified();
       // Every change is a request (IP limits, the attempt's count; the wait restarts).
       const sendNow = this.waitedOut(await this.admitRequest(s.userId));
       const user = await this.attemptUser(s.userId);
@@ -800,7 +845,8 @@ export class SignUpService {
    * the login is gone (taken over and retired).
    */
   private async attemptState(userId: string, tx?: TxClient): Promise<AttemptState | null> {
-    const platform = tx ?? this.db.forPlatform();
+    // One narrow type for both clients: the union of the two Prisma clients is too deep for tsc.
+    const platform: AttemptReader = tx ?? (this.db.forPlatform() as unknown as AttemptReader);
     const user = await platform.user.findUnique({
       where: { id: userId },
       select: { createdAt: true },
@@ -958,6 +1004,26 @@ export class SignUpService {
             expiresAt * 1000,
           );
     return { step, ...shown, resendAvailableAt: new Date(at).toISOString() };
+  }
+
+  /**
+   * The sign-up is complete and waits in the firm's queue: a bell item for the firm's Owners and
+   * Admins (R6, `client.signup-submitted`, the client account's id only). The helper resolves on
+   * a database failure; anything else is logged with the id and never fails the sign-up.
+   */
+  private async submitted(businessId: string, accountId: string, actorUserId: string) {
+    try {
+      await this.notifier.notify({
+        businessId,
+        event: 'client.signup-submitted',
+        recordId: accountId,
+        actorUserId,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `client.signup-submitted for client account ${accountId} not written (${errorName(e)})`,
+      );
+    }
   }
 
   /** Audit rows belong to the firm even on these signed-out routes; the actor is the attempt. */

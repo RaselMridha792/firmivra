@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
-const signPage = `http://portal.localhost:${port}/lvp/sign`;
+const signPage = `http://portal.localhost:${port}/lvp/sign/samples`;
 
 test('the document draws every page', async ({ page }) => {
   await page.goto(signPage);

@@ -12,6 +12,15 @@ import {
 } from '@firmivra/types';
 import { Button, Card, Checkbox, Input, Select } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
+import {
+  Building2,
+  ClipboardList,
+  FileSearch,
+  Plus,
+  ShieldCheck,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { useFieldArray, useForm, type DefaultValues } from 'react-hook-form';
@@ -61,11 +70,23 @@ const contactOptions = [
   { value: 'TEXT', label: 'Text message' },
 ];
 
+/** A card's title with its icon, as on the Super Admin's application page. */
+function SectionTitle({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
+  return (
+    <h2 className="flex items-center gap-2 font-display text-xl font-bold text-heading">
+      <Icon aria-hidden className="size-6 text-brand-700" />
+      {children}
+    </h2>
+  );
+}
+
 function ReviewRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid gap-1 border-b border-border py-3 sm:grid-cols-[12rem_1fr]">
+    <div className="grid gap-1 border-b border-border py-3 sm:grid-cols-3 lg:grid-cols-5">
       <dt className="text-sm text-muted">{label}</dt>
-      <dd className="break-words text-sm text-text">{children || 'Not provided'}</dd>
+      <dd className="break-words text-sm text-text sm:col-span-2 lg:col-span-4">
+        {children || 'Not provided'}
+      </dd>
     </div>
   );
 }
@@ -106,7 +127,7 @@ export function ApplicationForm() {
     >
       <div
         aria-label="Application progress"
-        className="grid grid-cols-2 gap-3 rounded-card border border-border bg-surface p-4 shadow-sm sm:p-5"
+        className="grid grid-cols-2 gap-3 rounded-xl bg-surface p-4 shadow-md sm:p-5"
       >
         <div
           className={`flex items-center gap-3 rounded-control px-3 py-2 ${review ? 'text-success' : 'bg-info-soft text-action'}`}
@@ -132,21 +153,23 @@ export function ApplicationForm() {
         </div>
       </div>
       {review ? (
-        <Card className="border-t-4 border-t-action shadow-sm">
-          <h2 className="font-serif text-2xl font-bold text-heading">Review your application</h2>
+        <Card variant="elevated">
+          <SectionTitle icon={FileSearch}>Review your application</SectionTitle>
           <p className="mt-1 text-sm text-muted">Check these details before submitting.</p>
           <dl className="mt-4 divide-y divide-border">
-            <ReviewRow label="Practice">{PRACTICE_TYPES[values.business.practiceType]}</ReviewRow>
-            <ReviewRow label="Legal business name">{values.business.legalName}</ReviewRow>
-            <ReviewRow label="Doing business as">{values.business.dbaName}</ReviewRow>
-            <ReviewRow label="Entity type">{ENTITY_TYPES[values.business.entityType]}</ReviewRow>
-            <ReviewRow label="EIN">
+            <ReviewRow label="Practice Type">
+              {PRACTICE_TYPES[values.business.practiceType]}
+            </ReviewRow>
+            <ReviewRow label="Business Name">{values.business.legalName}</ReviewRow>
+            <ReviewRow label="DBA">{values.business.dbaName}</ReviewRow>
+            <ReviewRow label="Business Type">{ENTITY_TYPES[values.business.entityType]}</ReviewRow>
+            <ReviewRow label="EIN (if applicable)">
               <span data-testid="application-review-ein">{maskedEin}</span>
             </ReviewRow>
-            <ReviewRow label="Business email">{values.business.email}</ReviewRow>
-            <ReviewRow label="Business phone">{values.business.phone}</ReviewRow>
+            <ReviewRow label="Business Email">{values.business.email}</ReviewRow>
+            <ReviewRow label="Business Phone">{values.business.phone}</ReviewRow>
             <ReviewRow label="Website">{values.business.website}</ReviewRow>
-            <ReviewRow label="Business address">
+            <ReviewRow label="Business Address">
               {[
                 values.business.address.line1,
                 values.business.address.line2,
@@ -157,32 +180,32 @@ export function ApplicationForm() {
                 .filter(Boolean)
                 .join(', ')}
             </ReviewRow>
-            <ReviewRow label="Services">
+            <ReviewRow label="Services Offered">
               {values.business.services.map((service) => FIRM_SERVICES[service]).join(', ')}
             </ReviewRow>
-            <ReviewRow label="Primary administrator">{values.primaryAdmin.fullName}</ReviewRow>
-            <ReviewRow label="Administrator email">{values.primaryAdmin.email}</ReviewRow>
-            <ReviewRow label="Administrator phone">{values.primaryAdmin.phone}</ReviewRow>
-            <ReviewRow label="Title">{values.primaryAdmin.title}</ReviewRow>
-            <ReviewRow label="Preferred contact">
+            <ReviewRow label="Primary Administrator">{values.primaryAdmin.fullName}</ReviewRow>
+            <ReviewRow label="Administrator Email">{values.primaryAdmin.email}</ReviewRow>
+            <ReviewRow label="Administrator Phone">{values.primaryAdmin.phone}</ReviewRow>
+            <ReviewRow label="Title / Role">{values.primaryAdmin.title}</ReviewRow>
+            <ReviewRow label="Preferred Contact Method">
               {
                 contactOptions.find(
                   (option) => option.value === values.primaryAdmin.preferredContact,
                 )?.label
               }
             </ReviewRow>
-            <ReviewRow label="Alternate phone">{values.primaryAdmin.alternatePhone}</ReviewRow>
-            <ReviewRow label="Requested plan">{FIRM_PLANS[values.account.requestedPlan]}</ReviewRow>
-            <ReviewRow label="Team size">{values.account.teamSize}</ReviewRow>
-            <ReviewRow label="Estimated clients per year">
+            <ReviewRow label="Alternate Phone">{values.primaryAdmin.alternatePhone}</ReviewRow>
+            <ReviewRow label="Requested Plan">{FIRM_PLANS[values.account.requestedPlan]}</ReviewRow>
+            <ReviewRow label="Estimated Team Size">{values.account.teamSize}</ReviewRow>
+            <ReviewRow label="Estimated Client Volume (per year)">
               {CLIENT_VOLUMES[values.account.clientVolume]}
             </ReviewRow>
-            <ReviewRow label="Requested start date">
+            <ReviewRow label="Requested Start Date">
               {values.account.requestedStartDate || 'As soon as possible'}
             </ReviewRow>
-            <ReviewRow label="How you heard about us">{values.account.heardFrom}</ReviewRow>
-            <ReviewRow label="Additional information">{values.account.additionalInfo}</ReviewRow>
-            <ReviewRow label="Credentials">
+            <ReviewRow label="How You Heard About Us">{values.account.heardFrom}</ReviewRow>
+            <ReviewRow label="Additional Information">{values.account.additionalInfo}</ReviewRow>
+            <ReviewRow label="Professional Credentials">
               {values.credentials
                 ?.map(
                   (item) =>
@@ -202,31 +225,31 @@ export function ApplicationForm() {
         </Card>
       ) : (
         <>
-          <Card className="flex flex-col gap-4 border-t-4 border-t-action shadow-sm">
-            <h2 className="font-serif text-2xl font-bold text-heading">Business details</h2>
+          <Card variant="elevated" className="flex flex-col gap-4">
+            <SectionTitle icon={Building2}>Business Information</SectionTitle>
             <div className="grid gap-4 sm:grid-cols-2">
               <Select
-                label="Practice type"
+                label="Practice Type"
                 options={choices(PRACTICE_TYPES)}
                 error={issues.business?.practiceType?.message}
                 {...form.register('business.practiceType')}
               />
               <Select
-                label="Entity type"
+                label="Business Type"
                 options={choices(ENTITY_TYPES)}
                 error={issues.business?.entityType?.message}
                 {...form.register('business.entityType')}
               />
               <Input
-                label="Legal business name"
+                label="Legal Business Name"
                 required
                 data-testid="business-name"
                 error={issues.business?.legalName?.message}
                 {...form.register('business.legalName')}
               />
-              <Input label="Doing business as" {...form.register('business.dbaName')} />
+              <Input label="DBA (Doing Business As)" {...form.register('business.dbaName')} />
               <Input
-                label="EIN"
+                label="EIN (if applicable)"
                 // Not a password field: browsers would offer to save it, or fill in a password.
                 type="text"
                 inputMode="numeric"
@@ -236,13 +259,13 @@ export function ApplicationForm() {
                 {...form.register('business.ein')}
               />
               <Input
-                label="Business email"
+                label="Business Email"
                 type="email"
                 error={issues.business?.email?.message}
                 {...form.register('business.email')}
               />
               <Input
-                label="Business phone"
+                label="Business Phone"
                 type="tel"
                 error={issues.business?.phone?.message}
                 {...form.register('business.phone')}
@@ -254,16 +277,16 @@ export function ApplicationForm() {
                 {...form.register('business.website')}
               />
             </div>
-            <h3 className="font-medium text-text">Business address</h3>
+            <h3 className="font-semibold text-heading">Business Address</h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
-                label="Street address"
+                label="Street Address"
                 required
                 error={issues.business?.address?.line1?.message}
                 {...form.register('business.address.line1')}
               />
               <Input
-                label="Address line 2"
+                label="Address Line 2"
                 error={issues.business?.address?.line2?.message}
                 {...form.register('business.address.line2')}
               />
@@ -281,7 +304,7 @@ export function ApplicationForm() {
                 {...form.register('business.address.state')}
               />
               <Input
-                label="ZIP code"
+                label="ZIP Code"
                 required
                 autoComplete="postal-code"
                 error={issues.business?.address?.postalCode?.message}
@@ -289,7 +312,7 @@ export function ApplicationForm() {
               />
             </div>
             <fieldset>
-              <legend className="mb-2 text-sm font-medium text-text">Services offered</legend>
+              <legend className="mb-2 text-sm font-medium text-text">Services Offered</legend>
               <div className="grid gap-1 sm:grid-cols-2">
                 {Object.entries(FIRM_SERVICES).map(([value, label]) => (
                   <Checkbox
@@ -308,11 +331,11 @@ export function ApplicationForm() {
             </fieldset>
           </Card>
 
-          <Card className="flex flex-col gap-4 border-t-4 border-t-action shadow-sm">
-            <h2 className="font-serif text-2xl font-bold text-heading">Primary administrator</h2>
+          <Card variant="elevated" className="flex flex-col gap-4">
+            <SectionTitle icon={UserRound}>Primary Administrator</SectionTitle>
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
-                label="Full name"
+                label="Full Name"
                 required
                 error={issues.primaryAdmin?.fullName?.message}
                 {...form.register('primaryAdmin.fullName')}
@@ -332,18 +355,18 @@ export function ApplicationForm() {
                 {...form.register('primaryAdmin.phone')}
               />
               <Input
-                label="Title"
+                label="Title / Role"
                 error={issues.primaryAdmin?.title?.message}
                 {...form.register('primaryAdmin.title')}
               />
               <Select
-                label="Preferred contact method"
+                label="Preferred Contact Method"
                 options={contactOptions}
                 error={issues.primaryAdmin?.preferredContact?.message}
                 {...form.register('primaryAdmin.preferredContact')}
               />
               <Input
-                label="Alternate phone"
+                label="Alternate Phone"
                 type="tel"
                 error={issues.primaryAdmin?.alternatePhone?.message}
                 {...form.register('primaryAdmin.alternatePhone')}
@@ -351,17 +374,17 @@ export function ApplicationForm() {
             </div>
           </Card>
 
-          <Card className="flex flex-col gap-4 border-t-4 border-t-action shadow-sm">
-            <h2 className="font-serif text-2xl font-bold text-heading">Plan and team</h2>
+          <Card variant="elevated" className="flex flex-col gap-4">
+            <SectionTitle icon={ClipboardList}>Account Details</SectionTitle>
             <div className="grid gap-4 sm:grid-cols-2">
               <Select
-                label="Requested plan"
+                label="Requested Plan"
                 options={choices(FIRM_PLANS)}
                 error={issues.account?.requestedPlan?.message}
                 {...form.register('account.requestedPlan')}
               />
               <Input
-                label="Team size"
+                label="Estimated Team Size"
                 type="number"
                 min={1}
                 max={10000}
@@ -370,17 +393,28 @@ export function ApplicationForm() {
                 {...form.register('account.teamSize', { valueAsNumber: true })}
               />
               <Select
-                label="Estimated clients per year"
+                label="Estimated Client Volume (per year)"
                 options={choices(CLIENT_VOLUMES)}
                 error={issues.account?.clientVolume?.message}
                 {...form.register('account.clientVolume')}
               />
-              <Input
-                label="Requested start date"
-                type="date"
-                error={issues.account?.requestedStartDate?.message}
-                {...form.register('account.requestedStartDate')}
-              />
+              <div className="flex flex-col gap-1">
+                <Input
+                  id="requested-start-date"
+                  label="Requested Start Date"
+                  type="date"
+                  aria-describedby={
+                    issues.account?.requestedStartDate
+                      ? 'requested-start-date-error requested-start-date-hint'
+                      : 'requested-start-date-hint'
+                  }
+                  error={issues.account?.requestedStartDate?.message}
+                  {...form.register('account.requestedStartDate')}
+                />
+                <p id="requested-start-date-hint" className="text-xs text-muted">
+                  Leave blank for as soon as possible.
+                </p>
+              </div>
               <Input
                 label="How did you hear about Firmivra?"
                 error={issues.account?.heardFrom?.message}
@@ -388,7 +422,7 @@ export function ApplicationForm() {
               />
               <div className="flex flex-col gap-1 sm:col-span-2">
                 <label htmlFor="additional-information" className="text-sm font-medium text-text">
-                  Additional information
+                  Additional Information
                 </label>
                 <textarea
                   id="additional-information"
@@ -405,29 +439,28 @@ export function ApplicationForm() {
             </div>
             <fieldset className="flex flex-col gap-2">
               <legend className="text-sm font-medium text-text">
-                Professional credentials (optional)
+                Professional Credentials (optional)
               </legend>
               {credentials.fields.map((field, index) => (
-                <div
-                  key={field.id}
-                  className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
-                >
-                  <Select
-                    label="Credential"
-                    options={choices(CREDENTIAL_TYPES)}
-                    error={issues.credentials?.[index]?.type?.message}
-                    {...form.register(`credentials.${index}.type`)}
-                  />
-                  <Input
-                    label="Number"
-                    error={issues.credentials?.[index]?.number?.message}
-                    {...form.register(`credentials.${index}.number`)}
-                  />
-                  <Input
-                    label="Issued by"
-                    error={issues.credentials?.[index]?.issuedBy?.message}
-                    {...form.register(`credentials.${index}.issuedBy`)}
-                  />
+                <div key={field.id} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="grid flex-1 gap-3 sm:grid-cols-3">
+                    <Select
+                      label="Credential"
+                      options={choices(CREDENTIAL_TYPES)}
+                      error={issues.credentials?.[index]?.type?.message}
+                      {...form.register(`credentials.${index}.type`)}
+                    />
+                    <Input
+                      label="Number"
+                      error={issues.credentials?.[index]?.number?.message}
+                      {...form.register(`credentials.${index}.number`)}
+                    />
+                    <Input
+                      label="Issued by"
+                      error={issues.credentials?.[index]?.issuedBy?.message}
+                      {...form.register(`credentials.${index}.issuedBy`)}
+                    />
+                  </div>
                   <Button
                     variant="secondary"
                     aria-label="Remove credential"
@@ -439,10 +472,12 @@ export function ApplicationForm() {
               ))}
               <Button
                 variant="outline"
+                className="self-start"
                 disabled={credentials.fields.length >= 20}
                 onClick={() => credentials.append({ type: 'PTIN', number: '', issuedBy: '' })}
               >
-                Add credential
+                <Plus aria-hidden className="size-4" />
+                Add Credential
               </Button>
               {issues.credentials?.root?.message || issues.credentials?.message ? (
                 <p className="text-xs text-danger">
@@ -452,8 +487,8 @@ export function ApplicationForm() {
             </fieldset>
           </Card>
 
-          <Card className="flex flex-col gap-3 border-t-4 border-t-action shadow-sm">
-            <h2 className="font-serif text-xl font-bold text-heading">Agreements</h2>
+          <Card variant="elevated" className="flex flex-col gap-3">
+            <SectionTitle icon={ShieldCheck}>Agreements</SectionTitle>
             <Checkbox
               label="I accept Firmivra’s terms and privacy notice."
               {...form.register('agreement.acceptedTerms')}

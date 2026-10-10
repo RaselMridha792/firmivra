@@ -126,7 +126,9 @@ Checklist:
 - **API:** R12 (types, free slots, book, reschedule, cancel).
 - **Build:** pick a type, then a free slot, then confirm; upcoming appointments with reschedule and cancel where allowed; in the firm's branding.
 
-**Status (Oct 9, 2026):** Two stacked PRs under 400 lines: `tumit/FIR-N08-appointments` (pick a kind, a day and a free time, then confirm) and `tumit/FIR-N08-change-appointments` (upcoming appointments with Reschedule and Cancel until `changeableUntil`). A time someone just took (409 `SLOT_TAKEN` or `SLOT_UNAVAILABLE`) shows a clear message and reloads the free times. Times show in the client's own time zone with its short name: the portal has no firm time zone.
+**Status (Oct 9, 2026):** Merged as #175 in two parts: pick a kind, a day and a free time, then confirm; and upcoming appointments with Reschedule and Cancel until `changeableUntil`. A time someone just took (409 `SLOT_TAKEN` or `SLOT_UNAVAILABLE`) shows a clear message and reloads the free times. Times show in the client's own time zone with its short name.
+
+**Review fixes (Oct 9):** `tumit/FIR-N08-fixes`. Reschedule shows only for an appointment with a kind. When a change comes too late (`CHANGE_WINDOW_CLOSED`, `APPOINTMENT_CLOSED`, `NOT_FOUND`), the reason shows above the refreshed list. The appointment's own time shows as "(current)" and can't be picked. Free times are for the firm's dates, so a time on another of the client's days shows its weekday, and days are offered from the client's yesterday. The appointment specs pin the browser clock to a summer Wednesday, because the mock treats New York as a fixed UTC-4 and the 24-hour cutoffs moved with the weekday. The firm's New appointment (F09) now passes the chosen client to the free times (R12 #214), so a time the client already has is left out.
 
 ### Q03 · Oct 15-16 · Full test pass on dev (with Arfan)
 
@@ -160,8 +162,10 @@ You take the Super Admin site and the firm workspace; Arfan takes the portal and
 
 Checklist:
 
-- [ ] Owner and Admin see the log; Staff see the no-permission state
-- [ ] A "Firmivra Support" row shows no person and no IP
-- [ ] A range over 366 days, or only one end, shows the contract's message before any request
-- [ ] Loading, empty and error states
-- [ ] Playwright: filter and page through the log in mock mode
+- [x] Owner and Admin see the log; Staff see the no-permission state
+- [x] A "Firmivra Support" row shows no person and no IP
+- [x] A range over 366 days, or only one end, shows the contract's message before any request
+- [x] Loading, empty and error states
+- [x] Playwright: filter and page through the log in mock mode
+
+**Status (Oct 9, 2026):** On `tumit/FIR-F12-audit-log`. The table uses `@firmivra/ui`'s `Table` with its server paging (the API's cursor), and each row has a Details disclosure. The filters are checked with the contract's `AuditLogQuery` before any request. The mock has six entries, fewer than a page, so the spec checks that Next is off. Against the local API with the seed, the Owner got 50 rows and an active Next, Staff got the no-permission state (403), and 375 px had no horizontal scroll.

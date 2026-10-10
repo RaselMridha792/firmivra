@@ -17,7 +17,9 @@ const BusinessId = z.uuid();
 
 /**
  * `api.supportAccess`: the firm's support access requests. Owner and Admin read; only an Owner
- * approves, declines or revokes (403 FORBIDDEN otherwise; Staff get 403 on every call).
+ * approves, declines or revokes (403 FORBIDDEN otherwise; Staff get 403 on every call). An
+ * answer that meets the grant held by a Super Admin's support read is 409 CONFLICT with
+ * `retryAfter: 2` and a `Retry-After: 2` header: try again after 2 seconds.
  */
 export function createSupportAccessClient(request: ApiRequest) {
   const end = (id: string, action: 'decline' | 'revoke') =>
