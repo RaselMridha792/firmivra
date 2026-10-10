@@ -8,6 +8,8 @@ import { FilingStatus } from '../schemas.js';
 
 const Cents = z.int().min(0).max(100_000_000_00);
 const RateBps = z.int().min(0).max(10_000);
+/** A share that may pass 100% (110% of last year's tax). */
+const ShareBps = z.int().min(0).max(20_000);
 
 /** `rateBps` applies to taxable income above the previous top up to `upToCents` (inclusive). */
 export const BracketConstant = z.strictObject({
@@ -61,6 +63,27 @@ export const TaxYearConstants = z
      * rounded so the slices add up to the rounded total. A data change if Octavia answers otherwise.
      */
     taxRounding: z.enum(['DOLLAR', 'CENT']),
+    /** Self-employment tax (Schedule SE) and the Social Security wage base, for the estimators. */
+    selfEmployment: z.strictObject({
+      socialSecurityWageBaseCents: Cents,
+      /** The share of net business income that is net earnings from self-employment (92.35%). */
+      netEarningsBps: RateBps,
+      socialSecurityBps: RateBps,
+      medicareBps: RateBps,
+      /** Net earnings below this owe no self-employment tax. */
+      minNetEarningsCents: Cents,
+    }),
+    /** The estimated-tax safe harbors (Form 1040-ES, Publication 505). */
+    estimatedTax: z.strictObject({
+      currentYearBps: RateBps,
+      priorYearBps: RateBps,
+      /** The prior-year share when the prior year's AGI was above the threshold. */
+      priorYearHighIncomeBps: ShareBps,
+      highIncomeAgiCents: Cents,
+      highIncomeAgiMarriedSeparateCents: Cents,
+      /** Under this much owed after withholding, no estimated payment is required. */
+      minimumOwedCents: Cents,
+    }),
   })
   .refine(
     (c) => FilingStatus.options.every((s) => c.standardDeductionCents[s] > 0),
