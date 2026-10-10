@@ -10,7 +10,7 @@ import { useApiQuery } from '../../../../../../lib/query';
 import { PortalPageHeader } from '../../_components/portal-page-header';
 
 /** Only these have a screen yet; the firm's other calculators stay off the list until theirs ships. */
-const AVAILABLE: Calculator['key'][] = ['tax_bracket'];
+const AVAILABLE: Calculator['key'][] = ['quarterly_estimate', 'tax_bracket'];
 
 /** /{firm}/calculator (signed in) and /{firm}/calculators (public): the firm's calculators. */
 export function CalculatorsHub({ publicPage = false }: { publicPage?: boolean }) {
