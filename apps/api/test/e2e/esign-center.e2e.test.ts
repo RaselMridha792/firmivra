@@ -43,7 +43,8 @@ beforeAll(async () => {
     await tx.clientAccount.create({
       data: { businessId, userId: onClient.id, email: onClient.email, status: 'ACTIVE' },
     });
-    await tx.businessSettings.create({ data: { businessId, enabledModules: ['esign'] } });
+    // The module switch (r0_esign): only app_set_business_module changes enabled_modules.
+    await tx.$queryRaw`SELECT app_set_business_module(${businessId}::uuid, 'esign', true, 'e2e test')`;
   });
   await owner.$disconnect();
   const env = loadEnv({
