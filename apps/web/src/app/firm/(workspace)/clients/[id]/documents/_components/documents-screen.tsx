@@ -6,6 +6,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { DocumentList } from './document-list';
+import { RequestList } from './request-list';
 
 export function DocumentsScreen({ clientId }: { clientId: string }) {
   const [category, setCategory] = useState('');
@@ -96,6 +97,7 @@ export function DocumentsScreen({ clientId }: { clientId: string }) {
           </>
         )}
       </PageState>
+      <RequestList clientId={clientId} />
     </div>
   );
 }

@@ -64,3 +64,32 @@ for (const [status, code, state] of [
     await expect(page.getByTestId(state)).toBeVisible();
   });
 }
+
+test('request validation, creation, accept and missing reason', async ({ page }) => {
+  await page.goto(url);
+  const requests = page.getByTestId('requests-desktop-table');
+  await expect(requests).toContainText('We had no childcare costs this year.');
+  await page.getByTestId('request-document-open').click();
+  await page.getByTestId('request-submit').click();
+  await expect(page.getByTestId('request-service')).toHaveAttribute('aria-invalid', 'true');
+  await page.getByTestId('request-service').selectOption({ index: 1 });
+  await page.getByRole('dialog').getByTestId('request-title').fill('Quarterly expense receipts');
+  await page.getByTestId('request-submit').click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(requests).toContainText('Quarterly expense receipts');
+  await requests
+    .getByRole('button', { name: 'Accept W-2 from your employer', exact: true })
+    .click();
+  await expect(
+    requests.getByRole('row').filter({ hasText: 'W-2 from your employer' }),
+  ).toContainText('Accepted');
+  await requests
+    .getByRole('button', { name: 'Mark 1099-NEC for your contract work missing', exact: true })
+    .click();
+  await page.getByTestId('missing-submit').click();
+  await expect(page.getByTestId('missing-reason')).toHaveAttribute('aria-invalid', 'true');
+  await page.getByTestId('missing-reason').fill('Please include all pages.');
+  await page.getByTestId('missing-submit').click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(requests).toContainText('Please include all pages.');
+});
