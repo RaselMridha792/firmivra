@@ -782,4 +782,69 @@ describe('the module switch', () => {
       await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
     }
   });
+
+  it('both definitions can be created by a role that is no superuser (the RDS migrate role)', async () => {
+    // On RDS the migrate role is no superuser: PostgreSQL refuses it a function SET clause for a
+    // custom parameter (42501 "permission denied to set parameter"), which failed r0_esign on dev.
+    // Not a member of the local migrate role: locally that is the bootstrap superuser, whose
+    // membership would grant SET on every parameter.
+    const role = `fv_esign_mig_${run}`;
+    const functions = [
+      'app_set_business_module(uuid, text, boolean, text)',
+      'app_firms_with_module(text)',
+    ];
+    const [me] = await owner.$queryRaw<{ name: string }[]>`SELECT current_user AS name`;
+    const migrate = me!.name;
+    await owner.$executeRawUnsafe(`CREATE ROLE ${role} NOSUPERUSER NOBYPASSRLS NOLOGIN`);
+    await owner.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO ${role}`);
+    for (const f of functions)
+      await owner.$executeRawUnsafe(`ALTER FUNCTION ${f} OWNER TO ${role}`);
+    try {
+      for (const f of functions) {
+        const [row] = await owner.$queryRawUnsafe<{ def: string }[]>(
+          `SELECT pg_get_functiondef('${f}'::regprocedure) AS def`,
+        );
+        await owner.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL ROLE ${role}`);
+          await tx.$executeRawUnsafe(row!.def);
+        });
+      }
+      // No function carries a custom (app.*) setting.
+      const custom = await owner.$queryRaw<{ name: string }[]>`
+        SELECT p.proname AS name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public'
+           AND EXISTS (SELECT 1 FROM unnest(p.proconfig) AS c(setting)
+                        WHERE split_part(c.setting, '=', 1) LIKE '%.%')`;
+      expect(custom).toEqual([]);
+    } finally {
+      for (const f of functions) {
+        await owner.$executeRawUnsafe(`ALTER FUNCTION ${f} OWNER TO "${migrate}"`);
+      }
+      await owner.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM ${role}`);
+      await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
+    }
+  });
+
+  it("gives the caller's scope settings back", async () => {
+    const settingsNow = (tx: Prisma.TransactionClient) =>
+      tx.$queryRaw<{ scope: string; firm: string; marker: string }[]>`
+        SELECT current_setting('app.scope', true) AS scope,
+               current_setting('app.current_business_id', true) AS firm,
+               coalesce(current_setting('app.module_switch', true), '') AS marker`.then(
+        (rows) => rows[0]!,
+      );
+    const afterSwitch = await ownerIn(A, async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.module_switch', 'caller', true)`;
+      await tx.$queryRaw`SELECT app_set_business_module(${B.id}::uuid, 'calculators', true, 'scope check')`;
+      return settingsNow(tx);
+    });
+    expect(afterSwitch).toEqual({ scope: 'business', firm: A.id, marker: 'caller' });
+    expect(await setModule(B, 'calculators', false, 'scope check')).toEqual([]);
+
+    const afterList = await appIn(B, async (tx) => {
+      await tx.$queryRaw`SELECT app_firms_with_module('esign') AS id`;
+      return settingsNow(tx);
+    });
+    expect(afterList).toEqual({ scope: 'business', firm: B.id, marker: '' });
+  });
 });

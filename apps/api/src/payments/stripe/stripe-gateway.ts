@@ -99,7 +99,7 @@ export interface PaymentIntentInfo {
 }
 
 export interface StripeGateway {
-  /** A Standard connected account. The same idempotency key answers the same account again. */
+  /** The firm's connected account (Accounts v2). The same idempotency key answers the same account again. */
   createAccount(params: CreateAccountParams, idempotencyKey: string): Promise<ConnectedAccount>;
   retrieveAccount(accountId: string): Promise<ConnectedAccount>;
   /** A one-time Account Link to Stripe's hosted onboarding (`account_onboarding`). */
@@ -180,6 +180,53 @@ const refund = (r: Stripe.Refund): StripeRefund => ({
   refundKey: r.metadata?.refund_key ?? null,
 });
 
+/**
+ * Accounts v2 (`POST /v2/core/accounts`), which Stripe requires for new connected accounts: the
+ * firm's own account with the full Stripe Dashboard (as a Standard account had), the merchant
+ * configuration with card payments, and Stripe collecting its fees and covering losses.
+ */
+export function v2AccountParams({
+  businessId,
+  country,
+  email,
+}: CreateAccountParams): Stripe.V2.Core.AccountCreateParams {
+  return {
+    identity: { country },
+    dashboard: 'full',
+    ...(email ? { contact_email: email } : {}),
+    defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe' } },
+    configuration: { merchant: { capabilities: { card_payments: { requested: true } } } },
+    metadata: { business_id: businessId },
+  };
+}
+
+/** Stripe's hosted onboarding for a v2 account (`v2/core/account_links`). */
+export function v2LinkParams({
+  accountId,
+  returnUrl,
+  refreshUrl,
+}: AccountLinkParams): Stripe.V2.Core.AccountLinkCreateParams {
+  return {
+    account: accountId,
+    use_case: {
+      type: 'account_onboarding',
+      account_onboarding: { return_url: returnUrl, refresh_url: refreshUrl },
+    },
+  };
+}
+
+/**
+ * A just-made account: nothing enabled or submitted yet. Its later state is read with the v1
+ * accounts.retrieve and `account.updated`, which Stripe keeps for v2 accounts.
+ */
+export const newAccount = (id: string): ConnectedAccount => ({
+  id,
+  charges_enabled: false,
+  payouts_enabled: false,
+  details_submitted: false,
+  requirements: null,
+});
+
 /** The real Stripe, with the platform's key, a pinned API version and an 8 s timeout. */
 export function createStripeGateway(secretKey: string): StripeGateway {
   const stripe = new Stripe(secretKey, {
@@ -190,27 +237,16 @@ export function createStripeGateway(secretKey: string): StripeGateway {
   });
   return {
     livemode: /^(sk|rk)_live_/.test(secretKey),
-    createAccount: async ({ businessId, country, email }, idempotencyKey) =>
-      pick(
-        await stripe.accounts.create(
-          {
-            type: 'standard',
-            country,
-            ...(email ? { email } : {}),
-            metadata: { business_id: businessId },
-          },
-          { idempotencyKey },
-        ),
-      ),
-    retrieveAccount: async (accountId) => pick(await stripe.accounts.retrieve(accountId)),
-    createAccountLink: async ({ accountId, returnUrl, refreshUrl }) => {
-      const link = await stripe.accountLinks.create({
-        account: accountId,
-        return_url: returnUrl,
-        refresh_url: refreshUrl,
-        type: 'account_onboarding',
+    createAccount: async (params, idempotencyKey) => {
+      const account = await stripe.v2.core.accounts.create(v2AccountParams(params), {
+        idempotencyKey,
       });
-      return { url: link.url, expiresAt: new Date(link.expires_at * 1000) };
+      return newAccount(account.id);
+    },
+    retrieveAccount: async (accountId) => pick(await stripe.accounts.retrieve(accountId)),
+    createAccountLink: async (params) => {
+      const link = await stripe.v2.core.accountLinks.create(v2LinkParams(params));
+      return { url: link.url, expiresAt: new Date(link.expires_at) };
     },
     createCheckoutSession: async (p, idempotencyKey) => {
       const metadata = { invoice_id: p.invoiceId, payment_id: p.paymentId };
