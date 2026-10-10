@@ -29,6 +29,8 @@ import {
   seedFormDefinition,
   SEED_AGREEMENT_IDS,
   SAMPLE_AGREEMENT,
+  SEED_ESIGN_IDS,
+  SAMPLE_ESIGN_CONSENT,
 } from './seed-data.js';
 
 config({ path: '../../.env', quiet: true });
@@ -271,6 +273,329 @@ function byName(kind: string, ids: Map<string, string>) {
     if (!id) throw new Error(`Seed ${kind} ${name} is missing`);
     return id;
   };
+}
+
+const hex = (label: string) => createHash('sha256').update(label).digest('hex');
+/** Never a usable link, code or upload token: only a hash of random bytes is stored. */
+const randomHash = () => createHash('sha256').update(randomBytes(32)).digest('hex');
+
+/**
+ * Firm Sign for LVP (r0_esign): the module on (with calculators), settings, consent v1, a
+ * Manager with a job title, a template, and one request sent from it to the client, approved by
+ * the owner, with its link, email code, outbox row, events, a pending attachment, a kiosk lock
+ * (on the invited member, so no one who signs in is locked) and the bulk batch that made it.
+ * Synthetic data only; created once (the request is never re-created).
+ */
+async function seedEsign(tx: TxClient, businessId: string) {
+  const ids = SEED_ESIGN_IDS;
+  const firm = { businessId };
+  for (const module of ['esign', 'calculators']) {
+    await tx.$queryRaw`SELECT app_set_business_module(${businessId}::uuid, ${module}, true, 'Seed: local development')`;
+  }
+  await tx.esignSettings.upsert({ where: { businessId }, update: {}, create: firm });
+  await tx.esignConsentVersion.upsert({
+    where: { businessId_version: { businessId, version: 1 } },
+    update: {},
+    create: {
+      ...firm,
+      version: 1,
+      bodyMarkdown: SAMPLE_ESIGN_CONSENT,
+      sha256: hex(SAMPLE_ESIGN_CONSENT),
+      publishedByUserId: SEED_USERS.lvpOwner.id,
+    },
+  });
+  const staff = SEED_USERS.lvpStaff.id;
+  await tx.esignMemberRole.upsert({
+    where: { businessId_userId: { businessId, userId: staff } },
+    update: {},
+    create: { ...firm, userId: staff, role: 'MANAGER' },
+  });
+  await tx.membership.update({
+    where: { businessId_userId: { businessId, userId: staff } },
+    data: { jobTitle: 'Tax Preparer' },
+  });
+  if (await tx.esignRequest.findUnique({ where: { id: ids.request } })) return;
+
+  const settings = {
+    routing: 'SEQUENTIAL' as const,
+    expiryDays: 30,
+    reminderFirstAfterDays: 3,
+    reminderEveryDays: 3,
+    reminderMax: 3,
+    expiryWarningDays: 2,
+  };
+  const pageSizes = [{ width: 612, height: 792 }];
+  const packet = hex('Seed engagement letter');
+  await tx.esignTemplate.create({
+    data: {
+      ...firm,
+      id: ids.template,
+      name: 'Engagement letter',
+      visibility: 'FIRM',
+      ownerUserId: staff,
+    },
+  });
+  await tx.esignTemplateVersion.create({
+    data: {
+      ...firm,
+      templateId: ids.template,
+      version: 1,
+      s3Key: `tenant/${businessId}/esign/${ids.template}/template-${packet}.pdf`,
+      sha256: packet,
+      sizeBytes: 24000,
+      pageSizes,
+      roles: [
+        {
+          key: 'client',
+          kind: 'SIGNER',
+          role: 'CLIENT',
+          roleLabel: null,
+          routingOrder: 1,
+          authMethod: 'EMAIL_CODE',
+          colorIndex: 0,
+        },
+      ],
+      fields: [],
+      ...settings,
+      savedByUserId: staff,
+    },
+  });
+
+  const login = await tx.clientAccount.findUniqueOrThrow({
+    where: { userId: SEED_USERS.lvpClient.id },
+  });
+  const request = { ...firm, requestId: ids.request };
+  await tx.esignRequest.create({
+    data: {
+      ...firm,
+      id: ids.request,
+      title: '2025 engagement letter',
+      source: 'TEMPLATE',
+      clientId: SEED_CLIENT_IDS.lvp,
+      engagementId: SEED_WORK_IDS.lvpTax,
+      senderUserId: staff,
+      ...settings,
+      pagePlan: [{ documentId: ids.document, page: 0, rotation: 0 }],
+      templateId: ids.template,
+      templateVersion: 1,
+    },
+  });
+  await tx.esignDocument.create({
+    data: {
+      ...request,
+      id: ids.document,
+      position: 0,
+      fileName: 'Engagement letter.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 24000,
+      pageCount: 1,
+      pageSizes,
+      s3Key: `tenant/${businessId}/esign/${ids.request}/source/${ids.document}`,
+      sha256: packet,
+      scanStatus: 'CLEAN',
+      scannedAt: new Date(),
+    },
+  });
+  await tx.esignRecipient.createMany({
+    data: [
+      {
+        ...request,
+        id: ids.signer,
+        position: 0,
+        kind: 'SIGNER',
+        role: 'CLIENT',
+        routingOrder: 1,
+        name: SEED_USERS.lvpClient.name,
+        email: SEED_USERS.lvpClient.email,
+        linkType: 'CLIENT_LOGIN',
+        clientAccountId: login.id,
+        delivery: 'EMAIL',
+        authMethod: 'EMAIL_CODE',
+        colorIndex: 0,
+      },
+      {
+        ...request,
+        id: ids.approver,
+        position: 1,
+        kind: 'APPROVER',
+        role: 'MANAGER',
+        routingOrder: 1,
+        name: SEED_USERS.lvpOwner.name,
+        email: SEED_USERS.lvpOwner.email,
+        linkType: 'STAFF',
+        staffUserId: SEED_USERS.lvpOwner.id,
+        delivery: 'EMAIL',
+        authMethod: 'LINK',
+        colorIndex: 1,
+        status: 'APPROVED',
+      },
+    ],
+  });
+  const box = { pageIndex: 0, required: true, w: 0.3, h: 0.05, x: 0.1 };
+  await tx.esignField.createMany({
+    data: [
+      {
+        ...request,
+        ...box,
+        id: ids.signatureField,
+        recipientId: ids.signer,
+        position: 0,
+        type: 'SIGNATURE',
+        y: 0.8,
+      },
+      {
+        ...request,
+        ...box,
+        id: ids.attachmentField,
+        recipientId: ids.signer,
+        position: 1,
+        type: 'ATTACHMENT',
+        y: 0.6,
+        label: 'Photo ID',
+      },
+    ],
+  });
+  await tx.esignApprovalNote.create({
+    data: { ...request, recipientId: ids.approver, decision: 'APPROVE', note: 'Looks good.' },
+  });
+
+  const sentAt = new Date();
+  await tx.esignRequest.update({
+    where: { id: ids.request },
+    data: {
+      status: 'SENT',
+      sentAt,
+      expiresAt: new Date(sentAt.getTime() + 30 * 86_400_000),
+      originalSha256: packet,
+      lastActivityAt: sentAt,
+    },
+  });
+  await tx.esignRecipient.update({ where: { id: ids.signer }, data: { status: 'SENT', sentAt } });
+  const staffName = SEED_USERS.lvpStaff.name;
+  await tx.esignEvent.createMany({
+    data: [
+      { ...request, type: 'CREATED', actorKind: 'STAFF', actorUserId: staff, actorName: staffName },
+      {
+        ...request,
+        type: 'APPROVED',
+        actorKind: 'STAFF',
+        actorUserId: SEED_USERS.lvpOwner.id,
+        actorName: SEED_USERS.lvpOwner.name,
+        recipientId: ids.approver,
+        recipientName: SEED_USERS.lvpOwner.name,
+      },
+      { ...request, type: 'SENT', actorKind: 'STAFF', actorUserId: staff, actorName: staffName },
+    ],
+  });
+  await tx.esignEmail.create({
+    data: {
+      ...request,
+      recipientId: ids.signer,
+      template: 'esign.request',
+      status: 'SENT',
+      attempts: 1,
+      sentAt,
+    },
+  });
+  await tx.esignSigningLink.create({
+    data: {
+      ...request,
+      recipientId: ids.signer,
+      tokenHash: randomHash(),
+      tokenVersion: 0,
+      purpose: 'SIGN',
+    },
+  });
+  await tx.esignVerificationCode.create({
+    data: {
+      ...firm,
+      recipientId: ids.signer,
+      kind: 'EMAIL',
+      codeHash: randomHash(),
+      expiresAt: sentAt,
+      sentTimes: [sentAt],
+    },
+  });
+  const attachmentKey = (id: string) =>
+    `tenant/${businessId}/esign/${ids.request}/attachments/${id}`;
+  const file = { contentType: 'image/jpeg', sizeBytes: 50000, sha256: hex('Seed photo ID') };
+  await tx.esignAttachment.create({
+    data: {
+      ...request,
+      ...file,
+      id: ids.attachment,
+      recipientId: ids.signer,
+      fieldId: ids.attachmentField,
+      s3Key: attachmentKey(ids.attachment),
+      fileName: 'photo-id.jpg',
+    },
+  });
+  await tx.esignPendingUpload.create({
+    data: {
+      ...request,
+      ...file,
+      tokenHash: randomHash(),
+      kind: 'ATTACHMENT',
+      recipientId: ids.signer,
+      fieldId: ids.attachmentField,
+      fileId: ids.pendingAttachment,
+      s3Key: attachmentKey(ids.pendingAttachment),
+      fileName: 'photo-id-back.jpg',
+    },
+  });
+  await tx.esignKioskLock.create({
+    data: {
+      ...request,
+      userId: SEED_USERS.lvpInvited.id,
+      recipientId: ids.signer,
+      signerName: SEED_USERS.lvpClient.name,
+      linkExpiresAt: new Date(sentAt.getTime() + 15 * 60_000),
+    },
+  });
+  await tx.esignBulkBatch.create({
+    data: {
+      ...firm,
+      id: ids.batch,
+      templateId: ids.template,
+      templateVersion: 1,
+      templateName: 'Engagement letter',
+      createdByUserId: staff,
+    },
+  });
+  await tx.esignBulkItem.create({
+    data: {
+      ...firm,
+      batchId: ids.batch,
+      position: 0,
+      clientId: SEED_CLIENT_IDS.lvp,
+      engagementId: SEED_WORK_IDS.lvpTax,
+      requestId: ids.request,
+      created: true,
+      state: 'SENT',
+    },
+  });
+}
+
+/** Test Firm B: Firm Sign off, with one DRAFT request (for isolation tests). */
+async function seedEsignDraft(tx: TxClient, businessId: string) {
+  await tx.esignRequest.upsert({
+    where: { id: SEED_ESIGN_IDS.firmBRequest },
+    update: {},
+    create: {
+      businessId,
+      id: SEED_ESIGN_IDS.firmBRequest,
+      title: 'Firm B draft',
+      source: 'TAB',
+      clientId: SEED_CLIENT_IDS.testFirmB,
+      senderUserId: SEED_USERS.firmBOwner.id,
+      routing: 'PARALLEL',
+      expiryDays: 30,
+      reminderFirstAfterDays: 3,
+      reminderEveryDays: 3,
+      reminderMax: 3,
+      expiryWarningDays: 2,
+    },
+  });
 }
 
 async function main() {
@@ -1156,6 +1481,10 @@ async function main() {
     });
   });
 
+  await runInScope(prisma, { kind: 'business', businessId: businesses.lvp }, (tx) =>
+    seedEsign(tx, businesses.lvp),
+  );
+
   // LVP's firm application (submitted publicly, approved by the Super Admin, then linked to the
   // firm at provisioning), LVP's platform fields, a pending support request, and one platform and
   // one firm audit event. Each step runs in the scope the app uses for it.
@@ -1403,10 +1732,11 @@ async function main() {
         stage: 'New',
       },
     });
+    await seedEsignDraft(tx, businesses.testFirmB);
   });
 
   console.warn(
-    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request and sample audit events.`,
+    `Seeded: Super Admin, ${SEED_BUSINESSES.lvp.name} (owner, staff, invited staff, client), ${SEED_BUSINESSES.testFirmB.name} (owner, client), with settings, Terms, Privacy, tax statuses, clients, services, engagements, documents, intake forms, intake agreements, a signed Begin Online lead, notifications, a calendar, messages, invoices, content, a calculator, an approved firm application, a support request, sample audit events and Firm Sign (LVP: on, with a sent request; Firm B: off, one draft).`,
   );
 }
 

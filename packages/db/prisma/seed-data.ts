@@ -155,6 +155,8 @@ export const SEED_DOCUMENT_CATEGORIES = {
     { name: 'Payroll', retentionYears: 4 },
     { name: 'Formation', retentionYears: null },
     { name: 'Final return', retentionYears: 7 },
+    // Firm Sign files its signed copies here (r0_esign); kept for good.
+    { name: 'Signed Documents', retentionYears: null },
   ],
   testFirmB: [{ name: 'Tax documents', retentionYears: 7 }],
 } as const;
@@ -363,3 +365,22 @@ export const SEED_PLATFORM_IDS = {
   platformEvent: '00000000-0000-4005-8000-000000000011',
   firmEvent: '00000000-0000-4005-8000-000000000012',
 } as const;
+
+/** Firm Sign (r0_esign): LVP's template, a sent request and its parts, and Test Firm B's draft. */
+export const SEED_ESIGN_IDS = {
+  template: '00000000-0000-4e51-8000-000000000001',
+  request: '00000000-0000-4e51-8000-000000000011',
+  document: '00000000-0000-4e51-8000-000000000012',
+  signer: '00000000-0000-4e51-8000-000000000013',
+  approver: '00000000-0000-4e51-8000-000000000014',
+  signatureField: '00000000-0000-4e51-8000-000000000015',
+  attachmentField: '00000000-0000-4e51-8000-000000000016',
+  attachment: '00000000-0000-4e51-8000-000000000017',
+  pendingAttachment: '00000000-0000-4e51-8000-000000000018',
+  batch: '00000000-0000-4e51-8000-000000000021',
+  firmBRequest: '00000000-0000-4e51-8000-000000000031',
+} as const;
+
+/** The e-signature consent text's synthetic v1. Never a firm's real consent text. */
+export const SAMPLE_ESIGN_CONSENT =
+  'Sample consent for local development: I agree to sign these documents electronically and to receive them electronically.';
