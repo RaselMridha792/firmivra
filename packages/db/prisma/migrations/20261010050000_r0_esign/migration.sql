@@ -1432,21 +1432,24 @@ CREATE TRIGGER business_settings_modules_guard
 -- Turns one module on or off for one firm, with a one-line reason, and writes the firm's audit
 -- row (module.enabled or module.disabled; no change, no row). Answers the firm's modules. Ops run
 -- it as the migrate role (packages/db/scripts/set-module.mjs); EXECUTE is revoked from everyone
--- else. Its scope settings are its own: the caller's come back when it returns.
+-- else. Its scope settings are its own: the caller's come back when it returns (an error rolls
+-- them back with the transaction). It sets them with set_config, never with a function SET
+-- clause: on RDS the migrate role is no superuser, and PostgreSQL refuses it a SET clause for a
+-- custom parameter such as app.scope (42501), so the migration would fail there.
 CREATE FUNCTION app_set_business_module(p_business_id uuid, p_module text, p_enabled boolean,
                                         p_reason text)
   RETURNS text[]
   LANGUAGE plpgsql
   SECURITY DEFINER
   SET search_path = public, pg_temp
-  SET app.scope = 'business'
-  SET app.current_business_id = ''
-  SET app.module_switch = ''
   AS $$
 DECLARE
   reason text := btrim(p_reason, E' \t\r\n');
   before text[];
   after text[];
+  caller_scope text := current_setting('app.scope', true);
+  caller_business text := current_setting('app.current_business_id', true);
+  caller_switch text := current_setting('app.module_switch', true);
 BEGIN
   IF p_module IS NULL OR p_module NOT IN ('esign', 'calculators') OR p_enabled IS NULL THEN
     RAISE EXCEPTION 'app_set_business_module: the module is esign or calculators, turned on or off'
@@ -1457,6 +1460,7 @@ BEGIN
     RAISE EXCEPTION 'app_set_business_module: give a one-line reason (up to 500 characters)'
       USING ERRCODE = 'check_violation';
   END IF;
+  PERFORM set_config('app.scope', 'business', true);
   PERFORM set_config('app.current_business_id', p_business_id::text, true);
   PERFORM set_config('app.module_switch', p_business_id::text, true);
   PERFORM 1 FROM businesses b WHERE b.id = p_business_id;
@@ -1488,6 +1492,10 @@ BEGIN
             'business', p_business_id::text,
             jsonb_build_object('module', p_module, 'reason', reason));
   END IF;
+
+  PERFORM set_config('app.scope', coalesce(caller_scope, ''), true);
+  PERFORM set_config('app.current_business_id', coalesce(caller_business, ''), true);
+  PERFORM set_config('app.module_switch', coalesce(caller_switch, ''), true);
   RETURN after;
 END
 $$;
@@ -1496,20 +1504,26 @@ REVOKE ALL ON FUNCTION app_set_business_module(uuid, text, boolean, text) FROM P
 
 -- The firms a job runs for: the ACTIVE firms with a module on (ids only), for Firm Sign's
 -- completion, lifecycle and bulk jobs. It reads every firm's settings in platform scope through a
--- policy only its owner (the migrate role) matches; the app role may run it.
+-- policy only its owner (the migrate role) matches; the app role may run it. Like
+-- app_set_business_module, it sets the scope with set_config and gives the caller's back.
 CREATE POLICY business_settings_module_list ON business_settings FOR SELECT TO CURRENT_USER
   USING (app_scope() = 'platform');
 
 CREATE FUNCTION app_firms_with_module(p_module text) RETURNS SETOF uuid
-  LANGUAGE sql
-  STABLE
+  LANGUAGE plpgsql
   SECURITY DEFINER
   SET search_path = public, pg_temp
-  SET app.scope = 'platform'
   AS $$
-  SELECT b.id FROM businesses b JOIN business_settings s ON s.business_id = b.id
-   WHERE b.status = 'ACTIVE' AND p_module = ANY (s.enabled_modules)
-   ORDER BY b.id
+DECLARE
+  caller_scope text := current_setting('app.scope', true);
+BEGIN
+  PERFORM set_config('app.scope', 'platform', true);
+  RETURN QUERY
+    SELECT b.id FROM businesses b JOIN business_settings s ON s.business_id = b.id
+     WHERE b.status = 'ACTIVE' AND p_module = ANY (s.enabled_modules)
+     ORDER BY b.id;
+  PERFORM set_config('app.scope', coalesce(caller_scope, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION app_firms_with_module(text) FROM PUBLIC;
