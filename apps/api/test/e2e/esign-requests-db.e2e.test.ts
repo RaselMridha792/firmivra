@@ -140,11 +140,38 @@ describe('Firm Sign requests on PostgreSQL', () => {
       ['get', `${base}/${d.id}`, undefined],
       ['patch', `${base}/${d.id}`, { title: 'Taken' }],
       ['put', `${base}/${d.id}/fields`, { fields: [] }],
+      ['put', `${base}/${d.id}/page-plan`, { pages: [{ documentId: d.id, page: 0, rotation: 0 }] }],
+      ['put', `${base}/${d.id}/recipients`, { recipients: [] }],
+      ['get', `${base}/${d.id}/readiness`, undefined],
+      ['get', `${base}/${d.id}/events`, undefined],
+      ['get', `${base}/${d.id}/merge-values`, undefined],
+      ['post', `${base}/${d.id}/send`, { confirm: true }],
+      ['post', `${base}/${d.id}/documents/from-vault`, { documentId: w.b.ids.vault }],
       ['delete', `${base}/${d.id}`, undefined],
     ] as const) {
       const res = await w.call(method, path, w.b.people.owner, body);
       expect([path, res.status]).toEqual([path, 404]);
     }
+    // Firm A's client, service or vault file named in firm B's own request: refused, as a random id.
+    const mine = await readyDraft(w, w.b, 'Fake letter of firm B');
+    const create = await w.call('post', base, w.b.people.owner, {
+      title: 'Fake',
+      clientId: w.a.ids.client,
+    });
+    expect(create.status).toBe(404);
+    const vault = await w.call(
+      'post',
+      `${base}/${mine.id}/documents/from-vault`,
+      w.b.people.owner,
+      {
+        documentId: w.a.ids.vault,
+      },
+    );
+    expect(vault.status).toBe(404);
+    const service = await w.call('patch', `${base}/${mine.id}`, w.b.people.owner, {
+      engagementId: w.a.ids.engagement,
+    });
+    expect(service.status).toBe(409);
     const list = await w.call('get', base, w.b.people.owner);
     expect(JSON.stringify(list.body)).not.toContain(d.id);
     const still = await w.call('get', `${base}/${d.id}`, w.a.people.owner);

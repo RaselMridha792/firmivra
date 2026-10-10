@@ -237,6 +237,9 @@ export function fieldColumns(f: EsignField, position: number, sealed: SealedValu
  * esign_fields.value_enc: each value encrypted with the firm's key (the field-encryption
  * helper), bound to the firm, the table, the field's id and the column. Never logged.
  */
+/** At most this many KMS data-key calls at once while sealing one request's values. */
+const SEAL_AT_ONCE = 10;
+
 @Injectable()
 export class EsignFieldValues {
   constructor(@Inject(FieldEncryption) private readonly fe: FieldEncryption) {}
@@ -245,16 +248,25 @@ export class EsignFieldValues {
     return { businessId, table: 'esign_fields', recordId: fieldId, field: 'value' };
   }
 
-  /** Seals every given value (null and undefined ones are left out). Call before a transaction. */
+  /**
+   * Seals every given value (null and undefined ones are left out). Call before a transaction.
+   * Each value gets its own data key (FieldEncryption caches none), so a request's values are
+   * sealed SEAL_AT_ONCE at a time rather than one KMS call after another.
+   */
   async seal(
     businessId: string,
     values: readonly { id: string; value: string | null | undefined }[],
   ): Promise<SealedValues> {
     const sealed: SealedValues = new Map();
-    for (const { id, value } of values) {
-      if (value !== null && value !== undefined) {
-        sealed.set(id, await this.fe.encrypt(this.context(businessId, id), value));
-      }
+    const todo = values.filter(
+      (v): v is { id: string; value: string } => v.value !== null && v.value !== undefined,
+    );
+    for (let i = 0; i < todo.length; i += SEAL_AT_ONCE) {
+      const chunk = todo.slice(i, i + SEAL_AT_ONCE);
+      const blobs = await Promise.all(
+        chunk.map(({ id, value }) => this.fe.encrypt(this.context(businessId, id), value)),
+      );
+      chunk.forEach(({ id }, k) => sealed.set(id, blobs[k]!));
     }
     return sealed;
   }
