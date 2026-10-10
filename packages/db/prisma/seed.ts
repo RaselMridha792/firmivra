@@ -25,6 +25,8 @@ import {
   SEED_BILLING_IDS,
   SEED_STRIPE_ACCOUNT_ID,
   SEED_PLATFORM_IDS,
+  SEED_LVP_APPLICATION_FORM,
+  SEED_LVP_APPLICATION_OLD_DATA,
   SEED_MEETING_URLS,
   seedFormDefinition,
   SEED_AGREEMENT_IDS,
@@ -1493,20 +1495,30 @@ async function main() {
       where: { id: businesses.lvp },
       data: { businessType: 'Tax and accounting firm', pack: 'TAX_ACCOUNTING' },
     });
+    const form = SEED_LVP_APPLICATION_FORM;
     if (
       !(await tx.firmApplication.findUnique({ where: { id: SEED_PLATFORM_IDS.lvpApplication } }))
     ) {
       await tx.firmApplication.create({
         data: {
           id: SEED_PLATFORM_IDS.lvpApplication,
-          legalName: 'LVP Accounting & Taxes LLC (fake)',
-          dbaName: SEED_BUSINESSES.lvp.name,
-          contactName: SEED_USERS.lvpOwner.name,
-          contactEmail: SEED_USERS.lvpOwner.email,
-          data: { businessType: 'Tax and accounting firm' },
+          legalName: form.business.legalName,
+          dbaName: form.business.dbaName,
+          contactName: form.primaryAdmin.fullName,
+          contactEmail: form.primaryAdmin.email,
+          contactPhone: form.primaryAdmin.phone,
+          data: form,
         },
       });
     }
+    // A database seeded before the stored form: the review page can't read its old data.
+    await tx.firmApplication.updateMany({
+      where: {
+        id: SEED_PLATFORM_IDS.lvpApplication,
+        data: { equals: SEED_LVP_APPLICATION_OLD_DATA },
+      },
+      data: { data: form, contactPhone: form.primaryAdmin.phone },
+    });
   });
   await runInScope(prisma, { kind: 'admin', adminUserId: SEED_USERS.superAdmin.id }, async (tx) => {
     await tx.firmApplication.updateMany({
