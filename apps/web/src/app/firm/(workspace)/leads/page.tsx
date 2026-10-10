@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../components/page-placeholder';
+import { LeadsScreen } from './_components/leads-screen';
 
 export const metadata: Metadata = { title: 'Leads' };
 
 export default function LeadsPage() {
-  return <PagePlaceholder title="Leads" ticket="F08" owner="Arfan" />;
+  return <LeadsScreen />;
 }

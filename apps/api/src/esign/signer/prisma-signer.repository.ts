@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { ESIGN_OPEN_STATUSES } from '@firmivra/types';
+import { ESIGN_KIOSK_IDLE_MINUTES, ESIGN_OPEN_STATUSES } from '@firmivra/types';
 import type { Database, EsignRecipient as RecipientRow, TxClient } from '@firmivra/db';
 import type { EsignCodeKind } from '../engine/engine.types.js';
 import {
@@ -40,8 +40,8 @@ type SignerWrite = (tx: TxClient, at: Date) => Promise<void>;
  * request and recipient from the link's hash or the sealed cookie; every query runs in that
  * firm's scope. A signer write locks the request FOR UPDATE, applies only while it is open and
  * the recipient has not signed or declined, writes the recipient's own rows before marking them
- * SIGNED or DECLINED (the database freezes a signer once signed), and moves lastActivityAt and
- * the recipient's kiosk lock (in person: the signer's last activity) forward.
+ * SIGNED or DECLINED (the database freezes a signer once signed), and moves lastActivityAt
+ * forward. In person, every signer call moves the kiosk's idle timer first (`touchKiosk`).
  */
 @Injectable()
 export class PrismaSignerRepository implements EsignSignerRepository {
@@ -57,14 +57,8 @@ export class PrismaSignerRepository implements EsignSignerRepository {
   async findLink(businessId: string, tokenHash: string): Promise<SignerLink | null> {
     const link = await this.db(businessId).esignSigningLink.findFirst({ where: { tokenHash } });
     if (!link || (link.expiresAt && link.expiresAt <= new Date())) return null;
-    const { requestId, recipientId, tokenVersion } = link;
-    // An in-person link opens the signing itself, on the staff member's device.
-    return {
-      requestId,
-      recipientId,
-      tokenVersion,
-      purpose: link.purpose === 'COPY' ? 'COPY' : 'SIGN',
-    };
+    const { requestId, recipientId, tokenVersion, purpose } = link;
+    return { requestId, recipientId, tokenVersion, purpose };
   }
 
   signer(businessId: string, requestId: string, recipientId: string) {
@@ -215,6 +209,29 @@ export class PrismaSignerRepository implements EsignSignerRepository {
     await inFirm(this.database, businessId, (tx) => addEvents(tx, businessId, requestId, [event]));
   }
 
+  async touchKiosk(businessId: string, requestId: string, recipientId: string, at: Date) {
+    const locks = this.db(businessId).esignKioskLock;
+    // The newest start raised token_version last, so it is the one this signer's link came from.
+    const lock = await locks.findFirst({
+      where: { businessId, requestId, recipientId },
+      orderBy: { startedAt: 'desc' },
+      select: { userId: true },
+    });
+    if (!lock) return false;
+    const idleSince = new Date(+at - ESIGN_KIOSK_IDLE_MINUTES * 60_000);
+    const touched = await locks.updateMany({
+      where: {
+        businessId,
+        userId: lock.userId,
+        requestId,
+        recipientId,
+        activeAt: { gt: idleSince },
+      },
+      data: { activeAt: at },
+    });
+    return touched.count === 1;
+  }
+
   async currentConsent(businessId: string) {
     return this.db(businessId).esignConsentVersion.findFirst({
       where: { businessId },
@@ -274,7 +291,6 @@ export class PrismaSignerRepository implements EsignSignerRepository {
         where: { id: requestId },
         data: { lastActivityAt: nextActivity(locked.lastActivityAt, at) },
       });
-      await tx.esignKioskLock.updateMany({ where: { recipientId }, data: { activeAt: at } });
       return true;
     });
   }

@@ -6,6 +6,7 @@ import { ModulesModule } from '../common/modules/requires-module.js';
 import { EsignBulkController } from './bulk/bulk.controller.js';
 import { EsignBulkJob } from './bulk/bulk.job.js';
 import { BULK_REPOSITORY } from './bulk/bulk.repository.js';
+import { PrismaBulkRepository } from './bulk/prisma-bulk.repository.js';
 import { EsignBulkService } from './bulk/bulk.service.js';
 import { EsignCenterController } from './center/center.controller.js';
 import { CENTER_REPOSITORY } from './center/center.repository.js';
@@ -18,7 +19,8 @@ import { EsignCompletionService } from './completion/completion.service.js';
 import { EsignEngineModule } from './engine/engine.module.js';
 import { EsignApprovalsService } from './extras/approvals.service.js';
 import { EsignExtrasController } from './extras/extras.controller.js';
-import { type EsignExtrasRepository, EXTRAS_REPOSITORY } from './extras/extras.repository.js';
+import { EXTRAS_REPOSITORY } from './extras/extras.repository.js';
+import { PrismaExtrasRepository } from './extras/prisma-extras.repository.js';
 import { EsignInPersonService } from './extras/in-person.service.js';
 import {
   EsignKioskInterceptor,
@@ -36,7 +38,7 @@ import { EsignLifecycleService } from './lifecycle/lifecycle.service.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
 import { EsignDocumentsService } from './requests/documents.service.js';
 import { ESIGN_DIRECTORY, PrismaEsignDirectory } from './requests/esign-directory.js';
-import { ESIGN_REPOSITORY, notMigrated } from './requests/esign.repository.js';
+import { ESIGN_REPOSITORY } from './requests/esign.repository.js';
 import { EsignFieldValues } from './requests/esign-prisma.js';
 import { PrismaEsignRepository } from './requests/prisma-esign.repository.js';
 import { EsignRequestsController, EsignStatusController } from './requests/requests.controller.js';
@@ -69,23 +71,10 @@ import { PrismaSignerRepository } from './signer/prisma-signer.repository.js';
 import { EsignSignerService } from './signer/signer.service.js';
 
 /**
- * Until its repository lands the extras fail like the other stand-ins, but for the kiosk lock read
- * that every staff request makes: it answers none.
- */
-function extrasStandIn(): EsignExtrasRepository {
-  const failing = notMigrated<EsignExtrasRepository>('EsignExtrasRepository');
-  return new Proxy(failing, {
-    get: (target, method, receiver) =>
-      method === 'kioskLock' ? () => Promise.resolve(null) : Reflect.get(target, method, receiver),
-  });
-}
-
-/**
  * Firm Sign (R13). Behind the firm's 'esign' module (ModulesModule): off for a firm until
  * `business_settings.enabled_modules` lists 'esign'. The engine's CODE_HASHER, ESIGN_STORE,
  * ESIGN_RULES and PDF_ENGINE come from R18's EsignEngineModule; the repositories are the Prisma
- * ones over r0_esign's tables, each in the firm's own scope (the ports still on a failing
- * stand-in get theirs in the next R13 PRs).
+ * ones over r0_esign's tables, each in the firm's own scope.
  */
 @Module({
   imports: [ModulesModule, EsignEngineModule, PortalInfoModule, FieldEncryptionModule],
@@ -141,8 +130,8 @@ function extrasStandIn(): EsignExtrasRepository {
     EsignLifecycleJob,
     { provide: LIFECYCLE_REPOSITORY, useClass: PrismaLifecycleRepository },
     { provide: TEMPLATE_REPOSITORY, useClass: PrismaTemplateRepository },
-    { provide: BULK_REPOSITORY, useValue: notMigrated('EsignBulkRepository') },
-    { provide: EXTRAS_REPOSITORY, useValue: extrasStandIn() },
+    { provide: BULK_REPOSITORY, useClass: PrismaBulkRepository },
+    { provide: EXTRAS_REPOSITORY, useClass: PrismaExtrasRepository },
   ],
 })
 export class EsignModule {}

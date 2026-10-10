@@ -201,6 +201,40 @@ test.describe('answers from the API', () => {
     await expect(page.getByTestId('payments-stage')).toHaveText('Connected');
   });
 
+  test('back from Stripe the page asks Stripe once and shows the new state', async ({ page }) => {
+    const review = {
+      connected: true,
+      onboardingStatus: 'PENDING',
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      detailsSubmitted: true,
+      requirementsDue: false,
+      updatedAt: '2026-10-09T09:00:00.000Z',
+    };
+    const connected = {
+      ...review,
+      onboardingStatus: 'COMPLETE',
+      chargesEnabled: true,
+      payoutsEnabled: true,
+    };
+    await page.route(SETUP_API, (route) => route.fulfill({ json: review }));
+    let synced = 0;
+    await page.route(`${SETUP_API}/sync`, (route) => {
+      synced += 1;
+      return route.fulfill({ json: synced === 1 ? review : connected });
+    });
+
+    await page.goto(payments(port, '?stripe=return'));
+    await expect(page.getByTestId('payments-stage')).toHaveText('In review at Stripe');
+    await expect.poll(() => synced).toBe(1);
+
+    // Still in review: Check status asks Stripe again.
+    await page.getByRole('button', { name: 'Check status' }).click();
+    await expect(page.getByTestId('payments-stage')).toHaveText('Connected');
+    await expect(page.getByTestId('stripe-check-status')).toHaveCount(0);
+    expect(synced).toBe(2);
+  });
+
   test('a 503 from the setup API says payments are not available yet', async ({ page }) => {
     await page.route(SETUP_API, (route) =>
       route.fulfill({

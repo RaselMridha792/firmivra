@@ -68,7 +68,11 @@ import type {
   EsignSettingsRepository,
   NewEsignConsent,
 } from '../../src/esign/settings/settings.repository.js';
-import { ESIGN_OPEN_STATUSES, type EsignRequestStatus } from '@firmivra/types';
+import {
+  ESIGN_KIOSK_IDLE_MINUTES,
+  ESIGN_OPEN_STATUSES,
+  type EsignRequestStatus,
+} from '@firmivra/types';
 import { NotifyDeliveryError } from '../../src/notify/notify.service.js';
 import { expiryDue, reminderDue, warningDue } from '../../src/esign/lifecycle/lifecycle.job.js';
 import type { NotifyMessage, NotifyService } from '../../src/notify/notify.types.js';
@@ -673,6 +677,18 @@ export class InMemorySignerRepository implements EsignSignerRepository {
     const timeline = this.requests.timelines.of(businessId);
     timeline.set(requestId, [...(timeline.get(requestId) ?? []), structuredClone(event)]);
     return Promise.resolve();
+  }
+
+  /** Each firm's kiosk locks by the member who started them (the signer side's view). */
+  readonly kiosks = new PerFirm<Omit<EsignKioskLock, 'signerName' | 'linkExpiresAt'>>();
+
+  touchKiosk(businessId: string, requestId: string, recipientId: string, at: Date) {
+    const mine = [...this.kiosks.of(businessId).values()]
+      .filter((k) => k.requestId === requestId && k.recipientId === recipientId)
+      .sort((x, y) => +y.startedAt - +x.startedAt)[0];
+    const live = mine && +at - +mine.activeAt < ESIGN_KIOSK_IDLE_MINUTES * 60_000;
+    if (live) mine.activeAt = at;
+    return Promise.resolve(Boolean(live));
   }
 
   currentConsent(businessId: string) {

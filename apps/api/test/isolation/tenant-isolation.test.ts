@@ -5,7 +5,8 @@
 // - a client of firm P gets 404 at firm Q's portal, on every client route;
 // - client Y gets 404 on client X's records in the same firm;
 // - a record id in a body (cases' `bodyIds`) is refused (4xx) when it is firm P's in firm Q, or
-//   client X's for client Y, with the rest of the request their own;
+//   client X's for client Y, with the rest of the request their own (a nested one too: set in
+//   each object of the case's body that has its key);
 // - none of those refusals changed a row of firm P;
 // - firm Q's lists and client Y's portal lists show none of firm P's or client X's records;
 // - the Super Admin routes refuse firm and client sessions, and the firm and portal routes
@@ -31,6 +32,8 @@ import { AppModule } from '../../src/app.module.js';
 import { TokenService } from '../../src/auth/token.service.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
+import { ESIGN_STORE } from '../../src/esign/engine/engine.types.js';
+import { esignStore } from './cases/esign.js';
 import { type ApiRoute, apiRoutes, fillPath, paramsOf } from './routes.js';
 import {
   type CaseModule,
@@ -96,6 +99,12 @@ const FIXED_PARAMS: { param: string; value: string; routes: RegExp }[] = [
   { param: 'step', value: 'branding', routes: /\/setup\/steps\/:step$/ },
   // A step of the form (cases/intake-forms.ts's Annual Tax form), not a record.
   { param: 'stepKey', value: 'personal', routes: /\/intakes\/:id\/steps\/:stepKey$/ },
+  // Each Firm Sign template record has version 1 (cases/esign.ts).
+  {
+    param: 'version',
+    value: '1',
+    routes: /\/esign\/templates\/:templateId\/versions\/:version\/restore$/,
+  },
 ];
 const fixedOf = (path: string): Record<string, string> =>
   Object.fromEntries(
@@ -235,6 +244,8 @@ beforeAll(async () => {
       k === 'p' ? (['ownerP', 'clientY'] as const) : (['ownerQ', 'clientQ'] as const);
     await runInScope(db, { kind: 'business', businessId: firms[k].id }, async (tx) => {
       const businessId = firms[k].id;
+      // Firm Sign on (cases/esign.ts): its routes are swept like any other.
+      await tx.$queryRaw`SELECT app_set_business_module(${businessId}::uuid, 'esign', true, 'isolation suite')`;
       await tx.membership.create({
         data: { businessId, userId: people[ownerKey].id, role: 'OWNER', status: 'ACTIVE' },
       });
@@ -270,9 +281,13 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
+  // Firm Sign's files in memory (cases/esign.ts puts each record's PDF there).
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule.forRoot(env)],
-  }).compile();
+  })
+    .overrideProvider(ESIGN_STORE)
+    .useValue(esignStore)
+    .compile();
   const nest = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
   configureApp(nest, env);
   await nest.listen(0, '127.0.0.1');
@@ -313,13 +328,32 @@ function bodyOf(
   const c = CASES[keyOf(route)];
   const body = typeof c?.body === 'function' ? c.body({ own: ids }) : c?.body;
   if (!c?.bodyIds) return body;
-  const out: Record<string, unknown> = { ...body };
+  const out = structuredClone({ ...body }) as Record<string, unknown>;
   for (const [field, key] of Object.entries(c.bodyIds)) {
     if (swap?.alone && field !== swap.field) continue;
     const id = field === swap?.field ? swap.id : world.rec[key]!;
-    out[field] = route.bodyIdFields.find((f) => f.path === field)?.list ? [id] : id;
+    const value = route.bodyIdFields.find((f) => f.path === field)?.list ? [id] : id;
+    if (field.includes('.')) setPath(out, field.split('.'), value);
+    else out[field] = value;
   }
   return out;
+}
+
+/**
+ * A nested body id (`recipients.who.userId`): set in every item of each list on the way, where
+ * the case's body already has the key (its placeholder), so a list of one object (or one object
+ * per kind) carries it. A placeholder left unset (a swap `alone`) fails validation, so that
+ * variant is skipped.
+ */
+function setPath(node: unknown, [key, ...rest]: string[], value: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) setPath(item, [key!, ...rest], value);
+    return;
+  }
+  if (!node || typeof node !== 'object' || !(key! in node)) return;
+  const obj = node as Record<string, unknown>;
+  if (rest.length === 0) obj[key!] = value;
+  else setPath(obj[key!], rest, value);
 }
 
 const codeOf = (res: Response) => (res.body as { error?: { code?: string } }).error?.code;
@@ -395,9 +429,11 @@ const HOW_TO_ADD =
   '`records` as { create(ctx) { ...return id } } (see world.ts); a route that is neither a firm ' +
   'nor a portal route goes in `excluded` with the reason; a firm or portal route behind a module ' +
   'that is off in every firm goes in `moduleOff` with the reason until the module is on; a body ' +
-  'uuid or `...Id` field that names no record goes in NOT_RECORDS (body-ids.ts) with the reason. ' +
-  '"No zod schema the suite can read" and "nested body ids aren\'t swept yet" need the reader in ' +
-  'body-ids.ts or the sweep extended (R21), not a case.';
+  'uuid or `...Id` field that names no record goes in NOT_RECORDS (body-ids.ts) with the reason; ' +
+  'a nested body id (`items.clientId`) is a dotted `bodyIds` key, its body holding the key in ' +
+  'each object that carries it. "No zod schema the suite can read" and "body ids under a ' +
+  "record's keys aren't swept yet\" need the reader in body-ids.ts or the sweep extended, not a " +
+  'case.';
 
 describe('tenant isolation (R8 step 2)', () => {
   it('every route is covered: a case per record route, an excluded reason for the rest', () => {
@@ -425,8 +461,8 @@ describe('tenant isolation (R8 step 2)', () => {
         continue;
       }
       if (route.bodyUnreadable) problems.push(`${key}: ${route.bodyUnreadable}`);
-      for (const f of fields.filter((f) => f.includes('.') || f.includes('*')))
-        problems.push(`${key}: ${f}: nested body ids aren't swept yet`);
+      for (const f of fields.filter((f) => f.includes('*')))
+        problems.push(`${key}: ${f}: body ids under a record's keys aren't swept yet`);
       if (params.length === 0 && fields.length === 0) {
         if (c) problems.push(`${key} (${c.file}): has no record param or body id, so no case`);
         continue;
