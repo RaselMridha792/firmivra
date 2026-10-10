@@ -60,11 +60,14 @@ const NOTICES = {
     'Your itemized deductions are less than the standard deduction you would get. The amount you entered was used.',
 } as const;
 
-/** /{firm}/calculator/tax-bracket: the Tax Bracket Calculator (Octavia's guide). Runs in the browser. */
-export function TaxBracketScreen() {
+/**
+ * /{firm}/calculator/tax-bracket (signed in) and /{firm}/calculators/tax-bracket (public): the Tax
+ * Bracket Calculator (Octavia's guide). Runs in the browser; the two differ only in who may read it.
+ */
+export function TaxBracketScreen({ publicPage = false }: { publicPage?: boolean }) {
   const slug = String(useParams<{ firmSlug: string }>().firmSlug);
-  const calculator = useApiQuery(['my-calculator', slug, 'tax_bracket'], () =>
-    api.myCalculators(slug).get('tax_bracket'),
+  const calculator = useApiQuery(['my-calculator', slug, 'tax_bracket', publicPage], () =>
+    (publicPage ? api.publicCalculators(slug) : api.myCalculators(slug)).get('tax_bracket'),
   );
   return (
     <div className="flex flex-col gap-6">

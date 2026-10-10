@@ -353,6 +353,53 @@ describe('the portal', () => {
   });
 });
 
+describe('the public pages', () => {
+  const publicGet = (firm: Firm, path = '') =>
+    request(app.getHttpServer())
+      .get(`/api/v1/portal/${firms[firm].slug}/calculators${path}`)
+      .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`);
+  const switchModule = (firm: Firm, on: boolean) =>
+    asOwner(
+      { kind: 'business', businessId: firms[firm].id },
+      (tx) =>
+        tx.$queryRaw`SELECT app_set_business_module(${firms[firm].id}::uuid, 'calculators', ${on}, 'e2e test')`,
+    );
+
+  it('answers 404 while the firm’s calculators module is off, and an unknown slug is 404', async () => {
+    for (const path of ['', '/tax_bracket']) {
+      const res = await publicGet('a', path);
+      expect(res.status).toBe(404);
+      expect(codeOf(res)).toBe('NOT_FOUND');
+    }
+    const unknown = await request(app.getHttpServer()).get(
+      '/api/v1/portal/no-such-firm/calculators',
+    );
+    expect(unknown.status).toBe(404);
+  });
+
+  it('with the module on, lists the enabled calculators without signing in; other firms stay 404', async () => {
+    await switchModule('a', true);
+    try {
+      const body = ok(await publicGet('a')).body as unknown;
+      CalculatorList.parse(body);
+      expect(MyList.parse(body).items.map((c) => c.key)).toEqual(KEYS);
+      const one = ok(await publicGet('a', '/tax_bracket')).body as unknown;
+      expect(MyCalc.parse(one).key).toBe('tax_bracket');
+      await update({ enabled: false });
+      expect((await publicGet('a', '/tax_return')).status).toBe(404);
+      expect(MyList.parse(ok(await publicGet('a')).body).items.map((c) => c.key)).toEqual([
+        'quarterly_estimate',
+        'tax_bracket',
+      ]);
+      expect((await publicGet('a', '/not-a-key')).status).toBe(400);
+      expect((await publicGet('b')).status).toBe(404);
+    } finally {
+      await update({ enabled: true });
+      await switchModule('a', false);
+    }
+  });
+});
+
 describe('another firm', () => {
   it('gets 404 on firm A and changes nothing; its own list is its own', async () => {
     const before = await rowsOf('a');
