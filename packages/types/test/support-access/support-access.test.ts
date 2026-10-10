@@ -79,6 +79,7 @@ describe('support access schemas', () => {
       'SUPPORT_REQUEST_OPEN',
       'SUPPORT_REQUEST_DECIDED',
       'SUPPORT_GRANT_NOT_ACTIVE',
+      'FIRM_NOT_ACTIVE',
       'SUPPORT_GRANT_REQUIRED',
     ]);
   });
