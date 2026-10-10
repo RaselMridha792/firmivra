@@ -1,5 +1,6 @@
 import type { EsignRecipient, EsignRecipientRole, EsignRecipientStatus } from '@firmivra/types';
 import { Badge, Card } from '@firmivra/ui';
+import type { ReactNode } from 'react';
 import { shortDate } from '../../../../../../../components/esign/format';
 
 const KIND: Record<EsignRecipient['kind'], string> = {
@@ -55,17 +56,19 @@ function lastStep(r: EsignRecipient): string | null {
 /** Approvers first (they decide before anyone signs), then signing order. */
 const order = (r: EsignRecipient) => (r.kind === 'APPROVER' ? 0 : r.routingOrder);
 
-/** Each recipient in signing order, with where they are. */
+/** Each recipient in signing order, with where they are. `actions` adds a recipient's buttons. */
 export function Recipients({
   recipients,
   ordered,
   needsApproval,
+  actions,
 }: {
   recipients: EsignRecipient[];
   /** Sequential routing: show each one's turn. */
   ordered: boolean;
   /** The request waits on its approvers: a waiting approver is the one to act. */
   needsApproval: boolean;
+  actions?: (r: EsignRecipient) => ReactNode;
 }) {
   const sorted = [...recipients].sort((a, b) => order(a) - order(b));
   return (
@@ -104,6 +107,7 @@ export function Recipients({
               {r.declineReason && (
                 <span className="text-sm break-words text-danger">Reason: {r.declineReason}</span>
               )}
+              {actions?.(r)}
             </li>
           );
         })}

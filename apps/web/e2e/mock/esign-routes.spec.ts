@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { record, routeClientRecord } from './r23-fixtures';
 
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
@@ -31,7 +32,9 @@ for (const [url, title] of pages) {
 
 test('Client signatures at /clients/{id}/signatures', async ({ page }) => {
   // The client record's layout owns the page's h1; the tab has its own h2.
-  await page.goto(app('/clients/0199b6a1-0000-7000-8000-000000000001/signatures'));
+  const jamie = record(1, { id: '0199b6a1-0000-7000-8000-000000000001' });
+  await routeClientRecord(page, jamie);
+  await page.goto(app(`/clients/${jamie.id}/signatures`));
   await expect(page).toHaveTitle('Client signatures');
   await expect(page.getByRole('heading', { level: 2, name: 'Signatures' })).toBeVisible();
 });

@@ -55,14 +55,14 @@ Pages with the sidebar, in `firm/(workspace)/`:
 | `/clients/[id]` | `(workspace)/clients/[id]/layout.tsx` (client header and tabs) and `page.tsx` (overview, contact, profile) | Fahad | F06 | none |
 | `/clients/[id]/documents` | `(workspace)/clients/[id]/documents/page.tsx` | Fahad | F07 | none |
 | `/clients/[id]/messages` | `(workspace)/clients/[id]/messages/page.tsx` (messages and internal notes) | Nahid | F10 | `client-portal/Messages and notes.png` for style |
-| `/clients/[id]/invoices` | `(workspace)/clients/[id]/invoices/page.tsx` | Nahid | F10 | `client-portal/invoices tab.png` for style |
+| `/clients/[id]/invoices` | `(workspace)/clients/[id]/invoices/page.tsx` | Fahad | F10 | `client-portal/invoices tab.png` for style |
 | `/sign-ups` | `(workspace)/sign-ups/page.tsx` | Fahad | F06 | none |
 | `/messages` | `(workspace)/messages/page.tsx` | Nahid | F10 | none |
-| `/invoices` | `(workspace)/invoices/page.tsx` | Nahid | F10 | none |
+| `/invoices` | `(workspace)/invoices/page.tsx` | Fahad | F10 | none |
 | `/workspaces` | `(workspace)/workspaces/page.tsx` | Fahad | F11 | none |
 | `/workspaces/[engagementId]` | `(workspace)/workspaces/[engagementId]/page.tsx` | Fahad | F11 | none |
 | `/leads` | `(workspace)/leads/page.tsx` | Arfan | F08 | none |
-| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Arfan | F08 | none |
+| `/leads/[id]` | `(workspace)/leads/[id]/page.tsx` | Tumit | F08 | none |
 | `/calendar` | `(workspace)/calendar/page.tsx` | Tumit | F09 | none |
 | `/team` | `(workspace)/team/page.tsx` | Tumit | F05 | none |
 | `/audit-log` (Owner and Admin) | `(workspace)/audit-log/page.tsx` | Tumit | F12 | none |
@@ -183,23 +183,23 @@ These are the only files a PR from your branch may change. A folder means everyt
 - `apps/web/src/components/auth/`, `apps/web/src/components/sign-in-panel.tsx`, `apps/web/src/components/notification-bell.tsx`
 - `apps/web/src/app/admin/sign-in/`, `admin/forgot-password/`, `admin/reset-password/`
 - `apps/web/src/app/firm/sign-in/`, `firm/forgot-password/`, `firm/reset-password/`, `firm/activate/`
-- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/` and `clients/[id]/invoices/`, Nahid's), `sign-ups/`, `workspaces/`
+- `apps/web/src/app/firm/(workspace)/layout.tsx` (the firm's menu only), `(workspace)/page.tsx`, `(workspace)/_components/`, `clients/` (except `clients/[id]/signatures/`, R13-web's, and `clients/[id]/messages/`, Nahid's), `invoices/`, `sign-ups/`, `workspaces/`
 - `apps/web/e2e/fahad-*.spec.ts`, `apps/web/e2e/mock/fahad-*.spec.ts`, `docs/tasks/FAHAD.md`
 
 **Tumit**
 - `apps/web/src/components/app-shell/`
 - `apps/web/src/app/admin/(console)/`
 - `apps/web/src/app/firm/welcome/`, `firm/apply/`, `firm/setup/`
-- `apps/web/src/app/firm/(workspace)/team/`, `audit-log/`, `calendar/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
+- `apps/web/src/app/firm/(workspace)/team/`, `audit-log/`, `calendar/`, `leads/[id]/`, `settings/profile/`, `settings/branding/`, `settings/portal/`, `settings/legal/`, `settings/availability/`
 - `apps/web/src/app/portal/[firmSlug]/(client)/appointments/`
 - `apps/web/e2e/tumit-*.spec.ts`, `apps/web/e2e/mock/tumit-*.spec.ts`, `docs/tasks/TUMIT.md`
 
-**Nahid** (F10, from Oct 9; the portal pages moved to R17)
-- `apps/web/src/app/firm/(workspace)/messages/`, `(workspace)/invoices/`
-- `apps/web/src/app/firm/(workspace)/clients/[id]/messages/`, `clients/[id]/invoices/`
+**Nahid** (F10's messages, from Oct 9; its invoices pages went to Fahad on Oct 10; the portal pages moved to R17)
+- `apps/web/src/app/firm/(workspace)/messages/`
+- `apps/web/src/app/firm/(workspace)/clients/[id]/messages/`
 - `apps/web/e2e/nahid-*.spec.ts`, `apps/web/e2e/mock/nahid-*.spec.ts`, `docs/tasks/NAHID.md`
 
 **Arfan**
 - `apps/web/src/app/portal/[firmSlug]/(public)/begin/`
-- `apps/web/src/app/firm/(workspace)/leads/`
+- `apps/web/src/app/firm/(workspace)/leads/` (the list; `leads/[id]/` is Tumit's)
 - `apps/web/e2e/` (all tests, mock-mode ones too: you lead testing), `docs/tasks/ARFAN.md`
