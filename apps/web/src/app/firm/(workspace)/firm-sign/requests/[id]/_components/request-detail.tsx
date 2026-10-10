@@ -1,18 +1,27 @@
 'use client';
 
-import type { EsignAccessRole, EsignRequestDetail } from '@firmivra/types';
-import { Card } from '@firmivra/ui';
+import {
+  ESIGN_ERRORS,
+  type EsignAccessRole,
+  type EsignDownloadFile,
+  type EsignRequestDetail,
+} from '@firmivra/types';
+import { Button, Card } from '@firmivra/ui';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { EsignGate } from '../../../../../../../components/esign/esign-gate';
-import { isOwnerOrAdmin } from '../../../../../../../components/esign/esign-role';
+import { canCreate, isOwnerOrAdmin } from '../../../../../../../components/esign/esign-role';
 import { shortDate } from '../../../../../../../components/esign/format';
 import { StatusBadge } from '../../../../../../../components/esign/status-badge';
 import { PageState } from '../../../../../../../components/page-state';
 import { useMe } from '../../../../../../../components/signed-in';
 import { api } from '../../../../../../../lib/api';
-import { useApiQuery } from '../../../../../../../lib/query';
+import { errorMessage } from '../../../../../../../lib/errors';
+import { useApiMutation, useApiQuery } from '../../../../../../../lib/query';
+import { RecipientActions } from './recipient-actions';
+import { RequestActions } from './request-actions';
 import { Recipients } from './recipients';
+import { SaveAsTemplate } from './save-as-template';
 import { Timeline, useEvents } from './timeline';
 
 /** One signature request (/firm-sign/requests/{id}): where it is, who signed, and what happened. */
@@ -34,20 +43,27 @@ function Detail({ id, role }: { id: string; role: EsignAccessRole | null }) {
         Signature requests
       </Link>
       {/* The page keeps a heading while it loads or fails. */}
-      {!request.data && <h1 className="sr-only">Signature request</h1>}
+      {!request.data && (
+        <h1 data-testid="page-title" className="sr-only">
+          Signature request
+        </h1>
+      )}
       <PageState query={request} isEmpty={() => false}>
         {(r) => (
           <>
-            <Header r={r} />
+            <Header r={r} canSave={canCreate(role)} />
+            <Notices r={r} />
             {/* Stacked: recipients, details, timeline. From xl the details sit beside both. */}
             <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
               <Recipients
                 recipients={r.recipients}
                 ordered={r.routing === 'SEQUENTIAL'}
                 needsApproval={r.status === 'NEEDS_APPROVAL'}
+                actions={(x) => <RecipientActions r={r} x={x} />}
               />
               <div className="flex flex-col gap-6 xl:col-start-2 xl:row-span-2 xl:row-start-1">
                 <Facts r={r} role={role} />
+                {r.allowedActions.includes('DOWNLOAD') && <Downloads r={r} />}
                 {r.internalNote && (
                   <Card>
                     <h2 className="mb-2 font-display text-2xl text-heading">Internal note</h2>
@@ -82,7 +98,7 @@ function nextStep(r: EsignRequestDetail): string | null {
   }
 }
 
-function Header({ r }: { r: EsignRequestDetail }) {
+function Header({ r, canSave }: { r: EsignRequestDetail; canSave: boolean }) {
   const next = nextStep(r);
   const edit = r.allowedActions.includes('EDIT');
   const inPerson = r.allowedActions.includes('START_IN_PERSON');
@@ -114,6 +130,11 @@ function Header({ r }: { r: EsignRequestDetail }) {
           )}
         </div>
       )}
+      {/* Any request with pages can become a template; a Viewer can't make one. */}
+      <RequestActions
+        r={r}
+        extra={canSave && r.pagePlan.length > 0 ? <SaveAsTemplate r={r} /> : null}
+      />
     </Card>
   );
 }
@@ -188,6 +209,100 @@ function Facts({ r, role }: { r: EsignRequestDetail; role: EsignAccessRole | nul
           </div>
         ))}
       </dl>
+    </Card>
+  );
+}
+
+/** Why it ended, and the request it replaced or was replaced by. */
+function Notices({ r }: { r: EsignRequestDetail }) {
+  const approvals = r.approvalNotes.filter((a) => a.note);
+  const any =
+    r.voidedAt || r.replacedByRequestId || r.replacesRequestId || r.expiredAt || approvals.length;
+  if (!any) return null;
+  const nameOf = (id: string) => r.recipients.find((x) => x.id === id)?.name ?? 'An approver';
+  return (
+    <Card data-testid="notices" className="flex flex-col gap-2 text-sm text-text">
+      {r.voidedAt && (
+        <p>
+          Voided {shortDate(r.voidedAt)}
+          {r.voidedBy && ` by ${r.voidedBy.name}`}
+          {r.voidReason && `. Reason: ${r.voidReason}`}
+        </p>
+      )}
+      {r.replacedByRequestId && (
+        <p>
+          It was replaced by{' '}
+          <Link
+            href={`/firm-sign/requests/${r.replacedByRequestId}`}
+            className="text-link underline"
+          >
+            a new request
+          </Link>
+          .
+        </p>
+      )}
+      {r.replacesRequestId && (
+        <p>
+          This replaces{' '}
+          <Link href={`/firm-sign/requests/${r.replacesRequestId}`} className="text-link underline">
+            an earlier request
+          </Link>
+          .
+        </p>
+      )}
+      {r.expiredAt && <p>Expired {shortDate(r.expiredAt)} before everyone signed.</p>}
+      {approvals.map((a) => (
+        <p key={`${a.recipientId}-${a.decision}-${a.note}`}>
+          {nameOf(a.recipientId)} {a.decision === 'APPROVE' ? 'approved' : 'asked for changes'}:{' '}
+          {a.note}
+        </p>
+      ))}
+    </Card>
+  );
+}
+
+/** A 5-minute link: saved straight away, without leaving the page. */
+function save(url: string) {
+  const a = document.createElement('a');
+  a.href = url;
+  // The storage link is sent as an attachment, so the browser saves it and stays on this page.
+  a.download = '';
+  a.click();
+}
+
+/** The signed PDF and certificate once completed; the packet as sent before that. */
+function Downloads({ r }: { r: EsignRequestDetail }) {
+  const files: [EsignDownloadFile, string][] =
+    r.status === 'COMPLETED'
+      ? [
+          ['final', 'Signed document'],
+          ['certificate', 'Completion certificate'],
+          ['original', 'Document as sent'],
+        ]
+      : [['original', 'Document as sent']];
+  const download = useApiMutation((file: EsignDownloadFile) => api.esign.download(r.id, file), {
+    invalidate: ['esign', 'requests', r.id, 'events'],
+  });
+  return (
+    <Card>
+      <h2 className="mb-4 font-display text-2xl text-heading">Download</h2>
+      <div className="flex flex-col gap-2">
+        {files.map(([file, label]) => (
+          <Button
+            key={file}
+            variant="secondary"
+            disabled={download.isPending}
+            onClick={() => download.mutate(file, { onSuccess: ({ url }) => save(url) })}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {download.error && (
+        <p role="alert" className="mt-2 text-sm text-danger">
+          {errorMessage(download.error, ESIGN_ERRORS)}
+        </p>
+      )}
     </Card>
   );
 }
