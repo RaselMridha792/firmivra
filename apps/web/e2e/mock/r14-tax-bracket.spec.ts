@@ -37,3 +37,13 @@ test('the hub opens the calculator, which shows the filing status brackets and o
   await page.getByRole('button', { name: 'Start Over' }).click();
   await expect(page.getByLabel('Annual Income')).toHaveValue('');
 });
+
+test('the public pages open without signing in and give the same estimate', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(portal('/lvp/calculators'));
+  await page.getByRole('link', { name: /Tax Bracket/ }).click();
+  await expect(page).toHaveURL(portal('/lvp/calculators/tax-bracket'));
+  await page.getByLabel('Annual Income').fill('75000');
+  await page.getByRole('button', { name: 'Calculate My 2026 Federal Tax' }).click();
+  await expect(page.getByTestId('tax-bracket-result').getByText('$7,670')).toBeVisible();
+});
