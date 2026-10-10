@@ -37,9 +37,9 @@ const DECIDED: Record<Decision, string> = {
  * database's clock), and the grant ends when it expires or is revoked. Each action is logged
  * where its side can see it:
  * - A Super Admin's ask runs in the admin scope, so the database stores it only as a request by
- *   that Super Admin; the platform's row (with the person) commits with it. The firm's row
- *   ("Firmivra Support", no person in its metadata) follows in the firm's scope, which the admin
- *   scope can't write.
+ *   that Super Admin. The platform's row (with the person) and the firm's row ("Firmivra Support":
+ *   no person in its metadata, no IP or user agent, written by R0's app_log_support_request)
+ *   both commit with it, or neither does.
  * - An Owner's answer runs in the firm's scope with the row locked, and the firm's row commits
  *   with it. The platform's copy (the Owner, ids only) follows, since the firm's scope can't
  *   write it.
@@ -91,10 +91,11 @@ export class SupportAccessService {
         { businessId },
         { businessId: null },
       );
+      // The firm's row, from the admin scope, which can't write it directly (issue #215).
+      await tx.$executeRaw`SELECT app_log_support_request(${businessId}::uuid, ${row.id}::uuid)`;
       return { row, firm, names: await namesIn(tx, [adminUserId]) };
     });
     const { row, firm, names } = created;
-    await this.firmRow(businessId, adminUserId, 'support.requested', row.id);
     // R6 tells the firm's Owners; until it has a template, the ask is logged by id.
     this.logger.log(`Support access requested for firm ${businessId} (request ${row.id})`);
     return toAdmin(row, firm, names, Date.now());
@@ -230,30 +231,6 @@ export class SupportAccessService {
       });
     } catch {
       this.logger.warn(`Could not copy ${action} to the platform's log (grant ${grantId})`);
-    }
-  }
-
-  /**
-   * The firm's row for a Super Admin's ask, as "Firmivra Support": the actor is the Super Admin,
-   * whom the firm's log viewer shows only as Firmivra Support (no person, no IP), and the
-   * metadata never names them, and no IP or user agent is kept. Written after the ask, in the firm's scope; a failure is logged
-   * by id and the ask stands.
-   */
-  private async firmRow(
-    businessId: string,
-    adminUserId: string,
-    action: string,
-    grantId: string,
-  ): Promise<void> {
-    try {
-      await this.audit.log(
-        action,
-        { type: 'support_access_grant', id: grantId },
-        {},
-        { businessId, actorUserId: adminUserId, withoutOrigin: true },
-      );
-    } catch {
-      this.logger.warn(`Could not copy ${action} to the firm's log (grant ${grantId})`);
     }
   }
 }

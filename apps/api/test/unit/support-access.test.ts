@@ -119,7 +119,8 @@ describe('the audit rows that follow an action are best effort', () => {
     ]);
   });
 
-  it("an ask stands when the firm's row fails: a warning with the grant id", async () => {
+  it("an ask writes the firm's row in its own transaction, through app_log_support_request", async () => {
+    const executeRaw = vi.fn().mockResolvedValue(1);
     const { service, audit, warn } = failingCopies({
       business: {
         findUnique: vi
@@ -131,6 +132,7 @@ describe('the audit rows that follow an action are best effort', () => {
         .fn()
         .mockResolvedValueOnce([{ ok: true }])
         .mockResolvedValueOnce([]),
+      $executeRaw: executeRaw,
       supportAccessGrant: { create: vi.fn().mockResolvedValue(pending) },
       user: { findMany: vi.fn().mockResolvedValue([{ id: admin, name: 'Fake Super Admin' }]) },
     });
@@ -140,15 +142,32 @@ describe('the audit rows that follow an action are best effort', () => {
       status: 'PENDING',
       admin: { userId: admin, name: 'Fake Super Admin' },
     });
-    expect(audit.log).toHaveBeenCalledWith(
-      'support.requested',
-      { type: 'support_access_grant', id: grantId },
-      {},
-      { businessId: firm, actorUserId: admin, withoutOrigin: true },
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    const [sql, ...values] = executeRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    expect(sql.join('?')).toContain('app_log_support_request(');
+    expect(values).toEqual([firm, grantId]);
+    expect(audit.log).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('an ask whose firm row fails is not made: the error rolls the ask back', async () => {
+    const { service } = failingCopies({
+      business: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ id: firm, name: 'Fake Firm', slug: 'fake', status: 'ACTIVE' }),
+      },
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ ok: true }])
+        .mockResolvedValueOnce([]),
+      $executeRaw: vi.fn().mockRejectedValue(new Error('Fake database error')),
+      supportAccessGrant: { create: vi.fn().mockResolvedValue(pending) },
+      user: { findMany: vi.fn() },
+    });
+    await expect(service.request(admin, firm, 'Fake reason')).rejects.toThrow(
+      'Fake database error',
     );
-    expect(warn.mock.calls).toEqual([
-      [`Could not copy support.requested to the firm's log (grant ${grantId})`],
-    ]);
   });
 
   it('a firm that is not active is never asked: 409 FIRM_NOT_ACTIVE, nothing written', async () => {
