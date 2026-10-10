@@ -37,7 +37,7 @@ export function Sidebar({
         {sections.map((items, i) => (
           <ul
             key={items[0]?.label ?? 'group'}
-            className={`flex flex-col gap-1 ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
+            className={`flex flex-col gap-0.5 ${i > 0 ? 'relative mt-2 pt-4 before:absolute before:inset-x-6 before:top-0 before:border-t before:border-platform-navy-raised' : ''}`}
           >
             {items.map((item) => {
               const Icon = item.icon;
@@ -46,18 +46,18 @@ export function Sidebar({
                   <Icon aria-hidden className="size-6 shrink-0" />
                   <span className="min-w-0 flex-1">{item.label}</span>
                   {item.soon ? (
-                    <span className="rounded-pill bg-platform-navy-raised px-3 py-0.5 text-xs text-brand-100">
+                    <span className="shrink-0 rounded-pill bg-platform-navy-raised px-2.5 py-0.5 text-xs text-brand-100">
                       Soon
                     </span>
                   ) : null}
                   {item.badge ? (
-                    <span className="min-w-6 rounded-pill bg-brand-500 px-2 py-0.5 text-center text-xs font-semibold">
+                    <span className="min-w-8 shrink-0 rounded-pill bg-brand-500 px-2 py-0.5 text-center text-xs font-semibold">
                       {item.badge}
                     </span>
                   ) : null}
                 </>
               );
-              const row = 'flex items-center gap-4 px-6 py-3 text-base';
+              const row = 'flex items-center gap-3 px-6 py-3 text-base';
               if (!item.href) {
                 return (
                   <li key={item.label} aria-disabled="true" className={`${row} text-brand-100`}>
@@ -74,7 +74,7 @@ export function Sidebar({
                     aria-current={active ? 'page' : undefined}
                     className={
                       row +
-                      ' border-l-4 ' +
+                      ' mr-3 rounded-r-control border-l-4 ' +
                       (active
                         ? 'border-info bg-navigation-hover font-semibold'
                         : 'border-transparent hover:bg-navigation-hover')
