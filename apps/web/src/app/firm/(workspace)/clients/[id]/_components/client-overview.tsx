@@ -31,7 +31,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     <div className="grid gap-1 py-3 sm:grid-cols-3 sm:gap-4">
       <dt className="text-sm text-muted">{label}</dt>
       <dd className="text-sm wrap-anywhere text-text sm:col-span-2">
-        {children ?? <span className="text-muted">Not on file</span>}
+        {children === null || children === undefined || children === '' ? (
+          <span className="text-muted">Not on file</span>
+        ) : (
+          children
+        )}
       </dd>
     </div>
   );

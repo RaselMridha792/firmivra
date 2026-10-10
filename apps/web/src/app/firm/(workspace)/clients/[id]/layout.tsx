@@ -9,6 +9,7 @@ import { PageState } from '../../../../../components/page-state';
 import { RequireRole } from '../../../../../components/require-role';
 import { ACCOUNT_TYPES, formatPhone, PortalBadge } from '../_components/client-parts';
 import { ArchiveAction } from './_components/archive-action';
+import { EditClient } from './_components/edit-client';
 import { useClientRecord } from './_components/use-client-record';
 
 const tabs: [label: string, path: string][] = [
@@ -71,9 +72,12 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
                   </div>
                 </div>
               </div>
-              <RequireRole roles={['OWNER', 'ADMIN']}>
-                <ArchiveAction client={client} />
-              </RequireRole>
+              <div className="flex flex-wrap gap-2 sm:justify-end">
+                {client.archivedAt ? null : <EditClient client={client} />}
+                <RequireRole roles={['OWNER', 'ADMIN']}>
+                  <ArchiveAction client={client} />
+                </RequireRole>
+              </div>
             </header>
             <nav aria-label="Client" className="flex gap-1 overflow-x-auto border-b border-border">
               {tabs.map(([label, tab]) => {
