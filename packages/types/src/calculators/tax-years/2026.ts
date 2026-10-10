@@ -32,6 +32,7 @@ export const TAX_YEAR_2026: TaxYearConstants = TaxYearConstants.parse({
   sources: [
     'IRS Rev. Proc. 2025-32 (2026 tax rate tables, standard deduction, age 65 or blind amount)',
     'Octavia, Calculator_Tax_Bracket_Guide.pdf §5 and §8 (Oct 8, 2026): same figures',
+    'SSA 2026 Social Security wage base; IRS Form 1040-ES and Publication 505 (estimated tax)',
   ],
   standardDeductionCents: {
     SINGLE: $(16_100),
@@ -50,4 +51,23 @@ export const TAX_YEAR_2026: TaxYearConstants = TaxYearConstants.parse({
     QUALIFYING_SURVIVING_SPOUSE: MARRIED_JOINT,
   },
   taxRounding: 'DOLLAR',
+  // Social Security wage base: SSA, $184,500 for 2026 (Quarterly guide §7). The rates and the
+  // 92.35% are the Schedule SE figures; $400 is the Schedule SE filing floor.
+  selfEmployment: {
+    socialSecurityWageBaseCents: $(184_500),
+    netEarningsBps: 9_235,
+    socialSecurityBps: 1_240,
+    medicareBps: 290,
+    minNetEarningsCents: $(400),
+  },
+  // Form 1040-ES: 90% of this year's tax or 100% (110% above $150,000 AGI, $75,000 if married
+  // filing separately) of last year's; nothing is due when under $1,000 is owed after withholding.
+  estimatedTax: {
+    currentYearBps: 9_000,
+    priorYearBps: 10_000,
+    priorYearHighIncomeBps: 11_000,
+    highIncomeAgiCents: $(150_000),
+    highIncomeAgiMarriedSeparateCents: $(75_000),
+    minimumOwedCents: $(1_000),
+  },
 });

@@ -1,5 +1,6 @@
 import { type ApiRequest, parseInput } from '../client.js';
 import { portalMe } from '../clients/client.js';
+import { FirmSlug } from '../schemas.js';
 import {
   Calculator,
   CalculatorKey,
@@ -42,3 +43,19 @@ export function createMyCalculatorsClient(request: ApiRequest, firmSlug: string)
   };
 }
 export type MyCalculatorsClient = ReturnType<typeof createMyCalculatorsClient>;
+
+/**
+ * `api.publicCalculators(slug)`: the same read without signing in, for the public pages
+ * (/{firm}/calculators). 404 NOT_FOUND while the firm's calculators module is off or for a key the
+ * firm turned off.
+ */
+export function createPublicCalculatorsClient(request: ApiRequest, firmSlug: string) {
+  const base = () => `/portal/${parseInput(FirmSlug, firmSlug)}/calculators`;
+  return {
+    list: async (): Promise<CalculatorList['items']> =>
+      (await request(CalculatorList, base())).items,
+    get: async (key: string): Promise<Calculator> =>
+      request(Calculator, `${base()}/${parseInput(CalculatorKey, key)}`),
+  };
+}
+export type PublicCalculatorsClient = ReturnType<typeof createPublicCalculatorsClient>;

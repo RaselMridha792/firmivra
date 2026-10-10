@@ -21,6 +21,7 @@ import {
   createMessagesClient,
   createMyAppointmentsClient,
   createMyCalculatorsClient,
+  createPublicCalculatorsClient,
   createMyContentClient,
   createMyDocumentsClient,
   createMyIntakesClient,
@@ -190,6 +191,11 @@ export const api = {
     dev && mocked('myCalculators')
       ? myCalculatorsMock(firmSlug)
       : createMyCalculatorsClient(request, firmSlug),
+  /** Calculators (R14): the firm's enabled calculators for the public pages, no sign-in. */
+  publicCalculators: (firmSlug: string) =>
+    dev && mocked('myCalculators')
+      ? myCalculatorsMock(firmSlug)
+      : createPublicCalculatorsClient(request, firmSlug),
   /** Documents (R5): a client's files and document requests, for the firm. Upload with uploadFile(). */
   documents:
     dev && mocked('documents')

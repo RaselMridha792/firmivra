@@ -10,12 +10,15 @@ import { useApiQuery } from '../../../../../../lib/query';
 import { PortalPageHeader } from '../../_components/portal-page-header';
 
 /** Only these have a screen yet; the firm's other calculators stay off the list until theirs ships. */
-const AVAILABLE: Calculator['key'][] = ['tax_bracket'];
+const AVAILABLE: Calculator['key'][] = ['quarterly_estimate', 'tax_bracket'];
 
-/** /{firm}/calculator: the calculators this firm offers its clients. */
-export function CalculatorsHub() {
+/** /{firm}/calculator (signed in) and /{firm}/calculators (public): the firm's calculators. */
+export function CalculatorsHub({ publicPage = false }: { publicPage?: boolean }) {
   const slug = String(useParams<{ firmSlug: string }>().firmSlug);
-  const calculators = useApiQuery(['my-calculators', slug], () => api.myCalculators(slug).list());
+  const calculators = useApiQuery(['my-calculators', slug, publicPage], () =>
+    (publicPage ? api.publicCalculators(slug) : api.myCalculators(slug)).list(),
+  );
+  const base = publicPage ? `/${slug}/calculators` : `/${slug}/calculator`;
   const offered = (list: Calculator[]) => list.filter((c) => AVAILABLE.includes(c.key));
   return (
     <div className="flex flex-col gap-6">
@@ -33,7 +36,7 @@ export function CalculatorsHub() {
             {offered(list).map((c) => (
               <li key={c.key}>
                 <Link
-                  href={`/${slug}/calculator/${CALCULATOR_SLUGS[c.key]}`}
+                  href={`${base}/${CALCULATOR_SLUGS[c.key]}`}
                   className="block focus:outline-2 focus:outline-accent-500"
                 >
                   <Card title={c.title} className="h-full">

@@ -37,3 +37,27 @@ test('the hub opens the calculator, which shows the filing status brackets and o
   await page.getByRole('button', { name: 'Start Over' }).click();
   await expect(page.getByLabel('Annual Income')).toHaveValue('');
 });
+
+test('the public pages open without signing in and give the same estimate', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(portal('/lvp/calculators'));
+  await page.getByRole('link', { name: /Tax Bracket/ }).click();
+  await expect(page).toHaveURL(portal('/lvp/calculators/tax-bracket'));
+  await page.getByLabel('Annual Income').fill('75000');
+  await page.getByRole('button', { name: 'Calculate My 2026 Federal Tax' }).click();
+  await expect(page.getByTestId('tax-bracket-result').getByText('$7,670')).toBeVisible();
+});
+
+test('the quarterly calculator gives the hand-worked self-employed case', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(portal('/lvp/calculators/quarterly-estimate'));
+  await expect(page.getByText(/coming soon/i)).toHaveCount(0);
+  await page.getByLabel('Gross Business Income (if self-employed)').fill('100000');
+  await page.getByLabel('Business Expenses').fill('20000');
+  await page.getByRole('button', { name: 'Calculate My Estimated Tax Payment' }).click();
+  const result = page.getByTestId('quarterly-result');
+  // Total tax $18,831; 90% = $16,948; a quarter of it = $4,237; a quarter of the total = $4,708.
+  await expect(result.getByText('$4,237')).toBeVisible();
+  await expect(result.getByText('$4,708')).toBeVisible();
+  await expect(result.getByText('$18,831')).toBeVisible();
+});

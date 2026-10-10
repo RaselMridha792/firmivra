@@ -16,8 +16,16 @@ export {
   type TaxBracketSlice,
 } from './tax-bracket.js';
 export {
+  estimateQuarterlySteady,
+  QuarterlySteadyInput,
+  type QuarterlySteadyNotice,
+  type QuarterlySteadyResult,
+} from './quarterly.js';
+export {
   createCalculatorsClient,
   createMyCalculatorsClient,
+  createPublicCalculatorsClient,
   type CalculatorsClient,
   type MyCalculatorsClient,
+  type PublicCalculatorsClient,
 } from './client.js';
