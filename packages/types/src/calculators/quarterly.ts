@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { minusFloor0, toCents, BPS, divRoundHalfUp } from './engine/money.js';
 import { progressiveTax } from './engine/brackets.js';
+import { selfEmploymentTax } from './engine/self-employment.js';
 import {
   type CalculatorCents,
   CURRENT_TAX_YEAR,
@@ -95,18 +96,7 @@ export function estimateQuarterlySteady(
   if (expenses > gross) notices.push('BUSINESS_LOSS_NOT_USED');
   const net = minusFloor0(gross, expenses);
 
-  // Schedule SE: 92.35% of net business income; Social Security tax only up to the wage base less
-  // W-2 wages; Medicare tax on all of it. Under the floor, none.
-  const se = c.selfEmployment;
-  const netEarnings = share(net, se.netEarningsBps);
-  const seTax =
-    netEarnings < se.minNetEarningsCents
-      ? 0
-      : share(
-          Math.min(netEarnings, minusFloor0(se.socialSecurityWageBaseCents, wages)),
-          se.socialSecurityBps,
-        ) + share(netEarnings, se.medicareBps);
-  const halfSeTax = divRoundHalfUp(seTax, 2);
+  const { taxCents: seTax, deductibleHalfCents: halfSeTax } = selfEmploymentTax(net, wages, c);
 
   const agi = minusFloor0(wages + net + toCents(input.otherIncome), halfSeTax);
   const standardAllowed = !(status === 'MARRIED_SEPARATE' && input.mfsSpouseItemizes);
