@@ -33,12 +33,9 @@ import { EsignLifecycleService } from './lifecycle/lifecycle.service.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
 import { EsignDocumentsService } from './requests/documents.service.js';
 import { ESIGN_DIRECTORY, PrismaEsignDirectory } from './requests/esign-directory.js';
-import {
-  ESIGN_REPOSITORY,
-  type EsignRepository,
-  notMigrated,
-} from './requests/esign.repository.js';
+import { ESIGN_REPOSITORY, notMigrated } from './requests/esign.repository.js';
 import { EsignFieldValues } from './requests/esign-prisma.js';
+import { PrismaEsignRepository } from './requests/prisma-esign.repository.js';
 import { EsignRequestsController, EsignStatusController } from './requests/requests.controller.js';
 import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
@@ -129,7 +126,7 @@ function extrasStandIn(): EsignExtrasRepository {
     { provide: APP_INTERCEPTOR, useClass: EsignKioskInterceptor },
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
     EsignFieldValues,
-    { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
+    { provide: ESIGN_REPOSITORY, useClass: PrismaEsignRepository },
     { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
     { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
     { provide: SETTINGS_REPOSITORY, useValue: notMigrated('EsignSettingsRepository') },

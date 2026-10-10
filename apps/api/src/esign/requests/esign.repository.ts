@@ -17,12 +17,10 @@ import type {
 // Firm Sign's storage of requests (R13). Every read and write of the esign tables goes through
 // this interface, and every method takes the firm (`businessId`, from the tenant context) first.
 //
-// The Prisma implementation lands once migration r0_esign (esign_requests, esign_documents,
-// esign_recipients, esign_fields, esign_events) is on main. It uses only `forBusiness(businessId)`
-// or TenantPrisma (row-level security), never the owner client, and runs each draft write in one
-// transaction that locks the request row (FOR UPDATE) and checks it is still a DRAFT. Until then
-// the API is wired to `notMigrated()` below and tests use InMemoryEsignRepository
-// (test/unit/esign-fakes.ts).
+// The Prisma implementation (prisma-esign.repository.ts, on r0_esign's tables) uses only the
+// firm's scope (row-level security), never the owner client, and runs each draft write in one
+// transaction that locks the request row (FOR UPDATE) and checks it is still a DRAFT. Unit tests
+// use InMemoryEsignRepository (test/unit/esign-fakes.ts).
 
 /** An esign_requests row: what the request itself holds. */
 export interface EsignRequestRecord {
@@ -243,8 +241,8 @@ export interface EsignRepository {
   // `readAt` checks below compare, so an equal value would hide a write in between, and a value
   // that only differs below the millisecond (Postgres keeps microseconds, a JS Date does not)
   // would refuse every later write.
-  // TODO(r0_esign): every Prisma draft write also resets every APPROVER recipient to WAITING in
-  // the same transaction (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
+  // Every draft write also resets every APPROVER recipient to WAITING in the same transaction
+  // (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
   /**
    * Applies the patch and returns the request as written. With `clientChange`, it refuses
    * (RECIPIENTS_LINKED, changing nothing) while a recipient is linked to a client login: the
