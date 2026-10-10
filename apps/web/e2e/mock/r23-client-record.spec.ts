@@ -58,6 +58,25 @@ test('the owner archives and restores a client', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Archive client' })).toBeVisible();
 });
 
+test('the owner edits contact details and replaces the SSN', async ({ page }) => {
+  await routeClientRecord(page);
+  await page.goto(app(`/clients/${maria.id}`));
+  await page.getByRole('button', { name: 'Edit details' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Phone').fill('404 555 0199');
+  await dialog.getByLabel('City').fill('Atlanta');
+  await dialog.getByLabel(/New SSN/).fill('123');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await expect(dialog.getByText('Enter the 9-digit SSN')).toBeVisible();
+  await dialog.getByLabel(/New SSN/).fill('123-45-6789');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await expect(dialog).toBeHidden();
+  const overview = page.getByTestId('client-overview');
+  await expect(overview).toContainText('(404) 555-0199');
+  await expect(overview).toContainText('Atlanta, GA 30011');
+  await expect(overview).toContainText('•••-••-6789');
+});
+
 test('a client this person cannot see is not found', async ({ page }) => {
   await page.route('**/api/v1/business/clients/*', (route) =>
     json(route, { error: { code: 'NOT_FOUND', message: 'x' } }, 404),

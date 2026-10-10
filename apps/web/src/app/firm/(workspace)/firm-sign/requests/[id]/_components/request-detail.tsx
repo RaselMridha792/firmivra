@@ -43,7 +43,11 @@ function Detail({ id, role }: { id: string; role: EsignAccessRole | null }) {
         Signature requests
       </Link>
       {/* The page keeps a heading while it loads or fails. */}
-      {!request.data && <h1 className="sr-only">Signature request</h1>}
+      {!request.data && (
+        <h1 data-testid="page-title" className="sr-only">
+          Signature request
+        </h1>
+      )}
       <PageState query={request} isEmpty={() => false}>
         {(r) => (
           <>

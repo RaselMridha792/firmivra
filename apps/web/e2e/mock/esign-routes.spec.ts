@@ -6,14 +6,15 @@ const app = (path: string) => `http://app.localhost:${port}${path}`;
 const portal = (path: string) => `http://portal.localhost:${port}${path}`;
 
 // Every Firm Sign page exists at its public path with its tab title (R13-web placeholders).
-const pages: [url: string, title: string][] = [
+// A request's pages are headed by its document name, so those check the tab title only.
+const REQUEST = '0199b6e0-0000-7000-8000-000000000001';
+const pages: [url: string, title: string, heading?: string][] = [
   [app('/firm-sign'), 'Firm Sign'],
   [app('/firm-sign/new'), 'New signature request'],
   [app('/firm-sign/requests'), 'Signature requests'],
-  [app('/firm-sign/requests/req-1'), 'Signature request'],
-  [app('/firm-sign/requests/req-1/prepare'), 'Prepare request'],
+  [app(`/firm-sign/requests/${REQUEST}`), 'Signature request', 'Tax Engagement Letter 2026'],
+  [app(`/firm-sign/requests/${REQUEST}/prepare`), 'Prepare request', 'Tax Engagement Letter 2026'],
   [app('/firm-sign/templates'), 'Signing templates'],
-  [app('/firm-sign/templates/tpl-1'), 'Signing template'],
   [app('/firm-sign/bulk'), 'Bulk send'],
   [app('/firm-sign/reports'), 'Signing reports'],
   [app('/firm-sign/settings'), 'Signing settings'],
@@ -22,11 +23,11 @@ const pages: [url: string, title: string][] = [
   [portal('/lvp/sign'), 'Sign documents'],
 ];
 
-for (const [url, title] of pages) {
+for (const [url, title, heading = title] of pages) {
   test(`${title} at ${new URL(url).pathname}`, async ({ page }) => {
     await page.goto(url);
     await expect(page).toHaveTitle(title);
-    await expect(page.getByTestId('page-title')).toHaveText(title);
+    await expect(page.getByTestId('page-title')).toHaveText(heading);
   });
 }
 
