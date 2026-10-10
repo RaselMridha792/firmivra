@@ -70,12 +70,14 @@ export type Stamp = FieldBox &
   );
 
 /** A signer on the automatic signature page (no fields placed: EsignReadiness.autoSignaturePage). */
-export interface SignaturePageSigner {
+/**
+ * One signer's signature page. The signature is a drawn or uploaded PNG, or the text a signer
+ * typed (the engine prints it in the signature line).
+ */
+export type SignaturePageSigner = {
   name: string;
-  /** The drawn, uploaded or typed-and-rendered signature. */
-  signaturePng: Uint8Array;
   signedAt: Date;
-}
+} & ({ signaturePng: Uint8Array; typed?: never } | { typed: string; signaturePng?: never });
 
 export interface FinalizeInput {
   stamps: Stamp[];
@@ -269,6 +271,8 @@ export interface ReadinessInput {
   expiryDays: number;
   reminders: EsignReminders;
   consentPublished: boolean;
+  /** Signing Settings `requireApproval`: the request needs an APPROVER recipient. */
+  approvalRequired: boolean;
 }
 
 export interface EsignRules {

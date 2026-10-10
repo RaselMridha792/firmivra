@@ -3,8 +3,10 @@
 import { PageSection } from '@firmivra/ui';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { usePortal } from '../layout';
+import { ButtonLink } from './_components/button-link';
 import { PortalFooter } from './_components/portal-footer';
 
 /**
@@ -14,18 +16,44 @@ import { PortalFooter } from './_components/portal-footer';
  */
 export default function PublicLayout({ children }: { children: ReactNode }) {
   const { branding, business } = usePortal();
+  // The two buttons are for the landing page only: sign-in, sign-up, password reset and Begin
+  // Online keep the visitor on the task they opened.
+  const landing = usePathname() === `/${business.slug}`;
   return (
     <div className="flex min-h-screen flex-col bg-surface">
-      <PageSection as="header" className="border-b border-border bg-folder-surface py-4">
-        <Link
-          href={`/${business.slug}`}
-          className="flex items-center gap-3 text-xl font-bold text-firm-primary"
-        >
-          {branding.logoUrl && (
-            <Image unoptimized src={branding.logoUrl} alt="" width={160} height={64} />
-          )}
-          {business.name}
-        </Link>
+      <PageSection as="header" className="border-b border-border bg-folder-surface py-3">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <Link
+            href={`/${business.slug}`}
+            className="flex items-center text-xl font-bold text-firm-primary"
+          >
+            {branding.logoUrl ? (
+              <Image
+                unoptimized
+                src={branding.logoUrl}
+                alt={business.name}
+                width={176}
+                height={56}
+              />
+            ) : (
+              business.name
+            )}
+          </Link>
+          {landing ? (
+            <nav aria-label="Get started" className="flex flex-wrap gap-3">
+              <ButtonLink href={`/${business.slug}/begin`} className="w-auto!">
+                Begin Online
+              </ButtonLink>
+              <ButtonLink
+                variant="outline"
+                href={`/${business.slug}/appointments`}
+                className="w-auto!"
+              >
+                Clients: Book an Appointment
+              </ButtonLink>
+            </nav>
+          ) : null}
+        </div>
       </PageSection>
       <main className="flex-1">{children}</main>
       <PortalFooter width="public" />

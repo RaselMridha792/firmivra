@@ -632,16 +632,35 @@ export const AdminDashboard = z.object({
   pendingApplications: z.number().int().min(0),
   activeFirms: z.number().int().min(0),
   /**
-   * Staff and client logins across every firm (Super Admins not counted). Null until R0's
-   * platform count exists (admin scope cannot read members or clients).
+   * Staff and client logins (the staff and clients identity pools; Super Admins not counted).
+   * Nullable only for older API builds; the API always sends a number.
    */
   totalUsers: z.number().int().min(0).nullable(),
-  /** Of those, created in the last 7 days; null like `totalUsers`. */
+  /** Of those, created in the last 7 days; nullable like `totalUsers`. */
   newUsersThisWeek: z.number().int().min(0).nullable(),
-  /** In cents; null until billing exists (R7). */
+  /** In cents. 0 while Firmivra does not bill firms (Subscriptions and Billing come later). */
   monthlyRevenueCents: z.number().int().nullable(),
 });
 export type AdminDashboard = z.infer<typeof AdminDashboard>;
+
+/** One service's state on the dashboard's System Status card. */
+export const ServiceHealth = z.enum(['online', 'degraded', 'offline']);
+export type ServiceHealth = z.infer<typeof ServiceHealth>;
+
+/**
+ * GET /admin/system-status: real checks of the services behind the platform, cached about 60 s.
+ * Platform and Database come from the public /health.
+ */
+export const AdminSystemStatus = z.object({
+  /** A tiny object written, read back and deleted under a key no firm uses. */
+  storage: ServiceHealth,
+  /** From this API's recent sends: degraded when the latest in the last hour failed. */
+  email: ServiceHealth,
+  /** Each active firm's portal address, resolved as the portal does. Null with no active firm. */
+  portals: ServiceHealth.nullable(),
+  checkedAt: DateTime,
+});
+export type AdminSystemStatus = z.infer<typeof AdminSystemStatus>;
 
 /** Stable `error.code` values of this module, besides the generic ones in ApiError. */
 export const FirmApplicationErrorCode = z.enum([

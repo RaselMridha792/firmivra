@@ -15,6 +15,7 @@ import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
 import { TextArea } from '../../../../setup/_components/fields';
+import { IntakeAgreements } from './intake-agreements';
 
 const KINDS = [
   { id: 'terms', label: 'Terms of Service' },
@@ -30,11 +31,12 @@ const published = (doc: LegalVersion) =>
   })}`;
 
 /**
- * Settings > Terms & Privacy: the firm's own texts, as versions. Publishing adds a version;
- * versions never change. The text is shown as plain text, never as HTML.
+ * Settings > Terms & Privacy: the firm's own texts, as versions, and the intake agreements
+ * clients sign. Publishing adds a version; versions never change. Texts are shown as plain text,
+ * never as HTML.
  */
 export function LegalSettings() {
-  const [kind, setKind] = useState<LegalKind>('terms');
+  const [tab, setTab] = useState<LegalKind | 'agreements'>('terms');
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -48,9 +50,12 @@ export function LegalSettings() {
       </div>
       <Tabs
         label="Legal documents"
-        value={kind}
-        onChange={(id) => setKind(id === 'privacy' ? 'privacy' : 'terms')}
-        items={KINDS.map(({ id, label }) => ({ id, label, content: <LegalPanel kind={id} /> }))}
+        value={tab}
+        onChange={(id) => setTab(id === 'privacy' || id === 'agreements' ? id : 'terms')}
+        items={[
+          ...KINDS.map(({ id, label }) => ({ id, label, content: <LegalPanel kind={id} /> })),
+          { id: 'agreements', label: 'Intake agreements', content: <IntakeAgreements /> },
+        ]}
       />
     </div>
   );

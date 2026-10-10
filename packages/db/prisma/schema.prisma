@@ -185,7 +185,7 @@ enum LeadStatus {
   /// Staff matched or created the client and opened the engagement.
   CONVERTED
   DECLINED
-  /// The draft's resume link ran out.
+  /// The draft ran out (Lead.draftExpiresAt) before it was sent.
   EXPIRED
 }
 
@@ -232,7 +232,8 @@ enum MessageDirection {
   CLIENT_TO_FIRM
 }
 
-/// DRAFT -> SCHEDULED (Upcoming) or OPEN (Pending, Due Soon) -> PAID; CANCELED. PAID and CANCELED are final.
+/// DRAFT -> SCHEDULED (Upcoming) or OPEN (Pending, Due Soon) -> PAID; CANCELED. PAID and CANCELED are
+/// final, except that voiding an offline payment reopens (PAID -> OPEN) a PAID invoice it no longer covers.
 enum InvoiceStatus {
   DRAFT
   SCHEDULED
@@ -267,6 +268,12 @@ enum PaymentProcessor {
   STRIPE
 }
 
+/// How an offline payment arrived. Card and bank payments through Stripe are Payment rows, never these.
+enum OfflinePaymentMethod {
+  CHECK
+  CASH
+}
+
 /// Content editor records shown in the portal (Business Documents, Resources & Services).
 enum ContentKind {
   RESOURCE
@@ -277,6 +284,21 @@ enum ContentKind {
 enum LegalDocumentKind {
   TERMS
   PRIVACY
+}
+
+/// Which intakes a firm agreement covers.
+enum AgreementScope {
+  /// The firm-wide agreement: every Begin Online form and every portal intake. One per firm.
+  ALL_INTAKES
+  /// An extra agreement for one service's intakes.
+  SERVICE
+}
+
+/// How a signature was captured. Intake signing is TYPED; DRAWN and UPLOADED are Firm Sign's.
+enum SignatureMethod {
+  TYPED
+  DRAWN
+  UPLOADED
 }
 
 /// A firm on Firmivra (the tenant).
@@ -318,6 +340,7 @@ model Business {
   calculators          CalculatorDefinition[]
   stripeAccount        StripeAccount?
   platformOwnerInvites PlatformOwnerInvite[]
+  esignSettings        EsignSettings?
 
   @@map("businesses")
 }
@@ -383,11 +406,16 @@ model Membership {
   /// Set by the database the first time the membership is ACTIVE; never changes. Until then
   /// the firm sees only the invite's name and email, never the person's user row.
   joinedAt   DateTime?        @map("joined_at") @db.Timestamptz(3)
+  /// The member's own video meeting link (Zoom, Meet, Teams) for their VIDEO appointments:
+  /// https only, no spaces or control characters, at most 500 characters (database CHECK).
+  meetingUrl String?          @map("meeting_url")
+  /// Firm Sign's Staff Title merge field: the member's own job title, up to 100 characters.
+  jobTitle   String?          @map("job_title")
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business            Business       @relation(fields: [businessId], references: [id])
-  user                User           @relation(fields: [userId], references: [id])
+  business            Business               @relation(fields: [businessId], references: [id])
+  user                User                   @relation(fields: [userId], references: [id])
   invites             Invite[]
   assignedClients     Client[]
   assignedEngagements Engagement[]
@@ -397,6 +425,26 @@ model Membership {
   appointments        Appointment[]
   invoicesCreated     Invoice[]
   contentCreated      ContentItem[]
+  agreementsCreated   FirmAgreement[]
+  agreementFiles      FirmAgreementFile[]
+  agreementVersions   FirmAgreementVersion[]
+
+  // Offline payments this member recorded or voided.
+  offlinePaymentsRecorded OfflinePayment[] @relation("OfflinePaymentRecordedBy")
+  offlinePaymentsVoided   OfflinePayment[] @relation("OfflinePaymentVoidedBy")
+
+  // Firm Sign.
+  esignConsentPublished EsignConsentVersion[]  @relation("EsignConsentPublishedBy")
+  esignRole             EsignMemberRole?       @relation("EsignMemberRole")
+  esignTemplates        EsignTemplate[]        @relation("EsignTemplateOwner")
+  esignTemplateVersions EsignTemplateVersion[] @relation("EsignTemplateVersionSavedBy")
+  esignRequestsSent     EsignRequest[]         @relation("EsignRequestSender")
+  esignRequestsVoided   EsignRequest[]         @relation("EsignRequestVoidedBy")
+  esignRecipients       EsignRecipient[]       @relation("EsignRecipientStaff")
+  esignEmails           EsignEmail[]           @relation("EsignEmailMember")
+  esignUploads          EsignPendingUpload[]   @relation("EsignUploadMember")
+  esignKioskLock        EsignKioskLock?        @relation("EsignKioskLock")
+  esignBulkBatches      EsignBulkBatch[]       @relation("EsignBulkCreatedBy")
 
   @@unique([businessId, userId])
   // Target of same-firm foreign keys (see Invite).
@@ -433,7 +481,9 @@ model ClientAccount {
   invites           Invite[]
   privateNotes      ClientPrivateNote[]
   legalAcceptances  LegalAcceptance[]
+  intakeSignatures  IntakeSignature[]
   verificationCodes VerificationCode[]
+  esignRecipients   EsignRecipient[]
 
   @@unique([businessId, email])
   // Target of client-owned rows (private notes).
@@ -584,8 +634,10 @@ model FirmLegalDocument {
   publishedByUserId String            @map("published_by_user_id") @db.Uuid
   publishedAt       DateTime          @default(now()) @map("published_at") @db.Timestamptz(3)
 
-  business    Business          @relation(fields: [businessId], references: [id])
-  acceptances LegalAcceptance[]
+  business          Business          @relation(fields: [businessId], references: [id])
+  termsSignatures   IntakeSignature[] @relation("IntakeSignatureTerms")
+  privacySignatures IntakeSignature[] @relation("IntakeSignaturePrivacy")
+  acceptances       LegalAcceptance[]
 
   @@unique([businessId, kind, version])
   // Target of same-firm foreign keys (legal acceptances).
@@ -675,6 +727,8 @@ model Client {
   messageThreads   MessageThread[]
   invoices         Invoice[]
   taxReturns       TaxReturn[]
+  esignRequests    EsignRequest[]
+  esignBulkItems   EsignBulkItem[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -784,13 +838,17 @@ model Service {
   /// The firm's workflow steps for this service, in order. An engagement's stage is one of them.
   stages          String[]        @default([])
   sortOrder       Int             @default(0) @map("sort_order")
+  /// Offered on the firm's Begin Online pages. At most one live (not archived) Begin Online
+  /// service per kind in a firm, never OTHER (SQL only: Prisma ignores partial unique indexes).
+  beginOnline     Boolean         @default(false) @map("begin_online")
   archivedAt      DateTime?       @map("archived_at") @db.Timestamptz(3)
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  business    Business     @relation(fields: [businessId], references: [id])
+  business    Business        @relation(fields: [businessId], references: [id])
   engagements Engagement[]
   intakeForms IntakeForm[]
+  agreements  FirmAgreement[]
   leads       Lead[]
 
   @@unique([businessId, name])
@@ -844,6 +902,8 @@ model Engagement {
   messageThreads   MessageThread[]
   invoices         Invoice[]
   taxReturns       TaxReturn[]
+  esignRequests    EsignRequest[]
+  esignBulkItems   EsignBulkItem[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -972,10 +1032,10 @@ model DocumentCategory {
 /// A file in the firm's vault, always within one engagement. The file is in S3 under the firm's
 /// prefix (`tenant/<business_id>/...`, under a UUID name) and its key never changes; it starts in
 /// quarantine (PENDING) and only a CLEAN file can be downloaded. INTERNAL documents are never
-/// shown to the client. Database rules: a client uploads only while the engagement is open; the
-/// scan result is set once; retentionUntil only moves later; a document is deleted only without
-/// a legal hold, and either after retentionUntil or, for a client upload, while its engagement
-/// is open.
+/// shown to the client. Database rules: a client file (an upload or a carried-over Begin Online
+/// file) goes only into an ACTIVE engagement; the scan result is set once; retentionUntil only
+/// moves later; a document is deleted only without a legal hold, and either after
+/// retentionUntil or, for a client upload, while its engagement is ACTIVE (and its intake open).
 model Document {
   id               String            @id @default(uuid(7)) @db.Uuid
   businessId       String            @map("business_id") @db.Uuid
@@ -987,6 +1047,13 @@ model Document {
   /// Set when the document was carried over from a Begin Online upload at lead conversion: it
   /// then shares that upload's S3 key, file and scan result (checked by the database).
   leadUploadId     String?           @map("lead_upload_id") @db.Uuid
+  /// A client file in an intake's upload slot (intakeSlot is the field's key). Both are set on
+  /// insert, for an intake of the same engagement that is open for changes (or, carried over,
+  /// for the intake of the upload's lead and its slot). The file leaves the intake (both cleared,
+  /// or deleted before retentionUntil) only while the intake is open: a submit detaches hidden
+  /// slots' files before it changes the status. Nothing else changes them.
+  intakeId         String?           @map("intake_id") @db.Uuid
+  intakeSlot       String?           @map("intake_slot")
   direction        DocumentDirection
   /// The uploader's file name, for display only.
   fileName         String            @map("file_name")
@@ -1003,13 +1070,20 @@ model Document {
   retentionUntil   DateTime?         @map("retention_until") @db.Date
   legalHold        Boolean           @default(false) @map("legal_hold")
   uploadedByUserId String?           @map("uploaded_by_user_id") @db.Uuid
+  /// Firm Sign's filed copy (the final PDF or the certificate) of this completed request: the one
+  /// kind of document that starts CLEAN (the scan exception), set on insert only.
+  esignRequestId   String?           @map("esign_request_id") @db.Uuid
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  esignRequest       EsignRequest?       @relation("EsignFiledDocuments", fields: [businessId, esignRequestId], references: [businessId, id], onDelete: Restrict)
+  esignFinalOf       EsignRequest?       @relation("EsignFinalDocument")
+  esignCertificateOf EsignRequest?       @relation("EsignCertificateDocument")
   engagement         Engagement          @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   category           DocumentCategory?   @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict)
   request            DocumentRequest?    @relation(fields: [businessId, engagementId, requestId], references: [businessId, engagementId, id], onDelete: Restrict)
   leadUpload         LeadUpload?         @relation(fields: [businessId, leadUploadId], references: [businessId, id], onDelete: Restrict)
+  intake             Intake?             @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
   reports            EngagementReport[]
   messageAttachments MessageAttachment[]
   taxReturns         TaxReturn[]
@@ -1022,6 +1096,8 @@ model Document {
   @@unique([businessId, engagementId, id])
   @@index([businessId, clientId, createdAt])
   @@index([businessId, requestId])
+  @@index([businessId, intakeId])
+  @@index([businessId, esignRequestId])
   @@map("documents")
 }
 
@@ -1067,7 +1143,8 @@ model IntakeForm {
   title           String
   /// The form engine's definition (I06 sets the shape).
   definition      Json             @default("{}")
-  /// The agreement the client signs at the end, as shown (markdown).
+  /// Deprecated (r0_intake_agreements): no longer written. The agreement the client signs now
+  /// comes from FirmAgreement. Kept until after delivery because the published-form rule reads it.
   agreementText   String?          @map("agreement_text")
   status          IntakeFormStatus @default(DRAFT)
   publishedAt     DateTime?        @map("published_at") @db.Timestamptz(3)
@@ -1097,10 +1174,19 @@ model Intake {
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  /// The firm's request for changes: set exactly while the status is NEEDS_CORRECTION (the API
+  /// clears it with the status change that ends it). Up to 2,000 characters, not only blanks,
+  /// line breaks allowed, no other control, filler or invisible characters.
+  correctionNote        String?   @map("correction_note")
+  /// Set by the database (its clock) whenever correctionNote is set or changed; cleared with it.
+  correctionRequestedAt DateTime? @map("correction_requested_at") @db.Timestamptz(3)
+
   form        IntakeForm         @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict)
   engagement  Engagement?        @relation(fields: [businessId, engagementId], references: [businessId, id], onDelete: Restrict)
   lead        Lead?              @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  signatures  IntakeSignature[]
   submissions IntakeSubmission[]
+  documents   Document[]
 
   @@unique([businessId, id])
   @@index([businessId, engagementId])
@@ -1117,6 +1203,9 @@ model IntakeSubmission {
   intakeId          String    @map("intake_id") @db.Uuid
   version           Int
   answers           Json      @default("{}")
+  /// The steps saved at least once (step keys, at most 10, none twice): the stepper's ticks.
+  /// Locked with the rest of the version on submit.
+  savedSteps        String[]  @default([]) @map("saved_steps")
   submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(3)
   /// Null for Begin Online (no login).
   submittedByUserId String?   @map("submitted_by_user_id") @db.Uuid
@@ -1127,16 +1216,20 @@ model IntakeSubmission {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  intake Intake @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  intake    Intake           @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  signature IntakeSignature?
 
   @@unique([businessId, intakeId, version])
+  // Target of same-firm foreign keys (intake signatures).
+  @@unique([businessId, id])
   @@map("intake_submissions")
 }
 
 /// A Begin Online visitor's request for a service, from the firm's public site (no login, no
 /// account). Holds the intake and uploads until staff review it; converting sets the client
-/// and the new engagement once (that engagement belongs to that client). The resume link
-/// stores only the token's SHA-256 and lasts at most 30 days.
+/// and the new engagement once (that engagement belongs to that client and is ACTIVE then).
+/// The resume link stores only the token's SHA-256 and lasts at most 30 days. createdAt is the
+/// database's clock; neither the draft nor its link outlives createdAt + 90 days.
 model Lead {
   id               String     @id @default(uuid(7)) @db.Uuid
   businessId       String     @map("business_id") @db.Uuid
@@ -1146,6 +1239,13 @@ model Lead {
   lastName         String     @map("last_name")
   email            String
   phone            String?
+  /// The year the firm prepares (2000 to 2100), fixed at the draft's start: set once, while a
+  /// draft, then never changed.
+  taxYear          Int?       @map("tax_year")
+  /// When the draft runs out. Required while DRAFT (on insert the database fills 30 days from
+  /// now); a renewal is at most 30 days from then; kept as the lead leaves DRAFT, and frozen.
+  /// An expired draft is not renewed and only becomes EXPIRED; no lead goes back to DRAFT.
+  draftExpiresAt   DateTime?  @map("draft_expires_at") @db.Timestamptz(3)
   resumeTokenHash  String?    @unique @map("resume_token_hash")
   resumeExpiresAt  DateTime?  @map("resume_expires_at") @db.Timestamptz(3)
   submittedAt      DateTime?  @map("submitted_at") @db.Timestamptz(3)
@@ -1157,9 +1257,10 @@ model Lead {
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  service    Service      @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement?  @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  service    Service           @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?       @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
   intakes    Intake[]
+  signatures IntakeSignature[]
   uploads    LeadUpload[]
 
   @@unique([businessId, id])
@@ -1284,6 +1385,10 @@ model AppointmentType {
   archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Clients reschedule or cancel until this many hours before the start (0 to 720; 0 = until
+  /// the start).
+  cancelCutoffHours Int @default(24) @map("cancel_cutoff_hours")
 
   business     Business      @relation(fields: [businessId], references: [id])
   appointments Appointment[]
@@ -1479,8 +1584,12 @@ model ClientNoteReminder {
 
 /// A firm's invoice to one client, optionally for one of that client's engagements. Money is in
 /// integer cents. The database keeps the totals: subtotal is the sum of the lines and total is
-/// subtotal minus discount. Lines change only while DRAFT or SCHEDULED. PAID needs SUCCEEDED
-/// payments covering the total; PAID and CANCELED are final. Never deleted.
+/// subtotal minus discount. Lines change only while DRAFT or SCHEDULED. PAID needs the money Stripe
+/// took (SUCCEEDED or REFUNDED payments: a refund never makes an invoice owed again) plus live (not
+/// voided) offline payments covering the total, the database's app_invoice_paid_cents. PAID and
+/// CANCELED are final, except that the database reopens a PAID invoice when voiding an offline
+/// payment leaves it uncovered. An invoice holding money (live offline payments, or a SUCCEEDED
+/// Stripe payment) cannot be canceled. Never deleted.
 model Invoice {
   id              String        @id @default(uuid(7)) @db.Uuid
   businessId      String        @map("business_id") @db.Uuid
@@ -1506,11 +1615,12 @@ model Invoice {
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client     Client        @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
-  engagement Engagement?   @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
-  createdBy  Membership?   @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
-  lines      InvoiceLine[]
-  payments   Payment[]
+  client          Client           @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement      Engagement?      @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  createdBy       Membership?      @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  lines           InvoiceLine[]
+  payments        Payment[]
+  offlinePayments OfflinePayment[]
 
   @@unique([businessId, number])
   @@unique([businessId, id])
@@ -1540,8 +1650,9 @@ model InvoiceLine {
 }
 
 /// A payment toward an invoice through the processor (Stripe hosted checkout). It starts
-/// PENDING; it becomes SUCCEEDED or REFUNDED only after a recorded processor event names it, so
-/// money is confirmed only by a verified webhook. Never deleted.
+/// PENDING, inserted when the checkout is created, for no more than the balance due; it becomes
+/// SUCCEEDED or REFUNDED only after a recorded processor event names it, so money is confirmed
+/// only by a verified webhook. Never deleted.
 model Payment {
   id                  String           @id @default(uuid(7)) @db.Uuid
   businessId          String           @map("business_id") @db.Uuid
@@ -1572,6 +1683,49 @@ model Payment {
   @@unique([businessId, id])
   @@index([businessId, invoiceId])
   @@map("payments")
+}
+
+/// A check or cash payment toward an invoice, recorded by an active Owner or Admin acting as
+/// themselves, on an OPEN invoice with no open Stripe checkout, never above the balance due.
+/// Separate from Payment (Stripe only). Fixed once recorded and never deleted: a mistake is voided
+/// once, with a reason, through the database function app_void_offline_payment (never a plain
+/// update), and a void that leaves a PAID invoice uncovered reopens it.
+model OfflinePayment {
+  id               String               @id @default(uuid(7)) @db.Uuid
+  businessId       String               @map("business_id") @db.Uuid
+  invoiceId        String               @map("invoice_id") @db.Uuid
+  method           OfflinePaymentMethod
+  amountCents      Int                  @map("amount_cents")
+  /// Always the invoice's currency.
+  currency         String               @default("usd")
+  /// The check number (required for CHECK) or a cash receipt number: 1 to 20 letters, digits or
+  /// hyphens. Never a bank account or routing number.
+  reference        String?
+  /// The day the firm received the money (the firm's calendar); never in the future.
+  receivedOn       DateTime             @map("received_on") @db.Date
+  /// Firm-only note, at most 500 characters.
+  note             String?
+  /// The record request's idempotency key (new per dialog, the same on a retry).
+  idempotencyKey   String               @map("idempotency_key") @db.Uuid
+  /// Always the acting person, an active Owner or Admin (checked by the database).
+  recordedByUserId String               @map("recorded_by_user_id") @db.Uuid
+  /// Set by the database (now()).
+  recordedAt       DateTime             @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  /// The void: all three set together, once, by app_void_offline_payment(id, reason), acting as an
+  /// active Owner or Admin. voidedAt is set by the database.
+  voidedAt         DateTime?            @map("voided_at") @db.Timestamptz(3)
+  voidedByUserId   String?              @map("voided_by_user_id") @db.Uuid
+  voidReason       String?              @map("void_reason")
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  invoice    Invoice     @relation(fields: [businessId, invoiceId], references: [businessId, id], onDelete: Restrict)
+  recordedBy Membership  @relation("OfflinePaymentRecordedBy", fields: [businessId, recordedByUserId], references: [businessId, userId], onDelete: Restrict)
+  voidedBy   Membership? @relation("OfflinePaymentVoidedBy", fields: [businessId, voidedByUserId], references: [businessId, userId], onDelete: Restrict)
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, invoiceId])
+  @@map("offline_payments")
 }
 
 /// One processor webhook event, recorded before it is processed. The event id is unique, so a
@@ -1825,4 +1979,892 @@ model TaxReturn {
   @@index([businessId, clientId, taxYear])
   @@index([businessId, documentId])
   @@map("tax_returns")
+}
+
+/// One agreement a firm keeps for intakes (docs/SYSTEM-DESIGN.md, intake agreements): the
+/// firm-wide agreement (one unarchived per firm) or an extra one for a service. Its text lives in
+/// insert-only versions. Only sort_order and archived_at change (archived once); never deleted.
+model FirmAgreement {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  businessId      String         @map("business_id") @db.Uuid
+  scope           AgreementScope
+  /// Only for SERVICE agreements.
+  serviceId       String?        @map("service_id") @db.Uuid
+  sortOrder       Int            @default(0) @map("sort_order")
+  archivedAt      DateTime?      @map("archived_at") @db.Timestamptz(3)
+  createdByUserId String         @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  service   Service?               @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  createdBy Membership             @relation(fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  versions  FirmAgreementVersion[]
+
+  @@unique([businessId, id])
+  @@index([businessId, serviceId])
+  @@map("firm_agreements")
+}
+
+/// The PDF original of an agreement version, uploaded by the firm. Same file rules as a document:
+/// under `tenant/<business_id>/agreements/`, PDF only, at most 10 MB, starts unscanned, scan
+/// result set once, file fixed. A version may link it only once it is CLEAN. Never deleted.
+model FirmAgreementFile {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  businessId       String     @map("business_id") @db.Uuid
+  fileName         String     @map("file_name")
+  contentType      String     @default("application/pdf") @map("content_type")
+  sizeBytes        Int        @map("size_bytes")
+  /// SHA-256 of the file, hex.
+  sha256           String
+  s3Key            String     @unique @map("s3_key")
+  scanStatus       ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  uploadedByUserId String     @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  uploadedBy Membership             @relation(fields: [businessId, uploadedByUserId], references: [businessId, userId], onDelete: Restrict)
+  versions   FirmAgreementVersion[]
+
+  @@unique([businessId, id])
+  // Target of the version's (file, hash) foreign key, so a version's pdf_sha256 is the file's.
+  @@unique([businessId, id, sha256])
+  @@map("firm_agreement_files")
+}
+
+/// One published version of a firm agreement. Insert-only: a change is a new version, numbered
+/// 1, 2, 3… per agreement. The database sets body_sha256 from the Markdown, and refuses a PDF
+/// that is not CLEAN or an archived agreement. Clients sign a version; its hashes are pinned.
+model FirmAgreementVersion {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  agreementId       String    @map("agreement_id") @db.Uuid
+  version           Int
+  title             String
+  /// The text the client reads (Markdown, rendered with raw HTML off).
+  bodyMarkdown      String    @map("body_markdown")
+  /// SHA-256 of body_markdown in UTF-8, hex. Set by the database on insert; any value sent is replaced.
+  bodySha256        String    @default("") @map("body_sha256")
+  /// [{ key, label, text, required }], 0 to 8 with unique keys. The firm-wide agreement needs a required one.
+  acknowledgments   Json      @default("[]")
+  /// The PDF original (both set or both null).
+  pdfFileId         String?   @map("pdf_file_id") @db.Uuid
+  pdfSha256         String?   @map("pdf_sha256")
+  effectiveDate     DateTime? @map("effective_date") @db.Date
+  publishedByUserId String    @map("published_by_user_id") @db.Uuid
+  publishedAt       DateTime  @default(now()) @map("published_at") @db.Timestamptz(3)
+
+  agreement   FirmAgreement              @relation(fields: [businessId, agreementId], references: [businessId, id], onDelete: Restrict)
+  pdfFile     FirmAgreementFile?         @relation(fields: [businessId, pdfFileId, pdfSha256], references: [businessId, id, sha256], onDelete: Restrict)
+  publishedBy Membership                 @relation(fields: [businessId, publishedByUserId], references: [businessId, userId], onDelete: Restrict)
+  signatures  IntakeSignatureAgreement[]
+
+  @@unique([businessId, agreementId, version])
+  @@unique([businessId, id])
+  @@map("firm_agreement_versions")
+}
+
+/// The signature evidence for one submitted intake version (Begin Online lead or portal client).
+/// Insert-only. Written while the submission is a draft; setting the submission's submitted_at
+/// needs it, with the same name, time, IP and browser. signed_at is the database's time.
+/// acknowledgments copies each one shown: [{ agreementVersionId, key, label, text, required, checked }].
+model IntakeSignature {
+  id                String          @id @default(uuid(7)) @db.Uuid
+  businessId        String          @map("business_id") @db.Uuid
+  submissionId      String          @map("submission_id") @db.Uuid
+  intakeId          String          @map("intake_id") @db.Uuid
+  /// Begin Online: the intake's lead. Exactly one of leadId and clientAccountId.
+  leadId            String?         @map("lead_id") @db.Uuid
+  /// Portal: a login of the engagement's client.
+  clientAccountId   String?         @map("client_account_id") @db.Uuid
+  printedName       String          @map("printed_name")
+  signatureText     String          @map("signature_text")
+  signatureMethod   SignatureMethod @default(TYPED) @map("signature_method")
+  signerTitle       String?         @map("signer_title")
+  signerEmail       String?         @map("signer_email")
+  acknowledgments   Json            @default("[]")
+  /// Begin Online's Terms of Service and Privacy Policy tick: the versions accepted (both or neither).
+  termsDocumentId   String?         @map("terms_document_id") @db.Uuid
+  privacyDocumentId String?         @map("privacy_document_id") @db.Uuid
+  /// SHA-256 hex of the canonical answers, and of the canonical evidence (apps/api esign/core).
+  answersSha256     String          @map("answers_sha256")
+  evidenceSha256    String          @map("evidence_sha256")
+  /// Set by the database (transaction time); any value sent is replaced.
+  signedAt          DateTime        @default(now()) @map("signed_at") @db.Timestamptz(3)
+  ip                String?         @db.Inet
+  userAgent         String?         @map("user_agent")
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  submission    IntakeSubmission           @relation(fields: [businessId, submissionId], references: [businessId, id], onDelete: Restrict)
+  intake        Intake                     @relation(fields: [businessId, intakeId], references: [businessId, id], onDelete: Restrict)
+  lead          Lead?                      @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  clientAccount ClientAccount?             @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  terms         FirmLegalDocument?         @relation("IntakeSignatureTerms", fields: [businessId, termsDocumentId], references: [businessId, id], onDelete: Restrict)
+  privacy       FirmLegalDocument?         @relation("IntakeSignaturePrivacy", fields: [businessId, privacyDocumentId], references: [businessId, id], onDelete: Restrict)
+  agreements    IntakeSignatureAgreement[]
+
+  // One signature per submission version.
+  @@unique([businessId, submissionId])
+  @@unique([businessId, id])
+  @@index([businessId, intakeId])
+  @@map("intake_signatures")
+}
+
+/// One agreement version an intake signature covers, with the hashes the signer saw (they must
+/// equal the version's). Insert-only, only while the submission is a draft, and only the current
+/// version of an unarchived agreement.
+model IntakeSignatureAgreement {
+  businessId         String  @map("business_id") @db.Uuid
+  signatureId        String  @map("signature_id") @db.Uuid
+  agreementVersionId String  @map("agreement_version_id") @db.Uuid
+  bodySha256         String  @map("body_sha256")
+  pdfSha256          String? @map("pdf_sha256")
+
+  signature        IntakeSignature      @relation(fields: [businessId, signatureId], references: [businessId, id], onDelete: Restrict)
+  agreementVersion FirmAgreementVersion @relation(fields: [businessId, agreementVersionId], references: [businessId, id], onDelete: Restrict)
+
+  @@id([signatureId, agreementVersionId])
+  @@index([businessId, agreementVersionId])
+  @@map("intake_signature_agreements")
+}
+
+// ---------- Firm Sign (R13, migration r0_esign) ----------
+// The built-in e-signature module, behind the per-firm module `esign`
+// (business_settings.enabled_modules, changed only by app_set_business_module). Every table is a
+// firm table with forced RLS. The value lists match packages/types/src/esign/enums.ts.
+
+/// A signature request's status. DELIVERED is shown as "Sent".
+enum EsignRequestStatus {
+  DRAFT
+  NEEDS_APPROVAL
+  SENT
+  DELIVERED
+  VIEWED
+  PARTIALLY_SIGNED
+  COMPLETED
+  DECLINED
+  EXPIRED
+  VOIDED
+}
+
+/// Where a request was started.
+enum EsignSource {
+  TAB
+  CLIENT_RECORD
+  TEMPLATE
+  BULK
+}
+
+enum EsignRouting {
+  SEQUENTIAL
+  PARALLEL
+}
+
+enum EsignRecipientKind {
+  SIGNER
+  APPROVER
+  CC
+}
+
+/// The spec's signing roles; CUSTOM takes a role label.
+enum EsignRecipientRole {
+  CLIENT
+  SPOUSE
+  BUSINESS_OWNER
+  EMPLOYEE
+  PREPARER
+  MANAGER
+  WITNESS
+  CUSTOM
+}
+
+enum EsignRecipientStatus {
+  WAITING
+  SENT
+  DELIVERED
+  VIEWED
+  SIGNED
+  APPROVED
+  REJECTED
+  DECLINED
+}
+
+enum EsignDelivery {
+  EMAIL
+  PORTAL
+  IN_PERSON
+}
+
+/// LINK, EMAIL_CODE and ACCESS_CODE are chosen for a recipient; PORTAL_SESSION and IN_PERSON are
+/// only recorded on events.
+enum EsignAuthMethod {
+  LINK
+  EMAIL_CODE
+  ACCESS_CODE
+  PORTAL_SESSION
+  IN_PERSON
+}
+
+enum EsignFieldType {
+  SIGNATURE
+  INITIALS
+  DATE_SIGNED
+  PRINTED_NAME
+  EMAIL
+  PHONE
+  ADDRESS
+  TEXT
+  CHECKBOX
+  RADIO
+  DROPDOWN
+  ATTACHMENT
+}
+
+enum EsignEventType {
+  CREATED
+  EDITED
+  APPROVAL_REQUESTED
+  APPROVED
+  APPROVAL_REJECTED
+  SENT
+  DELIVERED
+  VIEWED
+  AUTH_PASSED
+  AUTH_FAILED
+  CONSENTED
+  SIGNED
+  REMINDER_SENT
+  EXPIRY_WARNING_SENT
+  DECLINED
+  EXPIRED
+  VOIDED
+  CORRECTED
+  REPLACED
+  COMPLETED
+  COPY_SENT
+  DOWNLOADED
+  IN_PERSON_STARTED
+  IN_PERSON_ENDED
+}
+
+enum EsignActorKind {
+  STAFF
+  SIGNER
+  CLIENT
+  SYSTEM
+}
+
+enum EsignTemplateVisibility {
+  FIRM
+  PRIVATE
+}
+
+enum EsignBulkItemState {
+  QUEUED
+  SENT
+  NOT_SENT
+}
+
+/// Who a recipient is: one of the client's portal logins, a staff member, or someone else.
+enum EsignRecipientLinkType {
+  CLIENT_LOGIN
+  STAFF
+  EXTERNAL
+}
+
+/// SIGN: the invitation's link. COPY: the completed-copy link (30 days). IN_PERSON: a kiosk link.
+enum EsignLinkPurpose {
+  SIGN
+  COPY
+  IN_PERSON
+}
+
+enum EsignCodeKind {
+  EMAIL
+  ACCESS
+}
+
+/// A Staff member's Firm Sign access beyond STAFF (no row: STAFF).
+enum EsignStaffRole {
+  MANAGER
+  VIEWER
+}
+
+enum EsignApprovalDecision {
+  APPROVE
+  REJECT
+}
+
+enum EsignEmailStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+/// An upload started and not confirmed: a request's file, or a signer's attachment.
+enum EsignUploadKind {
+  DOCUMENT
+  ATTACHMENT
+}
+
+/// The firm's defaults for new requests (Signing Settings). No row: the platform's defaults.
+model EsignSettings {
+  businessId             String          @id @map("business_id") @db.Uuid
+  expiryDays             Int             @default(30) @map("expiry_days")
+  reminderFirstAfterDays Int             @default(3) @map("reminder_first_after_days")
+  reminderEveryDays      Int             @default(3) @map("reminder_every_days")
+  reminderMax            Int             @default(3) @map("reminder_max")
+  expiryWarningDays      Int             @default(2) @map("expiry_warning_days")
+  authMethod             EsignAuthMethod @default(EMAIL_CODE) @map("auth_method")
+  requireApproval        Boolean         @default(false) @map("require_approval")
+  emailMessage           String?         @map("email_message")
+  createdAt              DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("esign_settings")
+}
+
+/// A published version of the firm's e-signature consent text. Insert-only; numbered 1, 2, 3 per
+/// firm; sha256 is the hex SHA-256 of body_markdown in UTF-8 (CHECK).
+model EsignConsentVersion {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  businessId        String   @map("business_id") @db.Uuid
+  version           Int
+  bodyMarkdown      String   @map("body_markdown")
+  sha256            String
+  publishedAt       DateTime @default(now()) @map("published_at") @db.Timestamptz(3)
+  /// Null for a version the platform seeded.
+  publishedByUserId String?  @map("published_by_user_id") @db.Uuid
+
+  publishedBy Membership?      @relation("EsignConsentPublishedBy", fields: [businessId, publishedByUserId], references: [businessId, userId], onDelete: Restrict)
+  recipients  EsignRecipient[]
+
+  @@unique([businessId, version])
+  @@unique([businessId, id])
+  @@map("esign_consent_versions")
+}
+
+/// A Staff member made a Firm Sign MANAGER or VIEWER. Owner and Admin follow their firm role.
+model EsignMemberRole {
+  businessId String         @map("business_id") @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  role       EsignStaffRole
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  member Membership @relation("EsignMemberRole", fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@id([businessId, userId])
+  @@map("esign_member_roles")
+}
+
+/// A reusable request: name, visibility and owner. `version` is the newest version (what `use`
+/// copies). `updated_at` is the API's optimistic lock. Never deleted; archived instead. Active
+/// names are unique per firm, case-insensitively (SQL-only partial index).
+model EsignTemplate {
+  id          String                  @id @default(uuid(7)) @db.Uuid
+  businessId  String                  @map("business_id") @db.Uuid
+  name        String
+  description String?
+  visibility  EsignTemplateVisibility
+  ownerUserId String                  @map("owner_user_id") @db.Uuid
+  version     Int                     @default(1)
+  createdAt   DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime                @default(now()) @map("updated_at") @db.Timestamptz(3)
+  archivedAt  DateTime?               @map("archived_at") @db.Timestamptz(3)
+
+  owner    Membership             @relation("EsignTemplateOwner", fields: [businessId, ownerUserId], references: [businessId, userId], onDelete: Restrict)
+  versions EsignTemplateVersion[]
+  requests EsignRequest[]
+
+  @@unique([businessId, id])
+  @@index([businessId, updatedAt])
+  @@map("esign_templates")
+}
+
+/// One version of a template: the packet (a CLEAN PDF in the template's folder), roles, fields
+/// and settings. Insert-only, numbered 1, 2, 3 per template.
+model EsignTemplateVersion {
+  businessId             String       @map("business_id") @db.Uuid
+  templateId             String       @map("template_id") @db.Uuid
+  version                Int
+  s3Key                  String       @unique @map("s3_key")
+  sha256                 String
+  sizeBytes              Int          @map("size_bytes")
+  /// [{ width, height }] in PDF points, one per page.
+  pageSizes              Json         @map("page_sizes")
+  /// EsignTemplateRole[] and EsignTemplateField[] (packages/types).
+  roles                  Json
+  fields                 Json
+  routing                EsignRouting
+  expiryDays             Int          @map("expiry_days")
+  reminderFirstAfterDays Int          @map("reminder_first_after_days")
+  reminderEveryDays      Int          @map("reminder_every_days")
+  reminderMax            Int          @map("reminder_max")
+  expiryWarningDays      Int          @map("expiry_warning_days")
+  emailSubject           String?      @map("email_subject")
+  emailMessage           String?      @map("email_message")
+  /// What changed, in the saver's words.
+  note                   String?
+  savedByUserId          String       @map("saved_by_user_id") @db.Uuid
+  savedAt                DateTime     @default(now()) @map("saved_at") @db.Timestamptz(3)
+
+  template    EsignTemplate    @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  savedBy     Membership       @relation("EsignTemplateVersionSavedBy", fields: [businessId, savedByUserId], references: [businessId, userId], onDelete: Restrict)
+  requests    EsignRequest[]   @relation("EsignRequestTemplateVersion")
+  bulkBatches EsignBulkBatch[]
+
+  @@id([templateId, version])
+  @@unique([businessId, templateId, version])
+  @@map("esign_template_versions")
+}
+
+/// A signature request. Inserted as a DRAFT; the database checks the status path, freezes what was
+/// sent, sets the closing facts once, and lets only a DRAFT be deleted. `last_activity_at` is the
+/// API's optimistic lock. `page_plan` is the packet: [{ documentId, page, rotation }], at most 100.
+model EsignRequest {
+  id                     String             @id @default(uuid(7)) @db.Uuid
+  businessId             String             @map("business_id") @db.Uuid
+  title                  String
+  status                 EsignRequestStatus @default(DRAFT)
+  source                 EsignSource
+  clientId               String?            @map("client_id") @db.Uuid
+  engagementId           String?            @map("engagement_id") @db.Uuid
+  senderUserId           String             @map("sender_user_id") @db.Uuid
+  /// Staff only: never in an email, a log or the audit.
+  internalNote           String?            @map("internal_note")
+  emailSubject           String?            @map("email_subject")
+  emailMessage           String?            @map("email_message")
+  routing                EsignRouting
+  expiryDays             Int                @map("expiry_days")
+  reminderFirstAfterDays Int                @map("reminder_first_after_days")
+  reminderEveryDays      Int                @map("reminder_every_days")
+  reminderMax            Int                @map("reminder_max")
+  expiryWarningDays      Int                @map("expiry_warning_days")
+  pagePlan               Json               @default("[]") @map("page_plan")
+  createdAt              DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastActivityAt         DateTime           @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  sentAt                 DateTime?          @map("sent_at") @db.Timestamptz(3)
+  expiresAt              DateTime?          @map("expires_at") @db.Timestamptz(3)
+  /// Every signer signed: the completion job files the final PDF from this time (PARTIALLY_SIGNED only).
+  completionDueAt        DateTime?          @map("completion_due_at") @db.Timestamptz(3)
+  completedAt            DateTime?          @map("completed_at") @db.Timestamptz(3)
+  /// Hex SHA-256 of the packet as sent, of the signed PDF and of the certificate.
+  originalSha256         String?            @map("original_sha256")
+  finalSha256            String?            @map("final_sha256")
+  certificateSha256      String?            @map("certificate_sha256")
+  /// The filed documents (FIRM_TO_CLIENT, CLEAN, legal hold): set once, after COMPLETED.
+  finalDocumentId        String?            @map("final_document_id") @db.Uuid
+  certificateDocumentId  String?            @map("certificate_document_id") @db.Uuid
+  expiredAt              DateTime?          @map("expired_at") @db.Timestamptz(3)
+  voidedAt               DateTime?          @map("voided_at") @db.Timestamptz(3)
+  /// Staff only, up to 500 characters.
+  voidReason             String?            @map("void_reason")
+  voidedByUserId         String?            @map("voided_by_user_id") @db.Uuid
+  replacesRequestId      String?            @map("replaces_request_id") @db.Uuid
+  replacedByRequestId    String?            @map("replaced_by_request_id") @db.Uuid
+  expiryWarnedAt         DateTime?          @map("expiry_warned_at") @db.Timestamptz(3)
+  /// The template and version it was made from (both or neither).
+  templateId             String?            @map("template_id") @db.Uuid
+  templateVersion        Int?               @map("template_version")
+
+  client              Client?               @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement          Engagement?           @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+  sender              Membership            @relation("EsignRequestSender", fields: [businessId, senderUserId], references: [businessId, userId], onDelete: Restrict)
+  voidedBy            Membership?           @relation("EsignRequestVoidedBy", fields: [businessId, voidedByUserId], references: [businessId, userId], onDelete: Restrict)
+  replaces            EsignRequest?         @relation("EsignReplaces", fields: [businessId, replacesRequestId], references: [businessId, id], onDelete: Restrict)
+  replacedOf          EsignRequest?         @relation("EsignReplaces")
+  replacedBy          EsignRequest?         @relation("EsignReplacedBy", fields: [businessId, replacedByRequestId], references: [businessId, id], onDelete: Restrict)
+  replacedByOf        EsignRequest?         @relation("EsignReplacedBy")
+  finalDocument       Document?             @relation("EsignFinalDocument", fields: [businessId, finalDocumentId], references: [businessId, id], onDelete: Restrict)
+  certificateDocument Document?             @relation("EsignCertificateDocument", fields: [businessId, certificateDocumentId], references: [businessId, id], onDelete: Restrict)
+  template            EsignTemplate?        @relation(fields: [businessId, templateId], references: [businessId, id], onDelete: Restrict)
+  templateVersionRow  EsignTemplateVersion? @relation("EsignRequestTemplateVersion", fields: [businessId, templateId, templateVersion], references: [businessId, templateId, version], onDelete: Restrict)
+  filedDocuments      Document[]            @relation("EsignFiledDocuments")
+  documents           EsignDocument[]
+  recipients          EsignRecipient[]
+  fields              EsignField[]
+  events              EsignEvent[]
+  approvalNotes       EsignApprovalNote[]
+  emails              EsignEmail[]
+  links               EsignSigningLink[]
+  uploads             EsignPendingUpload[]
+  attachments         EsignAttachment[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, replacesRequestId])
+  @@unique([businessId, replacedByRequestId])
+  @@unique([businessId, finalDocumentId])
+  @@unique([businessId, certificateDocumentId])
+  @@index([businessId, status, lastActivityAt])
+  @@index([businessId, status, expiresAt])
+  @@index([businessId, completionDueAt])
+  @@index([businessId, sentAt])
+  @@index([businessId, clientId])
+  @@index([businessId, senderUserId])
+  @@map("esign_requests")
+}
+
+/// One uploaded or vault file of a request (PDF, JPG or PNG, at most 10 MB), under the request's
+/// folder. Added and removed only while the request is a DRAFT; afterwards only the scan result
+/// is set, once. source_document_id is the vault document it was copied from (no FK: the vault
+/// file may later be deleted under its retention).
+model EsignDocument {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  businessId       String     @map("business_id") @db.Uuid
+  requestId        String     @map("request_id") @db.Uuid
+  position         Int
+  fileName         String     @map("file_name")
+  contentType      String     @map("content_type")
+  sizeBytes        Int        @map("size_bytes")
+  pageCount        Int        @map("page_count")
+  pageSizes        Json       @map("page_sizes")
+  sourceDocumentId String?    @map("source_document_id") @db.Uuid
+  s3Key            String     @unique @map("s3_key")
+  sha256           String
+  scanStatus       ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt        DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request EsignRequest @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+
+  @@unique([businessId, id])
+  @@unique([businessId, requestId, position])
+  @@map("esign_documents")
+}
+
+/// A signer, approver or CC of a request. Added and removed only while the request is a DRAFT.
+/// token_version only rises: a link works only at its recipient's current version. Once signed,
+/// who they are and what they adopted never change. Only the access code's HMAC is kept.
+model EsignRecipient {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  businessId       String                 @map("business_id") @db.Uuid
+  requestId        String                 @map("request_id") @db.Uuid
+  /// Order on the request (the list order).
+  position         Int
+  kind             EsignRecipientKind
+  role             EsignRecipientRole
+  roleLabel        String?                @map("role_label")
+  routingOrder     Int                    @map("routing_order")
+  name             String
+  email            String?
+  phone            String?
+  linkType         EsignRecipientLinkType @map("link_type")
+  clientAccountId  String?                @map("client_account_id") @db.Uuid
+  staffUserId      String?                @map("staff_user_id") @db.Uuid
+  delivery         EsignDelivery
+  authMethod       EsignAuthMethod        @map("auth_method")
+  accessCodeHash   String?                @map("access_code_hash")
+  colorIndex       Int                    @map("color_index")
+  status           EsignRecipientStatus   @default(WAITING)
+  sentAt           DateTime?              @map("sent_at") @db.Timestamptz(3)
+  viewedAt         DateTime?              @map("viewed_at") @db.Timestamptz(3)
+  signedAt         DateTime?              @map("signed_at") @db.Timestamptz(3)
+  declinedAt       DateTime?              @map("declined_at") @db.Timestamptz(3)
+  declineReason    String?                @map("decline_reason")
+  lastRemindedAt   DateTime?              @map("last_reminded_at") @db.Timestamptz(3)
+  reminderCount    Int                    @default(0) @map("reminder_count")
+  tokenVersion     Int                    @default(0) @map("token_version")
+  /// The consent version the signer accepted (pinned).
+  consentVersionId String?                @map("consent_version_id") @db.Uuid
+  consentedAt      DateTime?              @map("consented_at") @db.Timestamptz(3)
+  /// What the signer adopted: a typed text or a PNG (at most 200 KB) per mark.
+  printedName      String?                @map("printed_name")
+  signatureMethod  SignatureMethod?       @map("signature_method")
+  signatureText    String?                @map("signature_text")
+  signaturePng     Bytes?                 @map("signature_png")
+  initialsMethod   SignatureMethod?       @map("initials_method")
+  initialsText     String?                @map("initials_text")
+  initialsPng      Bytes?                 @map("initials_png")
+  adoptedAt        DateTime?              @map("adopted_at") @db.Timestamptz(3)
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request        EsignRequest            @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+  clientAccount  ClientAccount?          @relation(fields: [businessId, clientAccountId], references: [businessId, id], onDelete: Restrict)
+  staff          Membership?             @relation("EsignRecipientStaff", fields: [businessId, staffUserId], references: [businessId, userId], onDelete: Restrict)
+  consentVersion EsignConsentVersion?    @relation(fields: [businessId, consentVersionId], references: [businessId, id], onDelete: Restrict)
+  fields         EsignField[]
+  codes          EsignVerificationCode[]
+  links          EsignSigningLink[]
+  approvalNotes  EsignApprovalNote[]
+  emails         EsignEmail[]
+  uploads        EsignPendingUpload[]
+  attachments    EsignAttachment[]
+  kioskLocks     EsignKioskLock[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, requestId, id])
+  @@index([businessId, requestId])
+  @@index([businessId, clientAccountId])
+  @@index([businessId, staffUserId])
+  @@map("esign_recipients")
+}
+
+/// A recipient's email code (EMAIL: HMAC, expiry, tries, the sends of the last hour) or access
+/// code tries (ACCESS: the code's HMAC is on the recipient). Only HMACs are kept.
+model EsignVerificationCode {
+  businessId  String        @map("business_id") @db.Uuid
+  recipientId String        @map("recipient_id") @db.Uuid
+  kind        EsignCodeKind
+  codeHash    String?       @map("code_hash")
+  expiresAt   DateTime?     @map("expires_at") @db.Timestamptz(3)
+  tries       Int           @default(0)
+  /// When codes were sent within the last hour (at most 5).
+  sentTimes   DateTime[]    @default([]) @map("sent_times") @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  recipient EsignRecipient @relation(fields: [businessId, recipientId], references: [businessId, id], onDelete: Cascade)
+
+  @@id([recipientId, kind])
+  @@index([businessId])
+  @@map("esign_verification_codes")
+}
+
+/// A field on a packet page, in fractions of the page as shown. Placed only while the request is a
+/// DRAFT; afterwards only the signer's value and `filled` change. value_enc is ciphertext made with
+/// the firm's KMS key (a sender's typed value or a signer's), never a plain value.
+model EsignField {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  businessId  String         @map("business_id") @db.Uuid
+  requestId   String         @map("request_id") @db.Uuid
+  /// Null: the sender fills it.
+  recipientId String?        @map("recipient_id") @db.Uuid
+  position    Int
+  type        EsignFieldType
+  pageIndex   Int            @map("page_index")
+  x           Float
+  y           Float
+  w           Float
+  h           Float
+  required    Boolean
+  label       String?
+  /// One of the merge keys in packages/types (EsignMergeKey).
+  mergeKey    String?        @map("merge_key")
+  options     String[]       @default([])
+  groupKey    String?        @map("group_key")
+  valueEnc    Bytes?         @map("value_enc")
+  filled      Boolean        @default(false)
+
+  request     EsignRequest         @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+  recipient   EsignRecipient?      @relation(fields: [businessId, requestId, recipientId], references: [businessId, requestId, id], onDelete: Cascade)
+  uploads     EsignPendingUpload[]
+  attachments EsignAttachment[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, requestId, id])
+  @@index([businessId, requestId])
+  @@map("esign_fields")
+}
+
+/// The request's timeline, with names as they were then; never a field value. Insert-only.
+model EsignEvent {
+  id            String           @id @default(uuid(7)) @db.Uuid
+  businessId    String           @map("business_id") @db.Uuid
+  requestId     String           @map("request_id") @db.Uuid
+  type          EsignEventType
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  actorKind     EsignActorKind   @map("actor_kind")
+  actorUserId   String?          @map("actor_user_id") @db.Uuid
+  actorName     String           @map("actor_name")
+  /// The recipient as they were (no FK: a draft's recipients can be replaced).
+  recipientId   String?          @map("recipient_id") @db.Uuid
+  recipientName String?          @map("recipient_name")
+  reason        String?
+  authMethod    EsignAuthMethod? @map("auth_method")
+  /// For the certificate's audit trail.
+  ip            String?          @db.Inet
+  userAgent     String?          @map("user_agent")
+
+  request EsignRequest @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+
+  @@index([businessId, requestId, createdAt])
+  @@map("esign_events")
+}
+
+/// An approver's decision and note (staff only). Insert-only.
+model EsignApprovalNote {
+  id          String                @id @default(uuid(7)) @db.Uuid
+  businessId  String                @map("business_id") @db.Uuid
+  requestId   String                @map("request_id") @db.Uuid
+  recipientId String                @map("recipient_id") @db.Uuid
+  decision    EsignApprovalDecision
+  note        String?
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request   EsignRequest   @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+  recipient EsignRecipient @relation(fields: [businessId, requestId, recipientId], references: [businessId, requestId, id], onDelete: Cascade)
+
+  @@index([businessId, requestId, createdAt])
+  @@map("esign_approval_notes")
+}
+
+/// Firm Sign's email outbox: a recipient's or (staff updates) a member's, and the template; never
+/// the address, the link or the token. QUEUED, then SENT or FAILED (the error's class name only).
+model EsignEmail {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  businessId  String           @map("business_id") @db.Uuid
+  requestId   String           @map("request_id") @db.Uuid
+  recipientId String?          @map("recipient_id") @db.Uuid
+  userId      String?          @map("user_id") @db.Uuid
+  template    String
+  status      EsignEmailStatus @default(QUEUED)
+  error       String?
+  attempts    Int              @default(0)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt      DateTime?        @map("sent_at") @db.Timestamptz(3)
+
+  request   EsignRequest    @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+  recipient EsignRecipient? @relation(fields: [businessId, requestId, recipientId], references: [businessId, requestId, id], onDelete: Cascade)
+  member    Membership?     @relation("EsignEmailMember", fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+
+  @@index([businessId, status, createdAt])
+  @@index([businessId, requestId])
+  @@map("esign_emails")
+}
+
+/// A recipient's signing, copy or in-person link, by the token's SHA-256 only (never the token).
+/// It works only while its token_version is the recipient's (and, for COPY and IN_PERSON, until
+/// expires_at). Insert-only.
+model EsignSigningLink {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  businessId   String           @map("business_id") @db.Uuid
+  tokenHash    String           @map("token_hash")
+  requestId    String           @map("request_id") @db.Uuid
+  recipientId  String           @map("recipient_id") @db.Uuid
+  tokenVersion Int              @map("token_version")
+  purpose      EsignLinkPurpose
+  expiresAt    DateTime?        @map("expires_at") @db.Timestamptz(3)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request   EsignRequest   @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+  recipient EsignRecipient @relation(fields: [businessId, requestId, recipientId], references: [businessId, requestId, id], onDelete: Cascade)
+
+  @@unique([businessId, tokenHash])
+  @@index([businessId, recipientId])
+  @@map("esign_signing_links")
+}
+
+/// An upload started and not confirmed (a request's file by its staff member, or a signer's
+/// attachment), by the token's SHA-256. Taken once; the job sweeps rows older than 15 minutes.
+model EsignPendingUpload {
+  businessId  String          @map("business_id") @db.Uuid
+  tokenHash   String          @map("token_hash")
+  kind        EsignUploadKind
+  requestId   String          @map("request_id") @db.Uuid
+  /// DOCUMENT: who started it.
+  userId      String?         @map("user_id") @db.Uuid
+  /// ATTACHMENT: the signer and their field.
+  recipientId String?         @map("recipient_id") @db.Uuid
+  fieldId     String?         @map("field_id") @db.Uuid
+  /// The document's or attachment's id once confirmed (the last part of the key).
+  fileId      String          @map("file_id") @db.Uuid
+  s3Key       String          @map("s3_key")
+  fileName    String          @map("file_name")
+  contentType String          @map("content_type")
+  sizeBytes   Int             @map("size_bytes")
+  sha256      String
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request   EsignRequest    @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+  member    Membership?     @relation("EsignUploadMember", fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+  recipient EsignRecipient? @relation(fields: [businessId, requestId, recipientId], references: [businessId, requestId, id], onDelete: Cascade)
+  field     EsignField?     @relation(fields: [businessId, requestId, fieldId], references: [businessId, requestId, id], onDelete: Cascade)
+
+  @@id([businessId, tokenHash])
+  @@index([businessId, createdAt])
+  @@map("esign_pending_uploads")
+}
+
+/// A signer's file for one ATTACHMENT field (one per field), under the request's attachments/
+/// folder; shown to the firm only once CLEAN. The scan result is set once.
+model EsignAttachment {
+  id          String     @id @default(uuid(7)) @db.Uuid
+  businessId  String     @map("business_id") @db.Uuid
+  requestId   String     @map("request_id") @db.Uuid
+  recipientId String     @map("recipient_id") @db.Uuid
+  fieldId     String     @map("field_id") @db.Uuid
+  s3Key       String     @unique @map("s3_key")
+  fileName    String     @map("file_name")
+  contentType String     @map("content_type")
+  sizeBytes   Int        @map("size_bytes")
+  sha256      String
+  scanStatus  ScanStatus @default(PENDING) @map("scan_status")
+  scannedAt   DateTime?  @map("scanned_at") @db.Timestamptz(3)
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request   EsignRequest   @relation(fields: [businessId, requestId], references: [businessId, id], onDelete: Cascade)
+  recipient EsignRecipient @relation(fields: [businessId, requestId, recipientId], references: [businessId, requestId, id], onDelete: Cascade)
+  field     EsignField     @relation(fields: [businessId, requestId, fieldId], references: [businessId, requestId, id], onDelete: Cascade)
+
+  @@unique([businessId, recipientId, fieldId])
+  @@index([businessId, requestId])
+  @@map("esign_attachments")
+}
+
+/// An in-person signing's lock on a staff member's Firm Sign access in one firm (one at a time):
+/// every other firm route answers KIOSK_LOCKED until the staff password ends it.
+model EsignKioskLock {
+  businessId     String   @map("business_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  requestId      String   @map("request_id") @db.Uuid
+  recipientId    String   @map("recipient_id") @db.Uuid
+  signerName     String   @map("signer_name")
+  startedAt      DateTime @default(now()) @map("started_at") @db.Timestamptz(3)
+  linkExpiresAt  DateTime @map("link_expires_at") @db.Timestamptz(3)
+  activeAt       DateTime @default(now()) @map("active_at") @db.Timestamptz(3)
+  wrongPasswords Int      @default(0) @map("wrong_passwords")
+
+  member    Membership     @relation("EsignKioskLock", fields: [businessId, userId], references: [businessId, userId], onDelete: Restrict)
+  recipient EsignRecipient @relation(fields: [businessId, requestId, recipientId], references: [businessId, requestId, id], onDelete: Cascade)
+
+  @@id([businessId, userId])
+  @@map("esign_kiosk_locks")
+}
+
+/// A bulk send from one template version: one separate request per client (at most 200), made
+/// and sent by the job. Insert-only; `roles` holds the role fills (never an access code).
+model EsignBulkBatch {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  templateId      String   @map("template_id") @db.Uuid
+  templateVersion Int      @map("template_version")
+  templateName    String   @map("template_name")
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  title           String?
+  roles           Json     @default("[]")
+
+  templateVersionRow EsignTemplateVersion @relation(fields: [businessId, templateId, templateVersion], references: [businessId, templateId, version], onDelete: Restrict)
+  createdBy          Membership           @relation("EsignBulkCreatedBy", fields: [businessId, createdByUserId], references: [businessId, userId], onDelete: Restrict)
+  items              EsignBulkItem[]
+
+  @@unique([businessId, id])
+  @@index([businessId, createdAt])
+  @@map("esign_bulk_batches")
+}
+
+/// One client's row of a batch. request_id is chosen with the batch, so a rerun finds the DRAFT it
+/// made (no FK: the request exists only once `created`). Changes only while QUEUED.
+model EsignBulkItem {
+  businessId   String             @map("business_id") @db.Uuid
+  batchId      String             @map("batch_id") @db.Uuid
+  position     Int
+  clientId     String             @map("client_id") @db.Uuid
+  engagementId String?            @map("engagement_id") @db.Uuid
+  requestId    String             @map("request_id") @db.Uuid
+  created      Boolean            @default(false)
+  state        EsignBulkItemState @default(QUEUED)
+  /// A readiness or error code (packages/types) when NOT_SENT.
+  problem      String?
+  attempts     Int                @default(0)
+
+  batch      EsignBulkBatch @relation(fields: [businessId, batchId], references: [businessId, id], onDelete: Restrict)
+  client     Client         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?    @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
+
+  @@id([batchId, position])
+  @@unique([businessId, requestId])
+  @@unique([batchId, clientId])
+  @@index([businessId, state])
+  @@map("esign_bulk_items")
 }

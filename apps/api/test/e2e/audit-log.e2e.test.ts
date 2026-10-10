@@ -2,7 +2,7 @@
 // firm's Owner and Admins read their own firm's log, newest first, with filters and keyset
 // paging; Staff and clients get 403. A Super Admin shows only as "Firmivra Support" without an IP;
 // the user agent and other firms' rows never appear. The first page of each read is audited with
-// the filters. The Super Admin route answers 403 SUPPORT_GRANT_REQUIRED until R8.
+// the filters. The Super Admin route answers 403 SUPPORT_GRANT_REQUIRED without an approved grant (R8).
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -638,7 +638,7 @@ describe('GET /admin/firms/{businessId}/audit-log', () => {
       .set('x-forwarded-for', `${newViewer()}, 10.0.0.5`)
       .set('authorization', `Bearer ${await tokenFor(who.email)}`);
 
-  it('answers 403 SUPPORT_GRANT_REQUIRED to a Super Admin until R8, and reads nothing', async () => {
+  it('answers 403 SUPPORT_GRANT_REQUIRED to a Super Admin without an approved grant, and reads nothing', async () => {
     const before = (await viewedRows(firms.a.id)).length;
     for (const path of [
       `/api/v1/admin/firms/${firms.a.id}/audit-log`,

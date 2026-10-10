@@ -5,6 +5,10 @@ import { expect, test } from '@playwright/test';
 const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
 const app = (path: string) => `http://app.localhost:${port}${path}`;
 
+// The mock puts its week after today and treats New York as a fixed UTC-4, while the screens
+// use the real zone. Run on a summer Wednesday: EDT is UTC-4, and next week is past the cutoffs.
+test.beforeEach(({ page }) => page.clock.setFixedTime(new Date('2026-07-08T12:00:00-04:00')));
+
 test('the week shows every appointment, by staff member and by day', async ({ page }) => {
   await page.goto(app('/calendar'));
   await expect(page.getByTestId('page-title')).toHaveText('Calendar');
