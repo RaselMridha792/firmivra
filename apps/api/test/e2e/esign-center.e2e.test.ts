@@ -130,7 +130,7 @@ describe('Signature center routes', () => {
       ['get', `${base}?extra=1`],
       ['post', `${base}/not-a-uuid/session`],
       ['get', `${base}/not-a-uuid/download?file=final`],
-      ['get', `${base}/${anyId}/download`],
+      ['get', `${base}/${anyId}/download?file=`],
       ['get', `${base}/${anyId}/download?file=original`],
     ] as const;
     for (const [method, path] of bad) {

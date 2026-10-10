@@ -25,6 +25,8 @@ import { EsignBulkService } from './bulk.service.js';
 
 /** More than ESIGN_BULK_MAX clients is 400 BULK_LIMIT (its own code), then the contract's checks. */
 class BulkBodyPipe implements PipeTransform<unknown, z.output<typeof EsignBulkSendBody>> {
+  /** The body's schema, as on ZodValidationPipe (the isolation suite reads its record ids). */
+  readonly schema = EsignBulkSendBody;
   private readonly zod = new ZodValidationPipe(EsignBulkSendBody);
   transform(value: unknown) {
     const clients = (value as { clients?: unknown } | null)?.clients;

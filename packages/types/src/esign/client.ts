@@ -420,7 +420,7 @@ export function createMySignaturesClient(request: ApiRequest, firmSlug: string) 
      */
     startSigning: async (recipientId: string): Promise<SignerState> =>
       request(SignerState, `${mine(recipientId)}/session`, { method: 'POST', body: {} }),
-    /** A COMPLETED request's signed PDF or certificate: a 5-minute link. */
+    /** A COMPLETED request's signed PDF or certificate (the PDF if `file` is left out): a 5-minute link. */
     download: async (recipientId: string, file: SignerCopyFile): Promise<DownloadLink> =>
       request(
         DownloadLink,
