@@ -31,6 +31,7 @@ import { EsignRolesService } from './extras/roles.service.js';
 import { EsignLifecycleController } from './lifecycle/lifecycle.controller.js';
 import { EsignLifecycleJob } from './lifecycle/lifecycle.job.js';
 import { LIFECYCLE_REPOSITORY } from './lifecycle/lifecycle.repository.js';
+import { PrismaLifecycleRepository } from './lifecycle/prisma-lifecycle.repository.js';
 import { EsignLifecycleService } from './lifecycle/lifecycle.service.js';
 import { EsignDocumentsController } from './requests/documents.controller.js';
 import { EsignDocumentsService } from './requests/documents.service.js';
@@ -138,7 +139,7 @@ function extrasStandIn(): EsignExtrasRepository {
     { provide: CENTER_REPOSITORY, useClass: PrismaCenterRepository },
     EsignLifecycleService,
     EsignLifecycleJob,
-    { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
+    { provide: LIFECYCLE_REPOSITORY, useClass: PrismaLifecycleRepository },
     { provide: TEMPLATE_REPOSITORY, useClass: PrismaTemplateRepository },
     { provide: BULK_REPOSITORY, useValue: notMigrated('EsignBulkRepository') },
     { provide: EXTRAS_REPOSITORY, useValue: extrasStandIn() },
