@@ -728,6 +728,7 @@ model Client {
   invoices         Invoice[]
   taxReturns       TaxReturn[]
   esignRequests    EsignRequest[]
+  esignBulkItems   EsignBulkItem[]
 
   @@unique([businessId, id])
   @@unique([businessId, email])
@@ -902,6 +903,7 @@ model Engagement {
   invoices         Invoice[]
   taxReturns       TaxReturn[]
   esignRequests    EsignRequest[]
+  esignBulkItems   EsignBulkItem[]
 
   @@unique([businessId, id])
   // Lets tasks and notes require that their engagement belongs to their client.
@@ -2856,7 +2858,9 @@ model EsignBulkItem {
   problem      String?
   attempts     Int                @default(0)
 
-  batch EsignBulkBatch @relation(fields: [businessId, batchId], references: [businessId, id], onDelete: Restrict)
+  batch      EsignBulkBatch @relation(fields: [businessId, batchId], references: [businessId, id], onDelete: Restrict)
+  client     Client         @relation(fields: [businessId, clientId], references: [businessId, id], onDelete: Restrict)
+  engagement Engagement?    @relation(fields: [businessId, clientId, engagementId], references: [businessId, clientId, id], onDelete: Restrict)
 
   @@id([batchId, position])
   @@unique([businessId, requestId])

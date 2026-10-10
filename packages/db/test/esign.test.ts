@@ -92,6 +92,31 @@ async function sent(firm: Firm) {
   await as(firm).esignRequest.update({ where: { id: parts.request.id }, data: sendFacts() });
   return parts;
 }
+/** The recipient signs (status SIGNED with signed_at). */
+const sign = (firm: Firm, recipientId: string) =>
+  as(firm).esignRecipient.update({
+    where: { id: recipientId },
+    data: { status: 'SIGNED', signedAt: new Date() },
+  });
+/** A sent request moves on to PARTIALLY_SIGNED and then COMPLETED, with its hashes. */
+async function complete(firm: Firm, requestId: string) {
+  const update = (data: Prisma.EsignRequestUncheckedUpdateInput) =>
+    as(firm).esignRequest.update({ where: { id: requestId }, data });
+  await update({ status: 'PARTIALLY_SIGNED', completionDueAt: new Date() });
+  await update({
+    status: 'COMPLETED',
+    completedAt: new Date(),
+    completionDueAt: null,
+    finalSha256: hex(`final ${requestId}`),
+    certificateSha256: hex(`certificate ${requestId}`),
+  });
+}
+/** Settles a promise into its error message (or 'ok'), so a rejection is never unhandled. */
+const outcome = (promise: Promise<unknown>) =>
+  promise.then(
+    () => 'ok',
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  );
 
 beforeAll(async () => {
   await runInScope(owner, { kind: 'platform' }, async (tx) => {
@@ -297,6 +322,224 @@ describe('requests', () => {
   });
 });
 
+describe('while signing', () => {
+  it("changes a signer's value only while the request is open and they have not signed", async () => {
+    const value = (fieldId: string, text: string) =>
+      as(A).esignField.update({
+        where: { id: fieldId },
+        data: { filled: true, valueEnc: Buffer.from(text) },
+      });
+    // R0's probe: the request completed, the value stays.
+    const done = await sent(A);
+    await complete(A, done.request.id);
+    await expect(value(done.field.id, 'late')).rejects.toThrow(/a signer's value changes only/);
+    await expect(
+      as(A).esignField.update({ where: { id: done.field.id }, data: { filled: true } }),
+    ).rejects.toThrow(/a signer's value changes only/);
+    // Open: until the signer signs.
+    const open = await sent(A);
+    await expect(value(open.field.id, 'mine')).resolves.toMatchObject({ filled: true });
+    await sign(A, open.signer.id);
+    await expect(value(open.field.id, 'changed')).rejects.toThrow(/a signer's value changes only/);
+    // Not yet sent: an approval waits, and the signer's values are theirs to give.
+    const waiting = await draft(A);
+    await as(A).esignRequest.update({
+      where: { id: waiting.request.id },
+      data: { status: 'NEEDS_APPROVAL' },
+    });
+    await expect(value(waiting.field.id, 'early')).rejects.toThrow(/a signer's value changes/);
+  });
+
+  it("changes a sender's value only before the request is sent", async () => {
+    const { request } = await draft(A);
+    const field = await as(A).esignField.create({
+      data: {
+        ...{ businessId: A.id, requestId: request.id, position: 1, type: 'TEXT', pageIndex: 0 },
+        ...{ x: 0.1, y: 0.1, w: 0.2, h: 0.05, required: true },
+      },
+    });
+    const value = (text: string) =>
+      as(A).esignField.update({
+        where: { id: field.id },
+        data: { filled: true, valueEnc: Buffer.from(text) },
+      });
+    await expect(value('draft')).resolves.toMatchObject({ filled: true });
+    await as(A).esignRequest.update({
+      where: { id: request.id },
+      data: { status: 'NEEDS_APPROVAL' },
+    });
+    await expect(value('approval')).resolves.toMatchObject({ filled: true });
+    await as(A).esignRequest.update({ where: { id: request.id }, data: sendFacts() });
+    await expect(value('sent')).rejects.toThrow(/a sender's value changes only before/);
+  });
+
+  it('adds and removes attachments and attachment uploads only while the signer may sign', async () => {
+    const { request, signer, field } = await draft(A);
+    const key = () => `tenant/${A.id}/esign/${request.id}/attachments/${randomUUID()}`;
+    const file = { fileName: 'w2.pdf', contentType: 'application/pdf', sizeBytes: 1024 };
+    const attach = () =>
+      as(A).esignAttachment.create({
+        data: {
+          ...{ businessId: A.id, requestId: request.id, recipientId: signer.id },
+          ...{ fieldId: field.id, s3Key: key(), sha256: hex('attachment'), ...file },
+        },
+      });
+    const upload = (kind: 'ATTACHMENT' | 'DOCUMENT') =>
+      as(A).esignPendingUpload.create({
+        data: {
+          ...{ businessId: A.id, tokenHash: hex(randomUUID()), kind, requestId: request.id },
+          ...(kind === 'ATTACHMENT'
+            ? { recipientId: signer.id, fieldId: field.id, s3Key: key() }
+            : { userId: A.owner, s3Key: `tenant/${A.id}/esign/${request.id}/${randomUUID()}` }),
+          ...{ fileId: randomUUID(), sha256: hex('upload'), ...file },
+        },
+      });
+    const refused = /only while the request is open and the recipient has not signed/;
+    // A DRAFT: nobody signs yet (the sender's own document upload still goes in).
+    await expect(attach()).rejects.toThrow(refused);
+    await expect(upload('ATTACHMENT')).rejects.toThrow(refused);
+    await expect(upload('DOCUMENT')).resolves.toMatchObject({ kind: 'DOCUMENT' });
+    await as(A).esignRequest.update({ where: { id: request.id }, data: sendFacts() });
+    // Open: the signer adds, replaces and removes.
+    await expect(upload('ATTACHMENT')).resolves.toMatchObject({ kind: 'ATTACHMENT' });
+    const first = await attach();
+    await as(A).esignAttachment.delete({ where: { id: first.id } });
+    const kept = await attach();
+    // Signed: what they attached stays, and nothing new comes in.
+    await sign(A, signer.id);
+    await expect(as(A).esignAttachment.delete({ where: { id: kept.id } })).rejects.toThrow(refused);
+    await expect(upload('ATTACHMENT')).rejects.toThrow(refused);
+    // The scan result still lands.
+    await expect(
+      as(A).esignAttachment.update({
+        where: { id: kept.id },
+        data: { scanStatus: 'CLEAN', scannedAt: new Date() },
+      }),
+    ).resolves.toMatchObject({ scanStatus: 'CLEAN' });
+  });
+
+  it('issues SIGN and IN_PERSON links only while the signer may sign; COPY links after', async () => {
+    const { request, signer } = await draft(A);
+    const link = (purpose: 'SIGN' | 'IN_PERSON' | 'COPY') =>
+      as(A).esignSigningLink.create({
+        data: {
+          ...{ businessId: A.id, tokenHash: hex(randomUUID()), requestId: request.id },
+          ...{ recipientId: signer.id, tokenVersion: 0, purpose },
+          ...(purpose === 'SIGN' ? {} : { expiresAt: days(1) }),
+        },
+      });
+    const refused = /only while the request is open and the recipient has not signed/;
+    await expect(link('SIGN')).rejects.toThrow(refused);
+    await as(A).esignRequest.update({ where: { id: request.id }, data: sendFacts() });
+    await expect(link('SIGN')).resolves.toMatchObject({ purpose: 'SIGN' });
+    await expect(link('IN_PERSON')).resolves.toMatchObject({ purpose: 'IN_PERSON' });
+    await sign(A, signer.id);
+    await expect(link('SIGN')).rejects.toThrow(refused);
+    await complete(A, request.id);
+    await expect(link('SIGN')).rejects.toThrow(refused);
+    await expect(link('IN_PERSON')).rejects.toThrow(refused);
+    await expect(link('COPY')).resolves.toMatchObject({ purpose: 'COPY' });
+  });
+
+  it("freezes a closed request's recipients", async () => {
+    const closed = async (close: (requestId: string) => Promise<unknown>) => {
+      const { request, signer } = await sent(A);
+      await close(request.id);
+      for (const data of [
+        { reminderCount: 1 },
+        { tokenVersion: 1 },
+        { lastRemindedAt: new Date() },
+        { name: 'Pat Renamed' },
+        { email: 'other@example.test' },
+        { status: 'VIEWED' as const, viewedAt: new Date() },
+      ]) {
+        expect(
+          await outcome(as(A).esignRecipient.update({ where: { id: signer.id }, data })),
+        ).toMatch(/request's recipients never change/);
+      }
+    };
+    await closed((id) => complete(A, id));
+    await closed((id) =>
+      as(A).esignRequest.update({
+        where: { id },
+        data: { status: 'VOIDED', voidedAt: new Date(), voidReason: 'x', voidedByUserId: A.owner },
+      }),
+    );
+    await closed((id) =>
+      as(A).esignRequest.update({
+        where: { id },
+        data: { status: 'EXPIRED', expiredAt: new Date() },
+      }),
+    );
+    // A decline writes the recipient first, then the request.
+    await closed(async (id) => {
+      const [signer] = await as(A).esignRecipient.findMany({ where: { requestId: id } });
+      await as(A).esignRecipient.update({
+        where: { id: signer!.id },
+        data: { status: 'DECLINED', declinedAt: new Date(), declineReason: 'Not mine' },
+      });
+      await as(A).esignRequest.update({ where: { id }, data: { status: 'DECLINED' } });
+    });
+  });
+});
+
+describe('text', () => {
+  it('refuses control and invisible characters; keeps tabs and line breaks', async () => {
+    const { request } = await draft(A);
+    const update = (data: Prisma.EsignRequestUncheckedUpdateInput) =>
+      as(A).esignRequest.update({ where: { id: request.id }, data });
+    for (const title of ['Bell\u0007', 'Zero​width', 'Bidi‮override', '⠀']) {
+      await expect(update({ title })).rejects.toThrow(/esign_requests_values/);
+    }
+    await expect(
+      update({ internalNote: 'Line one\r\nLine two\twith a tab' }),
+    ).resolves.toBeTruthy();
+  });
+});
+
+describe('bulk rows', () => {
+  it("name the firm's own client, and that client's own engagement", async () => {
+    const template = await as(A).esignTemplate.create({
+      data: {
+        businessId: A.id,
+        name: `Bulk ${randomUUID()}`,
+        visibility: 'FIRM',
+        ownerUserId: A.owner,
+      },
+    });
+    await as(A).esignTemplateVersion.create({
+      data: {
+        ...{ businessId: A.id, templateId: template.id, version: 1, sha256: hex('template') },
+        ...{ s3Key: `tenant/${A.id}/esign/${template.id}/template-1.pdf`, sizeBytes: 2048 },
+        ...{ pageSizes: [{ w: 612, h: 792 }], roles: [], fields: [], savedByUserId: A.owner },
+        ...settings,
+      },
+    });
+    const batch = await as(A).esignBulkBatch.create({
+      data: {
+        ...{ businessId: A.id, templateId: template.id, templateVersion: 1 },
+        ...{ templateName: template.name, createdByUserId: A.owner },
+      },
+    });
+    const other = await ownerIn(A, (tx) =>
+      tx.client.create({ data: { businessId: A.id, displayName: 'Sam' } }),
+    );
+    let position = 0;
+    const item = (clientId: string, engagementId: string | null) =>
+      as(A).esignBulkItem.create({
+        data: {
+          ...{ businessId: A.id, batchId: batch.id, position: position++, clientId },
+          ...{ engagementId, requestId: randomUUID() },
+        },
+      });
+    await expect(item(B.client, null)).rejects.toThrow(/foreign key/i);
+    await expect(item(other.id, A.engagement)).rejects.toThrow(/foreign key/i);
+    await expect(item(other.id, B.engagement)).rejects.toThrow(/foreign key/i);
+    await expect(item(A.client, A.engagement)).resolves.toMatchObject({ clientId: A.client });
+    await expect(item(other.id, null)).resolves.toMatchObject({ clientId: other.id });
+  });
+});
+
 describe('the scan exception', () => {
   it("files only a completed request's own final PDF and certificate as CLEAN", async () => {
     const { request } = await sent(A);
@@ -361,6 +604,45 @@ describe('the scan exception', () => {
     });
     // Filed once.
     await expect(file(final, 'final')).rejects.toThrow(/Firm Sign copy/);
+  });
+
+  it('holds the request while a copy is filed, so nothing changes it meanwhile', async () => {
+    const { request } = await sent(A);
+    await complete(A, request.id);
+    let filed!: () => void;
+    let release!: () => void;
+    const inserted = new Promise<void>((resolve) => (filed = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const filing = outcome(
+      appIn(A, async (tx) => {
+        await tx.document.create({
+          data: {
+            ...{ businessId: A.id, clientId: A.client, engagementId: A.engagement },
+            ...{ direction: 'FIRM_TO_CLIENT', fileName: 'final.pdf', sizeBytes: 2048 },
+            ...{ contentType: 'application/pdf', sha256: hex(`final ${request.id}`) },
+            s3Key: `tenant/${A.id}/esign/${request.id}/final/${randomUUID()}.pdf`,
+            ...{ scanStatus: 'CLEAN', scannedAt: new Date(), legalHold: true },
+            esignRequestId: request.id,
+          },
+        });
+        filed();
+        await gate;
+        throw new Error('rolled back');
+      }),
+    );
+    await inserted;
+    const meanwhile = await outcome(
+      appIn(A, async (tx) => {
+        await tx.$executeRaw`SET LOCAL lock_timeout = '300ms'`;
+        await tx.esignRequest.update({
+          where: { id: request.id },
+          data: { lastActivityAt: new Date() },
+        });
+      }),
+    );
+    release();
+    expect(await filing).toBe('rolled back');
+    expect(meanwhile).toMatch(/lock timeout/i);
   });
 });
 
@@ -455,5 +737,42 @@ describe('the module switch', () => {
     );
     expect(firms.map((f) => f.id)).toContain(A.id);
     expect(firms.map((f) => f.id)).not.toContain(B.id);
+  });
+
+  it('owned by a role that is no superuser (as on RDS), both functions still work under RLS', async () => {
+    const role = `fv_esign_${run}`;
+    const functions = [
+      'app_set_business_module(uuid, text, boolean, text)',
+      'app_firms_with_module(text)',
+    ];
+    const [me] = await owner.$queryRaw<{ name: string }[]>`SELECT current_user AS name`;
+    const migrate = me!.name;
+    await owner.$executeRawUnsafe(`CREATE ROLE ${role} NOSUPERUSER NOBYPASSRLS NOLOGIN`);
+    await owner.$executeRawUnsafe(`GRANT "${migrate}" TO ${role}`);
+    await owner.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO ${role}`);
+    for (const f of functions)
+      await owner.$executeRawUnsafe(`ALTER FUNCTION ${f} OWNER TO ${role}`);
+    try {
+      expect(await setModule(B, 'calculators', true, 'RDS check')).toEqual(['calculators']);
+      expect(await setModule(B, 'calculators', false, 'RDS check')).toEqual([]);
+      const rows = await audits(B);
+      expect(rows.slice(-2).map((r) => [r.action, r.metadata])).toEqual([
+        ['module.enabled', { module: 'calculators', reason: 'RDS check' }],
+        ['module.disabled', { module: 'calculators', reason: 'RDS check' }],
+      ]);
+      const firms = await runInScope(
+        app,
+        { kind: 'business', businessId: B.id },
+        (tx) => tx.$queryRaw<{ id: string }[]>`SELECT app_firms_with_module('esign') AS id`,
+      );
+      expect(firms.map((f) => f.id)).toContain(A.id);
+      expect(firms.map((f) => f.id)).not.toContain(B.id);
+    } finally {
+      for (const f of functions) {
+        await owner.$executeRawUnsafe(`ALTER FUNCTION ${f} OWNER TO "${migrate}"`);
+      }
+      await owner.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM ${role}`);
+      await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${role}`);
+    }
   });
 });

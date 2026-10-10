@@ -720,6 +720,12 @@ ALTER TABLE "esign_bulk_batches" ADD CONSTRAINT "esign_bulk_batches_business_id_
 -- AddForeignKey
 ALTER TABLE "esign_bulk_items" ADD CONSTRAINT "esign_bulk_items_business_id_batch_id_fkey" FOREIGN KEY ("business_id", "batch_id") REFERENCES "esign_bulk_batches"("business_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE "esign_bulk_items" ADD CONSTRAINT "esign_bulk_items_business_id_client_id_fkey" FOREIGN KEY ("business_id", "client_id") REFERENCES "clients"("business_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "esign_bulk_items" ADD CONSTRAINT "esign_bulk_items_business_id_client_id_engagement_id_fkey" FOREIGN KEY ("business_id", "client_id", "engagement_id") REFERENCES "engagements"("business_id", "client_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
 
 -- ---------- Existing rows (local and dev), before the checks ----------
 -- enabled_modules keeps only the known modules, once each, sorted; NULL becomes empty. Each firm
@@ -797,10 +803,14 @@ CREATE FUNCTION esign_hex64(v text) RETURNS boolean
 CREATE FUNCTION esign_distinct(items text[]) RETURNS boolean
   LANGUAGE sql IMMUTABLE
   AS $$ SELECT count(DISTINCT i) = count(*) AND count(i) = count(*) FROM unnest(items) AS u(i) $$;
--- Text with something in it, up to `max` characters.
+-- Text with something visible in it (not only blanks), up to `max` characters: tabs and \r\n
+-- line breaks, no other control (C0, C1), line separator, filler or invisible characters (emoji
+-- joiners and selectors stay), as intakes_correction (r0_intake_engine).
 CREATE FUNCTION esign_text_ok(v text, max integer) RETURNS boolean
   LANGUAGE sql IMMUTABLE
-  AS $$ SELECT btrim(v) <> '' AND char_length(v) <= max $$;
+  AS $$ SELECT v ~ '[^[:space:]\xA0\u1680\u2000-\u200F\u202F\u205F\u2800\u3000\uFE00-\uFE0F]'
+               AND char_length(v) <= max
+               AND v !~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\xAD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B\u2028-\u202E\u2060-\u2064\u2066-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB\U000E0000-\U000E007F]' $$;
 -- An S3 key under the firm's Firm Sign folder for `folder` (a request or a template), then `rest`.
 CREATE FUNCTION esign_key_ok(k text, business uuid, folder uuid, rest text) RETURNS boolean
   LANGUAGE sql IMMUTABLE
@@ -971,6 +981,9 @@ ALTER TABLE esign_bulk_batches ADD CONSTRAINT esign_bulk_batches_values
   CHECK (esign_text_ok(template_name, 200) AND esign_text_ok(title, 200)
          AND jsonb_typeof(roles) = 'array' AND jsonb_array_length(roles) <= 20);
 
+-- request_id has no foreign key on purpose: it is chosen with the batch, before the job makes the
+-- DRAFT (in a later transaction), so a rerun finds the DRAFT it made; `created` says it exists.
+-- The client and the engagement are the firm's own (same-firm foreign keys above).
 ALTER TABLE esign_bulk_items ADD CONSTRAINT esign_bulk_items_values
   CHECK (position BETWEEN 0 AND 199 AND attempts BETWEEN 0 AND 3
          AND (state = 'NOT_SENT') = (problem IS NOT NULL) AND problem ~ '^[A-Z][A-Z0-9_]{0,63}$'
@@ -1120,11 +1133,17 @@ CREATE TRIGGER esign_requests_rules
 -- After that a field changes only its value, and a recipient only its progress (and, until they
 -- sign, name, email and phone: a correction); once signed, a recipient's identity, consent and
 -- adopted marks never change. token_version only rises; nothing moves to another request.
+-- Values after the DRAFT: a signer's field (one with a recipient) only while the request is open
+-- (SENT, DELIVERED, VIEWED, PARTIALLY_SIGNED) and that recipient has not signed, both held FOR
+-- SHARE; so finish writes the values before it sets signed_at. A sender's field (no recipient)
+-- only before sending (DRAFT, NEEDS_APPROVAL). A closed request's (COMPLETED, DECLINED, EXPIRED,
+-- VOIDED) recipients never change: a decline writes the recipient before the request.
 CREATE FUNCTION esign_request_parts_rules() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = public, pg_temp
   AS $$
 DECLARE
+  open_statuses CONSTANT text[] := ARRAY['SENT', 'DELIVERED', 'VIEWED', 'PARTIALLY_SIGNED'];
   req_status text;
   changed text[];
 BEGIN
@@ -1144,16 +1163,32 @@ BEGIN
     RAISE EXCEPTION '%: a row never moves to another request', TG_TABLE_NAME
       USING ERRCODE = 'check_violation';
   END IF;
-  SELECT r.status INTO req_status FROM esign_requests r WHERE r.id = NEW.request_id;
+  SELECT r.status INTO req_status FROM esign_requests r WHERE r.id = NEW.request_id FOR SHARE;
 
   IF TG_TABLE_NAME = 'esign_fields' THEN
     IF req_status <> 'DRAFT' AND NOT changed <@ ARRAY['value_enc', 'filled'] THEN
       RAISE EXCEPTION 'esign fields: placed only while the request is a DRAFT'
         USING ERRCODE = 'check_violation';
     END IF;
+    IF req_status <> 'DRAFT' AND changed && ARRAY['value_enc', 'filled'] THEN
+      IF NEW.recipient_id IS NULL AND req_status <> 'NEEDS_APPROVAL' THEN
+        RAISE EXCEPTION 'esign fields: a sender''s value changes only before the request is sent'
+          USING ERRCODE = 'check_violation';
+      END IF;
+      IF NEW.recipient_id IS NOT NULL AND (req_status <> ALL (open_statuses) OR NOT EXISTS (
+           SELECT 1 FROM esign_recipients p
+            WHERE p.id = NEW.recipient_id AND p.signed_at IS NULL FOR SHARE)) THEN
+        RAISE EXCEPTION 'esign fields: a signer''s value changes only while the request is open and they have not signed'
+          USING ERRCODE = 'check_violation';
+      END IF;
+    END IF;
     RETURN NEW;
   END IF;
 
+  IF req_status IN ('COMPLETED', 'DECLINED', 'EXPIRED', 'VOIDED') THEN
+    RAISE EXCEPTION 'esign recipients: a % request''s recipients never change', req_status
+      USING ERRCODE = 'check_violation';
+  END IF;
   IF NEW.token_version < OLD.token_version THEN
     RAISE EXCEPTION 'esign recipients: token_version only rises' USING ERRCODE = 'check_violation';
   END IF;
@@ -1180,6 +1215,47 @@ CREATE TRIGGER esign_recipients_parts BEFORE INSERT OR UPDATE OR DELETE ON esign
   FOR EACH ROW EXECUTE FUNCTION esign_request_parts_rules();
 CREATE TRIGGER esign_fields_parts BEFORE INSERT OR UPDATE OR DELETE ON esign_fields
   FOR EACH ROW EXECUTE FUNCTION esign_request_parts_rules();
+
+-- What a signer adds while signing: an attachment (added or removed), an ATTACHMENT upload, and a
+-- SIGN or IN_PERSON link, only while the request is open and that recipient has not signed, the
+-- request and the recipient held FOR SHARE (so a close or a finish waits). A send or a reminder
+-- sets the request's status before its links. A COPY link (the completed copy) and a DOCUMENT
+-- upload (the sender's, checked by the API) are not signing; a deleted draft's cascade finds no
+-- request.
+CREATE FUNCTION esign_signing_rules() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path = public, pg_temp
+  AS $$
+DECLARE
+  open_statuses CONSTANT text[] := ARRAY['SENT', 'DELIVERED', 'VIEWED', 'PARTIALLY_SIGNED'];
+  row_data jsonb := to_jsonb(CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END);
+  req_status text;
+BEGIN
+  IF (TG_TABLE_NAME = 'esign_pending_uploads' AND row_data ->> 'kind' <> 'ATTACHMENT')
+     OR (TG_TABLE_NAME = 'esign_signing_links' AND row_data ->> 'purpose' = 'COPY') THEN
+    RETURN NEW;
+  END IF;
+  SELECT r.status INTO req_status FROM esign_requests r
+   WHERE r.id = (row_data ->> 'request_id')::uuid FOR SHARE;
+  IF TG_OP = 'DELETE' AND NOT FOUND THEN
+    RETURN OLD;
+  END IF;
+  IF req_status IS NULL OR req_status <> ALL (open_statuses) OR NOT EXISTS (
+       SELECT 1 FROM esign_recipients p
+        WHERE p.id = (row_data ->> 'recipient_id')::uuid AND p.signed_at IS NULL FOR SHARE) THEN
+    RAISE EXCEPTION '%: only while the request is open and the recipient has not signed', TG_TABLE_NAME
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
+END
+$$;
+
+CREATE TRIGGER esign_attachments_signing BEFORE INSERT OR DELETE ON esign_attachments
+  FOR EACH ROW EXECUTE FUNCTION esign_signing_rules();
+CREATE TRIGGER esign_pending_uploads_signing BEFORE INSERT ON esign_pending_uploads
+  FOR EACH ROW EXECUTE FUNCTION esign_signing_rules();
+CREATE TRIGGER esign_signing_links_signing BEFORE INSERT ON esign_signing_links
+  FOR EACH ROW EXECUTE FUNCTION esign_signing_rules();
 
 -- Templates: an archived template never changes; the owner and creation never do; `version`
 -- moves only to the next version, once that version is saved. Versions are numbered in order and
@@ -1250,6 +1326,9 @@ CREATE OR REPLACE FUNCTION documents_rules() RETURNS trigger
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.esign_request_id IS NOT NULL THEN
+      -- Held FOR SHARE until commit: the request cannot be completed twice or its documents set
+      -- by another transaction meanwhile.
+      PERFORM 1 FROM esign_requests r WHERE r.id = NEW.esign_request_id FOR SHARE;
       IF NEW.direction <> 'FIRM_TO_CLIENT' OR NEW.content_type <> 'application/pdf'
          OR NEW.scan_status <> 'CLEAN' OR NEW.scanned_at IS NULL OR NOT NEW.legal_hold
          OR NEW.retention_until IS NOT NULL OR NEW.lead_upload_id IS NOT NULL
