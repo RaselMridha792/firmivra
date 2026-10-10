@@ -41,6 +41,7 @@ const base = (extra: Partial<ReadinessInput> = {}): ReadinessInput => {
     expiryDays: 30,
     reminders: { firstAfterDays: 3, everyDays: 3, max: 3 },
     consentPublished: true,
+    approvalRequired: false,
     ...extra,
   };
 };
@@ -186,6 +187,22 @@ describe('routing', () => {
     expect(result.problems.map((p) => [p.code, p.fieldId])).toEqual(
       fields.map((f) => ['SIGNATURE_UNASSIGNED', f.id]),
     );
+  });
+
+  it('asks for an approver when the firm requires approval', () => {
+    expect(codes(base({ approvalRequired: true }))).toEqual(['APPROVER_MISSING']);
+    const approver = signer({ kind: 'APPROVER', status: 'APPROVED' });
+    const s = signer();
+    const fields = [
+      {
+        id: randomUUID(),
+        recipientId: s.id,
+        type: 'SIGNATURE' as const,
+        required: true,
+        mergeKey: null,
+      },
+    ];
+    expect(codes(base({ approvalRequired: true, recipients: [s, approver], fields }))).toEqual([]);
   });
 
   it('needs no email or access code for an in-person signer', () => {

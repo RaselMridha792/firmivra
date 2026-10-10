@@ -1,11 +1,17 @@
-// R13 step 6, requests API part 1b: status and drafts on the in-memory ports (esign-fakes.ts):
+// R13 step 6, requests API parts 1b and 1c: status, drafts, page plan and recipients on the
+// in-memory ports (esign-fakes.ts):
 // access (Owner and Admin all, Staff and Managers own or assigned), cross-firm and cross-client
 // 404s, DRAFT only, and an audit of ids only; and the fakes themselves (each firm sees only its
 // own rows, writes reach DRAFTs only). Synthetic data only.
 import { randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { EsignRequestDetail } from '@firmivra/types';
+import {
+  type EsignField,
+  type EsignPutRecipientsBody,
+  type EsignRecipient,
+  EsignRequestDetail,
+} from '@firmivra/types';
 import {
   type EsignActor,
   EsignRequestsService,
@@ -15,7 +21,7 @@ import type {
   EsignRecipientRecord,
   NewEsignRequest,
 } from '../../src/esign/requests/esign.repository.js';
-import { ESIGN_TEST_DEFAULTS, esignWorld, type EsignWorld } from './esign-fakes.js';
+import { ESIGN_TEST_DEFAULTS, esignWorld, type EsignWorld, fakeHasher } from './esign-fakes.js';
 
 let w: EsignWorld;
 let svc: EsignRequestsService;
@@ -25,7 +31,7 @@ let staff2: EsignActor;
 
 beforeEach(() => {
   w = esignWorld();
-  svc = new EsignRequestsService(w.repo, w.directory, w.modules, w.store, w.audit);
+  svc = new EsignRequestsService(w.repo, w.directory, w.modules, w.store, w.audit, fakeHasher);
   owner = { userId: w.users.ownerA, role: 'OWNER' };
   staff = { userId: w.users.staffA, role: 'STAFF' };
   staff2 = { userId: w.users.staffA2, role: 'STAFF' };
@@ -88,6 +94,24 @@ const loginRecipient = (clientAccountId: string): EsignRecipientRecord => ({
   declineReason: null,
   lastRemindedAt: null,
   reminderCount: 0,
+});
+
+const field = (pageIndex: number, recipientId: string | null = null): EsignField => ({
+  id: randomUUID(),
+  recipientId,
+  type: recipientId ? 'SIGNATURE' : 'TEXT',
+  pageIndex,
+  x: 0.1,
+  y: 0.1,
+  w: 0.2,
+  h: 0.05,
+  required: true,
+  label: null,
+  mergeKey: null,
+  options: [],
+  groupKey: null,
+  value: recipientId ? null : 'prefilled',
+  filled: false,
 });
 
 const input = (): NewEsignRequest => ({
@@ -331,6 +355,404 @@ describe('drafts', () => {
   });
 });
 
+describe('PUT page plan', () => {
+  async function withPages() {
+    const d = await draft(owner, w.ids.c1);
+    const [d1, d2] = [doc(3, 0), doc(1, 1)];
+    const plan = [
+      { documentId: d1.id, page: 0, rotation: 0 as const },
+      { documentId: d1.id, page: 1, rotation: 0 as const },
+      { documentId: d1.id, page: 2, rotation: 90 as const },
+      { documentId: d2.id, page: 0, rotation: 0 as const },
+    ];
+    const [onPage1, onPage2] = [field(1), field(2)];
+    w.repo.seed(w.a, d.id, (row) => {
+      row.parts.documents.push(d1, d2);
+      row.parts.pagePlan = plan;
+      row.parts.fields = [onPage1, onPage2];
+    });
+    return { id: d.id, plan, onPage1, onPage2 };
+  }
+
+  it('reorders the pages: fields follow their page, and go with a removed page', async () => {
+    const { id, plan, onPage1, onPage2 } = await withPages();
+    const [p0, p1, p2, p3] = [plan[0]!, plan[1]!, plan[2]!, plan[3]!];
+    const next = await svc.putPagePlan(w.a, owner, id, [p3, p2, p0, p1]);
+    expect(next.pagePlan).toEqual([p3, p2, p0, p1]);
+    expect(next.fields.map((f) => [f.id, f.pageIndex])).toEqual([
+      [onPage1.id, 3],
+      [onPage2.id, 1],
+    ]);
+    const fewer = await svc.putPagePlan(w.a, owner, id, [p0, p2]);
+    expect(fewer.fields.map((f) => [f.id, f.pageIndex])).toEqual([[onPage2.id, 1]]);
+    expect(w.audit.entries.at(-1)).toMatchObject({
+      action: 'esign.page_plan_updated',
+      metadata: { pageCount: 2, fieldsRemoved: 1 },
+    });
+  });
+
+  it('refuses to rotate a page with fields (409) and pages that are not the request’s (400)', async () => {
+    const { id, plan } = await withPages();
+    const turned = plan.map((p, i) => (i === 1 ? { ...p, rotation: 180 as const } : p));
+    expect(await refused(svc.putPagePlan(w.a, owner, id, turned))).toEqual([
+      409,
+      'PAGE_HAS_FIELDS',
+    ]);
+    // A page without fields turns.
+    const free = plan.map((p, i) => (i === 3 ? { ...p, rotation: 270 as const } : p));
+    expect((await svc.putPagePlan(w.a, owner, id, free)).pagePlan[3]?.rotation).toBe(270);
+    const beyond = [{ ...plan[0]!, page: 3 }];
+    const unknown = [{ documentId: randomUUID(), page: 0, rotation: 0 as const }];
+    for (const pages of [beyond, unknown]) {
+      expect(await refused(svc.putPagePlan(w.a, owner, id, pages))).toEqual([
+        400,
+        'VALIDATION_FAILED',
+      ]);
+    }
+  });
+});
+
+describe('PUT recipients', () => {
+  type Input = EsignPutRecipientsBody['recipients'][number];
+  const signer = (who: Input['who'], extra: Partial<Input> = {}) => ({
+    kind: 'SIGNER' as const,
+    role: 'CLIENT' as const,
+    routingOrder: 1,
+    who,
+    delivery: 'EMAIL' as const,
+    authMethod: 'EMAIL_CODE' as const,
+    ...extra,
+  });
+  const put = (id: string, recipients: ReturnType<typeof signer>[], actor = owner) =>
+    svc.putRecipients(w.a, actor, id, { recipients });
+
+  it('links the client’s PRIMARY and SPOUSE logins by id, a member and an outsider', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const res = await put(d.id, [
+      signer({ type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary }),
+      signer({ type: 'CLIENT_LOGIN', clientAccountId: w.ids.spouse }, { role: 'SPOUSE' }),
+      signer(
+        { type: 'STAFF', userId: w.users.staffA },
+        { role: 'PREPARER', routingOrder: 2, delivery: 'IN_PERSON' },
+      ),
+      // An outsider with a client login's email stays an outsider: never matched by email.
+      signer(
+        {
+          type: 'EXTERNAL',
+          name: 'Fake Witness',
+          email: `${w.ids.primary.slice(0, 8)}@client.test`,
+        },
+        {
+          role: 'CUSTOM',
+          roleLabel: 'Witness',
+          routingOrder: 3,
+          authMethod: 'ACCESS_CODE',
+          accessCode: 'abc123',
+        },
+      ),
+    ]);
+    expect(EsignRequestDetail.parse(res)).toEqual(res);
+    expect(
+      res.recipients.map((r) => [r.name, r.link.type, r.colorIndex, r.hasAccessCode, r.status]),
+    ).toEqual([
+      ['Fake primary', 'CLIENT_LOGIN', 0, false, 'WAITING'],
+      ['Fake spouse', 'CLIENT_LOGIN', 1, false, 'WAITING'],
+      ['staff-a', 'STAFF', 2, false, 'WAITING'],
+      ['Fake Witness', 'EXTERNAL', 3, true, 'WAITING'],
+    ]);
+    expect(res.recipients[3]?.roleLabel).toBe('Witness');
+    expect(res.signerNames).toEqual(['Fake primary', 'Fake spouse', 'staff-a', 'Fake Witness']);
+    // The code itself is never returned or audited.
+    expect(JSON.stringify(res)).not.toContain('abc123');
+    expect(JSON.stringify(w.audit.entries)).not.toContain('abc123');
+    expect(w.audit.entries.at(-1)).toEqual({
+      action: 'esign.recipients_updated',
+      entity: { type: 'esign_request', id: d.id },
+      metadata: { recipientIds: res.recipients.map((r) => r.id), fieldsRemoved: 0 },
+    });
+  });
+
+  it('refuses logins that are not the client’s ACTIVE PRIMARY or SPOUSE, and inactive members', async () => {
+    const d = await draft(owner, w.ids.c1);
+    for (const clientAccountId of [
+      w.ids.authorized,
+      w.ids.disabled,
+      w.ids.c2Login, // another client's
+      w.ids.loginB, // another firm's
+      randomUUID(),
+    ]) {
+      expect(await refused(put(d.id, [signer({ type: 'CLIENT_LOGIN', clientAccountId })]))).toEqual(
+        [409, 'LOGIN_NOT_ACTIVE'],
+      );
+    }
+    for (const userId of [w.users.goneA, w.users.ownerB, randomUUID()]) {
+      expect(await refused(put(d.id, [signer({ type: 'STAFF', userId })]))).toEqual([
+        409,
+        'NOT_A_MEMBER',
+      ]);
+    }
+    // No client yet: no client login fits.
+    const bare = await draft(owner);
+    expect(
+      await refused(
+        put(bare.id, [signer({ type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary })]),
+      ),
+    ).toEqual([409, 'LOGIN_NOT_ACTIVE']);
+  });
+
+  it('keeps ids, colours and access codes; removed signers lose their fields', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const first = await put(d.id, [
+      signer({ type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary }),
+      signer({ type: 'CLIENT_LOGIN', clientAccountId: w.ids.spouse }, { role: 'SPOUSE' }),
+      signer(
+        { type: 'EXTERNAL', name: 'Fake Partner', email: 'partner@outside.test' },
+        { role: 'BUSINESS_OWNER', authMethod: 'ACCESS_CODE', accessCode: 'code42' },
+      ),
+    ]);
+    const [primary, spouse, partner] = [0, 1, 2].map((i) => first.recipients[i]!) as [
+      EsignRecipient,
+      EsignRecipient,
+      EsignRecipient,
+    ];
+    const kept = field(0, spouse.id);
+    const gone = field(0, primary.id);
+    const sender = field(0);
+    w.repo.seed(w.a, d.id, (row) => (row.parts.fields = [kept, gone, sender]));
+
+    const second = await put(d.id, [
+      signer({ type: 'EXTERNAL', name: 'Fake New', email: 'new@outside.test' }),
+      signer(
+        { type: 'CLIENT_LOGIN', clientAccountId: w.ids.spouse },
+        { id: spouse.id, role: 'SPOUSE' },
+      ),
+      signer(
+        { type: 'EXTERNAL', name: 'Fake Partner', email: 'partner@outside.test' },
+        { id: partner.id, role: 'BUSINESS_OWNER', authMethod: 'ACCESS_CODE' },
+      ),
+    ]);
+    expect(second.recipients.map((r) => [r.id === spouse.id, r.colorIndex])).toEqual([
+      [false, 0], // the lowest free colour
+      [true, 1],
+      [false, 2],
+    ]);
+    expect(second.recipients[2]).toMatchObject({ id: partner.id, hasAccessCode: true });
+    expect(second.fields.map((f) => f.id)).toEqual([kept.id, sender.id]);
+
+    // An approver signs nothing: their fields go too.
+    const third = await put(d.id, [
+      signer({ type: 'STAFF', userId: w.users.managerA }, { kind: 'APPROVER', role: 'MANAGER' }),
+      signer(
+        { type: 'CLIENT_LOGIN', clientAccountId: w.ids.spouse },
+        { id: spouse.id, kind: 'CC', role: 'SPOUSE' },
+      ),
+    ]);
+    expect(third.fields.map((f) => f.id)).toEqual([sender.id]);
+    expect(third.signerNames).toEqual([]);
+  });
+
+  it('asks for an access code it does not have, 400s an unknown id, and uses order 1 when PARALLEL', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const first = await put(d.id, [
+      signer({ type: 'EXTERNAL', name: 'Fake X', email: 'x@outside.test' }),
+    ]);
+    const id = first.recipients[0]!.id;
+    const noCode = signer(
+      { type: 'EXTERNAL', name: 'Fake X', email: 'x@outside.test' },
+      { id, authMethod: 'ACCESS_CODE' },
+    );
+    expect(await refused(put(d.id, [noCode]))).toEqual([400, 'VALIDATION_FAILED']);
+    const unknown = signer(
+      { type: 'EXTERNAL', name: 'Fake Y', email: 'y@outside.test' },
+      { id: randomUUID() },
+    );
+    expect(await refused(put(d.id, [unknown]))).toEqual([400, 'VALIDATION_FAILED']);
+    // A kept id that is now someone else does not inherit the old access code.
+    const coded = { authMethod: 'ACCESS_CODE' as const };
+    await put(d.id, [
+      signer(
+        { type: 'EXTERNAL', name: 'Fake X', email: 'x@outside.test' },
+        { id, ...coded, accessCode: 'c0de42' },
+      ),
+    ]);
+    const other = signer(
+      { type: 'EXTERNAL', name: 'Fake Z', email: 'z@outside.test' },
+      { id, ...coded },
+    );
+    expect(await refused(put(d.id, [other]))).toEqual([400, 'VALIDATION_FAILED']);
+
+    await svc.update(w.a, owner, d.id, { routing: 'PARALLEL' });
+    const parallel = await put(d.id, [
+      signer({ type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary }, { routingOrder: 3 }),
+      signer(
+        { type: 'CLIENT_LOGIN', clientAccountId: w.ids.spouse },
+        { role: 'SPOUSE', routingOrder: 5 },
+      ),
+    ]);
+    expect(parallel.recipients.map((r) => r.routingOrder)).toEqual([1, 1]);
+  });
+
+  it('keeps an access code for the same member or login, never for another one', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const coded = { authMethod: 'ACCESS_CODE' as const };
+    const people: [Input['who'], Input['who']][] = [
+      [
+        { type: 'STAFF', userId: w.users.staffA },
+        { type: 'STAFF', userId: w.users.managerA },
+      ],
+      [
+        { type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary },
+        { type: 'CLIENT_LOGIN', clientAccountId: w.ids.spouse },
+      ],
+    ];
+    for (const [who, someoneElse] of people) {
+      const first = await put(d.id, [signer(who, { ...coded, accessCode: 'k3ep42' })]);
+      const id = first.recipients[0]!.id;
+      // The same person, no new code: the stored one stays.
+      const again = await put(d.id, [signer(who, { id, ...coded })]);
+      expect(again.recipients[0]).toMatchObject({ id, hasAccessCode: true });
+      // The same id now someone else: a new code is needed.
+      expect(await refused(put(d.id, [signer(someoneElse, { id, ...coded })]))).toEqual([
+        400,
+        'VALIDATION_FAILED',
+      ]);
+    }
+  });
+
+  it('lets Staff manage recipients on their assigned client’s request', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const res = await put(
+      d.id,
+      [signer({ type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary })],
+      staff,
+    );
+    expect(res.recipients).toHaveLength(1);
+    expect(
+      await refused(
+        put(d.id, [signer({ type: 'CLIENT_LOGIN', clientAccountId: w.ids.primary })], staff2),
+      ),
+    ).toEqual([404, 'NOT_FOUND']);
+  });
+});
+
+describe('page plan and recipients: access and state', () => {
+  it('answers 404 for another firm’s request and 409 INVALID_STATE once sent', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const ownerB: EsignActor = { userId: w.users.ownerB, role: 'OWNER' };
+    for (const work of [
+      svc.putRecipients(w.b, ownerB, d.id, { recipients: [] }),
+      svc.putPagePlan(w.b, ownerB, d.id, []),
+    ]) {
+      expect(await refused(work)).toEqual([404, 'NOT_FOUND']);
+    }
+    // A write between the read and the save (a PUT fields, say) is never reverted: 409.
+    const parts = w.repo.parts.bind(w.repo);
+    for (const work of [
+      () => svc.putRecipients(w.a, owner, d.id, { recipients: [] }),
+      () => svc.putPagePlan(w.a, owner, d.id, []),
+    ]) {
+      w.repo.parts = async (businessId, id) => {
+        w.repo.parts = parts;
+        await w.repo.updateDraft(w.a, d.id, { title: 'In between' });
+        return parts(businessId, id);
+      };
+      expect(await refused(work())).toEqual([409, 'INVALID_STATE']);
+    }
+    w.repo.seed(w.a, d.id, (row) => (row.record.status = 'SENT'));
+    for (const work of [
+      svc.putRecipients(w.a, owner, d.id, { recipients: [] }),
+      svc.putPagePlan(w.a, owner, d.id, []),
+    ]) {
+      expect(await refused(work)).toEqual([409, 'INVALID_STATE']);
+    }
+  });
+});
+
+describe('approvers', () => {
+  type Input = EsignPutRecipientsBody['recipients'][number];
+  const approver = (who: Input['who']) => ({
+    kind: 'APPROVER' as const,
+    role: 'MANAGER' as const,
+    routingOrder: 1,
+    who,
+    delivery: 'EMAIL' as const,
+    authMethod: 'EMAIL_CODE' as const,
+  });
+  const staffWho = (userId: string): Input['who'] => ({ type: 'STAFF', userId });
+
+  it('takes an Owner, Admin or Firm Sign Manager who is not the sender', async () => {
+    const d = await draft(staff, w.ids.c1);
+    const res = await svc.putRecipients(w.a, staff, d.id, {
+      recipients: [w.users.ownerA, w.users.adminA, w.users.managerA].map((u) =>
+        approver(staffWho(u)),
+      ),
+    });
+    expect(res.recipients.map((r) => [r.kind, r.name, r.status])).toEqual([
+      ['APPROVER', 'owner-a', 'WAITING'],
+      ['APPROVER', 'admin-a', 'WAITING'],
+      ['APPROVER', 'manager-a', 'WAITING'],
+    ]);
+  });
+
+  it('refuses Staff, the sender, a client login and an outsider (409 APPROVER_NOT_ALLOWED)', async () => {
+    const d = await draft(owner, w.ids.c1);
+    for (const who of [
+      staffWho(w.users.staffA),
+      staffWho(w.users.ownerA), // the sender
+      { type: 'CLIENT_LOGIN' as const, clientAccountId: w.ids.primary },
+      { type: 'EXTERNAL' as const, name: 'Fake Boss', email: 'boss@outside.test' },
+    ]) {
+      expect(
+        await refused(svc.putRecipients(w.a, owner, d.id, { recipients: [approver(who)] })),
+      ).toEqual([409, 'APPROVER_NOT_ALLOWED']);
+    }
+    // Another firm's owner is not a member here.
+    expect(
+      await refused(
+        svc.putRecipients(w.a, owner, d.id, { recipients: [approver(staffWho(w.users.ownerB))] }),
+      ),
+    ).toEqual([409, 'NOT_A_MEMBER']);
+    expect((await svc.get(w.a, owner, d.id)).recipients).toEqual([]);
+  });
+
+  it('names a member once as approver (400), and never lets an approver change the request', async () => {
+    const d = await draft(owner, w.ids.c1);
+    const twice = [approver(staffWho(w.users.managerA)), approver(staffWho(w.users.managerA))];
+    expect(await refused(svc.putRecipients(w.a, owner, d.id, { recipients: twice }))).toEqual([
+      400,
+      'VALIDATION_FAILED',
+    ]);
+    await svc.putRecipients(w.a, owner, d.id, { recipients: twice.slice(1) });
+    const manager: EsignActor = { userId: w.users.managerA, role: 'MANAGER' };
+    expect((await svc.get(w.a, manager, d.id)).allowedActions).toEqual([]);
+    for (const work of [
+      svc.putRecipients(w.a, manager, d.id, { recipients: [] }),
+      svc.putPagePlan(w.a, manager, d.id, []),
+    ]) {
+      expect(await refused(work)).toEqual([404, 'NOT_FOUND']);
+    }
+    expect((await svc.get(w.a, owner, d.id)).recipients).toHaveLength(1);
+  });
+
+  it('asks again after any edit: approvers go back to WAITING', async () => {
+    const d = await draft(staff, w.ids.c1);
+    await svc.putRecipients(w.a, staff, d.id, {
+      recipients: [approver(staffWho(w.users.managerA))],
+    });
+    const approve = () =>
+      w.repo.seed(w.a, d.id, (row) => {
+        for (const r of row.parts.recipients) r.status = 'APPROVED';
+      });
+    approve();
+    expect((await svc.get(w.a, staff, d.id)).recipients[0]?.status).toBe('APPROVED');
+    await svc.update(w.a, staff, d.id, { title: 'Changed' });
+    expect((await svc.get(w.a, staff, d.id)).recipients[0]?.status).toBe('WAITING');
+    approve();
+    await svc.putPagePlan(w.a, staff, d.id, []);
+    expect((await svc.get(w.a, staff, d.id)).recipients[0]?.status).toBe('WAITING');
+  });
+});
+
 describe('the in-memory fakes', () => {
   it('keeps each firm’s requests to itself', async () => {
     const made = await w.repo.createRequest(w.a, input());
@@ -351,9 +773,15 @@ describe('the in-memory fakes', () => {
     w.repo.loseNextWrite = true;
     expect(await w.repo.updateDraft(w.a, made.id, { title: 'lost' })).toBe('INVALID_STATE');
     expect(w.repo.loseNextWrite).toBe(false);
+    // A write answers the request as written, strictly later; a stale readAt is refused.
+    const read = (await w.repo.findRequest(w.a, made.id))!;
+    const saved = await w.repo.savePagePlan(w.a, made.id, [], [], read.lastActivityAt);
+    expect(saved?.lastActivityAt.getTime()).toBeGreaterThan(read.lastActivityAt.getTime());
+    expect(await w.repo.saveRecipients(w.a, made.id, [], [], read.lastActivityAt)).toBeNull();
     w.repo.seed(w.a, made.id, (row) => (row.record.status = 'SENT'));
-    expect(await w.repo.savePagePlan(w.a, made.id, [], [])).toBe(false);
-    expect(await w.repo.saveRecipients(w.a, made.id, [], [])).toBe(false);
+    const now = saved!.lastActivityAt;
+    expect(await w.repo.savePagePlan(w.a, made.id, [], [], now)).toBeNull();
+    expect(await w.repo.saveRecipients(w.a, made.id, [], [], now)).toBeNull();
     expect(await w.repo.deleteDraft(w.a, made.id)).toBeNull();
     expect(await w.repo.findRequest(w.a, made.id)).toMatchObject({
       status: 'SENT',
