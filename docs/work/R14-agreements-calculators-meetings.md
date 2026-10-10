@@ -43,10 +43,21 @@
 
 ## Needs from others
 
-- R15 (contract B, #257): drop `PDF_REQUIRED` from `AGREEMENT_CODES` (a submit never answers it); spread `INTAKE_SIGNING_ERRORS` into `INTAKE_ERRORS` and `BEGIN_ONLINE_ERRORS` in place of `INTAKE_AGREEMENT_ERRORS`; swap `IntakeAgreementOutdatedDetails` for `AgreementOutdatedDetails` (the current block); the review step reads `api.publicAgreements(slug).block({ form })` on Begin Online and `api.myIntakeAgreements(slug).block(intakeId)` in the portal.
+- R15 (contract B, #257): drop `PDF_REQUIRED` from `AGREEMENT_CODES` (a submit never answers it); spread `INTAKE_SIGNING_ERRORS` into `INTAKE_ERRORS` and `BEGIN_ONLINE_ERRORS` in place of `INTAKE_AGREEMENT_ERRORS`, spreading first so B's own `TERMS_OUTDATED` (same code) can follow it without TS2783; swap `IntakeAgreementOutdatedDetails` for `AgreementOutdatedDetails` (the current block); the review step reads `api.publicAgreements(slug).block({ form })` on Begin Online and `api.myIntakeAgreements(slug).block(intakeId)` in the portal.
 - R11 or whoever owns `ApiRequestError`: keep the error's `details`, so AGREEMENT_OUTDATED can show the new block without a reload.
+- R15 (intake sign in its portal and Begin Online submit): pick the Begin Online intake's service and form only through `beginOnlineService(tx, form)` from `agreements.service.ts`, the same lookup the block uses. Any other choice gives a firm with two services of one kind 409 AGREEMENT_OUTDATED on every submit.
+- R12: calculators and meeting links moved from R12 to R14 (Rasel's Oct 8 plan); R12's file is its owner's to update.
+- R1 (scan router): `AgreementFilesService.recordScan(result: ScanResult): Promise<ScanOutcome>` for keys under `tenant/{businessId}/agreements/`, with ScanResultsService's outcomes (UNKNOWN: redeliver; IGNORED: delete the message; PENDING: our side, alarm and rescan).
+- R5 / R13 (shared follow-ups): pdf-lib inflates every FlateDecode /ObjStm with no size limit (a 196 KB file inflated to 192 MiB was accepted); esign's `loadPdf` has the same exposure. One shared inflate cap (zlib `maxOutputLength` per stream, or a child process with an OS memory limit). Also: the agreements module builds a second DOCUMENTS_CONFIG and S3 client, and nothing cleans up unconfirmed PUTs under `tenant/*/agreements/`.
 - R0: the `meeting_url` migration for appointments and the follow-ups from #155 (pending Rasel).
 
 ## Progress log
 
+- Oct 9: `beginOnlineService()` now filters on `services.begin_online` (R0's intake engine), as R15's #283 does.
+
+- Oct 9: #285 merged. Follow-up from the Scrum review: `AGREEMENT_PDF_REQUIRED` off by default (empty = unset) so LVP can publish on dev before the PDF routes; the block never offers a PDF download yet; archive answers 200; list, get and archive no longer load version text; audit rows written in the same transaction; more e2e cases (other services, Pending Setup firm, races, staff).
+
+- Oct 9: #259 merged. Agreements API opened as #285 with the #259 follow-ups: `FirmAgreementList.services` (the firm's unarchived services, so the editor can create a service agreement), the resolution and outdated rules written down in `docs/api/agreements.yaml`, the table names fixed.
+
 - Oct 9: #155 (R0's intake agreements and signature evidence tables) merged. Contract #259 opened on `claude/r14-agreements-calculators-2i2erk`; Scrum pre-review fixes applied (block keyed by form plus the portal route, text rules, version bounds, upload facts, error maps, mock fixes). Shared `FileName` rule now exported from `documents/schemas.ts` and reused for agreement PDFs.
+- Oct 9: agreements API on the revised contract (`rasel/R14-agreements-api`): the Begin Online block by `?form=` (the firm's unarchived service of that kind; until R0's `begin_online` column lands, the first by sort order, creation, id), the portal block by intake, `legal` only with both Terms and Privacy, 409 `SERVICE_AGREEMENT_LIMIT` under the firm's create lock.

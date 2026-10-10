@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 /** Stable `error.code` values of Firm Sign, besides the generic ones in ApiError. */
 export const EsignErrorCode = z.enum([
-  /** 403 (firm routes): Firm Sign is off for this firm. Public and signer routes answer 404. */
+  /**
+   * 403 (firm routes and signed-in portal routes, the Signature center): Firm Sign is off for
+   * this firm. Public signer routes answer 404.
+   */
   'MODULE_OFF',
   /** 409: the request's status does not allow this (for example editing a sent request). */
   'INVALID_STATE',
@@ -63,10 +66,19 @@ export const EsignErrorCode = z.enum([
   'CONSENT_OUTDATED',
   /** 409 (signer finish): adopt a signature (and initials, when asked) first. */
   'SIGNATURE_REQUIRED',
-  /** 409 (use template): say who fills each role that could not be filled from the client. */
+  /**
+   * 409 (use template, bulk send): say who fills each role that could not be filled from the
+   * client, and give the access code each ACCESS_CODE role needs (unless IN_PERSON); in a bulk
+   * send, choose another sign-in check for such a role instead (no shared codes).
+   */
   'TEMPLATE_ROLES_UNFILLED',
   /** 409 (templates): another active template has that name. */
   'TEMPLATE_NAME_TAKEN',
+  /**
+   * 409 (save-as-template, save-as-version): a file came from the client's documents; a template
+   * never holds a client's files.
+   */
+  'TEMPLATE_HAS_CLIENT_FILES',
   /** 400 (signer adopt): the image is not a PNG, or over 200 KB or 1600x600. */
   'IMAGE_INVALID',
   // Contract 3: approvals, roles and in-person signing.
@@ -120,8 +132,11 @@ export const ESIGN_ERRORS = {
   CODE_TOO_SOON: 'A code was just sent. Wait a minute before asking for another.',
   CONSENT_OUTDATED: 'The consent text has changed. Read it again and accept it.',
   SIGNATURE_REQUIRED: 'Adopt your signature before finishing.',
-  TEMPLATE_ROLES_UNFILLED: 'Choose who fills each role in this template.',
+  TEMPLATE_ROLES_UNFILLED:
+    'Choose who fills each role in this template, and set an access code where one is needed.',
   TEMPLATE_NAME_TAKEN: 'Another template already has this name.',
+  TEMPLATE_HAS_CLIENT_FILES:
+    "Files from the client's documents can't go into a template. Upload a blank copy instead.",
   IMAGE_INVALID: 'Use a PNG image of at most 200 KB and 1600 by 600 pixels.',
   NOT_AN_APPROVER: 'Only this request’s approvers can approve it.',
   ROLE_FIXED: 'Owners and Admins always have full access to Firm Sign.',

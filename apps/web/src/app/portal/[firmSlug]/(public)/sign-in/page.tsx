@@ -1,12 +1,8 @@
-import { SignInPanel } from '../../../../../components/sign-in-panel';
+import type { Metadata } from 'next';
+import { SignInScreen } from './_components/sign-in-screen';
 
-export default async function PortalSignIn({ params }: { params: Promise<{ firmSlug: string }> }) {
-  const { firmSlug } = await params;
-  return (
-    <SignInPanel
-      title={`Client portal: ${firmSlug}`}
-      pool="CLIENT"
-      homePath={`/${firmSlug}/home`}
-    />
-  );
+export const metadata: Metadata = { title: 'Sign in' };
+
+export default function SignInPage() {
+  return <SignInScreen />;
 }

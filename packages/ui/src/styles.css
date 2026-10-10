@@ -44,6 +44,9 @@
   --color-focus: #005fcc;
   --color-accent: #007f82;
   --color-accent-soft: #e1f5f2;
+  /* R25: the Super Admin mockup's purple (Total Users, Team, Tasks, Platform Settings). */
+  --color-purple: #6d28d9;
+  --color-purple-soft: #f1ebfe;
   --color-public-action: #005fcc;
   --color-public-action-hover: #004fa8;
   --color-public-action-pressed: #003d85;
@@ -60,8 +63,9 @@
   --color-firm-accent: var(--color-platform-blue);
   --color-overlay: rgba(0, 27, 54, 0.55);
   --color-transparent: transparent;
-  --font-sans: Arial, Helvetica, sans-serif;
-  --font-display: Georgia, 'Times New Roman', serif;
+  /* R25: mockup faces (Nunito Sans, Playfair Display) loaded by apps/web; old stacks stay as fallbacks. */
+  --font-sans: var(--font-face-sans, Arial), Helvetica, sans-serif;
+  --font-display: var(--font-face-display, Georgia), 'Times New Roman', serif;
   --tracking-eyebrow: 0.12em;
   /* R25: the wide tagline under the Firmivra wordmark ("SUPER ADMIN PORTAL"). */
   --tracking-brand: 0.22em;

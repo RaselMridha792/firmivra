@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { INVOICE_ERRORS } from '@firmivra/types';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type {
+  CancelInvoiceRequest,
   CreateInvoiceRequest,
   Invoice,
   InvoiceList,
@@ -17,15 +19,28 @@ import {
 } from '../../clients/clients.service.js';
 import { DATABASE } from '../../database/database.module.js';
 import { isUniqueViolation } from '../../workspaces/common.js';
+import {
+  CHECKOUT_LIMITS,
+  expireCheckout,
+  lockInvoice,
+  oneAtATime,
+  openCheckouts,
+  paymentInProgress,
+  providerUnavailable,
+  withStripeHold,
+} from '../checkout/checkout-sessions.js';
+import { STRIPE_GATEWAY, type StripeGateway } from '../stripe/stripe-gateway.js';
 import { InvoiceNotices } from './invoice-notices.js';
 import {
   conflict,
   day,
   firmToday,
+  holdsMoney,
   type InvoiceRow,
   invoiceSelect,
   notFound,
   paymentsEnabled,
+  processing,
   toDate,
   toInvoice,
   toListItem,
@@ -50,6 +65,7 @@ export class InvoicesService {
     @Inject(DATABASE) private readonly database: Database,
     private readonly audit: AuditService,
     private readonly notices: InvoiceNotices,
+    @Inject(STRIPE_GATEWAY) private readonly stripe: StripeGateway | null,
   ) {}
 
   inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
@@ -60,24 +76,40 @@ export class InvoicesService {
     return actor.role === 'STAFF' ? { assignedUserId: actor.userId } : {};
   }
 
-  /** The invoice, if its client is in reach; `lock` takes its row (FOR UPDATE) first. */
+  /** The invoice, if its client is in reach. */
   async load(
     tx: TxClient,
     businessId: string,
     actor: ClientsActor,
     id: string,
-    lock = false,
   ): Promise<InvoiceRow> {
-    if (lock) {
-      await tx.$queryRaw`
-        SELECT 1 FROM invoices WHERE business_id = ${businessId}::uuid AND id = ${id}::uuid FOR UPDATE`;
-    }
     const row = await tx.invoice.findFirst({
       where: { businessId, id, client: this.reach(actor) },
       select: invoiceSelect,
     });
     if (!row) throw notFound();
     return row;
+  }
+
+  /**
+   * A draft in reach, its row held. A sent invoice is 409 NOT_DRAFT before any lock, so editing
+   * one never waits behind a Pay Now; the row is then taken (briefly, as Pay Now does) and read
+   * again. Another client's `engagementId` is 404 first, as the contract orders it.
+   */
+  private async loadDraft(
+    tx: TxClient,
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    engagementId?: string | null,
+  ): Promise<InvoiceRow> {
+    const first = await this.load(tx, businessId, actor, id);
+    await this.checkEngagement(tx, businessId, first.clientId, engagementId);
+    if (first.status !== 'DRAFT') throw notDraft();
+    await lockInvoice(tx, businessId, id);
+    const current = await this.load(tx, businessId, actor, id);
+    if (current.status !== 'DRAFT') throw notDraft();
+    return current;
   }
 
   async list(businessId: string, actor: ClientsActor, q: ListQuery): Promise<InvoiceList> {
@@ -165,14 +197,23 @@ export class InvoicesService {
       select: { archivedAt: true },
     });
     if (!client) throw notFound();
-    if (engagementId) {
-      const service = await tx.engagement.findFirst({
-        where: { businessId, clientId, id: engagementId },
-        select: { id: true },
-      });
-      if (!service) throw notFound();
-    }
+    await this.checkEngagement(tx, businessId, clientId, engagementId);
     return client.archivedAt !== null;
+  }
+
+  /** `engagementId`, when given, must be one of this client's services (404 otherwise). */
+  private async checkEngagement(
+    tx: TxClient,
+    businessId: string,
+    clientId: string,
+    engagementId: string | null | undefined,
+  ): Promise<void> {
+    if (!engagementId) return;
+    const service = await tx.engagement.findFirst({
+      where: { businessId, clientId, id: engagementId },
+      select: { id: true },
+    });
+    if (!service) throw notFound();
   }
 
   /**
@@ -210,7 +251,7 @@ export class InvoicesService {
    * never pick the same one.
    */
   private async nextNumber(tx: TxClient, businessId: string): Promise<string> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invoice-number:${businessId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invoice-number:${businessId}`}, 0))`;
     const year = (await firmToday(tx, businessId)).today.slice(0, 4);
     const [row] = await tx.$queryRaw<{ n: number | null }[]>`
       SELECT max(substring(number from '^INV-[0-9]{4}-([0-9]+)$')::int) AS n
@@ -262,15 +303,10 @@ export class InvoicesService {
     body: DraftBody,
   ): Promise<Invoice> {
     return this.inFirm(businessId, async (tx) => {
-      const current = await this.load(tx, businessId, actor, id, true);
-      const isArchived = await this.checkClient(
-        tx,
-        businessId,
-        current.clientId,
-        body.engagementId,
-      );
-      if (current.status !== 'DRAFT') throw notDraft();
-      if (isArchived) throw archived();
+      const current = await this.loadDraft(tx, businessId, actor, id, body.engagementId);
+      if (await this.checkClient(tx, businessId, current.clientId, body.engagementId)) {
+        throw archived();
+      }
       await this.writeDraft(tx, businessId, id, body);
       const row = await this.load(tx, businessId, actor, id);
       await this.audit.logIn(
@@ -290,10 +326,8 @@ export class InvoicesService {
    */
   async send(businessId: string, actor: ClientsActor, id: string): Promise<Invoice> {
     const { invoice, opened } = await this.inFirm(businessId, async (tx) => {
-      const current = await this.load(tx, businessId, actor, id, true);
-      const isArchived = await this.checkClient(tx, businessId, current.clientId, null);
-      if (current.status !== 'DRAFT') throw notDraft();
-      if (isArchived) throw archived();
+      const current = await this.loadDraft(tx, businessId, actor, id);
+      if (await this.checkClient(tx, businessId, current.clientId, null)) throw archived();
       if (current.totalCents === 0) {
         throw conflict('ZERO_TOTAL', 'There is nothing to pay on this invoice');
       }
@@ -321,5 +355,69 @@ export class InvoicesService {
     });
     if (opened) await this.notices.send('invoice.sent', businessId, id, actor.userId);
     return invoice;
+  }
+
+  /**
+   * Cancels a draft, scheduled or open invoice. Its open Checkout Sessions are expired at Stripe
+   * first, so nobody can pay it afterwards; a payment Stripe is still settling is 409. A canceled
+   * draft loses `scheduled_for` (the portal never shows it); a canceled SCHEDULED one keeps it.
+   */
+  async cancel(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: z.output<typeof CancelInvoiceRequest>,
+  ): Promise<Invoice> {
+    return oneAtATime(businessId, id, () => this.cancelNow(businessId, actor, id, body));
+  }
+
+  private async cancelNow(
+    businessId: string,
+    actor: ClientsActor,
+    id: string,
+    body: z.output<typeof CancelInvoiceRequest>,
+  ): Promise<Invoice> {
+    return this.database.withScope(
+      { kind: 'business', businessId },
+      async (tx) => {
+        // In reach first (404 otherwise), then the row, waiting briefly (409 while a Pay Now runs).
+        await this.load(tx, businessId, actor, id);
+        await lockInvoice(tx, businessId, id);
+        const current = await this.load(tx, businessId, actor, id);
+        if (current.status === 'PAID' || current.status === 'CANCELED') {
+          throw conflict('INVOICE_CLOSED', INVOICE_ERRORS.INVOICE_CLOSED);
+        }
+        if (processing(current)) throw paymentInProgress();
+        if (holdsMoney(current)) throw conflict('HAS_PAYMENTS', INVOICE_ERRORS.HAS_PAYMENTS);
+        const unsettled = current.payments.some((p) => p.status === 'PENDING');
+        if (unsettled) {
+          if (!this.stripe) throw providerUnavailable();
+          const stripe = this.stripe;
+          await withStripeHold(async () => {
+            for (const open of await openCheckouts(tx, stripe, this.audit, businessId, id)) {
+              await expireCheckout(tx, stripe, this.audit, businessId, id, open);
+            }
+          });
+        }
+        await tx.invoice.update({
+          where: { businessId_id: { businessId, id } },
+          data: {
+            status: 'CANCELED',
+            canceledAt: new Date(),
+            cancelReason: body.reason,
+            ...(current.status === 'DRAFT' ? { scheduledFor: null } : {}),
+          },
+        });
+        const row = await this.load(tx, businessId, actor, id);
+        await this.audit.logIn(
+          tx,
+          'invoice.canceled',
+          { type: 'invoice', id },
+          { clientId: row.clientId, fromStatus: current.status, totalCents: row.totalCents },
+        );
+        return toInvoice(row, (await firmToday(tx, businessId)).today);
+      },
+      CHECKOUT_LIMITS,
+    );
   }
 }

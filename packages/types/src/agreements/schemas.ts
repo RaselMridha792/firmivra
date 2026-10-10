@@ -3,6 +3,7 @@ import { CalendarDate, MemberRef } from '../clients/schemas.js';
 import { text } from '../clients/text.js';
 import { AgreementScope, ScanStatus, SignatureMethod } from '../db-enums.js';
 import { DownloadLink, FileName, UPLOAD_LIMITS } from '../documents/schemas.js';
+import { ServiceRef } from '../engagements/schemas.js';
 import { SignatureCaptureInput } from '../esign/capture.js';
 import { IntakeFormKey } from '../intake/definition.js';
 
@@ -17,8 +18,8 @@ import { IntakeFormKey } from '../intake/definition.js';
 // Begin Online (no sign-in, the firm from its slug): /api/v1/portal/{firmSlug}/intake-agreements
 // Portal intake (signed-in client): /api/v1/portal/{firmSlug}/me/intakes/{intakeId}/agreements
 // The PDF upload uses the documents pattern in three calls (createUpload, PUT, confirmUpload);
-// a version can link a PDF only once its scan is CLEAN. With AGREEMENT_PDF_REQUIRED on (the
-// default), publishing without a CLEAN PDF answers 409 PDF_REQUIRED (publish only: a submit
+// a version can link a PDF only once its scan is CLEAN. With AGREEMENT_PDF_REQUIRED on (off by
+// default for now), publishing without a CLEAN PDF answers 409 PDF_REQUIRED (publish only: a submit
 // never answers it, since the signature sends nothing for the PDF and the API pins the version's
 // pdf_sha256 itself).
 // Firm screens show errors with `errorMessage(error, AGREEMENT_ERRORS)`; the submit-time codes
@@ -160,7 +161,14 @@ export const FirmAgreementSummary = z.object({
   versionCount: z.number().int(),
 });
 export type FirmAgreementSummary = z.infer<typeof FirmAgreementSummary>;
-export const FirmAgreementList = z.object({ items: z.array(FirmAgreementSummary) });
+/**
+ * GET /business/agreements: the firm's agreements, plus its unarchived services (sort order,
+ * creation, then id) so the editor can pick one for a service agreement.
+ */
+export const FirmAgreementList = z.object({
+  items: z.array(FirmAgreementSummary),
+  services: z.array(ServiceRef),
+});
 export type FirmAgreementList = z.infer<typeof FirmAgreementList>;
 
 /** GET /business/agreements/{id}: the series with every version, newest first. */
