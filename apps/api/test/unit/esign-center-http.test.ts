@@ -217,7 +217,7 @@ describe('the Signature center over HTTP', () => {
       expect(errorOf(await send('get', path, primary())), path).toEqual([400, 'VALIDATION_FAILED']);
     }
     const id = randomUUID();
-    for (const q of ['', '?file=original']) {
+    for (const q of ['?file=original', '?file=']) {
       const res = await send('get', `/${id}/download${q}`, primary());
       expect(errorOf(res)).toEqual([400, 'VALIDATION_FAILED']);
     }

@@ -927,7 +927,7 @@ paths:
     parameters:
       - { name: firmSlug, in: path, required: true, schema: { type: string } }
       - { name: recipientId, in: path, required: true, schema: { type: string, format: uuid } }
-      - { name: file, in: query, required: true, schema: { type: string, enum: [final, certificate] } }
+      - { name: file, in: query, required: false, schema: { type: string, enum: [final, certificate], default: final } }
     get:
       tags: [esign-portal]
       operationId: mySignatureDownload
@@ -1252,7 +1252,7 @@ paths:
       tags: [esign-extras]
       operationId: setEsignRole
       x-roles: [OWNER, ADMIN]
-      summary: "A Staff member’s Firm Sign access (`SetEsignMemberRoleBody` → `EsignMemberRole`). 409 ROLE_FIXED, NOT_A_MEMBER"
+      summary: "A Staff member’s Firm Sign access (`SetEsignMemberRoleBody` → `EsignMemberRole`). 409 ROLE_FIXED; 404 for anyone not an active member"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '200':

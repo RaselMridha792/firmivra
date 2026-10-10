@@ -70,12 +70,13 @@ export class EsignCenterController {
     return this.center.startSigning(signerOf(tenant), recipientId, res);
   }
 
+  /** `file`: the signed PDF (`final`, when left out) or the certificate. */
   @Get(':recipientId/download')
   @RequiresModule('esign')
   download(
     @CurrentTenant() tenant: TenantContext,
     @Param('recipientId', idPipe) recipientId: string,
-    @Query('file', new ZodValidationPipe(SignerCopyFile)) file: SignerCopyFile,
+    @Query('file', new ZodValidationPipe(SignerCopyFile.default('final'))) file: SignerCopyFile,
   ): Promise<DownloadLink> {
     return this.center.download(signerOf(tenant), recipientId, file);
   }

@@ -315,7 +315,7 @@ describe('Firm Sign roles and reports over HTTP', () => {
     const fixed = await call('put', `roles/${w.users.adminA}`, ownerA(), { esignRole: 'VIEWER' });
     expect(errorOf(fixed)).toEqual([409, 'ROLE_FIXED']);
     const other = await call('put', `roles/${w.users.ownerB}`, ownerA(), { esignRole: 'VIEWER' });
-    expect(errorOf(other)).toEqual([409, 'NOT_A_MEMBER']);
+    expect(errorOf(other)).toEqual([404, 'NOT_FOUND']);
     for (const [path, body] of [
       ['roles/not-a-uuid', { esignRole: 'VIEWER' }],
       [`roles/${w.users.staffA}`, { esignRole: 'OWNER' }],
