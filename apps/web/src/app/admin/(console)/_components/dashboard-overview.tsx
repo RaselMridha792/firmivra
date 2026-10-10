@@ -2,6 +2,7 @@
 
 import type {
   AdminDashboard,
+  AdminSystemStatus,
   FirmApplicationListItem,
   ListFirmApplicationsResponse,
 } from '@firmivra/types';
@@ -215,16 +216,30 @@ const HEALTH: Record<Health, { label: string; dot: string; text: string }> = {
   unknown: { label: 'Not checked yet', dot: 'bg-muted', text: 'text-muted' },
 };
 
+const SERVICE_ROWS: Record<string, keyof Omit<AdminSystemStatus, 'checkedAt'>> = {
+  'File Storage': 'storage',
+  'Email Service': 'email',
+  'Client Portals': 'portals',
+};
+
 /**
- * The API's health check answers for the platform (the API itself) and its database. File
- * storage, email and the client portals have no check yet, so they say so instead of guessing.
+ * Platform and Database come from the public health check (the API itself and its database);
+ * File Storage, Email Service and Client Portals from the Super Admin's system status. A row
+ * neither answers, or portals with no active firm, says so instead of guessing.
  */
 function healthOf(
   label: string,
   check: { data?: { status: 'ok' | 'degraded'; db: 'ok' | 'down' } | null; isError: boolean },
+  services: { data?: AdminSystemStatus; isError: boolean },
   mock: boolean,
 ): Health {
   if (mock) return 'online';
+  const service = SERVICE_ROWS[label];
+  if (service) {
+    if (services.isError) return 'offline';
+    if (!services.data) return 'checking';
+    return services.data[service] ?? 'unknown';
+  }
   if (label !== 'Platform' && label !== 'Database') return 'unknown';
   if (check.isError) return 'offline';
   if (!check.data) return 'checking';
@@ -245,6 +260,9 @@ export function DashboardOverview() {
   const isMockMode = mocked('firmApplications');
   // Mock mode has no API behind it: the statuses show the mockup's Online.
   const health = useApiQuery(['health'], () => (isMockMode ? Promise.resolve(null) : api.health()));
+  const services = useApiQuery(['firm-applications', 'system-status'], () =>
+    api.firmApplications.systemStatus(),
+  );
 
   return (
     <div data-testid="dashboard" className="flex flex-col gap-3">
@@ -414,7 +432,7 @@ export function DashboardOverview() {
             <SectionTitle icon={Database}>System Status</SectionTitle>
             <ul className="divide-y divide-border">
               {systemStatuses.map((label) => {
-                const state = HEALTH[healthOf(label, health, isMockMode)];
+                const state = HEALTH[healthOf(label, health, services, isMockMode)];
                 return (
                   <li key={label} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                     <span aria-hidden className={`size-3 shrink-0 rounded-full ${state.dot}`} />
