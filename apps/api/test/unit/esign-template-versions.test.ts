@@ -1,6 +1,6 @@
 // R13 step 10, template versions: the list, save-as-version and restore on the in-memory ports
 // (esign-fakes.ts). A version is only ever added on top (never changed or deleted), save-as-version
-// copies and refuses exactly as save-as-template, restore shares the old packet, who may add one,
+// copies and refuses exactly as save-as-template, restore copies the old packet, who may add one,
 // archived templates, the optimistic lock (a refused write removes the stored packet), the 404s
 // across firms and for another member's PRIVATE template, and the audit (ids only). Synthetic
 // data only.
@@ -210,17 +210,21 @@ describe('template versions', () => {
     expect((await templates.find(w.a, mine.record.id))?.version).toBe(2);
   });
 
-  it('restores an older version as a new newest one, sharing its packet', async () => {
+  it('restores an older version as a new newest one, with a copy of its packet', async () => {
     await svc.saveAsVersion(w.a, staff, await draft(), body());
     w.audit.entries.length = 0;
     const restored = await svc.restore(w.a, staff, mine.record.id, 1, {});
     expect([restored.version, restored.pageCount, restored.roleCount]).toEqual([3, 2, 2]);
     const v3 = (await templates.version(w.a, mine.record.id, 3))!;
-    expect([v3.s3Key, v3.note, v3.savedByUserId]).toEqual([
-      mine.versions[0]!.s3Key,
+    const v1 = mine.versions[0]!;
+    expect([v3.sha256, v3.note, v3.savedByUserId]).toEqual([
+      v1.sha256,
       'Restored version 1',
       w.users.staffA,
     ]);
+    // Its own file, the same bytes.
+    expect(v3.s3Key).not.toBe(v1.s3Key);
+    expect(await w.store.read(w.a, v3.s3Key)).toEqual(await w.store.read(w.a, v1.s3Key));
     const noted = await svc.restore(w.a, owner, mine.record.id, 2, { note: 'Fake note' });
     expect(noted.version).toBe(4);
     expect((await templates.version(w.a, mine.record.id, 4))?.note).toBe('Fake note');
