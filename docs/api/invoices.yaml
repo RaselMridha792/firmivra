@@ -587,7 +587,7 @@ paths:
     post:
       tags: [setup]
       operationId: startPaymentsOnboarding
-      summary: Creates the firm's Standard account the first time, then a Stripe onboarding link (Owner only)
+      summary: Creates the firm's connected account (Accounts v2) the first time, then a Stripe onboarding link (Owner only)
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200': { $ref: '#/components/responses/OnboardingLink' }
