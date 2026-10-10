@@ -3,8 +3,9 @@ import { z } from 'zod';
 // Audit log viewer (R12): the firm's own audit log, read-only, newest first.
 // Firm route: /api/v1/business/audit-log, Owner and Admin (the roles matrix; 403 FORBIDDEN for
 // Staff). Super Admin route: /api/v1/admin/firms/{businessId}/audit-log, only with an active
-// support grant for that firm (R8); until R8 it answers 403 SUPPORT_GRANT_REQUIRED. Never another
-// firm's.
+// support grant for that firm (R8): without one it is 403 SUPPORT_GRANT_REQUIRED, and a grant
+// being revoked at that moment is 409 CONFLICT with `retryAfter: 2` (Retry-After: 2). Each read
+// writes `support.viewed` to both logs. Never another firm's.
 // - A Super Admin's action in the firm through a support grant is written to both logs: the
 //   firm's, where it shows as "Firmivra Support" (no user id, no IP), and the platform's, with
 //   the person.
