@@ -1,6 +1,7 @@
 'use client';
 
 import type { EsignField, EsignRecipient } from '@firmivra/types';
+import type { ReactNode } from 'react';
 import { FIELD_TYPE_LABELS } from './field-labels';
 import { recipientColor, SENDER_COLOR, washOf } from './recipient-colors';
 
@@ -31,6 +32,8 @@ interface FieldOverlayProps {
   /** The signer's own recipient id: other signers' fields fade, theirs stay bright. */
   ownerId?: string;
   onSelect?: (fieldId: string) => void;
+  /** What a filled field shows instead of its name (the signer's adopted signature). */
+  display?: (field: OverlayField) => ReactNode;
 }
 
 /** Keeps a box on its page: the schema checks each number alone, not x + w or y + h. */
@@ -51,6 +54,7 @@ export function FieldOverlay({
   activeId,
   ownerId,
   onSelect,
+  display,
 }: FieldOverlayProps) {
   return (
     <>
@@ -63,8 +67,11 @@ export function FieldOverlay({
           const colour = recipient ? recipientColor(recipient.colorIndex) : SENDER_COLOR;
           const name = recipient?.name ?? 'Sender';
           const title = f.label || FIELD_TYPE_LABELS[f.type];
-          // A value the sender filled in is shown as it will print; the signer must see it.
-          const value = !f.recipientId && f.value ? f.value : null;
+          // A value the sender filled in is shown as it will print; the signer must see it. So
+          // is what the signer typed in their own fields.
+          const mine = !f.recipientId || (ownerId !== undefined && f.recipientId === ownerId);
+          const value = mine && f.value ? f.value : null;
+          const shown = display?.(f) ?? (value ? <span className="text-text">{value}</span> : null);
           const label = `${title}${f.required ? ' (required)' : ''}, ${name}${
             value ? `: ${value}` : ''
           }${f.filled ? ', done' : ''}`;
@@ -96,15 +103,13 @@ export function FieldOverlay({
                 width: `${x.size * 100}%`,
                 height: `${y.size * 100}%`,
                 borderColor: colour,
-                borderStyle: f.filled || value ? 'solid' : 'dashed',
+                borderStyle: f.filled || shown ? 'solid' : 'dashed',
                 backgroundColor: washOf(colour),
                 color: colour,
               }}
             >
               <span className="truncate px-1 font-medium">
-                {value ? (
-                  <span className="text-text">{value}</span>
-                ) : (
+                {shown ?? (
                   <>
                     {title}
                     {f.required && <span aria-hidden="true"> *</span>}

@@ -1,3 +1,4 @@
+export * from './meeting.js';
 export * from './schemas.js';
 export {
   createAppointmentsClient,

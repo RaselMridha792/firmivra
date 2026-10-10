@@ -3,8 +3,11 @@
 // A new table without seed data, or a rule change that breaks the seed, fails here.
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { FirmApplicationRecord } from '@firmivra/types';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { z } from 'zod';
+import { SEED_LVP_APPLICATION_OLD_DATA, SEED_PLATFORM_IDS } from '../prisma/seed-data.js';
 
 const urls = inject('dbUrls');
 const client = new pg.Client({ connectionString: urls.owner });
@@ -62,4 +65,38 @@ describe('seed', () => {
     );
     expect(strays).toEqual([]);
   }, 180_000);
+
+  it("stores LVP's application form so the review page reads it, and repairs an older seed's", async () => {
+    // The API's StoredApplication: what the Super Admin's review page reads (formReadable).
+    const R = FirmApplicationRecord.shape;
+    const StoredApplication = z.object({
+      business: R.business.unwrap().omit({ einLast4: true }),
+      primaryAdmin: R.primaryAdmin.unwrap(),
+      account: R.account.unwrap(),
+      credentials: R.credentials,
+    });
+    const lvpApplication = async () => {
+      const { rows } = await client.query<{ data: unknown; contact_phone: string | null }>(
+        `SELECT data, contact_phone FROM firm_applications WHERE id = $1`,
+        [SEED_PLATFORM_IDS.lvpApplication],
+      );
+      return rows[0]!;
+    };
+
+    const seeded = await lvpApplication();
+    expect(StoredApplication.safeParse(seeded.data).success).toBe(true);
+    expect(seeded.contact_phone).toBe('+14045550100');
+
+    // An older seed's row, written in platform scope as the seed writes it.
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.scope', 'platform', true)`);
+    await client.query(
+      `UPDATE firm_applications SET data = $2, contact_phone = NULL WHERE id = $1`,
+      [SEED_PLATFORM_IDS.lvpApplication, SEED_LVP_APPLICATION_OLD_DATA],
+    );
+    await client.query('COMMIT');
+    expect(StoredApplication.safeParse((await lvpApplication()).data).success).toBe(false);
+    runSeed();
+    expect(await lvpApplication()).toEqual(seeded);
+  }, 120_000);
 });

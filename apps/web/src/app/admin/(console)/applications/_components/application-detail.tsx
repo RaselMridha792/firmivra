@@ -83,16 +83,19 @@ const FIRM_STATUS: Partial<Record<BusinessStatus, { label: string; tone: string 
 const firmStatus = (status: BusinessStatus) =>
   FIRM_STATUS[status] ?? { label: humanize(status), tone: 'bg-disabled text-muted' };
 
-function ApplicationRecord({
+export function ApplicationRecord({
   application,
   appBaseUrl,
   onStale,
+  back = { href: '/applications', label: 'Back to Applications' },
 }: {
   application: FirmApplicationRecord;
   /** The firm workspace site, for "Open Firm Workspace". */
   appBaseUrl: string;
   /** Reloads the application after someone else changed it. */
   onStale: () => void;
+  /** Where "Back" goes: the applications list, or the firms list on a firm's page. */
+  back?: { href: string; label: string };
 }) {
   const [action, setAction] = useState<Action | null>(null);
   const [notice, setNotice] = useState('');
@@ -316,11 +319,11 @@ function ApplicationRecord({
   return (
     <section className="flex w-full flex-col gap-5 rounded-card bg-surface p-4 shadow-md md:p-5">
       <Link
-        href="/applications"
+        href={back.href}
         className="inline-flex w-fit items-center gap-3 text-base font-medium text-link"
       >
         <ArrowLeft aria-hidden className="size-5" />
-        Back to Applications
+        {back.label}
       </Link>
       {notice ? (
         <p role="status" className="rounded-card bg-warning-soft p-3 text-sm text-warning">

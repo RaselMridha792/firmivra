@@ -283,7 +283,7 @@ info:
     `StripeOnboardingLink`, `paymentsSetupStage()`, `PAYMENTS_SETUP_ERRORS`; web:
     `api.paymentsSetup`; mock: `apps/web/src/mocks/payments-setup.ts`, `NEXT_PUBLIC_API_MOCK=paymentsSetup`).
 
-    - **Who.** The Owner and Admins read (`GET`); only the Owner starts or refreshes onboarding
+    - **Who.** The Owner and Admins read (`GET`) and sync; only the Owner starts or refreshes onboarding
       (Admin `403 FORBIDDEN`). Staff get `403 FORBIDDEN` on every setup route and never see the
       page. An `ACTIVE` firm only.
     - **Accounts.** Each firm gets one Stripe Connect **Standard** account, created by the API
@@ -311,11 +311,16 @@ info:
     - **Refresh** (`POST .../onboarding/refresh`, after Stripe's `?stripe=refresh`): a new link
       for the account already made, never a new account. No account: `409 PAYMENTS_NOT_SET_UP`.
       It also stores the account's current state from Stripe (`accounts.retrieve`).
+    - **Sync** (`POST .../sync`, Owner and Admin): Stripe's current state of the account
+      (`accounts.retrieve`), stored, answered as `PaymentsSetup`; never a link. The page calls it
+      when Stripe sends the Owner back (`?stripe=return`) and from "Check status" while Stripe
+      reviews, so the state catches up before (or without) `account.updated`. No account: `409
+      PAYMENTS_NOT_SET_UP`. Audited (`payments.stripe_account_synced`) only when the state changed.
     - **Stripe errors**, or no `STRIPE_SECRET_KEY` in the environment: `503
       PAYMENT_PROVIDER_UNAVAILABLE` on every setup route, nothing written. Calls to Stripe use a
       pinned API version, an 8 s timeout and no SDK retry.
-    - **Audit:** `payments.stripe_account_created` (the `acct_` id) and
-      `payments.onboarding_link_created`; reads are not audited.
+    - **Audit:** `payments.stripe_account_created` (the `acct_` id),
+      `payments.onboarding_link_created` and `payments.stripe_account_synced`; reads are not audited.
 
     ## Pages and calls
 
@@ -324,7 +329,7 @@ info:
     | Firm: Invoices (`/invoices`) | `GET business/invoices` (status, search, paged), then the actions below |
     | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds`, `POST .../{id}/offline-payments`, `POST .../{id}/offline-payments/{offlinePaymentId}/void` |
     | Portal: Receipts & Invoices (`/{firm}/invoices`) | `GET me/invoices` (`section=CURRENT` and `PAST`, view, status, search), `GET me/invoices/{id}` (View), `POST me/invoices/{id}/checkout` (Pay Now) |
-    | Firm: Settings > Payments (`/settings/payments`) | `GET business/payments/setup`, `POST .../onboarding` (Connect, Continue), `POST .../onboarding/refresh` (back from `?stripe=refresh`) |
+    | Firm: Settings > Payments (`/settings/payments`) | `GET business/payments/setup`, `POST .../onboarding` (Connect, Continue), `POST .../onboarding/refresh` (back from `?stripe=refresh`), `POST .../sync` (back from `?stripe=return`, Check status) |
     | Portal: Make a Payment, Home's Payments card | `GET me/invoices?view=DUE`, then Pay Now on the chosen invoice (`canPay`) |
 servers:
   - url: /api/v1
@@ -582,12 +587,30 @@ paths:
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /business/payments/setup/sync:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [setup]
+      operationId: syncPaymentsSetup
+      summary: Stores the account's state at Stripe now and answers it; never a link (Owner and Admin)
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200':
+          description: PaymentsSetup
+          content: { application/json: { schema: { $ref: '#/components/schemas/PaymentsSetup' } } }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`PAYMENTS_NOT_SET_UP`' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
   /business/payments/setup/onboarding:
     parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
     post:
       tags: [setup]
       operationId: startPaymentsOnboarding
-      summary: Creates the firm's Standard account the first time, then a Stripe onboarding link (Owner only)
+      summary: Creates the firm's connected account (Accounts v2) the first time, then a Stripe onboarding link (Owner only)
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200': { $ref: '#/components/responses/OnboardingLink' }

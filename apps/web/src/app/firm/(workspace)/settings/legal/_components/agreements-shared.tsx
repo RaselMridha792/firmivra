@@ -5,6 +5,7 @@ import { Badge } from '@firmivra/ui';
 import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../lib/query';
+import { PdfDownload } from './agreement-pdf';
 
 /** Every agreement query starts with this key, so one invalidate refreshes the list and versions. */
 export const AGREEMENTS = ['firm-settings', 'agreements'];
@@ -40,6 +41,7 @@ export function VersionText({ agreementId, version }: { agreementId: string; ver
     <PageState query={full}>
       {(v) => (
         <div className="flex flex-col gap-4">
+          {v.pdf ? <PdfDownload pdf={v.pdf} /> : null}
           <p className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded-control bg-canvas p-4 text-sm text-text">
             {v.bodyMarkdown}
           </p>

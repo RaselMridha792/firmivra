@@ -16,6 +16,7 @@ import {
   TEMPLATE_CHANNEL,
   TEMPLATE_SENDER,
 } from './notify.types.js';
+import { type EmailSendLog, trackedTransport } from './email-sends.js';
 import { PreferenceSource } from './preferences.js';
 import { NotifyTemplateError, render } from './templates.js';
 import {
@@ -213,14 +214,18 @@ export function createNotifyService(
   config: NotifyConfig,
   db: Pick<Database, 'forBusiness'>,
   logger: Pick<Logger, 'log' | 'warn'> = new Logger('NotifyService'),
+  /** Each email's outcome, for the Super Admin's System Status. */
+  sends?: EmailSendLog,
 ): NotifyService {
   const { email, sms } = config;
+  const track = (transport: EmailTransport) =>
+    sends ? trackedTransport(transport, sends) : transport;
   const emailSide: NotifyDeps['email'] =
     email.mode === 'log'
       ? null
       : {
           from: email.from,
-          transport:
+          transport: track(
             email.mode === 'ses'
               ? new SesEmailTransport(new SESv2Client(AWS_CLIENT))
               : new SmtpEmailTransport(
@@ -234,6 +239,7 @@ export function createNotifyService(
                     socketTimeout: 10_000,
                   }),
                 ),
+          ),
         };
   if (sms.mode === 'log' && sms.unregistered) {
     logger.warn('SMS_MODE=sns without SMS_ORIGINATION_NUMBER: texts go to the log, not sent');

@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { SignerPreview } from './_components/signer-preview';
+import { SignerPage } from './_components/signer-page';
 
 export const metadata: Metadata = { title: 'Sign documents' };
 
 export default function SignDocumentsPage() {
-  return <SignerPreview />;
+  return <SignerPage />;
 }

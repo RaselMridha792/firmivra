@@ -155,6 +155,8 @@ export const SEED_DOCUMENT_CATEGORIES = {
     { name: 'Payroll', retentionYears: 4 },
     { name: 'Formation', retentionYears: null },
     { name: 'Final return', retentionYears: 7 },
+    // Firm Sign files its signed copies here (r0_esign); kept for good.
+    { name: 'Signed Documents', retentionYears: null },
   ],
   testFirmB: [{ name: 'Tax documents', retentionYears: 7 }],
 } as const;
@@ -363,3 +365,67 @@ export const SEED_PLATFORM_IDS = {
   platformEvent: '00000000-0000-4005-8000-000000000011',
   firmEvent: '00000000-0000-4005-8000-000000000012',
 } as const;
+
+/**
+ * LVP's application form as the public form stores it (the API's `StoredApplication`: the review
+ * page's groups, every optional field null, never the EIN), so the Super Admin's review page shows
+ * it in full instead of "—". The mockup's values ("Firm approved"), with fake contact details.
+ */
+export const SEED_LVP_APPLICATION_FORM = {
+  business: {
+    practiceType: 'TAX_ACCOUNTING',
+    legalName: 'LVP Accounting & Taxes LLC (fake)',
+    dbaName: SEED_BUSINESSES.lvp.name,
+    entityType: 'LLC',
+    email: SEED_USERS.lvpOwner.email,
+    phone: '+14045550100',
+    website: null,
+    address: {
+      line1: '100 Example Street (fake)',
+      line2: null,
+      city: 'Atlanta',
+      state: 'GA',
+      postalCode: '30303',
+    },
+    services: ['TAX_PREPARATION', 'BOOKKEEPING', 'PAYROLL', 'BUSINESS_CONSULTING'],
+  },
+  primaryAdmin: {
+    fullName: SEED_USERS.lvpOwner.name,
+    email: SEED_USERS.lvpOwner.email,
+    phone: '+14045550100',
+    title: 'Owner',
+    preferredContact: 'EMAIL',
+    alternatePhone: null,
+  },
+  account: {
+    requestedPlan: 'PROFESSIONAL',
+    teamSize: 3,
+    clientVolume: 'FROM_500',
+    heardFrom: 'Direct request',
+    requestedStartDate: null,
+    additionalInfo: 'Beta testing for internal use.',
+  },
+  credentials: [],
+} as const;
+
+/** What earlier seeds stored as LVP's form, which the review page can't read: a re-seed replaces it. */
+export const SEED_LVP_APPLICATION_OLD_DATA = { businessType: 'Tax and accounting firm' } as const;
+
+/** Firm Sign (r0_esign): LVP's template, a sent request and its parts, and Test Firm B's draft. */
+export const SEED_ESIGN_IDS = {
+  template: '00000000-0000-4e51-8000-000000000001',
+  request: '00000000-0000-4e51-8000-000000000011',
+  document: '00000000-0000-4e51-8000-000000000012',
+  signer: '00000000-0000-4e51-8000-000000000013',
+  approver: '00000000-0000-4e51-8000-000000000014',
+  signatureField: '00000000-0000-4e51-8000-000000000015',
+  attachmentField: '00000000-0000-4e51-8000-000000000016',
+  attachment: '00000000-0000-4e51-8000-000000000017',
+  pendingAttachment: '00000000-0000-4e51-8000-000000000018',
+  batch: '00000000-0000-4e51-8000-000000000021',
+  firmBRequest: '00000000-0000-4e51-8000-000000000031',
+} as const;
+
+/** The e-signature consent text's synthetic v1. Never a firm's real consent text. */
+export const SAMPLE_ESIGN_CONSENT =
+  'Sample consent for local development: I agree to sign these documents electronically and to receive them electronically.';

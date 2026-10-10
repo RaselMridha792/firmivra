@@ -20,6 +20,7 @@ import { loadEnv } from '../../src/config/env.js';
 import { COMPLETION_REPOSITORY } from '../../src/esign/completion/completion.repository.js';
 import { ESIGN_STORE, PDF_ENGINE } from '../../src/esign/engine/engine.types.js';
 import { RandomLinkTokens } from '../../src/esign/engine/signer-security.js';
+import { EXTRAS_REPOSITORY } from '../../src/esign/extras/extras.repository.js';
 import { EsignModule } from '../../src/esign/esign.module.js';
 import { ESIGN_DIRECTORY } from '../../src/esign/requests/esign-directory.js';
 import type { EsignRecipientRecord } from '../../src/esign/requests/esign.repository.js';
@@ -31,6 +32,8 @@ import {
   fakePdf,
   InMemoryCompletionRepository,
   InMemorySignerRepository,
+  NO_KIOSK,
+  NoDatabaseModule,
 } from './esign-fakes.js';
 
 const w = esignWorld();
@@ -64,8 +67,10 @@ beforeAll(async () => {
   const activeFirm = (slug: string) =>
     firms.get(slug) ? Promise.resolve(firms.get(slug)) : Promise.reject(new NotFoundException());
   const moduleRef = await Test.createTestingModule({
-    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, FakeGlobalsModule],
+    imports: [ConfigModule.forRoot(loadEnv()), EsignModule, NoDatabaseModule, FakeGlobalsModule],
   })
+    .overrideProvider(EXTRAS_REPOSITORY)
+    .useValue(NO_KIOSK)
     .overrideProvider(PortalInfoService)
     .useValue({ activeFirm })
     .overrideProvider(BUSINESS_MODULES)
