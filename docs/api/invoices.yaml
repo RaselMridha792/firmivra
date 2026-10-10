@@ -24,16 +24,18 @@ info:
     - **Lifecycle** (the database's): a new invoice is a `DRAFT`. `send` makes it `OPEN` (issued
       now), or `SCHEDULED` when its `scheduledFor` is after today in the firm's time zone; a daily
       job opens it on that day. `DRAFT`, `SCHEDULED` and `OPEN` can be canceled (with a reason the
-      client never sees). `PAID` and `CANCELED` are final. Nothing is ever deleted. Only a `DRAFT`
+      client never sees). `CANCELED` is final; `PAID` is final except that voiding an offline
+      payment it no longer covers reopens it (`OPEN`). Nothing is ever deleted. Only a `DRAFT`
       is edited (`PUT`, the whole draft again, lines included); its client never changes.
-    - **Paid only by Stripe.** An invoice is `PAID` only once a verified Stripe webhook confirmed
-      payments covering its total. Pay Now sends no amount and marks nothing paid: the API starts
-      a Stripe Checkout for what the database says is due and answers its link. The browser never
-      sends an amount, a status or a Stripe key, and no card or bank detail ever reaches our API.
-      **No offline payments in this contract:** there is no way to record a check, cash or a bank
-      transfer, and no call marks an invoice paid by hand. Do not build one on the firm's pages;
-      whether beta needs it is open (R7-stripe.md, Open). Until then an invoice paid offline stays
-      open or is canceled.
+    - **Paid by Stripe or a recorded check or cash payment.** An invoice is `PAID` once the money
+      received covers its total: Stripe payments a verified webhook confirmed (refunded ones in
+      full: a refund never makes money owed again), plus live offline payments an Owner or Admin
+      recorded (`POST .../offline-payments`, Rasel's q28 (h), Oct 8). Pay Now sends no amount and
+      marks nothing paid: the API starts a Stripe Checkout for what the database says is due and
+      answers its link. The browser never sends a status or a Stripe key, and no card or bank
+      detail ever reaches our API (a check's number is its only reference; never a bank number).
+      Voiding an offline payment (with a reason) that leaves a `PAID` invoice uncovered reopens it
+      (`OPEN`). An invoice that holds money can't be canceled (`409 HAS_PAYMENTS`).
     - **What the client sees** (`myInvoiceStatus()`, the same in the API and the mock):
       `SCHEDULED` is Upcoming; `OPEN` is Due Soon within 7 days of its due date or once past it,
       otherwise Pending; Paid; Canceled. Drafts never reach the portal, nor does a draft canceled
@@ -83,8 +85,13 @@ info:
     | `ZERO_TOTAL` | send of a draft with nothing to pay (cancel it instead) |
     | `DUE_DATE_PASSED` | send that would open it today with a due date before today |
     | `INVOICE_CLOSED` | cancel of a paid or canceled invoice |
+    | `HAS_PAYMENTS` | cancel of an invoice holding money (a live offline payment, or a Stripe payment not refunded in full) |
+    | `NOT_OPEN` | offline payment on an invoice that is not `OPEN` |
+    | `AMOUNT_TOO_LARGE` | offline payment of more than the balance due |
+    | `DUPLICATE_CHECK_NUMBER` | check whose number (any case) is live on this invoice already |
+    | `ALREADY_VOIDED` | void of an offline payment voided already |
     | `CLIENT_ARCHIVED` | create, update or send for an archived client |
-    | `PAYMENT_IN_PROGRESS` | cancel, or Pay Now, while a submitted payment waits for Stripe |
+    | `PAYMENT_IN_PROGRESS` | cancel, Pay Now or an offline payment while a submitted payment waits for Stripe, or while another one of these on the invoice still talks to Stripe (retry); update or send of a draft a cancel holds |
     | `NOT_PAYABLE` | Pay Now on an invoice that is upcoming, paid, canceled or has nothing left to pay |
     | `PAYMENTS_NOT_SET_UP` | Pay Now while the firm's Stripe account cannot take charges |
     | `NOT_REFUNDABLE` | refund of a payment that is not `SUCCEEDED` (pending, failed, refunded in full) |
@@ -96,14 +103,15 @@ info:
       membership) and filter Staff by `clients.assigned_user_id`. Portal routes take the client
       from the session's `ClientAccount`, never from the URL, and filter every query by it.
       `businessId` never comes from a body or query. Tenant-isolation e2e: firm B's Owner gets
-      `404` for firm A's invoice (get, update, send, cancel, refund); a client of firm A gets
+      `404` for firm A's invoice (get, update, send, cancel, refund, offline payment and void); a client of firm A gets
       `404` for another client's invoice and at firm B's portal; Staff get `404` for a client not
       assigned to them.
     - **Create and update.** Insert the invoice as an empty `DRAFT`, then its lines with
       `sort_order` in the order sent; the database computes the amounts and refuses the rest.
       Update replaces the lines in one transaction (delete and insert; lines can be deleted only
       while the invoice is a draft). Numbers: `INV-{year}-{4 digits}`, the next in the firm,
-      unique per firm (retry once on the unique violation). `engagementId` must be one of this
+      unique per firm, taken one at a time per firm under a transaction-scoped advisory lock
+      (one retry on a unique violation stays as the backstop). `engagementId` must be one of this
       client's engagements (`404` otherwise; the three-column foreign key also refuses another
       client's). The discount is checked against the subtotal before writing (`400`; the
       database's `invoices_amounts` check is the backstop).
@@ -114,7 +122,7 @@ info:
       helper: the invoice number and due date, never an amount in an SMS).
     - **Cancel.** Expire the invoice's open Checkout Sessions at Stripe first (`sessions.expire`);
       refuse with `409 PAYMENT_IN_PROGRESS` while a payment is processing (its checkout completed
-      and Stripe's result is pending). Canceling a `DRAFT` clears `scheduled_for` (the portal never
+      and Stripe's result is pending), and with `409 HAS_PAYMENTS` while the invoice holds money. Canceling a `DRAFT` clears `scheduled_for` (the portal never
       shows it); canceling a `SCHEDULED` invoice keeps it (the client saw it as Upcoming, so it
       stays as Canceled; see `myInvoiceStatus()`).
     - **Pay Now (checkout).** A $0 total never reaches it: send refuses a draft with nothing to
@@ -136,8 +144,17 @@ info:
       `payments` row with the session id (`cs_...`) as `processor_ref` and the firm's `account_id`.
       Answer `{ url, expiresAt }`, `expiresAt` from the session's `expires_at` as Stripe returns
       it. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
-      inserted. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) come from the environment
-      (Secrets Manager on AWS), never from code.
+      inserted.
+    - **Holding the row.** Pay Now, cancel, an offline payment and its void of one invoice run one at a
+      time: in one API process a second one waits at most 1 s for the first without a database
+      connection, and across processes for the invoice's row, then answers
+      `409 PAYMENT_IN_PROGRESS`. At most three of them per API process wait on Stripe while holding a row; one more answers
+      `503 SERVICE_BUSY` with `Retry-After: 5`. A pending checkout older than its session (60
+      minutes plus 15) that Stripe says is gone (missing, account disconnected or replaced) is
+      marked `FAILED` (`checkout_expired`), so it never blocks the invoice; a timeout or a 5xx is
+      `503` and marks nothing, since the checkout may have been paid. Update and send answer
+      `NOT_DRAFT` before taking the row. Secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`)
+      come from the environment (Secrets Manager on AWS), never from code.
     - **Payments in answers.** A `PENDING` payment is listed (and `paymentProcessing` is true)
       only once its checkout completed and Stripe's result is pending (a bank debit). A checkout
       that is open, or expired unpaid, is not listed. `failureCode` goes to the firm only.
@@ -145,16 +162,28 @@ info:
       raw body for the signature check (`stripe.webhooks.constructEvent` with the Connect
       endpoint's secret; a bad or old signature is `400` and nothing is recorded). Find the firm
       from `event.account` in platform scope (`stripe_accounts`), then open that firm's business
-      scope; an unknown account is acknowledged (`200`) and ignored. Insert `payment_events`
-      first (the unique event id makes a duplicate delivery a no-op answered `200`); only the
-      type is kept, never the payload. Then, in the same transaction:
+      scope; an unknown account is acknowledged (`200`) and ignored. Without
+      `STRIPE_WEBHOOK_SECRET` or `STRIPE_SECRET_KEY` the answer is `503` (Stripe retries). An
+      event whose `livemode` differs from the key's mode is acknowledged and ignored. The per-IP
+      rate limit does not apply (the signature is the gate). A duplicate is found first and asks
+      Stripe nothing. What must be asked at Stripe is asked before the event is recorded, so a
+      Stripe failure is `503` and the retry is acted on. Then insert `payment_events` (the unique
+      event id makes a duplicate delivery a no-op answered `200`); only the type is kept, never
+      the payload. An event acts on the payment named in its metadata only when the object is
+      that payment's own: a Checkout Session's id is the payment's `processor_ref`, a payment
+      intent is the `payment_intent` of that session at Stripe (`sessions.retrieve`), and the
+      currency is the payment's; otherwise it is recorded and changes nothing. Then, in the same
+      transaction:
       - `checkout.session.completed` with `payment_status: paid`, or `payment_intent.succeeded`
         (the payment from its metadata; a bank debit settles with it): link the event, set the
         payment `SUCCEEDED` with `paid_at`, then the invoice `PAID` once `SUCCEEDED` payments cover
         its total. The amount is Stripe's (`amount_total`, or `amount_received`), checked against
-        the payment row; a mismatch is logged and alarmed, never trusted. Both events come for one
-        payment: once it is `SUCCEEDED`, the other is recorded and changes nothing (`paid_at` is
-        set once). The database takes only these two types for `SUCCEEDED`, so
+        the payment row before the event is linked; a mismatch is logged and alarmed, never
+        trusted. Both events come for one payment, possibly at once: only the one that moves it
+        from `PENDING` acts, the other is recorded and changes nothing (`paid_at` is set once).
+        `PAID` counts `SUCCEEDED` payments only (the database's rule). A payment of an invoice
+        canceled meanwhile is recorded (the firm refunds it) and the client gets no
+        `payment.received`. The database takes only these two types for `SUCCEEDED`, so
         `checkout.session.async_payment_succeeded` is ignored.
       - `checkout.session.completed` with `payment_status: unpaid` (a bank debit): record it; the
         payment stays `PENDING` and shows as processing.
@@ -163,7 +192,8 @@ info:
         never become `SUCCEEDED`). A payment becomes `FAILED` only on
         `checkout.session.async_payment_failed` (a bank debit; Stripe's short `failure_code` from
         the payment intent's last error) or `checkout.session.expired` (`checkout_expired`, not
-        listed to anyone); the invoice stays open. e2e (step 6): a declined test card, then a good
+        listed to anyone); the invoice stays open. A payment already `SUCCEEDED` or `FAILED` is
+        never changed by them. e2e (step 6): a declined test card, then a good
         one in the same session, ends `PAID` with one `SUCCEEDED` payment.
       - `charge.refunded` (Stripe sends one per refund; the charge in the event does not list its
         refunds): find the payment from the charge's payment intent and link the event to it. List
@@ -174,31 +204,61 @@ info:
         inserted `SUCCEEDED` with this event (Stripe's `re_` or `pyr_` id, amount, the payment's
         account). One event confirms one refund (`payment_refunds_one_per_event`); a refund
         already `SUCCEEDED` or `FAILED` is never touched again; none left to confirm: recorded and
-        ignored. The database sets the payment `REFUNDED` when confirmed refunds cover it.
-      - `refund.failed` (or `refund.updated` to failed): the `PENDING` row becomes `FAILED` (its
+        ignored. The database sets the payment `REFUNDED` when confirmed refunds cover it. A
+        payment intent the account does not have at Stripe (`resource_missing`): recorded and
+        ignored. Only `charge.refunded` can confirm a refund (the database's rule), so a bank
+        refund still pending at Stripe is confirmed with it; if Stripe fails it later, it is
+        logged and alarmed (below).
+      - `refund.failed` (or `refund.updated` to failed or canceled): the `PENDING` row becomes `FAILED` (its
         cents are refundable again). One already `SUCCEEDED` is final: logged and alarmed, not
         changed; one with no row never counted and is ignored.
-      - `account.updated`: find the firm's `stripe_accounts` row by the `acct_` id and update it
-        with `toOnboardingState(account)`, the same function onboarding uses, through the one
+      - `account.updated`: fetch the account from Stripe (`accounts.retrieve`; events can arrive
+        out of order, so the event's copy is not used), then, before the event is recorded, find
+        the firm's `stripe_accounts` row by the `acct_` id and update it with
+        `toOnboardingState(account)`, the same function onboarding uses, through the one
         platform-scope writer in `apps/api/src/payments/stripe` (`forPlatform()`; the RLS lets only
         platform scope write `stripe_accounts`, so no firm can claim an `acct_` id or switch
         charges on). The `businessId` is the row's own, never the event's.
       Mark the event `processed_at` and answer `200` quickly; anything else is `200` and ignored.
       A payment of an invoice canceled meanwhile is still recorded (the money was taken); the
       firm refunds it.
-    - **Refund.** Lock the payment row (`404` if it is not this invoice's). When it is
-      `SUCCEEDED` and the amount fits its `refundableCents`, call Stripe's `refunds.create` on the
-      connected account with the payment intent, the amount, `metadata.refund_key` (the
-      `idempotencyKey`) and `Idempotency-Key: {businessId}:{paymentId}:{idempotencyKey}`, then
-      insert the `PENDING` `payment_refunds` row with Stripe's refund id, unless a row with that
-      id exists already (a retry, where Stripe answers the first refund again, or its webhook
-      recorded it first). Otherwise, before answering `409`, look for a retry of a refund already
-      made: when the payment is `SUCCEEDED` or `REFUNDED`, list its refunds at Stripe
-      (`refunds.list` by payment intent) for one with this `metadata.refund_key` whose id has a
-      row here; if there is one, answer the invoice as it is (`200`, nothing new). Else `409
-      NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE`. So a double click or a retry after
-      a timeout or a `503` refunds once and answers `200`, as the mock does (keys per payment).
-      No column keeps the key: Stripe does. Stripe errors: `503`, nothing inserted.
+    - **Offline payments.** Record in one transaction with `withScope({ kind: 'business',
+      businessId, actorUserId })` (the acting member; `recorded_by_user_id` is them, checked by the
+      database). Checks in this order: `receivedOn` after the firm's today is `400` (before
+      2000-01-01, an empty `reference` or an empty `note` are `400` too: the form leaves out a
+      field it has no value for); lock the invoice (`404` if not the firm's). A used
+      `idempotencyKey` (keys are per firm) is a retry: when its payment is on this invoice, answer
+      the invoice as it is (`200`, nothing recorded twice); when it is on another invoice, `404
+      NOT_FOUND`. Then `409 NOT_OPEN` (not `OPEN`), `409 PAYMENT_IN_PROGRESS` (a submitted payment
+      waits for Stripe), `409 AMOUNT_TOO_LARGE` over the balance due (`total −
+      app_invoice_paid_cents`), `409 DUPLICATE_CHECK_NUMBER` (a live `CHECK` on this invoice with
+      the same `upper(reference)`: R0's `offline_payments_one_live_check`); then end the invoice's
+      open Checkout Sessions at Stripe as cancel does (`409 PAYMENT_IN_PROGRESS` when the client
+      already paid on one; `503` when Stripe does not answer). Of the unique violations, only the
+      idempotency key's (`offline_payments_business_id_idempotency_key_key`: two first-time
+      requests with one key at once) is answered as a retry; any other is `409
+      DUPLICATE_CHECK_NUMBER`. The invoice turns `PAID` when covered (the API sets it, as the
+      webhook does); notices `payment.received` after commit. Void only with
+      `app_void_offline_payment(id, reason)` as the acting member (`404` for no such payment on
+      this invoice, `409 ALREADY_VOIDED`); the database reopens a `PAID` invoice it no longer
+      covers. Audited as `invoice.offline_payment_recorded` and `invoice.offline_payment_voided`
+      (ids, method and amount only; never the note, the reference or the void reason). The
+      portal's View lists live offline payments' method, amount and day only.
+    - **Refund.** Lock the payment row (`404` if it is not this invoice's; `409 NOT_REFUNDABLE`
+      unless it is `SUCCEEDED` or `REFUNDED`). Get its payment intent from the session
+      (`sessions.retrieve`) and list its refunds at Stripe (`refunds.list` by payment intent). One
+      with this `metadata.refund_key` is a retry of a refund already made: answer the invoice as
+      it is (`200`), inserting its `PENDING` row only if none exists and Stripe has not failed or
+      canceled it. This holds after Stripe's 24-hour idempotency window too, since no column
+      keeps the key. Otherwise `409 NOT_REFUNDABLE` (not `SUCCEEDED`) or `REFUND_TOO_LARGE` (more
+      than `refundableCents`), else call `refunds.create` on the connected account with the
+      payment intent, the amount, `metadata.refund_key` (the `idempotencyKey`) and
+      `Idempotency-Key: {businessId}:{paymentId}:{idempotencyKey}`, then insert the `PENDING`
+      `payment_refunds` row with Stripe's refund id unless one exists (its webhook recorded it
+      first). So a double click or a retry after a timeout or a `503` refunds once and answers
+      `200`, as the mock does (keys per payment); two refunds at once wait on the row lock, so
+      one over the limit is `409`. Stripe's `charge_already_refunded` is `409 NOT_REFUNDABLE`;
+      other Stripe errors `503`, nothing inserted. At most three Stripe calls run under the lock.
     - **Notifications** (R6's `Notifier.notify`, after the change commits): `invoice.sent` to the
       client when an invoice opens (not when it is scheduled); `payment.received` to the client
       and the firm when a payment succeeds. The Notifier picks the recipients (the client's ACTIVE
@@ -209,9 +269,11 @@ info:
       `invoice.opened` (by the job), `invoice.canceled`, `invoice.checkout_started` (the client's
       user, invoice, payment and amount), `payment.succeeded`, `payment.failed`,
       `invoice.paid`, `payment.refund_requested` (who, payment, amount), `payment.refunded`,
-      `payment.refund_failed`. Webhook entries name Stripe as the actor. Reads are audited too
-      (CLAUDE.md rule 8): `invoices.listed` (count, the client filter) and `invoice.viewed` (id,
-      client), after the read; the portal's `my_invoices.listed` and `my_invoice.viewed` the same.
+      `payment.refund_failed`, `invoice.offline_payment_recorded` and
+      `invoice.offline_payment_voided` (the payment's id, method and amount). Webhook entries name
+      Stripe as the actor. Reads are audited too (CLAUDE.md rule 8): `invoices.listed` (count,
+      the client filter) and `invoice.viewed` (id, client), after the read; the portal's
+      `my_invoices.listed` and `my_invoice.viewed` the same.
     - **Cursors** are opaque (the sort keys of the last item); a cursor the API did not make is
       `400 VALIDATION_FAILED`.
 
@@ -251,7 +313,7 @@ info:
       It also stores the account's current state from Stripe (`accounts.retrieve`).
     - **Stripe errors**, or no `STRIPE_SECRET_KEY` in the environment: `503
       PAYMENT_PROVIDER_UNAVAILABLE` on every setup route, nothing written. Calls to Stripe use a
-      pinned API version and a 10 s timeout.
+      pinned API version, an 8 s timeout and no SDK retry.
     - **Audit:** `payments.stripe_account_created` (the `acct_` id) and
       `payments.onboarding_link_created`; reads are not audited.
 
@@ -260,7 +322,7 @@ info:
     | Page | Calls |
     | --- | --- |
     | Firm: Invoices (`/invoices`) | `GET business/invoices` (status, search, paged), then the actions below |
-    | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds` |
+    | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds`, `POST .../{id}/offline-payments`, `POST .../{id}/offline-payments/{offlinePaymentId}/void` |
     | Portal: Receipts & Invoices (`/{firm}/invoices`) | `GET me/invoices` (`section=CURRENT` and `PAST`, view, status, search), `GET me/invoices/{id}` (View), `POST me/invoices/{id}/checkout` (Pay Now) |
     | Firm: Settings > Payments (`/settings/payments`) | `GET business/payments/setup`, `POST .../onboarding` (Connect, Continue), `POST .../onboarding/refresh` (back from `?stripe=refresh`) |
     | Portal: Make a Payment, Home's Payments card | `GET me/invoices?view=DUE`, then Pay Now on the chosen invoice (`canPay`) |
@@ -330,7 +392,7 @@ paths:
     put:
       tags: [firm]
       operationId: updateInvoice
-      summary: Replaces the whole draft, lines included (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED
+      summary: Replaces the whole draft, lines included (Owner and Admin). 409 NOT_DRAFT, PAYMENT_IN_PROGRESS (a cancel holds the draft), CLIENT_ARCHIVED, in that order
       requestBody: { $ref: '#/components/requestBodies/UpdateInvoiceRequest' }
       responses:
         '200': { $ref: '#/components/responses/Invoice' }
@@ -347,7 +409,7 @@ paths:
     post:
       tags: [firm]
       operationId: sendInvoice
-      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED, in that order
+      summary: OPEN now, or SCHEDULED for a later day (Owner and Admin). 409 NOT_DRAFT, PAYMENT_IN_PROGRESS (a cancel holds the draft), CLIENT_ARCHIVED, ZERO_TOTAL, DUE_DATE_PASSED, in that order
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200': { $ref: '#/components/responses/Invoice' }
@@ -364,7 +426,7 @@ paths:
     post:
       tags: [firm]
       operationId: cancelInvoice
-      summary: Draft, scheduled or open, with the firm's reason (Owner and Admin). 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS
+      summary: Draft, scheduled or open, with the firm's reason (Owner and Admin). 409 INVOICE_CLOSED, PAYMENT_IN_PROGRESS, HAS_PAYMENTS
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/CancelInvoiceRequest' } } }
@@ -397,6 +459,52 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: '`NOT_REFUNDABLE` or `REFUND_TOO_LARGE`' }
         '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /business/invoices/{id}/offline-payments:
+    parameters:
+      - { $ref: './auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/Id' }
+    post:
+      tags: [firm]
+      operationId: recordOfflinePayment
+      summary: >-
+        Records a check or cash payment on an OPEN invoice, at most its balance due; PAID once
+        covered (Owner and Admin). The same idempotencyKey again answers the invoice as it is (404
+        when that key's payment is on another invoice)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RecordOfflinePaymentRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            `NOT_OPEN`, `PAYMENT_IN_PROGRESS`, `AMOUNT_TOO_LARGE` or `DUPLICATE_CHECK_NUMBER`, in
+            that order (then `PAYMENT_IN_PROGRESS` again from Stripe)
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /business/invoices/{id}/offline-payments/{offlinePaymentId}/void:
+    parameters:
+      - { $ref: './auth.yaml#/components/parameters/BusinessId' }
+      - { $ref: '#/components/parameters/Id' }
+      - { name: offlinePaymentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [firm]
+      operationId: voidOfflinePayment
+      summary: Voids a recorded check or cash payment with a reason; a PAID invoice it no longer covers reopens (Owner and Admin)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/VoidOfflinePaymentRequest' } } }
+      responses:
+        '200': { $ref: '#/components/responses/Invoice' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`ALREADY_VOIDED`, or `PAYMENT_IN_PROGRESS` (retry) while another payment or cancel of the invoice holds it' }
 
   /portal/{firmSlug}/me/invoices:
     get:
@@ -432,7 +540,10 @@ paths:
       summary: View, with lines, totals and the payment history
       parameters: [{ $ref: '#/components/parameters/FirmSlug' }, { $ref: '#/components/parameters/Id' }]
       responses:
-        '200': { description: MyInvoiceDetail }
+        '200':
+          description: >-
+            zod MyInvoiceDetail (MyInvoice plus lines, amounts, payments, and offlinePayments: live
+            ones only, method, amount and day)
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
@@ -579,7 +690,11 @@ components:
     ApiError: { $ref: './auth.yaml#/components/schemas/ApiError' }
     InvoiceStatus: { type: string, enum: [DRAFT, SCHEDULED, OPEN, PAID, CANCELED] }
     MyInvoiceStatus: { type: string, enum: [PENDING, DUE_SOON, PAID, UPCOMING, CANCELED] }
-    Invoice: { type: object, description: 'zod Invoice (InvoiceListItem plus lines, amounts, payments with refunds, cancelReason, createdBy)' }
+    Invoice:
+      type: object
+      description: >-
+        zod Invoice (InvoiceListItem plus lines, amounts, payments with refunds, offlinePayments
+        with voided ones, cancelReason, createdBy)
     LineInput:
       type: object
       additionalProperties: false
@@ -620,6 +735,35 @@ components:
       properties:
         amountCents: { type: integer, minimum: 1, maximum: 99999999, description: "At most the payment's refundableCents" }
         idempotencyKey: { type: string, format: uuid, description: 'New per refund dialog, the same on a retry' }
+    RecordOfflinePaymentRequest:
+      type: object
+      additionalProperties: false
+      required: [method, amountCents, receivedOn, idempotencyKey]
+      properties:
+        method: { type: string, enum: [CHECK, CASH] }
+        amountCents: { type: integer, minimum: 1, maximum: 99999999, description: At most the balance due }
+        reference:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9-]{0,19}$'
+          description: >-
+            The check number (required for CHECK) or a cash receipt number; never a bank number.
+            Left out when there is none (empty is 400)
+        receivedOn:
+          type: string
+          format: date
+          description: "The day the money arrived: from 2000-01-01, not after the firm's today"
+        note:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: "The firm's only; never shown to the client. Left out when none (empty: 400)"
+        idempotencyKey: { type: string, format: uuid, description: 'New per dialog, the same on a retry' }
+    VoidOfflinePaymentRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
     CheckoutLink:
       type: object
       required: [url, expiresAt]

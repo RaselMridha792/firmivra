@@ -143,6 +143,8 @@ describe('Firm Sign emails', () => {
     ['SIGNED', 'Robin Example signed "2025 Form 8879".'],
     ['COMPLETED', 'Everyone has signed "2025 Form 8879".'],
     ['EXPIRED', '"2025 Form 8879" expired before everyone signed.'],
+    ['APPROVAL_REJECTED', 'Robin Example asked for changes to "2025 Form 8879".'],
+    ['APPROVED', 'Everyone approved "2025 Form 8879", but it could not be sent.'],
   ] as const)('esign.staff-update %s reads as plain words', (event, words) => {
     const out = email('esign.staff-update', { ...SAMPLE_DATA['esign.staff-update'], event });
     expect(out.subject).toBe('Update on "2025 Form 8879"');
@@ -151,7 +153,14 @@ describe('Firm Sign emails', () => {
   });
 
   it('esign.staff-update covers every event and refuses an unknown one', () => {
-    expect(ESIGN_STAFF_EVENTS).toEqual(['VIEWED', 'SIGNED', 'COMPLETED', 'EXPIRED']);
+    expect(ESIGN_STAFF_EVENTS).toEqual([
+      'VIEWED',
+      'SIGNED',
+      'COMPLETED',
+      'EXPIRED',
+      'APPROVAL_REJECTED',
+      'APPROVED',
+    ]);
     const data = { ...SAMPLE_DATA['esign.staff-update'], signerName: null, event: 'VIEWED' };
     expect(email('esign.staff-update', data as never).text).toContain('A recipient opened');
     const bad = { ...data, event: 'DECLINED' };

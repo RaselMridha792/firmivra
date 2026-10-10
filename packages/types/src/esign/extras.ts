@@ -175,8 +175,10 @@ export const EsignInPersonSession = z.object({
   /** The signer's name, for the handoff screen. */
   signerName: z.string(),
   /**
-   * An absolute URL on the portal site, `<PORTAL_BASE_URL>/<slug>/sign#t=<token>`: open it in a new
-   * tab of the same browser. The signer starts at the consent step.
+   * An absolute URL on the portal site. The start answer carries the one-time link,
+   * `<PORTAL_BASE_URL>/<slug>/sign#t=<token>`: open it in a new tab of the same browser; the signer
+   * starts at the consent step. `GET /esign/in-person` answers `<PORTAL_BASE_URL>/<slug>/sign` with
+   * no token (only its hash is stored), so keep the start answer's URL; to reopen, start again.
    */
   signingUrl: z.url(),
   startedAt: DateTime,

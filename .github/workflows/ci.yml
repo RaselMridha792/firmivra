@@ -21,8 +21,9 @@ jobs:
     timeout-minutes: 20
     services:
       # Same image, credentials and host port as docker-compose.yml, so .env.example works unchanged.
+      # Docker's official postgres:16 from its ECR Public mirror: Docker Hub rate-limits CI's pulls.
       postgres:
-        image: postgres:16
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_DB: firmivra
           POSTGRES_USER: firmivra

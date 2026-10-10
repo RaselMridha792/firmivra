@@ -11,6 +11,8 @@ export function Header({
   greeting,
   roleLabel,
   onOpenMenu,
+  bell,
+  hideRole = false,
 }: {
   /** Placeholder text for the search box; search is not connected yet. */
   search?: string;
@@ -18,6 +20,10 @@ export function Header({
   greeting?: ReactNode;
   roleLabel: string;
   onOpenMenu: () => void;
+  /** Replaces the plain bell button, for example the portal's bell with its unread count. */
+  bell?: ReactNode;
+  /** Shows only the name next to the avatar, as the portal mockups do; screen readers still hear the role. */
+  hideRole?: boolean;
 }) {
   const { me, signOut } = useMe();
   const [open, setOpen] = useState(false);
@@ -48,7 +54,7 @@ export function Header({
           />
         </label>
       ) : null}
-      {greeting ? <p className="text-lg font-semibold text-text">{greeting}</p> : null}
+      {greeting ? <div className="text-lg font-semibold text-text">{greeting}</div> : null}
 
       <div
         className={
@@ -57,13 +63,15 @@ export function Header({
             : 'ml-auto flex items-center gap-2'
         }
       >
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="rounded-control p-2 text-text hover:bg-canvas"
-        >
-          <Bell aria-hidden className="size-5" />
-        </button>
+        {bell ?? (
+          <button
+            type="button"
+            aria-label="Notifications"
+            className="rounded-control p-2 text-text hover:bg-canvas"
+          >
+            <Bell aria-hidden className="size-5" />
+          </button>
+        )}
         {search ? <span aria-hidden className="h-8 w-px bg-border" /> : null}
 
         <div className="relative">
@@ -79,7 +87,7 @@ export function Header({
             </span>
             <span className="hidden text-left text-sm sm:block">
               <span className="block font-semibold text-text">{me.user.name}</span>
-              <span className="block text-muted">{roleLabel}</span>
+              <span className={hideRole ? 'sr-only' : 'block text-muted'}>{roleLabel}</span>
             </span>
             <ChevronDown aria-hidden className="size-4 text-muted" />
           </button>

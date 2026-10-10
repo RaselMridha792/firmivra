@@ -239,24 +239,56 @@ export const SAMPLE_AGREEMENT = {
   pdf: { fileName: 'Client Intake Agreement (sample).pdf', sizeBytes: 48213 },
 } as const;
 
-/** A small placeholder form definition until the form engine (I06) sets the real shape. */
-export const SAMPLE_FORM_DEFINITION = {
+/** One step of a seeded form: one section with the given fields. */
+const seedStep = (key: string, title: string, review: boolean, fields: object[]) => ({
+  key,
+  title,
+  review,
+  sections: [{ key: `${key}Fields`, title, fields }],
+});
+
+/**
+ * A seeded v1 form for the kinds whose real form isn't seeded yet: a small definition in the form
+ * engine's current shape (IntakeFormDefinition, R11). Annual Tax seeds the real
+ * INTAKE_FORMS.ANNUAL_TAX instead. Its keys match the seeded answers (fullName) and the lead
+ * upload's slot (priorReturn).
+ */
+export const seedFormDefinition = (key: string, title: string) => ({
+  key,
+  version: 1,
+  title,
   steps: [
-    {
-      id: 'about',
-      title: 'About you',
-      fields: [{ id: 'fullName', type: 'text', label: 'Full name', required: true }],
-    },
-    {
-      id: 'documents',
-      title: 'Documents',
-      fields: [
-        { id: 'priorReturn', type: 'upload', label: 'Last year return', notAvailable: true },
-      ],
-    },
-    { id: 'sign', title: 'Review and sign', fields: [] },
+    seedStep('about', 'About you', false, [
+      { key: 'fullName', type: 'text', label: 'Full name', required: true, maxLength: 200 },
+    ]),
+    seedStep('documents', 'Documents', false, [
+      {
+        key: 'priorReturn',
+        type: 'upload',
+        label: 'Prior return',
+        required: false,
+        notAvailable: true,
+        maxFiles: 5,
+      },
+    ]),
+    seedStep('review', 'Review and submit', true, [
+      {
+        key: 'sampleNotice',
+        type: 'info',
+        label: 'Sample form',
+        text: 'For local development.',
+        required: false,
+      },
+    ]),
   ],
-};
+});
+
+/** Staff members' own video meeting links (synthetic): Zoom, Google Meet and Teams styles. */
+export const SEED_MEETING_URLS = {
+  lvpOwner: 'https://zoom.us/j/0000000001',
+  lvpStaff: 'https://meet.google.com/aaa-bbbb-ccc',
+  firmBOwner: 'https://teams.microsoft.com/l/meetup-join/sample-firm-b-meeting',
+} as const;
 
 /** Fixed ids of seeded notifications and their deliveries, so re-seeding keeps one of each. */
 export const SEED_NOTIFICATION_IDS = {
@@ -315,6 +347,10 @@ export const SEED_BILLING_IDS = {
   transcriptLink: '00000000-0000-4006-8000-000000000022',
   recordKeeping: '00000000-0000-4006-8000-000000000023',
   receiptsTip: '00000000-0000-4006-8000-000000000024',
+  /** INV-1002, part paid by check (an offline payment). */
+  offlineInvoice: '00000000-0000-4006-8000-000000000031',
+  offlinePayment: '00000000-0000-4006-8000-000000000032',
+  offlinePaymentKey: '00000000-0000-4006-8000-000000000033',
 } as const;
 
 /** LVP's Stripe connected account for local development: fake, never a real account id. */

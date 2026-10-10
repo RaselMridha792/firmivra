@@ -63,3 +63,24 @@ export const slotLabel = (iso: string, day: string) =>
     hour: 'numeric',
     minute: '2-digit',
   });
+
+/** The date tile of a row: 'OCT', '15', 'Thu', in the client's time zone. */
+export const dateTile = (iso: string) => {
+  const date = new Date(iso);
+  return {
+    month: date.toLocaleString('en-US', { month: 'short' }).toUpperCase(),
+    day: date.toLocaleString('en-US', { day: 'numeric' }),
+    weekday: date.toLocaleString('en-US', { weekday: 'short' }),
+  };
+};
+
+/** '10:00 AM – 10:30 AM EDT', in the client's time zone. */
+export const timeRange = (startsAt: string, endsAt: string) => {
+  const time = (iso: string, zone: boolean) =>
+    new Date(iso).toLocaleString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      ...(zone ? { timeZoneName: 'short' } : {}),
+    });
+  return `${time(startsAt, false)} – ${time(endsAt, true)}`;
+};

@@ -4,12 +4,12 @@ import { ESIGN_ERRORS, type EsignRecipient, type EsignRequestDetail } from '@fir
 import { Button, Input, Modal, Toast } from '@firmivra/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { api } from '../../../../../../../lib/api';
 import { errorMessage } from '../../../../../../../lib/errors';
 import { useApiMutation } from '../../../../../../../lib/query';
 
-type Dialog = 'void' | 'replace' | null;
+type Dialog = 'void' | 'replace' | 'approve' | 'submit' | null;
 
 /** Every Firm Sign query: a change shows in the counters, lists and this page. */
 const ESIGN = ['esign'];
@@ -20,8 +20,11 @@ export const awaiting = (x: EsignRecipient) =>
   x.delivery !== 'IN_PERSON' &&
   ['SENT', 'DELIVERED', 'VIEWED'].includes(x.status);
 
-/** The request's own buttons, each shown only when `allowedActions` has it. */
-export function RequestActions({ r }: { r: EsignRequestDetail }) {
+/**
+ * The request's own buttons, each shown only when `allowedActions` has it. `extra` joins the same
+ * row (Save as template), before Void.
+ */
+export function RequestActions({ r, extra }: { r: EsignRequestDetail; extra?: ReactNode }) {
   const can = (a: EsignRequestDetail['allowedActions'][number]) => r.allowedActions.includes(a);
   const router = useRouter();
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -37,15 +40,19 @@ export function RequestActions({ r }: { r: EsignRequestDetail }) {
     resend.reset();
   };
   const shown = {
+    approve: can('APPROVE'),
+    submit: can('SUBMIT_FOR_APPROVAL'),
     remind: can('REMIND') && r.recipients.some(awaiting),
     resend: can('RESEND_COPY'),
     replace: can('REPLACE'),
     void: can('VOID'),
   };
-  if (!Object.values(shown).some(Boolean)) return null;
+  if (!Object.values(shown).some(Boolean) && !extra) return null;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-3">
+        {shown.approve && <Button onClick={() => setDialog('approve')}>Review and approve</Button>}
+        {shown.submit && <Button onClick={() => setDialog('submit')}>Send for approval</Button>}
         {shown.remind && (
           <Button
             variant="secondary"
@@ -77,6 +84,7 @@ export function RequestActions({ r }: { r: EsignRequestDetail }) {
             Correct and resend
           </Button>
         )}
+        {extra}
         {shown.void && (
           <Button variant="ghost" onClick={() => setDialog('void')}>
             Void
@@ -110,6 +118,8 @@ export function RequestActions({ r }: { r: EsignRequestDetail }) {
           onDone={(next) => router.push(`/firm-sign/requests/${next.id}`)}
         />
       )}
+      {dialog === 'submit' && <SubmitDialog id={r.id} onClose={close} />}
+      {dialog === 'approve' && <ApproveDialog id={r.id} onClose={close} />}
     </div>
   );
 }
@@ -141,8 +151,10 @@ function ReasonDialog({
     onDone(next);
   };
   // Closing mid-request would drop what happens next (opening the new draft).
-  const leave = () => {
-    if (!action.isPending) onClose();
+  // Not while it runs; stopping Escape's cancel event keeps the dialog open.
+  const leave = (event?: { preventDefault?: () => void }) => {
+    if (action.isPending) event?.preventDefault?.();
+    else onClose();
   };
   return (
     <Modal open title={title} onClose={leave}>
@@ -177,6 +189,102 @@ function ReasonDialog({
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+function SubmitDialog({ id, onClose }: { id: string; onClose: () => void }) {
+  const submit = useApiMutation(() => api.esign.submitForApproval(id, { confirm: true }), {
+    invalidate: ESIGN,
+  });
+  // Not while it runs; stopping Escape's cancel event keeps the dialog open.
+  const leave = (event?: { preventDefault?: () => void }) => {
+    if (submit.isPending) event?.preventDefault?.();
+    else onClose();
+  };
+  return (
+    <Modal open title="Send for approval" onClose={leave}>
+      <div className="flex w-full max-w-xl flex-col gap-4">
+        <p className="text-sm text-text">
+          The approvers review it first. Once the last one approves, it goes to the signers in your
+          name.
+        </p>
+        {submit.error && (
+          <p role="alert" className="text-sm text-danger">
+            {errorMessage(submit.error, ESIGN_ERRORS)}
+          </p>
+        )}
+        <div className="flex flex-wrap gap-3">
+          <Button
+            disabled={submit.isPending}
+            onClick={() => submit.mutate(undefined, { onSuccess: onClose })}
+          >
+            Send for approval
+          </Button>
+          <Button variant="ghost" disabled={submit.isPending} onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ApproveDialog({ id, onClose }: { id: string; onClose: () => void }) {
+  const [note, setNote] = useState('');
+  const [missing, setMissing] = useState(false);
+  const decide = useApiMutation(
+    (decision: 'APPROVE' | 'REJECT') =>
+      api.esign.decideApproval(id, { decision, ...(note.trim() && { note: note.trim() }) }),
+    { invalidate: ESIGN },
+  );
+  const leave = (event?: { preventDefault?: () => void }) => {
+    if (decide.isPending) event?.preventDefault?.();
+    else onClose();
+  };
+  return (
+    <Modal open title="Review and approve" onClose={leave}>
+      <div className="flex w-full max-w-xl flex-col gap-4">
+        <p className="text-sm text-text">
+          Approve to let it go to the signers, or ask the sender for changes. Your note stays inside
+          the firm.
+        </p>
+        <Input
+          label="Note (needed when you ask for changes)"
+          maxLength={500}
+          value={note}
+          disabled={decide.isPending}
+          onChange={(e) => {
+            setNote(e.target.value);
+            setMissing(false);
+            decide.reset();
+          }}
+          error={missing ? 'Say what needs to change.' : undefined}
+        />
+        {decide.error && (
+          <p role="alert" className="text-sm text-danger">
+            {errorMessage(decide.error, ESIGN_ERRORS)}
+          </p>
+        )}
+        <div className="flex flex-wrap gap-3">
+          <Button
+            disabled={decide.isPending}
+            onClick={() => decide.mutate('APPROVE', { onSuccess: onClose })}
+          >
+            Approve
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={decide.isPending}
+            onClick={() => {
+              setMissing(!note.trim());
+              if (note.trim()) decide.mutate('REJECT', { onSuccess: onClose });
+            }}
+          >
+            Ask for changes
+          </Button>
+        </div>
+      </div>
     </Modal>
   );
 }
