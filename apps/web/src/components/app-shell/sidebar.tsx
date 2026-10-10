@@ -44,9 +44,9 @@ export function Sidebar({
               const body = (
                 <>
                   <Icon aria-hidden className="size-6 shrink-0" />
-                  <span className="min-w-0 flex-1">{item.label}</span>
+                  <span className="min-w-0 flex-1 whitespace-nowrap">{item.label}</span>
                   {item.soon ? (
-                    <span className="shrink-0 rounded-pill bg-platform-navy-raised px-2.5 py-0.5 text-xs text-brand-100">
+                    <span className="shrink-0 rounded-pill bg-platform-navy-raised px-2 py-0.5 text-xs text-brand-100">
                       Soon
                     </span>
                   ) : null}
@@ -57,7 +57,7 @@ export function Sidebar({
                   ) : null}
                 </>
               );
-              const row = 'flex items-center gap-3 px-6 py-3 text-base';
+              const row = 'flex items-center gap-2.5 px-6 py-3 text-base';
               if (!item.href) {
                 return (
                   <li key={item.label} aria-disabled="true" className={`${row} text-brand-100`}>
