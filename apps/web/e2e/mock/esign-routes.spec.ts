@@ -18,7 +18,6 @@ const pages: [url: string, title: string, heading?: string][] = [
   [app('/firm-sign/reports'), 'Signing reports'],
   [app('/firm-sign/settings'), 'Signing settings'],
   [app('/firm-sign/in-person/req-1'), 'In-person signing'],
-  [app('/clients/client-1/signatures'), 'Client signatures'],
   [portal('/lvp/signatures'), 'Signatures'],
   [portal('/lvp/sign'), 'Sign documents'],
 ];
