@@ -2,6 +2,7 @@
 
 import type {
   AdminDashboard,
+  AdminSystemStatus,
   FirmApplicationListItem,
   ListFirmApplicationsResponse,
 } from '@firmivra/types';
@@ -62,13 +63,17 @@ function StatCard({
       : stat.key === 'monthlyRevenueCents'
         ? (value / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })
         : value.toLocaleString('en-US');
-  const linkClass = 'mt-1 inline-flex items-center gap-1 text-sm text-brand-700';
+  const linkClass = 'mt-1 inline-flex items-center gap-1 whitespace-nowrap text-sm text-brand-700';
 
   return (
-    <Card variant="elevated" data-testid={stat.testId} className="!p-4">
-      <div className="flex items-center gap-4">
+    // Four cards share a row from xl; until 2xl a smaller icon keeps "View Applications" on one line.
+    <Card variant="elevated" data-testid={stat.testId} className="!p-4 xl:!p-3 2xl:!p-4">
+      <div className="flex items-center gap-4 xl:gap-3 2xl:gap-4">
         <span
-          className={'flex size-16 shrink-0 items-center justify-center rounded-card ' + iconTone}
+          className={
+            'flex size-16 shrink-0 xl:size-12 2xl:size-16 items-center justify-center rounded-card ' +
+            iconTone
+          }
         >
           <Icon aria-hidden className="size-7" />
         </span>
@@ -202,6 +207,46 @@ function RecentApplication({ application }: { application: FirmApplicationListIt
   );
 }
 
+type Health = 'online' | 'degraded' | 'offline' | 'checking' | 'unknown';
+const HEALTH: Record<Health, { label: string; dot: string; text: string }> = {
+  online: { label: 'Online', dot: 'bg-success', text: 'text-success' },
+  degraded: { label: 'Degraded', dot: 'bg-warning', text: 'text-warning' },
+  offline: { label: 'Offline', dot: 'bg-danger', text: 'text-danger' },
+  checking: { label: 'Checking…', dot: 'bg-muted', text: 'text-muted' },
+  unknown: { label: 'Not checked yet', dot: 'bg-muted', text: 'text-muted' },
+};
+
+const SERVICE_ROWS: Record<string, keyof Omit<AdminSystemStatus, 'checkedAt'>> = {
+  'File Storage': 'storage',
+  'Email Service': 'email',
+  'Client Portals': 'portals',
+};
+
+/**
+ * Platform and Database come from the public health check (the API itself and its database);
+ * File Storage, Email Service and Client Portals from the Super Admin's system status. A row
+ * neither answers, or portals with no active firm, says so instead of guessing.
+ */
+function healthOf(
+  label: string,
+  check: { data?: { status: 'ok' | 'degraded'; db: 'ok' | 'down' } | null; isError: boolean },
+  services: { data?: AdminSystemStatus; isError: boolean },
+  mock: boolean,
+): Health {
+  if (mock) return 'online';
+  const service = SERVICE_ROWS[label];
+  if (service) {
+    if (services.isError) return 'offline';
+    if (!services.data) return 'checking';
+    return services.data[service] ?? 'unknown';
+  }
+  if (label !== 'Platform' && label !== 'Database') return 'unknown';
+  if (check.isError) return 'offline';
+  if (!check.data) return 'checking';
+  if (label === 'Database') return check.data.db === 'ok' ? 'online' : 'offline';
+  return check.data.status === 'ok' ? 'online' : 'degraded';
+}
+
 export function DashboardOverview() {
   const { me } = useMe();
   const today = useSyncExternalStore(subscribeToNothing, localDateLabel, serverDateLabel);
@@ -213,6 +258,11 @@ export function DashboardOverview() {
   );
   const firstName = me.user.name.trim().split(/\s+/)[0] || 'there';
   const isMockMode = mocked('firmApplications');
+  // Mock mode has no API behind it: the statuses show the mockup's Online.
+  const health = useApiQuery(['health'], () => (isMockMode ? Promise.resolve(null) : api.health()));
+  const services = useApiQuery(['firm-applications', 'system-status'], () =>
+    api.firmApplications.systemStatus(),
+  );
 
   return (
     <div data-testid="dashboard" className="flex flex-col gap-3">
@@ -381,25 +431,20 @@ export function DashboardOverview() {
           <Card variant="elevated" data-testid="system-status" className="!p-4">
             <SectionTitle icon={Database}>System Status</SectionTitle>
             <ul className="divide-y divide-border">
-              {systemStatuses.map((label) => (
-                <li key={label} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <span
-                    aria-hidden
-                    className={
-                      'size-3 shrink-0 rounded-full ' + (isMockMode ? 'bg-success' : 'bg-muted')
-                    }
-                  />
-                  <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
-                  <span
-                    className={
-                      'flex items-center gap-1.5 text-sm font-semibold ' +
-                      (isMockMode ? 'text-success' : 'text-muted')
-                    }
-                  >
-                    {isMockMode ? 'Online' : 'Not checked yet'}
-                  </span>
-                </li>
-              ))}
+              {systemStatuses.map((label) => {
+                const state = HEALTH[healthOf(label, health, services, isMockMode)];
+                return (
+                  <li key={label} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <span aria-hidden className={`size-3 shrink-0 rounded-full ${state.dot}`} />
+                    <span className="min-w-0 flex-1 text-sm text-text">{label}</span>
+                    <span
+                      className={`flex items-center gap-1.5 text-sm font-semibold ${state.text}`}
+                    >
+                      {state.label}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </Card>
         </div>

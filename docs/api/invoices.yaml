@@ -24,7 +24,8 @@ info:
     - **Lifecycle** (the database's): a new invoice is a `DRAFT`. `send` makes it `OPEN` (issued
       now), or `SCHEDULED` when its `scheduledFor` is after today in the firm's time zone; a daily
       job opens it on that day. `DRAFT`, `SCHEDULED` and `OPEN` can be canceled (with a reason the
-      client never sees). `PAID` and `CANCELED` are final. Nothing is ever deleted. Only a `DRAFT`
+      client never sees). `CANCELED` is final; `PAID` is final except that voiding an offline
+      payment it no longer covers reopens it (`OPEN`). Nothing is ever deleted. Only a `DRAFT`
       is edited (`PUT`, the whole draft again, lines included); its client never changes.
     - **Paid by Stripe or a recorded check or cash payment.** An invoice is `PAID` once the money
       received covers its total: Stripe payments a verified webhook confirmed (refunded ones in
@@ -121,7 +122,7 @@ info:
       helper: the invoice number and due date, never an amount in an SMS).
     - **Cancel.** Expire the invoice's open Checkout Sessions at Stripe first (`sessions.expire`);
       refuse with `409 PAYMENT_IN_PROGRESS` while a payment is processing (its checkout completed
-      and Stripe's result is pending). Canceling a `DRAFT` clears `scheduled_for` (the portal never
+      and Stripe's result is pending), and with `409 HAS_PAYMENTS` while the invoice holds money. Canceling a `DRAFT` clears `scheduled_for` (the portal never
       shows it); canceling a `SCHEDULED` invoice keeps it (the client saw it as Upcoming, so it
       stays as Canceled; see `myInvoiceStatus()`).
     - **Pay Now (checkout).** A $0 total never reaches it: send refuses a draft with nothing to
@@ -144,10 +145,10 @@ info:
       Answer `{ url, expiresAt }`, `expiresAt` from the session's `expires_at` as Stripe returns
       it. Stripe errors: `503 PAYMENT_PROVIDER_UNAVAILABLE`, nothing
       inserted.
-    - **Holding the row.** Pay Now and cancel of one invoice run one at a time: in one API process
-      a second one waits at most 1 s for the first without a database connection, and across
-      processes for the invoice's row, then answers `409 PAYMENT_IN_PROGRESS`. At most three of
-      them per API process wait on Stripe while holding a row; one more answers
+    - **Holding the row.** Pay Now, cancel, an offline payment and its void of one invoice run one at a
+      time: in one API process a second one waits at most 1 s for the first without a database
+      connection, and across processes for the invoice's row, then answers
+      `409 PAYMENT_IN_PROGRESS`. At most three of them per API process wait on Stripe while holding a row; one more answers
       `503 SERVICE_BUSY` with `Retry-After: 5`. A pending checkout older than its session (60
       minutes plus 15) that Stripe says is gone (missing, account disconnected or replaced) is
       marked `FAILED` (`checkout_expired`), so it never blocks the invoice; a timeout or a 5xx is
@@ -282,7 +283,7 @@ info:
     `StripeOnboardingLink`, `paymentsSetupStage()`, `PAYMENTS_SETUP_ERRORS`; web:
     `api.paymentsSetup`; mock: `apps/web/src/mocks/payments-setup.ts`, `NEXT_PUBLIC_API_MOCK=paymentsSetup`).
 
-    - **Who.** The Owner and Admins read (`GET`); only the Owner starts or refreshes onboarding
+    - **Who.** The Owner and Admins read (`GET`) and sync; only the Owner starts or refreshes onboarding
       (Admin `403 FORBIDDEN`). Staff get `403 FORBIDDEN` on every setup route and never see the
       page. An `ACTIVE` firm only.
     - **Accounts.** Each firm gets one Stripe Connect **Standard** account, created by the API
@@ -310,20 +311,25 @@ info:
     - **Refresh** (`POST .../onboarding/refresh`, after Stripe's `?stripe=refresh`): a new link
       for the account already made, never a new account. No account: `409 PAYMENTS_NOT_SET_UP`.
       It also stores the account's current state from Stripe (`accounts.retrieve`).
+    - **Sync** (`POST .../sync`, Owner and Admin): Stripe's current state of the account
+      (`accounts.retrieve`), stored, answered as `PaymentsSetup`; never a link. The page calls it
+      when Stripe sends the Owner back (`?stripe=return`) and from "Check status" while Stripe
+      reviews, so the state catches up before (or without) `account.updated`. No account: `409
+      PAYMENTS_NOT_SET_UP`. Audited (`payments.stripe_account_synced`) only when the state changed.
     - **Stripe errors**, or no `STRIPE_SECRET_KEY` in the environment: `503
       PAYMENT_PROVIDER_UNAVAILABLE` on every setup route, nothing written. Calls to Stripe use a
       pinned API version, an 8 s timeout and no SDK retry.
-    - **Audit:** `payments.stripe_account_created` (the `acct_` id) and
-      `payments.onboarding_link_created`; reads are not audited.
+    - **Audit:** `payments.stripe_account_created` (the `acct_` id),
+      `payments.onboarding_link_created` and `payments.stripe_account_synced`; reads are not audited.
 
     ## Pages and calls
 
     | Page | Calls |
     | --- | --- |
     | Firm: Invoices (`/invoices`) | `GET business/invoices` (status, search, paged), then the actions below |
-    | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds` |
+    | Firm: client record > Invoices | `GET business/invoices?clientId=`, `POST business/invoices`, `PUT .../{id}`, `POST .../{id}/send`, `POST .../{id}/cancel`, `GET .../{id}`, `POST .../{id}/payments/{paymentId}/refunds`, `POST .../{id}/offline-payments`, `POST .../{id}/offline-payments/{offlinePaymentId}/void` |
     | Portal: Receipts & Invoices (`/{firm}/invoices`) | `GET me/invoices` (`section=CURRENT` and `PAST`, view, status, search), `GET me/invoices/{id}` (View), `POST me/invoices/{id}/checkout` (Pay Now) |
-    | Firm: Settings > Payments (`/settings/payments`) | `GET business/payments/setup`, `POST .../onboarding` (Connect, Continue), `POST .../onboarding/refresh` (back from `?stripe=refresh`) |
+    | Firm: Settings > Payments (`/settings/payments`) | `GET business/payments/setup`, `POST .../onboarding` (Connect, Continue), `POST .../onboarding/refresh` (back from `?stripe=refresh`), `POST .../sync` (back from `?stripe=return`, Check status) |
     | Portal: Make a Payment, Home's Payments card | `GET me/invoices?view=DUE`, then Pay Now on the chosen invoice (`canPay`) |
 servers:
   - url: /api/v1
@@ -503,7 +509,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: '`ALREADY_VOIDED`' }
+        '409': { description: '`ALREADY_VOIDED`, or `PAYMENT_IN_PROGRESS` (retry) while another payment or cancel of the invoice holds it' }
 
   /portal/{firmSlug}/me/invoices:
     get:
@@ -581,12 +587,30 @@ paths:
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /business/payments/setup/sync:
+    parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
+    post:
+      tags: [setup]
+      operationId: syncPaymentsSetup
+      summary: Stores the account's state at Stripe now and answers it; never a link (Owner and Admin)
+      requestBody: { $ref: '#/components/requestBodies/Empty' }
+      responses:
+        '200':
+          description: PaymentsSetup
+          content: { application/json: { schema: { $ref: '#/components/schemas/PaymentsSetup' } } }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: '`PAYMENTS_NOT_SET_UP`' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
   /business/payments/setup/onboarding:
     parameters: [{ $ref: './auth.yaml#/components/parameters/BusinessId' }]
     post:
       tags: [setup]
       operationId: startPaymentsOnboarding
-      summary: Creates the firm's Standard account the first time, then a Stripe onboarding link (Owner only)
+      summary: Creates the firm's connected account (Accounts v2) the first time, then a Stripe onboarding link (Owner only)
       requestBody: { $ref: '#/components/requestBodies/Empty' }
       responses:
         '200': { $ref: '#/components/responses/OnboardingLink' }

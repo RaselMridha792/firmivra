@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../components/page-placeholder';
+import { ServicesScreen } from './_components/services-screen';
 
 export const metadata: Metadata = { title: 'My Services' };
 
 export default function MyServicesPage() {
-  return <PagePlaceholder title="My Services" ticket="N06" owner="Nahid" />;
+  return <ServicesScreen />;
 }

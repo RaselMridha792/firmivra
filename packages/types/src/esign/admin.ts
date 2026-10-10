@@ -42,6 +42,20 @@ export const EsignDefaults = z.object({
 });
 export type EsignDefaults = z.infer<typeof EsignDefaults>;
 
+/**
+ * The consent text a firm that has published none gets as version 1, when it sends its first
+ * request (published by no one; the audit log says so). The firm can publish its own any time.
+ */
+export const ESIGN_DEFAULT_CONSENT_MARKDOWN = [
+  '## Consent to sign electronically',
+  '',
+  'By continuing you agree to sign these documents electronically and to receive them electronically.',
+  '',
+  '- You may ask the firm for a paper copy.',
+  '- You may withdraw this consent before you sign by declining.',
+  '- You need a device with a current web browser and an email address.',
+].join('\n');
+
 /** One published version of the firm's e-signature consent text. Insert-only. */
 export const EsignConsentVersion = z.object({
   id: z.uuid(),
@@ -54,9 +68,10 @@ export const EsignConsentVersion = z.object({
 export type EsignConsentVersion = z.infer<typeof EsignConsentVersion>;
 
 /**
- * GET /esign/settings: the defaults, the consent text signers accept now (null until the firm
- * publishes one: nothing can be sent before that, readiness NO_CONSENT), and whether the caller
- * may change them (Owner and Admin).
+ * GET /esign/settings: the defaults (the platform's while the firm has saved none; reading never
+ * writes), the consent text signers accept now, and whether the caller may change them (Owner and
+ * Admin). `consent` is null until the firm publishes one or sends its first request: that send
+ * publishes ESIGN_DEFAULT_CONSENT_MARKDOWN as version 1 for a firm with none.
  */
 export const EsignSettings = z.object({
   defaults: EsignDefaults,

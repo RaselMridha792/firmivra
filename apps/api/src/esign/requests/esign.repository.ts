@@ -3,10 +3,12 @@ import type {
   EsignContentType,
   EsignDefaults,
   EsignDocument,
+  EsignEvent,
   EsignField,
   EsignPage,
   EsignRecipient,
   EsignReminders,
+  EsignRequestDetail,
   EsignRequestStatus,
   EsignRouting,
   EsignSource,
@@ -15,12 +17,10 @@ import type {
 // Firm Sign's storage of requests (R13). Every read and write of the esign tables goes through
 // this interface, and every method takes the firm (`businessId`, from the tenant context) first.
 //
-// The Prisma implementation lands once migration r0_esign (esign_requests, esign_documents,
-// esign_recipients, esign_fields, esign_events) is on main. It uses only `forBusiness(businessId)`
-// or TenantPrisma (row-level security), never the owner client, and runs each draft write in one
-// transaction that locks the request row (FOR UPDATE) and checks it is still a DRAFT. Until then
-// the API is wired to `notMigrated()` below and tests use InMemoryEsignRepository
-// (test/unit/esign-fakes.ts).
+// The Prisma implementation (prisma-esign.repository.ts, on r0_esign's tables) uses only the
+// firm's scope (row-level security), never the owner client, and runs each draft write in one
+// transaction that locks the request row (FOR UPDATE) and checks it is still a DRAFT. Unit tests
+// use InMemoryEsignRepository (test/unit/esign-fakes.ts).
 
 /** An esign_requests row: what the request itself holds. */
 export interface EsignRequestRecord {
@@ -44,11 +44,40 @@ export interface EsignRequestRecord {
   sentAt: Date | null;
   expiresAt: Date | null;
   completedAt: Date | null;
+  /** Hex SHA-256 of the packet as sent; null until sent. */
+  originalSha256: string | null;
+  /** The lifecycle (lifecycle.repository.ts): null until it expires, is voided or replaced. */
+  expiredAt: Date | null;
+  voidedAt: Date | null;
+  /** Staff only: never in an email, a log or the audit. */
+  voidReason: string | null;
+  voidedByUserId: string | null;
+  replacesRequestId: string | null;
+  replacedByRequestId: string | null;
+  /** When the expiry warning went out (once per request); null before. */
+  expiryWarnedAt: Date | null;
+  /** The template and version it was made from (source TEMPLATE); null otherwise. */
+  template: { id: string; version: number } | null;
 }
 
 export type NewEsignRequest = Omit<
   EsignRequestRecord,
-  'id' | 'status' | 'createdAt' | 'lastActivityAt' | 'sentAt' | 'expiresAt' | 'completedAt'
+  | 'id'
+  | 'status'
+  | 'createdAt'
+  | 'lastActivityAt'
+  | 'sentAt'
+  | 'expiresAt'
+  | 'completedAt'
+  | 'originalSha256'
+  | 'expiredAt'
+  | 'voidedAt'
+  | 'voidReason'
+  | 'voidedByUserId'
+  | 'replacesRequestId'
+  | 'replacedByRequestId'
+  | 'expiryWarnedAt'
+  | 'template'
 >;
 
 /** What PATCH may change. */
@@ -111,7 +140,88 @@ export interface EsignRequestParts {
   fields: EsignField[];
 }
 
+/** What the list and counters ask for: every condition given holds (from inclusive, before not). */
+export interface EsignRequestFilter {
+  /**
+   * Null: every request of the firm (Owner, Admin). A member's id: only the requests they send,
+   * those whose client is assigned to them (clients.assigned_user_id) and those they are a STAFF
+   * APPROVER recipient of.
+   */
+  visibleTo: string | null;
+  statuses?: readonly EsignRequestStatus[];
+  clientId?: string;
+  senderUserId?: string;
+  lastActivityFrom?: Date;
+  lastActivityBefore?: Date;
+  expiresFrom?: Date;
+  expiresBefore?: Date;
+  completedFrom?: Date;
+  /** Has this member as a STAFF APPROVER recipient who has not APPROVED. */
+  pendingApprover?: string;
+  /**
+   * Case-insensitive substring of the title, the client's display name, the sender's name or a
+   * SIGNER recipient's name (Prisma: ILIKE with %, _ and \ escaped).
+   */
+  search?: string;
+}
+
+/** Where the next page starts: after this row, in (lastActivityAt, id) descending order. */
+export interface EsignListAfter {
+  lastActivityAt: Date;
+  id: string;
+}
+
+/** A list row: the request and its recipients (for the signers, next action and actions). */
+export interface EsignListedRequest {
+  record: EsignRequestRecord;
+  recipients: EsignRecipientRecord[];
+}
+
+/** An esign_approval_notes row: one approver's decision and note (staff only). */
+export type EsignApprovalNote = EsignRequestDetail['approvalNotes'][number];
+
+/** An esign_events row, with the names as they were then; never a field value or content. */
+export type EsignEventRecord = Omit<EsignEvent, 'createdAt'> & { createdAt: Date };
+
+/** The Firm Sign emails the send route queues (the other templates come with their routes). */
+export type EsignQueuedTemplate = 'esign.request';
+
+/** What sending a DRAFT writes, in one transaction. */
+export interface EsignSendWrite {
+  sentAt: Date;
+  expiresAt: Date;
+  /** Hex SHA-256 of the packet, stored at keyFor(businessId, id, `packet-<sha256>.pdf`). */
+  originalSha256: string;
+  /**
+   * The recipients whose turn it is: SENT with `sentAt`. `tokenHash` is the SHA-256 of their
+   * one-time link token (esign_recipients.token_hash); null when no link goes out (PORTAL signs
+   * from the Signature center, IN_PERSON on a staff device). Never the token itself.
+   */
+  turn: { recipientId: string; tokenHash: string | null }[];
+  /**
+   * The emails to queue (esign_emails, QUEUED): who and which template, never the address, the
+   * link or the token. A queued email that never went out is sent again by the job runner with a
+   * fresh token, since the first one is not stored.
+   */
+  emails: { recipientId: string; template: EsignQueuedTemplate }[];
+  /** The SENT event. */
+  event: EsignEventRecord;
+}
+
 export interface EsignRepository {
+  /** Up to `limit` matching requests after `after`, by lastActivityAt then id, descending. */
+  listRequests(
+    businessId: string,
+    filter: EsignRequestFilter,
+    page: { after: EsignListAfter | null; limit: number },
+  ): Promise<EsignListedRequest[]>;
+  /** How many requests match the filter, by status (a status with none may be left out). */
+  countRequests(
+    businessId: string,
+    filter: EsignRequestFilter,
+  ): Promise<Partial<Record<EsignRequestStatus, number>>>;
+  /** The request's timeline, oldest first; empty for another firm's request. */
+  events(businessId: string, id: string): Promise<EsignEventRecord[]>;
   /** The firm's defaults for new requests (Signing Settings). */
   defaults(businessId: string): Promise<EsignDefaults>;
   createRequest(businessId: string, input: NewEsignRequest): Promise<EsignRequestRecord>;
@@ -120,6 +230,13 @@ export interface EsignRepository {
   parts(businessId: string, id: string): Promise<EsignRequestParts>;
   /** A member's Firm Sign access (OWNER and ADMIN follow the firm role); null if not a member. */
   esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
+  /**
+   * True when signers will have a consent text to accept: the firm's own, or (Prisma) the default
+   * one the first send publishes for a firm with none.
+   */
+  consentPublished(businessId: string): Promise<boolean>;
+  /** The approvers' decisions and notes, oldest first (staff only; extras.repository.ts). */
+  approvalNotes(businessId: string, id: string): Promise<EsignApprovalNote[]>;
   // Draft writes: each applies only while the request is still a DRAFT, sets lastActivityAt and
   // refuses (null or INVALID_STATE; changing nothing) when it is not, or no longer exists. The
   // lastActivityAt written is strictly later than the value it replaces (the Prisma
@@ -127,8 +244,8 @@ export interface EsignRepository {
   // `readAt` checks below compare, so an equal value would hide a write in between, and a value
   // that only differs below the millisecond (Postgres keeps microseconds, a JS Date does not)
   // would refuse every later write.
-  // TODO(r0_esign): every Prisma draft write also resets every APPROVER recipient to WAITING in
-  // the same transaction (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
+  // Every draft write also resets every APPROVER recipient to WAITING in the same transaction
+  // (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
   /**
    * Applies the patch and returns the request as written. With `clientChange`, it refuses
    * (RECIPIENTS_LINKED, changing nothing) while a recipient is linked to a client login: the
@@ -150,9 +267,9 @@ export interface EsignRepository {
     businessId: string,
     id: string,
   ): Promise<Pick<EsignDocumentRecord, 'id' | 's3Key'>[] | null>;
-  // The two below replace what the service computed from parts() read before the write, so each
+  // The three below replace what the service computed from parts() read before the write, so each
   // also refuses (null) unless the request's lastActivityAt is still `readAt`: checked under the
-  // FOR UPDATE lock, a write in between (a PUT fields, say) is never silently reverted. Each
+  // FOR UPDATE lock, a write in between (from another tab, say) is never silently reverted. Each
   // returns the request as written, read in the same transaction.
   /** Replaces the page plan and the fields (moved with their pages) together. */
   savePagePlan(
@@ -170,6 +287,33 @@ export interface EsignRepository {
     fields: EsignField[],
     readAt: Date,
   ): Promise<EsignRequestRecord | null>;
+  /** Replaces the fields. */
+  saveFields(
+    businessId: string,
+    id: string,
+    fields: EsignField[],
+    readAt: Date,
+  ): Promise<EsignRequestRecord | null>;
+  /**
+   * Sends the DRAFT: status SENT, the dates, the hash, the turn's recipients, the events row and
+   * the queued emails, under the request's FOR UPDATE lock. Approvals stand. Answers the request
+   * as written and the queued emails' ids in `emails` order; null (nothing written) unless it is
+   * still a DRAFT whose lastActivityAt is `readAt`, so a double-click sends once. Like the draft
+   * writes, lastActivityAt moves strictly forward. A firm with no consent version gets the default
+   * text as version 1 in the same transaction: `defaultConsentId` is its id when this send made it.
+   */
+  sendDraft(
+    businessId: string,
+    id: string,
+    write: EsignSendWrite,
+    readAt: Date,
+  ): Promise<{ request: EsignRequestRecord; emailIds: string[]; defaultConsentId?: string } | null>;
+  /** Records a queued email's attempt: SENT, or FAILED with the error's class name only. */
+  emailOutcome(
+    businessId: string,
+    emailId: string,
+    outcome: { sent: true } | { sent: false; error: string },
+  ): Promise<void>;
   // Uploads between createUpload and confirmUpload (draft writes from addDocument on).
   saveUpload(businessId: string, upload: EsignPendingUpload): Promise<void>;
   /**

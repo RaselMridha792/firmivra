@@ -6,23 +6,26 @@ import {
   HttpException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { Database, Prisma, TxClient } from '@firmivra/db';
 import type { z } from 'zod';
 import {
   checkIntakeAnswers,
+  COUNTED_UPLOAD_STATUSES,
   INTAKE_ERRORS,
   INTAKE_UPLOAD_STATUS,
   type IntakeAnswersInput,
   IntakeFormKey,
   type IntakeSignatureInput,
   type IntakeStatus,
-  type IntakeSummary,
+  IntakeSummary,
   type IntakeUpload,
   IntakeView,
   MyIntake,
   MyIntakeListItem,
+  type NotificationEvent,
   restoreMaskedNumbers,
   type SavedIntakeStep,
 } from '@firmivra/types';
@@ -30,6 +33,7 @@ import { AuditService } from '../audit/audit.service.js';
 import type { ClientsActor } from '../clients/clients.service.js';
 import { DATABASE } from '../database/database.module.js';
 import { FieldEncryption } from '../field-encryption/field-encryption.service.js';
+import { errorName, Notifier } from '../notifications/notifier.js';
 import { requireFirmWideAgreement } from './intake-agreement.js';
 import { publishedForm, readDefinition } from './intake-forms.js';
 import { maskStoredNumbers, sealIntakeNumbers } from './intake-numbers.js';
@@ -218,11 +222,32 @@ const listOrder = (a: MyIntakeListItem, b: MyIntakeListItem) =>
  */
 @Injectable()
 export class IntakesService {
+  private readonly logger = new Logger(IntakesService.name);
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     private readonly fe: FieldEncryption,
     private readonly audit: AuditService,
+    private readonly notifier: Notifier,
   ) {}
+
+  /**
+   * The bell (and the event's email copy) through R6's Notifier once a change committed: the
+   * Notifier reads the safe values from the intake itself. It resolves on a database failure;
+   * anything else is logged with the intake's id only and never undoes the change.
+   */
+  private async tell(
+    businessId: string,
+    event: NotificationEvent,
+    intakeId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    try {
+      await this.notifier.notify({ businessId, event, recordId: intakeId, actorUserId });
+    } catch (error) {
+      this.logger.warn(`${event} for intake ${intakeId} not written (${errorName(error)})`);
+    }
+  }
 
   private inFirm<T>(businessId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
     return this.database.withScope({ kind: 'business', businessId }, fn);
@@ -366,7 +391,7 @@ export class IntakesService {
       });
     });
     await this.audit.log('intakes.listed', { type: 'intake' }, { count: rows.length });
-    return rows.map(toSummary);
+    return rows.map((r) => IntakeSummary.parse(toSummary(r)));
   }
 
   async get(businessId: string, reach: IntakeReach, id: string): Promise<IntakeView> {
@@ -421,6 +446,7 @@ export class IntakesService {
       return this.view(tx, businessId, await this.row(tx, businessId, reach, intake.id));
     });
     await this.audit.log('intake.sent', { type: 'intake', id: view.id }, { engagementId });
+    await this.tell(businessId, 'intake.sent', view.id, options.userId);
     return view;
   }
 
@@ -468,7 +494,7 @@ export class IntakesService {
     const stepKeys = new Set(step.sections.flatMap((s) => s.fields.map((f) => f.key)));
     const savedAt = await this.inFirm(businessId, async (tx) => {
       const rows = await tx.$queryRaw<{ status: IntakeStatus }[]>`
-        SELECT status::text AS status FROM intakes WHERE id = ${id}::uuid FOR UPDATE`;
+        SELECT status::text AS status FROM intakes WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
       const current = await tx.intakeSubmission.findFirst({
         where: { businessId, intakeId: id },
         orderBy: { version: 'desc' },
@@ -659,9 +685,12 @@ export class IntakesService {
       const current = row.submissions[0];
       if (current?.id !== draft.id || current.submittedAt) throw locked();
       const files = await this.slotFiles(tx, businessId, id);
-      const same = (a: SlotFile[], b: SlotFile[]) =>
-        JSON.stringify(a.map((f) => [f.id, f.slot, f.status])) ===
-        JSON.stringify(b.map((f) => [f.id, f.slot, f.status]));
+      // Counted or not, as the check used them: a scan going PENDING to CLEAN changes nothing.
+      const key = (files: SlotFile[]) =>
+        JSON.stringify(
+          files.map((f) => [f.id, f.slot, COUNTED_UPLOAD_STATUSES.includes(f.status)]),
+        );
+      const same = (a: SlotFile[], b: SlotFile[]) => key(a) === key(b);
       if (JSON.stringify(current.answers) !== JSON.stringify(draft.answers)) throw changed();
       if (!same(files, before.files)) throw changed();
       await requireFirmWideAgreement(tx, businessId);
@@ -688,6 +717,7 @@ export class IntakesService {
       { type: 'intake', id },
       { version: draft.version, detached: hidden.length },
     );
+    await this.tell(businessId, 'intake.submitted', id, login.userId);
     return intake;
   }
 

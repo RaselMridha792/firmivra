@@ -29,7 +29,8 @@ export const NOT_RECORDS: { field: string; routes: RegExp; why: string }[] = [
   },
   ...['signature.agreements.agreementId', 'signature.acknowledgments.agreementId'].map((field) => ({
     field,
-    routes: /\/submit$/,
+    routes:
+      /^POST \/api\/v1\/portal\/:firmSlug\/(me\/intakes\/:id\/submit|begin\/:formPath\/draft\/submit)$/,
     why: "compared with the firm's current agreement block inside the firm's own transaction (R14's sign()); any other id is 409 AGREEMENT_OUTDATED, and the record it names is never read",
   })),
 ];
