@@ -51,9 +51,7 @@ test('the public pages open without signing in and give the same estimate', asyn
 test('the quarterly calculator gives the hand-worked self-employed case', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(portal('/lvp/calculators/quarterly-estimate'));
-  await expect(
-    page.getByRole('button', { name: 'My Income Varies During the Year' }),
-  ).toBeDisabled();
+  await expect(page.getByText(/coming soon/i)).toHaveCount(0);
   await page.getByLabel('Gross Business Income (if self-employed)').fill('100000');
   await page.getByLabel('Business Expenses').fill('20000');
   await page.getByRole('button', { name: 'Calculate My Estimated Tax Payment' }).click();
