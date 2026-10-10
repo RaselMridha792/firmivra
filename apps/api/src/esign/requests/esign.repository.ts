@@ -230,7 +230,10 @@ export interface EsignRepository {
   parts(businessId: string, id: string): Promise<EsignRequestParts>;
   /** A member's Firm Sign access (OWNER and ADMIN follow the firm role); null if not a member. */
   esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
-  /** True once the firm has published a consent version (Signing Settings). */
+  /**
+   * True when signers will have a consent text to accept: the firm's own, or (Prisma) the default
+   * one the first send publishes for a firm with none.
+   */
   consentPublished(businessId: string): Promise<boolean>;
   /** The approvers' decisions and notes, oldest first (staff only; extras.repository.ts). */
   approvalNotes(businessId: string, id: string): Promise<EsignApprovalNote[]>;
@@ -296,14 +299,15 @@ export interface EsignRepository {
    * the queued emails, under the request's FOR UPDATE lock. Approvals stand. Answers the request
    * as written and the queued emails' ids in `emails` order; null (nothing written) unless it is
    * still a DRAFT whose lastActivityAt is `readAt`, so a double-click sends once. Like the draft
-   * writes, lastActivityAt moves strictly forward.
+   * writes, lastActivityAt moves strictly forward. A firm with no consent version gets the default
+   * text as version 1 in the same transaction: `defaultConsentId` is its id when this send made it.
    */
   sendDraft(
     businessId: string,
     id: string,
     write: EsignSendWrite,
     readAt: Date,
-  ): Promise<{ request: EsignRequestRecord; emailIds: string[] } | null>;
+  ): Promise<{ request: EsignRequestRecord; emailIds: string[]; defaultConsentId?: string } | null>;
   /** Records a queued email's attempt: SENT, or FAILED with the error's class name only. */
   emailOutcome(
     businessId: string,

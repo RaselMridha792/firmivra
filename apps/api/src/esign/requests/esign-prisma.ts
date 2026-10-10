@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import type { EsignField, EsignPage } from '@firmivra/types';
+import { ESIGN_DEFAULT_CONSENT_MARKDOWN, type EsignField, type EsignPage } from '@firmivra/types';
 import type {
   Database,
   EsignDocument as DocumentRow,
@@ -222,6 +222,26 @@ export async function addLinks(
       expiresAt: l.expiresAt ?? null,
     })),
   });
+}
+
+/**
+ * Publishes ESIGN_DEFAULT_CONSENT_MARKDOWN as version 1 when the firm has no consent version, in
+ * the caller's transaction; its id when this call made it, else null. Two sends at once both try:
+ * the unique (business_id, version) keeps one, and the other does nothing.
+ */
+export async function ensureDefaultConsent(
+  tx: TxClient,
+  businessId: string,
+): Promise<string | null> {
+  const body = ESIGN_DEFAULT_CONSENT_MARKDOWN;
+  const sha = createHash('sha256').update(body, 'utf8').digest('hex');
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    INSERT INTO esign_consent_versions (id, business_id, version, body_markdown, sha256)
+    SELECT ${randomUUID()}::uuid, ${businessId}::uuid, 1, ${body}, ${sha}
+    WHERE NOT EXISTS (SELECT 1 FROM esign_consent_versions WHERE business_id = ${businessId}::uuid)
+    ON CONFLICT (business_id, version) DO NOTHING
+    RETURNING id`;
+  return rows[0]?.id ?? null;
 }
 
 /** Sealed field values by field id (only the fields with a value). */

@@ -26,7 +26,7 @@ const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest
 type Person = { id: string; email: string };
 
 /** One firm of `tag` with Firm Sign on, in the owner client's own transactions. */
-async function seedFirm(owner: PrismaClient, store: MemoryEsignStore, tag: string) {
+async function seedFirm(owner: PrismaClient, store: MemoryEsignStore, tag: string, consent = true) {
   const id = () => randomUUID();
   const person = (role: string): Person => ({
     id: id(),
@@ -84,9 +84,11 @@ async function seedFirm(owner: PrismaClient, store: MemoryEsignStore, tag: strin
       },
     });
     const body = 'I agree to sign electronically (fake consent).';
-    await tx.esignConsentVersion.create({
-      data: { businessId, version: 1, bodyMarkdown: body, sha256: sha256(body) },
-    });
+    if (consent) {
+      await tx.esignConsentVersion.create({
+        data: { businessId, version: 1, bodyMarkdown: body, sha256: sha256(body) },
+      });
+    }
     const vault = await vaultPdf(tx, businessId, client.id, engagement.id, bytes);
     return { client: client.id, login: login.id, engagement: engagement.id, vault };
   });
@@ -122,15 +124,18 @@ async function vaultPdf(
 
 export type EsignFirm = Awaited<ReturnType<typeof seedFirm>>;
 
-/** Two firms (A and B) and the app over the real database, with an in-memory file store. */
-export async function esignDbWorld(tag: string) {
+/**
+ * Two firms (A and B) and the app over the real database, with an in-memory file store. With
+ * `bareB`, firm B has no consent version (as a firm that never opened Signing Settings).
+ */
+export async function esignDbWorld(tag: string, { bareB = false } = {}) {
   const fx = inject('fixtures');
   const owner = createPrismaClient(testDatabaseUrls('test_api').owner, TEST_CLIENT_OPTIONS);
   const store = new MemoryEsignStore();
   /** What would have been emailed or texted. */
   const outbox: NotifyMessage[] = [];
   const a = await seedFirm(owner, store, `${tag}-a`);
-  const b = await seedFirm(owner, store, `${tag}-b`);
+  const b = await seedFirm(owner, store, `${tag}-b`, !bareB);
   const env = loadEnv({
     ...process.env,
     NODE_ENV: 'test',

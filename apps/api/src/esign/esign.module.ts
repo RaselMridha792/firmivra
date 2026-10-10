@@ -57,6 +57,7 @@ import { PrismaTemplateRepository } from './templates/prisma-templates.repositor
 import { EsignTemplatesService } from './templates/templates.service.js';
 import { EsignSettingsController } from './settings/settings.controller.js';
 import { SETTINGS_REPOSITORY } from './settings/settings.repository.js';
+import { PrismaSettingsRepository } from './settings/prisma-settings.repository.js';
 import { EsignSettingsService } from './settings/settings.service.js';
 import { EsignSignerController } from './signer/signer.controller.js';
 import { EsignSignerFilesService } from './signer/signer-files.service.js';
@@ -130,7 +131,7 @@ function extrasStandIn(): EsignExtrasRepository {
     { provide: ESIGN_REPOSITORY, useClass: PrismaEsignRepository },
     { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
     { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
-    { provide: SETTINGS_REPOSITORY, useValue: notMigrated('EsignSettingsRepository') },
+    { provide: SETTINGS_REPOSITORY, useClass: PrismaSettingsRepository },
     { provide: CENTER_REPOSITORY, useValue: notMigrated('EsignCenterRepository') },
     EsignLifecycleService,
     EsignLifecycleJob,

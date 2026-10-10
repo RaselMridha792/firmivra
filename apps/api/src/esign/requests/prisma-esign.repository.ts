@@ -12,6 +12,7 @@ import {
   addEvents,
   addLinks,
   documentColumns,
+  ensureDefaultConsent,
   EsignFieldValues,
   fresh,
   inFirm,
@@ -261,8 +262,9 @@ export class PrismaEsignRepository implements EsignRepository {
     return member.esignRole?.role ?? 'STAFF';
   }
 
-  async consentPublished(businessId: string): Promise<boolean> {
-    return (await this.db(businessId).esignConsentVersion.count({ where: { businessId } })) > 0;
+  /** Always true: a firm with no consent version gets the default text at its first send. */
+  consentPublished(_businessId: string): Promise<boolean> {
+    return Promise.resolve(true);
   }
 
   async approvalNotes(businessId: string, id: string): Promise<EsignApprovalNote[]> {
@@ -410,7 +412,8 @@ export class PrismaEsignRepository implements EsignRepository {
       await addLinks(tx, businessId, id, links, 'SIGN');
       await addEvents(tx, businessId, id, [write.event]);
       const emailIds = await queueEmails(tx, businessId, id, write.emails);
-      return { request: toRequest(row), emailIds };
+      const defaultConsentId = await ensureDefaultConsent(tx, businessId);
+      return { request: toRequest(row), emailIds, ...(defaultConsentId && { defaultConsentId }) };
     });
   }
 
