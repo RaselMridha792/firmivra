@@ -352,17 +352,24 @@ export class FirmApplicationsService {
 
   async dashboard(): Promise<AdminDashboard> {
     const db = this.admin.db;
-    const [pendingApplications, activeFirms] = await Promise.all([
+    // Logins are a platform table (users_select allows platform scope); admin scope sees only
+    // owners. Counted from `users` alone, never memberships or client accounts.
+    const users = this.database.forPlatform().user;
+    const staffAndClients = { pool: { not: 'ADMIN' } } as const;
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const [pendingApplications, activeFirms, totalUsers, newUsersThisWeek] = await Promise.all([
       db.firmApplication.count({ where: { status: { in: [...PENDING] } } }),
       db.business.count({ where: { status: 'ACTIVE' } }),
+      users.count({ where: staffAndClients }),
+      users.count({ where: { ...staffAndClients, createdAt: { gte: weekAgo } } }),
     ]);
-    // Admin scope cannot read members or clients: the user counts wait for R0's platform count.
     return {
       pendingApplications,
       activeFirms,
-      totalUsers: null,
-      newUsersThisWeek: null,
-      monthlyRevenueCents: null,
+      totalUsers,
+      newUsersThisWeek,
+      // Firmivra does not bill firms yet (Subscriptions and Billing are "Soon").
+      monthlyRevenueCents: 0,
     };
   }
 

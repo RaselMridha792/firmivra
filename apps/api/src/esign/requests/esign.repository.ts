@@ -17,12 +17,10 @@ import type {
 // Firm Sign's storage of requests (R13). Every read and write of the esign tables goes through
 // this interface, and every method takes the firm (`businessId`, from the tenant context) first.
 //
-// The Prisma implementation lands once migration r0_esign (esign_requests, esign_documents,
-// esign_recipients, esign_fields, esign_events) is on main. It uses only `forBusiness(businessId)`
-// or TenantPrisma (row-level security), never the owner client, and runs each draft write in one
-// transaction that locks the request row (FOR UPDATE) and checks it is still a DRAFT. Until then
-// the API is wired to `notMigrated()` below and tests use InMemoryEsignRepository
-// (test/unit/esign-fakes.ts).
+// The Prisma implementation (prisma-esign.repository.ts, on r0_esign's tables) uses only the
+// firm's scope (row-level security), never the owner client, and runs each draft write in one
+// transaction that locks the request row (FOR UPDATE) and checks it is still a DRAFT. Unit tests
+// use InMemoryEsignRepository (test/unit/esign-fakes.ts).
 
 /** An esign_requests row: what the request itself holds. */
 export interface EsignRequestRecord {
@@ -232,7 +230,10 @@ export interface EsignRepository {
   parts(businessId: string, id: string): Promise<EsignRequestParts>;
   /** A member's Firm Sign access (OWNER and ADMIN follow the firm role); null if not a member. */
   esignRole(businessId: string, userId: string): Promise<EsignAccessRole | null>;
-  /** True once the firm has published a consent version (Signing Settings). */
+  /**
+   * True when signers will have a consent text to accept: the firm's own, or (Prisma) the default
+   * one the first send publishes for a firm with none.
+   */
   consentPublished(businessId: string): Promise<boolean>;
   /** The approvers' decisions and notes, oldest first (staff only; extras.repository.ts). */
   approvalNotes(businessId: string, id: string): Promise<EsignApprovalNote[]>;
@@ -243,8 +244,8 @@ export interface EsignRepository {
   // `readAt` checks below compare, so an equal value would hide a write in between, and a value
   // that only differs below the millisecond (Postgres keeps microseconds, a JS Date does not)
   // would refuse every later write.
-  // TODO(r0_esign): every Prisma draft write also resets every APPROVER recipient to WAITING in
-  // the same transaction (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
+  // Every draft write also resets every APPROVER recipient to WAITING in the same transaction
+  // (contract 3, extras.ts: any edit to a DRAFT clears its approvals).
   /**
    * Applies the patch and returns the request as written. With `clientChange`, it refuses
    * (RECIPIENTS_LINKED, changing nothing) while a recipient is linked to a client login: the
@@ -298,14 +299,15 @@ export interface EsignRepository {
    * the queued emails, under the request's FOR UPDATE lock. Approvals stand. Answers the request
    * as written and the queued emails' ids in `emails` order; null (nothing written) unless it is
    * still a DRAFT whose lastActivityAt is `readAt`, so a double-click sends once. Like the draft
-   * writes, lastActivityAt moves strictly forward.
+   * writes, lastActivityAt moves strictly forward. A firm with no consent version gets the default
+   * text as version 1 in the same transaction: `defaultConsentId` is its id when this send made it.
    */
   sendDraft(
     businessId: string,
     id: string,
     write: EsignSendWrite,
     readAt: Date,
-  ): Promise<{ request: EsignRequestRecord; emailIds: string[] } | null>;
+  ): Promise<{ request: EsignRequestRecord; emailIds: string[]; defaultConsentId?: string } | null>;
   /** Records a queued email's attempt: SENT, or FAILED with the error's class name only. */
   emailOutcome(
     businessId: string,

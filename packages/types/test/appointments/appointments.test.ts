@@ -153,7 +153,7 @@ describe('appointment clients', () => {
     await createAppointmentTypesClient(createRequest({ baseUrl: '', fetch: types.fn })).list();
     expect(types.calls[0]?.url).toBe('/business/appointment-types?status=active');
 
-    const availability = fakeFetch(200, { member, hours: [] });
+    const availability = fakeFetch(200, { member, hours: [], meetingUrl: null });
     await createAvailabilityClient(
       createRequest({ baseUrl: '', fetch: availability.fn }),
     ).setWorkingHours(member.userId, { hours: [] });

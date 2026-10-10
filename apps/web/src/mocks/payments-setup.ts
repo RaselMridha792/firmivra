@@ -10,7 +10,7 @@ import { mockDelay } from '../lib/mock';
 
 /**
  * Mock data for `api.paymentsSetup` (Settings > Payments, R7). Same roles, rules and error codes
- * as the API: the Owner and Admins read, only the Owner starts or refreshes onboarding (Admin 403),
+ * as the API: the Owner and Admins read and sync, only the Owner starts or refreshes onboarding (Admin 403),
  * Staff get 403 on every call. `start` connects the firm (setup not finished) and answers a
  * `mock:` link that opens nothing; no Stripe here, so the account never finishes by itself.
  * `stage` starts the firm at another point (a `PaymentsSetupStage`, the same values the page reads
@@ -74,6 +74,11 @@ export function createPaymentsSetupMock(
   return {
     get: async () => {
       await allowed(false);
+      return { ...setup };
+    },
+    sync: async () => {
+      await allowed(false);
+      if (!setup.connected) throw fail(409, 'PAYMENTS_NOT_SET_UP', 'Stripe is not connected yet');
       return { ...setup };
     },
     start: async () => {

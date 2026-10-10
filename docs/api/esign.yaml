@@ -128,7 +128,11 @@ info:
     `GET .../sign/packet`, with the sender's values and earlier signatures stamped in. An
     ATTACHMENT field takes a file through `POST .../sign/attachments/uploads` (the ticket) and
     `POST .../sign/attachments/uploads/confirm`; `DELETE .../sign/attachments/{fieldId}` removes
-    it before the signer finishes.
+    it before the signer finishes. In person, the kiosk's link (`signingUrl` of
+    `POST /esign/requests/{id}/in-person`) opens at CONSENT with no email or access code, the
+    events record authMethod IN_PERSON, and every signer call keeps the staff member's kiosk from
+    timing out; past the link's expiry, or once the kiosk has ended or been idle
+    ESIGN_KIOSK_IDLE_MINUTES, it answers `404 LINK_INVALID`.
 
     ## Signature center (contract 2)
 
@@ -927,7 +931,7 @@ paths:
     parameters:
       - { name: firmSlug, in: path, required: true, schema: { type: string } }
       - { name: recipientId, in: path, required: true, schema: { type: string, format: uuid } }
-      - { name: file, in: query, required: true, schema: { type: string, enum: [final, certificate] } }
+      - { name: file, in: query, required: false, schema: { type: string, enum: [final, certificate], default: final } }
     get:
       tags: [esign-portal]
       operationId: mySignatureDownload
@@ -1252,7 +1256,7 @@ paths:
       tags: [esign-extras]
       operationId: setEsignRole
       x-roles: [OWNER, ADMIN]
-      summary: "A Staff member’s Firm Sign access (`SetEsignMemberRoleBody` → `EsignMemberRole`). 409 ROLE_FIXED, NOT_A_MEMBER"
+      summary: "A Staff member’s Firm Sign access (`SetEsignMemberRoleBody` → `EsignMemberRole`). 409 ROLE_FIXED; 404 for anyone not an active member"
       requestBody: { $ref: '#/components/requestBodies/Zod' }
       responses:
         '200':
