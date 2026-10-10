@@ -27,6 +27,13 @@ export function Modal({ open, title, children, onClose }: ModalProps) {
       ref={dialogRef}
       aria-labelledby={titleId}
       onCancel={onClose}
+      onKeyDown={(event) => {
+        if (
+          event.key === 'Tab' &&
+          event.currentTarget.querySelectorAll(':enabled, a[href], [tabindex="0"]').length === 1
+        )
+          event.preventDefault();
+      }}
       className="ui-dialog m-auto overflow-auto rounded-xl border border-border bg-surface p-6 text-text shadow-lg"
     >
       <div className="mb-6 flex items-center justify-between gap-4">
