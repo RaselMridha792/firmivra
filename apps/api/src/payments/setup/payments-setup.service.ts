@@ -100,7 +100,8 @@ export class PaymentsSetupService {
       this.call('accounts.create', businessId, () =>
         stripe.createAccount(
           { businessId, country: 'US', email: null },
-          `fv-connect-${businessId}`,
+          // v2: a new prefix, so a key used with the v1 create is never replayed.
+          `fv-connect-v2-${businessId}`,
         ),
       ),
     );
