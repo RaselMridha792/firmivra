@@ -1,18 +1,8 @@
-import { PageContainer } from '@firmivra/ui';
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../components/page-placeholder';
+import { ResetPasswordScreen } from './_components/reset-password-screen';
 
 export const metadata: Metadata = { title: 'Reset password' };
 
 export default function ResetPasswordPage() {
-  return (
-    <PageContainer className="py-8">
-      <PagePlaceholder
-        title="Reset password"
-        ticket="N03"
-        owner="Nahid"
-        mockup="client-portal sign-up style"
-      />
-    </PageContainer>
-  );
+  return <ResetPasswordScreen />;
 }

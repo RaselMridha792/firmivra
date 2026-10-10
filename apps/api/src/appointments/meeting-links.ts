@@ -1,6 +1,5 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { TxClient } from '@firmivra/db';
-import type { AppointmentErrorCode } from '@firmivra/types';
 
 // Meeting links (R14; contract in packages/types/src/appointments/schemas.ts, "Meeting links"):
 // each member's default video meeting link. A link can carry the meeting's passcode (Zoom's
@@ -26,26 +25,27 @@ export interface MeetingLinkStore {
 }
 
 /**
- * The binding until R0's memberships.meeting_url lands: every member has no link (bookings copy
- * none, a change of staff member keeps the details), and setting one is 503
- * MEETING_LINKS_UNAVAILABLE. Swap it for a Prisma-backed store reading and writing that column
- * (appointments.module.ts); nothing else changes.
+ * The Prisma-backed store: `memberships.meeting_url` (R0's intake engine migration; https only,
+ * at most 500 characters, enforced by a CHECK). Reads and writes name businessId, so a link is
+ * the member's at this firm only. Never log it.
  */
 @Injectable()
-export class UnavailableMeetingLinks implements MeetingLinkStore {
-  get(
-    _tx: TxClient,
-    _businessId: string,
+export class PrismaMeetingLinks implements MeetingLinkStore {
+  async get(
+    tx: TxClient,
+    businessId: string,
     userIds: readonly string[],
   ): Promise<Map<string, string | null>> {
-    return Promise.resolve(new Map(userIds.map((id) => [id, null])));
+    const rows = await tx.membership.findMany({
+      where: { businessId, userId: { in: [...userIds] } },
+      select: { userId: true, meetingUrl: true },
+    });
+    const found = new Map(rows.map((r) => [r.userId, r.meetingUrl]));
+    return new Map(userIds.map((id) => [id, found.get(id) ?? null]));
   }
 
-  set(): Promise<void> {
-    const code: AppointmentErrorCode = 'MEETING_LINKS_UNAVAILABLE';
-    return Promise.reject(
-      new ServiceUnavailableException({ code, message: 'Meeting links are not available yet' }),
-    );
+  async set(tx: TxClient, businessId: string, userId: string, url: string | null): Promise<void> {
+    await tx.membership.updateMany({ where: { businessId, userId }, data: { meetingUrl: url } });
   }
 }
 

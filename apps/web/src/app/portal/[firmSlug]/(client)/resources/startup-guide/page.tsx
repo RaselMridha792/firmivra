@@ -1,15 +1,15 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { ResourcePage } from '../_components/resource-page';
 
 export const metadata: Metadata = { title: 'Business Startup Guide' };
 
-export default function BusinessStartupGuidePage() {
+export default function Page() {
   return (
-    <PagePlaceholder
-      title="Business Startup Guide"
-      ticket="N10"
-      owner="Nahid"
-      mockup="client-portal/Business Startup Guide Dashboard.png"
+    <ResourcePage
+      page="startup-guide"
+      heading="Business Startup"
+      highlight="Guide"
+      intro="The steps to start your business the right way, from choosing a structure to opening your books."
     />
   );
 }

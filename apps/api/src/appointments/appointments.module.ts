@@ -7,7 +7,7 @@ import { AppointmentsController } from './appointments.controller.js';
 import { AppointmentsService } from './appointments.service.js';
 import { AvailabilityController, BlockedTimesController } from './availability.controller.js';
 import { AvailabilityService } from './availability.service.js';
-import { MEETING_LINKS, UnavailableMeetingLinks } from './meeting-links.js';
+import { MEETING_LINKS, PrismaMeetingLinks } from './meeting-links.js';
 import { MyAppointmentsController } from './my-appointments.controller.js';
 import { MyAppointmentsService } from './my-appointments.service.js';
 
@@ -31,8 +31,7 @@ import { MyAppointmentsService } from './my-appointments.service.js';
     MyAppointmentsService,
     AppointmentHistory,
     AppointmentNotices,
-    // Until R0's memberships.meeting_url: then a Prisma-backed store (meeting-links.ts).
-    { provide: MEETING_LINKS, useClass: UnavailableMeetingLinks },
+    { provide: MEETING_LINKS, useClass: PrismaMeetingLinks },
   ],
 })
 export class AppointmentsModule {}

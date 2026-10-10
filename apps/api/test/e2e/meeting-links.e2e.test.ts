@@ -22,11 +22,9 @@ import {
 } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { addDays, minutesOf, zonedDate, zonedInstant } from '../../src/appointments/calendar.js';
-import { MEETING_LINKS } from '../../src/appointments/meeting-links.js';
 import { configureApp } from '../../src/configure-app.js';
 import { type Env, loadEnv } from '../../src/config/env.js';
 import { NOTIFY_SERVICE, type NotifyMessage } from '../../src/notify/notify.types.js';
-import { FakeMeetingLinks } from '../fake-meeting-links.js';
 
 const fx = inject('fixtures');
 const run = randomUUID().slice(0, 8);
@@ -53,7 +51,6 @@ const LINK_A2 = `https://meet.google.com/fake-a2-${run}`;
 const CUSTOM = `https://teams.microsoft.com/l/meetup-join/fake-${run}`;
 
 let app: INestApplication;
-const links = new FakeMeetingLinks();
 const outbox: NotifyMessage[] = [];
 const tokens = new Map<string, string>();
 let viewers = 0;
@@ -141,8 +138,8 @@ const book = async (body: object, who: Who = people.ownerA) =>
 let video: AppointmentType;
 let inPerson: AppointmentType;
 
-async function startApp(env: Env, fake: boolean): Promise<INestApplication> {
-  let builder = Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
+async function startApp(env: Env): Promise<INestApplication> {
+  const builder = Test.createTestingModule({ imports: [AppModule.forRoot(env)] })
     .overrideProvider(NOTIFY_SERVICE)
     .useValue({
       send: (message: NotifyMessage) => {
@@ -150,7 +147,6 @@ async function startApp(env: Env, fake: boolean): Promise<INestApplication> {
         return Promise.resolve();
       },
     });
-  if (fake) builder = builder.overrideProvider(MEETING_LINKS).useValue(links);
   const nest = (await builder.compile()).createNestApplication<NestExpressApplication>({
     logger: false,
   });
@@ -243,7 +239,7 @@ beforeAll(async () => {
     LOG_LEVEL: 'silent',
     DATABASE_URL_APP: fx.appUrl,
   });
-  app = await startApp(env, true);
+  app = await startApp(env);
 
   const type = async (body: object) =>
     exact(AppointmentType, await call('post', '/appointment-types', people.ownerA, body), 201);
@@ -342,7 +338,13 @@ describe('a member’s meeting link', () => {
     expect(b.members.map((m) => [m.member.userId, m.meetingUrl])).toEqual([
       [people.ownerB.id, null],
     ]);
-    expect(links.links.size).toBe(2);
+    // Two links were set at firm A; none leaked to firm B's member row.
+    const count = (businessId: string) =>
+      asOwner(businessId, (tx) =>
+        tx.membership.count({ where: { businessId, meetingUrl: { not: null } } }),
+      );
+    expect(await count(ids.firmA)).toBe(2);
+    expect(await count(ids.firmB)).toBe(0);
   });
 });
 
@@ -563,29 +565,5 @@ describe('links never leave the firm workspace and the portal', () => {
       expect(sent).not.toContain(link);
     }
     expect(outbox.length).toBeGreaterThan(0);
-  });
-});
-
-describe('until R0’s memberships.meeting_url', () => {
-  it('the real binding reads no links and answers 503 MEETING_LINKS_UNAVAILABLE on PUT', async () => {
-    const real = await startApp(env, false);
-    try {
-      const res = await call(
-        'put',
-        `/availability/${people.staffA.id}/meeting-link`,
-        people.ownerA,
-        { meetingUrl: LINK_A },
-        ids.firmA,
-        real,
-      );
-      expectError(res, 503, 'MEETING_LINKS_UNAVAILABLE');
-      const all = exact(
-        Availability,
-        await call('get', '/availability', people.ownerA, undefined, ids.firmA, real),
-      );
-      expect(all.members.every((m) => m.meetingUrl === null)).toBe(true);
-    } finally {
-      await real.close();
-    }
   });
 });

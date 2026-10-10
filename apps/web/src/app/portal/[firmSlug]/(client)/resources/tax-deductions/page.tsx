@@ -1,15 +1,15 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../../components/page-placeholder';
+import { ResourcePage } from '../_components/resource-page';
 
 export const metadata: Metadata = { title: 'Tax Deductions for Small Businesses' };
 
-export default function TaxDeductionsForSmallBusinessesPage() {
+export default function Page() {
   return (
-    <PagePlaceholder
-      title="Tax Deductions for Small Businesses"
-      ticket="N10"
-      owner="Nahid"
-      mockup="client-portal/LVP_Tax_Deductions_Small_Businesses.png"
+    <ResourcePage
+      page="tax-deductions"
+      heading="Tax Deductions for"
+      highlight="Small Businesses"
+      intro="Common deductions that can lower your business taxes, and the records to keep for each."
     />
   );
 }
