@@ -81,3 +81,32 @@ test('a new service agreement gets its first version', async ({ page }) => {
   await page.getByRole('button', { name: '← All agreements' }).click();
   await expect(page.getByTestId('agreement')).toHaveCount(3);
 });
+
+test('a version keeps, replaces or refuses its PDF original', async ({ page }) => {
+  await openAgreements(page);
+  await page.getByTestId('agreement').first().getByRole('button', { name: /^Open/ }).click();
+  await expect(page.getByRole('button', { name: 'Download PDF' }).first()).toBeVisible();
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+
+  const pdf = page.getByLabel('Replace the PDF original');
+  await pdf.setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('x') });
+  await expect(page.getByText('Upload a PDF file.')).toBeVisible();
+
+  await pdf.setInputFiles({
+    name: 'virus-sample.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4 synthetic'),
+  });
+  await expect(page.getByText('Blocked', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+  await pdf.setInputFiles({
+    name: 'intake-terms-v3.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4 synthetic'),
+  });
+  await expect(page.getByText('Checking the PDF…')).toBeVisible();
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Publish version 3' }).click();
+  await expect(page.getByRole('button', { name: 'Publish version 4' })).toBeVisible();
+  await expect(page.getByText(/intake-terms-v3\.pdf/).first()).toBeVisible();
+});
