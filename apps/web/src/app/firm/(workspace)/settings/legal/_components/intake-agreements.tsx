@@ -12,6 +12,7 @@ import { PageState } from '../../../../../../components/page-state';
 import { api } from '../../../../../../lib/api';
 import { errorMessage } from '../../../../../../lib/errors';
 import { useApiMutation, useApiQuery } from '../../../../../../lib/query';
+import { AgreementVersionForm } from './agreement-version-form';
 import {
   AGREEMENTS,
   agreementKey,
@@ -169,7 +170,14 @@ function AgreementDetail({
             </Card>
             {agreement.archivedAt ? (
               <p className="text-sm text-muted">This agreement is archived: no new versions.</p>
-            ) : null}
+            ) : (
+              <NextVersion
+                key={agreement.current?.version ?? 0}
+                agreementId={agreement.id}
+                firmWide={agreement.scope === 'ALL_INTAKES'}
+                currentVersion={agreement.current?.version ?? null}
+              />
+            )}
             {agreement.versions.length > 1 ? (
               <Card title="Earlier versions">
                 <ul className="flex flex-col gap-2">
@@ -200,5 +208,29 @@ function AgreementDetail({
         )}
       </PageState>
     </div>
+  );
+}
+
+/** The next version's form, opened on the current version's text and boxes. */
+function NextVersion({
+  agreementId,
+  firmWide,
+  currentVersion,
+}: {
+  agreementId: string;
+  firmWide: boolean;
+  currentVersion: number | null;
+}) {
+  const current = useApiQuery(
+    [...agreementKey(agreementId), 'version', currentVersion ?? 0],
+    async () =>
+      currentVersion === null ? null : api.agreements.getVersion(agreementId, currentVersion),
+  );
+  return (
+    <PageState query={current} isEmpty={() => false}>
+      {(version) => (
+        <AgreementVersionForm agreementId={agreementId} firmWide={firmWide} current={version} />
+      )}
+    </PageState>
   );
 }
