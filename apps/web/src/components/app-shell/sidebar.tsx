@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMe } from '../signed-in';
-import firmivraLockup from './firmivra-lockup.png';
+import firmivraLogoWhite from './firmivra-logo-white.png';
 import { initials, isActive, type NavSections } from './types';
 
 /** Navy sidebar: logo, menu groups, the signed-in user and Log out. */
@@ -25,15 +25,21 @@ export function Sidebar({
   const { me, signOut } = useMe();
   return (
     <nav aria-label="Main" className="flex h-full w-72 flex-col bg-brand-900 text-white">
-      <div className="px-6 pb-8 pt-5">
-        <div className="flex items-center gap-0">
-          <Image src={firmivraLockup} alt="" priority className="h-19 w-16 object-contain" />
-          <span className="font-sans text-4xl font-semibold tracking-tight">Firmivra</span>
-        </div>
-        <p className="-mt-4 ml-16 whitespace-nowrap text-xs tracking-brand uppercase">{subtitle}</p>
+      <div className="px-6 pb-4 pt-3">
+        <Image
+          src={firmivraLogoWhite}
+          alt="Firmivra"
+          priority
+          sizes="208px"
+          className="block h-auto w-52"
+        />
+        {/* Under the wordmark, which starts about 58 px into the logo. */}
+        <p className="-mt-3 ml-14.5 whitespace-nowrap text-xs tracking-brand uppercase">
+          {subtitle}
+        </p>
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
+      <div data-testid="sidebar-menu" className="flex flex-1 flex-col gap-2 overflow-y-auto">
         {sections.map((items, i) => (
           <ul
             key={items[0]?.label ?? 'group'}
