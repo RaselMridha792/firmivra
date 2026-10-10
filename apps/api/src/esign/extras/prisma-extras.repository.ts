@@ -230,7 +230,8 @@ export class PrismaExtrasRepository implements EsignExtrasRepository {
     return inFirm(this.database, businessId, async (tx) => {
       const [row] = await tx.$queryRaw<{ n: number }[]>`
         UPDATE esign_kiosk_locks SET wrong_passwords = LEAST(wrong_passwords + 1, 5)
-        WHERE user_id = ${userId}::uuid RETURNING wrong_passwords AS n`;
+        WHERE business_id = ${businessId}::uuid AND user_id = ${userId}::uuid
+        RETURNING wrong_passwords AS n`;
       return row?.n ?? 0;
     });
   }
