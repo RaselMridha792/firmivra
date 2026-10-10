@@ -6,6 +6,7 @@ import { PageState } from '../../../../../../../components/page-state';
 import { api } from '../../../../../../../lib/api';
 import { useApiQuery } from '../../../../../../../lib/query';
 import { MessageForm } from './message-form';
+import { InternalNotes } from './internal-notes';
 import { messageDate, MessageThread } from './message-thread';
 
 export function MessagesScreen({ clientId }: { clientId: string }) {
@@ -56,70 +57,78 @@ export function MessagesScreen({ clientId }: { clientId: string }) {
     { id: 'actions', label: 'Actions', cell: view },
   ];
   return (
-    <div className="min-w-0 space-y-4" data-testid="client-messages-screen">
-      <Card className="min-w-0 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-heading">Messages and Notes</h2>
-            <p className="text-sm text-muted">
-              View conversations with your client and send updates.
-            </p>
-          </div>
-          <Button onClick={() => setCreating(true)}>Send a Message</Button>
-        </div>
-        <PageState
-          query={threads}
-          empty="No conversations with this client yet."
-          isEmpty={(data) => !data.items.length}
-        >
-          {(data) => (
-            <div className="min-w-0 space-y-4">
-              <div className="space-y-3 md:hidden" data-testid="message-cards">
-                {data.items.map((row) => (
-                  <Card key={row.id} className="min-w-0 space-y-2">
-                    <h3 className="font-semibold text-heading wrap-anywhere">{row.subject}</h3>
-                    <p className="text-sm text-muted wrap-anywhere">
-                      From: {row.startedBy?.name ?? 'Firm'}
-                    </p>
-                    <p className="text-sm text-muted">
-                      {messageDate(row.lastMessage?.createdAt ?? row.createdAt)}
-                    </p>
-                    {row.unreadCount ? <Badge tone="info">{row.unreadCount} unread</Badge> : null}
-                    {view(row)}
-                  </Card>
-                ))}
-              </div>
-              <div
-                className="hidden min-w-0 md:block [&_table]:table-fixed [&_td]:px-2 [&_th]:px-2 [&_th:last-child]:w-20 [&>div>div:last-child]:hidden"
-                data-testid="message-table"
-              >
-                <Table
-                  rows={data.items}
-                  columns={columns}
-                  rowKey={(row) => row.id}
-                  caption="Client conversations"
-                  server={{
-                    page: cursors.length,
-                    hasPrevious: cursors.length > 1,
-                    hasNext: !!data.nextCursor,
-                    onPrevious: previous,
-                    onNext: next,
-                    onSort: () => {},
-                  }}
-                />
-              </div>
-              <nav aria-label="Conversation pages" className="grid grid-cols-2 gap-3 sm:flex">
-                <Button variant="secondary" disabled={cursors.length === 1} onClick={previous}>
-                  Previous
-                </Button>
-                <Button variant="secondary" disabled={!data.nextCursor} onClick={next}>
-                  Next
-                </Button>
-              </nav>
+    <div
+      className="grid min-w-0 items-start gap-4 xl:grid-cols-3"
+      data-testid="client-messages-screen"
+    >
+      <section className="min-w-0 xl:col-span-2" aria-label="Client conversations">
+        <Card className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-semibold text-heading">Messages and Notes</h2>
+              <p className="text-sm text-muted">
+                View conversations with your client and send updates.
+              </p>
             </div>
-          )}
-        </PageState>
-      </Card>
+            <Button onClick={() => setCreating(true)}>Send a Message</Button>
+          </div>
+          <PageState
+            query={threads}
+            empty="No conversations with this client yet."
+            isEmpty={(data) => !data.items.length}
+          >
+            {(data) => (
+              <div className="min-w-0 space-y-4">
+                <div className="space-y-3 md:hidden" data-testid="message-cards">
+                  {data.items.map((row) => (
+                    <Card key={row.id} className="min-w-0 space-y-2">
+                      <h3 className="font-semibold text-heading wrap-anywhere">{row.subject}</h3>
+                      <p className="text-sm text-muted wrap-anywhere">
+                        From: {row.startedBy?.name ?? 'Firm'}
+                      </p>
+                      <p className="text-sm text-muted">
+                        {messageDate(row.lastMessage?.createdAt ?? row.createdAt)}
+                      </p>
+                      {row.unreadCount ? <Badge tone="info">{row.unreadCount} unread</Badge> : null}
+                      {view(row)}
+                    </Card>
+                  ))}
+                </div>
+                <div
+                  className="hidden min-w-0 md:block [&_table]:table-fixed [&_td]:px-2 [&_th]:px-2 [&_th:last-child]:w-20 [&>div>div:last-child]:hidden"
+                  data-testid="message-table"
+                >
+                  <Table
+                    rows={data.items}
+                    columns={columns}
+                    rowKey={(row) => row.id}
+                    caption="Client conversations"
+                    server={{
+                      page: cursors.length,
+                      hasPrevious: cursors.length > 1,
+                      hasNext: !!data.nextCursor,
+                      onPrevious: previous,
+                      onNext: next,
+                      onSort: () => {},
+                    }}
+                  />
+                </div>
+                <nav aria-label="Conversation pages" className="grid grid-cols-2 gap-3 sm:flex">
+                  <Button variant="secondary" disabled={cursors.length === 1} onClick={previous}>
+                    Previous
+                  </Button>
+                  <Button variant="secondary" disabled={!data.nextCursor} onClick={next}>
+                    Next
+                  </Button>
+                </nav>
+              </div>
+            )}
+          </PageState>
+        </Card>
+      </section>
+      <aside className="min-w-0" aria-label="Internal staff notes">
+        <InternalNotes clientId={clientId} />
+      </aside>
       {selected ? (
         <MessageThread
           key={selected}
