@@ -237,7 +237,7 @@ describe('POST .../onboarding and .../onboarding/refresh', () => {
     expect(creates).toHaveLength(1);
     expect(creates[0]!.params).toMatchObject({
       businessId: ids.firmA,
-      idempotencyKey: `fv-connect-${ids.firmA}`,
+      idempotencyKey: `fv-connect-v2-${ids.firmA}`,
     });
     const link = fake.calls.filter((c) => c.method === 'createAccountLink').at(-1)!;
     const base = process.env.APP_BASE_URL!.replace(/\/$/, '');
