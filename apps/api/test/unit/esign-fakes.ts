@@ -1,6 +1,8 @@
 // In-memory stand-ins for Firm Sign's ports (R13), keyed by firm so isolation is real: a firm
 // only ever sees its own rows. Synthetic data only.
 import { createHash, randomUUID } from 'node:crypto';
+import { Global, Module } from '@nestjs/common';
+import { DATABASE } from '../../src/database/database.module.js';
 import {
   ESIGN_MAX_PAGES,
   type EsignAccessRole,
@@ -1923,3 +1925,14 @@ export class InMemoryBulkRepository implements EsignBulkRepository {
     return Promise.resolve(rows.slice(0, limit));
   }
 }
+
+/**
+ * The database the Prisma repositories and the field-encryption helper ask for, in the HTTP unit
+ * tests (which replace every repository with its fake): nothing reaches it.
+ */
+@Global()
+@Module({ providers: [{ provide: DATABASE, useValue: {} }], exports: [DATABASE] })
+export class NoDatabaseModule {}
+
+/** The extras port for HTTP tests that never start an in-person signing: no kiosk lock exists. */
+export const NO_KIOSK = { kioskLock: () => Promise.resolve(null) };

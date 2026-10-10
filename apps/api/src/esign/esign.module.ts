@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { PortalInfoModule } from '../client-auth/portal-info.controller.js';
+import { FieldEncryptionModule } from '../field-encryption/field-encryption.service.js';
 import { ModulesModule } from '../common/modules/requires-module.js';
 import { EsignBulkController } from './bulk/bulk.controller.js';
 import { EsignBulkJob } from './bulk/bulk.job.js';
@@ -37,6 +38,7 @@ import {
   type EsignRepository,
   notMigrated,
 } from './requests/esign.repository.js';
+import { EsignFieldValues } from './requests/esign-prisma.js';
 import { EsignRequestsController, EsignStatusController } from './requests/requests.controller.js';
 import { EsignListService } from './requests/list.service.js';
 import { EsignPrepareService } from './requests/prepare.service.js';
@@ -64,8 +66,8 @@ import { SIGNER_REPOSITORY } from './signer/signer.repository.js';
 import { EsignSignerService } from './signer/signer.service.js';
 
 /**
- * Until r0_esign the extras fail like the other ports, but for the kiosk lock read that every
- * staff request makes: no lock can exist before the tables do, so it answers none.
+ * Until its repository lands the extras fail like the other stand-ins, but for the kiosk lock read
+ * that every staff request makes: it answers none.
  */
 function extrasStandIn(): EsignExtrasRepository {
   const failing = notMigrated<EsignExtrasRepository>('EsignExtrasRepository');
@@ -78,11 +80,12 @@ function extrasStandIn(): EsignExtrasRepository {
 /**
  * Firm Sign (R13). Behind the firm's 'esign' module (ModulesModule): off for a firm until
  * `business_settings.enabled_modules` lists 'esign'. The engine's CODE_HASHER, ESIGN_STORE,
- * ESIGN_RULES and PDF_ENGINE come from R18's EsignEngineModule; the esign repositories are failing
- * stand-ins until migration r0_esign adds their tables.
+ * ESIGN_RULES and PDF_ENGINE come from R18's EsignEngineModule; the repositories are the Prisma
+ * ones over r0_esign's tables, each in the firm's own scope (the ports still on a failing
+ * stand-in get theirs in the next R13 PRs).
  */
 @Module({
-  imports: [ModulesModule, EsignEngineModule, PortalInfoModule],
+  imports: [ModulesModule, EsignEngineModule, PortalInfoModule, FieldEncryptionModule],
   controllers: [
     EsignStatusController,
     EsignRequestsController,
@@ -125,6 +128,7 @@ function extrasStandIn(): EsignExtrasRepository {
     // Every staff request: 403 KIOSK_LOCKED while an in-person signing holds the caller's session.
     { provide: APP_INTERCEPTOR, useClass: EsignKioskInterceptor },
     { provide: ESIGN_DIRECTORY, useClass: PrismaEsignDirectory },
+    EsignFieldValues,
     { provide: ESIGN_REPOSITORY, useValue: notMigrated<EsignRepository>('EsignRepository') },
     { provide: SIGNER_REPOSITORY, useValue: notMigrated('EsignSignerRepository') },
     { provide: COMPLETION_REPOSITORY, useValue: notMigrated('EsignCompletionRepository') },
