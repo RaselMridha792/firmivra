@@ -32,3 +32,22 @@ test('save a request as a template, then open it', async ({ page }) => {
     /^\/firm-sign\/templates\/[0-9a-f-]{36}$/,
   );
 });
+
+test('save a request as the next version of a template', async ({ page }) => {
+  await page.goto(app(`/firm-sign/requests/${COMPLETED}`));
+  await page.getByRole('button', { name: 'Save as template' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Save as template' });
+  await dialog.getByLabel('Save as').selectOption('version');
+  await expect(dialog.getByLabel('Template name')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Save version' }).click();
+  await expect(dialog.getByText('Choose the template')).toBeVisible();
+
+  await dialog.getByLabel('Template', { exact: true }).selectOption({
+    label: 'Section 7216 Consent (version 1)',
+  });
+  await dialog.getByLabel('What changed (optional)').fill('Synthetic wording update.');
+  await dialog.getByRole('button', { name: 'Save version' }).click();
+  await expect(dialog.getByRole('status')).toHaveText(
+    'Section 7216 Consent now has version 2, which new requests use.',
+  );
+});
