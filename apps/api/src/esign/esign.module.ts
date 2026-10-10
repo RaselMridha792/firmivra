@@ -53,6 +53,7 @@ import {
   EsignTemplatesController,
 } from './templates/templates.controller.js';
 import { TEMPLATE_REPOSITORY } from './templates/templates.repository.js';
+import { PrismaTemplateRepository } from './templates/prisma-templates.repository.js';
 import { EsignTemplatesService } from './templates/templates.service.js';
 import { EsignSettingsController } from './settings/settings.controller.js';
 import { SETTINGS_REPOSITORY } from './settings/settings.repository.js';
@@ -134,7 +135,7 @@ function extrasStandIn(): EsignExtrasRepository {
     EsignLifecycleService,
     EsignLifecycleJob,
     { provide: LIFECYCLE_REPOSITORY, useValue: notMigrated('EsignLifecycleRepository') },
-    { provide: TEMPLATE_REPOSITORY, useValue: notMigrated('EsignTemplateRepository') },
+    { provide: TEMPLATE_REPOSITORY, useClass: PrismaTemplateRepository },
     { provide: BULK_REPOSITORY, useValue: notMigrated('EsignBulkRepository') },
     { provide: EXTRAS_REPOSITORY, useValue: extrasStandIn() },
   ],
