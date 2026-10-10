@@ -3,6 +3,7 @@
 import { type ClientSignUp, DeclineSignUpRequest } from '@firmivra/types';
 import { Button, Modal } from '@firmivra/ui';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { errorMessage } from '../../../../../lib/errors';
 import { TextArea } from '../../../setup/_components/fields';
@@ -20,6 +21,7 @@ export function DeclineDialog({
   onClose: () => void;
   onDone: (signUp: ClientSignUp) => void;
 }) {
+  const queryClient = useQueryClient();
   const decline = useApiMutation(
     ({ id, body }: { id: string; body: DeclineSignUpRequest }) =>
       api.clientSignUps.decline(id, body),
@@ -45,6 +47,8 @@ export function DeclineDialog({
           decline.reset();
           onDone(signUp);
         },
+        // NOT_PENDING: someone else handled it; refetch so the row goes.
+        onError: () => void queryClient.invalidateQueries({ queryKey: SIGN_UPS }),
       },
     );
   });

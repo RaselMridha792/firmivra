@@ -138,11 +138,14 @@ export function SignUpsScreen() {
                                   clientId: done.clientId,
                                 });
                               },
-                              onError: (error) =>
+                              onError: (error) => {
+                                // NOT_PENDING: someone else handled it; refetch so the row goes.
+                                void queryClient.invalidateQueries({ queryKey: SIGN_UPS });
                                 setFeedback({
                                   ok: false,
                                   text: errorMessage(error, SIGN_UP_ERRORS),
-                                }),
+                                });
+                              },
                             })
                           }
                         >
