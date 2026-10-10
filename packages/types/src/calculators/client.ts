@@ -30,7 +30,7 @@ export type CalculatorsClient = ReturnType<typeof createCalculatorsClient>;
 
 /**
  * `api.myCalculators(slug)`: the calculators this firm offers its clients (enabled ones). A key
- * the firm turned off is 404 NOT_FOUND. Run the estimate with `estimateTaxReturn`.
+ * the firm turned off is 404 NOT_FOUND. Estimates run in the browser (`estimateTaxBracket`).
  */
 export function createMyCalculatorsClient(request: ApiRequest, firmSlug: string) {
   const base = () => `${portalMe(firmSlug)}/calculators`;

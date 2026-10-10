@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { PagePlaceholder } from '../../../../../components/page-placeholder';
+import { CalculatorsHub } from './_components/calculators-hub';
 
 export const metadata: Metadata = { title: 'Calculator' };
 
 export default function CalculatorPage() {
-  return <PagePlaceholder title="Calculator" ticket="N10" owner="Nahid" />;
+  return <CalculatorsHub />;
 }

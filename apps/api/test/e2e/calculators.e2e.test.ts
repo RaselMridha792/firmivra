@@ -1,7 +1,7 @@
 // End-to-end: R12 step 5, the firm's calculators (contract in packages/types/src/calculators).
 // Everyone at the firm reads the list; Owner and Admin turn a calculator on or off and edit its
-// title and disclaimer (Staff 403). A firm without a row gets the default definition (placeholder
-// figures) and reading never creates a row; the first change does, once, even when two arrive
+// title and disclaimer (Staff 403). A firm without a row gets the three default calculators (R14
+// K1: titles, disclaimers and the tax year, no figures) and reading never creates a row; the first change does, once, even when two arrive
 // together. Clients read enabled calculators only (a turned-off key is 404). Another firm gets
 // 404 and changes nothing. Changes are audited with the key and field names, never the text.
 import { randomUUID } from 'node:crypto';
@@ -13,20 +13,14 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createPrismaClient, runInScope } from '@firmivra/db';
 import { TEST_CLIENT_OPTIONS, testDatabaseUrls } from '@firmivra/db/testing';
 import { z } from 'zod';
-import {
-  CalculatorList,
-  FirmCalculatorList,
-  TaxReturnCalculator,
-  TaxReturnConfig,
-} from '@firmivra/types';
+import { Calculator, CalculatorList, FirmCalculatorList } from '@firmivra/types';
 import { AppModule } from '../../src/app.module.js';
 import { configureApp } from '../../src/configure-app.js';
 import { loadEnv } from '../../src/config/env.js';
 
 // Strict copies of the contract's shapes, so a leaked field (businessId, id) fails. The parsed
 // list types still come from the contract's own schemas below.
-const Config = z.strictObject(TaxReturnConfig.shape);
-const MyCalc = z.strictObject({ ...TaxReturnCalculator.shape, config: Config });
+const MyCalc = z.strictObject(Calculator.shape);
 const FirmCalc = MyCalc.extend({ enabled: z.boolean(), sortOrder: z.number().int() }).strict();
 const FirmList = z.strictObject({ items: z.array(FirmCalc) });
 const MyList = z.strictObject({ items: z.array(MyCalc) });
@@ -126,6 +120,7 @@ const rowsOf = (firm: Firm) =>
   asOwner({ kind: 'business', businessId: firms[firm].id }, (tx) =>
     tx.calculatorDefinition.findMany({ where: { businessId: firms[firm].id } }),
   );
+const KEYS = ['tax_return', 'quarterly_estimate', 'tax_bracket'];
 const taxReturn = (items: FirmCalc[]) => {
   const found = items.find((c) => c.key === 'tax_return');
   if (!found) throw new Error('no tax_return calculator');
@@ -232,23 +227,32 @@ afterAll(async () => {
 });
 
 describe('a firm with no definition yet', () => {
-  it('everyone at the firm reads the default placeholder definition; reading creates no row', async () => {
+  it('everyone at the firm reads the three default calculators; reading creates no row', async () => {
     for (const who of [people.ownerA, people.adminA, people.staffA]) {
       const items = await list(who);
-      expect(items.map((c) => c.key)).toEqual(['tax_return']);
+      expect(items.map((c) => c.key)).toEqual(KEYS);
+      expect(items.map((c) => c.sortOrder)).toEqual([0, 1, 2]);
       const c = taxReturn(items);
-      expect(c).toMatchObject({ title: 'Tax Return Calculator', enabled: true, sortOrder: 0 });
-      expect(c.config.placeholder).toBe(true);
-      expect(c.disclaimer.length).toBeGreaterThan(0);
+      expect(c).toMatchObject({
+        title: 'Federal Tax Return Estimator',
+        enabled: true,
+        sortOrder: 0,
+        taxYear: 2026,
+      });
+      expect(c.disclaimer).toMatch(/^This calculator provides an estimate/);
     }
-    expect(await mine()).toHaveLength(1);
+    expect((await mine()).map((c) => c.key)).toEqual(KEYS);
+    expect(MyCalc.parse(ok(await portal(people.clientA, '/tax_bracket')).body)).toMatchObject({
+      title: 'Federal Tax Bracket Calculator',
+      taxYear: 2026,
+    });
     expect(MyCalc.parse(ok(await portal(people.clientA, '/tax_return')).body).key).toBe(
       'tax_return',
     );
     expect(await rowsOf('a')).toEqual([]);
   });
 
-  it('a stored config that is not a valid definition shows the placeholder figures', async () => {
+  it('a stored config is ignored: no figures on the wire', async () => {
     await asOwner({ kind: 'business', businessId: firms.c.id }, (tx) =>
       tx.calculatorDefinition.create({
         data: {
@@ -263,8 +267,8 @@ describe('a firm with no definition yet', () => {
     );
     const c = taxReturn(await list(people.ownerC, 'c'));
     expect(c).toMatchObject({ title: 'Firm C calculator (fake)', sortOrder: 2, enabled: true });
-    expect(c.config.placeholder).toBe(true);
-    expect(c.config.filingStatuses).toHaveLength(4);
+    expect(c.taxYear).toBe(2026);
+    expect(c).not.toHaveProperty('config');
   });
 });
 
@@ -302,11 +306,8 @@ describe('who changes what', () => {
       disclaimer: 'An estimate, not tax advice (fake firm A).',
       enabled: true,
     });
-    // The row holds no copy of the default figures: they keep coming from the defaults.
+    // The row holds no figures: the config column keeps its default and is never read.
     expect(rows[0]?.config).toEqual({});
-    expect(taxReturn(await list()).config).toEqual(
-      taxReturn(await list(people.ownerB, 'b')).config,
-    );
     const audit = await asOwner({ kind: 'business', businessId: firms.a.id }, (tx) =>
       tx.auditLog.findMany({ where: { businessId: firms.a.id, action: 'calculator.updated' } }),
     );
@@ -319,20 +320,21 @@ describe('who changes what', () => {
     expect(taxReturn(await list(people.staffA)).enabled).toBe(false);
     const on = await update({ enabled: true, title: '  Tax estimate  ' });
     expect(on).toMatchObject({ enabled: true, title: 'Tax estimate' });
-    expect(on.config.placeholder).toBe(true);
+    expect(on.taxYear).toBe(2026);
   });
 });
 
 describe('the portal', () => {
   it('clients see enabled calculators only; a turned-off key is 404', async () => {
     await update({ enabled: false });
-    expect(await mine()).toEqual([]);
+    expect((await mine()).map((c) => c.key)).toEqual(['quarterly_estimate', 'tax_bracket']);
     const gone = await portal(people.clientA, '/tax_return');
     expect([gone.status, codeOf(gone)]).toEqual([404, 'NOT_FOUND']);
 
     await update({ enabled: true, title: 'Tax estimate', disclaimer: 'Estimate only (fake A).' });
     const items = await mine();
-    expect(items).toEqual([expect.objectContaining({ key: 'tax_return', title: 'Tax estimate' })]);
+    expect(items.map((c) => c.key)).toEqual(KEYS);
+    expect(items[0]).toMatchObject({ key: 'tax_return', title: 'Tax estimate' });
     expect(items[0]).not.toHaveProperty('enabled');
     const one = MyCalc.parse(ok(await portal(people.clientA, '/tax_return')).body);
     expect(one.disclaimer).toBe('Estimate only (fake A).');
@@ -361,13 +363,13 @@ describe('another firm', () => {
     expect(await rowsOf('a')).toEqual(before);
 
     const own = taxReturn(await list(people.ownerB, 'b'));
-    expect(own).toMatchObject({ title: 'Tax Return Calculator', enabled: true });
-    expect(await mine(people.clientB, 'b')).toHaveLength(1);
+    expect(own).toMatchObject({ title: 'Federal Tax Return Estimator', enabled: true });
+    expect(await mine(people.clientB, 'b')).toHaveLength(3);
 
     // Firm B turning its own off leaves firm A's clients alone.
     await update({ enabled: false }, people.ownerB, 'b');
-    expect(await mine(people.clientB, 'b')).toEqual([]);
-    expect(await mine()).toHaveLength(1);
+    expect(await mine(people.clientB, 'b')).toHaveLength(2);
+    expect(await mine()).toHaveLength(3);
     expect(await rowsOf('a')).toEqual(before);
   });
 });
@@ -378,6 +380,7 @@ describe('validation', () => {
     for (const body of [
       {},
       { config: { taxYear: 2025 } },
+      { taxYear: 2027 },
       { enabled: 'yes' },
       { title: '' },
       { title: '   ' },
@@ -395,7 +398,7 @@ describe('validation', () => {
       const res = await call('patch', '/tax_return', people.ownerA, 'a', body);
       expect([res.status, codeOf(res)], JSON.stringify(body)).toEqual([400, 'VALIDATION_FAILED']);
     }
-    for (const key of ['mortgage', 'TAX_RETURN', '%00']) {
+    for (const key of ['mortgage', 'TAX_RETURN', 'tax-bracket', '%00']) {
       const res = await call('patch', `/${key}`, people.ownerA, 'a', { enabled: true });
       expect([res.status, codeOf(res)], key).toEqual([400, 'VALIDATION_FAILED']);
     }

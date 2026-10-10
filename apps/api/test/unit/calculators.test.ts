@@ -1,17 +1,22 @@
-// Unit tests for R12 step 5, the calculators' definitions as data: the default for a firm with no
-// row, the placeholder figures standing in for a stored config that is not a valid definition,
-// the client's view (enabled only), and the update body's refusal of half a surrogate pair.
+// Unit tests for the calculators' definitions as data (R12 step 5, R14 K1): the three defaults for
+// a firm with no row, a stored config that is ignored, the client's view (enabled only), and the
+// update body's refusal of half a surrogate pair. No figures and no estimates on the server.
 import { describe, expect, it } from 'vitest';
-import { Calculator, estimateTaxReturn, FirmCalculator, TaxReturnConfig } from '@firmivra/types';
+import {
+  Calculator,
+  CALCULATOR_DEFAULT_TEXT,
+  CalculatorKey,
+  FirmCalculator,
+} from '@firmivra/types';
 import {
   CALCULATOR_DEFAULTS,
   clientCalculators,
-  DEFAULT_TAX_RETURN_CONFIG,
   type DefinitionRow,
   firmCalculators,
-  taxReturnConfigOf,
 } from '../../src/calculators/calculator-definitions.js';
 import { UpdateBody } from '../../src/calculators/calculators.input.js';
+
+const KEYS = ['tax_return', 'quarterly_estimate', 'tax_bracket'];
 
 const row = (extra: Partial<DefinitionRow> = {}): DefinitionRow => ({
   key: 'tax_return',
@@ -19,77 +24,84 @@ const row = (extra: Partial<DefinitionRow> = {}): DefinitionRow => ({
   disclaimer: 'Estimate only (fake).',
   enabled: true,
   sortOrder: 3,
-  config: DEFAULT_TAX_RETURN_CONFIG,
   ...extra,
 });
 
-describe('default definition', () => {
-  it('is a valid placeholder Tax Return definition for every filing status', () => {
-    expect(TaxReturnConfig.parse(DEFAULT_TAX_RETURN_CONFIG)).toEqual(DEFAULT_TAX_RETURN_CONFIG);
-    expect(DEFAULT_TAX_RETURN_CONFIG.placeholder).toBe(true);
-    expect(DEFAULT_TAX_RETURN_CONFIG.filingStatuses.map((s) => s.status)).toEqual([
-      'SINGLE',
-      'MARRIED_JOINT',
-      'MARRIED_SEPARATE',
-      'HEAD_OF_HOUSEHOLD',
-    ]);
-    // A worked example on the shared estimate: 60,000 single, standard deduction 15,750.
-    const estimate = estimateTaxReturn(DEFAULT_TAX_RETURN_CONFIG, {
-      filingStatus: 'SINGLE',
-      income: 60_000,
-      withheld: 6_000,
-    });
-    expect(estimate.taxableIncome).toBe(44_250);
-    expect(estimate.tax).toBe(5071.5); // 11,925 at 10% and 32,325 at 12%
-    expect(estimate.balance).toBeLessThan(0);
+describe('default definitions', () => {
+  it('a firm with no row gets the three calculators, on, in order, for 2026', () => {
+    const all = firmCalculators([]);
+    expect(all.map((c) => c.key)).toEqual(KEYS);
+    for (const c of all) {
+      expect(FirmCalculator.parse(c)).toEqual(c);
+      expect(c).toEqual({ key: c.key, taxYear: 2026, ...CALCULATOR_DEFAULTS[c.key] });
+      expect(c).not.toHaveProperty('config');
+    }
+    expect(all.map((c) => c.sortOrder)).toEqual([0, 1, 2]);
+    expect(clientCalculators([]).map((c) => c.key)).toEqual(KEYS);
   });
 
-  it('a firm with no row gets the default, on and first', () => {
-    const [only, ...rest] = firmCalculators([]);
-    expect(rest).toEqual([]);
-    expect(FirmCalculator.parse(only)).toEqual({
-      key: 'tax_return',
-      ...CALCULATOR_DEFAULTS.tax_return,
-    });
-    expect(clientCalculators([]).map((c) => c.key)).toEqual(['tax_return']);
+  it("uses the plan's titles and Octavia's disclaimers", () => {
+    expect(CALCULATOR_DEFAULTS.tax_return.title).toBe('Federal Tax Return Estimator');
+    expect(CALCULATOR_DEFAULTS.quarterly_estimate.title).toBe('Quarterly Estimated Tax Calculator');
+    expect(CALCULATOR_DEFAULTS.tax_bracket.title).toBe('Federal Tax Bracket Calculator');
+    for (const key of CalculatorKey.options) {
+      const d = CALCULATOR_DEFAULTS[key];
+      expect(d).toMatchObject({
+        disclaimer: CALCULATOR_DEFAULT_TEXT[key].disclaimer,
+        enabled: true,
+      });
+      // An Owner could send the default text back unchanged.
+      expect(UpdateBody.safeParse({ title: d.title, disclaimer: d.disclaimer }).success).toBe(true);
+    }
   });
 });
 
 describe('stored rows', () => {
   it('a row gives its own title, disclaimer, on/off and order', () => {
-    const [c] = firmCalculators([row()]);
-    expect(c).toMatchObject({
+    const c = firmCalculators([row()]).find((x) => x.key === 'tax_return');
+    expect(c).toEqual({
+      key: 'tax_return',
       title: 'Estimate your return (fake)',
       disclaimer: 'Estimate only (fake).',
+      taxYear: 2026,
       enabled: true,
       sortOrder: 3,
     });
   });
 
-  it('a config that is not a valid definition shows the placeholder figures', () => {
-    for (const bad of [
-      {},
-      null,
-      'x',
-      { taxYear: 2025, note: 'Sample figures for local development only.' },
-      { ...DEFAULT_TAX_RETURN_CONFIG, filingStatuses: [] },
-    ]) {
-      expect(taxReturnConfigOf(bad)).toBe(DEFAULT_TAX_RETURN_CONFIG);
-      expect(firmCalculators([row({ config: bad })])[0]?.config).toBe(DEFAULT_TAX_RETURN_CONFIG);
+  it('a stored config is ignored: no figures leave the server', () => {
+    for (const config of [{}, null, { taxYear: 2025, note: 'Sample figures (fake).' }]) {
+      const withConfig = { ...row(), config } as DefinitionRow;
+      const c = firmCalculators([withConfig]).find((x) => x.key === 'tax_return');
+      expect(c).not.toHaveProperty('config');
+      expect(c?.taxYear).toBe(2026);
     }
-    const real = { ...DEFAULT_TAX_RETURN_CONFIG, taxYear: 2026, placeholder: false };
-    expect(taxReturnConfigOf(real)).toEqual(real);
+  });
+
+  it('a row changes only its own key; the others keep their defaults', () => {
+    const all = firmCalculators([row({ key: 'tax_bracket', enabled: false, sortOrder: -1 })]);
+    expect(all.map((c) => c.key)).toEqual(['tax_bracket', 'tax_return', 'quarterly_estimate']);
+    expect(all[0]).toMatchObject({ title: 'Estimate your return (fake)', enabled: false });
+    expect(all[1]).toMatchObject({ title: 'Federal Tax Return Estimator', enabled: true });
+    expect(
+      clientCalculators([row({ key: 'tax_bracket', enabled: false })]).map((c) => c.key),
+    ).toEqual(['tax_return', 'quarterly_estimate']);
   });
 
   it('rows with a key the API does not know are left out', () => {
     expect(firmCalculators([row(), row({ key: 'mortgage' })]).map((c) => c.key)).toEqual([
+      'quarterly_estimate',
+      'tax_bracket',
       'tax_return',
     ]);
   });
 
   it('clients see enabled calculators only, without the firm fields', () => {
-    expect(clientCalculators([row({ enabled: false })])).toEqual([]);
-    const [mine] = clientCalculators([row()]);
+    expect(clientCalculators([row({ enabled: false })]).map((c) => c.key)).toEqual([
+      'quarterly_estimate',
+      'tax_bracket',
+    ]);
+    const mine = clientCalculators([row()]).find((c) => c.key === 'tax_return');
     expect(mine).not.toHaveProperty('enabled');
     expect(mine).not.toHaveProperty('sortOrder');
     expect(Calculator.parse(mine)).toEqual(mine);
@@ -113,6 +125,7 @@ describe('UpdateBody', () => {
       { disclaimer: 'Estimate\u0000only' },
       {},
       { config: {} },
+      { taxYear: 2027 },
       { title: '   ' },
       { title: 'x'.repeat(81) },
       { enabled: 'yes' },

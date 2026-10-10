@@ -1,79 +1,31 @@
 import {
   type Calculator,
+  CALCULATOR_DEFAULT_TEXT,
   CalculatorKey,
+  CURRENT_TAX_YEAR,
   type FirmCalculator,
-  type TaxReturnConfig,
-  TaxReturnConfig as TaxReturnConfigSchema,
 } from '@firmivra/types';
 
-// The calculators' definitions as data (R12 step 5; contract in packages/types/src/calculators).
-// Each firm has at most one `calculator_definitions` row per key. A firm without a row gets the
-// default definition below (on, first in the list); the row is created only when an Owner or
-// Admin first changes it. The figures are PLACEHOLDERS (`config.placeholder: true`) until Octavia
-// sends the list, and they change only with that list, never through the API.
-
-/** One filing status's placeholder figures: the seven brackets' rates and the tops of the first six. */
-const status = (
-  key: TaxReturnConfig['filingStatuses'][number]['status'],
-  label: string,
-  standardDeduction: number,
-  tops: number[],
-) => {
-  const rates = [0.1, 0.12, 0.22, 0.24, 0.32, 0.35, 0.37];
-  return {
-    status: key,
-    label,
-    standardDeduction,
-    brackets: rates.map((rate, i) => ({ rate, upTo: tops[i] ?? null })),
-  };
-};
-
-/** The Tax Return Calculator's placeholder figures (the same as the web mock's). */
-export const DEFAULT_TAX_RETURN_CONFIG: TaxReturnConfig = TaxReturnConfigSchema.parse({
-  taxYear: 2025,
-  placeholder: true,
-  filingStatuses: [
-    status('SINGLE', 'Single', 15_750, [11_925, 48_475, 103_350, 197_300, 250_525, 626_350]),
-    status(
-      'MARRIED_JOINT',
-      'Married filing jointly',
-      31_500,
-      [23_850, 96_950, 206_700, 394_600, 501_050, 751_600],
-    ),
-    status(
-      'MARRIED_SEPARATE',
-      'Married filing separately',
-      15_750,
-      [11_925, 48_475, 103_350, 197_300, 250_525, 375_800],
-    ),
-    status(
-      'HEAD_OF_HOUSEHOLD',
-      'Head of household',
-      23_625,
-      [17_000, 64_850, 103_350, 197_300, 250_500, 626_350],
-    ),
-  ],
-});
+// The calculators' definitions as data (R12 step 5, then R14 K1; contract in
+// packages/types/src/calculators). Each firm has at most one `calculator_definitions` row per key.
+// A firm without a row gets the default below (on, in the list order); the row is created only
+// when an Owner or Admin first changes it. No figures go over the wire: the 2026 figures live in
+// packages/types and every estimate runs in the browser. The stored `config` column is ignored.
 
 export interface CalculatorDefaults {
   title: string;
   disclaimer: string;
   enabled: boolean;
   sortOrder: number;
-  config: TaxReturnConfig;
 }
 
-/** What a firm gets for each key before it changes anything. */
-export const CALCULATOR_DEFAULTS: Record<CalculatorKey, CalculatorDefaults> = {
-  tax_return: {
-    title: 'Tax Return Calculator',
-    disclaimer:
-      'This calculator gives an estimate only and is not tax advice. Your actual tax may differ. Contact us for help with your return.',
-    enabled: true,
-    sortOrder: 0,
-    config: DEFAULT_TAX_RETURN_CONFIG,
-  },
-};
+/** What a firm gets for each key before it changes anything: Octavia's texts, all on. */
+export const CALCULATOR_DEFAULTS: Record<CalculatorKey, CalculatorDefaults> = Object.fromEntries(
+  CalculatorKey.options.map((key) => {
+    const { title, disclaimer, sortOrder } = CALCULATOR_DEFAULT_TEXT[key];
+    return [key, { title, disclaimer, enabled: true, sortOrder }];
+  }),
+) as Record<CalculatorKey, CalculatorDefaults>;
 
 /** The stored columns the API reads. */
 export interface DefinitionRow {
@@ -82,17 +34,6 @@ export interface DefinitionRow {
   disclaimer: string;
   enabled: boolean;
   sortOrder: number;
-  config: unknown;
-}
-
-/**
- * The figures to show: the stored config when it is a valid Tax Return configuration, otherwise
- * the default placeholder figures (a row created before the figures existed holds `{}` or a
- * note, and must never reach a screen as a broken definition).
- */
-export function taxReturnConfigOf(stored: unknown): TaxReturnConfig {
-  const parsed = TaxReturnConfigSchema.safeParse(stored);
-  return parsed.success ? parsed.data : DEFAULT_TAX_RETURN_CONFIG;
 }
 
 /**
@@ -104,14 +45,21 @@ export function firmCalculators(rows: readonly DefinitionRow[]): FirmCalculator[
     .map((key): FirmCalculator => {
       const row = rows.find((r) => r.key === key);
       const d = CALCULATOR_DEFAULTS[key];
-      if (!row) return { key, ...d };
+      const own = row
+        ? {
+            title: row.title,
+            disclaimer: row.disclaimer,
+            enabled: row.enabled,
+            sortOrder: row.sortOrder,
+          }
+        : d;
       return {
         key,
-        title: row.title,
-        disclaimer: row.disclaimer,
-        enabled: row.enabled,
-        sortOrder: row.sortOrder,
-        config: taxReturnConfigOf(row.config),
+        title: own.title,
+        disclaimer: own.disclaimer,
+        taxYear: CURRENT_TAX_YEAR,
+        enabled: own.enabled,
+        sortOrder: own.sortOrder,
       };
     })
     .sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key));

@@ -1,0 +1,39 @@
+import { expect, test } from '@playwright/test';
+
+// The Tax Bracket Calculator in mock mode (Octavia's Calculator_Tax_Bracket_Guide.pdf). The numbers
+// are synthetic; the golden case is the guide's own example: Single, $75,000, standard deduction.
+const port = String(Number(process.env['WEB_PORT'] ?? '3000') + 1);
+const portal = (path: string) => `http://portal.localhost:${port}${path}`;
+
+test('the hub opens the calculator, which shows the filing status brackets and one golden case', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(portal('/lvp/calculator'));
+  await page.getByRole('link', { name: /Tax Bracket/ }).click();
+  await expect(page).toHaveURL(portal('/lvp/calculator/tax-bracket'));
+
+  // The bracket table follows the filing status, before any calculation.
+  await expect(page.getByText('$0 – $12,400')).toBeVisible();
+  await page.getByLabel('Filing Status').selectOption('HEAD_OF_HOUSEHOLD');
+  await expect(page.getByText('$0 – $17,700')).toBeVisible();
+  await page.getByLabel('Filing Status').selectOption('SINGLE');
+  await expect(page.getByText('2026 Standard Deduction Applied: $16,100')).toBeVisible();
+
+  await page.getByLabel('Annual Income').fill('75000');
+  await page.getByRole('button', { name: 'Calculate My 2026 Federal Tax' }).click();
+  const result = page.getByTestId('tax-bracket-result');
+  await expect(result.getByText('$58,900')).toBeVisible();
+  await expect(result.getByText('22%')).toBeVisible();
+  await expect(result.getByText('$7,670')).toBeVisible();
+  await expect(result.getByText('13.0%')).toBeVisible();
+  await expect(page.getByText(/estimate of 2026 federal individual income tax/)).toBeVisible();
+
+  // Refused input shows a message and no result; Start Over clears the form.
+  await page.getByLabel('Annual Income').fill('abc');
+  await page.getByRole('button', { name: 'Calculate My 2026 Federal Tax' }).click();
+  await expect(page.getByText(/positive numbers/)).toBeVisible();
+  await expect(result).toHaveCount(0);
+  await page.getByRole('button', { name: 'Start Over' }).click();
+  await expect(page.getByLabel('Annual Income')).toHaveValue('');
+});
